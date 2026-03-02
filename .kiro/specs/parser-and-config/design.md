@@ -493,9 +493,9 @@ pub struct ListSplitError {
 
 **Validates: Requirements 1.1, 1.2, 1.3**
 
-### Property 4: CRLF normalization eliminates all CRLF sequences
+### Property 4: CRLF normalization replaces all original CRLF pairs
 
-*For any* string, after CRLF normalization, the result shall contain no `\r\n` sequences. Every `\r\n` in the input is replaced with `\n`. Bare `\r` characters (not followed by `\n`) are preserved as-is.
+*For any* string, CRLF normalization replaces every original `\r\n` pair with `\n` and preserves bare `\r` characters (not part of a `\r\n` pair) as-is. Specifically: (a) the number of `\r` characters in the output equals the number of bare `\r` characters in the input, (b) the number of `\n` characters in the output equals the number of bare `\n` characters in the input plus the number of original `\r\n` pairs, and (c) the output length equals the input length minus the number of original `\r\n` pairs. Note: a bare `\r` preserved from the input may end up adjacent to a `\n` produced by normalizing a subsequent `\r\n` pair (e.g., input `\r\r\n` → output `\r\n`); this is correct behavior, not a residual CRLF.
 
 **Validates: Requirements 2.1, 2.2**
 

@@ -1,0 +1,301 @@
+// Unit tests for ComponentDefs: defaults, merge, is_known, get
+// Task 4.1: TDD — tests written before implementation
+// Requirements: 7.1, 7.3, 14.4, 14.5
+
+use std::collections::HashMap;
+
+use supersigil_core::{AttributeDef, ComponentDef, ComponentDefs};
+
+// ---------------------------------------------------------------------------
+// Helper: build an AttributeDef concisely
+// ---------------------------------------------------------------------------
+
+fn attr(required: bool, list: bool) -> AttributeDef {
+    AttributeDef { required, list }
+}
+
+// ---------------------------------------------------------------------------
+// ComponentDefs::defaults() — 9 built-in components (Req 7.3, 14.4)
+// ---------------------------------------------------------------------------
+
+const BUILTIN_NAMES: [&str; 9] = [
+    "AcceptanceCriteria",
+    "Criterion",
+    "Validates",
+    "VerifiedBy",
+    "Implements",
+    "Illustrates",
+    "Task",
+    "TrackedFiles",
+    "DependsOn",
+];
+
+#[test]
+fn defaults_returns_exactly_nine_components() {
+    let defs = ComponentDefs::defaults();
+    assert_eq!(defs.len(), 9);
+    for name in &BUILTIN_NAMES {
+        assert!(defs.is_known(name), "missing built-in: {name}");
+    }
+}
+
+#[test]
+fn acceptance_criteria_has_no_attributes() {
+    let defs = ComponentDefs::defaults();
+    let ac = defs.get("AcceptanceCriteria").unwrap();
+    assert!(ac.attributes.is_empty());
+    assert!(!ac.referenceable);
+    assert_eq!(ac.target_component, None);
+}
+
+#[test]
+fn criterion_has_required_id_and_is_referenceable() {
+    let defs = ComponentDefs::defaults();
+    let c = defs.get("Criterion").unwrap();
+    assert_eq!(c.attributes.len(), 1);
+    assert_eq!(c.attributes["id"], attr(true, false));
+    assert!(c.referenceable);
+    assert_eq!(c.target_component, None);
+}
+
+#[test]
+fn validates_has_required_list_refs_and_targets_criterion() {
+    let defs = ComponentDefs::defaults();
+    let v = defs.get("Validates").unwrap();
+    assert_eq!(v.attributes.len(), 1);
+    assert_eq!(v.attributes["refs"], attr(true, true));
+    assert!(!v.referenceable);
+    assert_eq!(v.target_component, Some("Criterion".to_string()));
+}
+
+#[test]
+fn verified_by_attributes() {
+    let defs = ComponentDefs::defaults();
+    let vb = defs.get("VerifiedBy").unwrap();
+    assert_eq!(vb.attributes.len(), 3);
+    assert_eq!(vb.attributes["strategy"], attr(true, false));
+    assert_eq!(vb.attributes["tag"], attr(false, false));
+    assert_eq!(vb.attributes["paths"], attr(false, true));
+    assert!(!vb.referenceable);
+    assert_eq!(vb.target_component, None);
+}
+
+#[test]
+fn implements_has_required_list_refs() {
+    let defs = ComponentDefs::defaults();
+    let i = defs.get("Implements").unwrap();
+    assert_eq!(i.attributes.len(), 1);
+    assert_eq!(i.attributes["refs"], attr(true, true));
+    assert!(!i.referenceable);
+    assert_eq!(i.target_component, None);
+}
+
+#[test]
+fn illustrates_has_required_list_refs() {
+    let defs = ComponentDefs::defaults();
+    let i = defs.get("Illustrates").unwrap();
+    assert_eq!(i.attributes.len(), 1);
+    assert_eq!(i.attributes["refs"], attr(true, true));
+    assert!(!i.referenceable);
+    assert_eq!(i.target_component, None);
+}
+
+#[test]
+fn task_attributes() {
+    let defs = ComponentDefs::defaults();
+    let t = defs.get("Task").unwrap();
+    assert_eq!(t.attributes.len(), 4);
+    assert_eq!(t.attributes["id"], attr(true, false));
+    assert_eq!(t.attributes["status"], attr(false, false));
+    assert_eq!(t.attributes["implements"], attr(false, true));
+    assert_eq!(t.attributes["depends"], attr(false, true));
+    assert!(t.referenceable);
+    assert_eq!(t.target_component, None);
+}
+
+#[test]
+fn tracked_files_has_required_list_paths() {
+    let defs = ComponentDefs::defaults();
+    let tf = defs.get("TrackedFiles").unwrap();
+    assert_eq!(tf.attributes.len(), 1);
+    assert_eq!(tf.attributes["paths"], attr(true, true));
+    assert!(!tf.referenceable);
+    assert_eq!(tf.target_component, None);
+}
+
+#[test]
+fn depends_on_has_required_list_refs() {
+    let defs = ComponentDefs::defaults();
+    let d = defs.get("DependsOn").unwrap();
+    assert_eq!(d.attributes.len(), 1);
+    assert_eq!(d.attributes["refs"], attr(true, true));
+    assert!(!d.referenceable);
+    assert_eq!(d.target_component, None);
+}
+
+// ---------------------------------------------------------------------------
+// List-typed attributes (Req 7.1, 7.3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_typed_refs_on_validates_implements_illustrates_depends_on() {
+    let defs = ComponentDefs::defaults();
+    for name in ["Validates", "Implements", "Illustrates", "DependsOn"] {
+        let def = defs.get(name).unwrap();
+        assert!(
+            def.attributes["refs"].list,
+            "{name} should have list-typed refs"
+        );
+    }
+}
+
+#[test]
+fn list_typed_paths_on_verified_by_and_tracked_files() {
+    let defs = ComponentDefs::defaults();
+    assert!(defs.get("VerifiedBy").unwrap().attributes["paths"].list);
+    assert!(defs.get("TrackedFiles").unwrap().attributes["paths"].list);
+}
+
+#[test]
+fn list_typed_implements_and_depends_on_task() {
+    let defs = ComponentDefs::defaults();
+    let task = defs.get("Task").unwrap();
+    assert!(task.attributes["implements"].list);
+    assert!(task.attributes["depends"].list);
+}
+
+// ---------------------------------------------------------------------------
+// ComponentDefs::is_known() and get()
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_known_returns_true_for_builtins() {
+    let defs = ComponentDefs::defaults();
+    for name in &BUILTIN_NAMES {
+        assert!(defs.is_known(name));
+    }
+}
+
+#[test]
+fn is_known_returns_false_for_unknown() {
+    let defs = ComponentDefs::defaults();
+    assert!(!defs.is_known("Nonexistent"));
+    assert!(!defs.is_known(""));
+    assert!(!defs.is_known("validates")); // case-sensitive
+}
+
+#[test]
+fn get_returns_none_for_unknown() {
+    let defs = ComponentDefs::defaults();
+    assert!(defs.get("Nonexistent").is_none());
+}
+
+// ---------------------------------------------------------------------------
+// ComponentDefs::merge() (Req 14.5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn merge_user_override_replaces_builtin() {
+    let defaults = ComponentDefs::defaults();
+    let mut user = HashMap::new();
+    // Override Criterion with a different schema
+    user.insert(
+        "Criterion".to_string(),
+        ComponentDef {
+            attributes: HashMap::from([("label".to_string(), attr(true, false))]),
+            referenceable: false,
+            target_component: None,
+        },
+    );
+
+    let merged = ComponentDefs::merge(defaults, user);
+    let criterion = merged.get("Criterion").unwrap();
+    // Should have the user's schema, not the built-in
+    assert_eq!(criterion.attributes.len(), 1);
+    assert!(criterion.attributes.contains_key("label"));
+    assert!(!criterion.attributes.contains_key("id"));
+    assert!(!criterion.referenceable);
+}
+
+#[test]
+fn merge_new_user_component_added() {
+    let defaults = ComponentDefs::defaults();
+    let mut user = HashMap::new();
+    user.insert(
+        "CustomWidget".to_string(),
+        ComponentDef {
+            attributes: HashMap::from([("color".to_string(), attr(false, false))]),
+            referenceable: false,
+            target_component: None,
+        },
+    );
+
+    let merged = ComponentDefs::merge(defaults, user);
+    assert!(merged.is_known("CustomWidget"));
+    let cw = merged.get("CustomWidget").unwrap();
+    assert_eq!(cw.attributes.len(), 1);
+    assert!(cw.attributes.contains_key("color"));
+}
+
+#[test]
+fn merge_unmentioned_builtins_preserved() {
+    let defaults = ComponentDefs::defaults();
+    let mut user = HashMap::new();
+    // Only override one component
+    user.insert(
+        "Criterion".to_string(),
+        ComponentDef {
+            attributes: HashMap::new(),
+            referenceable: false,
+            target_component: None,
+        },
+    );
+
+    let merged = ComponentDefs::merge(defaults, user);
+    // All 9 built-ins should still be present (Criterion overridden + 8 unchanged)
+    // plus no new ones since we only overrode
+    assert_eq!(merged.len(), 9);
+    for name in &BUILTIN_NAMES {
+        assert!(merged.is_known(name), "built-in {name} should be preserved");
+    }
+}
+
+#[test]
+fn merge_override_plus_new_component() {
+    let defaults = ComponentDefs::defaults();
+    let mut user = HashMap::new();
+    user.insert(
+        "Criterion".to_string(),
+        ComponentDef {
+            attributes: HashMap::new(),
+            referenceable: false,
+            target_component: None,
+        },
+    );
+    user.insert(
+        "NewComp".to_string(),
+        ComponentDef {
+            attributes: HashMap::from([("x".to_string(), attr(true, true))]),
+            referenceable: true,
+            target_component: Some("Criterion".to_string()),
+        },
+    );
+
+    let merged = ComponentDefs::merge(defaults, user);
+    assert_eq!(merged.len(), 10); // 9 built-in + 1 new
+    assert!(merged.is_known("NewComp"));
+    assert!(merged.is_known("Criterion"));
+    // Criterion should be the overridden version
+    assert!(merged.get("Criterion").unwrap().attributes.is_empty());
+}
+
+#[test]
+fn merge_empty_user_defs_preserves_all_defaults() {
+    let defaults = ComponentDefs::defaults();
+    let merged = ComponentDefs::merge(defaults, HashMap::new());
+    assert_eq!(merged.len(), 9);
+    // Verify a sample built-in is intact
+    let criterion = merged.get("Criterion").unwrap();
+    assert!(criterion.referenceable);
+    assert_eq!(criterion.attributes["id"], attr(true, false));
+}

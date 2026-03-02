@@ -1,9 +1,24 @@
-[package]
-name = "supersigil"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/supersigil-core", "crates/supersigil-parser"]
+resolver = "3"
 
-[dependencies]
+[workspace.package]
+description = "A CLI tool and verification framework for spec-driven software development with AI agents"
+license = "MIT"
+repository = "https://github.com/example/supersigil"
+readme = "README.md"
+keywords = ["specification", "verification", "mdx", "traceability", "ai-agents"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.12"
+yaml_serde = "0.10.3"
+toml = "1.0.3"
+regex = "1.12.3"
+markdown = "1.0.0"
+proptest = "1.10.0"
+supersigil-core = { path = "crates/supersigil-core" }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
@@ -16,6 +31,10 @@ unused_lifetimes = "warn"
 
 [workspace.lints.clippy]
 cargo = { level = "warn", priority = -1 }
+# I'm not sure why, but I get false-positive warnings when I run clippy
+# on the whole workspace. No warnings appear when running clippy on individual
+# crates.
+cargo_common_metadata = "allow"
 complexity = { level = "warn", priority = -1 }
 correctness = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
