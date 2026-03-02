@@ -1,0 +1,15 @@
+# Guidelines
+
+- Follow Test Driven Development. Keep TDD in mind when creating implementation plans.
+- Use `cargo fmt` for formatting code
+- Use `cargo clippy` for linting.
+- Use `cargo nextest run` for testing.
+- Use your Rust skills while doing work on the Rust codebase.
+
+Run all three before finalizing work:
+
+```shell
+cargo fmt --all
+cargo clippy --workspace --all-targets --all-features
+cargo nextest run
+```
