@@ -1,0 +1,14 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bf40f031c9dfe1e4b54ff72cc875983b48bd846a7d4d87d9e586afab75f0b089 # shrinks to id_suffix = "a"
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1eb0b0ebd02848e4eb2495edae659ed4c80726e36c4307583dfdb4bc95025c13 # shrinks to dag = GeneratedDag { nodes: ["t0", "t1", "t2", "t3", "t4", "t5"], edges: [] }

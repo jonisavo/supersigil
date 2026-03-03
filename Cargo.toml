@@ -3,7 +3,7 @@ members = ["crates/supersigil-core", "crates/supersigil-parser"]
 resolver = "3"
 
 [workspace.package]
-description = "A CLI tool and verification framework for spec-driven software development with AI agents"
+description = "A CLI tool and verification framework for spec-driven software development"
 license = "MIT"
 repository = "https://github.com/example/supersigil"
 readme = "README.md"

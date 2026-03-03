@@ -18,6 +18,7 @@ pub fn extract(body: &str, body_offset: usize) -> (Vec<ExtractedComponent>, Vec<
 /// Count CRLF pairs, bare CR, and bare LF in a byte string.
 ///
 /// Returns `(crlf_pairs, bare_cr, bare_lf)`.
+#[allow(dead_code, reason = "only used by property_tests, not unit_tests")]
 pub fn count_line_endings(bytes: &[u8]) -> (usize, usize, usize) {
     let mut crlf = 0;
     let mut bare_cr = 0;

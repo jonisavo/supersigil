@@ -3,13 +3,20 @@
 mod component_defs;
 mod config;
 mod error;
+mod graph;
 mod types;
 
 pub use component_defs::ComponentDefs;
 pub use config::{
-    load_config, AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig,
-    EcosystemConfig, HooksConfig, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
-    KNOWN_RULES,
+    AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
+    HooksConfig, KNOWN_RULES, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
+    load_config,
 };
-pub use error::{split_list_attribute, ConfigError, ListSplitError, ParseError};
+pub use error::{ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use types::{ExtractedComponent, Frontmatter, ParseResult, SourcePosition, SpecDocument};
+
+// Graph module re-exports
+pub use graph::{
+    ContextOutput, CriterionContext, DocRef, DocumentGraph, GraphError, IllustrationRef,
+    OutstandingCriterion, PlanOutput, PlanQuery, QueryError, ResolvedRef, TaskInfo, build_graph,
+};

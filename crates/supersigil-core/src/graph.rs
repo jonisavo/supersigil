@@ -1,0 +1,365 @@
+//! Document graph: cross-document relationship indexing, validation, and query.
+//!
+//! The graph builder consumes `SpecDocument` values from the parser and a
+//! `Config` from the config loader, producing an indexed, validated graph
+//! of document relationships.
+
+mod cycle;
+mod error;
+mod index;
+mod query;
+mod resolve;
+mod reverse;
+mod topo;
+
+#[cfg(test)]
+mod tests;
+
+use std::collections::{BTreeSet, HashMap};
+use std::fmt;
+
+pub use error::GraphError;
+pub use query::{
+    ContextOutput, CriterionContext, DocRef, IllustrationRef, OutstandingCriterion, PlanOutput,
+    PlanQuery, QueryError, TaskInfo,
+};
+
+use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
+
+// Well-known component names used during graph construction.
+pub(crate) const TASK: &str = "Task";
+pub(crate) const CRITERION: &str = "Criterion";
+#[cfg(test)]
+pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
+pub(crate) const VALIDATES: &str = "Validates";
+pub(crate) const IMPLEMENTS: &str = "Implements";
+pub(crate) const ILLUSTRATES: &str = "Illustrates";
+pub(crate) const DEPENDS_ON: &str = "DependsOn";
+pub(crate) const TRACKED_FILES: &str = "TrackedFiles";
+
+// ---------------------------------------------------------------------------
+// ResolvedRef
+// ---------------------------------------------------------------------------
+
+/// A successfully resolved reference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedRef {
+    /// The raw ref string as written in the source.
+    pub raw: String,
+    /// Target document ID.
+    pub target_doc_id: String,
+    /// Target fragment (criterion/task ID), if present.
+    pub fragment: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// DocumentGraph
+// ---------------------------------------------------------------------------
+
+/// The primary output of graph construction. Holds all indexes, orderings,
+/// and reverse mappings. Provides query methods for `context` and `plan`.
+pub struct DocumentGraph {
+    /// Document ID → `SpecDocument`.
+    doc_index: HashMap<String, SpecDocument>,
+
+    /// `(document_id, fragment)` → `(owning_doc_id, ExtractedComponent)`.
+    component_index: HashMap<(String, String), (String, ExtractedComponent)>,
+
+    /// Resolved refs keyed by source component path.
+    /// Key: `(source_doc_id, component_path)` where `component_path` is a
+    /// `Vec<usize>` index path from root to the component.
+    resolved_refs: HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
+
+    /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of validating doc IDs.
+    validates_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
+    /// Reverse mapping: target `doc_id` → set of implementing doc IDs.
+    implements_reverse: HashMap<String, BTreeSet<String>>,
+    /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of illustrating doc IDs.
+    illustrates_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
+
+    /// Task topological orderings per tasks document.
+    task_topo_orders: HashMap<String, Vec<String>>,
+    /// Document topological ordering (from `DependsOn` edges).
+    doc_topo_order: Vec<String>,
+
+    /// `TrackedFiles` index: document ID → list of path globs.
+    tracked_files_index: HashMap<String, Vec<String>>,
+
+    /// Resolved task implements: `(doc_id, task_id)` → `Vec<(target_doc_id, criterion_id)>`.
+    task_implements: HashMap<(String, String), Vec<(String, String)>>,
+
+    /// Project membership: document ID → project name (`None` for single-project).
+    doc_project: HashMap<String, Option<String>>,
+}
+
+impl fmt::Debug for DocumentGraph {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentGraph")
+            .field("doc_count", &self.doc_index.len())
+            .field("component_count", &self.component_index.len())
+            .finish_non_exhaustive()
+    }
+}
+
+// Sentinel empty set returned by reverse-mapping accessors for unreferenced targets.
+static EMPTY_BTREESET: BTreeSet<String> = BTreeSet::new();
+
+impl DocumentGraph {
+    // -- Document index accessors (task 3.3) ---------------------------------
+
+    /// Look up a document by ID. Returns `None` if not found.
+    #[must_use]
+    pub fn document(&self, id: &str) -> Option<&SpecDocument> {
+        self.doc_index.get(id)
+    }
+
+    /// Iterate over all `(id, document)` pairs.
+    pub fn documents(&self) -> impl Iterator<Item = (&str, &SpecDocument)> {
+        self.doc_index.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Get the project a document belongs to.
+    #[must_use]
+    pub fn doc_project(&self, doc_id: &str) -> Option<&str> {
+        self.doc_project.get(doc_id).and_then(|opt| opt.as_deref())
+    }
+
+    // -- Component index accessor (task 4.3) --------------------------------
+
+    /// Look up a referenceable component by `(document_id, fragment)`.
+    #[must_use]
+    pub fn component(&self, doc_id: &str, fragment: &str) -> Option<&ExtractedComponent> {
+        self.component_index
+            .get(&(doc_id.to_owned(), fragment.to_owned()))
+            .map(|(_, comp)| comp)
+    }
+
+    // -- Resolved refs stub (replaced in task 6.5) ---------------------------
+
+    /// Get resolved refs for a component at the given index path in a document.
+    #[must_use]
+    pub fn resolved_refs(&self, doc_id: &str, component_path: &[usize]) -> Option<&[ResolvedRef]> {
+        self.resolved_refs
+            .get(&(doc_id.to_owned(), component_path.to_vec()))
+            .map(Vec::as_slice)
+    }
+
+    // -- Task implements accessor (task 7.2) -----------------------------------
+
+    /// Get resolved task implements for a specific task.
+    #[must_use]
+    pub fn task_implements(&self, doc_id: &str, task_id: &str) -> Option<&[(String, String)]> {
+        self.task_implements
+            .get(&(doc_id.to_owned(), task_id.to_owned()))
+            .map(Vec::as_slice)
+    }
+
+    // -- Topological order accessors (task 10.3) ---------------------------
+
+    /// Get the topological ordering of tasks within a tasks document.
+    #[must_use]
+    pub fn task_order(&self, doc_id: &str) -> Option<&[String]> {
+        self.task_topo_orders.get(doc_id).map(Vec::as_slice)
+    }
+
+    /// Get the document-level topological ordering.
+    #[must_use]
+    pub fn doc_order(&self) -> &[String] {
+        &self.doc_topo_order
+    }
+
+    // -- Reverse mapping accessors (task 12.3) -----------------------
+
+    /// Get all documents that validate a given target.
+    #[must_use]
+    pub fn validates(&self, doc_id: &str, fragment: Option<&str>) -> &BTreeSet<String> {
+        let key = (doc_id.to_owned(), fragment.map(str::to_owned));
+        self.validates_reverse.get(&key).unwrap_or(&EMPTY_BTREESET)
+    }
+
+    /// Get all documents that implement a given document.
+    #[must_use]
+    pub fn implements(&self, doc_id: &str) -> &BTreeSet<String> {
+        self.implements_reverse
+            .get(doc_id)
+            .unwrap_or(&EMPTY_BTREESET)
+    }
+
+    /// Get all documents that illustrate a given target.
+    #[must_use]
+    pub fn illustrates(&self, doc_id: &str, fragment: Option<&str>) -> &BTreeSet<String> {
+        let key = (doc_id.to_owned(), fragment.map(str::to_owned));
+        self.illustrates_reverse
+            .get(&key)
+            .unwrap_or(&EMPTY_BTREESET)
+    }
+
+    // -- TrackedFiles accessors (task 13.3) ----------------------------------
+
+    /// Get `TrackedFiles` globs for a document. Returns `None` if none declared.
+    #[must_use]
+    pub fn tracked_files(&self, doc_id: &str) -> Option<&[String]> {
+        self.tracked_files_index.get(doc_id).map(Vec::as_slice)
+    }
+
+    /// Iterate over all `(doc_id, globs)` pairs in the `TrackedFiles` index.
+    pub fn all_tracked_files(&self) -> impl Iterator<Item = (&str, &[String])> {
+        self.tracked_files_index
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+    }
+
+    // -- Query methods (implemented in query.rs, tasks 16 & 17) --------------
+
+    /// Structured context query.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError::DocumentNotFound` if `id` is not in the graph.
+    pub fn context(&self, id: &str) -> Result<ContextOutput, QueryError> {
+        query::build_context(self, id)
+    }
+
+    /// Structured plan query.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError::NoMatchingDocuments` if the query matches nothing.
+    pub fn plan(&self, query: &PlanQuery) -> Result<PlanOutput, QueryError> {
+        query::build_plan(self, query)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// build_graph
+// ---------------------------------------------------------------------------
+
+/// Build a `DocumentGraph` from parsed documents and config.
+///
+/// Returns `Ok(DocumentGraph)` if no hard errors occur, or
+/// `Err(Vec<GraphError>)` if any hard errors are found.
+///
+/// # Errors
+///
+/// Returns all graph construction errors (duplicate IDs, broken refs,
+/// dependency cycles) collected across all pipeline stages.
+pub fn build_graph(
+    documents: Vec<SpecDocument>,
+    config: &Config,
+) -> Result<DocumentGraph, Vec<GraphError>> {
+    let mut errors = Vec::new();
+
+    // Stage 1: Document indexing
+    let (doc_index, index_errors) = index::build_doc_index(documents);
+    errors.extend(index_errors);
+
+    // Stage 1b: Project membership
+    let doc_project = index::build_doc_project(&doc_index, config);
+
+    // Stage 2: Referenceable component indexing
+    let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone());
+    let (component_index, comp_errors) = index::build_component_index(&doc_index, &component_defs);
+    errors.extend(comp_errors);
+
+    // Stage 3: Ref resolution
+    let project_isolation = build_project_isolation(config);
+    let (resolved_refs, ref_errors) = resolve::resolve_refs(
+        &doc_index,
+        &component_index,
+        &component_defs,
+        &doc_project,
+        &project_isolation,
+    );
+    errors.extend(ref_errors);
+
+    // Stage 4: Task implements resolution
+    let (task_implements, impl_errors) = resolve::resolve_task_implements(
+        &doc_index,
+        &component_index,
+        &doc_project,
+        &project_isolation,
+    );
+    errors.extend(impl_errors);
+
+    // Stage 5: Task dependency cycle detection
+    let task_cycle_errors = cycle::detect_task_cycles(&doc_index);
+    errors.extend(task_cycle_errors);
+
+    // Stage 6: Document dependency cycle detection
+    let doc_cycle_errors = cycle::detect_document_cycles(&resolved_refs, &doc_index);
+    errors.extend(doc_cycle_errors);
+
+    // Return early with errors if any were found.
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    // Stage 7: Topological sort
+    let task_topo_orders = topo::compute_task_topo_orders(&doc_index);
+    let doc_topo_order = topo::compute_doc_topo_order(&resolved_refs, &doc_index);
+
+    // Stage 8: Reverse mappings
+    let (validates_reverse, implements_reverse, illustrates_reverse) =
+        reverse::build_reverse_mappings(&resolved_refs, &doc_index);
+
+    // Stage 9: TrackedFiles indexing
+    let tracked_files_index = index::build_tracked_files_index(&doc_index);
+
+    Ok(DocumentGraph {
+        doc_index,
+        component_index,
+        resolved_refs,
+        validates_reverse,
+        implements_reverse,
+        illustrates_reverse,
+        task_topo_orders,
+        doc_topo_order,
+        tracked_files_index,
+        task_implements,
+        doc_project,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Collect document-level `DependsOn` edges as `(source, target)` pairs.
+///
+/// Iterates each document's top-level components, finds `DependsOn` components,
+/// looks up their resolved refs, and yields `(source_doc_id, target_doc_id)` pairs.
+///
+/// Used by both cycle detection (stage 6) and topological sort (stage 7b).
+pub(crate) fn collect_doc_dependency_edges<'a>(
+    doc_index: &'a HashMap<String, SpecDocument>,
+    resolved_refs: &'a HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
+) -> impl Iterator<Item = (&'a str, &'a str)> {
+    doc_index.iter().flat_map(move |(doc_id, doc)| {
+        doc.components
+            .iter()
+            .enumerate()
+            .filter(|(_, comp)| comp.name == DEPENDS_ON)
+            .flat_map(move |(idx, _)| {
+                let key = (doc_id.clone(), vec![idx]);
+                resolved_refs
+                    .get(&key)
+                    .into_iter()
+                    .flat_map(|refs| refs.iter())
+                    .map(move |rr| (doc_id.as_str(), rr.target_doc_id.as_str()))
+            })
+    })
+}
+
+/// Build a map of project name → isolated flag from config.
+fn build_project_isolation(config: &Config) -> HashMap<String, bool> {
+    config
+        .projects
+        .as_ref()
+        .map(|projects| {
+            projects
+                .iter()
+                .map(|(name, pc)| (name.clone(), pc.isolated))
+                .collect()
+        })
+        .unwrap_or_default()
+}

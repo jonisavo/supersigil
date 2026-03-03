@@ -228,7 +228,7 @@ pub const KNOWN_RULES: &[&str] = &[
     "uncovered_criterion",
     "unverified_validation",
     "missing_test_files",
-    "dangling_ref",
+    "zero_tag_matches",
     "stale_tracked_files",
     "empty_tracked_glob",
     "orphan_test_tag",

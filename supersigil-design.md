@@ -1862,9 +1862,24 @@ trustworthy for immediate use while flagging what needs human review.
 
 ## Implementation Specs
 
-The implementation is split into five specs, ordered by dependency chain.
-Each spec is testable in isolation — the graph can be verified without a
-CLI, and CLI formatting can be tested without real verification results.
+The implementation is split into five specs with a logical dependency
+chain. Each spec is testable in isolation — the graph can be verified
+without a CLI, and CLI formatting can be tested without real verification
+results.
+
+For dogfooding, delivery can be staged differently from the logical spec
+order:
+
+1. Spec 1 (Parser + Config)
+2. Spec 2 (Document Graph)
+3. Spec 4a (CLI bootstrap) + Spec 5a (Kiro import core)
+4. Dogfood by importing existing `.kiro/specs` into supersigil format and
+   using `context`/`plan`/`graph` while authoring the next spec
+5. Spec 3 (Verification Engine)
+6. Spec 4b + Spec 5b (remaining CLI and import polish)
+
+This preserves the core dependency rule (Spec 3 depends on Spec 2) while
+removing the adoption bottleneck of waiting until the end for import.
 
 ### Spec 1: Parser + Config (`supersigil-parser`, `supersigil-core/config`)
 
@@ -1952,18 +1967,17 @@ Consumes the document graph and produces findings.
 
 Thin layer over the libraries. Argument parsing and output formatting.
 
-- **Argument parsing**: `clap` subcommands for `init`, `verify`, `lint`,
-  `ls`, `status`, `context`, `plan`, `schema`, `graph`, `affected`,
-  `new`, `import`.
-- **Subcommand dispatch**: Wire CLI args to library calls. Pass config
-  overrides (e.g., `--project`, `--format`, `--since`).
-- **Output formatting**: Terminal output with ANSI colors. `NO_COLOR` and
-  `FORCE_COLOR` environment variable support. `--color always|never|auto`.
-  TTY detection for auto mode. Unicode symbols (✓, ✗, ⚠, ℹ) with ASCII
-  fallback when not a TTY.
-- **Exit codes**: 0 clean, 1 errors, 2 warnings-only.
-- **Stderr/stdout discipline**: Stderr for diagnostics and progress,
-  stdout for data.
+- **Phase 4a (bootstrap, post-Spec-2)**: `clap` subcommands and dispatch
+  for `init`, `lint`, `ls`, `schema`, `new`, `context`, `plan`, `graph`,
+  and `import`.
+- **Phase 4a output contract**: Keep stdout/stderr discipline and stable
+  machine-readable modes (`--format json` where applicable), but defer
+  non-essential terminal polish.
+- **Phase 4b (post-Spec-3)**: Add `verify`, `status`, and `affected`
+  command wiring once the verification engine exists.
+- **Phase 4b polish**: Final output behavior (ANSI colors, `NO_COLOR` and
+  `FORCE_COLOR`, `--color always|never|auto`, Unicode/ASCII fallback) and
+  final exit code policy (0 clean, 1 errors, 2 warnings-only).
 
 **Crates**: `supersigil-cli`.
 
@@ -1971,21 +1985,25 @@ Thin layer over the libraries. Argument parsing and output formatting.
 
 Migration tool for existing `.kiro/specs/` directories.
 
-- **Discovery**: Find `.kiro/specs/*/` directories containing
-  `requirements.md`, `design.md`, `tasks.md`.
-- **Requirements conversion**: Parse EARS notation
-  (`WHEN...THE SYSTEM SHALL...`) into `<Criterion>` components with
-  auto-generated IDs. Wrap in `<AcceptanceCriteria>`.
-- **Design conversion**: Parse `Validates: Requirements X.Y` strings into
-  `<Validates refs="...">`. Preserve prose, mermaid diagrams, code blocks.
-  Emit `<Implements>` for the parent requirement.
-- **Tasks conversion**: Parse ordered task lists into `<Task>` components.
-  Nested sub-tasks (e.g., "2.1 Add field") become nested `<Task>`.
-  Sequential ordering produces `depends` attributes. `Validates:` metadata
-  maps to `implements` where resolvable.
-- **Ambiguity markers**: `<!-- TODO(supersigil-import): ... -->` at
-  uncertain conversion points.
-- **CLI flags**: `--dry-run`, `--output-dir`, `--prefix`.
+- **Phase 5a (core, for early dogfooding)**:
+  - Discovery: Find `.kiro/specs/*/` directories containing
+    `requirements.md`, `design.md`, `tasks.md`.
+  - Requirements conversion: Parse EARS notation
+    (`WHEN...THE SYSTEM SHALL...`) into `<Criterion>` components with
+    auto-generated IDs and wrap in `<AcceptanceCriteria>`.
+  - Design conversion: Parse `Validates: Requirements X.Y` strings into
+    `<Validates refs="...">`; preserve prose, mermaid diagrams, and code
+    blocks; emit `<Implements>` for the parent requirement.
+  - Tasks conversion: Parse ordered task lists into `<Task>` components.
+    Nested sub-tasks (e.g., "2.1 Add field") become nested `<Task>`.
+    Sequential ordering produces `depends` attributes. `Validates:`
+    metadata maps to `implements` where resolvable.
+  - Ambiguity markers: `<!-- TODO(supersigil-import): ... -->` at
+    uncertain conversion points.
+  - Flags required in Phase 5a: `--dry-run`.
+- **Phase 5b (polish)**: Additional migration ergonomics and safety
+  controls (`--output-dir`, `--prefix`, richer diagnostics, and clearer
+  import reports for manual follow-up).
 
 **Crates**: `supersigil-import`. Separate crate — it has a unique
 dependency (Kiro's markdown format parsing) that nothing else in

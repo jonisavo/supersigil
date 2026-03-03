@@ -1,0 +1,15 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c7b81011a6d604c7be78cfa380ef710f532de6141ca2ea81b841b6638d307aa7 # shrinks to target_doc_id = "a", source_doc_id = "b"
+cc f3c1278434ada3598b13c4c8270a1131783803e12721f30df129b48626d6d23f # shrinks to target_doc_id = "a", source_doc_id = "a0"
+cc ac6dc388ced4eda077506567c5ecfebc5372e029c82e1b834e1bd67a7d2b1f2c # shrinks to target_doc_id = "a", source_doc_id = "aa", crit_id = "a"
+cc a8ab926a244f1412a2cc782f846fb7f62be748638d434b47dd7dfa8c4d38ff22 # shrinks to target_doc_id = "a", source_doc_id = "a0"
+cc 3b08a8c7ebf19fbb4e48c302ddf7ec87128af950b4a62ef0ad11052014cb8a39 # shrinks to target_doc_id = "a", source_doc_id = "aa"
+cc d4ac27c744deaab1bc6aa7ffdbe42d11d1a0884bcde204c86db5932ebb204e31 # shrinks to target_doc_id = "a", source_doc_id = "aa", crit_id = "a"
+cc a9e3021543810ca63a19af9708c4ecf10deef451f51970b0de4e465531cada14 # shrinks to target_doc_id = "a", source_doc_id = "aa", unreferenced_id = "ab"
+cc 856c4f7b008aa0f95ff71d0bcd8665a3dc47b8625fd87b99813b88c5d668f486 # shrinks to target_doc_id = "a", source_doc_id = "aa", crit_id = "a", unreferenced_id = "a0"
+cc 443a3eca40fa9aae40052c49b973acec5ab876b9991040eafd21fee8afb865a6 # shrinks to target_doc_id = "a", source_doc_id = "aa", crit_id = "a", unreferenced_id = "a0"

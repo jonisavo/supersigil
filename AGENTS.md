@@ -13,3 +13,10 @@ cargo fmt --all
 cargo clippy --workspace --all-targets --all-features
 cargo nextest run
 ```
+
+No warnings or errors should be left.
+
+# Style
+
+- Pragmatic and idiomatic Rust.
+- Use the new module syntax (so `module.rs` with `module/` instead of `module/mod.rs`).

@@ -4,5 +4,5 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 17e8ad158920b308b73581036ada42040c6caa5b578284c8f46688f81afd5054 # shrinks to name = "aa"
-cc d85d1456477bc60f57f6b95e0e06d942a834be934b80535f854898cc222b1a3d # shrinks to name = "id", value = "_"
+cc 35e94a7ef44ce073a3a73990e064d2b95a2f07782c5cd3a3aaceff3f85d45039 # shrinks to req_doc_id = "a", tasks_doc_id = "a0", task_id = "a"
+cc 6054bc65fb75e4f0ca5d1e48c3eaa6372e24afc220a2cb26d610b299a940fe87 # shrinks to req_doc_id = "a", tasks_doc_id = "a0", task_id = "a", bad_crit_id = "a"

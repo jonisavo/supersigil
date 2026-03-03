@@ -4,5 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 17e8ad158920b308b73581036ada42040c6caa5b578284c8f46688f81afd5054 # shrinks to name = "aa"
-cc d85d1456477bc60f57f6b95e0e06d942a834be934b80535f854898cc222b1a3d # shrinks to name = "id", value = "_"
+cc c5340554dc1083fb10a0803f55754a0fe8810a59818bf14f09516d1ad37adb43 # shrinks to n = 2

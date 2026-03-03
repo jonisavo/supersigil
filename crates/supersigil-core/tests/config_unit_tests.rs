@@ -640,7 +640,7 @@ paths = ["specs/**/*.mdx"]
 
 [verify.rules]
 uncovered_criterion = "warning"
-dangling_ref = "error"
+zero_tag_matches = "error"
 stale_tracked_files = "off"
 "#,
     );
@@ -660,7 +660,7 @@ fn load_config_invalid_severity_toml_error() {
 paths = ["specs/**/*.mdx"]
 
 [verify.rules]
-dangling_ref = "fatal"
+zero_tag_matches = "fatal"
 "#,
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
@@ -762,7 +762,7 @@ tests = ["tests/**/*.rs"]
 id_pattern = "^[a-z]+"
 
 [verify.rules]
-dangling_ref = "error"
+zero_tag_matches = "error"
 uncovered_criterion = "warning"
 "#,
     );

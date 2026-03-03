@@ -5,15 +5,13 @@ mod frontmatter;
 mod preprocess;
 
 pub use extract::{extract_components, validate_components};
-pub use frontmatter::{deserialize_front_matter, extract_front_matter, FrontMatterResult};
+pub use frontmatter::{FrontMatterResult, deserialize_front_matter, extract_front_matter};
 pub use preprocess::preprocess;
 
 use std::path::Path;
 
 use markdown::mdast;
-use supersigil_core::{
-    ComponentDefs, ParseError, ParseResult, SpecDocument,
-};
+use supersigil_core::{ComponentDefs, ParseError, ParseResult, SpecDocument};
 
 // ---------------------------------------------------------------------------
 // Stage 2: MDX AST generation

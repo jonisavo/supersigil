@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 75eb9736022c746b0f0b8e4f1dce487cc0a49d54267519bd55404371f99f4bfc # shrinks to doc_id = "a", shared_id = "a", config = Config { paths: Some(["specs/**/*.mdx"]), tests: None, projects: None, id_pattern: None, documents: DocumentsConfig { types: {} }, components: {}, verify: VerifyConfig { strictness: None, rules: {} }, ecosystem: EcosystemConfig { plugins: ["rust"] }, hooks: HooksConfig { post_verify: [], post_lint: [], export: [], timeout_seconds: 30 }, test_results: TestResultsConfig { formats: [], paths: [] } }
+cc 0943c4075b7a664eda5d20cd882896438dadc1ec1ba81bdbe19d7d2124e9ba05 # shrinks to doc_id = "a", crit_id_a = "a", crit_id_b = "aa", task_id = "a0", config = Config { paths: Some(["specs/**/*.mdx"]), tests: None, projects: None, id_pattern: None, documents: DocumentsConfig { types: {} }, components: {}, verify: VerifyConfig { strictness: None, rules: {} }, ecosystem: EcosystemConfig { plugins: ["rust"] }, hooks: HooksConfig { post_verify: [], post_lint: [], export: [], timeout_seconds: 30 }, test_results: TestResultsConfig { formats: [], paths: [] } }

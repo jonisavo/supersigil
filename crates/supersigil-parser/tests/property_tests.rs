@@ -304,9 +304,10 @@ fn arb_attr_value() -> impl Strategy<Value = String> {
     "[a-zA-Z0-9_/ ,.-]{1,40}"
 }
 
-/// Strategy that generates valid attribute names.
+/// Strategy that generates valid attribute names, excluding `id` which is
+/// hardcoded on the Criterion component in the test below.
 fn arb_attr_name() -> impl Strategy<Value = String> {
-    "[a-z][a-zA-Z0-9_]{0,10}"
+    "[a-z][a-zA-Z0-9_]{0,10}".prop_filter("must not collide with hardcoded id attr", |n| n != "id")
 }
 
 proptest! {
