@@ -1,0 +1,36 @@
+[tasks.format]
+description = "Format the workspace."
+run = "cargo fmt --all"
+
+[tasks.lint]
+description = "Lint the workspace."
+run = "cargo clippy --workspace --all-targets"
+
+[tasks.fix]
+description = "Apply fixes in the workspace."
+run = [
+    "cargo fmt --all",
+    "cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged",
+]
+
+[tasks.build]
+description = "Build the workspace."
+run = "cargo build --workspace --release"
+
+[tasks.test]
+description = "Run workspace tests."
+run = "cargo nextest run"
+
+[tasks.qa]
+description = "Run all tooling to ensure the repository is squeaky clean."
+run = ["mise format", "mise lint", "mise build", "mise test"]
+
+[tasks.clinstall]
+description = "Install the CLI locally"
+run = "cargo install --path ."
+dir = "crates/supersigil-cli"
+
+[tasks."clinstall:safe"]
+description = "Install the CLI locally after QA is OK"
+run = ["mise clinstall"]
+depends = "qa"
