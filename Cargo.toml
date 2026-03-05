@@ -3,6 +3,7 @@ members = [
     "crates/supersigil-core",
     "crates/supersigil-parser",
     "crates/supersigil-import",
+    "crates/supersigil-cli",
 ]
 resolver = "3"
 
@@ -22,6 +23,7 @@ toml = "1.0.3"
 regex = "1.12.3"
 markdown = "1.0.0"
 proptest = "1.10.0"
+serde_json = "1"
 supersigil-core = { path = "crates/supersigil-core" }
 
 [workspace.lints.rust]

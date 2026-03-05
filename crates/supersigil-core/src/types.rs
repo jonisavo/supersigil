@@ -29,7 +29,7 @@ pub struct Frontmatter {
 /// Offsets from `markdown-rs` are relative to the MDX body; the
 /// `byte_offset` here is adjusted by the front matter byte length so
 /// that it refers to the original file content (after BOM stripping).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct SourcePosition {
     pub byte_offset: usize,
     pub line: usize,
@@ -42,7 +42,7 @@ pub struct SourcePosition {
 
 /// A single MDX component extracted from the AST, with its name, attributes,
 /// children, optional body text, and source position.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ExtractedComponent {
     pub name: String,
     pub attributes: HashMap<String, String>,
@@ -59,7 +59,7 @@ pub struct ExtractedComponent {
 
 /// A parsed supersigil document containing front matter, extra metadata,
 /// and extracted components.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SpecDocument {
     pub path: PathBuf,
     pub frontmatter: Frontmatter,

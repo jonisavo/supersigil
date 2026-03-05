@@ -23,7 +23,7 @@ pub enum QueryError {
 // ---------------------------------------------------------------------------
 
 /// Structured output for the `context` command.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ContextOutput {
     /// The target document.
     pub document: crate::SpecDocument,
@@ -38,7 +38,7 @@ pub struct ContextOutput {
 }
 
 /// A criterion with its incoming validation and illustration relationships.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct CriterionContext {
     pub id: String,
     pub body_text: Option<String>,
@@ -49,14 +49,14 @@ pub struct CriterionContext {
 }
 
 /// A reference to a document with its optional status.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DocRef {
     pub doc_id: String,
     pub status: Option<String>,
 }
 
 /// A task with dependency and implements info, used in both context and plan output.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TaskInfo {
     /// Which tasks document this task belongs to.
     pub tasks_doc_id: String,
@@ -74,7 +74,7 @@ pub struct TaskInfo {
 // ---------------------------------------------------------------------------
 
 /// Structured output for the `plan` command.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PlanOutput {
     /// Criteria with no validating document.
     pub outstanding_criteria: Vec<OutstandingCriterion>,
@@ -87,7 +87,7 @@ pub struct PlanOutput {
 }
 
 /// A criterion that has no validating document.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct OutstandingCriterion {
     /// The requirement document containing this criterion.
     pub doc_id: String,
@@ -96,7 +96,7 @@ pub struct OutstandingCriterion {
 }
 
 /// A document that illustrates a target criterion or document.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct IllustrationRef {
     pub doc_id: String,
     /// The target criterion or document being illustrated.

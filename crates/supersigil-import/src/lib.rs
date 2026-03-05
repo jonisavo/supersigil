@@ -8,7 +8,7 @@ pub mod write;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportConfig {
     pub kiro_specs_dir: PathBuf,
     pub output_dir: PathBuf,
@@ -16,7 +16,7 @@ pub struct ImportConfig {
     pub force: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportResult {
     pub files_written: Vec<OutputFile>,
     pub ambiguity_count: usize,
@@ -24,7 +24,7 @@ pub struct ImportResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportPlan {
     pub documents: Vec<PlannedDocument>,
     pub ambiguity_count: usize,
@@ -32,20 +32,20 @@ pub struct ImportPlan {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PlannedDocument {
     pub output_path: PathBuf,
     pub document_id: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct OutputFile {
     pub path: PathBuf,
     pub document_id: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ImportSummary {
     pub criteria_converted: usize,
     pub validates_resolved: usize,
@@ -53,10 +53,21 @@ pub struct ImportSummary {
     pub features_processed: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum Diagnostic {
     SkippedDir { path: PathBuf, reason: String },
     Warning { message: String },
+}
+
+impl std::fmt::Display for Diagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SkippedDir { path, reason } => {
+                write!(f, "skipped directory '{}': {reason}", path.display())
+            }
+            Self::Warning { message } => write!(f, "warning: {message}"),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
