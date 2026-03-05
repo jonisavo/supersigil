@@ -489,6 +489,8 @@ dependencies = [
  "insta",
  "proptest",
  "regex",
+ "supersigil-core",
+ "supersigil-parser",
  "tempfile",
  "thiserror",
 ]

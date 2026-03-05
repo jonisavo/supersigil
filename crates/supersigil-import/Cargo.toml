@@ -17,6 +17,8 @@ thiserror.workspace = true
 proptest.workspace = true
 tempfile = "3.26.0"
 insta = { version = "1", features = ["yaml"] }
+supersigil-core = { path = "../supersigil-core" }
+supersigil-parser = { path = "../supersigil-parser" }
 
 [lints]
 workspace = true

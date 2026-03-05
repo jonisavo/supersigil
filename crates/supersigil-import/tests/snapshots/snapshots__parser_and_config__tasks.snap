@@ -1,5 +1,6 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
+assertion_line: 72
 expression: content
 ---
 ---
@@ -22,14 +23,14 @@ Use your Rust skills while developing.
   Set up workspace structure and crate scaffolding
 
   - Convert root `Cargo.toml` to a Cargo workspace with `members = ["crates/supersigil-core", "crates/supersigil-parser"]`
-- Keep existing `workspace.lints` configuration in root `Cargo.toml`
-- Create `crates/supersigil-core/Cargo.toml` with dependencies: `serde` (features: derive), `serde_yaml`, `toml`, `regex`, and dev-dependency `proptest`.
-- Create `crates/supersigil-core/src/lib.rs` as the crate root
-- Create `crates/supersigil-parser/Cargo.toml` with dependencies: `markdown` (markdown-rs), `serde_yaml`, `supersigil-core` (path dep), and dev-dependency `proptest`
-- Create `crates/supersigil-parser/src/lib.rs` as the crate root
-- Both crates inherit `workspace.lints` via `[lints] workspace = true`
-- Create test file stubs: `crates/supersigil-core/tests/config_property_tests.rs`, `crates/supersigil-core/tests/config_unit_tests.rs`, `crates/supersigil-parser/tests/property_tests.rs`, `crates/supersigil-parser/tests/unit_tests.rs`, `crates/supersigil-parser/tests/fixtures/` directory
-- Verify workspace compiles with `cargo build` and `cargo nextest run` passes (no tests yet)
+  - Keep existing `workspace.lints` configuration in root `Cargo.toml`
+  - Create `crates/supersigil-core/Cargo.toml` with dependencies: `serde` (features: derive), `serde_yaml`, `toml`, `regex`, and dev-dependency `proptest`.
+  - Create `crates/supersigil-core/src/lib.rs` as the crate root
+  - Create `crates/supersigil-parser/Cargo.toml` with dependencies: `markdown` (markdown-rs), `serde_yaml`, `supersigil-core` (path dep), and dev-dependency `proptest`
+  - Create `crates/supersigil-parser/src/lib.rs` as the crate root
+  - Both crates inherit `workspace.lints` via `[lints] workspace = true`
+  - Create test file stubs: `crates/supersigil-core/tests/config_property_tests.rs`, `crates/supersigil-core/tests/config_unit_tests.rs`, `crates/supersigil-parser/tests/property_tests.rs`, `crates/supersigil-parser/tests/unit_tests.rs`, `crates/supersigil-parser/tests/fixtures/` directory
+  - Verify workspace compiles with `cargo build` and `cargo nextest run` passes (no tests yet)
 </Task>
 
 <Task id="task-2" status="done" depends="task-1">
@@ -39,26 +40,26 @@ Use your Rust skills while developing.
     Write unit tests for data model types (TDD)
 
     - Test `Frontmatter` construction with all field combinations (id only, id+doc_type, id+status, all three)
-- Test `SourcePosition` equality
-- Test `ExtractedComponent` with empty children, with body_text, self-closing (None body_text)
-- Test `ParseResult::Document` and `ParseResult::NotSupersigil` variant construction
+    - Test `SourcePosition` equality
+    - Test `ExtractedComponent` with empty children, with body_text, self-closing (None body_text)
+    - Test `ParseResult::Document` and `ParseResult::NotSupersigil` variant construction
   </Task>
 
   <Task id="task-2-2" status="done" depends="task-2-1" implements="req/parser-and-config#req-4-1, req/parser-and-config#req-4-5, req/parser-and-config#req-8-2, req/parser-and-config#req-8-3, req/parser-and-config#req-8-4, req/parser-and-config#req-10-1, req/parser-and-config#req-10-2">
     Implement data model types
 
     - Implement `Frontmatter` with `Serialize`/`Deserialize`, `type` ↔ `doc_type` rename, `skip_serializing_if` for optional fields
-- Implement `SourcePosition`, `ExtractedComponent`, `SpecDocument`, `ParseResult`, `ParseError`, `ConfigError`, `ListSplitError`
-- All types derive `Debug`, `Clone`, `PartialEq` as specified in design
+    - Implement `SourcePosition`, `ExtractedComponent`, `SpecDocument`, `ParseResult`, `ParseError`, `ConfigError`, `ListSplitError`
+    - All types derive `Debug`, `Clone`, `PartialEq` as specified in design
   </Task>
 
   <Task id="task-2-3" status="done" depends="task-2-2" implements="req/parser-and-config#req-22-1, req/parser-and-config#req-4-1">
     Write property test: Frontmatter YAML round-trip (Property 1)
 
     - **Property 1: Frontmatter YAML round-trip**
-- Create `arb_frontmatter()` generator: random `id` (non-empty alphanumeric + `/` + `-`), optional `doc_type`, optional `status`
-- Serialize to YAML, deserialize back, assert equality
-- Verify `type` ↔ `doc_type` rename survives round-trip
+    - Create `arb_frontmatter()` generator: random `id` (non-empty alphanumeric + `/` + `-`), optional `doc_type`, optional `status`
+    - Serialize to YAML, deserialize back, assert equality
+    - Verify `type` ↔ `doc_type` rename survives round-trip
   </Task>
 </Task>
 
@@ -69,32 +70,32 @@ Use your Rust skills while developing.
     Write unit tests for Config types (TDD)
 
     - Test minimal config: `paths = ["specs/**/*.mdx"]` produces valid Config with all defaults (Req 24)
-- Test default values: ecosystem plugins default to `["rust"]`, hooks timeout defaults to 30, tests defaults to `[]`
-- Test `Severity` enum deserialization for `"off"`, `"warning"`, `"error"`
-- Test `deny_unknown_fields` rejects unknown keys at top level
-- Test single-project config with `paths` and optional `tests`
-- Test multi-project config with `projects` table
-- Test `ProjectConfig` missing `paths` field produces serde error
-- Test document type definitions with status lists and required_components
-- Test component definitions with attributes (required, list flags), referenceable, target_component
-- Test hooks config with and without timeout_seconds
-- Test test_results config
-- Test ecosystem config with explicit empty plugins list
+    - Test default values: ecosystem plugins default to `["rust"]`, hooks timeout defaults to 30, tests defaults to `[]`
+    - Test `Severity` enum deserialization for `"off"`, `"warning"`, `"error"`
+    - Test `deny_unknown_fields` rejects unknown keys at top level
+    - Test single-project config with `paths` and optional `tests`
+    - Test multi-project config with `projects` table
+    - Test `ProjectConfig` missing `paths` field produces serde error
+    - Test document type definitions with status lists and required_components
+    - Test component definitions with attributes (required, list flags), referenceable, target_component
+    - Test hooks config with and without timeout_seconds
+    - Test test_results config
+    - Test ecosystem config with explicit empty plugins list
   </Task>
 
   <Task id="task-3-2" status="done" depends="task-3-1" implements="req/parser-and-config#req-11-1, req/parser-and-config#req-13-1, req/parser-and-config#req-14-1, req/parser-and-config#req-15-1, req/parser-and-config#req-16-1, req/parser-and-config#req-17-1, req/parser-and-config#req-18-1, req/parser-and-config#req-19-1">
     Implement Config and all supporting types
 
     - Implement `Config`, `ProjectConfig`, `DocumentsConfig`, `DocumentTypeDef`, `ComponentDef`, `AttributeDef`, `VerifyConfig`, `Severity`, `EcosystemConfig`, `HooksConfig`, `TestResultsConfig` with `Serialize`/`Deserialize` and `deny_unknown_fields`
-- Implement `Default` for `EcosystemConfig` (plugins = `["rust"]`), `HooksConfig` (timeout = 30, empty lists), and other types with `#[serde(default)]`
+    - Implement `Default` for `EcosystemConfig` (plugins = `["rust"]`), `HooksConfig` (timeout = 30, empty lists), and other types with `#[serde(default)]`
   </Task>
 
   <Task id="task-3-3" status="done" depends="task-3-2" implements="req/parser-and-config#req-23-1, req/parser-and-config#req-11-1">
     Write property test: Config TOML round-trip (Property 2)
 
     - **Property 2: Config TOML round-trip**
-- Create `arb_config()` generator: valid Config in single-project or multi-project mode with random document types, component defs, verify rules, plugins, hooks, test results. Must ensure mutual exclusivity invariant.
-- Serialize to TOML, deserialize back, assert equality
+    - Create `arb_config()` generator: valid Config in single-project or multi-project mode with random document types, component defs, verify rules, plugins, hooks, test results. Must ensure mutual exclusivity invariant.
+    - Serialize to TOML, deserialize back, assert equality
   </Task>
 </Task>
 
@@ -105,24 +106,24 @@ Use your Rust skills while developing.
     Write unit tests for ComponentDefs (TDD)
 
     - Test `ComponentDefs::defaults()` returns exactly the 9 built-in components (AcceptanceCriteria, Criterion, Validates, VerifiedBy, Implements, Illustrates, Task, TrackedFiles, DependsOn) with correct attribute schemas
-- Test `ComponentDefs::merge()`: user override replaces built-in, new user component added, unmentioned built-ins preserved
-- Test `ComponentDefs::is_known()` and `ComponentDefs::get()`
-- Test list-typed attributes: `refs` on Validates/Implements/Illustrates/DependsOn, `paths` on VerifiedBy/TrackedFiles, `implements`/`depends` on Task
+    - Test `ComponentDefs::merge()`: user override replaces built-in, new user component added, unmentioned built-ins preserved
+    - Test `ComponentDefs::is_known()` and `ComponentDefs::get()`
+    - Test list-typed attributes: `refs` on Validates/Implements/Illustrates/DependsOn, `paths` on VerifiedBy/TrackedFiles, `implements`/`depends` on Task
   </Task>
 
   <Task id="task-4-2" status="done" depends="task-4-1" implements="req/parser-and-config#req-7-3, req/parser-and-config#req-14-4, req/parser-and-config#req-14-5">
     Implement `ComponentDefs` with `defaults()`, `merge()`, `is_known()`, `get()`
 
     - Define the 9 built-in component definitions matching the design table exactly
-- Implement merge: user defs override same-name built-ins, add new names, preserve unmentioned built-ins
+    - Implement merge: user defs override same-name built-ins, add new names, preserve unmentioned built-ins
   </Task>
 
   <Task id="task-4-3" status="done" depends="task-4-2" implements="req/parser-and-config#req-14-5">
     Write property test: Component definition merge (Property 13)
 
     - **Property 13: Component definition merge is additive over built-in defaults**
-- Create `arb_component_def()` generator
-- Generate random user component defs, merge over defaults, verify: overrides replace, new names added, unmentioned built-ins remain
+    - Create `arb_component_def()` generator
+    - Generate random user component defs, merge over defaults, verify: overrides replace, new names added, unmentioned built-ins remain
   </Task>
 </Task>
 
@@ -133,49 +134,49 @@ Use your Rust skills while developing.
     Write unit tests for `load_config` validation (TDD)
 
     - Test mutual exclusivity: `paths` + `projects` → error, `tests` + `projects` → error, neither → error
-- Test unknown verification rule names → error
-- Test invalid severity values → error
-- Test valid `id_pattern` regex accepted
-- Test invalid `id_pattern` regex → `InvalidIdPattern` error
-- Test no `id_pattern` → no validation
-- Test TOML syntax error → `TomlSyntax` error
-- Test multi-project missing `paths` → serde error
+    - Test unknown verification rule names → error
+    - Test invalid severity values → error
+    - Test valid `id_pattern` regex accepted
+    - Test invalid `id_pattern` regex → `InvalidIdPattern` error
+    - Test no `id_pattern` → no validation
+    - Test TOML syntax error → `TomlSyntax` error
+    - Test multi-project missing `paths` → serde error
   </Task>
 
   <Task id="task-5-2" status="done" depends="task-5-1" implements="req/parser-and-config#req-11-1, req/parser-and-config#req-11-2, req/parser-and-config#req-11-3, req/parser-and-config#req-12-1, req/parser-and-config#req-12-2, req/parser-and-config#req-12-3, req/parser-and-config#req-12-4, req/parser-and-config#req-12-5, req/parser-and-config#req-15-3, req/parser-and-config#req-20-1, req/parser-and-config#req-20-2">
     Implement `load_config(path) -> Result<Config, Vec<ConfigError>>`
 
     - Read and deserialize TOML (with `deny_unknown_fields` catching unknown keys)
-- Post-deserialization validation: mutual exclusivity check, unknown rule name check, id_pattern regex compilation
-- Collect all post-deserialization errors before returning
+    - Post-deserialization validation: mutual exclusivity check, unknown rule name check, id_pattern regex compilation
+    - Collect all post-deserialization errors before returning
   </Task>
 
   <Task id="task-5-3" status="done" depends="task-5-2" implements="req/parser-and-config#req-11-3">
     Write property test: Unknown TOML keys rejected (Property 11)
 
     - **Property 11: Unknown TOML keys are rejected at all nesting levels**
-- Generate valid Config TOML, inject unknown key at random nesting level, verify error
+    - Generate valid Config TOML, inject unknown key at random nesting level, verify error
   </Task>
 
   <Task id="task-5-4" status="done" depends="task-5-3" implements="req/parser-and-config#req-12-1, req/parser-and-config#req-12-2, req/parser-and-config#req-12-3, req/parser-and-config#req-12-4, req/parser-and-config#req-12-5">
     Write property test: Mutual exclusivity (Property 12)
 
     - **Property 12: Single-project and multi-project modes are mutually exclusive**
-- Generate TOML configs with various combinations of `paths`, `tests`, `projects`, verify exactly one valid mode or error
+    - Generate TOML configs with various combinations of `paths`, `tests`, `projects`, verify exactly one valid mode or error
   </Task>
 
   <Task id="task-5-5" status="done" depends="task-5-4" implements="req/parser-and-config#req-15-3">
     Write property test: Unknown verification rules rejected (Property 14)
 
     - **Property 14: Unknown verification rule names are rejected**
-- Generate rule names not in the known set, verify error
+    - Generate rule names not in the known set, verify error
   </Task>
 
   <Task id="task-5-6" status="done" depends="task-5-5" implements="req/parser-and-config#req-20-1, req/parser-and-config#req-20-2">
     Write property test: id_pattern regex validation (Property 19)
 
     - **Property 19: id_pattern accepts valid regex and rejects invalid regex**
-- Generate valid and invalid regex strings, verify acceptance/rejection
+    - Generate valid and invalid regex strings, verify acceptance/rejection
   </Task>
 </Task>
 
@@ -186,12 +187,12 @@ Use your Rust skills while developing.
     Write unit tests for `split_list_attribute` (TDD)
 
     - Test single item: `"foo"` → `["foo"]`
-- Test multiple items: `"a, b, c"` → `["a", "b", "c"]`
-- Test whitespace trimming: `"  a , b  ,c  "` → `["a", "b", "c"]`
-- Test trailing comma: `"a, b,"` → `ListSplitError`
-- Test consecutive commas: `"a,,b"` → `ListSplitError`
-- Test empty string: `""` → `ListSplitError`
-- Test whitespace-only items: `"a, , b"` → `ListSplitError`
+    - Test multiple items: `"a, b, c"` → `["a", "b", "c"]`
+    - Test whitespace trimming: `"  a , b  ,c  "` → `["a", "b", "c"]`
+    - Test trailing comma: `"a, b,"` → `ListSplitError`
+    - Test consecutive commas: `"a,,b"` → `ListSplitError`
+    - Test empty string: `""` → `ListSplitError`
+    - Test whitespace-only items: `"a, , b"` → `ListSplitError`
   </Task>
 
   <Task id="task-6-2" status="done" depends="task-6-1" implements="req/parser-and-config#req-7-2">
@@ -204,8 +205,8 @@ Use your Rust skills while developing.
     Write property test: List splitting (Property 15)
 
     - **Property 15: List splitting produces trimmed non-empty items**
-- Create `arb_comma_separated()` generator
-- Verify all output items are non-empty and trimmed; trailing/consecutive commas rejected
+    - Create `arb_comma_separated()` generator
+    - Verify all output items are non-empty and trimmed; trailing/consecutive commas rejected
   </Task>
 </Task>
 
@@ -213,7 +214,7 @@ Use your Rust skills while developing.
   Checkpoint — `supersigil-core` complete
 
   - Ensure all tests pass with `cargo nextest run -p supersigil-core`, ask the user if questions arise.
-- Run `cargo clippy -p supersigil-core` and fix any warnings.
+  - Run `cargo clippy -p supersigil-core` and fix any warnings.
 </Task>
 
 <Task id="task-8" status="in-progress" depends="task-7">
@@ -223,36 +224,36 @@ Use your Rust skills while developing.
     Write unit tests for preprocessing (TDD)
 
     - Test valid UTF-8 passthrough
-- Test non-UTF-8 bytes → `IoError`
-- Test BOM stripping: file with BOM → BOM removed
-- Test no BOM: content unchanged
-- Test file with only a BOM → empty string
-- Test BOM followed by `---`
-- Test CRLF normalization: all `\r\n` → `\n`
-- Test mixed `\r\n` and `\n` → all `\r\n` normalized, bare `\r` preserved
-- Test file with only `\r\n` → `\n`
+    - Test non-UTF-8 bytes → `IoError`
+    - Test BOM stripping: file with BOM → BOM removed
+    - Test no BOM: content unchanged
+    - Test file with only a BOM → empty string
+    - Test BOM followed by `---`
+    - Test CRLF normalization: all `\r\n` → `\n`
+    - Test mixed `\r\n` and `\n` → all `\r\n` normalized, bare `\r` preserved
+    - Test file with only `\r\n` → `\n`
   </Task>
 
   <Task id="task-8-2" status="done" depends="task-8-1" implements="req/parser-and-config#req-1-1, req/parser-and-config#req-1-2, req/parser-and-config#req-1-3, req/parser-and-config#req-2-1, req/parser-and-config#req-2-2">
     Implement `preprocess(raw: &[u8]) -> Result<String, ParseError>`
 
     - Decode UTF-8 (return `IoError` on failure)
-- Strip leading BOM (U+FEFF) if present
-- Replace all `\r\n` with `\n`
+    - Strip leading BOM (U+FEFF) if present
+    - Replace all `\r\n` with `\n`
   </Task>
 
   <Task id="task-8-3" status="done" depends="task-8-2" implements="req/parser-and-config#req-1-1, req/parser-and-config#req-1-2, req/parser-and-config#req-1-3">
     Write property test: BOM stripping (Property 3)
 
     - **Property 3: BOM stripping preserves content**
-- Generate valid UTF-8 content, optionally prepend BOM, verify BOM stripped and content preserved (modulo CRLF)
+    - Generate valid UTF-8 content, optionally prepend BOM, verify BOM stripped and content preserved (modulo CRLF)
   </Task>
 
   <Task id="task-8-4" status="done" depends="task-8-3" implements="req/parser-and-config#req-2-1, req/parser-and-config#req-2-2">
     Write property test: CRLF normalization (Property 4)
 
     - **Property 4: CRLF normalization replaces all original CRLF pairs**
-- Generate strings with arbitrary `\r\n` placement, verify all original CRLF pairs replaced, bare `\r` preserved
+    - Generate strings with arbitrary `\r\n` placement, verify all original CRLF pairs replaced, bare `\r` preserved
   </Task>
 </Task>
 
@@ -263,61 +264,61 @@ Use your Rust skills while developing.
     Write unit tests for front matter extraction (TDD)
 
     - Test valid front matter: `---\nsupersigil:\n  id: test\n---\nbody` → extracts YAML and body
-- Test `---` with trailing whitespace accepted as delimiter
-- Test no `---` first line → returns `None` (NotSupersigil path)
-- Test unclosed front matter (opening `---` but no closing) → `UnclosedFrontMatter` error
-- Test empty YAML between delimiters
-- Test `---` inside YAML content terminates front matter
+    - Test `---` with trailing whitespace accepted as delimiter
+    - Test no `---` first line → returns `None` (NotSupersigil path)
+    - Test unclosed front matter (opening `---` but no closing) → `UnclosedFrontMatter` error
+    - Test empty YAML between delimiters
+    - Test `---` inside YAML content terminates front matter
   </Task>
 
   <Task id="task-9-2" status="done" depends="task-9-1" implements="req/parser-and-config#req-4-1, req/parser-and-config#req-4-2, req/parser-and-config#req-4-3, req/parser-and-config#req-4-4, req/parser-and-config#req-4-5, req/parser-and-config#req-4-6">
     Write unit tests for front matter deserialization (TDD)
 
     - Test valid `supersigil:` with id, doc_type, status → `Frontmatter`
-- Test `supersigil:` with only id → doc_type and status are None
-- Test missing `id` → `MissingId` error
-- Test invalid YAML → `InvalidYaml` error
-- Test no `supersigil:` key → `NotSupersigil`
-- Test extra metadata keys preserved in `extra` HashMap
-- Test front matter with only `supersigil: { id: x }` and extra keys
+    - Test `supersigil:` with only id → doc_type and status are None
+    - Test missing `id` → `MissingId` error
+    - Test invalid YAML → `InvalidYaml` error
+    - Test no `supersigil:` key → `NotSupersigil`
+    - Test extra metadata keys preserved in `extra` HashMap
+    - Test front matter with only `supersigil: { id: x }` and extra keys
   </Task>
 
   <Task id="task-9-3" status="done" depends="task-9-2" implements="req/parser-and-config#req-3-1, req/parser-and-config#req-3-2, req/parser-and-config#req-3-3">
     Implement `extract_front_matter(content: &str) -> Result<Option<(&str, &str)>, ParseError>`
 
     - Detect opening `---` (with optional trailing whitespace) on first line
-- Find closing `---` line (with optional trailing whitespace)
-- Return `(yaml_str, body_str)` or error
+    - Find closing `---` line (with optional trailing whitespace)
+    - Return `(yaml_str, body_str)` or error
   </Task>
 
   <Task id="task-9-4" status="done" depends="task-9-3" implements="req/parser-and-config#req-4-1, req/parser-and-config#req-4-2, req/parser-and-config#req-4-3, req/parser-and-config#req-4-4, req/parser-and-config#req-4-5, req/parser-and-config#req-4-6">
     Implement `deserialize_front_matter(yaml: &str) -> Result<FrontMatterResult, ParseError>`
 
     - Deserialize YAML, check for `supersigil:` key
-- Extract `id` (required), `doc_type`, `status` into `Frontmatter`
-- Preserve non-supersigil keys in `extra` HashMap
-- Return `NotSupersigil` if no `supersigil:` key
+    - Extract `id` (required), `doc_type`, `status` into `Frontmatter`
+    - Preserve non-supersigil keys in `extra` HashMap
+    - Return `NotSupersigil` if no `supersigil:` key
   </Task>
 
   <Task id="task-9-5" status="done" depends="task-9-4" implements="req/parser-and-config#req-3-3, req/parser-and-config#req-4-6, req/parser-and-config#req-10-2">
     Write property test: NotSupersigil detection (Property 5)
 
     - **Property 5: Files without supersigil front matter return NotSupersigil**
-- Generate files without `---` first line, or with YAML but no `supersigil:` key, verify `NotSupersigil`
+    - Generate files without `---` first line, or with YAML but no `supersigil:` key, verify `NotSupersigil`
   </Task>
 
   <Task id="task-9-6" status="done" depends="task-9-5" implements="req/parser-and-config#req-3-2">
     Write property test: Unclosed front matter (Property 6)
 
     - **Property 6: Unclosed front matter produces an error**
-- Generate content starting with `---\n` followed by arbitrary content with no closing `---` line, verify `UnclosedFrontMatter` error
+    - Generate content starting with `---\n` followed by arbitrary content with no closing `---` line, verify `UnclosedFrontMatter` error
   </Task>
 
   <Task id="task-9-7" status="done" depends="task-9-6" implements="req/parser-and-config#req-4-4">
     Write property test: Extra metadata preservation (Property 7)
 
     - **Property 7: Extra metadata preservation**
-- Generate YAML with `supersigil:` key and additional arbitrary keys, verify all non-supersigil keys appear in `extra`
+    - Generate YAML with `supersigil:` key and additional arbitrary keys, verify all non-supersigil keys appear in `extra`
   </Task>
 </Task>
 
@@ -328,16 +329,16 @@ Use your Rust skills while developing.
     Write unit tests for MDX parsing (TDD)
 
     - Test valid MDX body produces AST
-- Test invalid MDX syntax → `MdxSyntaxError` with position and message
-- Test body with PascalCase components produces `MdxJsxFlowElement` nodes
-- Test body with lowercase HTML elements (div, p, table) in AST
+    - Test invalid MDX syntax → `MdxSyntaxError` with position and message
+    - Test body with PascalCase components produces `MdxJsxFlowElement` nodes
+    - Test body with lowercase HTML elements (div, p, table) in AST
   </Task>
 
   <Task id="task-10-2" status="done" depends="task-10-1" implements="req/parser-and-config#req-5-1, req/parser-and-config#req-5-2">
     Implement `parse_mdx_body(body: &str) -> Result<mdast::Node, ParseError>`
 
     - Use `markdown-rs` with MDX constructs enabled
-- Map parse errors to `MdxSyntaxError`
+    - Map parse errors to `MdxSyntaxError`
   </Task>
 </Task>
 
@@ -348,46 +349,46 @@ Use your Rust skills while developing.
     Write unit tests for component extraction (TDD)
 
     - Test PascalCase flow element extracted with name and attributes
-- Test lowercase element (div, p) silently ignored
-- Test inline JSX (`MdxJsxTextElement`) ignored
-- Test string literal attributes stored as raw strings
-- Test expression attribute `{...}` → `ExpressionAttribute` error, attribute excluded
-- Test self-closing component → body_text is None
-- Test component with text content → body_text is trimmed concatenation
-- Test component with only child components → body_text is None
-- Test nested components: parent's children list populated, recursive nesting preserved
-- Test source position offset: positions relative to original file (front matter offset applied)
+    - Test lowercase element (div, p) silently ignored
+    - Test inline JSX (`MdxJsxTextElement`) ignored
+    - Test string literal attributes stored as raw strings
+    - Test expression attribute `{...}` → `ExpressionAttribute` error, attribute excluded
+    - Test self-closing component → body_text is None
+    - Test component with text content → body_text is trimmed concatenation
+    - Test component with only child components → body_text is None
+    - Test nested components: parent's children list populated, recursive nesting preserved
+    - Test source position offset: positions relative to original file (front matter offset applied)
   </Task>
 
   <Task id="task-11-2" status="done" depends="task-11-1" implements="req/parser-and-config#req-6-1, req/parser-and-config#req-6-2, req/parser-and-config#req-6-3, req/parser-and-config#req-6-4, req/parser-and-config#req-8-1, req/parser-and-config#req-8-2, req/parser-and-config#req-8-3, req/parser-and-config#req-8-4, req/parser-and-config#req-8-5, req/parser-and-config#req-8-6, req/parser-and-config#req-9-1, req/parser-and-config#req-9-2, req/parser-and-config#req-9-3">
     Implement `extract_components(node, component_defs, body_offset, errors) -> Vec<ExtractedComponent>`
 
     - Walk AST recursively, process only `MdxJsxFlowElement` nodes
-- Skip lowercase element names (HTML), skip `MdxJsxTextElement` (inline)
-- Extract PascalCase component name, string attributes, body text, children
-- Offset positions by `body_offset` for file-relative source positions
-- Record `ExpressionAttribute` errors for `{...}` syntax, exclude those attributes
+    - Skip lowercase element names (HTML), skip `MdxJsxTextElement` (inline)
+    - Extract PascalCase component name, string attributes, body text, children
+    - Offset positions by `body_offset` for file-relative source positions
+    - Record `ExpressionAttribute` errors for `{...}` syntax, exclude those attributes
   </Task>
 
   <Task id="task-11-3" status="done" depends="task-11-2" implements="req/parser-and-config#req-6-1, req/parser-and-config#req-6-4">
     Write property test: String attribute fidelity (Property 8)
 
     - **Property 8: String attribute extraction fidelity**
-- Generate components with string literal attributes, verify exact raw string preservation
+    - Generate components with string literal attributes, verify exact raw string preservation
   </Task>
 
   <Task id="task-11-4" status="done" depends="task-11-3" implements="req/parser-and-config#req-8-3, req/parser-and-config#req-8-4, req/parser-and-config#req-8-5">
     Write property test: Body text (Property 9)
 
     - **Property 9: Body text is trimmed concatenation of non-component text nodes**
-- Generate components with varying text/child combinations, verify body_text rules
+    - Generate components with varying text/child combinations, verify body_text rules
   </Task>
 
   <Task id="task-11-5" status="done" depends="task-11-4" implements="req/parser-and-config#req-9-1, req/parser-and-config#req-9-2, req/parser-and-config#req-9-3">
     Write property test: Recursive child collection (Property 10)
 
     - **Property 10: Recursive child collection preserves nesting structure**
-- Generate nested component structures, verify tree structure matches source
+    - Generate nested component structures, verify tree structure matches source
   </Task>
 </Task>
 
@@ -398,60 +399,60 @@ Use your Rust skills while developing.
     Write unit tests for lint-time validation (TDD)
 
     - Test unknown PascalCase component → `UnknownComponent` error
-- Test known component → no error
-- Test lowercase element name → no unknown component error (silently ignored)
-- Test missing required attribute → `MissingRequiredAttribute` error with component name, attribute, position
-- Test all required attributes present → no error
-- Test validation uses config component defs when provided, built-in defaults when not
+    - Test known component → no error
+    - Test lowercase element name → no unknown component error (silently ignored)
+    - Test missing required attribute → `MissingRequiredAttribute` error with component name, attribute, position
+    - Test all required attributes present → no error
+    - Test validation uses config component defs when provided, built-in defaults when not
   </Task>
 
   <Task id="task-12-2" status="done" depends="task-12-1" implements="req/parser-and-config#req-10-1, req/parser-and-config#req-10-2, req/parser-and-config#req-10-3, req/parser-and-config#req-21-4, req/parser-and-config#req-25-3">
     Write unit tests for `parse_file` integration (TDD)
 
     - Test full pipeline: valid MDX file → `ParseResult::Document` with frontmatter, extra, components
-- Test file without front matter → `ParseResult::NotSupersigil`
-- Test file with front matter but no `supersigil:` key → `ParseResult::NotSupersigil`
-- Test error collection: file with multiple errors returns all of them
-- Test stage 1 fatal error prevents stages 2-3
-- Test stage 2 error prevents stage 3
-- Test stage 3 errors (expression attr, unknown component, missing attr) all collected
+    - Test file without front matter → `ParseResult::NotSupersigil`
+    - Test file with front matter but no `supersigil:` key → `ParseResult::NotSupersigil`
+    - Test error collection: file with multiple errors returns all of them
+    - Test stage 1 fatal error prevents stages 2-3
+    - Test stage 2 error prevents stage 3
+    - Test stage 3 errors (expression attr, unknown component, missing attr) all collected
   </Task>
 
   <Task id="task-12-3" status="done" depends="task-12-2" implements="req/parser-and-config#req-21-1, req/parser-and-config#req-21-2, req/parser-and-config#req-21-3, req/parser-and-config#req-25-1, req/parser-and-config#req-25-2">
     Implement lint-time validation checks
 
     - Unknown component detection: check PascalCase names against `ComponentDefs`, emit `UnknownComponent` error
-- Missing required attribute detection: check each component's attributes against its definition, emit `MissingRequiredAttribute` error
-- Both checks run after component extraction, errors appended to error list
+    - Missing required attribute detection: check each component's attributes against its definition, emit `MissingRequiredAttribute` error
+    - Both checks run after component extraction, errors appended to error list
   </Task>
 
   <Task id="task-12-4" status="done" depends="task-12-3" implements="req/parser-and-config#req-10-1, req/parser-and-config#req-10-2, req/parser-and-config#req-10-3">
     Implement `parse_file(path, &ComponentDefs) -> Result<ParseResult, Vec<ParseError>>`
 
     - Wire the three-stage pipeline: preprocess → extract/deserialize front matter → parse MDX → extract components → lint-time validation
-- Implement error collection: stage 1 fatal errors stop pipeline, stage 2 errors stop stage 3, stage 3 errors collected
-- Return `ParseResult::Document` or `ParseResult::NotSupersigil` on success, `Vec<ParseError>` on failure
+    - Implement error collection: stage 1 fatal errors stop pipeline, stage 2 errors stop stage 3, stage 3 errors collected
+    - Return `ParseResult::Document` or `ParseResult::NotSupersigil` on success, `Vec<ParseError>` on failure
   </Task>
 
   <Task id="task-12-5" status="done" depends="task-12-4" implements="req/parser-and-config#req-21-1, req/parser-and-config#req-21-2">
     Write property test: Missing required attributes detected (Property 16)
 
     - **Property 16: Missing required attributes are detected**
-- Generate component defs with required attributes, generate component instances missing some, verify errors. Also verify no false positives when all present.
+    - Generate component defs with required attributes, generate component instances missing some, verify errors. Also verify no false positives when all present.
   </Task>
 
   <Task id="task-12-6" status="done" depends="task-12-5" implements="req/parser-and-config#req-25-1">
     Write property test: Unknown component names detected (Property 17)
 
     - **Property 17: Unknown component names are detected**
-- Generate PascalCase names not in component defs, verify `UnknownComponent` error. Verify lowercase names never produce errors.
+    - Generate PascalCase names not in component defs, verify `UnknownComponent` error. Verify lowercase names never produce errors.
   </Task>
 
   <Task id="task-12-7" status="done" depends="task-12-6" implements="req/parser-and-config#req-10-3">
     Write property test: Error collection (Property 18)
 
     - **Property 18: Parser collects all errors rather than stopping at the first**
-- Generate files with multiple independent error conditions, verify all errors returned
+    - Generate files with multiple independent error conditions, verify all errors returned
   </Task>
 </Task>
 
@@ -459,7 +460,7 @@ Use your Rust skills while developing.
   Checkpoint — `supersigil-parser` complete
 
   - Ensure all tests pass with `cargo nextest run`, ask the user if questions arise.
-- Run `cargo clippy --workspace` and fix any warnings.
+  - Run `cargo clippy --workspace` and fix any warnings.
 </Task>
 
 <Task id="task-14" status="done" depends="task-13">
@@ -469,17 +470,17 @@ Use your Rust skills while developing.
     Create MDX test fixture files
 
     - Create `crates/supersigil-parser/tests/fixtures/valid_simple.mdx`: minimal valid supersigil document
-- Create `crates/supersigil-parser/tests/fixtures/valid_nested.mdx`: document with nested components (AcceptanceCriteria > Criterion)
-- Create `crates/supersigil-parser/tests/fixtures/no_frontmatter.mdx`: plain MDX without front matter
-- Create `crates/supersigil-parser/tests/fixtures/no_supersigil_key.mdx`: front matter without `supersigil:` key
-- Create `crates/supersigil-parser/tests/fixtures/extra_metadata.mdx`: front matter with supersigil + extra keys
+    - Create `crates/supersigil-parser/tests/fixtures/valid_nested.mdx`: document with nested components (AcceptanceCriteria > Criterion)
+    - Create `crates/supersigil-parser/tests/fixtures/no_frontmatter.mdx`: plain MDX without front matter
+    - Create `crates/supersigil-parser/tests/fixtures/no_supersigil_key.mdx`: front matter without `supersigil:` key
+    - Create `crates/supersigil-parser/tests/fixtures/extra_metadata.mdx`: front matter with supersigil + extra keys
   </Task>
 
   <Task id="task-14-2" status="done" depends="task-14-1" implements="req/parser-and-config#req-10-1, req/parser-and-config#req-10-2, req/parser-and-config#req-22-1">
     Write fixture-based integration tests
 
     - Test each fixture file through `parse_file` and verify expected output
-- Verify round-trip properties hold for fixture front matter
+    - Verify round-trip properties hold for fixture front matter
   </Task>
 </Task>
 
@@ -487,8 +488,8 @@ Use your Rust skills while developing.
   Final checkpoint — all crates complete
 
   - Ensure all tests pass with `cargo nextest run --workspace`, ask the user if questions arise.
-- Run `cargo clippy --workspace` and fix any warnings.
-- Verify `cargo doc --workspace --no-deps` builds without warnings.
+  - Run `cargo clippy --workspace` and fix any warnings.
+  - Verify `cargo doc --workspace --no-deps` builds without warnings.
 </Task>
 
 ## Notes

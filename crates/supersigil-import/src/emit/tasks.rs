@@ -23,24 +23,31 @@ fn task_attrs(
 }
 
 /// Emit the body content of a task (title, description, optional marker, comment).
+#[derive(Clone, Copy)]
+struct TaskBodyCtx<'a> {
+    task_id: &'a str,
+    is_optional: bool,
+    refs: &'a TaskRefs,
+    indent: &'a str,
+}
+
 fn emit_task_body(
     out: &mut String,
     title: &str,
     description: &[String],
-    is_optional: bool,
-    refs: &TaskRefs,
+    ctx: TaskBodyCtx<'_>,
     ambiguity_count: &mut usize,
-    indent: &str,
+    task_markers: &mut Vec<String>,
 ) {
-    let _ = writeln!(out, "{indent}  {title}");
+    let _ = writeln!(out, "{}  {title}", ctx.indent);
 
-    if is_optional {
-        out.push('\n');
+    if ctx.is_optional {
         let marker = format!(
-            "{indent}  <!-- TODO(supersigil-import): This task was marked as optional in Kiro; \
-             supersigil <Task> has no optional attribute -->"
+            "<!-- TODO(supersigil-import): This task was marked as optional in Kiro; \
+             supersigil <Task> has no optional attribute (task: {}) -->",
+            ctx.task_id
         );
-        let _ = writeln!(out, "{marker}");
+        task_markers.push(marker);
         *ambiguity_count += 1;
     }
 
@@ -48,13 +55,16 @@ fn emit_task_body(
         let trimmed = desc.trim();
         if !trimmed.is_empty() {
             out.push('\n');
-            let _ = writeln!(out, "{indent}  {trimmed}");
+            for line in trimmed.lines() {
+                let _ = writeln!(out, "{}  {}", ctx.indent, line.trim());
+            }
         }
     }
 
-    if let TaskRefs::Comment(comment) = refs {
+    if let TaskRefs::Comment(comment) = ctx.refs {
+        let comment = comment.replace("*/", "* /");
         out.push('\n');
-        let _ = writeln!(out, "{indent}  <!-- {comment} -->");
+        let _ = writeln!(out, "{}  {{/* {comment} */}}", ctx.indent);
     }
 }
 
@@ -76,6 +86,7 @@ pub fn emit_tasks_mdx(
 ) -> (String, usize) {
     let mut out = String::new();
     let mut ambiguity_count = ambiguity_markers.len();
+    let mut task_markers: Vec<String> = Vec::new();
 
     emit_front_matter(&mut out, doc_id, "tasks", feature_title);
 
@@ -119,21 +130,24 @@ pub fn emit_tasks_mdx(
             &mut out,
             &task.title,
             &task.description,
-            task.is_optional,
-            &task.requirement_refs,
+            TaskBodyCtx {
+                task_id,
+                is_optional: task.is_optional,
+                refs: &task.requirement_refs,
+                indent: "",
+            },
             &mut ambiguity_count,
-            "",
+            &mut task_markers,
         );
 
         // Emit unresolvable ref markers for this task
         emit_unresolved_markers(
-            &mut out,
             &task.requirement_refs,
             task_id,
             &pos_key,
             resolved_implements,
             &mut ambiguity_count,
-            "  ",
+            &mut task_markers,
         );
 
         // Sub-tasks
@@ -144,6 +158,7 @@ pub fn emit_tasks_mdx(
             &mut id_cursor,
             resolved_implements,
             &mut ambiguity_count,
+            &mut task_markers,
         );
 
         let _ = writeln!(out, "</Task>");
@@ -166,6 +181,10 @@ pub fn emit_tasks_mdx(
         let _ = writeln!(out, "{marker}");
     }
 
+    for marker in &task_markers {
+        let _ = writeln!(out, "{marker}");
+    }
+
     // Append dedup markers at end of document
     for marker in &dedup_markers {
         let _ = writeln!(out, "{marker}");
@@ -181,6 +200,7 @@ fn emit_sub_tasks_deduped(
     id_cursor: &mut usize,
     resolved_implements: &HashMap<String, Vec<String>>,
     ambiguity_count: &mut usize,
+    task_markers: &mut Vec<String>,
 ) {
     let mut prev_sub_id: Option<&str> = None;
 
@@ -199,20 +219,23 @@ fn emit_sub_tasks_deduped(
             out,
             &sub.title,
             &sub.description,
-            sub.is_optional,
-            &sub.requirement_refs,
+            TaskBodyCtx {
+                task_id: sub_id,
+                is_optional: sub.is_optional,
+                refs: &sub.requirement_refs,
+                indent: "  ",
+            },
             ambiguity_count,
-            "  ",
+            task_markers,
         );
 
         emit_unresolved_markers(
-            out,
             &sub.requirement_refs,
             sub_id,
             &pos_key,
             resolved_implements,
             ambiguity_count,
-            "    ",
+            task_markers,
         );
 
         let _ = writeln!(out, "  </Task>");
@@ -226,13 +249,12 @@ fn emit_sub_tasks_deduped(
 /// `task_id` is the (possibly deduped) ID used in the output.
 /// `raw_task_id` is the original ID used as key in `resolved_implements`.
 fn emit_unresolved_markers(
-    out: &mut String,
     refs: &TaskRefs,
     task_id: &str,
     raw_task_id: &str,
     resolved_implements: &HashMap<String, Vec<String>>,
     ambiguity_count: &mut usize,
-    indent: &str,
+    task_markers: &mut Vec<String>,
 ) {
     let raw_refs = match refs {
         TaskRefs::Refs(r) if !r.is_empty() => r,
@@ -254,18 +276,18 @@ fn emit_unresolved_markers(
 
     let marker = if resolved_count == 0 {
         format!(
-            "{indent}<!-- TODO(supersigil-import): Could not resolve implements references \
+            "<!-- TODO(supersigil-import): Could not resolve implements references \
              '{refs_str}' for task {task_id} -->"
         )
     } else {
         // Partial resolution — some resolved, some didn't. We can't know exactly
         // which resolved without re-doing resolution, so note the count discrepancy.
         format!(
-            "{indent}<!-- TODO(supersigil-import): Only {resolved_count} of {} implements \
+            "<!-- TODO(supersigil-import): Only {resolved_count} of {} implements \
              references resolved for task {task_id} (from '{refs_str}') -->",
             raw_refs.len()
         )
     };
-    let _ = writeln!(out, "{marker}");
+    task_markers.push(marker);
     *ambiguity_count += 1;
 }
