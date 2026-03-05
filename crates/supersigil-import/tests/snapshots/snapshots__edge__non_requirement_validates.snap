@@ -1,0 +1,38 @@
+---
+source: crates/supersigil-import/tests/snapshots.rs
+expression: content
+---
+---
+supersigil:
+  id: design/mixed-validates
+  type: design
+  status: draft
+title: "Mixed Validates"
+---
+
+<Implements refs="req/mixed-validates" />
+
+## Overview
+
+A design with both requirement and non-requirement Validates targets.
+
+## Correctness Properties
+
+### Property 1: Standard property
+
+This property validates against requirements.
+
+<Validates refs="req/mixed-validates#req-1-1, req/mixed-validates#req-1-2" />
+
+### Property 2: Non-standard property
+
+This property validates against a design decision.
+
+**Validates: Design Decision 5**
+<!-- TODO(supersigil-import): Validates line references non-requirement target: 'Design Decision 5' -->
+
+### Property 3: Another standard property
+
+This one is normal.
+
+<Validates refs="req/mixed-validates#req-2-1" />

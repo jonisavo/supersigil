@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d442d709e1fc21b986d2490fa747ca375abfc52d54c0f173a83764dc99e5c6bd # shrinks to docs = [PlannedDocument { output_path: "PLACEHOLDER/ce/req.mdx", document_id: "test/ce", content: "---\ntitle: test\n---\nbzp  \n" }]
+cc 20f63cf284a5b1a5636249c7eda8310a93a3910c29b743bd0ae93616831e830f # shrinks to docs = [PlannedDocument { output_path: "PLACEHOLDER/byb53/req.mdx", document_id: "test/byb53", content: "---\ntitle: test\n---\nk yni  u\n" }]
+cc 898fecc11eefbedd479fc68c5bc009478954e84bee7e8cc36c615938103ed64c # shrinks to docs = [PlannedDocument { output_path: "PLACEHOLDER/b267jn-h50/req.mdx", document_id: "test/b267jn-h50", content: "---\ntitle: test\n---\n b  v  yaji\n" }]

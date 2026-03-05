@@ -1,0 +1,22 @@
+[package]
+name = "supersigil-import"
+version = "0.1.0"
+edition = "2024"
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+regex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile = "3.26.0"
+insta = { version = "1", features = ["yaml"] }
+
+[lints]
+workspace = true

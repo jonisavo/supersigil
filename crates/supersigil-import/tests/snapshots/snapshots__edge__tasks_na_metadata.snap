@@ -1,0 +1,29 @@
+---
+source: crates/supersigil-import/tests/snapshots.rs
+expression: content
+---
+---
+supersigil:
+  id: tasks/na-metadata
+  type: tasks
+  status: draft
+title: "NA Metadata"
+---
+
+<Task id="task-1" status="done">
+  Set up project scaffolding
+
+  - Create directory structure
+
+  <Task id="task-1-1" status="done">
+    Initialize repository
+
+    - Run git init
+  </Task>
+</Task>
+
+<Task id="task-2" status="ready" depends="task-1" implements="req/na-metadata#req-1-1, req/na-metadata#req-1-2">
+  Implement core logic
+
+  - Write the main algorithm
+</Task>

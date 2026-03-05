@@ -1872,11 +1872,11 @@ order:
 
 1. Spec 1 (Parser + Config)
 2. Spec 2 (Document Graph)
-3. Spec 4a (CLI bootstrap) + Spec 5a (Kiro import core)
+3. Spec 4a (CLI bootstrap) + Spec 5 (Kiro import: combined core + polish)
 4. Dogfood by importing existing `.kiro/specs` into supersigil format and
    using `context`/`plan`/`graph` while authoring the next spec
 5. Spec 3 (Verification Engine)
-6. Spec 4b + Spec 5b (remaining CLI and import polish)
+6. Spec 4b (remaining CLI polish)
 
 This preserves the core dependency rule (Spec 3 depends on Spec 2) while
 removing the adoption bottleneck of waiting until the end for import.
@@ -1985,7 +1985,7 @@ Thin layer over the libraries. Argument parsing and output formatting.
 
 Migration tool for existing `.kiro/specs/` directories.
 
-- **Phase 5a (core, for early dogfooding)**:
+- **Scope (combined core + polish for v1 dogfooding)**:
   - Discovery: Find `.kiro/specs/*/` directories containing
     `requirements.md`, `design.md`, `tasks.md`.
   - Requirements conversion: Parse EARS notation
@@ -2000,10 +2000,10 @@ Migration tool for existing `.kiro/specs/` directories.
     metadata maps to `implements` where resolvable.
   - Ambiguity markers: `<!-- TODO(supersigil-import): ... -->` at
     uncertain conversion points.
-  - Flags required in Phase 5a: `--dry-run`.
-- **Phase 5b (polish)**: Additional migration ergonomics and safety
-  controls (`--output-dir`, `--prefix`, richer diagnostics, and clearer
-  import reports for manual follow-up).
+  - Required flags in this combined scope: `--dry-run`, `--output-dir`,
+    and `--prefix`.
+  - Import report quality: richer diagnostics and a clearer conversion
+    report for manual follow-up.
 
 **Crates**: `supersigil-import`. Separate crate — it has a unique
 dependency (Kiro's markdown format parsing) that nothing else in

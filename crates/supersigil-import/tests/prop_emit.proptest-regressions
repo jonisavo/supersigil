@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 30e94fe1188be7bc746dc0c98c983d5dc44bfdd258bda649520e4bad29b70616 # shrinks to parsed = ParsedDesign { title: None, sections: [DesignSection { heading: "AAaa aaAa", level: 2, content: [Prose("AaaAa A aA")] }] }
+cc 1c79819dc66a76f050ff351a861388136458d16a6968456934f868020c956322 # shrinks to parsed = ParsedDesign { title: None, sections: [DesignSection { heading: "AaA aaa aa", level: 2, content: [Prose("a A aaaAAa")] }] }
+cc 728ec084efea48000114512787db1d7431a68f647eafd8ad890305602d8133b3 # shrinks to parsed = ParsedTasks { title: None, preamble: [], tasks: [ParsedTask { number: "1", title: "AaaaAAaAAa", status: Done, is_optional: false, description: [], requirement_refs: None, sub_tasks: [ParsedSubTask { parent_number: "1", number: "14", title: "AaAaAA AaA", status: InProgress, is_optional: false, description: [], requirement_refs: None }, ParsedSubTask { parent_number: "1", number: "14", title: "AaAAaaAA A", status: Done, is_optional: false, description: [], requirement_refs: None }] }] }

@@ -1,0 +1,34 @@
+---
+source: crates/supersigil-import/tests/snapshots.rs
+expression: content
+---
+---
+supersigil:
+  id: design/design-only
+  type: design
+  status: draft
+title: "Standalone Design"
+---
+
+<!-- TODO(supersigil-import): No requirements document found for this feature; cannot emit <Implements> component -->
+
+## Overview
+
+This feature has a design but no requirements or tasks.
+
+## Architecture
+
+The system uses a simple pipeline.
+
+```mermaid
+graph TD
+    A[Input] --> B[Output]
+```
+
+## Correctness Properties
+
+### Property 1: Basic invariant
+
+The output is always non-empty.
+
+<!-- TODO(supersigil-import): Could not resolve Validates references in '**Validates: Requirements 1.1**' -->

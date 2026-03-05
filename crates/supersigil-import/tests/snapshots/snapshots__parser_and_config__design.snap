@@ -1,0 +1,707 @@
+---
+source: crates/supersigil-import/tests/snapshots.rs
+expression: content
+---
+---
+supersigil:
+  id: design/parser-and-config
+  type: design
+  status: draft
+title: "Parser and Config"
+---
+
+<Implements refs="req/parser-and-config" />
+
+## Overview
+
+This spec covers the two foundational subsystems of Supersigil: the MDX parser (`supersigil-parser` crate) and the config loader (config module of `supersigil-core`). Together they turn raw inputs — `.mdx` files and `supersigil.toml` — into typed Rust structs that the rest of the system consumes. No cross-document logic lives here; this is strictly single-file parsing and config deserialization.
+
+The parser implements a three-stage pipeline: (1) front matter extraction with UTF-8 decoding, BOM/CRLF normalization, and trailing-whitespace-tolerant delimiter detection, (2) MDX AST generation via `markdown-rs`, and (3) component extraction with recursive child collection. It extracts only block-level (`MdxJsxFlowElement`) PascalCase elements as supersigil components, silently ignoring lowercase HTML elements and inline JSX. It returns a `ParseResult` enum that cleanly separates supersigil documents from non-supersigil files.
+
+The config loader deserializes `supersigil.toml` into a `Config` struct using `serde` with `deny_unknown_fields` at every nesting level. It enforces mutual exclusivity between single-project and multi-project modes, merges user-defined component definitions over built-in defaults, and validates all enum-like fields at deserialization time.
+
+## Architecture
+
+```mermaid
+graph TD
+    subgraph "supersigil-parser"
+        A[Raw MDX file bytes] --> B[UTF-8 decode + BOM strip + CRLF normalize]
+        B --> C{First line == '---'?}
+        C -- No --> D[ParseResult::NotSupersigil]
+        C -- Yes --> E[Extract YAML between delimiters]
+        E --> F{Valid YAML?}
+        F -- No --> G[Parse error]
+        F -- Yes --> H{Has 'supersigil:' key?}
+        H -- No --> D
+        H -- Yes --> I[Deserialize Frontmatter + extra metadata]
+        I --> J[MDX AST generation via markdown-rs]
+        J --> K[Walk AST: extract components recursively]
+        K --> L[ParseResult::Document]
+    end
+
+    subgraph "supersigil-core/config"
+        M[supersigil.toml bytes] --> N[TOML deserialization with deny_unknown_fields]
+        N --> O{Mutual exclusivity check}
+        O -- "paths+projects, tests+projects, or neither" --> P[Config error]
+        O -- Valid --> Q[Merge component defs over built-in defaults]
+        Q --> R[Validate id_pattern regex if present]
+        R --> S[Config struct + validated pattern string]
+    end
+
+    subgraph "Lint-time checks"
+        L --> T{Component name known?}
+        T -- No --> U[Hard error: unknown_component]
+        T -- Yes --> V{Required attrs present?}
+        V -- No --> W[Hard error: missing_required_attribute]
+        V -- Yes --> X[Clean ParseResult::Document]
+    end
+
+    S --> T
+```
+
+### Crate Boundaries
+
+- `supersigil-parser`: Owns the three-stage pipeline. Depends on `markdown` (markdown-rs) for MDX AST, `serde_yaml` for front matter. Exposes `parse_file(path, &ComponentDefs) -> Result<ParseResult, Vec<ParseError>>`.
+- `supersigil-core`: Owns `Config`, `SpecDocument`, `Frontmatter`, `ExtractedComponent`, and the built-in component definitions. The config module lives here because `Config` is consumed by every downstream crate. The parser depends on `supersigil-core` for the data model types and built-in component definitions.
+
+## Components and Interfaces
+
+### Parser Public API
+
+```rust
+/// Parse a single MDX file into a ParseResult.
+/// `component_defs` provides the set of known components and their attribute
+/// schemas for lint-time validation. Pass `ComponentDefs::defaults()` if
+/// no config is available.
+pub fn parse_file(
+    path: &Path,
+    component_defs: &ComponentDefs,
+) -> Result<ParseResult, Vec<ParseError>>;
+```
+
+### Internal Pipeline Functions
+
+```rust
+/// Stage 1: Preprocess raw bytes — decode UTF-8, strip BOM, normalize CRLF to LF.
+/// Returns an error if the file is not valid UTF-8.
+fn preprocess(raw: &[u8]) -> Result<String, ParseError>;
+
+/// Stage 1: Detect and extract YAML front matter between `---` delimiters.
+/// Returns (yaml_str, body_str) or an error.
+fn extract_front_matter(content: &str) -> Result<Option<(&str, &str)>, ParseError>;
+
+/// Stage 1: Deserialize YAML into Frontmatter + extra metadata.
+/// Returns NotSupersigil signal if no `supersigil:` key.
+fn deserialize_front_matter(yaml: &str) -> Result<FrontMatterResult, ParseError>;
+
+enum FrontMatterResult {
+    Supersigil { frontmatter: Frontmatter, extra: HashMap<String, serde_yaml::Value> },
+    NotSupersigil,
+}
+
+/// Stage 2: Parse MDX body into AST via markdown-rs.
+fn parse_mdx_body(body: &str) -> Result<mdast::Node, ParseError>;
+
+/// Stage 3: Walk AST and extract components recursively.
+/// Only processes MdxJsxFlowElement nodes (block-level). MdxJsxTextElement
+/// nodes (inline) are ignored. Only PascalCase element names are treated
+/// as supersigil components; lowercase names (HTML) are silently skipped.
+/// `body_offset` is the byte offset of the MDX body start in the original
+/// file, used to adjust positions from markdown-rs to be file-relative.
+fn extract_components(
+    node: &mdast::Node,
+    component_defs: &ComponentDefs,
+    body_offset: usize,
+    errors: &mut Vec<ParseError>,
+) -> Vec<ExtractedComponent>;
+```
+
+### Config Public API
+
+```rust
+/// Load and validate supersigil.toml from the given path.
+/// Validates id_pattern as a valid regex (emitting InvalidIdPattern if not),
+/// but stores only the pattern string in Config. Consumers recompile as needed.
+pub fn load_config(path: &Path) -> Result<Config, Vec<ConfigError>>;
+```
+
+### List Splitting Utility
+
+```rust
+/// Split a raw comma-separated attribute value into trimmed, non-empty items.
+/// Returns an error if any item is empty after trimming (trailing comma,
+/// consecutive commas, or empty input).
+pub fn split_list_attribute(raw: &str) -> Result<Vec<&str>, ListSplitError>;
+```
+
+This utility lives in `supersigil-core` and is tested in this spec as a shared function. It is consumed by downstream specs (graph, verification) for splitting list-typed attributes.
+
+### Lint-Time Validation
+
+The parser performs two lint-time checks after component extraction, using the component definitions (from config or built-in defaults):
+
+1. **Unknown component detection** (Req 25): If a PascalCase component's name is not in the known set, emit a hard error. Lowercase element names (standard HTML) are silently ignored — they are not checked against component definitions.
+2. **Missing required attribute** (Req 21): If a component is missing a `required = true` attribute, emit a hard error.
+
+These checks are per-file and require no cross-document logic. They run as part of `parse_file` before returning the `ParseResult`.
+
+Note: Only `MdxJsxFlowElement` nodes (block-level) are extracted as components. `MdxJsxTextElement` nodes (inline JSX) are ignored entirely.
+
+## Data Models
+
+### ParseResult
+
+```rust
+pub enum ParseResult {
+    /// A valid supersigil document.
+    Document(SpecDocument),
+    /// File has no supersigil front matter — not a spec document.
+    NotSupersigil(PathBuf),
+}
+```
+
+### SpecDocument
+
+```rust
+pub struct SpecDocument {
+    /// Source file path (relative to project root).
+    pub path: PathBuf,
+    /// Parsed supersigil: namespace fields.
+    pub frontmatter: Frontmatter,
+    /// All YAML keys outside supersigil: namespace, preserved as-is.
+    pub extra: HashMap<String, serde_yaml::Value>,
+    /// Top-level extracted components.
+    pub components: Vec<ExtractedComponent>,
+}
+```
+
+### Frontmatter
+
+```rust
+/// Derives Serialize and Deserialize for round-trip property (Req 22).
+/// The `type` YAML field maps to `doc_type` in Rust (reserved keyword).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Frontmatter {
+    pub id: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub doc_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+```
+
+### ExtractedComponent
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtractedComponent {
+    /// Component name (e.g., "Criterion", "Validates").
+    pub name: String,
+    /// All attribute values as raw strings. No list splitting.
+    pub attributes: HashMap<String, String>,
+    /// Nested child components.
+    pub children: Vec<ExtractedComponent>,
+    /// Concatenation of non-component text nodes, trimmed.
+    /// None if self-closing or no text content.
+    pub body_text: Option<String>,
+    /// Source position in the original file.
+    pub position: SourcePosition,
+}
+```
+
+### SourcePosition
+
+```rust
+/// Position relative to the original file content (after BOM stripping but
+/// including front matter). The parser offsets positions from markdown-rs
+/// (which are relative to the MDX body) by the byte length of the front
+/// matter block, so positions are usable for editor integration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourcePosition {
+    pub byte_offset: usize,
+    pub line: usize,
+    pub column: usize,
+}
+```
+
+### Config
+
+```rust
+/// Derives Serialize and Deserialize for round-trip property (Req 23).
+/// Uses `deny_unknown_fields` at all nesting levels (Req 11.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    /// Single-project mode: glob patterns for spec files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paths: Option<Vec<String>>,
+    /// Single-project mode: glob patterns for test files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<Vec<String>>,
+    /// Multi-project mode: named project entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<HashMap<String, ProjectConfig>>,
+    /// Optional regex pattern for ID validation. Stored as the pattern string;
+    /// load_config validates it compiles as a regex (emitting InvalidIdPattern
+    /// if not). Consumers recompile when needed. This enables round-trip
+    /// serialization (Req 23) without storing a non-serializable Regex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_pattern: Option<String>,
+    /// Document type definitions.
+    #[serde(default)]
+    pub documents: DocumentsConfig,
+    /// User-defined component definitions (overrides only). The merge with
+    /// built-in defaults happens in ComponentDefs::merge(), producing a
+    /// separate ComponentDefs — this field stores only what the user wrote.
+    #[serde(default)]
+    pub components: HashMap<String, ComponentDef>,
+    /// Verification rule configuration.
+    #[serde(default)]
+    pub verify: VerifyConfig,
+    /// Ecosystem plugin declarations.
+    #[serde(default)]
+    pub ecosystem: EcosystemConfig,
+    /// Hook configuration.
+    #[serde(default)]
+    pub hooks: HooksConfig,
+    /// Test results configuration.
+    #[serde(default)]
+    pub test_results: TestResultsConfig,
+}
+```
+
+### Supporting Config Types
+
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectConfig {
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub tests: Vec<String>,
+    #[serde(default)]
+    pub isolated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentsConfig {
+    #[serde(default)]
+    pub types: HashMap<String, DocumentTypeDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentTypeDef {
+    #[serde(default)]
+    pub status: Vec<String>,
+    #[serde(default)]
+    pub required_components: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentDef {
+    #[serde(default)]
+    pub attributes: HashMap<String, AttributeDef>,
+    #[serde(default)]
+    pub referenceable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_component: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttributeDef {
+    pub required: bool,
+    #[serde(default)]
+    pub list: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerifyConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strictness: Option<Severity>,
+    #[serde(default)]
+    pub rules: HashMap<String, Severity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Off,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EcosystemConfig {
+    #[serde(default = "default_plugins")]
+    pub plugins: Vec<String>,
+}
+
+fn default_plugins() -> Vec<String> {
+    vec!["rust".to_string()]
+}
+
+impl Default for EcosystemConfig {
+    fn default() -> Self {
+        Self { plugins: default_plugins() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HooksConfig {
+    #[serde(default)]
+    pub post_verify: Vec<String>,
+    #[serde(default)]
+    pub post_lint: Vec<String>,
+    #[serde(default)]
+    pub export: Vec<String>,
+    #[serde(default = "default_timeout")]
+    pub timeout_seconds: u64,
+}
+
+fn default_timeout() -> u64 { 30 }
+
+impl Default for HooksConfig {
+    fn default() -> Self {
+        Self {
+            post_verify: Vec::new(),
+            post_lint: Vec::new(),
+            export: Vec::new(),
+            timeout_seconds: default_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestResultsConfig {
+    #[serde(default)]
+    pub formats: Vec<String>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+```
+
+### ComponentDefs (Runtime Merged View)
+
+```rust
+/// The merged set of component definitions: built-in defaults + user overrides.
+/// This is the runtime type passed to the parser for lint-time validation.
+pub struct ComponentDefs {
+    pub defs: HashMap<String, ComponentDef>,
+}
+
+impl ComponentDefs {
+    /// Returns the built-in defaults (AcceptanceCriteria, Criterion, Validates, etc.).
+    pub fn defaults() -> Self;
+
+    /// Merge user-defined components over defaults. User defs with the same name
+    /// override; new names are added; unmentioned built-ins remain.
+    pub fn merge(defaults: Self, user: HashMap<String, ComponentDef>) -> Self;
+
+    /// Check if a component name is known.
+    pub fn is_known(&self, name: &str) -> bool;
+
+    /// Get the definition for a component, if known.
+    pub fn get(&self, name: &str) -> Option<&ComponentDef>;
+}
+```
+
+### Built-in Component Definitions
+
+The following are the literal default entries returned by `ComponentDefs::defaults()`. These match the `supersigil schema` output in the main design document:
+
+| Component | Attributes | Referenceable | Target Component |
+|-----------|-----------|---------------|-----------------|
+| `AcceptanceCriteria` | *(none)* | no | — |
+| `Criterion` | `id`: required | yes | — |
+| `Validates` | `refs`: required, list | no | `Criterion` |
+| `VerifiedBy` | `strategy`: required; `tag`: optional; `paths`: optional, list | no | — |
+| `Implements` | `refs`: required, list | no | — |
+| `Illustrates` | `refs`: required, list | no | — |
+| `Task` | `id`: required; `status`: optional; `implements`: optional, list; `depends`: optional, list | yes | — |
+| `TrackedFiles` | `paths`: required, list | no | — |
+| `DependsOn` | `refs`: required, list | no | — |
+
+### Error Types
+
+```rust
+#[derive(Debug)]
+pub enum ParseError {
+    /// BOM/IO/encoding issues. UTF-8 decoding failures are wrapped as
+    /// io::Error with ErrorKind::InvalidData.
+    IoError { path: PathBuf, source: std::io::Error },
+    /// Unclosed front matter (opening `---` but no closing `---`).
+    UnclosedFrontMatter { path: PathBuf },
+    /// Invalid YAML in front matter.
+    InvalidYaml { path: PathBuf, message: String },
+    /// `supersigil:` key present but `id` field missing.
+    MissingId { path: PathBuf },
+    /// MDX syntax error.
+    MdxSyntaxError { path: PathBuf, line: usize, column: usize, message: String },
+    /// JSX expression attribute detected.
+    ExpressionAttribute { path: PathBuf, component: String, attribute: String, position: SourcePosition },
+    /// Unknown component name (lint-time hard error).
+    UnknownComponent { path: PathBuf, component: String, position: SourcePosition },
+    /// Missing required attribute (lint-time hard error).
+    MissingRequiredAttribute { path: PathBuf, component: String, attribute: String, position: SourcePosition },
+}
+
+#[derive(Debug)]
+pub enum ConfigError {
+    /// TOML syntax error.
+    TomlSyntax { message: String },
+    /// Unknown key at some nesting level.
+    UnknownKey { key: String, location: String },
+    /// paths and projects both present, or tests and projects both present.
+    MutualExclusivity { keys: Vec<String> },
+    /// Neither paths nor projects present.
+    MissingRequired { message: String },
+    /// Invalid severity value.
+    InvalidSeverity { rule: String, value: String },
+    /// Unknown verification rule name.
+    UnknownRule { rule: String },
+    /// Invalid regex in id_pattern.
+    InvalidIdPattern { pattern: String, message: String },
+}
+
+/// Error returned by `split_list_attribute` when splitting produces empty items.
+#[derive(Debug)]
+pub struct ListSplitError {
+    /// The raw input string that failed to split.
+    pub raw: String,
+    /// Human-readable description (e.g., "trailing comma produces empty item").
+    pub message: String,
+}
+```
+
+## Correctness Properties
+
+*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+
+### Property 1: Frontmatter YAML round-trip
+
+*For any* valid `Frontmatter` value (with an `id`, optional `doc_type`, optional `status`), serializing it to YAML and deserializing the YAML back into a `Frontmatter` shall produce a value equal to the original. The `type` ↔ `doc_type` field rename must be preserved across the round-trip.
+
+<Validates refs="req/parser-and-config#req-22-1, req/parser-and-config#req-4-1" />
+
+### Property 2: Config TOML round-trip
+
+*For any* valid `Config` value (in either single-project or multi-project mode, with arbitrary document types, component definitions, verification rules, ecosystem plugins, hooks, and test results), serializing it to TOML and deserializing the TOML back into a `Config` shall produce a value equal to the original. The `id_pattern` field is serialized as the pattern string and recompiled on deserialization.
+
+<Validates refs="req/parser-and-config#req-23-1, req/parser-and-config#req-11-1" />
+
+### Property 3: BOM stripping preserves content
+
+*For any* byte sequence representing valid UTF-8 file content, preprocessing shall decode UTF-8, strip a leading BOM (U+FEFF) if present, and leave the remaining content unchanged (modulo CRLF normalization). If no BOM is present, the content shall be unchanged (modulo CRLF normalization). If the byte sequence is not valid UTF-8, preprocessing shall return an error.
+
+<Validates refs="req/parser-and-config#req-1-1, req/parser-and-config#req-1-2, req/parser-and-config#req-1-3" />
+
+### Property 4: CRLF normalization replaces all original CRLF pairs
+
+*For any* string, CRLF normalization replaces every original `\r\n` pair with `\n` and preserves bare `\r` characters (not part of a `\r\n` pair) as-is. Specifically: (a) the number of `\r` characters in the output equals the number of bare `\r` characters in the input, (b) the number of `\n` characters in the output equals the number of bare `\n` characters in the input plus the number of original `\r\n` pairs, and (c) the output length equals the input length minus the number of original `\r\n` pairs. Note: a bare `\r` preserved from the input may end up adjacent to a `\n` produced by normalizing a subsequent `\r\n` pair (e.g., input `\r\r\n` → output `\r\n`); this is correct behavior, not a residual CRLF.
+
+<Validates refs="req/parser-and-config#req-2-1, req/parser-and-config#req-2-2" />
+
+### Property 5: Files without supersigil front matter return NotSupersigil
+
+*For any* file content that either (a) does not start with `---` (after trimming trailing whitespace), or (b) has valid YAML front matter but no `supersigil:` key, the parser shall return `ParseResult::NotSupersigil(path)`.
+
+<Validates refs="req/parser-and-config#req-3-3, req/parser-and-config#req-4-6, req/parser-and-config#req-10-2" />
+
+### Property 6: Unclosed front matter produces an error
+
+*For any* file content that starts with a line matching `---` (optionally followed by trailing whitespace) and a newline, followed by arbitrary content but containing no closing `---` line (optionally followed by trailing whitespace), the parser shall return an `UnclosedFrontMatter` error.
+
+<Validates refs="req/parser-and-config#req-3-2" />
+
+### Property 7: Extra metadata preservation
+
+*For any* valid YAML front matter containing a `supersigil:` key and additional arbitrary keys, the parser shall preserve all non-supersigil keys in `SpecDocument.extra` with their original values. The set of keys in `extra` shall equal the set of top-level YAML keys minus `supersigil`.
+
+<Validates refs="req/parser-and-config#req-4-4" />
+
+### Property 8: String attribute extraction fidelity
+
+*For any* MDX component with string literal attributes, the parser shall store each attribute value as the exact raw string from the source. No interpretation, splitting, or transformation is applied.
+
+<Validates refs="req/parser-and-config#req-6-1, req/parser-and-config#req-6-4" />
+
+### Property 9: Body text is trimmed concatenation of non-component text nodes
+
+*For any* MDX component, `body_text` shall be `None` if the component is self-closing or contains only child components with no text nodes. Otherwise, `body_text` shall equal the concatenation of all non-component text nodes within the component, with leading and trailing whitespace trimmed.
+
+<Validates refs="req/parser-and-config#req-8-3, req/parser-and-config#req-8-4, req/parser-and-config#req-8-5" />
+
+### Property 10: Recursive child collection preserves nesting structure
+
+*For any* MDX document with nested components (e.g., `<Criterion>` inside `<AcceptanceCriteria>`), the parser shall produce an `ExtractedComponent` tree where each parent's `children` list contains exactly the child components from the source, at all nesting depths. Components with no children shall have an empty `children` list.
+
+<Validates refs="req/parser-and-config#req-9-1, req/parser-and-config#req-9-2, req/parser-and-config#req-9-3" />
+
+### Property 11: Unknown TOML keys are rejected at all nesting levels
+
+*For any* valid `Config` TOML with an unknown key injected at any nesting level (top-level, inside `[documents]`, inside `[components.<Name>]`, inside `[projects.<name>]`, inside `[verify]`, inside `[hooks]`, inside `[ecosystem]`, inside `[test_results]`), the config loader shall emit an error identifying the unknown key.
+
+<Validates refs="req/parser-and-config#req-11-3" />
+
+### Property 12: Single-project and multi-project modes are mutually exclusive
+
+*For any* TOML config, exactly one of the following must hold: (a) `paths` is present and `projects` is absent (single-project mode), (b) `projects` is present and neither `paths` nor `tests` is present (multi-project mode), or (c) the config loader emits an error. Configs with both `paths` and `projects`, or both `tests` and `projects`, or neither `paths` nor `projects`, are rejected.
+
+<Validates refs="req/parser-and-config#req-12-1, req/parser-and-config#req-12-2, req/parser-and-config#req-12-3, req/parser-and-config#req-12-4, req/parser-and-config#req-12-5" />
+
+### Property 13: Component definition merge is additive over built-in defaults
+
+*For any* set of user-defined component definitions, merging over the built-in defaults shall produce a set where: (a) user-defined components with the same name as a built-in override the built-in, (b) user-defined components with new names are added, and (c) built-in components not mentioned by the user remain unchanged.
+
+<Validates refs="req/parser-and-config#req-14-5" />
+
+### Property 14: Unknown verification rule names are rejected
+
+*For any* rule name in `[verify.rules]` that is not in the set of known rule names, the config loader shall emit an error identifying the unknown rule.
+
+<Validates refs="req/parser-and-config#req-15-3" />
+
+### Property 15: List splitting produces trimmed non-empty items
+
+*For any* raw comma-separated string, `split_list_attribute` shall split on `,`, trim each item, and produce a list where every item is non-empty and has no leading or trailing whitespace. Trailing commas and consecutive commas (which would produce empty items) are rejected with an error.
+
+<Validates refs="req/parser-and-config#req-7-2" />
+
+### Property 16: Missing required attributes are detected
+
+*For any* component definition with `required = true` attributes, and *for any* component instance missing one or more of those required attributes, the parser shall emit a `MissingRequiredAttribute` error. Conversely, *for any* component instance that has all required attributes present, no `MissingRequiredAttribute` error shall be emitted.
+
+<Validates refs="req/parser-and-config#req-21-1, req/parser-and-config#req-21-2" />
+
+### Property 17: Unknown component names are detected
+
+*For any* PascalCase component name that does not appear in the merged set of built-in and user-defined component definitions, the parser shall emit an `UnknownComponent` error identifying the name and source position. Lowercase element names (standard HTML) are silently ignored and never produce unknown component errors.
+
+<Validates refs="req/parser-and-config#req-25-1" />
+
+### Property 18: Parser collects all errors rather than stopping at the first
+
+*For any* input file with multiple independent error conditions (e.g., an expression attribute on one component and a missing required attribute on another), the parser shall return all errors, not just the first one encountered.
+
+<Validates refs="req/parser-and-config#req-10-3" />
+
+### Property 19: id_pattern accepts valid regex and rejects invalid regex
+
+*For any* string that is a valid Rust regex, the config loader shall accept it as an `id_pattern`. *For any* string that is not a valid regex, the config loader shall emit an `InvalidIdPattern` error.
+
+<Validates refs="req/parser-and-config#req-20-1, req/parser-and-config#req-20-2" />
+
+## Error Handling
+
+### Parser Errors
+
+The parser uses a **collect-all-errors** strategy (Req 10.3). Rather than returning on the first error, it accumulates errors into a `Vec<ParseError>` and continues processing where possible. This gives developers maximum feedback per parse cycle.
+
+Error categories and their behavior:
+
+| Error | Severity | Recovery |
+|-------|----------|----------|
+| `IoError` | Fatal | Cannot continue — file unreadable or not valid UTF-8. |
+| `UnclosedFrontMatter` | Fatal | Cannot extract YAML or body. Stops pipeline. |
+| `InvalidYaml` | Fatal | Cannot deserialize front matter. Stops pipeline. |
+| `MissingId` | Fatal | Cannot construct `Frontmatter`. Stops pipeline. |
+| `MdxSyntaxError` | Fatal | Cannot produce AST. Stops pipeline at stage 2. |
+| `ExpressionAttribute` | Hard error | Continues extraction — attribute excluded from output, error recorded. |
+| `UnknownComponent` | Hard error | Continues extraction — component still extracted (for error reporting context), error recorded. |
+| `MissingRequiredAttribute` | Hard error | Continues extraction — component extracted as-is, error recorded. |
+
+Stage 1 errors (IO, unclosed front matter, invalid YAML, missing ID) are fatal and prevent stages 2 and 3 from running. Stage 2 errors (MDX syntax) prevent stage 3. Stage 3 errors (expression attributes, unknown components, missing required attributes) are collected but do not prevent other components from being extracted.
+
+### Config Errors
+
+The config loader also collects multiple errors where possible:
+
+| Error | Recovery |
+|-------|----------|
+| `TomlSyntax` | Fatal — cannot parse file at all. |
+| `UnknownKey` | Detected by `deny_unknown_fields` during deserialization. Fatal (serde stops). |
+| `MutualExclusivity` | Detected post-deserialization. Collected. |
+| `MissingRequired` | Detected post-deserialization. Collected. |
+| `InvalidSeverity` | Detected by serde enum deserialization. Fatal. |
+| `UnknownRule` | Detected post-deserialization. Collected. |
+| `InvalidIdPattern` | Detected post-deserialization during regex compilation. Collected. |
+
+Note: `deny_unknown_fields` causes serde to fail on the first unknown key. This is acceptable because unknown keys are typically typos, and the error message from serde includes the key name and location. Similarly, missing required fields (like `paths` in `ProjectConfig`) are caught by serde during deserialization with a clear error message, so no separate `MissingProjectPaths` error variant is needed.
+
+### Error Reporting
+
+All errors include:
+- The file path (for parser errors) or config file path (for config errors).
+- The specific location (line/column for parser errors, TOML path for config errors).
+- A human-readable message describing the problem.
+- For `ExpressionAttribute`: a fix suggestion showing the equivalent string attribute syntax.
+
+## Testing Strategy
+
+### Property-Based Testing
+
+Property-based tests use the `proptest` crate (Rust). Each property from the Correctness Properties section is implemented as a single `proptest!` test with a minimum of 100 iterations.
+
+Each test is tagged with a comment referencing the design property:
+
+```rust
+// Feature: parser-and-config, Property 1: Frontmatter YAML round-trip
+proptest! {
+    #[test]
+    fn frontmatter_yaml_round_trip(fm in arb_frontmatter()) {
+        let yaml = serde_yaml::to_string(&fm).unwrap();
+        let deserialized: Frontmatter = serde_yaml::from_str(&yaml).unwrap();
+        prop_assert_eq!(fm, deserialized);
+    }
+}
+```
+
+**Generators needed:**
+
+- `arb_frontmatter()`: Generates `Frontmatter` with random `id` (non-empty alphanumeric + `/` + `-`), optional `doc_type`, optional `status`.
+- `arb_config()`: Generates valid `Config` in either single-project or multi-project mode with random document types, component definitions, verification rules, plugins, hooks, and test results. Must ensure mutual exclusivity invariant holds.
+- `arb_component_def()`: Generates `ComponentDef` with random attributes, each with random `required` and `list` flags.
+- `arb_mdx_document()`: Generates valid MDX strings with front matter and components for parser integration tests.
+- `arb_comma_separated()`: Generates comma-separated strings with varying whitespace for list splitting tests.
+
+### Unit Tests
+
+Unit tests cover specific examples, edge cases, and error conditions that complement the property tests:
+
+- **UTF-8 edge cases**: Non-UTF-8 file produces `IoError`.
+- **BOM edge cases**: File with only a BOM, BOM followed by `---`.
+- **CRLF edge cases**: File with only `\r\n`, mixed `\r\n` and `\n` in front matter YAML, bare `\r` preserved.
+- **Front matter edge cases**: Empty YAML between delimiters, `---` inside YAML content (terminates front matter — multi-document YAML not supported), front matter with only `supersigil: { id: x }`, `---` with trailing whitespace accepted.
+- **Expression attribute example**: Specific `{...}` syntax detection and fix suggestion output.
+- **HTML elements ignored**: `<div>`, `<p>`, `<table>` in MDX body do not produce components or unknown component errors.
+- **Inline JSX ignored**: `MdxJsxTextElement` nodes are not extracted.
+- **Minimal config example** (Req 24): `paths = ["specs/**/*.mdx"]` produces valid Config with all defaults.
+- **Default values**: Ecosystem plugins default to `["rust"]`, hooks timeout defaults to 30 (both via serde and `HooksConfig::default()`), tests defaults to `[]`.
+- **Multi-project missing paths**: Project entry without `paths` field produces serde deserialization error.
+- **Built-in component definitions**: Verify the exact set of built-in components and their attribute schemas match the table in this design.
+- **Self-closing vs wrapping components**: Verify body_text is None for self-closing, populated for wrapping.
+- **Nested components**: `<AcceptanceCriteria>` containing `<Criterion>` children.
+- **Error collection**: File with multiple errors returns all of them.
+- **SourcePosition offset**: Positions are relative to original file (including front matter offset), not MDX body.
+- **List splitting**: `split_list_attribute` edge cases — trailing comma, consecutive commas, whitespace-only items, single item, empty string.
+
+### Test Organization
+
+```
+crates/supersigil-parser/tests/
+├── property_tests.rs    # All property-based tests for parser (Properties 3-10, 16-18)
+├── unit_tests.rs        # Unit tests for parser edge cases and examples
+└── fixtures/            # MDX test fixtures
+
+crates/supersigil-core/tests/
+├── config_property_tests.rs  # Property-based tests for config (Properties 1-2, 11-15, 19)
+└── config_unit_tests.rs      # Unit tests for config edge cases and examples
+```

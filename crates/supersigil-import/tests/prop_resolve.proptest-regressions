@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d449a47db9b9e192bd39b3b61e4dd90beebd672decf0630bc49d2787f4d92a8f # shrinks to resolvable = [RawRef { requirement_number: "1", criterion_index: "1" }], unresolvable_idx = "1"
+cc e0597dbba85fc8725fd1c28a3643298b45fd987b54d5000ec5747de4e7a31082 # shrinks to refs = [RawRef { requirement_number: "1", criterion_index: "1" }]
+cc 9638b10411e15c13eca4e37298d5d9008591e4e0c3bf9302a15570f8fbcb8cb3 # shrinks to refs = [RawRef { requirement_number: "1", criterion_index: "1" }], feature_name = "a"

@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/supersigil-core", "crates/supersigil-parser"]
+members = [
+    "crates/supersigil-core",
+    "crates/supersigil-parser",
+    "crates/supersigil-import",
+]
 resolver = "3"
 
 [workspace.package]
