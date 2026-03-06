@@ -4,7 +4,9 @@ pub mod error;
 pub mod format;
 pub mod loader;
 
-pub use commands::{Command, ContextArgs, ImportArgs, ImportSource, LsArgs, PlanArgs};
+pub use commands::{
+    Command, ContextArgs, ImportArgs, ImportSource, LsArgs, PlanArgs, SchemaArgs, SchemaFormat,
+};
 pub use discover::discover_spec_files;
 pub use format::OutputFormat;
 pub use loader::{find_config, load_graph, parse_all};

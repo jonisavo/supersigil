@@ -34,6 +34,9 @@ fn run(cli: &Cli) -> Result<(), supersigil_cli::error::CliError> {
         supersigil_cli::Command::Ls(ref args) => {
             supersigil_cli::commands::ls::run(args, &config_path)?;
         }
+        supersigil_cli::Command::Schema(ref args) => {
+            supersigil_cli::commands::schema::run(args, &config_path)?;
+        }
         supersigil_cli::Command::Plan(ref args) => {
             supersigil_cli::commands::plan::run(args, &config_path)?;
         }

@@ -691,6 +691,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "walkdir",
+ "yaml_serde",
 ]
 
 [[package]]

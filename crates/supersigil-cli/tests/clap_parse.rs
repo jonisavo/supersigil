@@ -42,6 +42,26 @@ fn parse_ls_with_filters() {
 }
 
 #[test]
+fn parse_schema_default_format() {
+    let cli = Cli::parse_from(["supersigil", "schema"]);
+    if let supersigil_cli::Command::Schema(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::SchemaFormat::Yaml));
+    } else {
+        panic!("expected Schema");
+    }
+}
+
+#[test]
+fn parse_schema_yaml_format() {
+    let cli = Cli::parse_from(["supersigil", "schema", "--format", "yaml"]);
+    if let supersigil_cli::Command::Schema(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::SchemaFormat::Yaml));
+    } else {
+        panic!("expected Schema");
+    }
+}
+
+#[test]
 fn parse_context() {
     let cli = Cli::parse_from(["supersigil", "context", "auth/req/login"]);
     if let supersigil_cli::Command::Context(args) = cli.command {
@@ -132,6 +152,11 @@ fn parse_import_prefix_with_trailing_slash_rejected() {
         "myproject/",
     ])
     .unwrap_err();
+}
+
+#[test]
+fn parse_schema_invalid_format_rejected() {
+    Cli::try_parse_from(["supersigil", "schema", "--format", "toml"]).unwrap_err();
 }
 
 #[test]

@@ -564,6 +564,8 @@ proptest! {
                 attributes: attr_defs,
                 referenceable: false,
                 target_component: None,
+                description: None,
+                examples: Vec::new(),
             },
         )]);
         let defs = ComponentDefs::merge(ComponentDefs::defaults(), user_defs);

@@ -47,6 +47,10 @@ pub struct ComponentDef {
     pub referenceable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_component: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examples: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +65,8 @@ pub struct DocumentTypeDef {
     pub status: Vec<String>,
     #[serde(default)]
     pub required_components: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

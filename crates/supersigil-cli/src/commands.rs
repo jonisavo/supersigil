@@ -3,6 +3,7 @@ pub mod import;
 pub mod lint;
 pub mod ls;
 pub mod plan;
+pub mod schema;
 
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -16,6 +17,8 @@ pub enum Command {
     /// List all documents
     #[command(alias = "list")]
     Ls(LsArgs),
+    /// Output component and document type schema
+    Schema(SchemaArgs),
     /// Agent-friendly view of a document and its relationships
     Context(ContextArgs),
     /// Outstanding work for a document, prefix, or the whole project
@@ -38,6 +41,19 @@ pub struct LsArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum SchemaFormat {
+    Json,
+    Yaml,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SchemaArgs {
+    /// Output format
+    #[arg(long, default_value = "yaml")]
+    pub format: SchemaFormat,
 }
 
 #[derive(Debug, clap::Args)]

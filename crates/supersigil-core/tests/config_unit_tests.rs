@@ -790,6 +790,81 @@ paths = ["backend/**/*.mdx"]
 }
 
 // ---------------------------------------------------------------------------
+// description and examples fields on ComponentDef and DocumentTypeDef
+// ---------------------------------------------------------------------------
+
+#[test]
+fn component_def_with_description_and_examples() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[components.Criterion]
+referenceable = true
+description = "A verifiable acceptance criterion"
+examples = [
+    '<Criterion id="login-ok">User sees dashboard</Criterion>',
+]
+
+[components.Criterion.attributes.id]
+required = true
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let criterion = &config.components["Criterion"];
+    assert_eq!(
+        criterion.description,
+        Some("A verifiable acceptance criterion".to_string())
+    );
+    assert_eq!(criterion.examples.len(), 1);
+    assert!(criterion.examples[0].contains("login-ok"));
+}
+
+#[test]
+fn component_def_description_and_examples_default_to_empty() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[components.Foo]
+referenceable = false
+
+[components.Foo.attributes.x]
+required = true
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let foo = &config.components["Foo"];
+    assert_eq!(foo.description, None);
+    assert!(foo.examples.is_empty());
+}
+
+#[test]
+fn document_type_def_with_description() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[documents.types.requirement]
+description = "Captures what the system must do"
+status = ["draft", "approved"]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let req = &config.documents.types["requirement"];
+    assert_eq!(
+        req.description,
+        Some("Captures what the system must do".to_string())
+    );
+}
+
+#[test]
+fn document_type_def_description_defaults_to_none() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[documents.types.design]
+status = ["draft"]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.documents.types["design"].description, None);
+}
+
+// ---------------------------------------------------------------------------
 // Multiple errors collected
 // ---------------------------------------------------------------------------
 

@@ -79,12 +79,16 @@ fn arb_component_def() -> impl Strategy<Value = ComponentDef> {
         prop::collection::hash_map(arb_ident(), arb_attribute_def(), 0..3),
         any::<bool>(),
         prop::option::of(arb_ident()),
+        prop::option::of(arb_ident()),
+        prop::collection::vec(arb_ident(), 0..3),
     )
         .prop_map(
-            |(attributes, referenceable, target_component)| ComponentDef {
+            |(attributes, referenceable, target_component, description, examples)| ComponentDef {
                 attributes,
                 referenceable,
                 target_component,
+                description,
+                examples,
             },
         )
 }
@@ -97,6 +101,7 @@ fn arb_document_type_def() -> impl Strategy<Value = DocumentTypeDef> {
         .prop_map(|(status, required_components)| DocumentTypeDef {
             status,
             required_components,
+            description: None,
         })
 }
 

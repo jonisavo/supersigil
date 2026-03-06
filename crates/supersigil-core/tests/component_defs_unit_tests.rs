@@ -205,6 +205,8 @@ fn merge_user_override_replaces_builtin() {
             attributes: HashMap::from([("label".to_string(), attr(true, false))]),
             referenceable: false,
             target_component: None,
+            description: None,
+            examples: Vec::new(),
         },
     );
 
@@ -227,6 +229,8 @@ fn merge_new_user_component_added() {
             attributes: HashMap::from([("color".to_string(), attr(false, false))]),
             referenceable: false,
             target_component: None,
+            description: None,
+            examples: Vec::new(),
         },
     );
 
@@ -248,6 +252,8 @@ fn merge_unmentioned_builtins_preserved() {
             attributes: HashMap::new(),
             referenceable: false,
             target_component: None,
+            description: None,
+            examples: Vec::new(),
         },
     );
 
@@ -270,6 +276,8 @@ fn merge_override_plus_new_component() {
             attributes: HashMap::new(),
             referenceable: false,
             target_component: None,
+            description: None,
+            examples: Vec::new(),
         },
     );
     user.insert(
@@ -278,6 +286,8 @@ fn merge_override_plus_new_component() {
             attributes: HashMap::from([("x".to_string(), attr(true, true))]),
             referenceable: true,
             target_component: Some("Criterion".to_string()),
+            description: None,
+            examples: Vec::new(),
         },
     );
 
@@ -298,4 +308,32 @@ fn merge_empty_user_defs_preserves_all_defaults() {
     let criterion = merged.get("Criterion").unwrap();
     assert!(criterion.referenceable);
     assert_eq!(criterion.attributes["id"], attr(true, false));
+}
+
+// ---------------------------------------------------------------------------
+// Description and examples on built-in components (Task 2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn all_builtins_have_descriptions() {
+    let defs = ComponentDefs::defaults();
+    for name in &BUILTIN_NAMES {
+        let def = defs.get(name).unwrap();
+        assert!(
+            def.description.is_some(),
+            "{name} should have a description"
+        );
+    }
+}
+
+#[test]
+fn all_builtins_have_examples() {
+    let defs = ComponentDefs::defaults();
+    for name in &BUILTIN_NAMES {
+        let def = defs.get(name).unwrap();
+        assert!(
+            !def.examples.is_empty(),
+            "{name} should have at least one example"
+        );
+    }
 }

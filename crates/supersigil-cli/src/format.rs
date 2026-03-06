@@ -23,6 +23,18 @@ pub fn write_json<T: Serialize>(value: &T) -> io::Result<()> {
     Ok(())
 }
 
+/// Write a value as YAML to stdout.
+///
+/// # Errors
+///
+/// Returns an I/O error if serialization or writing fails.
+pub fn write_yaml<T: Serialize>(value: &T) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    yaml_serde::to_writer(&mut handle, value).map_err(io::Error::other)?;
+    Ok(())
+}
+
 /// Write a numbered list of tasks in terminal format.
 ///
 /// # Errors

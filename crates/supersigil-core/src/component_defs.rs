@@ -20,7 +20,12 @@ impl ComponentDefs {
     )]
     pub fn defaults() -> Self {
         /// Insert a component with a single required list attribute `refs`.
-        fn refs_only(name: &str, defs: &mut HashMap<String, ComponentDef>) {
+        fn refs_only(
+            name: &str,
+            description: &str,
+            example: &str,
+            defs: &mut HashMap<String, ComponentDef>,
+        ) {
             defs.insert(
                 name.into(),
                 ComponentDef {
@@ -33,6 +38,8 @@ impl ComponentDefs {
                     )]),
                     referenceable: false,
                     target_component: None,
+                    description: Some(description.into()),
+                    examples: vec![example.into()],
                 },
             );
         }
@@ -46,6 +53,8 @@ impl ComponentDefs {
                 attributes: HashMap::new(),
                 referenceable: false,
                 target_component: None,
+                description: Some("Free-text acceptance criteria block. Use when criteria don't need individual IDs or cross-referencing.".into()),
+                examples: vec!["<AcceptanceCriteria>\n- User can log in with valid credentials\n- Invalid credentials show an error message\n</AcceptanceCriteria>".into()],
             },
         );
 
@@ -62,6 +71,8 @@ impl ComponentDefs {
                 )]),
                 referenceable: true,
                 target_component: None,
+                description: Some("A single verifiable criterion with a unique ID. Use for fine-grained traceability — each Criterion can be referenced by Validates, VerifiedBy, and Task components.".into()),
+                examples: vec!["<Criterion id=\"login-success\">User sees the dashboard after entering valid credentials</Criterion>".into()],
             },
         );
 
@@ -78,6 +89,8 @@ impl ComponentDefs {
                 )]),
                 referenceable: false,
                 target_component: Some("Criterion".into()),
+                description: Some("Declares that this document validates one or more Criterion IDs from another document. Creates a cross-document traceability link.".into()),
+                examples: vec!["<Validates refs={[\"auth/req/login#login-success\", \"auth/req/login#login-failure\"]} />".into()],
             },
         );
 
@@ -110,13 +123,34 @@ impl ComponentDefs {
                 ]),
                 referenceable: false,
                 target_component: None,
+                description: Some("Specifies how a criterion is verified: by automated tests (with tag or file paths) or by manual review.".into()),
+                examples: vec![
+                    "<VerifiedBy strategy=\"test\" tag=\"test_login_success\" />".into(),
+                    "<VerifiedBy strategy=\"test\" paths={[\"tests/auth/login_test.rs\"]} />".into(),
+                    "<VerifiedBy strategy=\"review\" />".into(),
+                ],
             },
         );
 
         // Implements, Illustrates, DependsOn — refs: required, list
-        refs_only("Implements", &mut defs);
-        refs_only("Illustrates", &mut defs);
-        refs_only("DependsOn", &mut defs);
+        refs_only(
+            "Implements",
+            "Declares that this document implements one or more criteria from another document.",
+            "<Implements refs={[\"auth/req/login#login-success\"]} />",
+            &mut defs,
+        );
+        refs_only(
+            "Illustrates",
+            "Declares that this document illustrates or provides examples for one or more criteria from another document.",
+            "<Illustrates refs={[\"auth/req/login#login-success\"]} />",
+            &mut defs,
+        );
+        refs_only(
+            "DependsOn",
+            "Declares that this document depends on one or more other documents.",
+            "<DependsOn refs={[\"auth/design/session-mgmt\"]} />",
+            &mut defs,
+        );
 
         // Task — id: required; status: optional; implements: optional, list; depends: optional, list; referenceable
         defs.insert(
@@ -154,6 +188,11 @@ impl ComponentDefs {
                 ]),
                 referenceable: true,
                 target_component: None,
+                description: Some("A trackable work item with status. Tasks can implement criteria and depend on other tasks. Referenceable by ID.".into()),
+                examples: vec![
+                    "<Task id=\"task-1-1\" status=\"done\" implements={[\"auth/req/login#login-success\"]}>\nImplement login endpoint\n</Task>".into(),
+                    "<Task id=\"task-1-2\" status=\"in-progress\" depends={[\"task-1-1\"]}>\nAdd rate limiting to login\n</Task>".into(),
+                ],
             },
         );
 
@@ -170,6 +209,8 @@ impl ComponentDefs {
                 )]),
                 referenceable: false,
                 target_component: None,
+                description: Some("Declares file paths (globs) that are tracked as part of this document. Used to detect stale references.".into()),
+                examples: vec!["<TrackedFiles paths={[\"src/auth/**/*.rs\", \"tests/auth/**/*.rs\"]} />".into()],
             },
         );
 
