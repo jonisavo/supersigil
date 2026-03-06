@@ -341,18 +341,19 @@ proptest! {
             .plan(&PlanQuery::All)
             .expect("plan(All) should succeed");
 
-        // Outstanding criteria from both requirement docs (no validators).
+        // crit_a: done task implements it → NOT outstanding.
         prop_assert!(
-            plan.outstanding_criteria
+            !plan.outstanding_criteria
                 .iter()
                 .any(|c| c.doc_id == req_id_a && c.criterion_id == crit_a),
-            "crit_a should be outstanding"
+            "crit_a should NOT be outstanding (done task implements it)"
         );
+        // crit_b: pending task implements it → still outstanding.
         prop_assert!(
             plan.outstanding_criteria
                 .iter()
                 .any(|c| c.doc_id == req_id_b && c.criterion_id == crit_b),
-            "crit_b should be outstanding"
+            "crit_b should be outstanding (task not done)"
         );
 
         // Completed task from tasks doc.

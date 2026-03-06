@@ -335,6 +335,76 @@ fn auth_login_plan_outstanding_criteria() {
     );
 }
 
+/// 10.1 updated: A done task implementing a criterion makes it non-outstanding.
+#[test]
+fn done_task_implementing_criterion_makes_it_non_outstanding() {
+    let config = single_project_config();
+
+    let req_doc = make_doc_full(
+        "my/req",
+        Some("requirement"),
+        Some("approved"),
+        vec![make_acceptance_criteria(
+            vec![
+                make_criterion_with_body("crit-a", "Criterion A.", 3),
+                make_criterion_with_body("crit-b", "Criterion B.", 4),
+                make_criterion_with_body("crit-c", "Criterion C.", 5),
+            ],
+            2,
+        )],
+    );
+
+    // Tasks doc: done task implements crit-a, in-progress task implements crit-b
+    let tasks_doc = make_doc(
+        "my/tasks",
+        vec![
+            make_task_with_body(
+                "task-1",
+                Some("done"),
+                Some("my/req#crit-a"),
+                None,
+                "Implement crit-a.",
+                1,
+            ),
+            make_task_with_body(
+                "task-2",
+                Some("in-progress"),
+                Some("my/req#crit-b"),
+                Some("task-1"),
+                "Implement crit-b.",
+                2,
+            ),
+        ],
+    );
+
+    let graph = build_graph(vec![req_doc, tasks_doc], &config).expect("graph should build");
+    let plan = graph
+        .plan(&PlanQuery::Document("my/req".to_owned()))
+        .expect("plan should succeed");
+
+    let outstanding_ids: Vec<&str> = plan
+        .outstanding_criteria
+        .iter()
+        .map(|c| c.criterion_id.as_str())
+        .collect();
+
+    // crit-a: done task implements it → NOT outstanding
+    assert!(
+        !outstanding_ids.contains(&"crit-a"),
+        "crit-a should NOT be outstanding (done task implements it): {outstanding_ids:?}"
+    );
+    // crit-b: in-progress task implements it → still outstanding
+    assert!(
+        outstanding_ids.contains(&"crit-b"),
+        "crit-b should be outstanding (task not done): {outstanding_ids:?}"
+    );
+    // crit-c: no task implements it → outstanding
+    assert!(
+        outstanding_ids.contains(&"crit-c"),
+        "crit-c should be outstanding (no task): {outstanding_ids:?}"
+    );
+}
+
 #[test]
 fn auth_login_plan_pending_and_completed_tasks() {
     let (graph, _) = build_auth_login_scenario();

@@ -359,8 +359,10 @@ pub(super) fn build_plan(
         PlanQuery::All => graph.documents().map(|(id, _)| id.to_owned()).collect(),
     };
 
-    let outstanding_criteria = collect_outstanding_criteria(graph, &target_doc_ids);
     let (pending_tasks, completed_tasks) = collect_plan_tasks(graph, &target_doc_ids);
+    let done_implemented = collect_done_implemented_criteria(graph, &completed_tasks);
+    let outstanding_criteria =
+        collect_outstanding_criteria(graph, &target_doc_ids, &done_implemented);
     let illustrated_by = collect_illustrations(graph, &target_doc_ids);
 
     Ok(PlanOutput {
@@ -371,33 +373,60 @@ pub(super) fn build_plan(
     })
 }
 
-/// Collect criteria that have no validating document from the target docs.
+/// Build the set of `(doc_id, criterion_id)` pairs covered by completed tasks.
+fn collect_done_implemented_criteria(
+    graph: &DocumentGraph,
+    completed_tasks: &[TaskInfo],
+) -> HashSet<(String, String)> {
+    let mut set = HashSet::new();
+    for task in completed_tasks {
+        if let Some(impls) = graph.task_implements(&task.tasks_doc_id, &task.task_id) {
+            for (doc_id, crit_id) in impls {
+                set.insert((doc_id.clone(), crit_id.clone()));
+            }
+        }
+    }
+    set
+}
+
+/// Collect criteria that have no validating document and no completed task
+/// implementing them.
 fn collect_outstanding_criteria(
     graph: &DocumentGraph,
     target_doc_ids: &HashSet<String>,
+    done_implemented: &HashSet<(String, String)>,
 ) -> Vec<OutstandingCriterion> {
     let mut result = Vec::new();
     for doc_id in target_doc_ids {
         if let Some(doc) = graph.document(doc_id) {
-            collect_outstanding_from_components(graph, doc_id, &doc.components, &mut result);
+            collect_outstanding_from_components(
+                graph,
+                doc_id,
+                &doc.components,
+                done_implemented,
+                &mut result,
+            );
         }
     }
     result
 }
 
-/// Recursively find `Criterion` components with no validators.
+/// Recursively find `Criterion` components with no validators and no
+/// completed task implementing them.
 fn collect_outstanding_from_components(
     graph: &DocumentGraph,
     doc_id: &str,
     components: &[ExtractedComponent],
+    done_implemented: &HashSet<(String, String)>,
     result: &mut Vec<OutstandingCriterion>,
 ) {
     for comp in components {
         if comp.name == CRITERION
             && let Some(crit_id) = comp.attributes.get("id")
         {
-            let validators = graph.validates(doc_id, Some(crit_id));
-            if validators.is_empty() {
+            let has_validator = !graph.validates(doc_id, Some(crit_id)).is_empty();
+            let has_done_task = done_implemented.contains(&(doc_id.to_owned(), crit_id.clone()));
+            if !has_validator && !has_done_task {
                 result.push(OutstandingCriterion {
                     doc_id: doc_id.to_owned(),
                     criterion_id: crit_id.clone(),
@@ -405,7 +434,13 @@ fn collect_outstanding_from_components(
                 });
             }
         }
-        collect_outstanding_from_components(graph, doc_id, &comp.children, result);
+        collect_outstanding_from_components(
+            graph,
+            doc_id,
+            &comp.children,
+            done_implemented,
+            result,
+        );
     }
 }
 

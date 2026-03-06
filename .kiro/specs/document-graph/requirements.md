@@ -140,7 +140,7 @@ The Document Graph module builds the cross-document data structure from parsed s
 
 #### Acceptance Criteria
 
-1. WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Plan_Output containing outstanding criteria (those with no validating document in the Reverse_Mapping).
+1. WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Plan_Output containing outstanding criteria (those with no validating document in the Reverse_Mapping AND no completed Task — status `done` — that implements them via resolved `implements` refs).
 2. THE Plan_Output SHALL include pending tasks (status not `done`) from Linked_Tasks_Documents, presented in Topological_Order.
 3. THE Plan_Output SHALL include completed tasks (status `done`) with the set of criteria they implement (from resolved `implements` refs).
 4. THE Plan_Output SHALL include illustrating documents from the Reverse_Mapping.

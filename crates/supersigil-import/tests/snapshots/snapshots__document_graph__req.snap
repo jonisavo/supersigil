@@ -1,5 +1,6 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
+assertion_line: 79
 expression: content
 ---
 ---
@@ -231,7 +232,7 @@ As an AI agent or developer, I want to retrieve a structured view of outstanding
 
 <AcceptanceCriteria>
   <Criterion id="req-10-1">
-    WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Plan_Output containing outstanding criteria (those with no validating document in the Reverse_Mapping).
+    WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Plan_Output containing outstanding criteria (those with no validating document in the Reverse_Mapping AND no completed Task — status `done` — that implements them via resolved `implements` refs).
   </Criterion>
   <Criterion id="req-10-2">
     THE Plan_Output SHALL include pending tasks (status not `done`) from Linked_Tasks_Documents, presented in Topological_Order.
