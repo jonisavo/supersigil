@@ -720,6 +720,37 @@ mod component_extraction {
         assert_eq!(pos.column, 1, "first component should start at column 1");
     }
 
+    // ── body_text includes inline code (backtick) content ──
+
+    #[test]
+    fn body_text_includes_inline_code() {
+        let body = "<Criterion id=\"c1\">\n  WHEN the `id` field is missing, THE Parser SHALL emit an error.\n</Criterion>\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components[0].body_text.as_deref(),
+            Some("WHEN the `id` field is missing, THE Parser SHALL emit an error."),
+            "body_text should include text from inline code nodes"
+        );
+    }
+
+    #[test]
+    fn body_text_includes_multiple_inline_code_spans() {
+        let body =
+            "<Criterion id=\"c1\">\n  The `foo` and `bar` fields are required.\n</Criterion>\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components[0].body_text.as_deref(),
+            Some("The `foo` and `bar` fields are required."),
+            "body_text should include text from all inline code spans"
+        );
+    }
+
     #[test]
     fn source_position_offset_for_second_component() {
         let body = "<Validates refs=\"REQ-1\" />\n\n<Criterion id=\"c1\">\nText\n</Criterion>\n";

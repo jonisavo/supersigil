@@ -5,7 +5,7 @@ use supersigil_core::PlanQuery;
 
 use crate::commands::PlanArgs;
 use crate::error::CliError;
-use crate::format::{OutputFormat, write_json, write_tasks};
+use crate::format::{OutputFormat, write_completed_summary, write_json, write_tasks};
 use crate::loader;
 
 /// Run the `plan` command: show outstanding work for a document, prefix,
@@ -57,10 +57,8 @@ pub fn run(args: &PlanArgs, config_path: &Path) -> Result<(), CliError> {
             }
 
             if !plan.completed_tasks.is_empty() {
-                writeln!(out, "\n## Completed:")?;
-                for task in &plan.completed_tasks {
-                    writeln!(out, "- {} (done)", task.task_id)?;
-                }
+                writeln!(out)?;
+                write_completed_summary(&mut out, &plan.completed_tasks)?;
             }
 
             if plan.outstanding_criteria.is_empty()

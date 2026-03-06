@@ -34,6 +34,11 @@ fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node]) {
     for node in nodes {
         match node {
             mdast::Node::Text(t) => buf.push_str(&t.value),
+            mdast::Node::InlineCode(c) => {
+                buf.push('`');
+                buf.push_str(&c.value);
+                buf.push('`');
+            }
             // Skip flow-level JSX elements — they are child components.
             mdast::Node::MdxJsxFlowElement(_) => {}
             // Recurse into wrapper nodes (paragraphs, etc.) to find text.
