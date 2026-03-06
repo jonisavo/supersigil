@@ -7,9 +7,9 @@ use supersigil_import::{Diagnostic, ImportPlan, ImportSummary, PlannedDocument};
 fn import_plan_serializes_to_json() {
     let plan = ImportPlan {
         documents: vec![PlannedDocument {
-            output_path: PathBuf::from("specs/auth/req.mdx"),
-            document_id: "auth/req".into(),
-            content: "---\nsupersigil:\n  id: auth/req\n---\n".into(),
+            output_path: PathBuf::from("specs/auth/auth.req.mdx"),
+            document_id: "req/auth".into(),
+            content: "---\nsupersigil:\n  id: req/auth\n---\n".into(),
         }],
         ambiguity_count: 1,
         summary: ImportSummary {
@@ -27,9 +27,9 @@ fn import_plan_serializes_to_json() {
     assert_eq!(
         json["documents"],
         json!([{
-            "output_path": "specs/auth/req.mdx",
-            "document_id": "auth/req",
-            "content": "---\nsupersigil:\n  id: auth/req\n---\n",
+            "output_path": "specs/auth/auth.req.mdx",
+            "document_id": "req/auth",
+            "content": "---\nsupersigil:\n  id: req/auth\n---\n",
         }])
     );
     assert_eq!(json["ambiguity_count"], 1);

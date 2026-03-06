@@ -208,6 +208,10 @@ struct FeatureContext<'a> {
     output_dir: &'a std::path::Path,
 }
 
+fn output_filename(feature: &str, type_hint: &str) -> String {
+    format!("{feature}.{type_hint}.mdx")
+}
+
 /// Accumulator for building an `ImportPlan` across multiple features.
 struct PlanAccumulator {
     documents: Vec<PlannedDocument>,
@@ -241,7 +245,10 @@ fn emit_requirements(
         .sum::<usize>();
 
     acc.documents.push(PlannedDocument {
-        output_path: ctx.output_dir.join(ctx.feature).join("req.mdx"),
+        output_path: ctx
+            .output_dir
+            .join(ctx.feature)
+            .join(output_filename(ctx.feature, "req")),
         document_id: ctx.req_doc_id.to_string(),
         content,
     });
@@ -290,7 +297,10 @@ fn emit_design(
     acc.total_ambiguity += amb;
 
     acc.documents.push(PlannedDocument {
-        output_path: ctx.output_dir.join(ctx.feature).join("design.mdx"),
+        output_path: ctx
+            .output_dir
+            .join(ctx.feature)
+            .join(output_filename(ctx.feature, "design")),
         document_id: design_doc_id.to_string(),
         content,
     });
@@ -351,7 +361,10 @@ fn emit_tasks(
     acc.total_ambiguity += amb;
 
     acc.documents.push(PlannedDocument {
-        output_path: ctx.output_dir.join(ctx.feature).join("tasks.mdx"),
+        output_path: ctx
+            .output_dir
+            .join(ctx.feature)
+            .join(output_filename(ctx.feature, "tasks")),
         document_id: tasks_doc_id.to_string(),
         content,
     });

@@ -265,7 +265,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - **Validates: Requirements 15.1, 15.3, 17.1**
 
   - [x] 18.2 Implement `write_files` in `write.rs`
-    - Write each `PlannedDocument` to `{output_dir}/{feature_name}/{type}.mdx`
+    - Write each `PlannedDocument` to `{output_dir}/{feature_name}/{feature_name}.{type}.mdx`
     - Create parent directories if needed
     - Check for existing files when `force` is false
     - Best-effort semantics: sequential writes, no rollback on failure
@@ -304,7 +304,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - _Requirements: all (snapshot tests guard output fidelity across the full pipeline)_
 
   - [x] 21.2 Write full-pipeline snapshot tests for real Kiro specs
-    - Feed `.kiro/specs/parser-and-config/` through `plan_kiro_import` and snapshot each generated MDX document (`req.mdx`, `design.mdx`, `tasks.mdx`)
+    - Feed `.kiro/specs/parser-and-config/` through `plan_kiro_import` and snapshot each generated MDX document (`parser-and-config.req.mdx`, `parser-and-config.design.mdx`, `parser-and-config.tasks.mdx`)
     - Feed `.kiro/specs/document-graph/` through `plan_kiro_import` and snapshot each generated MDX document
     - Use `insta::assert_snapshot!` for each output document
     - _Requirements: 2.1, 4.1, 5.1, 7.1, 8.1, 12.1_

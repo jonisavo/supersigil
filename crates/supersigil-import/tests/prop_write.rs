@@ -12,7 +12,7 @@ fn arb_planned_documents(base_dir: PathBuf) -> impl Strategy<Value = Vec<Planned
         let dir = base_dir.clone();
         prop::collection::vec(
             (
-                prop::sample::select(vec!["req.mdx", "design.mdx", "tasks.mdx"]),
+                prop::sample::select(vec!["req", "design", "tasks"]),
                 "[a-z ]{5,40}",
             ),
             1..=3,
@@ -20,11 +20,12 @@ fn arb_planned_documents(base_dir: PathBuf) -> impl Strategy<Value = Vec<Planned
         .prop_map(move |entries| {
             let mut docs = Vec::new();
             let mut seen = std::collections::HashSet::new();
-            for (filename, body) in entries {
-                // Deduplicate filenames within a single test case
-                if !seen.insert(filename.to_string()) {
+            for (type_hint, body) in entries {
+                // Deduplicate type hints within a single test case
+                if !seen.insert(type_hint.to_string()) {
                     continue;
                 }
+                let filename = format!("{feature}.{type_hint}.mdx");
                 docs.push(PlannedDocument {
                     output_path: dir.join(&feature).join(filename),
                     document_id: format!("test/{feature}"),

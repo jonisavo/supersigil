@@ -6,7 +6,7 @@ The Kiro Import module (`supersigil-import` crate) reads `.kiro/specs/` director
 
 The module is a library crate exposing a public API that the CLI crate (`supersigil-cli`) will consume via the `supersigil import --from kiro` subcommand. It has no dependency on the CLI — all functionality is testable as a library.
 
-Each Kiro spec directory produces up to three MDX files: a requirement document, a design document, and a tasks document. The conversion preserves prose, code blocks, and mermaid diagrams while mapping Kiro's structured elements (EARS criteria, `Validates:` references, ordered task lists) into supersigil MDX components (`<Criterion>`, `<Validates>`, `<Task>`, etc.). Ambiguous conversion points are marked with `<!-- TODO(supersigil-import): ... -->` comments for human review.
+Each Kiro spec directory produces up to three uniquely named MDX files: a requirement document, a design document, and a tasks document. The conversion preserves prose, code blocks, and mermaid diagrams while mapping Kiro's structured elements (EARS criteria, `Validates:` references, ordered task lists) into supersigil MDX components (`<Criterion>`, `<Validates>`, `<Task>`, etc.). Ambiguous conversion points are marked with `<!-- TODO(supersigil-import): ... -->` comments for human review.
 
 ## Glossary
 
@@ -192,7 +192,7 @@ Each Kiro spec directory produces up to three MDX files: a requirement document,
 
 #### Acceptance Criteria
 
-1. WHEN the Importer is invoked in write mode, THE Importer SHALL write each generated MDX_Output to a file at `{output_dir}/{feature_name}/{type}.mdx` where `type` is `req`, `design`, or `tasks`.
+1. WHEN the Importer is invoked in write mode, THE Importer SHALL write each generated MDX_Output to a file at `{output_dir}/{feature_name}/{feature_name}.{type}.mdx` where `type` is `req`, `design`, or `tasks`.
 2. WHEN the output directory does not exist, THE Importer SHALL create it (including parent directories).
 3. IF a file already exists at the target path and the `force` option is not set, THEN THE Importer SHALL return an error identifying the conflicting path rather than overwriting the file. WHEN the `force` option is set, THE Importer SHALL overwrite existing files.
 4. THE Importer SHALL use `specs/` as the default Output_Dir when no output directory is specified.
@@ -271,4 +271,3 @@ This requirement applies only to strings that have been identified as requiremen
 #### Acceptance Criteria
 
 1. WHEN a Kiro task line contains an optional marker (`*` after the status bracket, e.g., `- [ ]* 2.1 Optional task`), THE Importer SHALL include the task in the output and insert an Ambiguity_Marker noting the optional status, since supersigil `<Task>` has no `optional` attribute.
-

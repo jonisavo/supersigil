@@ -6,10 +6,10 @@ The `supersigil-import` crate is a library that reads `.kiro/specs/` directories
 
 The crate uses template-based MDX emission (string building) rather than constructing `SpecDocument` values and serializing them. This is the pragmatic v1 approach: the import crate reads Kiro markdown with lightweight regex/line-based parsing and emits MDX strings directly. The generated MDX can then be parsed by `supersigil-parser` for verification, but the import pipeline itself does not depend on the parser for output generation.
 
-Each Kiro spec directory produces up to three MDX files:
-- `req.mdx` — requirements with `<AcceptanceCriteria>` / `<Criterion>` components
-- `design.mdx` — design prose with `<Validates>` and `<Implements>` components
-- `tasks.mdx` — task list with nested `<Task>` components
+Each Kiro spec directory produces up to three uniquely named MDX files:
+- `{feature_name}.req.mdx` — requirements with `<AcceptanceCriteria>` / `<Criterion>` components
+- `{feature_name}.design.mdx` — design prose with `<Validates>` and `<Implements>` components
+- `{feature_name}.tasks.mdx` — task list with nested `<Task>` components
 
 Ambiguous conversion points are marked with `<!-- TODO(supersigil-import): ... -->` comments for human review.
 
@@ -145,7 +145,7 @@ pub struct ImportPlan {
 ```rust
 #[derive(Debug, Clone)]
 pub struct PlannedDocument {
-    /// Intended output path (e.g., `specs/parser-and-config/req.mdx`).
+    /// Intended output path (e.g., `specs/parser-and-config/parser-and-config.req.mdx`).
     pub output_path: PathBuf,
     /// Document ID (e.g., `req/parser-and-config`).
     pub document_id: String,

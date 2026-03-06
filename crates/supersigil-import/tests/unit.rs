@@ -1339,3 +1339,69 @@ mod fix_discovery_directory_as_file {
         assert!(dirs[0].has_design, "real file should be discovered");
     }
 }
+
+mod output_filenames {
+    use super::*;
+
+    #[test]
+    fn plan_uses_feature_prefixed_output_filenames() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+
+        let req_md = "\
+# Requirements Document: Naming
+
+### Requirement 1: Paths
+
+#### Acceptance Criteria
+
+1. THE System SHALL write files with unique basenames.
+";
+
+        let design_md = "\
+# Design Document: Naming
+
+## Overview
+
+The importer should produce unique filenames.
+";
+
+        let tasks_md = "\
+# Implementation Plan: Naming
+
+## Tasks
+
+- [x] 1. Update filenames
+";
+
+        write_kiro_spec(
+            &specs_dir,
+            "unique-names",
+            Some(req_md),
+            Some(design_md),
+            Some(tasks_md),
+        );
+
+        let config = config_for(&specs_dir, &tmp.path().join("out"));
+        let plan = plan_kiro_import(&config).unwrap();
+
+        let actual_paths: std::collections::BTreeSet<_> = plan
+            .documents
+            .iter()
+            .map(|doc| {
+                doc.output_path
+                    .strip_prefix(&config.output_dir)
+                    .unwrap()
+                    .to_path_buf()
+            })
+            .collect();
+
+        let expected_paths = std::collections::BTreeSet::from([
+            PathBuf::from("unique-names").join("unique-names.req.mdx"),
+            PathBuf::from("unique-names").join("unique-names.design.mdx"),
+            PathBuf::from("unique-names").join("unique-names.tasks.mdx"),
+        ]);
+
+        assert_eq!(actual_paths, expected_paths);
+    }
+}
