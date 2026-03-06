@@ -1,0 +1,337 @@
+---
+supersigil:
+  id: req/verification-engine
+  type: requirement
+  status: draft
+title: "Verification Engine"
+---
+
+## Introduction
+
+The verification engine (`supersigil-verify`) consumes a `DocumentGraph` and `Config` and produces a `VerificationReport` containing findings — configurable rule violations with resolved severities. It is the CI command: `supersigil verify`.
+
+The engine checks properties of the graph that the graph builder itself does not enforce: criterion coverage, test mapping existence, tracked file staleness, status consistency, and structural conventions. Hard errors (broken refs, duplicate IDs, cycles) remain in `supersigil-core::graph` — the verify crate operates only on a successfully built graph.
+
+The engine also provides the `affected` query: given a git ref, report which spec documents have `TrackedFiles` globs matching changed files.
+
+Deferred from this spec: JUnit XML test result consumption, Rust ecosystem plugin (syn-based test discovery), and other language plugins. Test result integration will be handled by ecosystem-native plugins in a follow-up spec.
+
+## Definitions
+
+- **Finding**: A single verification observation with a rule name, optional document ID, message, source position, and resolved severity. Document-scoped findings (rule violations) carry a `doc_id`. Global findings (hook errors, timeouts) have no `doc_id`.
+- **VerificationReport**: The aggregate output of a verify run — a list of findings plus a summary.
+- **Configurable_Rule**: A verification check whose severity can be overridden via config. Contrast with hard errors, which are always fatal and live in graph construction.
+- **Severity**: One of `off`, `warning`, or `error`. Determines whether a finding is suppressed, advisory, or build-breaking.
+- **Effective_Severity**: The severity of a finding after applying the 4-level precedence chain.
+- **Draft_Gating**: The rule that documents with `status: draft` have all configurable findings suppressed to `info` level, regardless of other severity settings.
+- **Tag_Format**: The hardcoded string `supersigil: {tag}` searched for in test file comments. Not configurable.
+- **Comment_Scanner**: A regex-based scanner that finds Tag_Format occurrences across common comment styles (`//`, `#`, `///`, `--`, `/* */`).
+
+## Requirement 1: Verification Pipeline
+
+As a developer, I want a single `verify` function that runs all configurable rules against the document graph and produces a structured report, so that CI can gate on spec compliance.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE Verify_Engine SHALL accept a `DocumentGraph`, a `Config`, and an `Options` struct (containing optional `--since` ref, `--project` filter, output format) and return a `VerificationReport`.
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE Verify_Engine SHALL run all configurable rules and collect their findings into a single report. Rules SHALL run independently — a failure in one rule SHALL NOT prevent other rules from executing.
+  </Criterion>
+  <Criterion id="req-1-3">
+    THE VerificationReport SHALL contain a list of `Finding` values and a `Summary` with counts of errors, warnings, and info-level findings.
+  </Criterion>
+  <Criterion id="req-1-4">
+    WHEN `--project` is specified in a multi-project workspace, THE Verify_Engine SHALL scope its findings to documents belonging to that project, but SHALL resolve refs globally (the full document index is available for ref targets).
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Severity Resolution
+
+As a developer, I want configurable rule severities with a clear precedence chain, so that I can tune strictness without surprises.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE Verify_Engine SHALL resolve each finding's effective severity using a 4-level precedence chain (highest to lowest): (1) Draft gating, (2) Per-rule override from `[verify.rules]`, (3) Global strictness from `[verify] strictness`, (4) Built-in default for the rule.
+  </Criterion>
+  <Criterion id="req-2-2">
+    WHEN a document has `status: draft`, ALL configurable findings for that document SHALL be suppressed to `info` level. The finding message SHALL indicate what severity it would have if not draft.
+  </Criterion>
+  <Criterion id="req-2-3">
+    WHEN a per-rule override is set in `[verify.rules]`, it SHALL take precedence over the global strictness and built-in default, but NOT over draft gating.
+  </Criterion>
+  <Criterion id="req-2-4">
+    WHEN the global `strictness` is set, it SHALL serve as the default for all rules not explicitly overridden in `[verify.rules]`.
+  </Criterion>
+  <Criterion id="req-2-5">
+    WHEN neither a per-rule override nor a global strictness is set, THE Verify_Engine SHALL use the built-in default for each rule.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Coverage Checking
+
+As a developer, I want to know which acceptance criteria have no validating property, so that I can track verification gaps.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    FOR EACH `Criterion` component in the graph, THE Verify_Engine SHALL check whether at least one `Validates` ref in any document points to it. WHEN no `Validates` ref exists, THE Verify_Engine SHALL emit an `uncovered_criterion` finding for the document containing the criterion.
+  </Criterion>
+  <Criterion id="req-3-2">
+    THE `uncovered_criterion` rule SHALL have a built-in default severity of `error`.
+  </Criterion>
+  <Criterion id="req-3-3">
+    `Illustrates` refs SHALL NOT satisfy coverage. A criterion referenced only by `Illustrates` SHALL still be reported as uncovered.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Test Mapping — File Glob Strategy
+
+As a developer, I want `VerifiedBy strategy="file-glob"` to check that declared test files exist, so that stale file references are caught.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    WHEN a `VerifiedBy` component has `strategy="file-glob"`, THE Verify_Engine SHALL expand each path in the `paths` attribute as a glob relative to the project root. WHEN a glob matches zero files, THE Verify_Engine SHALL emit a `missing_test_files` finding.
+  </Criterion>
+  <Criterion id="req-4-2">
+    THE `missing_test_files` rule SHALL have a built-in default severity of `error`.
+  </Criterion>
+  <Criterion id="req-4-3">
+    WHEN a `VerifiedBy` has `strategy="file-glob"` and all paths resolve to existing files, THE Verify_Engine SHALL record the match count for reporting (e.g., "2 files linked (existence only)").
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: Test Mapping — Tag Strategy
+
+As a developer, I want `VerifiedBy strategy="tag"` to scan test files for matching tags, so that I can verify tests are annotated for the right properties.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    WHEN a `VerifiedBy` component has `strategy="tag"`, THE Verify_Engine SHALL scan all files matching the configured test paths for the Tag_Format `supersigil: {tag}`. WHEN zero matches are found, THE Verify_Engine SHALL emit a `zero_tag_matches` finding.
+  </Criterion>
+  <Criterion id="req-5-2">
+    THE Comment_Scanner SHALL recognize the tag format across common comment styles: `//`, `#`, `///`, `--`, and `/* */` block comments. The tag is matched literally after the `supersigil:` prefix and surrounding whitespace.
+  </Criterion>
+  <Criterion id="req-5-3">
+    THE `zero_tag_matches` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+  <Criterion id="req-5-4">
+    WHEN matches are found, THE Verify_Engine SHALL record the match count and file locations for reporting (e.g., "3 tests matched (tag: prop:login)").
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 6: Unverified Validation
+
+As a developer, I want to be warned when a document claims to validate criteria but has no test mapping, so that claims are backed by evidence.
+
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    WHEN a document contains a `Validates` component but no `VerifiedBy` component, THE Verify_Engine SHALL emit an `unverified_validation` finding for that document.
+  </Criterion>
+  <Criterion id="req-6-2">
+    THE `unverified_validation` rule SHALL have a built-in default severity of `error`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 7: Tracked Files — Empty Glob
+
+As a developer, I want to be warned when a `TrackedFiles` glob matches no files, so that stale globs are caught after renames or deletions.
+
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    FOR EACH `TrackedFiles` component, THE Verify_Engine SHALL expand each path in the `paths` attribute as a glob relative to the project root. WHEN a glob matches zero files, THE Verify_Engine SHALL emit an `empty_tracked_glob` finding identifying the glob and the document.
+  </Criterion>
+  <Criterion id="req-7-2">
+    THE `empty_tracked_glob` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 8: Tracked Files — Staleness
+
+As a developer, I want to know when source files tracked by a spec have changed since a git ref, so that I can review potentially stale specs.
+
+<AcceptanceCriteria>
+  <Criterion id="req-8-1">
+    WHEN `--since [ref]` is provided, THE Verify_Engine SHALL compute the set of files changed between `ref` and HEAD (using `git2`). For each `TrackedFiles` component whose globs match any changed file, THE Verify_Engine SHALL emit a `stale_tracked_files` finding.
+  </Criterion>
+  <Criterion id="req-8-2">
+    THE diff SHALL be computed as `ref..HEAD` and SHALL include uncommitted and staged changes by default. WHEN `--committed-only` is specified, THE diff SHALL exclude the working tree and index.
+  </Criterion>
+  <Criterion id="req-8-3">
+    WHEN `--merge-base` is specified, THE diff SHALL be computed against `$(git merge-base ref HEAD)` instead of `ref` directly.
+  </Criterion>
+  <Criterion id="req-8-4">
+    THE `stale_tracked_files` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 9: Affected Query
+
+As a developer, I want `supersigil affected --since [ref]` to report which spec documents are potentially affected by code changes, so that I can route review to the right specs.
+
+<AcceptanceCriteria>
+  <Criterion id="req-9-1">
+    THE Affected query SHALL accept a `DocumentGraph`, a project root path, a git ref, and options (`--committed-only`, `--merge-base`, `--format`). It SHALL return a list of `AffectedDocument` values.
+  </Criterion>
+  <Criterion id="req-9-2">
+    EACH `AffectedDocument` SHALL contain the document ID, file path (relative to project root), matched globs, and the list of changed files that matched.
+  </Criterion>
+  <Criterion id="req-9-3">
+    THE diff computation SHALL use the same semantics as `stale_tracked_files` (req-8-2, req-8-3).
+  </Criterion>
+  <Criterion id="req-9-4">
+    THE Affected query SHALL support `--format json` outputting a JSON array of `AffectedDocument` objects.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 10: Status Consistency
+
+As a developer, I want to be warned when a document's declared status conflicts with its actual verification state, so that statuses stay meaningful.
+
+<AcceptanceCriteria>
+  <Criterion id="req-10-1">
+    WHEN a document has `status: verified` but its `VerifiedBy` components have no matched tests (zero files or zero tag matches), THE Verify_Engine SHALL emit a `status_inconsistency` finding.
+  </Criterion>
+  <Criterion id="req-10-2">
+    WHEN a document has `status: implemented` but not all of its criteria have validating properties, THE Verify_Engine SHALL emit a `status_inconsistency` finding.
+  </Criterion>
+  <Criterion id="req-10-3">
+    THE `status_inconsistency` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 11: Missing Required Component
+
+As a developer, I want to be warned when a document is missing a component required by its type, so that type conventions are enforced.
+
+<AcceptanceCriteria>
+  <Criterion id="req-11-1">
+    WHEN a document declares a `type` and that type has `required_components` in config, THE Verify_Engine SHALL check that the document contains at least one instance of each required component. Missing components SHALL produce a `missing_required_component` finding.
+  </Criterion>
+  <Criterion id="req-11-2">
+    THE `missing_required_component` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 12: Invalid ID Pattern
+
+As a developer, I want to be warned when a document ID doesn't match the configured naming convention, so that ID consistency is maintained.
+
+<AcceptanceCriteria>
+  <Criterion id="req-12-1">
+    WHEN `id_pattern` is configured, THE Verify_Engine SHALL check each document's ID against the compiled regex. Non-matching IDs SHALL produce an `invalid_id_pattern` finding.
+  </Criterion>
+  <Criterion id="req-12-2">
+    THE `invalid_id_pattern` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 13: Isolated Document
+
+As a developer, I want to optionally detect documents that are disconnected from the graph, so that orphaned specs don't accumulate silently.
+
+<AcceptanceCriteria>
+  <Criterion id="req-13-1">
+    WHEN the `isolated_document` rule is enabled, THE Verify_Engine SHALL check each document for incoming or outgoing component refs. Documents with no refs in either direction SHALL produce an `isolated_document` finding.
+  </Criterion>
+  <Criterion id="req-13-2">
+    THE `isolated_document` rule SHALL have a built-in default severity of `off`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 14: Orphan Test Tag
+
+As a developer, I want to be warned when a test file has a supersigil tag that no spec document references, so that orphaned annotations are caught.
+
+<AcceptanceCriteria>
+  <Criterion id="req-14-1">
+    THE Verify_Engine SHALL scan all test files for Tag_Format occurrences. For each tag found that does not correspond to any document's `VerifiedBy` tag, THE Verify_Engine SHALL emit an `orphan_test_tag` finding.
+  </Criterion>
+  <Criterion id="req-14-2">
+    THE `orphan_test_tag` rule SHALL have a built-in default severity of `warning`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 15: Hook Execution
+
+As a developer, I want external process hooks to run after verification, so that I can extend verification with custom checks.
+
+<AcceptanceCriteria>
+  <Criterion id="req-15-1">
+    THE Verify_Engine SHALL provide a `run_hooks()` function that executes a list of hook commands sequentially, passing JSON on stdin and collecting findings from stdout. The `verify()` function SHALL run `post_verify` hooks only. Other lifecycle groups (`post_lint`, `export`) are orchestrated by the CLI layer. Within a group, hooks SHALL run sequentially in declaration order.
+  </Criterion>
+  <Criterion id="req-15-2">
+    EACH hook SHALL receive the verification report as JSON on stdin.
+  </Criterion>
+  <Criterion id="req-15-3">
+    A hook's stdout SHALL be parsed as a JSON array of `[level, message]` pairs (two-element arrays) and merged into the report as additional findings with `rule: HookOutput`. Invalid JSON on stdout SHALL produce a warning finding with `rule: HookFailure`.
+  </Criterion>
+  <Criterion id="req-15-4">
+    A non-zero exit code from a hook SHALL add an error finding to the report identifying the hook command and exit code.
+  </Criterion>
+  <Criterion id="req-15-5">
+    EACH hook SHALL have a configurable timeout (default 30 seconds from `[hooks] timeout_seconds`). WHEN a hook exceeds its timeout, it SHALL be killed and an error finding SHALL be added.
+  </Criterion>
+  <Criterion id="req-15-6">
+    Hook stdout and stderr SHALL each be truncated to 64 KB to prevent runaway output.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 16: Report Output
+
+As a developer, I want the verification report in multiple formats, so that it works for both human review and CI integration.
+
+<AcceptanceCriteria>
+  <Criterion id="req-16-1">
+    THE Verify_Engine SHALL support three output formats: terminal (human-readable with ANSI colors and Unicode symbols), JSON (machine-readable), and markdown (committable report).
+  </Criterion>
+  <Criterion id="req-16-2">
+    THE terminal format SHALL group findings by document, use symbols for severity levels, and show summary counts. Color and TTY handling are the responsibility of the CLI layer.
+  </Criterion>
+  <Criterion id="req-16-3">
+    THE JSON format SHALL serialize the full `VerificationReport` structure including all findings with their resolved severities.
+  </Criterion>
+  <Criterion id="req-16-4">
+    THE `VerificationReport` SHALL provide a method to determine the overall result status (clean, has-errors, warnings-only) for use by the CLI layer's exit code logic.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 17: Comment-Based Tag Scanner
+
+As a developer, I want a language-agnostic tag scanner that finds `supersigil: {tag}` annotations in test files across common comment styles, so that tag-based test discovery works without language-specific plugins.
+
+<AcceptanceCriteria>
+  <Criterion id="req-17-1">
+    THE Comment_Scanner SHALL accept a tag string and a set of file paths, and return a list of matches with file path, line number, and the matched tag.
+  </Criterion>
+  <Criterion id="req-17-2">
+    THE Comment_Scanner SHALL recognize the tag in line comments (`//`, `#`, `///`, `--`) and block comments (`/* */`). The pattern is: optional comment prefix, optional whitespace, the literal string `supersigil:`, whitespace, and then the tag matched literally.
+  </Criterion>
+  <Criterion id="req-17-3">
+    THE Comment_Scanner SHALL match tags literally (no regex or glob interpretation of the tag value).
+  </Criterion>
+  <Criterion id="req-17-4">
+    THE Comment_Scanner SHALL read files as UTF-8. Non-UTF-8 files SHALL be silently skipped.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 18: Git Diff Computation
+
+As a developer, I want reliable git diff computation for staleness and affected queries, so that file change detection is correct across different branch scenarios.
+
+<AcceptanceCriteria>
+  <Criterion id="req-18-1">
+    THE Git module SHALL use `git2` to compute the set of changed file paths between a ref and HEAD.
+  </Criterion>
+  <Criterion id="req-18-2">
+    BY DEFAULT, the diff SHALL include uncommitted changes (working tree) and staged changes (index) in addition to committed changes since the ref.
+  </Criterion>
+  <Criterion id="req-18-3">
+    WHEN `--committed-only` is specified, the diff SHALL exclude working tree and index changes, reporting only committed changes since the ref.
+  </Criterion>
+  <Criterion id="req-18-4">
+    WHEN `--merge-base` is specified, the diff SHALL be computed against `git merge-base ref HEAD` instead of `ref` directly.
+  </Criterion>
+  <Criterion id="req-18-5">
+    WHEN the ref cannot be resolved, THE Git module SHALL return an error identifying the unresolvable ref.
+  </Criterion>
+</AcceptanceCriteria>
