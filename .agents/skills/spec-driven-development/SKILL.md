@@ -9,44 +9,73 @@ Use this skill only when the user explicitly wants the full guided Supersigil wo
 
 ## Current Contract
 
-Treat this as a directive wrapper over the two lower-level Supersigil skills:
+Treat this as a directive wrapper over a conditional planning round plus the two lower-level Supersigil skills:
 
+- a structured planning round in the conversation when the starting request is underspecified, or whenever the user explicitly asks for planning
 - `feature-specification` for requirements, properties, design, and tasks
 - `feature-development` for implementation against the finished spec graph
 
 If those skills are not available, fall back to the embedded summaries below instead of failing.
+Do not author requirements or design from guessed intent when the planning round is required.
 
 ## Workflow
 
 1. Scope the feature before creating artifacts.
    Confirm the user goal, success condition, and the feature boundary.
    Keep the scope small enough that one spec graph can stay coherent.
+   Decide whether the request is already specific enough to write requirements honestly.
 
-2. Run the specification phase first.
+2. Run a planning phase when needed.
+   The planning phase is mandatory when the initial request is underspecified.
+   The planning phase is also mandatory whenever the user explicitly asks for it, even if the request is otherwise clear.
+   If the request is already well specified and the user did not ask for planning, skip this phase and say briefly why it is safe to proceed.
+   Ask only the questions needed to remove product, scope, and quality ambiguity that would weaken requirements or design.
+   When a structured question tool is available in the current mode, prefer it.
+   Otherwise ask concise direct questions in the conversation.
+   Focus questions on user outcomes, main scenarios, non-goals, constraints, integrations, failure modes, and verification expectations.
+
+3. Produce and confirm a planning brief when the planning phase runs.
+   Summarize the agreed problem statement, in-scope and out-of-scope behavior, major scenarios, constraints, quality risks, and verification approach in the conversation.
+   Treat this brief as the source material for requirements and early design choices.
+   Get explicit user confirmation or corrections before authoring requirements.
+
+4. Run the specification phase first.
    Use the `feature-specification` workflow to produce or repair the requirement, property, design, and tasks docs.
+   Derive requirement criteria from the approved planning brief when one exists.
+   Derive design from the reviewed requirement shape plus the confirmed constraints, risks, and verification strategy.
    Keep docs at `status: draft` while the graph is still moving.
    Do not start implementation while the spec graph is still structurally broken.
+   If spec authoring reveals missing intent, pause and return to planning instead of guessing.
 
-3. Gate the transition to implementation.
+5. Gate the transition to implementation.
    Move on only when the scoped docs are lint-clean, verify-clean enough for honest handoff, and reviewed with the user.
    Make the transition explicit in the conversation:
    `Specs are complete and verified. Switching to implementation.`
 
-4. Run the implementation phase second.
+6. Run the implementation phase second.
    Use the `feature-development` workflow to select the next criterion or task chain, implement it, add verification evidence, and keep task states current.
 
-5. Close with the graph, not just the code.
-   Summarize `supersigil status`, `supersigil plan`, and `supersigil verify` for the scoped feature.
+7. Close with the graph, not just the code.
+   Summarize the planning brief when one was used, plus `supersigil status`, `supersigil plan`, and `supersigil verify` for the scoped feature.
    If the user stops after specs only, suggest `feature-development` for the next session.
 
 ## Embedded Fallback Summary
 
 Use this only when the lower-level skills are unavailable.
 
+### Planning Phase
+
+- Decide whether planning is required before writing any spec docs.
+- Run planning when the initial request is underspecified, or whenever the user explicitly asks for a planning phase.
+- Ask only enough questions to remove ambiguity that would lower requirement or design quality.
+- Prefer a structured question tool when the current collaboration mode supports it; otherwise ask concise direct questions in the conversation.
+- Capture a planning brief in the conversation and get user confirmation before authoring requirements when planning was required.
+
 ### Specification Phase
 
 - Run `supersigil schema`, `supersigil ls`, `supersigil context`, and `supersigil plan` to inspect the current graph.
 - Use `supersigil new` or `supersigil import --from kiro` as the starting point.
+- Base requirements and design on the confirmed planning brief when one exists.
 - Keep documents in `status: draft` while editing.
 - Run `supersigil lint` after every spec write.
 - Run `supersigil verify` before handing the graph to implementation.
@@ -60,6 +89,8 @@ Use this only when the lower-level skills are unavailable.
 
 ## Stage Gates
 
+- Do not author requirements or design before a required planning brief has been confirmed.
+- Do not continue spec authoring on guessed intent; return to planning when material ambiguity appears.
 - Do not implement before the spec phase is genuinely ready.
 - Do not keep the user in this wrapper if they only want one phase.
   If they only want spec authoring, use `feature-specification`.
