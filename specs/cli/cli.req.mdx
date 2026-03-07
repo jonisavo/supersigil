@@ -1,0 +1,315 @@
+---
+supersigil:
+  id: cli/req
+  type: requirement
+  status: draft
+title: "CLI"
+---
+
+## Introduction
+
+The `supersigil-cli` crate is the CLI entry point for supersigil. It is a thin dispatch layer over the library crates (`supersigil-core`, `supersigil-verify`, `supersigil-import`). The CLI owns argument parsing, config discovery, output formatting, color/TTY handling, and exit codes. All domain logic lives in the library crates.
+
+The CLI provides 12 subcommands grouped by function:
+
+- **Structural**: `lint` (per-file checks)
+- **Query**: `ls`, `schema`, `context`, `plan`, `graph`, `status`
+- **Verification**: `verify`, `affected`
+- **Scaffolding**: `init`, `new`
+- **Migration**: `import`
+
+Cross-cutting concerns (output conventions, exit codes) apply to all commands.
+
+## Definitions
+
+- **Config Discovery**: The process of searching upward from CWD for `supersigil.toml`.
+- **Project Root**: The directory containing `supersigil.toml`.
+- **Terminal Mode**: Human-readable output with colors and symbols.
+- **JSON Mode**: Machine-readable output for CI and agent consumption.
+- **Next-Step Hint**: A short message printed after command completion suggesting the logical next action. Printed to stderr so it does not pollute piped stdout.
+- **Remediation Hint**: Guidance in error messages explaining how to fix the problem.
+
+## Requirement 1: Config Discovery
+
+As a developer, I want the CLI to automatically find my project config, so that I can run commands from any subdirectory.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    ALL commands except `import` and `init` SHALL search upward from the current working directory for `supersigil.toml`. The first match SHALL be used as the project config.
+  </Criterion>
+  <Criterion id="req-1-2">
+    WHEN no `supersigil.toml` is found in any ancestor directory, the CLI SHALL exit 1 with an error message on stderr identifying the search start directory and suggesting `supersigil init`.
+  </Criterion>
+  <Criterion id="req-1-3">
+    `import` and `init` SHALL NOT require a config file. `import` operates on source format directories. `init` creates the config file.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: lint
+
+As a developer, I want fast per-file structural checks so that I get immediate feedback while authoring spec documents.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    `lint` SHALL discover files via config path globs, parse each file independently, and report structural errors (invalid front matter, unknown components, missing required attributes, expression attributes).
+  </Criterion>
+  <Criterion id="req-2-2">
+    `lint` SHALL NOT build the cross-document graph. Broken refs, coverage, and other cross-document checks are the responsibility of `verify`.
+  </Criterion>
+  <Criterion id="req-2-3">
+    WHEN all files are clean, `lint` SHALL print a count of files checked to stdout and exit 0.
+  </Criterion>
+  <Criterion id="req-2-4">
+    WHEN structural errors exist, `lint` SHALL print each error to stdout with file path and position, print a summary count, and exit 1.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: ls
+
+As a developer, I want to list all spec documents with optional filters, so that I can explore the project's spec inventory.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    `ls` SHALL build the document graph and list all documents. Each entry SHALL include the document ID, type, status, and file path.
+  </Criterion>
+  <Criterion id="req-3-2">
+    `ls` SHALL accept `--type`, `--status`, and `--project` filters. Filters SHALL be conjunctive (AND). Unknown filter values SHALL produce results with zero matches, not errors.
+  </Criterion>
+  <Criterion id="req-3-3">
+    `ls` SHALL support `--format terminal|json`. Terminal mode: one line per document. JSON mode: array of document objects on stdout.
+  </Criterion>
+  <Criterion id="req-3-4">
+    Empty result sets SHALL exit 0 (empty results are not an error).
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: schema
+
+As an agent or developer, I want to see the valid components and document types, so that I can author syntactically correct spec documents.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    `schema` SHALL load config and output all component definitions (name, attributes with required/list flags, referenceable flag, target_component) and document type definitions (name, valid statuses).
+  </Criterion>
+  <Criterion id="req-4-2">
+    `schema` SHALL support `--format json|yaml`. Default: yaml.
+  </Criterion>
+  <Criterion id="req-4-3">
+    Schema output SHALL reflect built-in defaults merged with any user config overrides to component or type definitions.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: context
+
+As an agent, I want a focused view of a document and all its relationships, so that I have the right context for implementation.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    `context` SHALL accept a document ID and output the document's metadata, criteria (with their validation status), validating properties, implementations, illustrations, and tasks.
+  </Criterion>
+  <Criterion id="req-5-2">
+    Tasks SHALL be presented in topological (dependency) order, giving agents a ready-made implementation sequence.
+  </Criterion>
+  <Criterion id="req-5-3">
+    `context` SHALL support `--format terminal|json`.
+  </Criterion>
+  <Criterion id="req-5-4">
+    WHEN the document ID does not exist, `context` SHALL exit 1 with an error on stderr that lists available document IDs or suggests `supersigil ls`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 6: plan
+
+As an agent or developer, I want to see outstanding work for a feature or the whole project, so that I know what to work on next.
+
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    `plan` SHALL accept an optional argument that is interpreted as: (1) an exact document ID, (2) an ID prefix matching multiple documents, or (3) omitted for project-wide scope.
+  </Criterion>
+  <Criterion id="req-6-2">
+    `plan` SHALL output outstanding criteria (uncovered or unvalidated), pending tasks in dependency order, illustrations, and a completed work summary.
+  </Criterion>
+  <Criterion id="req-6-3">
+    `plan` SHALL support `--format terminal|json`.
+  </Criterion>
+  <Criterion id="req-6-4">
+    WHEN an exact ID is given and not found, `plan` SHALL attempt prefix match. WHEN no documents match the prefix either, `plan` SHALL exit 1 with an error suggesting `supersigil ls`.
+  </Criterion>
+  <Criterion id="req-6-5">
+    WHEN no argument is given, `plan` SHALL show project-wide outstanding work across all documents.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 7: import
+
+As a developer migrating from Kiro, I want to import existing specs so that I don't start from scratch.
+
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    `import --from kiro` SHALL discover `.kiro/specs/` directories and convert requirements, design, and tasks files to supersigil MDX format.
+  </Criterion>
+  <Criterion id="req-7-2">
+    `import` SHALL accept `--dry-run` (preview without writing), `--output-dir` (destination directory), `--prefix` (ID prefix for generated documents), and `--force` (overwrite existing files).
+  </Criterion>
+  <Criterion id="req-7-3">
+    `--dry-run` SHALL output a conversion plan to stdout showing what would be created, mapped, and flagged as ambiguous, without writing any files.
+  </Criterion>
+  <Criterion id="req-7-4">
+    Data output SHALL go to stdout. Diagnostics, warnings, and skip messages SHALL go to stderr. Exit 0 on success (even with ambiguity markers in output), exit 1 on fatal errors.
+  </Criterion>
+  <Criterion id="req-7-5">
+    `import` SHALL NOT require a `supersigil.toml` config file. After a successful import, `import` SHALL print a next-step hint suggesting `supersigil init` if no config exists, or `supersigil lint` if one does.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 8: verify
+
+As a developer, I want to run the full verification engine from the CLI so that CI can gate on spec compliance.
+
+<AcceptanceCriteria>
+  <Criterion id="req-8-1">
+    `verify` SHALL build the document graph, call `supersigil_verify::verify()` with the appropriate options, and output the resulting `VerificationReport`.
+  </Criterion>
+  <Criterion id="req-8-2">
+    `verify` SHALL accept `--project` (scope to one project in multi-project mode), `--since <ref>` (enable staleness checks), `--committed-only` (exclude working tree from diff), and `--merge-base` (diff against branch point).
+  </Criterion>
+  <Criterion id="req-8-3">
+    `verify` SHALL support `--format terminal|json|markdown`.
+  </Criterion>
+  <Criterion id="req-8-4">
+    WHEN findings exist, the terminal output SHALL group findings by document, use severity symbols, show a summary line with counts, and end with a remediation hint (e.g., "Run `supersigil plan` to see outstanding work").
+  </Criterion>
+  <Criterion id="req-8-5">
+    WHEN the report is clean, `verify` SHALL print a success message including the document count (e.g., "12 documents verified, no findings").
+  </Criterion>
+  <Criterion id="req-8-6">
+    Exit codes for `verify`: 0 = clean (no errors or warnings), 1 = error-level findings exist, 2 = warnings-only (no errors, but warnings present).
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 9: status
+
+As a developer, I want a quick health summary of the project or a specific document, so that I can assess the state at a glance.
+
+<AcceptanceCriteria>
+  <Criterion id="req-9-1">
+    `status` with no argument SHALL output a project-wide summary: total document count, counts by type and status, criteria coverage ratio (covered/total), and a health indicator.
+  </Criterion>
+  <Criterion id="req-9-2">
+    `status <id>` SHALL output a single document's metadata, its criteria and their coverage state, test mapping state, and tracked files.
+  </Criterion>
+  <Criterion id="req-9-3">
+    `status` SHALL support `--format terminal|json`.
+  </Criterion>
+  <Criterion id="req-9-4">
+    Terminal output SHALL end with a next-step suggestion based on the observed state (e.g., "3 criteria uncovered -- run `supersigil plan` to see details" or "All criteria covered -- run `supersigil verify` to check test mappings").
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 10: affected
+
+As a CI pipeline or developer, I want to know which specs are potentially affected by code changes, so that I can route review to the right documents.
+
+<AcceptanceCriteria>
+  <Criterion id="req-10-1">
+    `affected --since <ref>` SHALL build the document graph, compute the git diff since the given ref, and report documents whose `TrackedFiles` globs match changed files.
+  </Criterion>
+  <Criterion id="req-10-2">
+    Each affected document in the output SHALL include its ID, file path (relative to project root), matched globs, and the list of changed files that matched.
+  </Criterion>
+  <Criterion id="req-10-3">
+    `affected` SHALL accept `--committed-only` and `--merge-base` flags with the same diff semantics as `verify`.
+  </Criterion>
+  <Criterion id="req-10-4">
+    `affected` SHALL support `--format terminal|json`.
+  </Criterion>
+  <Criterion id="req-10-5">
+    WHEN no documents are affected, `affected` SHALL print a message ("No documents affected by changes since {ref}") and exit 0.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 11: graph
+
+As a developer, I want to visualize the document graph so that I can understand the relationships between specs.
+
+<AcceptanceCriteria>
+  <Criterion id="req-11-1">
+    `graph` SHALL build the document graph and output it as a directed graph with documents as nodes and component refs (`Validates`, `Implements`, `Illustrates`, `DependsOn`) as edges.
+  </Criterion>
+  <Criterion id="req-11-2">
+    `graph` SHALL support `--format mermaid|dot`. Default: mermaid.
+  </Criterion>
+  <Criterion id="req-11-3">
+    Nodes SHALL include the document ID and type. Edges SHALL be labeled with the relationship type.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 12: init
+
+As a new user, I want to quickly set up supersigil in my project so that I can start writing specs immediately.
+
+<AcceptanceCriteria>
+  <Criterion id="req-12-1">
+    `init` SHALL create a `supersigil.toml` in the current directory with a minimal working config (`paths = ["specs/**/*.mdx"]`).
+  </Criterion>
+  <Criterion id="req-12-2">
+    WHEN `supersigil.toml` already exists in the current directory, `init` SHALL exit 1 with a message ("supersigil.toml already exists") and NOT overwrite the file.
+  </Criterion>
+  <Criterion id="req-12-3">
+    After creation, `init` SHALL print a next-step hint (e.g., "Created supersigil.toml. Next: create a spec with `supersigil new requirement my-feature/req/name`").
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 13: new
+
+As a developer or agent, I want to scaffold a new spec document so that I start with valid structure instead of an empty file.
+
+<AcceptanceCriteria>
+  <Criterion id="req-13-1">
+    `new <type> <id>` SHALL create an MDX file with valid front matter (`supersigil.id`, `supersigil.type`, `supersigil.status: draft`) and type-appropriate placeholder components (e.g., `AcceptanceCriteria` with a sample `Criterion` for requirements, a sample `Task` for tasks documents).
+  </Criterion>
+  <Criterion id="req-13-2">
+    The generated file SHALL pass `supersigil lint` without errors.
+  </Criterion>
+  <Criterion id="req-13-3">
+    After creation, `new` SHALL print the file path and a next-step hint (e.g., "Created specs/auth/req/login.mdx. Edit the file, then run `supersigil lint` to validate.").
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 14: Output Conventions
+
+As a developer, I want consistent, readable terminal output across all commands, so that supersigil feels polished and predictable.
+
+<AcceptanceCriteria>
+  <Criterion id="req-14-1">
+    ALL commands SHALL write data to stdout and diagnostics/errors to stderr. Piping SHALL work correctly (e.g., `supersigil ls | grep draft`).
+  </Criterion>
+  <Criterion id="req-14-2">
+    Terminal output SHALL use ANSI color codes for severity symbols and key information. Color SHALL be auto-disabled when stdout is not a TTY.
+  </Criterion>
+  <Criterion id="req-14-3">
+    The `NO_COLOR` environment variable SHALL disable all color output. The `FORCE_COLOR` environment variable SHALL enable color even when stdout is not a TTY. The `--color always|never|auto` flag SHALL override both environment variables.
+  </Criterion>
+  <Criterion id="req-14-4">
+    Terminal output SHALL use Unicode symbols when stdout is a TTY and color is enabled, and ASCII fallback when not a TTY or when color is disabled.
+  </Criterion>
+  <Criterion id="req-14-5">
+    Error messages SHALL include remediation guidance: what went wrong, why, and what the user should do next. Successful commands with actionable follow-ups SHALL print a next-step hint on stderr.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 15: Exit Codes
+
+As a CI pipeline, I want predictable exit codes so that I can reliably gate on supersigil results.
+
+<AcceptanceCriteria>
+  <Criterion id="req-15-1">
+    Exit code 0 SHALL indicate the command completed successfully with no errors. For `verify`, this means no error-level or warning-level findings.
+  </Criterion>
+  <Criterion id="req-15-2">
+    Exit code 1 SHALL indicate a fatal error (config not found, parse failures, graph errors, query errors) or, for `verify`, that error-level findings exist.
+  </Criterion>
+  <Criterion id="req-15-3">
+    Exit code 2 SHALL be used exclusively by `verify` to indicate warnings-only (no errors, but warnings present). All other commands SHALL use only 0 and 1.
+  </Criterion>
+</AcceptanceCriteria>

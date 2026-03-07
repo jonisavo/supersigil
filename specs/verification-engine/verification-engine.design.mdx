@@ -1,13 +1,13 @@
 ---
 supersigil:
-  id: design/verification-engine
+  id: verification-engine/design
   type: design
   status: approved
 title: "Verification Engine"
 ---
 
-<Implements refs="req/verification-engine" />
-<DependsOn refs="design/document-graph" />
+<Implements refs="verification-engine/req" />
+<DependsOn refs="document-graph/design" />
 <TrackedFiles paths="crates/supersigil-verify/src/**/*.rs" />
 
 ## Overview

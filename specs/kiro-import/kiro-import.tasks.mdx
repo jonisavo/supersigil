@@ -1,6 +1,6 @@
 ---
 supersigil:
-  id: tasks/kiro-import
+  id: kiro-import/tasks
   type: tasks
   status: draft
 title: "Kiro Import"
@@ -13,7 +13,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-1" status="done">
   Set up crate skeleton, module structure, and type stubs
 
-  <Task id="task-1-1" status="done" implements="req/kiro-import#req-18-1, req/kiro-import#req-18-2, req/kiro-import#req-18-3">
+  <Task id="task-1-1" status="done" implements="kiro-import/req#req-18-1, kiro-import/req#req-18-2, kiro-import/req#req-18-3">
     Create `crates/supersigil-import/` with `Cargo.toml` and module structure
 
     - Add `supersigil-import` to workspace `Cargo.toml` members
@@ -59,7 +59,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-3" status="done" depends="task-2">
   ID generation (ids.rs)
 
-  <Task id="task-3-1" status="done" implements="req/kiro-import#req-16-1, req/kiro-import#req-16-2, req/kiro-import#req-16-3">
+  <Task id="task-3-1" status="done" implements="kiro-import/req#req-16-1, kiro-import/req#req-16-2, kiro-import/req#req-16-3">
     Write property test for document ID construction
 
     - **Property 1: Document ID construction**
@@ -67,7 +67,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_ids.rs`
   </Task>
 
-  <Task id="task-3-2" status="done" depends="task-3-1" implements="req/kiro-import#req-3-1, req/kiro-import#req-3-2, req/kiro-import#req-3-3">
+  <Task id="task-3-2" status="done" depends="task-3-1" implements="kiro-import/req#req-3-1, kiro-import/req#req-3-2, kiro-import/req#req-3-3">
     Write property test for criterion ID generation and uniqueness
 
     - **Property 2: Criterion ID generation and uniqueness**
@@ -75,7 +75,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_ids.rs`
   </Task>
 
-  <Task id="task-3-3" status="done" depends="task-3-2" implements="req/kiro-import#req-9-1, req/kiro-import#req-9-2, req/kiro-import#req-9-3, req/kiro-import#req-9-4">
+  <Task id="task-3-3" status="done" depends="task-3-2" implements="kiro-import/req#req-9-1, kiro-import/req#req-9-2, kiro-import/req#req-9-3, kiro-import/req#req-9-4">
     Write property test for task ID generation and uniqueness
 
     - **Property 3: Task ID generation and uniqueness**
@@ -83,7 +83,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_ids.rs`
   </Task>
 
-  <Task id="task-3-4" status="done" depends="task-3-3" implements="req/kiro-import#req-3-1, req/kiro-import#req-3-2, req/kiro-import#req-3-3, req/kiro-import#req-9-1, req/kiro-import#req-9-2, req/kiro-import#req-9-3, req/kiro-import#req-9-4, req/kiro-import#req-16-1, req/kiro-import#req-16-2, req/kiro-import#req-16-3, req/kiro-import#req-16-4">
+  <Task id="task-3-4" status="done" depends="task-3-3" implements="kiro-import/req#req-3-1, kiro-import/req#req-3-2, kiro-import/req#req-3-3, kiro-import/req#req-9-1, kiro-import/req#req-9-2, kiro-import/req#req-9-3, kiro-import/req#req-9-4, kiro-import/req#req-16-1, kiro-import/req#req-16-2, kiro-import/req#req-16-3, kiro-import/req#req-16-4">
     Implement ID generation functions in `ids.rs`
 
     - Implement `make_document_id`, `make_criterion_id`, `make_task_id`, `deduplicate_ids`
@@ -95,7 +95,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-4" status="done" depends="task-3">
   Requirement ref parsing (refs.rs)
 
-  <Task id="task-4-1" status="done" implements="req/kiro-import#req-20-1, req/kiro-import#req-20-2, req/kiro-import#req-20-3, req/kiro-import#req-20-4">
+  <Task id="task-4-1" status="done" implements="kiro-import/req#req-20-1, kiro-import/req#req-20-2, kiro-import/req#req-20-3, kiro-import/req#req-20-4">
     Write property test for ref parsing round-trip
 
     - **Property 4: Requirement ref parsing round-trip**
@@ -103,7 +103,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_refs.rs`
   </Task>
 
-  <Task id="task-4-2" status="done" depends="task-4-1" implements="req/kiro-import#req-20-5">
+  <Task id="task-4-2" status="done" depends="task-4-1" implements="kiro-import/req#req-20-5">
     Write property test for ref range expansion
 
     - **Property 5: Requirement ref range expansion**
@@ -111,7 +111,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_refs.rs`
   </Task>
 
-  <Task id="task-4-3" status="done" depends="task-4-2" implements="req/kiro-import#req-20-6">
+  <Task id="task-4-3" status="done" depends="task-4-2" implements="kiro-import/req#req-20-6">
     Write property test for unparseable ref detection
 
     - **Property 6: Unparseable ref detection**
@@ -119,7 +119,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_refs.rs`
   </Task>
 
-  <Task id="task-4-4" status="done" depends="task-4-3" implements="req/kiro-import#req-20-1, req/kiro-import#req-20-2, req/kiro-import#req-20-3, req/kiro-import#req-20-4, req/kiro-import#req-20-5, req/kiro-import#req-20-6">
+  <Task id="task-4-4" status="done" depends="task-4-3" implements="kiro-import/req#req-20-1, kiro-import/req#req-20-2, kiro-import/req#req-20-3, kiro-import/req#req-20-4, kiro-import/req#req-20-5, kiro-import/req#req-20-6">
     Implement `parse_requirement_refs` in `refs.rs`
 
     - Handle single refs, comma-separated lists, optional `Requirements` prefix
@@ -137,7 +137,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-6" status="done" depends="task-5">
   Discovery (discover.rs)
 
-  <Task id="task-6-1" status="done" implements="req/kiro-import#req-1-1, req/kiro-import#req-1-2, req/kiro-import#req-1-3, req/kiro-import#req-1-5">
+  <Task id="task-6-1" status="done" implements="kiro-import/req#req-1-1, kiro-import/req#req-1-2, kiro-import/req#req-1-3, kiro-import/req#req-1-5">
     Write property test for discovery
 
     - **Property 11: Discovery includes valid dirs and skips empty ones**
@@ -145,7 +145,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_parse.rs`
   </Task>
 
-  <Task id="task-6-2" status="done" depends="task-6-1" implements="req/kiro-import#req-1-1, req/kiro-import#req-1-2, req/kiro-import#req-1-3, req/kiro-import#req-1-4, req/kiro-import#req-1-5">
+  <Task id="task-6-2" status="done" depends="task-6-1" implements="kiro-import/req#req-1-1, kiro-import/req#req-1-2, kiro-import/req#req-1-3, kiro-import/req#req-1-4, kiro-import/req#req-1-5">
     Implement `discover_kiro_specs` in `discover.rs`
 
     - Scan directory for subdirectories, check for presence of `requirements.md`, `design.md`, `tasks.md`
@@ -158,7 +158,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-7" status="done" depends="task-6">
   Requirements parsing (parse/requirements.rs)
 
-  <Task id="task-7-1" status="done" implements="req/kiro-import#req-2-1, req/kiro-import#req-2-2, req/kiro-import#req-2-3, req/kiro-import#req-2-4, req/kiro-import#req-2-6">
+  <Task id="task-7-1" status="done" implements="kiro-import/req#req-2-1, kiro-import/req#req-2-2, kiro-import/req#req-2-3, kiro-import/req#req-2-4, kiro-import/req#req-2-6">
     Write property test for requirements parsing completeness
 
     - **Property 9: Requirements parsing completeness**
@@ -166,7 +166,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_parse.rs`
   </Task>
 
-  <Task id="task-7-2" status="done" depends="task-7-1" implements="req/kiro-import#req-2-1, req/kiro-import#req-2-2, req/kiro-import#req-2-3, req/kiro-import#req-2-4, req/kiro-import#req-2-5, req/kiro-import#req-2-6">
+  <Task id="task-7-2" status="done" depends="task-7-1" implements="kiro-import/req#req-2-1, kiro-import/req#req-2-2, kiro-import/req#req-2-3, kiro-import/req#req-2-4, kiro-import/req#req-2-5, kiro-import/req#req-2-6">
     Implement `parse_requirements` in `parse/requirements.rs`
 
     - Line-by-line parsing with regex patterns for requirement headings, user stories, acceptance criteria headers, criterion lines
@@ -180,7 +180,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-8" status="done" depends="task-7">
   Tasks parsing (parse/tasks.rs)
 
-  <Task id="task-8-1" status="done" implements="req/kiro-import#req-8-1, req/kiro-import#req-8-2, req/kiro-import#req-8-3, req/kiro-import#req-8-4, req/kiro-import#req-8-5, req/kiro-import#req-8-6, req/kiro-import#req-8-7, req/kiro-import#req-8-8">
+  <Task id="task-8-1" status="done" implements="kiro-import/req#req-8-1, kiro-import/req#req-8-2, kiro-import/req#req-8-3, kiro-import/req#req-8-4, kiro-import/req#req-8-5, kiro-import/req#req-8-6, kiro-import/req#req-8-7, kiro-import/req#req-8-8">
     Write property test for tasks parsing completeness
 
     - **Property 10: Tasks parsing completeness**
@@ -188,7 +188,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_parse.rs`
   </Task>
 
-  <Task id="task-8-2" status="done" depends="task-8-1" implements="req/kiro-import#req-8-1, req/kiro-import#req-8-2, req/kiro-import#req-8-3, req/kiro-import#req-8-4, req/kiro-import#req-8-5, req/kiro-import#req-8-6, req/kiro-import#req-8-7, req/kiro-import#req-8-8, req/kiro-import#req-22-1">
+  <Task id="task-8-2" status="done" depends="task-8-1" implements="kiro-import/req#req-8-1, kiro-import/req#req-8-2, kiro-import/req#req-8-3, kiro-import/req#req-8-4, kiro-import/req#req-8-5, kiro-import/req#req-8-6, kiro-import/req#req-8-7, kiro-import/req#req-8-8, kiro-import/req#req-22-1">
     Implement `parse_tasks` in `parse/tasks.rs`
 
     - Line-by-line parsing with regex patterns for task lines, sub-task lines, metadata lines
@@ -203,7 +203,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-9" status="done" depends="task-8">
   Design parsing (parse/design.rs)
 
-  <Task id="task-9-1" status="done" implements="req/kiro-import#req-5-1, req/kiro-import#req-5-2, req/kiro-import#req-5-3, req/kiro-import#req-5-4, req/kiro-import#req-5-5">
+  <Task id="task-9-1" status="done" implements="kiro-import/req#req-5-1, kiro-import/req#req-5-2, kiro-import/req#req-5-3, kiro-import/req#req-5-4, kiro-import/req#req-5-5">
     Implement `parse_design` in `parse/design.rs`
 
     - Line-by-line parsing preserving sections, prose, code blocks, mermaid blocks
@@ -222,7 +222,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-11" status="done" depends="task-10">
   Reference resolution (refs.rs)
 
-  <Task id="task-11-1" status="done" implements="req/kiro-import#req-6-1, req/kiro-import#req-6-2, req/kiro-import#req-6-3, req/kiro-import#req-7-4, req/kiro-import#req-7-5">
+  <Task id="task-11-1" status="done" implements="kiro-import/req#req-6-1, kiro-import/req#req-6-2, kiro-import/req#req-6-3, kiro-import/req#req-7-4, kiro-import/req#req-7-5">
     Write property test for Validates reference resolution
 
     - **Property 7: Validates reference resolution**
@@ -230,7 +230,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_resolve.rs`
   </Task>
 
-  <Task id="task-11-2" status="done" depends="task-11-1" implements="req/kiro-import#req-11-1, req/kiro-import#req-11-2, req/kiro-import#req-11-3">
+  <Task id="task-11-2" status="done" depends="task-11-1" implements="kiro-import/req#req-11-1, kiro-import/req#req-11-2, kiro-import/req#req-11-3">
     Write property test for task implements resolution
 
     - **Property 8: Task implements resolution**
@@ -238,7 +238,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_resolve.rs`
   </Task>
 
-  <Task id="task-11-3" status="done" depends="task-11-2" implements="req/kiro-import#req-6-1, req/kiro-import#req-6-2, req/kiro-import#req-6-3, req/kiro-import#req-7-4, req/kiro-import#req-7-5, req/kiro-import#req-11-1, req/kiro-import#req-11-2, req/kiro-import#req-11-3">
+  <Task id="task-11-3" status="done" depends="task-11-2" implements="kiro-import/req#req-6-1, kiro-import/req#req-6-2, kiro-import/req#req-6-3, kiro-import/req#req-7-4, kiro-import/req#req-7-5, kiro-import/req#req-11-1, kiro-import/req#req-11-2, kiro-import/req#req-11-3">
     Implement `resolve_refs` in `refs.rs`
 
     - Map `RawRef` values against `ParsedRequirements` to produce criterion ref strings
@@ -257,7 +257,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-13" status="done" depends="task-12">
   Requirements MDX emission (emit/requirements.rs)
 
-  <Task id="task-13-1" status="done" implements="req/kiro-import#req-19-1, req/kiro-import#req-19-2, req/kiro-import#req-19-3, req/kiro-import#req-4-2, req/kiro-import#req-4-5, req/kiro-import#req-5-2, req/kiro-import#req-5-3, req/kiro-import#req-7-3, req/kiro-import#req-12-4, req/kiro-import#req-12-5">
+  <Task id="task-13-1" status="done" implements="kiro-import/req#req-19-1, kiro-import/req#req-19-2, kiro-import/req#req-19-3, kiro-import/req#req-4-2, kiro-import/req#req-4-5, kiro-import/req#req-5-2, kiro-import/req#req-5-3, kiro-import/req#req-7-3, kiro-import/req#req-12-4, kiro-import/req#req-12-5">
     Write property test for prose and code block round-trip fidelity
 
     - **Property 12: Prose and code block round-trip fidelity**
@@ -265,7 +265,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-13-2" status="done" depends="task-13-1" implements="req/kiro-import#req-4-1, req/kiro-import#req-7-1, req/kiro-import#req-12-1, req/kiro-import#req-21-1, req/kiro-import#req-21-2, req/kiro-import#req-21-3">
+  <Task id="task-13-2" status="done" depends="task-13-1" implements="kiro-import/req#req-4-1, kiro-import/req#req-7-1, kiro-import/req#req-12-1, kiro-import/req#req-21-1, kiro-import/req#req-21-2, kiro-import/req#req-21-3">
     Write property test for front matter round-trip
 
     - **Property 13: Front matter round-trip**
@@ -273,7 +273,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-13-3" status="done" depends="task-13-2" implements="req/kiro-import#req-4-3, req/kiro-import#req-4-4">
+  <Task id="task-13-3" status="done" depends="task-13-2" implements="kiro-import/req#req-4-3, kiro-import/req#req-4-4">
     Write property test for AcceptanceCriteria structure
 
     - **Property 14: AcceptanceCriteria structure**
@@ -281,7 +281,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-13-4" status="done" depends="task-13-3" implements="req/kiro-import#req-4-1, req/kiro-import#req-4-2, req/kiro-import#req-4-3, req/kiro-import#req-4-4, req/kiro-import#req-4-5, req/kiro-import#req-21-1, req/kiro-import#req-21-2">
+  <Task id="task-13-4" status="done" depends="task-13-3" implements="kiro-import/req#req-4-1, kiro-import/req#req-4-2, kiro-import/req#req-4-3, kiro-import/req#req-4-4, kiro-import/req#req-4-5, kiro-import/req#req-21-1, kiro-import/req#req-21-2">
     Implement `emit_requirements_mdx` in `emit/requirements.rs`
 
     - Emit front matter with `id`, `type: requirement`, `status: draft`, `title`
@@ -294,7 +294,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-14" status="done" depends="task-13">
   Design MDX emission (emit/design.rs)
 
-  <Task id="task-14-1" status="done" implements="req/kiro-import#req-7-2">
+  <Task id="task-14-1" status="done" implements="kiro-import/req#req-7-2">
     Write property test for Design Implements emission
 
     - **Property 15: Design Implements emission**
@@ -302,7 +302,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-14-2" status="done" depends="task-14-1" implements="req/kiro-import#req-7-1, req/kiro-import#req-7-2, req/kiro-import#req-7-3, req/kiro-import#req-7-4, req/kiro-import#req-7-5, req/kiro-import#req-21-1, req/kiro-import#req-21-2">
+  <Task id="task-14-2" status="done" depends="task-14-1" implements="kiro-import/req#req-7-1, kiro-import/req#req-7-2, kiro-import/req#req-7-3, kiro-import/req#req-7-4, kiro-import/req#req-7-5, kiro-import/req#req-21-1, kiro-import/req#req-21-2">
     Implement `emit_design_mdx` in `emit/design.rs`
 
     - Emit front matter with `id`, `type: design`, `status: draft`, `title`
@@ -316,7 +316,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-15" status="done" depends="task-14">
   Tasks MDX emission (emit/tasks.rs)
 
-  <Task id="task-15-1" status="done" implements="req/kiro-import#req-10-1, req/kiro-import#req-10-2, req/kiro-import#req-10-3">
+  <Task id="task-15-1" status="done" implements="kiro-import/req#req-10-1, kiro-import/req#req-10-2, kiro-import/req#req-10-3">
     Write property test for task dependency chain
 
     - **Property 16: Task dependency chain**
@@ -324,7 +324,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-15-2" status="done" depends="task-15-1" implements="req/kiro-import#req-12-2, req/kiro-import#req-12-3">
+  <Task id="task-15-2" status="done" depends="task-15-1" implements="kiro-import/req#req-12-2, kiro-import/req#req-12-3">
     Write property test for task component structure
 
     - **Property 17: Task component structure**
@@ -332,7 +332,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_emit.rs`
   </Task>
 
-  <Task id="task-15-3" status="done" depends="task-15-2" implements="req/kiro-import#req-12-1, req/kiro-import#req-12-2, req/kiro-import#req-12-3, req/kiro-import#req-12-4, req/kiro-import#req-12-5, req/kiro-import#req-21-1, req/kiro-import#req-21-2">
+  <Task id="task-15-3" status="done" depends="task-15-2" implements="kiro-import/req#req-12-1, kiro-import/req#req-12-2, kiro-import/req#req-12-3, kiro-import/req#req-12-4, kiro-import/req#req-12-5, kiro-import/req#req-21-1, kiro-import/req#req-21-2">
     Implement `emit_tasks_mdx` in `emit/tasks.rs`
 
     - Emit front matter with `id`, `type: tasks`, `status: draft`, `title`
@@ -353,7 +353,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-17" status="done" depends="task-16">
   Import plan and ambiguity tracking
 
-  <Task id="task-17-1" status="done" implements="req/kiro-import#req-13-3, req/kiro-import#req-14-3">
+  <Task id="task-17-1" status="done" implements="kiro-import/req#req-13-3, kiro-import/req#req-14-3">
     Write property test for ambiguity marker count consistency
 
     - **Property 18: Ambiguity marker count consistency**
@@ -361,7 +361,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_plan.rs`
   </Task>
 
-  <Task id="task-17-2" status="done" depends="task-17-1" implements="req/kiro-import#req-14-2, req/kiro-import#req-14-4">
+  <Task id="task-17-2" status="done" depends="task-17-1" implements="kiro-import/req#req-14-2, kiro-import/req#req-14-4">
     Write property test for import plan completeness
 
     - **Property 19: Import plan completeness**
@@ -369,7 +369,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_plan.rs`
   </Task>
 
-  <Task id="task-17-3" status="done" depends="task-17-2" implements="req/kiro-import#req-14-1, req/kiro-import#req-14-2, req/kiro-import#req-14-3, req/kiro-import#req-14-4, req/kiro-import#req-18-3">
+  <Task id="task-17-3" status="done" depends="task-17-2" implements="kiro-import/req#req-14-1, kiro-import/req#req-14-2, kiro-import/req#req-14-3, kiro-import/req#req-14-4, kiro-import/req#req-18-3">
     Implement `plan_kiro_import` in `lib.rs`
 
     - Orchestrate the full pipeline: discover → parse → resolve → emit
@@ -381,7 +381,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-18" status="done" depends="task-17">
   File writing (write.rs)
 
-  <Task id="task-18-1" status="done" implements="req/kiro-import#req-15-1, req/kiro-import#req-15-3, req/kiro-import#req-17-1">
+  <Task id="task-18-1" status="done" implements="kiro-import/req#req-15-1, kiro-import/req#req-15-3, kiro-import/req#req-17-1">
     Write property test for file writing with force semantics
 
     - **Property 20: File writing with force semantics**
@@ -389,7 +389,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_write.rs`
   </Task>
 
-  <Task id="task-18-2" status="done" depends="task-18-1" implements="req/kiro-import#req-15-1, req/kiro-import#req-15-2, req/kiro-import#req-15-3, req/kiro-import#req-15-4, req/kiro-import#req-15-5, req/kiro-import#req-17-1, req/kiro-import#req-17-2">
+  <Task id="task-18-2" status="done" depends="task-18-1" implements="kiro-import/req#req-15-1, kiro-import/req#req-15-2, kiro-import/req#req-15-3, kiro-import/req#req-15-4, kiro-import/req#req-15-5, kiro-import/req#req-17-1, kiro-import/req#req-17-2">
     Implement `write_files` in `write.rs`
 
     - Write each `PlannedDocument` to `{output_dir}/{feature_name}/{feature_name}.{type}.mdx`
@@ -398,7 +398,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Best-effort semantics: sequential writes, no rollback on failure
   </Task>
 
-  <Task id="task-18-3" status="done" depends="task-18-2" implements="req/kiro-import#req-18-2, req/kiro-import#req-18-4">
+  <Task id="task-18-3" status="done" depends="task-18-2" implements="kiro-import/req#req-18-2, kiro-import/req#req-18-4">
     Implement `import_kiro` in `lib.rs`
 
     - Call `plan_kiro_import` then `write_files`
@@ -415,7 +415,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-20" status="done" depends="task-19">
   Edge case property tests
 
-  <Task id="task-20-1" status="done" implements="req/kiro-import#req-5-4">
+  <Task id="task-20-1" status="done" implements="kiro-import/req#req-5-4">
     Write property test for non-requirement Validates targets
 
     - **Property 21: Non-requirement Validates targets produce ambiguity markers**
@@ -423,7 +423,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_edge.rs`
   </Task>
 
-  <Task id="task-20-2" status="done" depends="task-20-1" implements="req/kiro-import#req-22-1">
+  <Task id="task-20-2" status="done" depends="task-20-1" implements="kiro-import/req#req-22-1">
     Write property test for optional task marker handling
 
     - **Property 22: Optional task marker handling**
@@ -431,7 +431,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Test file: `tests/prop_edge.rs`
   </Task>
 
-  <Task id="task-20-3" status="done" depends="task-20-2" implements="req/kiro-import#req-13-2">
+  <Task id="task-20-3" status="done" depends="task-20-2" implements="kiro-import/req#req-13-2">
     Write property test for unparseable structure preservation
 
     - **Property 23: Unparseable structure preservation**
@@ -451,7 +451,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     {/* all (snapshot tests guard output fidelity across the full pipeline) */}
   </Task>
 
-  <Task id="task-21-2" status="done" depends="task-21-1" implements="req/kiro-import#req-2-1, req/kiro-import#req-4-1, req/kiro-import#req-5-1, req/kiro-import#req-7-1, req/kiro-import#req-8-1, req/kiro-import#req-12-1">
+  <Task id="task-21-2" status="done" depends="task-21-1" implements="kiro-import/req#req-2-1, kiro-import/req#req-4-1, kiro-import/req#req-5-1, kiro-import/req#req-7-1, kiro-import/req#req-8-1, kiro-import/req#req-12-1">
     Write full-pipeline snapshot tests for real Kiro specs
 
     - Feed `.kiro/specs/parser-and-config/` through `plan_kiro_import` and snapshot each generated MDX document (`parser-and-config.req.mdx`, `parser-and-config.design.mdx`, `parser-and-config.tasks.mdx`)
@@ -459,7 +459,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Use `insta::assert_snapshot!` for each output document
   </Task>
 
-  <Task id="task-21-3" status="done" depends="task-21-2" implements="req/kiro-import#req-5-4, req/kiro-import#req-7-2, req/kiro-import#req-8-7, req/kiro-import#req-13-2, req/kiro-import#req-22-1">
+  <Task id="task-21-3" status="done" depends="task-21-2" implements="kiro-import/req#req-5-4, kiro-import/req#req-7-2, kiro-import/req#req-8-7, kiro-import/req#req-13-2, kiro-import/req#req-22-1">
     Write synthetic snapshot tests for edge cases
 
     - Design-only feature (no requirements or tasks) → snapshot design MDX with ambiguity marker for missing requirements
@@ -472,14 +472,14 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 <Task id="task-22" status="done" depends="task-21">
   Unit tests for examples and edge cases (tests/unit.rs)
 
-  <Task id="task-22-1" status="done" implements="req/kiro-import#req-2-1, req/kiro-import#req-2-2, req/kiro-import#req-2-3, req/kiro-import#req-2-4, req/kiro-import#req-5-1, req/kiro-import#req-8-1, req/kiro-import#req-8-2, req/kiro-import#req-8-3">
+  <Task id="task-22-1" status="done" implements="kiro-import/req#req-2-1, kiro-import/req#req-2-2, kiro-import/req#req-2-3, kiro-import/req#req-2-4, kiro-import/req#req-5-1, kiro-import/req#req-8-1, kiro-import/req#req-8-2, kiro-import/req#req-8-3">
     Write unit tests for real-world Kiro spec inputs
 
     - Parse the existing `.kiro/specs/` directories in this repo as integration tests
     - Verify correct extraction of requirements, design sections, and tasks
   </Task>
 
-  <Task id="task-22-2" status="done" depends="task-22-1" implements="req/kiro-import#req-1-4, req/kiro-import#req-2-5, req/kiro-import#req-5-4, req/kiro-import#req-8-7, req/kiro-import#req-13-2, req/kiro-import#req-15-3, req/kiro-import#req-15-5, req/kiro-import#req-22-1">
+  <Task id="task-22-2" status="done" depends="task-22-1" implements="kiro-import/req#req-1-4, kiro-import/req#req-2-5, kiro-import/req#req-5-4, kiro-import/req#req-8-7, kiro-import/req#req-13-2, kiro-import/req#req-15-3, kiro-import/req#req-15-5, kiro-import/req#req-22-1">
     Write unit tests for edge cases
 
     - Empty requirements file → diagnostic warning, MDX with raw prose only (Req 2.5)

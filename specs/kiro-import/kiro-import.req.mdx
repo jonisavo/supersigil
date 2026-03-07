@@ -1,6 +1,6 @@
 ---
 supersigil:
-  id: req/kiro-import
+  id: kiro-import/req
   type: requirement
   status: draft
 title: "Kiro Import"
@@ -342,10 +342,10 @@ As a developer migrating from Kiro, I want to specify a prefix for generated doc
 
 <AcceptanceCriteria>
   <Criterion id="req-16-1">
-    WHEN an ID_Prefix is provided, THE Importer SHALL construct document IDs as `{id_prefix}/{type_hint}/{feature_name}` (e.g., `my-project/req/parser-and-config`). The ID_Prefix MUST NOT have a trailing slash; the Importer SHALL strip any trailing slash from the provided prefix before use.
+    WHEN an ID_Prefix is provided, THE Importer SHALL construct document IDs as `{id_prefix}/{type_hint}/{feature_name}` (e.g., `my-project/parser-and-config/req`). The ID_Prefix MUST NOT have a trailing slash; the Importer SHALL strip any trailing slash from the provided prefix before use.
   </Criterion>
   <Criterion id="req-16-2">
-    WHEN no ID_Prefix is provided, THE Importer SHALL construct document IDs as `{type_hint}/{feature_name}` (e.g., `req/parser-and-config`) with no leading slash.
+    WHEN no ID_Prefix is provided, THE Importer SHALL construct document IDs as `{type_hint}/{feature_name}` (e.g., `parser-and-config/req`) with no leading slash.
   </Criterion>
   <Criterion id="req-16-3">
     THE `type_hint` segment SHALL be `req` for requirements documents, `design` for design documents, and `tasks` for tasks documents.

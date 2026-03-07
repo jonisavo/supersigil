@@ -1,12 +1,12 @@
 ---
 supersigil:
-  id: design/document-graph
+  id: document-graph/design
   type: design
   status: draft
 title: "Document Graph"
 ---
 
-<Implements refs="req/document-graph" />
+<Implements refs="document-graph/req" />
 
 ## Overview
 
@@ -527,169 +527,169 @@ Tiebreak functions:
 
 *For any* collection of `SpecDocument` values with unique `frontmatter.id` values (across single-project or multi-project configs), building the graph and looking up each document by its ID should return the original document.
 
-<Validates refs="req/document-graph#req-1-1, req/document-graph#req-1-4" />
+<Validates refs="document-graph/req#req-1-1, document-graph/req#req-1-4" />
 
 ### Property 2: Duplicate document ID detection
 
 *For any* collection of `SpecDocument` values where two or more documents share the same `frontmatter.id`, `build_graph` should return a `DuplicateId` error that identifies the conflicting ID and all file paths involved.
 
-<Validates refs="req/document-graph#req-1-2" />
+<Validates refs="document-graph/req#req-1-2" />
 
 ### Property 3: Referenceable component index round-trip
 
 *For any* `SpecDocument` containing components whose `ComponentDef` has `referenceable = true` (including nested components like `Criterion` inside `AcceptanceCriteria`), each such component should be retrievable from the component index by `(document_id, component_id)` and should match the original component.
 
-<Validates refs="req/document-graph#req-2-1, req/document-graph#req-2-3, req/document-graph#req-2-4" />
+<Validates refs="document-graph/req#req-2-1, document-graph/req#req-2-3, document-graph/req#req-2-4" />
 
 ### Property 4: Duplicate component ID detection
 
 *For any* `SpecDocument` containing two referenceable components with the same `id` attribute, `build_graph` should return a `DuplicateComponentId` error identifying the conflicting ID and source positions.
 
-<Validates refs="req/document-graph#req-2-2" />
+<Validates refs="document-graph/req#req-2-2" />
 
 ### Property 5: Valid refs resolve successfully
 
 *For any* ref string in a `refs` attribute that points to an existing document (and optionally a `#fragment` matching a referenceable component of the correct `target_component` type), ref resolution should succeed and produce a `ResolvedRef` with the correct target document ID and fragment.
 
-<Validates refs="req/document-graph#req-3-2, req/document-graph#req-3-3, req/document-graph#req-3-4" />
+<Validates refs="document-graph/req#req-3-2, document-graph/req#req-3-3, document-graph/req#req-3-4" />
 
 ### Property 6: Invalid refs produce broken_ref errors
 
 *For any* ref string in a `refs` attribute where the target document ID does not exist, or the `#fragment` does not match a referenceable component, or the resolved component's name does not match the expected `target_component`, `build_graph` should return a `BrokenRef` error identifying the referring document, the ref string, and the reason.
 
-<Validates refs="req/document-graph#req-3-5, req/document-graph#req-3-6, req/document-graph#req-3-7" />
+<Validates refs="document-graph/req#req-3-5, document-graph/req#req-3-6, document-graph/req#req-3-7" />
 
 ### Property 7: Non-isolated cross-project refs resolve globally
 
 *For any* multi-project config where no project has `isolated = true`, a ref from a document in one project to a document in another project should resolve successfully against the global document index.
 
-<Validates refs="req/document-graph#req-4-1, req/document-graph#req-4-4" />
+<Validates refs="document-graph/req#req-4-1, document-graph/req#req-4-4" />
 
 ### Property 8: Isolated project refs are restricted
 
 *For any* project configured with `isolated = true`, a ref from a document in that project to a document in a different project should produce a `BrokenRef` error, even if the target document exists in the global index.
 
-<Validates refs="req/document-graph#req-4-2, req/document-graph#req-4-3" />
+<Validates refs="document-graph/req#req-4-2, document-graph/req#req-4-3" />
 
 ### Property 9: Acyclic task graphs produce no cycle errors
 
 *For any* tasks document where the `depends` edges between `Task` components form a DAG (no cycles), `build_graph` should produce no `TaskDependencyCycle` errors for that document.
 
-<Validates refs="req/document-graph#req-5-2" />
+<Validates refs="document-graph/req#req-5-2" />
 
 ### Property 10: Cyclic task graphs produce cycle errors
 
 *For any* tasks document where the `depends` edges between `Task` components contain a cycle (including self-references), `build_graph` should return a `TaskDependencyCycle` error whose `cycle` field contains the participating task IDs.
 
-<Validates refs="req/document-graph#req-5-3" />
+<Validates refs="document-graph/req#req-5-3" />
 
 ### Property 11: Task depends scoping and resolution
 
 *For any* `Task` component with a `depends` attribute, each referenced task ID must exist as a sibling (same parent for nested tasks, same document for top-level tasks). A `depends` reference to a non-sibling or nonexistent task ID should produce a `BrokenRef` error.
 
-<Validates refs="req/document-graph#req-5-4, req/document-graph#req-5-5" />
+<Validates refs="document-graph/req#req-5-4, document-graph/req#req-5-5" />
 
 ### Property 12: Acyclic document dependency graphs produce no cycle errors
 
 *For any* set of documents where `DependsOn` refs form a DAG, `build_graph` should produce no `DocumentDependencyCycle` errors.
 
-<Validates refs="req/document-graph#req-6-2" />
+<Validates refs="document-graph/req#req-6-2" />
 
 ### Property 13: Cyclic document dependency graphs produce cycle errors
 
 *For any* set of documents where `DependsOn` refs form a cycle (including self-references), `build_graph` should return a `DocumentDependencyCycle` error whose `cycle` field contains the participating document IDs.
 
-<Validates refs="req/document-graph#req-6-3" />
+<Validates refs="document-graph/req#req-6-3" />
 
 ### Property 14: Topological order invariant
 
 *For any* valid DAG (task dependencies within a document, or document dependencies via `DependsOn`), the computed topological order should satisfy: for every edge (A depends on B), B appears at a lower index than A in the ordering.
 
-<Validates refs="req/document-graph#req-7-1, req/document-graph#req-7-2, req/document-graph#req-7-3" />
+<Validates refs="document-graph/req#req-7-1, document-graph/req#req-7-2, document-graph/req#req-7-3" />
 
 ### Property 15: Topological sort determinism
 
 *For any* valid DAG, calling the topological sort twice on identical input should produce identical output. The tiebreaker is declaration order for tasks and alphabetical by ID for documents.
 
-<Validates refs="req/document-graph#req-7-4" />
+<Validates refs="document-graph/req#req-7-4" />
 
 ### Property 16: Reverse mapping completeness
 
 *For any* document containing a `Validates`, `Implements`, or `Illustrates` component with resolved refs, the corresponding reverse mapping should contain the source document ID in the set for each target. For `Implements`, fragment portions are discarded — the mapping is document-level. Duplicate refs within the same attribute contribute only once.
 
-<Validates refs="req/document-graph#req-8-1, req/document-graph#req-8-2, req/document-graph#req-8-3, req/document-graph#req-8-6" />
+<Validates refs="document-graph/req#req-8-1, document-graph/req#req-8-2, document-graph/req#req-8-3, document-graph/req#req-8-6" />
 
 ### Property 17: Context output completeness
 
 *For any* valid document ID in the graph, the `ContextOutput` should contain: the target document's frontmatter and criteria, the reverse mappings of validating/implementing/illustrating documents (with status), and tasks from linked tasks documents in topological order.
 
-<Validates refs="req/document-graph#req-9-1, req/document-graph#req-9-2, req/document-graph#req-9-3, req/document-graph#req-9-4, req/document-graph#req-9-5" />
+<Validates refs="document-graph/req#req-9-1, document-graph/req#req-9-2, document-graph/req#req-9-3, document-graph/req#req-9-4, document-graph/req#req-9-5" />
 
 ### Property 18: Plan output correctness
 
 *For any* valid document ID in the graph, the `PlanOutput` should contain: outstanding criteria (those with no validating document), pending tasks (status ≠ done) in topological order, completed tasks with their implements refs, and illustrating documents.
 
-<Validates refs="req/document-graph#req-10-1, req/document-graph#req-10-2, req/document-graph#req-10-3, req/document-graph#req-10-4" />
+<Validates refs="document-graph/req#req-10-1, document-graph/req#req-10-2, document-graph/req#req-10-3, document-graph/req#req-10-4" />
 
 ### Property 19: Plan prefix aggregation
 
 *For any* feature prefix string, the `PlanOutput` should aggregate all documents whose IDs start with that prefix. Outstanding criteria should be grouped by source requirement document. Tasks should be listed per tasks document in topological order.
 
-<Validates refs="req/document-graph#req-10-5" />
+<Validates refs="document-graph/req#req-10-5" />
 
 ### Property 20: Task implements resolution
 
 *For any* `Task` component with an `implements` attribute, each ref must include a `#fragment` targeting a `Criterion` component. A ref without a fragment, or a ref that does not resolve to an existing criterion, should produce a `BrokenRef` error. Successfully resolved refs should be available in context and plan outputs.
 
-<Validates refs="req/document-graph#req-11-1, req/document-graph#req-11-2" />
+<Validates refs="document-graph/req#req-11-1, document-graph/req#req-11-2" />
 
 ### Property 21: TrackedFiles index completeness
 
 *For any* document containing one or more `TrackedFiles` components, the TrackedFiles index should contain all path globs from all such components aggregated under the document's ID, and should be retrievable by document ID.
 
-<Validates refs="req/document-graph#req-12-1, req/document-graph#req-12-2, req/document-graph#req-12-4" />
+<Validates refs="document-graph/req#req-12-1, document-graph/req#req-12-2, document-graph/req#req-12-4" />
 
 ### Property 22: Error aggregation
 
 *For any* input with multiple independent errors (duplicate IDs, broken refs, cycles), `build_graph` should return all errors in a single collection rather than stopping at the first. When no errors occur, `build_graph` should return `Ok(DocumentGraph)`.
 
-<Validates refs="req/document-graph#req-13-1, req/document-graph#req-13-2, req/document-graph#req-13-3" />
+<Validates refs="document-graph/req#req-13-1, document-graph/req#req-13-2, document-graph/req#req-13-3" />
 
 ### Property 23: Reverse mapping queryability
 
 *For any* successfully built `DocumentGraph`, the reverse mapping accessors (`validates`, `implements`, `illustrates`) should be queryable by target document ID or by `(document_id, fragment)` pair. Querying for a target that no document references should return an empty set (not an error).
 
-<Validates refs="req/document-graph#req-8-4, req/document-graph#req-8-5" />
+<Validates refs="document-graph/req#req-8-4, document-graph/req#req-8-5" />
 
 ### Property 24: Context query error for nonexistent document
 
 *For any* document ID that does not exist in the `DocumentGraph`, calling `context(id)` should return `QueryError::DocumentNotFound`.
 
-<Validates refs="req/document-graph#req-9-6" />
+<Validates refs="document-graph/req#req-9-6" />
 
 ### Property 25: Plan query error for nonexistent target
 
 *For any* string that does not match an exact document ID and does not match any document ID as a prefix, `PlanQuery::parse` should return `QueryError::NoMatchingDocuments`.
 
-<Validates refs="req/document-graph#req-10-7" />
+<Validates refs="document-graph/req#req-10-7" />
 
 ### Property 26: Project-wide plan
 
 *For any* successfully built `DocumentGraph`, calling `plan(PlanQuery::All)` should produce a `PlanOutput` covering all documents in the graph — outstanding criteria from all requirement documents, pending and completed tasks from all tasks documents.
 
-<Validates refs="req/document-graph#req-10-6" />
+<Validates refs="document-graph/req#req-10-6" />
 
 ### Property 27: TrackedFiles index iteration
 
 *For any* successfully built `DocumentGraph` containing documents with `TrackedFiles` components, iterating `all_tracked_files()` should yield every `(doc_id, globs)` pair in the index, enabling downstream consumers to match changed files against all tracked globs.
 
-<Validates refs="req/document-graph#req-12-3" />
+<Validates refs="document-graph/req#req-12-3" />
 
 ### Property 28: Task-to-criterion mappings in query outputs
 
 *For any* `Task` component with resolved `implements` refs, the `ContextOutput` and `PlanOutput` should include the resolved criterion refs in the task's `implements` field, making the task-to-criterion association available to consumers.
 
-<Validates refs="req/document-graph#req-11-3" />
+<Validates refs="document-graph/req#req-11-3" />
 
 ## Error Handling
 
