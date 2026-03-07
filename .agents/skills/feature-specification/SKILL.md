@@ -67,8 +67,6 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
 7. Run the design phase second.
    Author the design doc only after the requirement feedback round has been incorporated.
    Keep the design tied to the reviewed requirement and property shape.
-   Add `<Validates refs="feature/req#req-X-Y, ...">` tags in each design section to cover the criteria that section addresses.
-   `<Implements>` alone is a document-level link — it does not satisfy criterion coverage. Every criterion needs at least one `<Validates>` pointing at it (from a design or property doc) or `verify` will report it as uncovered.
 
 8. Pause for a design feedback round.
    Show the user the design direction, boundaries, and major implementation choices.
@@ -109,7 +107,7 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
 - Keep relationship direction concrete to abstract.
   Requirement docs own `<Criterion>` entries.
   Property docs point to requirement criteria with `<Validates>` and usually carry `<VerifiedBy>`.
-  Design docs point to requirement or property docs with `<Implements>` (document-level) AND use `<Validates>` to cover individual criteria (e.g., `<Validates refs="feature/req#req-1-1, feature/req#req-1-2" />`). Without `<Validates>`, criteria remain uncovered even if `<Implements>` exists.
+  Design docs point to requirement or property docs with `<Implements>`.
   Tasks point to criteria with the `implements` attribute on each `<Task>`.
 - Put acceptance criteria only in requirement docs.
 - Make tasks dependency-ordered with `depends` and keep them actionable.
@@ -134,7 +132,6 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
 - Do not spread one feature across many unrelated IDs or folders without a clear prefix strategy.
 - Do not promote statuses optimistically just because `lint` is clean. Use `verify`, `status`, and human review to justify status changes.
 - Do not skip the user review checkpoints between requirements, design, and tasks unless the user explicitly asks for a faster pass.
-- Do not assume `<Implements>` covers criteria. A design doc with only `<Implements refs="feature/req" />` and no `<Validates>` tags will leave every criterion uncovered. Add `<Validates>` tags per design section.
 
 ## Handoff
 

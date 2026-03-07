@@ -76,21 +76,9 @@ title: "Login Flow"
 <DependsOn refs="auth/property" />
 <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
 
-## Session Token Flow
-
-<Validates refs="auth/req#req-1-1" />
-
-Describe how valid credentials produce a session token.
-
-## Error Handling
-
-<Validates refs="auth/req#req-1-2" />
-
-Describe how incorrect passwords are rejected.
+Describe the implementation approach, boundaries, and tradeoffs.
 ```
 
-`<Implements>` is a document-level link — it does not cover individual criteria.
-Each design section should use `<Validates refs="feature/req#req-X-Y">` to cover the criteria it addresses. Without `<Validates>`, `verify` will report criteria as uncovered.
 Use `<DependsOn>` only for document-level ordering.
 Use `<TrackedFiles>` only when the source paths are concrete.
 If a relation target is not known yet, omit that component until the target exists.
