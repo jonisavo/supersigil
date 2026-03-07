@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Specification"
-  short_description: "Draft supersigil spec authoring"
-  default_prompt: "Use the current supersigil CLI to author or refine draft requirement, property, design, and tasks documents for one bounded feature."
+  short_description: "Author and repair Supersigil feature specs"
+  default_prompt: "Use $feature-specification to author or refine Supersigil requirement, property, design, and tasks docs for one bounded feature."

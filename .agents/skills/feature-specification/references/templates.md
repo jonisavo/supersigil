@@ -1,15 +1,17 @@
 # Draft Templates
 
-Use these templates as the current source of truth for common Supersigil documents until `supersigil schema` exists.
+Start with `supersigil new <type> <feature>` when creating a new document set.
+Use these templates when the scaffold is too minimal, when imported docs need to be normalized, or when you need a richer example while editing by hand.
 
-Keep all new documents at `status: draft`.
+Keep new or actively edited documents at `status: draft` until `supersigil verify` and human review justify promotion.
+Write list attributes as comma-separated string literals like `refs="a, b"` and `paths="x, y"`. Do not use JSX expression attributes like `refs={["a"]}`; `supersigil lint` rejects them.
 
 ## Requirement
 
 ```mdx
 ---
 supersigil:
-  id: auth/req/login
+  id: auth/req
   type: requirement
   status: draft
 title: "User Login"
@@ -20,12 +22,12 @@ title: "User Login"
 Describe the user-facing requirement in plain language.
 
 <AcceptanceCriteria>
-  <Criterion id="valid-creds">
+  <Criterion id="req-1-1">
     WHEN a user submits valid email and password,
     THE SYSTEM SHALL return a session token.
   </Criterion>
 
-  <Criterion id="invalid-password">
+  <Criterion id="req-1-2">
     WHEN a user submits an incorrect password,
     THE SYSTEM SHALL return a 401 response.
   </Criterion>
@@ -37,47 +39,56 @@ Describe the user-facing requirement in plain language.
 ```mdx
 ---
 supersigil:
-  id: auth/prop/token-generation
+  id: auth/property
   type: property
   status: draft
-title: "Token Generation"
+title: "Login Verification"
 ---
 
-<Validates refs="auth/req/login#valid-creds" />
+<Validates refs="auth/req#req-1-1, auth/req#req-1-2" />
 
 Explain the invariant or behavior this document validates.
 
+<VerifiedBy strategy="tag" tag="auth-login" />
+```
+
+Use `strategy="tag"` when tests are annotated with `supersigil: auth-login`.
+Use `strategy="file-glob"` when concrete test paths are known but tags are not:
+
+```mdx
 <VerifiedBy strategy="file-glob" paths="tests/auth/login_test.rs" />
 ```
 
-Add `<VerifiedBy>` only when concrete test paths or tags are already known.
+Omit `<VerifiedBy>` entirely until you have a real tag or path. Do not leave empty placeholder attributes behind.
 
 ## Design
 
 ```mdx
 ---
 supersigil:
-  id: auth/design/login-flow
+  id: auth/design
   type: design
   status: draft
 title: "Login Flow"
 ---
 
-<Implements refs="auth/req/login" />
-<DependsOn refs="auth/prop/token-generation" />
-<TrackedFiles paths="src/auth/**/*.rs" />
+<Implements refs="auth/req" />
+<DependsOn refs="auth/property" />
+<TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
 
 Describe the implementation approach, boundaries, and tradeoffs.
 ```
 
-Use `<DependsOn>` only for document-level ordering. Use `<TrackedFiles>` only when the source paths are concrete.
+Use `<DependsOn>` only for document-level ordering.
+Use `<TrackedFiles>` only when the source paths are concrete.
+If a relation target is not known yet, omit that component until the target exists.
 
 ## Tasks
 
 ```mdx
 ---
 supersigil:
-  id: auth/tasks/login
+  id: auth/tasks
   type: tasks
   status: draft
 title: "Login Tasks"
@@ -87,24 +98,21 @@ title: "Login Tasks"
 
 Track the implementation sequence for this feature.
 
-<Task id="type-alignment" status="done">
-  Align request and domain types.
-</Task>
-
 <Task
-  id="adapter-code"
-  status="in-progress"
-  depends="type-alignment"
-  implements="auth/req/login#valid-creds"
+  id="task-1-1"
+  status="ready"
+  implements="auth/req#req-1-1"
 >
   Implement the adapter layer for credential validation.
 </Task>
 
 <Task
-  id="switch-over"
-  depends="adapter-code"
+  id="task-1-2"
+  status="ready"
+  depends="task-1-1"
+  implements="auth/req#req-1-2"
 >
-  Swap the old handler for the new one.
+  Handle incorrect password responses and error mapping.
 </Task>
 ```
 
@@ -115,9 +123,11 @@ Use `depends` for task ordering inside the same tasks document. Use `implements`
 - `<AcceptanceCriteria>`: wrapper for `<Criterion>` entries in requirement docs
 - `<Criterion id="...">`: a single acceptance criterion
 - `<Validates refs="doc#criterion">`: property or design doc points at requirement criteria
+- `<VerifiedBy strategy="tag" tag="...">`: automated verification via tagged tests
+- `<VerifiedBy strategy="file-glob" paths="...">`: automated verification via concrete test files
 - `<Implements refs="doc">`: design doc points at the spec it implements
 - `<Illustrates refs="doc#criterion">`: example doc points at criteria without satisfying coverage
 - `<Task id="..." status="..." depends="..." implements="...">`: task entry in a tasks doc
 - `<DependsOn refs="doc">`: document-level dependency
 - `<TrackedFiles paths="glob">`: source files related to the doc
-- `<VerifiedBy strategy="file-glob" paths="...">`: provisional test mapping until `verify` exists
+- Write list attributes as quoted strings, not JSX expressions
