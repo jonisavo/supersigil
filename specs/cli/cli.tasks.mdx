@@ -2,7 +2,7 @@
 supersigil:
   id: cli/tasks
   type: tasks
-  status: draft
+  status: done
 title: "CLI Tasks"
 ---
 
@@ -169,7 +169,7 @@ New commands to implement: `verify`, `status`, `affected`, `graph`, `init`, `new
 
 ## Phase 7: Bugfixes
 
-<Task id="task-7-1" status="pending" depends="task-3-1" implements="cli/req#req-9-1">
+<Task id="task-7-1" status="done" depends="task-3-1" implements="cli/req#req-9-1">
   Fix `status` project-wide criteria counting. The current code iterates only
   top-level `doc.components`, but `Criterion` components are nested inside
   `AcceptanceCriteria` wrappers. Add a recursive helper to walk children, matching
@@ -177,14 +177,14 @@ New commands to implement: `verify`, `status`, `affected`, `graph`, `init`, `new
   for all standard requirement documents.
 </Task>
 
-<Task id="task-7-2" status="pending" depends="task-4-2" implements="cli/req#req-13-2">
+<Task id="task-7-2" status="done" depends="task-4-2" implements="cli/req#req-13-2">
   Fix `new` command templates to use valid MDX syntax. Replace HTML comments
   (`&lt;!-- ... --&gt;`) with MDX comments (`{/* ... */}`) in the requirement and
   tasks scaffolds. The MDX parser rejects HTML comments inside JSX component
   bodies, so generated files fail `supersigil lint` immediately.
 </Task>
 
-<Task id="task-7-3" status="pending" depends="task-4-2" implements="cli/req#req-13-2">
+<Task id="task-7-3" status="done" depends="task-4-2" implements="cli/req#req-13-2">
   Fix `new` command templates to not emit empty `refs=""` placeholders. The design
   and property scaffolds currently emit `&lt;Validates refs="" /&gt;` which causes
   `split_list_attribute("")` to return a `BrokenRef` graph error, breaking all
@@ -192,14 +192,14 @@ New commands to implement: `verify`, `status`, `affected`, `graph`, `init`, `new
   until the user fills it in.
 </Task>
 
-<Task id="task-7-4" status="pending" depends="task-7-3" implements="cli/req#req-13-2">
+<Task id="task-7-4" status="done" depends="task-7-3" implements="cli/req#req-13-2">
   Fix `new` command property template to include the required `strategy` attribute
   on `VerifiedBy`. The current template emits `&lt;VerifiedBy tag="" /&gt;` which
   fails lint with "missing required attribute 'strategy'". Use
   `&lt;VerifiedBy strategy="test" tag="" /&gt;` or omit the component.
 </Task>
 
-<Task id="task-7-5" status="pending" depends="task-2-2" implements="cli/req#req-14-4">
+<Task id="task-7-5" status="done" depends="task-2-2" implements="cli/req#req-14-4">
   Fix `supersigil-verify`'s `format_terminal` to respect Unicode/ASCII mode. The
   formatter currently hardcodes Unicode symbols (`✔ ✖ ⚠ ℹ`) regardless of the
   `use_color` flag. Add a `use_unicode` parameter (or accept the full display
