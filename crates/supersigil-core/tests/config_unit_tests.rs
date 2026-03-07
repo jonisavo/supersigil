@@ -204,7 +204,7 @@ fn document_type_with_status_and_required_components() {
     let toml_str = r#"
 paths = ["specs/**/*.mdx"]
 
-[documents.types.requirement]
+[documents.types.requirements]
 status = ["draft", "approved", "deprecated"]
 required_components = ["AcceptanceCriteria"]
 
@@ -215,7 +215,7 @@ status = ["draft", "final"]
     let types = &config.documents.types;
     assert_eq!(types.len(), 2);
 
-    let req_type = &types["requirement"];
+    let req_type = &types["requirements"];
     assert_eq!(
         req_type.status,
         vec!["draft", "approved", "deprecated"]
@@ -840,12 +840,12 @@ fn document_type_def_with_description() {
     let toml_str = r#"
 paths = ["specs/**/*.mdx"]
 
-[documents.types.requirement]
+[documents.types.requirements]
 description = "Captures what the system must do"
 status = ["draft", "approved"]
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
-    let req = &config.documents.types["requirement"];
+    let req = &config.documents.types["requirements"];
     assert_eq!(
         req.description,
         Some("Captures what the system must do".to_string())

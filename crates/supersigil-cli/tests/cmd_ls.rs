@@ -8,8 +8,8 @@ use tempfile::TempDir;
 fn ls_lists_all_documents() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_spec(tmp.path(), "a", "doc/a", "requirement", "draft");
-    common::write_spec(tmp.path(), "b", "doc/b", "property", "verified");
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
+    common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
     cargo_bin_cmd!("supersigil")
         .args(["ls"])
@@ -24,11 +24,11 @@ fn ls_lists_all_documents() {
 fn ls_filter_by_type() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_spec(tmp.path(), "a", "doc/a", "requirement", "draft");
-    common::write_spec(tmp.path(), "b", "doc/b", "property", "verified");
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
+    common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
     cargo_bin_cmd!("supersigil")
-        .args(["ls", "--type", "requirement"])
+        .args(["ls", "--type", "requirements"])
         .current_dir(tmp.path())
         .assert()
         .success()
@@ -40,8 +40,8 @@ fn ls_filter_by_type() {
 fn ls_filter_by_status() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_spec(tmp.path(), "a", "doc/a", "requirement", "draft");
-    common::write_spec(tmp.path(), "b", "doc/b", "property", "verified");
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
+    common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
     cargo_bin_cmd!("supersigil")
         .args(["ls", "--status", "draft"])
@@ -56,7 +56,7 @@ fn ls_filter_by_status() {
 fn ls_json_format() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_spec(tmp.path(), "a", "doc/a", "requirement", "draft");
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
     let output = cargo_bin_cmd!("supersigil")
         .args(["ls", "--format", "json"])
@@ -86,7 +86,7 @@ fn ls_empty_result_exits_zero() {
 fn list_alias_works() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_spec(tmp.path(), "a", "doc/a", "requirement", "draft");
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
     cargo_bin_cmd!("supersigil")
         .args(["list"])

@@ -95,12 +95,8 @@ fn schema_includes_builtin_document_types_for_minimal_config() {
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
 
     assert_eq!(
-        json["document_types"]["requirement"]["status"],
+        json["document_types"]["requirements"]["status"],
         serde_json::json!(["draft", "review", "approved", "implemented"])
-    );
-    assert_eq!(
-        json["document_types"]["property"]["status"],
-        serde_json::json!(["draft", "specified", "verified"])
     );
     assert_eq!(
         json["document_types"]["design"]["status"],
@@ -302,7 +298,7 @@ fn schema_builtin_document_types_have_descriptions() {
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
 
-    for name in ["requirement", "property", "design", "tasks"] {
+    for name in ["requirements", "design", "tasks"] {
         assert!(
             json["document_types"][name].get("description").is_some(),
             "{name} should have description in schema output"

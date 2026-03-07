@@ -7,6 +7,7 @@ use supersigil_core::load_config;
 use crate::commands::{BUILTIN_DOC_TYPES, NewArgs};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, Token};
+use crate::loader;
 
 /// Run the `new` command: scaffold a new spec document.
 ///
@@ -47,7 +48,12 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
         std::fs::create_dir_all(parent)?;
     }
 
-    let content = generate_template(&args.doc_type, &doc_id);
+    // Check if a requirements file exists for this feature (used by design template)
+    let project_root = loader::project_root(config_path);
+    let req_path = project_root.join(format!("specs/{}/{}.req.mdx", args.id, args.id));
+    let req_exists = req_path.is_file();
+
+    let content = generate_template(&args.doc_type, &doc_id, &args.id, req_exists);
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -77,15 +83,15 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
 /// Map full type name to short name used in file conventions.
 fn type_short_name(doc_type: &str) -> &str {
     match doc_type {
-        "requirement" => "req",
+        "requirements" => "req",
         other => other,
     }
 }
 
-fn generate_template(doc_type: &str, id: &str) -> String {
+fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String {
     let status = "draft";
 
-    let mut content = format!(
+    let frontmatter = format!(
         r#"---
 supersigil:
   id: {id}
@@ -93,35 +99,93 @@ supersigil:
   status: {status}
 title: ""
 ---
-
 "#
     );
 
-    // Add type-appropriate placeholder components.
-    // - Use MDX comments ({/* */}) not HTML comments (<!-- -->)
-    // - Never emit empty refs="" (causes BrokenRef graph error)
-    // - Include all required attributes for each component
     match doc_type {
-        "requirement" => {
-            content.push_str(
-                r#"<AcceptanceCriteria>
-  <Criterion id="req-1">
-    {/* Describe the acceptance criterion */}
+        "requirements" => format!(
+            r#"{frontmatter}
+## Introduction
+
+{{/* What problem does this feature solve? What is in scope and out of scope? */}}
+
+## Definitions
+
+{{/* Domain terms used in the requirements below. Use bold for the term name. */}}
+
+- **Term**: Definition.
+
+## Requirement 1: Title
+
+As a [role], I want [capability], so that [benefit].
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    WHEN [precondition], THE [component] SHALL [behavior].
   </Criterion>
 </AcceptanceCriteria>
-"#,
-            );
-        }
-        "tasks" => {
-            content.push_str(
-                r#"<Task id="task-1-1" status="draft">
-  {/* Describe the task */}
-</Task>
-"#,
-            );
-        }
-        _ => {}
-    }
+"#
+        ),
+        "design" => {
+            let implements_line = if req_exists {
+                format!(r#"<Implements refs="{feature}/req" />"#)
+            } else {
+                r#"{/* <Implements refs="" /> */}"#.to_owned()
+            };
+            format!(
+                r#"{frontmatter}
+{implements_line}
 
-    content
+{{/* <DependsOn refs="" /> */}}
+{{/* <TrackedFiles paths="" /> */}}
+
+## Overview
+
+{{/* High-level summary of the design approach. */}}
+
+## Architecture
+
+{{/* System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged. */}}
+
+## Key Types
+
+{{/* Core data structures and their relationships. Rust type sketches encouraged. */}}
+
+## Error Handling
+
+{{/* Error types, failure modes, recovery strategies. */}}
+
+## Testing Strategy
+
+{{/* How correctness will be verified: property tests, unit tests, integration tests. */}}
+
+## Alternatives Considered
+
+{{/* Approaches that were evaluated and rejected, with rationale. */}}
+"#
+            )
+        }
+        "tasks" => format!(
+            r#"{frontmatter}
+## Overview
+
+{{/* Brief description of the implementation sequence and approach. */}}
+
+<Task id="task-1" status="draft">
+  {{/* Describe the task. Use implements="{feature}/req#req-1-1" to link to criteria. */}}
+
+  {{/* Subtasks are optional:
+  <Task id="task-1-1" status="draft" implements="">
+    Subtask description.
+  </Task>
+
+  <Task id="task-1-2" status="draft" depends="task-1-1">
+    Subtask that depends on task-1-1.
+  </Task>
+  */}}
+</Task>
+"#
+        ),
+        _ => format!("{frontmatter}\n"),
+    }
 }

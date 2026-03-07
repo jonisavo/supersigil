@@ -26,14 +26,14 @@ fn parse_ls_with_filters() {
         "supersigil",
         "ls",
         "--type",
-        "requirement",
+        "requirements",
         "--status",
         "draft",
         "--format",
         "json",
     ]);
     if let supersigil_cli::Command::Ls(args) = cli.command {
-        assert_eq!(args.doc_type, Some("requirement".into()));
+        assert_eq!(args.doc_type, Some("requirements".into()));
         assert_eq!(args.status, Some("draft".into()));
         assert!(matches!(args.format, supersigil_cli::OutputFormat::Json));
     } else {
@@ -284,9 +284,9 @@ fn parse_init() {
 
 #[test]
 fn parse_new() {
-    let cli = Cli::parse_from(["supersigil", "new", "requirement", "auth"]);
+    let cli = Cli::parse_from(["supersigil", "new", "requirements", "auth"]);
     if let supersigil_cli::Command::New(args) = cli.command {
-        assert_eq!(args.doc_type, "requirement");
+        assert_eq!(args.doc_type, "requirements");
         assert_eq!(args.id, "auth");
     } else {
         panic!("expected New");

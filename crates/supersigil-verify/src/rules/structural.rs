@@ -152,7 +152,7 @@ mod tests {
     fn document_missing_required_component_emits_finding() {
         let mut config = test_config();
         config.documents.types.insert(
-            "requirement".into(),
+            "requirements".into(),
             DocumentTypeDef {
                 status: vec!["draft".into()],
                 required_components: vec!["AcceptanceCriteria".into()],
@@ -161,7 +161,7 @@ mod tests {
         );
         let docs = vec![make_doc_typed(
             "req/auth",
-            "requirement",
+            "requirements",
             Some("draft"),
             vec![],
         )];
@@ -175,7 +175,7 @@ mod tests {
     fn document_with_required_component_is_clean() {
         let mut config = test_config();
         config.documents.types.insert(
-            "requirement".into(),
+            "requirements".into(),
             DocumentTypeDef {
                 status: vec!["draft".into()],
                 required_components: vec!["AcceptanceCriteria".into()],
@@ -184,7 +184,7 @@ mod tests {
         );
         let docs = vec![make_doc_typed(
             "req/auth",
-            "requirement",
+            "requirements",
             Some("draft"),
             vec![make_acceptance_criteria(
                 vec![make_criterion("req-1", 10)],

@@ -12,7 +12,7 @@ fn plan_all_shows_outstanding_criteria() {
         tmp.path(),
         "specs/req.mdx",
         "auth/req/login",
-        Some("requirement"),
+        Some("requirements"),
         Some("approved"),
         r#"# Login
 
@@ -40,7 +40,7 @@ fn plan_exact_id() {
         tmp.path(),
         "specs/req.mdx",
         "auth/req/login",
-        Some("requirement"),
+        Some("requirements"),
         None,
         "# Login\n\n<AcceptanceCriteria>\n  <Criterion id=\"c1\">\n    Test criterion.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
@@ -61,7 +61,7 @@ fn plan_prefix_match() {
         tmp.path(),
         "specs/a.mdx",
         "auth/req/login",
-        Some("requirement"),
+        Some("requirements"),
         None,
         "# A\n\n<AcceptanceCriteria>\n  <Criterion id=\"c1\">\n    Test.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
@@ -69,7 +69,7 @@ fn plan_prefix_match() {
         tmp.path(),
         "specs/b.mdx",
         "billing/req/pay",
-        Some("requirement"),
+        Some("requirements"),
         None,
         "# B\n\n<AcceptanceCriteria>\n  <Criterion id=\"c2\">\n    Test.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
@@ -104,7 +104,7 @@ fn plan_json_format() {
         tmp.path(),
         "specs/req.mdx",
         "test/doc",
-        Some("requirement"),
+        Some("requirements"),
         None,
         "# Test\n",
     );

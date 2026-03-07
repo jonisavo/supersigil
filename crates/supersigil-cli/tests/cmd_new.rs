@@ -3,15 +3,15 @@ mod common;
 use assert_cmd::cargo::cargo_bin_cmd;
 use tempfile::TempDir;
 
-/// task-7-2: Generated requirement template must pass lint.
+/// task-7-2: Generated requirements template must pass lint.
 #[test]
-fn new_requirement_passes_lint() {
+fn new_requirements_passes_lint() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    // Generate a requirement scaffold
+    // Generate a requirements scaffold
     cargo_bin_cmd!("supersigil")
-        .args(["new", "requirement", "auth"])
+        .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
@@ -63,27 +63,35 @@ fn new_design_does_not_break_graph() {
         .success();
 }
 
-/// task-7-3 + task-7-4: Generated property template must not break graph
-/// and must pass lint (`VerifiedBy` requires strategy).
+/// Design template with existing req fills in Implements ref.
 #[test]
-fn new_property_passes_lint_and_graph() {
+fn new_design_with_existing_req_fills_implements() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
+    // Create a requirements doc first
     cargo_bin_cmd!("supersigil")
-        .args(["new", "property", "perf"])
+        .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
-    // Must pass lint (no missing required attributes)
+    // Now create a design doc — should detect the req file
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["new", "design", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
-    // Must not break graph (no empty refs)
+    // The design file should have a filled-in Implements ref
+    let design_content =
+        std::fs::read_to_string(tmp.path().join("specs/auth/auth.design.mdx")).unwrap();
+    assert!(
+        design_content.contains(r#"<Implements refs="auth/req" />"#),
+        "design should have filled Implements ref, got:\n{design_content}"
+    );
+
+    // Graph must load successfully (Implements ref is valid)
     cargo_bin_cmd!("supersigil")
         .args(["ls"])
         .current_dir(tmp.path())

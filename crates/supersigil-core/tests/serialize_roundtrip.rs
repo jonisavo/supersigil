@@ -13,7 +13,7 @@ fn spec_document_serializes_to_json() {
         path: PathBuf::from("specs/auth/req.mdx"),
         frontmatter: supersigil_core::Frontmatter {
             id: "auth/req/login".into(),
-            doc_type: Some("requirement".into()),
+            doc_type: Some("requirements".into()),
             status: Some("approved".into()),
         },
         extra: HashMap::new(),
@@ -23,7 +23,7 @@ fn spec_document_serializes_to_json() {
 
     assert_eq!(json["path"], "specs/auth/req.mdx");
     assert_eq!(json["frontmatter"]["id"], "auth/req/login");
-    assert_eq!(json["frontmatter"]["type"], "requirement");
+    assert_eq!(json["frontmatter"]["type"], "requirements");
     assert_eq!(json["frontmatter"]["status"], "approved");
     assert_eq!(json["extra"], json!({}));
     assert_eq!(json["components"], json!([]));

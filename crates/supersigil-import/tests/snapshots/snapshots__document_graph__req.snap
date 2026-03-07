@@ -1,12 +1,11 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
-assertion_line: 79
 expression: content
 ---
 ---
 supersigil:
   id: req/document-graph
-  type: requirement
+  type: requirements
   status: draft
 title: "Document Graph"
 ---

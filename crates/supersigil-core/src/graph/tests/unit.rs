@@ -39,7 +39,7 @@ fn build_auth_login_scenario() -> (
     // Requirement document: auth/req/login
     let req_doc = make_doc_full(
         "auth/req/login",
-        Some("requirement"),
+        Some("requirements"),
         Some("approved"),
         vec![
             make_tracked_files_component("src/auth/**/*.rs", 1),
@@ -57,7 +57,7 @@ fn build_auth_login_scenario() -> (
     // Property document: validates valid-creds
     let prop_doc = make_doc_full(
         "auth/prop/token-generation",
-        Some("property"),
+        Some("design"),
         Some("verified"),
         vec![make_refs_component(
             VALIDATES,
@@ -265,7 +265,7 @@ fn done_task_implementing_criterion_makes_it_non_outstanding() {
 
     let req_doc = make_doc_full(
         "my/req",
-        Some("requirement"),
+        Some("requirements"),
         Some("approved"),
         vec![make_acceptance_criteria(
             vec![

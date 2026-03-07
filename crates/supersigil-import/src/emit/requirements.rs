@@ -20,7 +20,7 @@ pub fn emit_requirements_mdx(
     let mut out = String::new();
     let mut ambiguity_count = 0;
 
-    emit_front_matter(&mut out, doc_id, "requirement", feature_title);
+    emit_front_matter(&mut out, doc_id, "requirements", feature_title);
 
     // Introduction prose
     if !parsed.introduction.trim().is_empty() {

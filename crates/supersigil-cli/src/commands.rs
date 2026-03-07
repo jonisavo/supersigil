@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use crate::format::OutputFormat;
 
 /// Built-in document types recognized without explicit configuration.
-pub const BUILTIN_DOC_TYPES: &[&str] = &["requirement", "property", "design", "tasks"];
+pub const BUILTIN_DOC_TYPES: &[&str] = &["requirements", "design", "tasks"];
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -190,7 +190,7 @@ pub struct GraphArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct NewArgs {
-    /// Document type (e.g., requirement, design, tasks)
+    /// Document type (e.g., requirements, design, tasks)
     pub doc_type: String,
     /// Feature name (e.g., auth, cli)
     pub id: String,

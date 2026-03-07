@@ -13,7 +13,7 @@ fn status_counts_nested_criteria() {
         tmp.path(),
         "specs/auth.mdx",
         "auth/req",
-        Some("requirement"),
+        Some("requirements"),
         Some("draft"),
         "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n  <Criterion id=\"ac-2\">\n    Must log out\n  </Criterion>\n</AcceptanceCriteria>",
     );

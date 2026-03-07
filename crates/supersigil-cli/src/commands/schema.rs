@@ -64,23 +64,16 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
 
     debug_assert_eq!(
         BUILTIN_DOC_TYPES,
-        &["requirement", "property", "design", "tasks"],
+        &["requirements", "design", "tasks"],
         "update descriptions below when BUILTIN_DOC_TYPES changes"
     );
 
     [
         (
-            "requirement".to_string(),
+            "requirements".to_string(),
             doc_type(
                 "Captures what the system must do. Contains acceptance criteria that can be traced to designs, tasks, and tests.",
                 &["draft", "review", "approved", "implemented"],
-            ),
-        ),
-        (
-            "property".to_string(),
-            doc_type(
-                "A cross-cutting quality or constraint (e.g. performance, security) that must be verified.",
-                &["draft", "specified", "verified"],
             ),
         ),
         (

@@ -12,7 +12,7 @@ fn context_shows_document_info() {
         tmp.path(),
         "specs/req.mdx",
         "auth/req/login",
-        Some("requirement"),
+        Some("requirements"),
         Some("approved"),
         r#"# User Login
 
@@ -41,7 +41,7 @@ fn context_json_format() {
         tmp.path(),
         "specs/req.mdx",
         "test/doc",
-        Some("requirement"),
+        Some("requirements"),
         None,
         "# Test\n",
     );
