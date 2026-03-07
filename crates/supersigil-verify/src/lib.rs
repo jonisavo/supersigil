@@ -19,7 +19,7 @@ pub use affected::AffectedDocument;
 pub use error::VerifyError;
 pub use report::{
     Finding, ReportSeverity, ResultStatus, RuleName, Summary, VerificationReport, format_json,
-    format_markdown, format_terminal,
+    format_markdown,
 };
 pub use scan::{TagMatch, scan_all_tags, scan_for_tag};
 pub use severity::resolve_severity;
