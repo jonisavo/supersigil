@@ -3,7 +3,9 @@ use std::path::Path;
 
 use crate::commands::ContextArgs;
 use crate::error::CliError;
-use crate::format::{OutputFormat, write_json, write_tasks};
+use crate::format::{
+    self, ColorConfig, OutputFormat, Token, status_token, write_json, write_tasks,
+};
 use crate::loader;
 
 /// Run the `context` command: show structured view of a document.
@@ -12,9 +14,15 @@ use crate::loader;
 ///
 /// Returns `CliError` if the graph cannot be loaded, the document is not
 /// found, or output fails.
-pub fn run(args: &ContextArgs, config_path: &Path) -> Result<(), CliError> {
+pub fn run(args: &ContextArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
     let (_config, graph) = loader::load_graph(config_path)?;
-    let ctx = graph.context(&args.id)?;
+    let ctx = match graph.context(&args.id) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            format::hint(color, "Run `supersigil ls` to see available document IDs.");
+            return Err(e.into());
+        }
+    };
 
     match args.format {
         OutputFormat::Json => write_json(&ctx)?,
@@ -22,21 +30,36 @@ pub fn run(args: &ContextArgs, config_path: &Path) -> Result<(), CliError> {
             let stdout = io::stdout();
             let mut out = stdout.lock();
 
+            let c = color;
             let doc = &ctx.document;
             let doc_type = doc.frontmatter.doc_type.as_deref().unwrap_or("document");
-            let status = doc.frontmatter.status.as_deref().unwrap_or("(no status)");
+            let status = doc.frontmatter.status.as_deref().unwrap_or("(none)");
 
-            writeln!(out, "# {doc_type}: {}", doc.frontmatter.id)?;
-            writeln!(out, "Status: {status}")?;
+            writeln!(
+                out,
+                "{} {}",
+                c.paint(Token::Header, &format!("# {doc_type}:")),
+                c.paint(Token::DocId, &doc.frontmatter.id),
+            )?;
+            writeln!(
+                out,
+                "{} {}",
+                c.paint(Token::Label, "Status:"),
+                c.paint(status_token(status), status),
+            )?;
 
             if !ctx.criteria.is_empty() {
-                writeln!(out, "\n## Criteria:")?;
+                writeln!(out, "\n{}", c.paint(Token::Header, "## Criteria:"))?;
                 for crit in &ctx.criteria {
                     let body = crit.body_text.as_deref().unwrap_or("(no description)");
-                    writeln!(out, "- {}: {body}", crit.id)?;
+                    writeln!(out, "- {}: {body}", c.paint(Token::DocId, &crit.id))?;
                     for vref in &crit.validated_by {
                         let vstatus = vref.status.as_deref().unwrap_or("?");
-                        writeln!(out, "  -> Validated by: {} ({vstatus})", vref.doc_id)?;
+                        writeln!(
+                            out,
+                            "  -> Validated by: {} ({vstatus})",
+                            c.paint(Token::DocId, &vref.doc_id),
+                        )?;
                     }
                     for illus in &crit.illustrated_by {
                         writeln!(out, "  -> Illustrated by: {illus}")?;
@@ -45,23 +68,31 @@ pub fn run(args: &ContextArgs, config_path: &Path) -> Result<(), CliError> {
             }
 
             if !ctx.implemented_by.is_empty() {
-                writeln!(out, "\n## Implemented by:")?;
+                writeln!(out, "\n{}", c.paint(Token::Header, "## Implemented by:"))?;
                 for imp in &ctx.implemented_by {
                     let imp_status = imp.status.as_deref().unwrap_or("?");
-                    writeln!(out, "- {} ({imp_status})", imp.doc_id)?;
+                    writeln!(
+                        out,
+                        "- {} ({imp_status})",
+                        c.paint(Token::DocId, &imp.doc_id),
+                    )?;
                 }
             }
 
             if !ctx.illustrated_by.is_empty() {
-                writeln!(out, "\n## Illustrated by:")?;
+                writeln!(out, "\n{}", c.paint(Token::Header, "## Illustrated by:"))?;
                 for illus in &ctx.illustrated_by {
                     writeln!(out, "- {illus}")?;
                 }
             }
 
             if !ctx.tasks.is_empty() {
-                writeln!(out, "\n## Tasks (in dependency order):")?;
-                write_tasks(&mut out, &ctx.tasks)?;
+                writeln!(
+                    out,
+                    "\n{}",
+                    c.paint(Token::Header, "## Tasks (in dependency order):"),
+                )?;
+                write_tasks(&mut out, &ctx.tasks, color)?;
             }
         }
     }

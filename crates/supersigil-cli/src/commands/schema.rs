@@ -4,9 +4,9 @@ use std::path::Path;
 use serde::Serialize;
 use supersigil_core::{AttributeDef, ComponentDef, ComponentDefs, DocumentTypeDef, load_config};
 
-use crate::commands::{SchemaArgs, SchemaFormat};
+use crate::commands::{BUILTIN_DOC_TYPES, SchemaArgs, SchemaFormat};
 use crate::error::CliError;
-use crate::format::{write_json, write_yaml};
+use crate::format::{ColorConfig, write_json, write_yaml};
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
@@ -61,6 +61,12 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
             required_components: Vec::new(),
         }
     }
+
+    debug_assert_eq!(
+        BUILTIN_DOC_TYPES,
+        &["requirement", "property", "design", "tasks"],
+        "update descriptions below when BUILTIN_DOC_TYPES changes"
+    );
 
     [
         (
@@ -137,7 +143,7 @@ impl From<&DocumentTypeDef> for SchemaDocumentTypeDef {
 /// # Errors
 ///
 /// Returns `CliError` if config loading or output serialization fails.
-pub fn run(args: &SchemaArgs, config_path: &Path) -> Result<(), CliError> {
+pub fn run(args: &SchemaArgs, config_path: &Path, _color: ColorConfig) -> Result<(), CliError> {
     let config = load_config(config_path).map_err(CliError::Config)?;
     let merged_components = ComponentDefs::merge(ComponentDefs::defaults(), config.components);
     let mut document_types = default_document_types();

@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::error::CliError;
+use crate::format::{self, ColorConfig, Token};
 use crate::loader;
 
 /// Run per-file structural lint checks.
@@ -10,7 +11,7 @@ use crate::loader;
 /// # Errors
 ///
 /// Returns `CliError` if configuration loading or file discovery fails.
-pub fn run(config_path: &Path) -> Result<bool, CliError> {
+pub fn run(config_path: &Path, color: ColorConfig) -> Result<bool, CliError> {
     let parse_result = loader::parse_all_with_stats(config_path)?;
 
     let stdout = io::stdout();
@@ -19,19 +20,24 @@ pub fn run(config_path: &Path) -> Result<bool, CliError> {
     if parse_result.errors.is_empty() {
         writeln!(
             out,
-            "{} files checked, no errors",
-            parse_result.files_checked
+            "{} {} files checked, no errors",
+            color.ok(),
+            color.paint(Token::Count, &parse_result.files_checked.to_string()),
         )?;
+        format::hint(
+            color,
+            "All clean. Run `supersigil verify` to check cross-document rules.",
+        );
         Ok(true)
     } else {
         for err in &parse_result.errors {
-            writeln!(out, "error: {err}")?;
+            writeln!(out, "{} {err}", color.paint(Token::Error, "error:"))?;
         }
         writeln!(
             out,
             "\n{} files checked, {} error(s)",
-            parse_result.files_checked,
-            parse_result.errors.len()
+            color.paint(Token::Count, &parse_result.files_checked.to_string()),
+            color.paint(Token::Count, &parse_result.errors.len().to_string()),
         )?;
         Ok(false)
     }

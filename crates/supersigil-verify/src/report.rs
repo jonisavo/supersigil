@@ -218,14 +218,15 @@ use std::fmt::Write as _;
 /// Groups findings by `doc_id` (using "global" for `None`), prefixes each
 /// finding with a severity symbol (`✖`/`⚠`/`ℹ`), and appends a summary
 /// line. When `use_color` is true, severity symbols are wrapped in ANSI
-/// colour codes.
+/// colour codes. When `use_color` is false, ASCII fallback symbols are used
+/// instead of Unicode.
 #[must_use]
 pub fn format_terminal(report: &VerificationReport, use_color: bool) -> String {
     if report.result_status() == ResultStatus::Clean {
         return if use_color {
             "\x1b[32m✔ Clean — no findings\x1b[0m\n".to_string()
         } else {
-            "✔ Clean — no findings\n".to_string()
+            "[ok] Clean -- no findings\n".to_string()
         };
     }
 
@@ -241,22 +242,27 @@ pub fn format_terminal(report: &VerificationReport, use_color: bool) -> String {
     for (doc, findings) in &groups {
         let _ = writeln!(out, "{doc}");
         for f in findings {
-            let (symbol, ansi_start, ansi_end) = match f.effective_severity {
-                ReportSeverity::Error => ("✖", "\x1b[31m", "\x1b[0m"),
-                ReportSeverity::Warning => ("⚠", "\x1b[33m", "\x1b[0m"),
-                ReportSeverity::Info => ("ℹ", "\x1b[34m", "\x1b[0m"),
-                ReportSeverity::Off => continue,
-            };
-            if use_color {
-                let _ = writeln!(
-                    out,
-                    "  {ansi_start}{symbol}{ansi_end} [{}] {}",
-                    f.rule.config_key(),
-                    f.message,
-                );
+            let (symbol, ansi_start, ansi_end) = if use_color {
+                match f.effective_severity {
+                    ReportSeverity::Error => ("✖", "\x1b[31m", "\x1b[0m"),
+                    ReportSeverity::Warning => ("⚠", "\x1b[33m", "\x1b[0m"),
+                    ReportSeverity::Info => ("ℹ", "\x1b[34m", "\x1b[0m"),
+                    ReportSeverity::Off => continue,
+                }
             } else {
-                let _ = writeln!(out, "  {symbol} [{}] {}", f.rule.config_key(), f.message,);
-            }
+                match f.effective_severity {
+                    ReportSeverity::Error => ("[err]", "", ""),
+                    ReportSeverity::Warning => ("[warn]", "", ""),
+                    ReportSeverity::Info => ("[info]", "", ""),
+                    ReportSeverity::Off => continue,
+                }
+            };
+            let _ = writeln!(
+                out,
+                "  {ansi_start}{symbol}{ansi_end} [{}] {}",
+                f.rule.config_key(),
+                f.message,
+            );
         }
     }
 
@@ -597,6 +603,55 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn terminal_no_color_uses_ascii_symbols() {
+        let report = VerificationReport {
+            findings: vec![Finding {
+                rule: RuleName::UncoveredCriterion,
+                doc_id: Some("req/auth".to_string()),
+                message: "criterion AC-1 not covered".to_string(),
+                effective_severity: ReportSeverity::Error,
+                raw_severity: ReportSeverity::Error,
+                position: None,
+            }],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 1,
+                warning_count: 0,
+                info_count: 0,
+            },
+        };
+
+        let out = format_terminal(&report, false);
+        assert!(
+            !out.contains('✖'),
+            "no-color output should use ASCII, not Unicode symbols, got: {out}",
+        );
+        assert!(
+            out.contains("[err]") || out.contains("[ERR]"),
+            "no-color output should use ASCII error symbol, got: {out}",
+        );
+    }
+
+    #[test]
+    fn terminal_no_color_clean_uses_ascii() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary {
+                total_documents: 3,
+                error_count: 0,
+                warning_count: 0,
+                info_count: 0,
+            },
+        };
+
+        let out = format_terminal(&report, false);
+        assert!(
+            !out.contains('✔'),
+            "no-color clean output should use ASCII, not Unicode, got: {out}",
+        );
+    }
+
+    #[test]
     fn terminal_format_groups_by_document() {
         let report = VerificationReport {
             findings: vec![
@@ -625,7 +680,8 @@ mod tests {
             },
         };
 
-        let out = format_terminal(&report, false);
+        // With color: Unicode symbols + ANSI
+        let out = format_terminal(&report, true);
         assert!(out.contains("req/auth"), "should contain doc_id header");
         assert!(out.contains("global"), "should contain global header");
         assert!(out.contains("✖"), "should contain error symbol");
@@ -637,6 +693,17 @@ mod tests {
         assert!(
             out.contains("1 error(s), 1 warning(s), 0 info(s) across 2 documents"),
             "should contain summary line, got: {out}",
+        );
+
+        // Without color: ASCII symbols
+        let out_plain = format_terminal(&report, false);
+        assert!(
+            out_plain.contains("[err]"),
+            "no-color should use ASCII error, got: {out_plain}",
+        );
+        assert!(
+            out_plain.contains("[warn]"),
+            "no-color should use ASCII warning, got: {out_plain}",
         );
     }
 
@@ -652,10 +719,16 @@ mod tests {
             },
         };
 
-        let out = format_terminal(&report, false);
+        let out_color = format_terminal(&report, true);
         assert!(
-            out.contains("✔ Clean — no findings"),
-            "clean report should show clean message, got: {out}",
+            out_color.contains("✔ Clean"),
+            "colored clean report should show Unicode, got: {out_color}",
+        );
+
+        let out_plain = format_terminal(&report, false);
+        assert!(
+            out_plain.contains("[ok] Clean"),
+            "plain clean report should show ASCII, got: {out_plain}",
         );
     }
 

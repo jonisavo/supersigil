@@ -136,6 +136,30 @@ When color is disabled, Unicode symbols are replaced with ASCII equivalents:
 
 Implementation: a `ColorConfig` struct resolved once at startup, passed to all formatting functions.
 
+### Semantic Color Tokens
+
+All terminal coloring uses a `Token` enum with semantic roles, not ad-hoc ANSI escapes. `ColorConfig::paint(token, text)` returns a `Painted` wrapper whose `Display` impl emits ANSI escapes (or plain text when color is disabled). This keeps style definitions centralized and guarantees zero-overhead plain output.
+
+Uses `anstyle` (v1, already in the dependency tree via clap 4) — no new color crate.
+
+| Token | Style | Usage |
+|-------|-------|-------|
+| `Header` | Bold | Section headers, table column headers |
+| `Label` | Bold | Key-value labels ("Documents:", etc.) |
+| `DocId` | Cyan | Document IDs (`cli/req`) |
+| `DocType` | Blue | Document types (`requirement`) |
+| `Status` | Yellow | Neutral statuses (`draft`) |
+| `StatusGood` | Green | Positive statuses (`done`, `approved`) |
+| `StatusBad` | Red | Negative statuses (`uncovered`) |
+| `Count` | Bold | Numeric values, percentages |
+| `Path` | Dim | File paths |
+| `Success` | Green + Bold | Success messages, `ok` symbol |
+| `Error` | Red + Bold | Error text, `err` symbol |
+| `Warning` | Yellow + Bold | Warning text, `warn` symbol |
+| `Hint` | Dim | Hint prefix, secondary info |
+
+The existing symbol methods (`ok()`, `err()`, `warn()`, `info()`) return `Painted<'static>` with their natural token color, maintaining backward compatibility with `Display`-based call sites.
+
 ## Command Wiring
 
 ### verify
@@ -143,14 +167,14 @@ Implementation: a `ColorConfig` struct resolved once at startup, passed to all f
 1. `load_graph()` to get `(Config, DocumentGraph)`
 2. Construct `VerifyOptions` from CLI flags (`--project`, `--since`, `--committed-only`, `--merge-base`)
 3. Call `supersigil_verify::verify(graph, config, project_root, options)`
-4. Format `VerificationReport` using `format_terminal`, `format_json`, or `format_markdown` from `supersigil-verify`
+4. Format `VerificationReport` using `format_terminal`, `format_json`, or `format_markdown` from `supersigil-verify`. The terminal formatter must respect both color and unicode settings — when color/unicode is off, symbols must fall back to ASCII (`[ok]`, `[err]`, `[warn]`, `[info]`) to match the rest of the CLI's output conventions.
 5. Print to stdout
 6. Exit code from `report.result_status()`: Clean → 0, HasErrors → 1, WarningsOnly → 2
 
 ### status
 
 1. `load_graph()` to get `(Config, DocumentGraph)`
-2. For project-wide: count documents by type/status, compute criteria coverage from graph queries
+2. For project-wide: count documents by type/status, compute criteria coverage. Criteria are nested inside `AcceptanceCriteria` wrappers, so component iteration must walk children recursively (not just top-level `doc.components`).
 3. For per-document: call `graph.context(id)` for criteria/validation status. Additionally extract `TrackedFiles` and `VerifiedBy` components directly from `graph.document(id).components` to report tracked files and test mapping state. This avoids duplicating verify logic — the status command reads component data, it does not re-run verification rules.
 4. Terminal output ends with next-step suggestions
 
@@ -179,7 +203,11 @@ Implementation: a `ColorConfig` struct resolved once at startup, passed to all f
 1. Load config to get document type definitions
 2. Validate the requested type exists
 3. Derive file path from ID using the existing convention: `specs/{feature}/{feature}.{type}.mdx` (e.g., ID `auth/req/login` with feature `auth` → `specs/auth/auth.req.mdx`). The feature is the first segment of the ID. This matches the Kiro importer output and existing spec layout.
-4. Write MDX file with front matter and type-appropriate placeholder components
+4. Write MDX file with front matter and type-appropriate placeholder components. Templates must:
+   - Use MDX comments (`{/* ... */}`) instead of HTML comments (`<!-- -->`) — the MDX parser rejects HTML comments inside JSX component bodies
+   - Never emit empty `refs=""` — `split_list_attribute("")` returns a `BrokenRef` error that makes all graph-based commands fail
+   - Include all required attributes for each component (e.g., `VerifiedBy` requires `strategy`)
+   - Pass `supersigil lint` without errors immediately after generation
 5. Print file path and next-step hint
 
 ## Error Handling

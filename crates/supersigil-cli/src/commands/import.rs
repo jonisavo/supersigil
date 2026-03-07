@@ -5,19 +5,20 @@ use supersigil_import::{Diagnostic, ImportConfig, ImportSummary, import_kiro, pl
 
 use crate::commands::{ImportArgs, ImportSource};
 use crate::error::CliError;
+use crate::format::{self, ColorConfig, Token};
 
 /// Run the import command, reading Kiro specs and writing MDX output.
 ///
 /// # Errors
 ///
 /// Returns `CliError` on I/O failure or import errors.
-pub fn run(args: &ImportArgs) -> Result<(), CliError> {
+pub fn run(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError> {
     match args.from {
-        ImportSource::Kiro => run_kiro_import(args),
+        ImportSource::Kiro => run_kiro_import(args, color),
     }
 }
 
-fn run_kiro_import(args: &ImportArgs) -> Result<(), CliError> {
+fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError> {
     let kiro_specs_dir = args
         .source_dir
         .clone()
@@ -41,13 +42,19 @@ fn run_kiro_import(args: &ImportArgs) -> Result<(), CliError> {
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        writeln!(out, "Dry run: {} documents planned", plan.documents.len())?;
+        let c = color;
+        writeln!(
+            out,
+            "Dry run: {} documents planned",
+            c.paint(Token::Count, &plan.documents.len().to_string()),
+        )?;
         for doc in &plan.documents {
+            let path_str = doc.output_path.display().to_string();
             writeln!(
                 out,
                 "  {} -> {}",
-                doc.document_id,
-                doc.output_path.display()
+                c.paint(Token::DocId, &doc.document_id),
+                c.paint(Token::Path, &path_str),
             )?;
         }
         print_summary(&mut out, &plan.summary, plan.ambiguity_count)?;
@@ -57,11 +64,35 @@ fn run_kiro_import(args: &ImportArgs) -> Result<(), CliError> {
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        writeln!(out, "Imported {} files", result.files_written.len())?;
+        let c = color;
+        writeln!(
+            out,
+            "Imported {} files",
+            c.paint(Token::Count, &result.files_written.len().to_string()),
+        )?;
         for file in &result.files_written {
-            writeln!(out, "  {} -> {}", file.document_id, file.path.display())?;
+            let path_str = file.path.display().to_string();
+            writeln!(
+                out,
+                "  {} -> {}",
+                c.paint(Token::DocId, &file.document_id),
+                c.paint(Token::Path, &path_str),
+            )?;
         }
         print_summary(&mut out, &result.summary, result.ambiguity_count)?;
+
+        // Next-step hint
+        if std::path::Path::new("supersigil.toml").exists() {
+            format::hint(
+                color,
+                "Run `supersigil lint` to validate imported documents.",
+            );
+        } else {
+            format::hint(
+                color,
+                "Run `supersigil init` to create a config, then `supersigil lint`.",
+            );
+        }
     }
 
     Ok(())

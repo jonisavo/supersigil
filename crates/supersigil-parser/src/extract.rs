@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use markdown::mdast;
+use markdown::{mdast, unist};
 use supersigil_core::{ComponentDefs, ExtractedComponent, ParseError, SourcePosition};
 
 /// Returns `true` if the name starts with an uppercase ASCII letter (`PascalCase`).
@@ -28,8 +28,12 @@ fn collect_body_text(children: &[mdast::Node]) -> Option<String> {
     }
 }
 
-/// Recursively collect text values, skipping `MdxJsxFlowElement` children
-/// (those become child components, not body text).
+/// Recursively collect text values, skipping child component nodes.
+///
+/// Flow-level JSX elements are always child components. Inline JSX elements
+/// (`MdxJsxTextElement`) are child components only when `PascalCase`; lowercase
+/// inline elements (`<span>`, `<strong>`, etc.) are HTML formatting wrappers
+/// whose text content belongs to the parent's body.
 fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node]) {
     for node in nodes {
         match node {
@@ -41,6 +45,14 @@ fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node]) {
             }
             // Skip flow-level JSX elements — they are child components.
             mdast::Node::MdxJsxFlowElement(_) => {}
+            // Inline JSX: skip PascalCase (child components), recurse into
+            // lowercase (HTML formatting wrappers).
+            mdast::Node::MdxJsxTextElement(el) => {
+                let is_component = el.name.as_ref().is_some_and(|n| is_pascal_case(n));
+                if !is_component {
+                    collect_text_recursive(buf, &el.children);
+                }
+            }
             // Recurse into wrapper nodes (paragraphs, etc.) to find text.
             other => {
                 if let Some(children) = other.children() {
@@ -140,51 +152,33 @@ fn collect_components(
 ) {
     match node {
         mdast::Node::MdxJsxFlowElement(el) => {
-            let Some(ref name) = el.name else {
-                // Fragment (<> </>) — recurse into children.
-                collect_from_children(&el.children, body_offset, path, errors, out);
-                return;
-            };
-
-            if !is_pascal_case(name) {
-                // Lowercase HTML element — silently ignore, but still recurse
-                // in case there are supersigil components nested inside.
-                collect_from_children(&el.children, body_offset, path, errors, out);
-                return;
-            }
-
-            // Compute file-relative source position.
-            let position = el.position.as_ref().map_or(
-                SourcePosition {
-                    byte_offset: body_offset,
-                    line: 1,
-                    column: 1,
-                },
-                |pos| SourcePosition {
-                    byte_offset: pos.start.offset + body_offset,
-                    line: pos.start.line,
-                    column: pos.start.column,
-                },
+            process_jsx_element(
+                el.name.as_deref(),
+                &el.children,
+                &el.attributes,
+                el.position.as_ref(),
+                body_offset,
+                path,
+                errors,
+                out,
             );
-
-            let attributes = extract_attributes(&el.attributes, name, path, &position, errors);
-
-            // Recursively extract child components.
-            let mut children = Vec::new();
-            collect_from_children(&el.children, body_offset, path, errors, &mut children);
-
-            let body_text = collect_body_text(&el.children);
-
-            out.push(ExtractedComponent {
-                name: name.clone(),
-                attributes,
-                children,
-                body_text,
-                position,
-            });
         }
-        // Ignore inline JSX (MdxJsxTextElement) entirely.
-        mdast::Node::MdxJsxTextElement(_) => {}
+        // Inline JSX (MdxJsxTextElement) — extract PascalCase components.
+        // This handles cases like <Criterion id="ac-1">text</Criterion>
+        // appearing on a single line inside a parent component, which MDX
+        // classifies as text-level rather than flow-level.
+        mdast::Node::MdxJsxTextElement(el) => {
+            process_jsx_element(
+                el.name.as_deref(),
+                &el.children,
+                &el.attributes,
+                el.position.as_ref(),
+                body_offset,
+                path,
+                errors,
+                out,
+            );
+        }
         // For all other nodes, recurse into children.
         other => {
             if let Some(node_children) = other.children() {
@@ -192,6 +186,63 @@ fn collect_components(
             }
         }
     }
+}
+
+/// Shared logic for processing both `MdxJsxFlowElement` and `MdxJsxTextElement`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "factored out of two match arms to eliminate duplication"
+)]
+fn process_jsx_element(
+    name: Option<&str>,
+    children: &[mdast::Node],
+    attributes: &[mdast::AttributeContent],
+    position: Option<&unist::Position>,
+    body_offset: usize,
+    path: &Path,
+    errors: &mut Vec<ParseError>,
+    out: &mut Vec<ExtractedComponent>,
+) {
+    let Some(name) = name else {
+        // Fragment (<> </>) — recurse into children.
+        collect_from_children(children, body_offset, path, errors, out);
+        return;
+    };
+
+    if !is_pascal_case(name) {
+        // Lowercase HTML element — recurse in case there are
+        // supersigil components nested inside.
+        collect_from_children(children, body_offset, path, errors, out);
+        return;
+    }
+
+    let pos = position.map_or(
+        SourcePosition {
+            byte_offset: body_offset,
+            line: 1,
+            column: 1,
+        },
+        |p| SourcePosition {
+            byte_offset: p.start.offset + body_offset,
+            line: p.start.line,
+            column: p.start.column,
+        },
+    );
+
+    let attrs = extract_attributes(attributes, name, path, &pos, errors);
+
+    let mut child_components = Vec::new();
+    collect_from_children(children, body_offset, path, errors, &mut child_components);
+
+    let body_text = collect_body_text(children);
+
+    out.push(ExtractedComponent {
+        name: name.to_owned(),
+        attributes: attrs,
+        children: child_components,
+        body_text,
+        position: pos,
+    });
 }
 
 // ---------------------------------------------------------------------------

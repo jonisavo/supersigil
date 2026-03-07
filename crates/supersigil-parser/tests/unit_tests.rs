@@ -451,20 +451,128 @@ mod component_extraction {
         assert!(components.is_empty(), "lowercase <p> should be ignored");
     }
 
-    // ── Req 8.6: Inline JSX (MdxJsxTextElement) ignored ──
+    // ── Inline JSX (MdxJsxTextElement) extracted when PascalCase ──
 
     #[test]
-    fn inline_jsx_text_element_ignored() {
+    fn inline_jsx_text_element_extracted() {
         // Inline JSX appears within a paragraph (not on its own block).
         // markdown-rs parses inline JSX as MdxJsxTextElement.
+        // PascalCase components are still extracted even when inline.
         let body = "Some text with <Validates refs=\"REQ-1\" /> inline.\n";
         let (components, errors) = extract(body, 0);
 
-        // Inline JSX should be ignored — only block-level flow elements extracted
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert!(
-            components.is_empty(),
-            "inline JSX (MdxJsxTextElement) should be ignored, got: {components:?}"
+        assert_eq!(
+            components.len(),
+            1,
+            "PascalCase inline JSX should be extracted, got: {components:?}"
+        );
+        assert_eq!(components[0].name, "Validates");
+    }
+
+    // ── Inline JSX inside a parent flow component IS extracted as child ──
+
+    #[test]
+    fn inline_criterion_inside_parent_extracted_as_child() {
+        // When <Criterion> appears on a single line inside <AcceptanceCriteria>,
+        // markdown-rs classifies it as MdxJsxTextElement. It must still be
+        // extracted as a child component — not silently dropped.
+        let body = "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">Must log in</Criterion>\n  <Criterion id=\"ac-2\">Must log out</Criterion>\n</AcceptanceCriteria>\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(
+            components.len(),
+            1,
+            "expected AcceptanceCriteria, got: {components:?}"
+        );
+        assert_eq!(components[0].name, "AcceptanceCriteria");
+        assert_eq!(
+            components[0].children.len(),
+            2,
+            "expected 2 Criterion children, got: {:#?}",
+            components[0].children
+        );
+        assert_eq!(components[0].children[0].name, "Criterion");
+        assert_eq!(
+            components[0].children[0]
+                .attributes
+                .get("id")
+                .map(String::as_str),
+            Some("ac-1")
+        );
+        assert_eq!(components[0].children[1].name, "Criterion");
+        assert_eq!(
+            components[0].children[1]
+                .attributes
+                .get("id")
+                .map(String::as_str),
+            Some("ac-2")
+        );
+    }
+
+    // ── P2: Inline JSX children must not leak into parent body_text ──
+
+    #[test]
+    fn inline_children_do_not_leak_into_parent_body_text() {
+        // When <Criterion> appears as MdxJsxTextElement inside AcceptanceCriteria,
+        // the parent's body_text must be None — the text belongs to the children,
+        // not the parent.
+        let body = "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">Must log in</Criterion>\n  <Criterion id=\"ac-2\">Must log out</Criterion>\n</AcceptanceCriteria>\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components[0].body_text, None,
+            "parent body_text should be None when all content is child components, got: {:?}",
+            components[0].body_text,
+        );
+        // The children themselves should have the body text
+        assert_eq!(
+            components[0].children[0].body_text.as_deref(),
+            Some("Must log in"),
+        );
+        assert_eq!(
+            components[0].children[1].body_text.as_deref(),
+            Some("Must log out"),
+        );
+    }
+
+    // ── P3: Lowercase inline JSX must recurse into children ──
+
+    #[test]
+    fn lowercase_inline_jsx_does_not_swallow_nested_components() {
+        // A lowercase inline wrapper like <span> should not swallow
+        // PascalCase components nested inside it.
+        let body = "Some text <span><Validates refs=\"REQ-1\" /></span> here.\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(
+            components.len(),
+            1,
+            "Validates inside <span> should be extracted, got: {components:?}"
+        );
+        assert_eq!(components[0].name, "Validates");
+    }
+
+    // ── Lowercase inline HTML wrappers preserve body text ──
+
+    #[test]
+    fn lowercase_inline_wrapper_text_kept_in_body() {
+        // <span>, <strong>, etc. are text formatting — their text content
+        // must appear in the parent component's body_text.
+        let body = "<Criterion id=\"ac-1\"><strong>Important</strong> text</Criterion>\n";
+        let (components, errors) = extract(body, 0);
+
+        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].name, "Criterion");
+        assert_eq!(
+            components[0].body_text.as_deref(),
+            Some("Important text"),
+            "text inside lowercase inline wrappers must be kept in body_text",
         );
     }
 

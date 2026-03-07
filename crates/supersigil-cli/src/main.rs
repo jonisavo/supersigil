@@ -1,14 +1,17 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use supersigil_cli::Cli;
+use supersigil_cli::{Cli, ColorConfig, ExitStatus};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let color = ColorConfig::resolve(cli.color);
 
-    let result = run(&cli);
+    let result = run(&cli, color);
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(ExitStatus::Success) => ExitCode::SUCCESS,
+        Ok(ExitStatus::VerifyFailed) => ExitCode::from(1),
+        Ok(ExitStatus::VerifyWarnings) => ExitCode::from(2),
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(1)
@@ -16,35 +19,58 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: &Cli) -> Result<(), supersigil_cli::error::CliError> {
-    // Import doesn't need a project config; all other commands do.
-    if let supersigil_cli::Command::Import(ref args) = cli.command {
-        return supersigil_cli::commands::import::run(args);
+fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::error::CliError> {
+    // Commands that don't need a project config.
+    match cli.command {
+        supersigil_cli::Command::Import(ref args) => {
+            supersigil_cli::commands::import::run(args, color)?;
+            return Ok(ExitStatus::Success);
+        }
+        supersigil_cli::Command::Init => {
+            supersigil_cli::commands::init::run(color)?;
+            return Ok(ExitStatus::Success);
+        }
+        _ => {}
     }
 
     let config_path = supersigil_cli::find_config(&std::env::current_dir()?)?;
 
     match cli.command {
         supersigil_cli::Command::Lint => {
-            let clean = supersigil_cli::commands::lint::run(&config_path)?;
+            let clean = supersigil_cli::commands::lint::run(&config_path, color)?;
             if !clean {
                 return Err(supersigil_cli::error::CliError::LintFailed);
             }
         }
         supersigil_cli::Command::Ls(ref args) => {
-            supersigil_cli::commands::ls::run(args, &config_path)?;
+            supersigil_cli::commands::ls::run(args, &config_path, color)?;
         }
         supersigil_cli::Command::Schema(ref args) => {
-            supersigil_cli::commands::schema::run(args, &config_path)?;
+            supersigil_cli::commands::schema::run(args, &config_path, color)?;
         }
         supersigil_cli::Command::Plan(ref args) => {
-            supersigil_cli::commands::plan::run(args, &config_path)?;
+            supersigil_cli::commands::plan::run(args, &config_path, color)?;
         }
         supersigil_cli::Command::Context(ref args) => {
-            supersigil_cli::commands::context::run(args, &config_path)?;
+            supersigil_cli::commands::context::run(args, &config_path, color)?;
         }
-        supersigil_cli::Command::Import(_) => unreachable!(),
+        supersigil_cli::Command::Verify(ref args) => {
+            return supersigil_cli::commands::verify::run(args, &config_path, color);
+        }
+        supersigil_cli::Command::Status(ref args) => {
+            supersigil_cli::commands::status::run(args, &config_path, color)?;
+        }
+        supersigil_cli::Command::Affected(ref args) => {
+            supersigil_cli::commands::affected::run(args, &config_path, color)?;
+        }
+        supersigil_cli::Command::Graph(ref args) => {
+            supersigil_cli::commands::graph::run(args, &config_path, color)?;
+        }
+        supersigil_cli::Command::New(ref args) => {
+            supersigil_cli::commands::new::run(args, &config_path, color)?;
+        }
+        supersigil_cli::Command::Import(_) | supersigil_cli::Command::Init => unreachable!(),
     }
 
-    Ok(())
+    Ok(ExitStatus::Success)
 }

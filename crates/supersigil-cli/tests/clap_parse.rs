@@ -159,17 +159,154 @@ fn parse_schema_invalid_format_rejected() {
     Cli::try_parse_from(["supersigil", "schema", "--format", "toml"]).unwrap_err();
 }
 
+// -----------------------------------------------------------------------
+// New commands: verify, status, affected, graph, init, new
+// -----------------------------------------------------------------------
+
 #[test]
-fn unknown_command_rejected() {
-    Cli::try_parse_from(["supersigil", "verify"]).unwrap_err();
+fn parse_verify_defaults() {
+    let cli = Cli::parse_from(["supersigil", "verify"]);
+    if let supersigil_cli::Command::Verify(args) = cli.command {
+        assert!(args.project.is_none());
+        assert!(args.since.is_none());
+        assert!(!args.committed_only);
+        assert!(!args.merge_base);
+        assert!(matches!(
+            args.format,
+            supersigil_cli::VerifyFormat::Terminal
+        ));
+    } else {
+        panic!("expected Verify");
+    }
 }
 
 #[test]
-fn scope_guard_status_not_wired() {
-    Cli::try_parse_from(["supersigil", "status"]).unwrap_err();
+fn parse_verify_with_all_flags() {
+    let cli = Cli::parse_from([
+        "supersigil",
+        "verify",
+        "--project",
+        "core",
+        "--since",
+        "main",
+        "--committed-only",
+        "--merge-base",
+        "--format",
+        "json",
+    ]);
+    if let supersigil_cli::Command::Verify(args) = cli.command {
+        assert_eq!(args.project, Some("core".into()));
+        assert_eq!(args.since, Some("main".into()));
+        assert!(args.committed_only);
+        assert!(args.merge_base);
+        assert!(matches!(args.format, supersigil_cli::VerifyFormat::Json));
+    } else {
+        panic!("expected Verify");
+    }
 }
 
 #[test]
-fn scope_guard_affected_not_wired() {
-    Cli::try_parse_from(["supersigil", "affected"]).unwrap_err();
+fn parse_verify_markdown_format() {
+    let cli = Cli::parse_from(["supersigil", "verify", "--format", "markdown"]);
+    if let supersigil_cli::Command::Verify(args) = cli.command {
+        assert!(matches!(
+            args.format,
+            supersigil_cli::VerifyFormat::Markdown
+        ));
+    } else {
+        panic!("expected Verify");
+    }
+}
+
+#[test]
+fn parse_status_no_args() {
+    let cli = Cli::parse_from(["supersigil", "status"]);
+    if let supersigil_cli::Command::Status(args) = cli.command {
+        assert!(args.id.is_none());
+    } else {
+        panic!("expected Status");
+    }
+}
+
+#[test]
+fn parse_status_with_id() {
+    let cli = Cli::parse_from(["supersigil", "status", "auth/req"]);
+    if let supersigil_cli::Command::Status(args) = cli.command {
+        assert_eq!(args.id, Some("auth/req".into()));
+    } else {
+        panic!("expected Status");
+    }
+}
+
+#[test]
+fn parse_affected() {
+    let cli = Cli::parse_from([
+        "supersigil",
+        "affected",
+        "--since",
+        "main",
+        "--committed-only",
+    ]);
+    if let supersigil_cli::Command::Affected(args) = cli.command {
+        assert_eq!(args.since, "main");
+        assert!(args.committed_only);
+        assert!(!args.merge_base);
+    } else {
+        panic!("expected Affected");
+    }
+}
+
+#[test]
+fn parse_graph_default() {
+    let cli = Cli::parse_from(["supersigil", "graph"]);
+    if let supersigil_cli::Command::Graph(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::GraphFormat::Mermaid));
+    } else {
+        panic!("expected Graph");
+    }
+}
+
+#[test]
+fn parse_graph_dot() {
+    let cli = Cli::parse_from(["supersigil", "graph", "--format", "dot"]);
+    if let supersigil_cli::Command::Graph(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::GraphFormat::Dot));
+    } else {
+        panic!("expected Graph");
+    }
+}
+
+#[test]
+fn parse_init() {
+    let cli = Cli::parse_from(["supersigil", "init"]);
+    assert!(matches!(cli.command, supersigil_cli::Command::Init));
+}
+
+#[test]
+fn parse_new() {
+    let cli = Cli::parse_from(["supersigil", "new", "requirement", "auth"]);
+    if let supersigil_cli::Command::New(args) = cli.command {
+        assert_eq!(args.doc_type, "requirement");
+        assert_eq!(args.id, "auth");
+    } else {
+        panic!("expected New");
+    }
+}
+
+#[test]
+fn parse_color_flag() {
+    let cli = Cli::parse_from(["supersigil", "--color", "never", "lint"]);
+    assert!(matches!(cli.color, supersigil_cli::ColorChoice::Never));
+}
+
+#[test]
+fn parse_color_always() {
+    let cli = Cli::parse_from(["supersigil", "--color", "always", "lint"]);
+    assert!(matches!(cli.color, supersigil_cli::ColorChoice::Always));
+}
+
+#[test]
+fn parse_color_default_auto() {
+    let cli = Cli::parse_from(["supersigil", "lint"]);
+    assert!(matches!(cli.color, supersigil_cli::ColorChoice::Auto));
 }

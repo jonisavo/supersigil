@@ -15,6 +15,12 @@ use crate::error::CliError;
 
 const MAX_PARSE_WORKERS: usize = 8;
 
+/// Derive the project root directory from a config file path.
+#[must_use]
+pub fn project_root(config_path: &Path) -> &Path {
+    config_path.parent().unwrap_or_else(|| Path::new("."))
+}
+
 #[derive(Debug)]
 pub(crate) struct ParseAllStats {
     pub config: Config,
@@ -70,7 +76,7 @@ pub fn parse_all(
 
 pub(crate) fn parse_all_with_stats(config_path: &Path) -> Result<ParseAllStats, CliError> {
     let config = load_config(config_path).map_err(CliError::Config)?;
-    let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let base_dir = project_root(config_path);
 
     let globs = collect_globs(&config);
     let file_paths = discover_spec_files(globs, base_dir)?;
