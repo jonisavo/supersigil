@@ -23,16 +23,14 @@ pub fn check_required_components(graph: &DocumentGraph, config: &Config) -> Vec<
         for required in &type_def.required_components {
             let has_it = has_component(&doc.components, required);
             if !has_it {
-                findings.push(Finding {
-                    rule: RuleName::MissingRequiredComponent,
-                    doc_id: Some(doc_id.to_owned()),
-                    message: format!(
+                findings.push(Finding::new(
+                    RuleName::MissingRequiredComponent,
+                    Some(doc_id.to_owned()),
+                    format!(
                         "document `{doc_id}` (type `{doc_type}`) is missing required component `{required}`"
                     ),
-                    effective_severity: RuleName::MissingRequiredComponent.default_severity(),
-                    raw_severity: RuleName::MissingRequiredComponent.default_severity(),
-                    position: None,
-                });
+                    None,
+                ));
             }
         }
     }
@@ -54,14 +52,12 @@ pub fn check_id_pattern(graph: &DocumentGraph, config: &Config) -> Vec<Finding> 
     let mut findings = Vec::new();
     for (doc_id, _doc) in graph.documents() {
         if !re.is_match(doc_id) {
-            findings.push(Finding {
-                rule: RuleName::InvalidIdPattern,
-                doc_id: Some(doc_id.to_owned()),
-                message: format!("document ID `{doc_id}` does not match pattern `{pattern}`"),
-                effective_severity: RuleName::InvalidIdPattern.default_severity(),
-                raw_severity: RuleName::InvalidIdPattern.default_severity(),
-                position: None,
-            });
+            findings.push(Finding::new(
+                RuleName::InvalidIdPattern,
+                Some(doc_id.to_owned()),
+                format!("document ID `{doc_id}` does not match pattern `{pattern}`"),
+                None,
+            ));
         }
     }
     findings
@@ -88,14 +84,12 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
             || !graph.depends_on(doc_id).is_empty();
 
         if !has_outgoing && !has_incoming {
-            findings.push(Finding {
-                rule: RuleName::IsolatedDocument,
-                doc_id: Some(doc_id.to_owned()),
-                message: format!("document `{doc_id}` has no incoming or outgoing references"),
-                effective_severity: RuleName::IsolatedDocument.default_severity(),
-                raw_severity: RuleName::IsolatedDocument.default_severity(),
-                position: None,
-            });
+            findings.push(Finding::new(
+                RuleName::IsolatedDocument,
+                Some(doc_id.to_owned()),
+                format!("document `{doc_id}` has no incoming or outgoing references"),
+                None,
+            ));
         }
     }
     findings
@@ -125,17 +119,15 @@ pub fn check_orphan_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<
     let mut seen_orphans = std::collections::HashSet::new();
     for m in &all_matches {
         if !declared_tags.contains(&m.tag) && seen_orphans.insert(m.tag.clone()) {
-            findings.push(Finding {
-                rule: RuleName::OrphanTestTag,
-                doc_id: None,
-                message: format!(
+            findings.push(Finding::new(
+                RuleName::OrphanTestTag,
+                None,
+                format!(
                     "tag `{}` found in test files but not declared in any VerifiedBy",
                     m.tag
                 ),
-                effective_severity: RuleName::OrphanTestTag.default_severity(),
-                raw_severity: RuleName::OrphanTestTag.default_severity(),
-                position: None,
-            });
+                None,
+            ));
         }
     }
     findings

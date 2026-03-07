@@ -46,14 +46,12 @@ fn run_single_hook(cmd: &str, report_json: &str, timeout_seconds: u64) -> Vec<Fi
     let mut child = match child {
         Ok(c) => c,
         Err(e) => {
-            return vec![Finding {
-                rule: RuleName::HookFailure,
-                doc_id: None,
-                message: format!("hook `{cmd}` failed to spawn: {e}"),
-                effective_severity: RuleName::HookFailure.default_severity(),
-                raw_severity: RuleName::HookFailure.default_severity(),
-                position: None,
-            }];
+            return vec![Finding::new(
+                RuleName::HookFailure,
+                None,
+                format!("hook `{cmd}` failed to spawn: {e}"),
+                None,
+            )];
         }
     };
 
@@ -83,39 +81,33 @@ fn run_single_hook(cmd: &str, report_json: &str, timeout_seconds: u64) -> Vec<Fi
         }
         Ok(Err(e)) => {
             let _ = handle.join();
-            vec![Finding {
-                rule: RuleName::HookFailure,
-                doc_id: None,
-                message: format!("hook `{cmd}` I/O error: {e}"),
-                effective_severity: RuleName::HookFailure.default_severity(),
-                raw_severity: RuleName::HookFailure.default_severity(),
-                position: None,
-            }]
+            vec![Finding::new(
+                RuleName::HookFailure,
+                None,
+                format!("hook `{cmd}` I/O error: {e}"),
+                None,
+            )]
         }
         Err(mpsc::RecvTimeoutError::Timeout) => {
             // Kill the child process via its PID.
             kill_process(child_id);
             // Wait for the thread to finish (child should exit after kill).
             let _ = handle.join();
-            vec![Finding {
-                rule: RuleName::HookFailure,
-                doc_id: None,
-                message: format!("hook `{cmd}` timed out after {timeout_seconds}s and was killed"),
-                effective_severity: RuleName::HookFailure.default_severity(),
-                raw_severity: RuleName::HookFailure.default_severity(),
-                position: None,
-            }]
+            vec![Finding::new(
+                RuleName::HookFailure,
+                None,
+                format!("hook `{cmd}` timed out after {timeout_seconds}s and was killed"),
+                None,
+            )]
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             let _ = handle.join();
-            vec![Finding {
-                rule: RuleName::HookFailure,
-                doc_id: None,
-                message: format!("hook `{cmd}` channel disconnected unexpectedly"),
-                effective_severity: RuleName::HookFailure.default_severity(),
-                raw_severity: RuleName::HookFailure.default_severity(),
-                position: None,
-            }]
+            vec![Finding::new(
+                RuleName::HookFailure,
+                None,
+                format!("hook `{cmd}` channel disconnected unexpectedly"),
+                None,
+            )]
         }
     }
 }
@@ -140,14 +132,12 @@ fn process_output(cmd: &str, output: &std::process::Output) -> Vec<Finding> {
             Some(code) => format!("exit code {code}"),
             None => "killed by signal".to_string(),
         };
-        findings.push(Finding {
-            rule: RuleName::HookFailure,
-            doc_id: None,
-            message: format!("hook `{cmd}` failed ({exit_info}): {stderr}"),
-            effective_severity: RuleName::HookFailure.default_severity(),
-            raw_severity: RuleName::HookFailure.default_severity(),
-            position: None,
-        });
+        findings.push(Finding::new(
+            RuleName::HookFailure,
+            None,
+            format!("hook `{cmd}` failed ({exit_info}): {stderr}"),
+            None,
+        ));
         return findings;
     }
 

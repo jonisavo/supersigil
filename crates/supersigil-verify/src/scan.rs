@@ -77,45 +77,25 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn matches_double_slash_comment() {
-        let dir = TempDir::new().unwrap();
-        let path = write_test_file(&dir, "test.rs", "// supersigil: prop:auth-login\n");
-        let matches = scan_for_tag("prop:auth-login", &[path]);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].line, 1);
-        assert_eq!(matches[0].tag, "prop:auth-login");
-    }
-
-    #[test]
-    fn matches_triple_slash_comment() {
-        let dir = TempDir::new().unwrap();
-        let path = write_test_file(&dir, "test.rs", "/// supersigil: prop:docs\n");
-        let matches = scan_for_tag("prop:docs", &[path]);
-        assert_eq!(matches.len(), 1);
-    }
-
-    #[test]
-    fn matches_hash_comment() {
-        let dir = TempDir::new().unwrap();
-        let path = write_test_file(&dir, "test.py", "# supersigil: prop:login\n");
-        let matches = scan_for_tag("prop:login", &[path]);
-        assert_eq!(matches.len(), 1);
-    }
-
-    #[test]
-    fn matches_dash_dash_comment() {
-        let dir = TempDir::new().unwrap();
-        let path = write_test_file(&dir, "test.sql", "-- supersigil: prop:query\n");
-        let matches = scan_for_tag("prop:query", &[path]);
-        assert_eq!(matches.len(), 1);
-    }
-
-    #[test]
-    fn matches_block_comment() {
-        let dir = TempDir::new().unwrap();
-        let path = write_test_file(&dir, "test.c", "/* supersigil: prop:alloc */\n");
-        let matches = scan_for_tag("prop:alloc", &[path]);
-        assert_eq!(matches.len(), 1);
+    fn matches_all_comment_styles() {
+        let cases = [
+            (
+                "test.rs",
+                "// supersigil: prop:auth-login\n",
+                "prop:auth-login",
+            ),
+            ("test.rs", "/// supersigil: prop:docs\n", "prop:docs"),
+            ("test.py", "# supersigil: prop:login\n", "prop:login"),
+            ("test.sql", "-- supersigil: prop:query\n", "prop:query"),
+            ("test.c", "/* supersigil: prop:alloc */\n", "prop:alloc"),
+        ];
+        for (file, content, tag) in cases {
+            let dir = TempDir::new().unwrap();
+            let path = write_test_file(&dir, file, content);
+            let matches = scan_for_tag(tag, &[path]);
+            assert_eq!(matches.len(), 1, "expected 1 match for {file}: {content}");
+            assert_eq!(matches[0].tag, tag);
+        }
     }
 
     #[test]

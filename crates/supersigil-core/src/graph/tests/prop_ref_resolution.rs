@@ -9,7 +9,7 @@ use crate::graph::tests::generators::{
     make_refs_component, single_project_config, two_project_config,
 };
 use crate::graph::{GraphError, IMPLEMENTS, TASK, VALIDATES, build_graph};
-use crate::{ExtractedComponent, ProjectConfig, SourcePosition};
+use crate::{ExtractedComponent, SourcePosition};
 
 // ---------------------------------------------------------------------------
 // Property 5: Valid refs resolve successfully
@@ -391,38 +391,7 @@ proptest! {
     ) {
         prop_assume!(target_doc_id != source_doc_id);
 
-        let mut projects = HashMap::new();
-        projects.insert(
-            "project-a".to_owned(),
-            ProjectConfig {
-                paths: vec!["project-a/specs/**/*.mdx".to_owned()],
-                tests: Vec::new(),
-                isolated: true,
-            },
-        );
-
-        let config = crate::Config {
-            paths: None,
-            tests: None,
-            projects: Some(projects),
-            id_pattern: None,
-            documents: crate::DocumentsConfig {
-                types: HashMap::new(),
-            },
-            components: HashMap::new(),
-            verify: crate::VerifyConfig {
-                strictness: None,
-                rules: HashMap::new(),
-            },
-            ecosystem: crate::EcosystemConfig {
-                plugins: vec!["rust".to_owned()],
-            },
-            hooks: crate::HooksConfig::default(),
-            test_results: crate::TestResultsConfig {
-                formats: Vec::new(),
-                paths: Vec::new(),
-            },
-        };
+        let config = two_project_config(true, false);
 
         // Both docs in the same isolated project.
         let target_doc = make_doc_with_path(

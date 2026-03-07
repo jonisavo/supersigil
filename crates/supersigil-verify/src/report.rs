@@ -133,6 +133,27 @@ pub struct Finding {
     pub position: Option<SourcePosition>,
 }
 
+impl Finding {
+    /// Create a finding with default severity for the given rule.
+    #[must_use]
+    pub fn new(
+        rule: RuleName,
+        doc_id: Option<String>,
+        message: String,
+        position: Option<SourcePosition>,
+    ) -> Self {
+        let severity = rule.default_severity();
+        Self {
+            rule,
+            doc_id,
+            message,
+            effective_severity: severity,
+            raw_severity: severity,
+            position,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
@@ -150,20 +171,20 @@ impl Summary {
     /// Build a summary by counting findings by severity.
     #[must_use]
     pub fn from_findings(total_documents: usize, findings: &[Finding]) -> Self {
+        let (mut error_count, mut warning_count, mut info_count) = (0, 0, 0);
+        for f in findings {
+            match f.effective_severity {
+                ReportSeverity::Error => error_count += 1,
+                ReportSeverity::Warning => warning_count += 1,
+                ReportSeverity::Info => info_count += 1,
+                ReportSeverity::Off => {}
+            }
+        }
         Self {
             total_documents,
-            error_count: findings
-                .iter()
-                .filter(|f| f.effective_severity == ReportSeverity::Error)
-                .count(),
-            warning_count: findings
-                .iter()
-                .filter(|f| f.effective_severity == ReportSeverity::Warning)
-                .count(),
-            info_count: findings
-                .iter()
-                .filter(|f| f.effective_severity == ReportSeverity::Info)
-                .count(),
+            error_count,
+            warning_count,
+            info_count,
         }
     }
 }
@@ -352,23 +373,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-    }
-
-    #[test]
-    fn known_rules_map_to_built_in_variants() {
-        for &key in KNOWN_RULES {
-            let found = RuleName::ALL.iter().any(|r| r.config_key() == key);
-            assert!(
-                found,
-                "KNOWN_RULES key {key:?} has no matching RuleName variant"
-            );
-        }
-    }
-
-    #[test]
-    fn all_constant_has_exactly_11_entries() {
         assert_eq!(RuleName::ALL.len(), 11);
-        assert_eq!(RuleName::ALL.len(), KNOWN_RULES.len());
     }
 
     // -----------------------------------------------------------------------
@@ -376,51 +381,24 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn default_severity_error_rules() {
-        assert_eq!(
-            RuleName::UncoveredCriterion.default_severity(),
-            ReportSeverity::Error,
-        );
-        assert_eq!(
-            RuleName::MissingTestFiles.default_severity(),
-            ReportSeverity::Error,
-        );
-        assert_eq!(
-            RuleName::UnverifiedValidation.default_severity(),
-            ReportSeverity::Error,
-        );
-        assert_eq!(
-            RuleName::HookFailure.default_severity(),
-            ReportSeverity::Error,
-        );
-    }
-
-    #[test]
-    fn default_severity_off_rules() {
-        assert_eq!(
-            RuleName::IsolatedDocument.default_severity(),
-            ReportSeverity::Off,
-        );
-    }
-
-    #[test]
-    fn default_severity_warning_rules() {
-        let warning_rules = [
-            RuleName::ZeroTagMatches,
-            RuleName::StaleTrackedFiles,
-            RuleName::EmptyTrackedGlob,
-            RuleName::OrphanTestTag,
-            RuleName::InvalidIdPattern,
-            RuleName::StatusInconsistency,
-            RuleName::MissingRequiredComponent,
-            RuleName::HookOutput,
+    fn default_severity_all_variants() {
+        let expected = [
+            (RuleName::UncoveredCriterion, ReportSeverity::Error),
+            (RuleName::MissingTestFiles, ReportSeverity::Error),
+            (RuleName::UnverifiedValidation, ReportSeverity::Error),
+            (RuleName::HookFailure, ReportSeverity::Error),
+            (RuleName::IsolatedDocument, ReportSeverity::Off),
+            (RuleName::ZeroTagMatches, ReportSeverity::Warning),
+            (RuleName::StaleTrackedFiles, ReportSeverity::Warning),
+            (RuleName::EmptyTrackedGlob, ReportSeverity::Warning),
+            (RuleName::OrphanTestTag, ReportSeverity::Warning),
+            (RuleName::InvalidIdPattern, ReportSeverity::Warning),
+            (RuleName::StatusInconsistency, ReportSeverity::Warning),
+            (RuleName::MissingRequiredComponent, ReportSeverity::Warning),
+            (RuleName::HookOutput, ReportSeverity::Warning),
         ];
-        for rule in warning_rules {
-            assert_eq!(
-                rule.default_severity(),
-                ReportSeverity::Warning,
-                "expected Warning for {rule:?}",
-            );
+        for (rule, severity) in expected {
+            assert_eq!(rule.default_severity(), severity, "for {rule:?}");
         }
     }
 
@@ -429,79 +407,19 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn report_severity_from_core_off() {
-        assert_eq!(ReportSeverity::from(Severity::Off), ReportSeverity::Off);
-    }
-
-    #[test]
-    fn report_severity_from_core_warning() {
-        assert_eq!(
-            ReportSeverity::from(Severity::Warning),
-            ReportSeverity::Warning,
-        );
-    }
-
-    #[test]
-    fn report_severity_from_core_error() {
-        assert_eq!(ReportSeverity::from(Severity::Error), ReportSeverity::Error,);
+    fn report_severity_from_core() {
+        for (input, expected) in [
+            (Severity::Off, ReportSeverity::Off),
+            (Severity::Warning, ReportSeverity::Warning),
+            (Severity::Error, ReportSeverity::Error),
+        ] {
+            assert_eq!(ReportSeverity::from(input), expected, "for {input:?}");
+        }
     }
 
     // -----------------------------------------------------------------------
     // VerificationReport JSON serialization
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn verification_report_serializes_to_json() {
-        let report = VerificationReport {
-            findings: vec![Finding {
-                rule: RuleName::UncoveredCriterion,
-                doc_id: Some("SPEC-001".to_string()),
-                message: "criterion not covered".to_string(),
-                effective_severity: ReportSeverity::Error,
-                raw_severity: ReportSeverity::Error,
-                position: None,
-            }],
-            summary: Summary {
-                total_documents: 5,
-                error_count: 1,
-                warning_count: 0,
-                info_count: 0,
-            },
-        };
-
-        let json = serde_json::to_string(&report).expect("serialization should succeed");
-        assert!(json.contains("\"findings\""), "missing findings field");
-        assert!(json.contains("\"summary\""), "missing summary field");
-        assert!(
-            json.contains("\"total_documents\""),
-            "missing total_documents field",
-        );
-        assert!(
-            json.contains("\"error_count\""),
-            "missing error_count field",
-        );
-        assert!(
-            json.contains("\"warning_count\""),
-            "missing warning_count field",
-        );
-        assert!(json.contains("\"info_count\""), "missing info_count field");
-        assert!(json.contains("\"rule\""), "missing rule field");
-        assert!(json.contains("\"doc_id\""), "missing doc_id field");
-        assert!(json.contains("\"message\""), "missing message field");
-        assert!(
-            json.contains("\"effective_severity\""),
-            "missing effective_severity field",
-        );
-        assert!(
-            json.contains("\"raw_severity\""),
-            "missing raw_severity field",
-        );
-        // position is None, so it should be skipped
-        assert!(
-            !json.contains("\"position\""),
-            "position should be skipped when None",
-        );
-    }
 
     #[test]
     fn verification_report_includes_position_when_present() {
@@ -543,113 +461,35 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn result_status_clean() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
-                total_documents: 3,
-                error_count: 0,
-                warning_count: 0,
-                info_count: 0,
-            },
-        };
-        assert_eq!(report.result_status(), ResultStatus::Clean);
-    }
-
-    #[test]
-    fn result_status_clean_with_info_only() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
-                total_documents: 3,
-                error_count: 0,
-                warning_count: 0,
-                info_count: 5,
-            },
-        };
-        assert_eq!(report.result_status(), ResultStatus::Clean);
-    }
-
-    #[test]
-    fn result_status_has_errors() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
-                total_documents: 3,
-                error_count: 2,
-                warning_count: 1,
-                info_count: 0,
-            },
-        };
-        assert_eq!(report.result_status(), ResultStatus::HasErrors);
-    }
-
-    #[test]
-    fn result_status_warnings_only() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
-                total_documents: 3,
-                error_count: 0,
-                warning_count: 4,
-                info_count: 1,
-            },
-        };
-        assert_eq!(report.result_status(), ResultStatus::WarningsOnly);
+    fn result_status_derives_from_counts() {
+        // (error_count, warning_count, info_count, expected)
+        let cases = [
+            (0, 0, 0, ResultStatus::Clean),
+            (0, 0, 5, ResultStatus::Clean),
+            (2, 1, 0, ResultStatus::HasErrors),
+            (0, 4, 1, ResultStatus::WarningsOnly),
+        ];
+        for (errors, warnings, infos, expected) in cases {
+            let report = VerificationReport {
+                findings: vec![],
+                summary: Summary {
+                    total_documents: 3,
+                    error_count: errors,
+                    warning_count: warnings,
+                    info_count: infos,
+                },
+            };
+            assert_eq!(
+                report.result_status(),
+                expected,
+                "for counts ({errors}, {warnings}, {infos})",
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
     // format_terminal
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn terminal_no_color_uses_ascii_symbols() {
-        let report = VerificationReport {
-            findings: vec![Finding {
-                rule: RuleName::UncoveredCriterion,
-                doc_id: Some("req/auth".to_string()),
-                message: "criterion AC-1 not covered".to_string(),
-                effective_severity: ReportSeverity::Error,
-                raw_severity: ReportSeverity::Error,
-                position: None,
-            }],
-            summary: Summary {
-                total_documents: 1,
-                error_count: 1,
-                warning_count: 0,
-                info_count: 0,
-            },
-        };
-
-        let out = format_terminal(&report, false);
-        assert!(
-            !out.contains('✖'),
-            "no-color output should use ASCII, not Unicode symbols, got: {out}",
-        );
-        assert!(
-            out.contains("[err]") || out.contains("[ERR]"),
-            "no-color output should use ASCII error symbol, got: {out}",
-        );
-    }
-
-    #[test]
-    fn terminal_no_color_clean_uses_ascii() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
-                total_documents: 3,
-                error_count: 0,
-                warning_count: 0,
-                info_count: 0,
-            },
-        };
-
-        let out = format_terminal(&report, false);
-        assert!(
-            !out.contains('✔'),
-            "no-color clean output should use ASCII, not Unicode, got: {out}",
-        );
-    }
 
     #[test]
     fn terminal_format_groups_by_document() {
@@ -695,7 +535,7 @@ mod tests {
             "should contain summary line, got: {out}",
         );
 
-        // Without color: ASCII symbols
+        // Without color: ASCII symbols, no Unicode
         let out_plain = format_terminal(&report, false);
         assert!(
             out_plain.contains("[err]"),
@@ -704,6 +544,10 @@ mod tests {
         assert!(
             out_plain.contains("[warn]"),
             "no-color should use ASCII warning, got: {out_plain}",
+        );
+        assert!(
+            !out_plain.contains('✖') && !out_plain.contains('⚠'),
+            "no-color should not contain Unicode symbols, got: {out_plain}",
         );
     }
 

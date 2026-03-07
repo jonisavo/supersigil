@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use proptest::prelude::*;
 
 use crate::graph::tests::generators::{
-    arb_dag, make_depends_on, make_doc_with_path, make_task, single_project_config,
+    arb_dag, dag_deps_map, dag_to_depends_on_docs, dag_to_task_components, make_doc_with_path,
+    make_task, single_project_config,
 };
 use crate::graph::{GraphError, build_graph};
-use crate::{ExtractedComponent, SpecDocument};
 
 // ---------------------------------------------------------------------------
 // Property 14: Topological order invariant
@@ -26,23 +26,8 @@ proptest! {
     #[test]
     fn prop_task_topo_order_invariant(dag in arb_dag(6)) {
         let config = single_project_config();
-
-        // Build dependency map: node → list of nodes it depends on.
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Create Task components for each node.
-        let tasks: Vec<ExtractedComponent> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let depends = deps_map.get(node).map(|deps| deps.join(", "));
-                make_task(node, None, None, depends.as_deref(), i + 1)
-            })
-            .collect();
+        let deps_map = dag_deps_map(&dag);
+        let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc_id = "tasks/topo-test";
         let doc = make_doc_with_path(doc_id, "specs/tasks/topo-test.mdx", tasks);
@@ -57,14 +42,12 @@ proptest! {
                 );
                 let order = order.unwrap();
 
-                // Build position map: task_id → index in topo order.
                 let pos: HashMap<&str, usize> = order
                     .iter()
                     .enumerate()
                     .map(|(i, id)| (id.as_str(), i))
                     .collect();
 
-                // For every edge (A depends on B), B must appear before A.
                 for (from, to) in &dag.edges {
                     let from_pos = pos.get(from.as_str());
                     let to_pos = pos.get(to.as_str());
@@ -81,7 +64,6 @@ proptest! {
                 }
             }
             Err(errors) => {
-                // Filter out non-cycle errors — DAGs should not produce cycles.
                 let cycle_errors: Vec<_> = errors
                     .iter()
                     .filter(|e| matches!(e, GraphError::TaskDependencyCycle { .. }))
@@ -101,26 +83,8 @@ proptest! {
     #[test]
     fn prop_document_topo_order_invariant(dag in arb_dag(6)) {
         let config = single_project_config();
-
-        // Build dependency map: node → list of doc IDs it depends on.
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Create a SpecDocument for each node.
-        let documents: Vec<SpecDocument> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let components = match deps_map.get(node) {
-                    Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
-                    None => Vec::new(),
-                };
-                make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
-            })
-            .collect();
+        let deps_map = dag_deps_map(&dag);
+        let documents = dag_to_depends_on_docs(&dag, &deps_map);
 
         let result = build_graph(documents, &config);
 
@@ -128,14 +92,12 @@ proptest! {
             Ok(graph) => {
                 let order = graph.doc_order();
 
-                // Build position map: doc_id → index in topo order.
                 let pos: HashMap<&str, usize> = order
                     .iter()
                     .enumerate()
                     .map(|(i, id)| (id.as_str(), i))
                     .collect();
 
-                // For every edge (A depends on B), B must appear before A.
                 for (from, to) in &dag.edges {
                     let from_pos = pos.get(from.as_str());
                     let to_pos = pos.get(to.as_str());
@@ -171,28 +133,14 @@ proptest! {
 
 proptest! {
     /// Generate valid task DAGs, sort twice on identical input, assert
-    /// identical output. The tiebreaker is declaration order (index in the
-    /// source document's component list).
+    /// identical output.
     ///
     /// Validates: Requirements 7.4
     #[test]
     fn prop_task_topo_sort_determinism(dag in arb_dag(6)) {
         let config = single_project_config();
-
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        let tasks: Vec<ExtractedComponent> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let depends = deps_map.get(node).map(|deps| deps.join(", "));
-                make_task(node, None, None, depends.as_deref(), i + 1)
-            })
-            .collect();
+        let deps_map = dag_deps_map(&dag);
+        let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc_id = "tasks/determinism";
         let doc1 = make_doc_with_path(doc_id, "specs/tasks/determinism.mdx", tasks.clone());
@@ -223,31 +171,15 @@ proptest! {
     }
 
     /// Generate valid document DAGs, sort twice on identical input, assert
-    /// identical output. The tiebreaker is alphabetical by document ID.
+    /// identical output.
     ///
     /// Validates: Requirements 7.4
     #[test]
     fn prop_document_topo_sort_determinism(dag in arb_dag(6)) {
         let config = single_project_config();
+        let deps_map = dag_deps_map(&dag);
 
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        let make_docs = || -> Vec<SpecDocument> {
-            dag.nodes
-                .iter()
-                .enumerate()
-                .map(|(i, node)| {
-                    let components = match deps_map.get(node) {
-                        Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
-                        None => Vec::new(),
-                    };
-                    make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
-                })
-                .collect()
-        };
+        let make_docs = || dag_to_depends_on_docs(&dag, &deps_map);
 
         let result1 = build_graph(make_docs(), &config);
         let result2 = build_graph(make_docs(), &config);
@@ -280,9 +212,7 @@ proptest! {
     fn prop_task_tiebreaker_is_declaration_order(n in 2..8usize) {
         let config = single_project_config();
 
-        // Create n independent tasks (no depends edges). The topo sort
-        // tiebreaker should produce them in declaration order.
-        let tasks: Vec<ExtractedComponent> = (0..n)
+        let tasks = (0..n)
             .map(|i| make_task(&format!("t{i}"), None, None, None, i + 1))
             .collect();
 
@@ -296,7 +226,6 @@ proptest! {
                 prop_assert!(order.is_some());
                 let order = order.unwrap();
 
-                // With no edges, declaration order should be preserved.
                 let expected: Vec<String> = (0..n).map(|i| format!("t{i}")).collect();
                 prop_assert_eq!(
                     order,
@@ -318,9 +247,8 @@ proptest! {
     fn prop_document_tiebreaker_is_alphabetical(n in 2..8usize) {
         let config = single_project_config();
 
-        // Create n independent documents (no DependsOn edges).
         let mut ids: Vec<String> = (0..n).map(|i| format!("doc-{i:03}")).collect();
-        let documents: Vec<SpecDocument> = ids
+        let documents = ids
             .iter()
             .map(|id| make_doc_with_path(id, &format!("specs/{id}.mdx"), Vec::new()))
             .collect();

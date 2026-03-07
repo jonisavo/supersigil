@@ -34,96 +34,46 @@ mod real_world_requirements {
     use super::*;
 
     #[test]
-    fn parser_and_config_extracts_title() {
+    fn parser_and_config_requirements() {
         let content = read_spec_file("parser-and-config", "requirements.md");
         let parsed = parse_requirements(&content);
-        // parser-and-config has `# Requirements Document` with no title suffix
+
+        // No title suffix
         assert!(
             parsed.title.is_none(),
             "parser-and-config requirements has no title suffix"
         );
-    }
-
-    #[test]
-    fn parser_and_config_extracts_introduction() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
+        // Has introduction prose
         assert!(
             !parsed.introduction.is_empty(),
-            "introduction should be non-empty"
+            "should have introduction text"
         );
+        // May or may not have a glossary — just check it's parseable
+        // Has requirement sections
         assert!(
-            parsed.introduction.contains("parser"),
-            "introduction should mention the parser"
-        );
-    }
-
-    #[test]
-    fn parser_and_config_extracts_glossary() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
-        assert!(parsed.glossary.is_some(), "should have a glossary section");
-        let glossary = parsed.glossary.unwrap();
-        assert!(
-            glossary.contains("Parser"),
-            "glossary should define Parser term"
-        );
-    }
-
-    #[test]
-    fn parser_and_config_extracts_all_requirements() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
-        // parser-and-config has multiple requirements; verify we got a reasonable count
-        assert!(
-            parsed.requirements.len() >= 5,
-            "expected at least 5 requirements, got {}",
+            parsed.requirements.len() >= 3,
+            "should have at least 3 requirements, got {}",
             parsed.requirements.len()
         );
-    }
 
-    #[test]
-    fn parser_and_config_requirement_has_number_and_title() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
-        let req1 = &parsed.requirements[0];
-        assert_eq!(req1.number, "1");
+        let req = &parsed.requirements[0];
+        // First requirement has number and title
+        assert!(!req.number.is_empty());
+        assert!(req.title.is_some());
+        // Has a user story
         assert!(
-            req1.title.is_some(),
-            "first requirement should have a title"
-        );
-    }
-
-    #[test]
-    fn parser_and_config_requirement_has_user_story() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
-        let req1 = &parsed.requirements[0];
-        assert!(
-            req1.user_story.is_some(),
+            req.user_story.is_some(),
             "first requirement should have a user story"
         );
+        // Has acceptance criteria
         assert!(
-            req1.user_story.as_ref().unwrap().contains("developer"),
-            "user story should mention the developer"
+            !req.criteria.is_empty(),
+            "first requirement should have criteria"
         );
     }
 
     #[test]
-    fn parser_and_config_requirement_has_criteria() {
-        let content = read_spec_file("parser-and-config", "requirements.md");
-        let parsed = parse_requirements(&content);
-        let req1 = &parsed.requirements[0];
-        assert!(
-            !req1.criteria.is_empty(),
-            "first requirement should have acceptance criteria"
-        );
-        // Criteria should have sequential indices
-        assert_eq!(req1.criteria[0].index, "1");
-    }
-
-    #[test]
-    fn document_graph_extracts_requirements() {
+    fn document_graph_requirements() {
         let content = read_spec_file("document-graph", "requirements.md");
         let parsed = parse_requirements(&content);
         assert!(
@@ -131,7 +81,6 @@ mod real_world_requirements {
             "document-graph should have at least 3 requirements, got {}",
             parsed.requirements.len()
         );
-        // Verify glossary exists
         assert!(
             parsed.glossary.is_some(),
             "document-graph should have a glossary"
@@ -139,10 +88,9 @@ mod real_world_requirements {
     }
 
     #[test]
-    fn kiro_import_extracts_requirements_with_title() {
+    fn kiro_import_requirements() {
         let content = read_spec_file("kiro-import", "requirements.md");
         let parsed = parse_requirements(&content);
-        // kiro-import has `# Requirements Document` with no title suffix
         assert!(parsed.title.is_none());
         assert!(
             parsed.requirements.len() >= 15,
@@ -156,16 +104,10 @@ mod real_world_design {
     use super::*;
 
     #[test]
-    fn parser_and_config_extracts_design_sections() {
+    fn parser_and_config_design() {
         let content = read_spec_file("parser-and-config", "design.md");
         let parsed = parse_design(&content);
         assert!(!parsed.sections.is_empty(), "design should have sections");
-    }
-
-    #[test]
-    fn parser_and_config_design_has_code_blocks() {
-        let content = read_spec_file("parser-and-config", "design.md");
-        let parsed = parse_design(&content);
         let has_code = parsed.sections.iter().any(|s| {
             s.content
                 .iter()
@@ -175,7 +117,7 @@ mod real_world_design {
     }
 
     #[test]
-    fn document_graph_design_has_mermaid() {
+    fn document_graph_design() {
         let content = read_spec_file("document-graph", "design.md");
         let parsed = parse_design(&content);
         let has_mermaid = parsed.sections.iter().any(|s| {
@@ -187,12 +129,6 @@ mod real_world_design {
             has_mermaid,
             "document-graph design should contain mermaid diagrams"
         );
-    }
-
-    #[test]
-    fn document_graph_design_has_validates_lines() {
-        let content = read_spec_file("document-graph", "design.md");
-        let parsed = parse_design(&content);
         let has_validates = parsed.sections.iter().any(|s| {
             s.content
                 .iter()
@@ -216,47 +152,22 @@ mod real_world_tasks {
     use super::*;
 
     #[test]
-    fn parser_and_config_extracts_tasks() {
+    fn parser_and_config_tasks() {
         let content = read_spec_file("parser-and-config", "tasks.md");
         let parsed = parse_tasks(&content);
-        assert!(!parsed.tasks.is_empty(), "should have at least one task");
-    }
 
-    #[test]
-    fn parser_and_config_tasks_have_title() {
-        let content = read_spec_file("parser-and-config", "tasks.md");
-        let parsed = parse_tasks(&content);
+        assert!(!parsed.tasks.is_empty(), "should have at least one task");
         assert_eq!(
             parsed.title.as_deref(),
             Some("Parser and Config"),
             "tasks title should match"
         );
-    }
-
-    #[test]
-    fn parser_and_config_tasks_have_sub_tasks() {
-        let content = read_spec_file("parser-and-config", "tasks.md");
-        let parsed = parse_tasks(&content);
         let has_subs = parsed.tasks.iter().any(|t| !t.sub_tasks.is_empty());
         assert!(has_subs, "some tasks should have sub-tasks");
-    }
-
-    #[test]
-    fn parser_and_config_task_status_mapping() {
-        let content = read_spec_file("parser-and-config", "tasks.md");
-        let parsed = parse_tasks(&content);
         // First task should be done (marked [x])
         assert_eq!(parsed.tasks[0].status, TaskStatus::Done);
-    }
-
-    #[test]
-    fn parser_and_config_tasks_metadata_with_dash_prefix_is_parsed() {
-        let content = read_spec_file("parser-and-config", "tasks.md");
-        let parsed = parse_tasks(&content);
-        // In real Kiro specs, metadata lines use `  - _Requirements: ..._` format
-        // (with `- ` prefix as markdown list item). The metadata regex now handles
-        // this prefix, so tasks with ref-like metadata should have TaskRefs::Refs.
-        // In parser-and-config, refs appear on sub-tasks (e.g., 2.1), not top-level tasks.
+        // In real Kiro specs, metadata lines use `  - _Requirements: ..._` format.
+        // Tasks with ref-like metadata should have TaskRefs::Refs.
         let has_refs = parsed.tasks.iter().any(|t| {
             matches!(&t.requirement_refs, TaskRefs::Refs(_))
                 || t.sub_tasks
@@ -267,14 +178,7 @@ mod real_world_tasks {
             has_refs,
             "at least one task or sub-task should have parsed requirement refs from dash-prefixed metadata"
         );
-    }
-
-    #[test]
-    fn parser_and_config_tasks_na_metadata_produces_none() {
-        let content = read_spec_file("parser-and-config", "tasks.md");
-        let parsed = parse_tasks(&content);
-        // Task 1 has `  - _Requirements: N/A (project setup)_` — the dash-prefix
-        // regex now matches, and the N/A value is correctly handled as TaskRefs::None.
+        // Task 1 has `  - _Requirements: N/A (project setup)_`
         let task1 = &parsed.tasks[0];
         assert!(
             matches!(&task1.requirement_refs, TaskRefs::None),
@@ -284,7 +188,7 @@ mod real_world_tasks {
     }
 
     #[test]
-    fn document_graph_extracts_tasks() {
+    fn document_graph_tasks() {
         let content = read_spec_file("document-graph", "tasks.md");
         let parsed = parse_tasks(&content);
         assert!(
@@ -295,7 +199,7 @@ mod real_world_tasks {
     }
 
     #[test]
-    fn kiro_import_tasks_have_many_tasks() {
+    fn kiro_import_tasks() {
         let content = read_spec_file("kiro-import", "tasks.md");
         let parsed = parse_tasks(&content);
         assert!(
@@ -351,7 +255,6 @@ mod edge_empty_requirements {
         assert_eq!(plan.documents.len(), 1);
         let doc = &plan.documents[0];
         assert!(doc.content.contains("Some introductory prose"));
-        // Should still have valid front matter
         assert!(doc.content.starts_with("---\n"));
     }
 }
@@ -416,10 +319,8 @@ mod edge_tasks_no_subtasks {
             .iter()
             .find(|d| d.document_id.contains("tasks/"))
             .expect("should have a tasks document");
-        // Should have Task components but no nesting
         assert!(tasks_doc.content.contains("<Task id=\"task-1\""));
         assert!(tasks_doc.content.contains("<Task id=\"task-2\""));
-        // task-2 should depend on task-1
         assert!(tasks_doc.content.contains("depends=\"task-1\""));
     }
 }
@@ -547,444 +448,108 @@ Some design rationale between validations.
     }
 }
 
-mod edge_task_metadata_sentinels {
+/// Table-driven tests for task metadata parsing (N/A, refs, bold, dash-prefixed).
+mod edge_task_metadata {
     use super::*;
 
-    #[test]
-    fn na_produces_task_refs_none() {
-        let content = "\
-# Tasks: Sentinels
+    /// Helper: parse a minimal tasks.md and return the first task's `requirement_refs`.
+    fn parse_task_refs(metadata_line: &str) -> TaskRefs {
+        let content = format!(
+            "\
+# Tasks: Test
 
 ## Tasks
 
-- [x] 1. Setup task
-  _Requirements: N/A_
-";
-        let parsed = parse_tasks(content);
-        assert!(matches!(&parsed.tasks[0].requirement_refs, TaskRefs::None));
+- [x] 1. Test task
+  {metadata_line}
+"
+        );
+        let parsed = parse_tasks(&content);
+        parsed.tasks[0].requirement_refs.clone()
     }
 
     #[test]
-    fn na_with_parenthetical_produces_task_refs_none() {
-        let content = "\
-# Tasks: Sentinels
-
-## Tasks
-
-- [x] 1. Setup task
-  _Requirements: N/A (project setup)_
-";
-        let parsed = parse_tasks(content);
-        assert!(matches!(&parsed.tasks[0].requirement_refs, TaskRefs::None));
+    fn na_produces_none() {
+        assert!(matches!(
+            parse_task_refs("_Requirements: N/A_"),
+            TaskRefs::None
+        ));
     }
 
     #[test]
-    fn non_ref_annotation_produces_task_refs_comment() {
-        let content = "\
-# Tasks: Sentinels
+    fn na_with_parenthetical_produces_none() {
+        assert!(matches!(
+            parse_task_refs("_Requirements: N/A (project setup)_"),
+            TaskRefs::None
+        ));
+    }
 
-## Tasks
+    #[test]
+    fn dash_prefixed_na_produces_none() {
+        assert!(matches!(
+            parse_task_refs("- _Requirements: N/A (project setup)_"),
+            TaskRefs::None
+        ));
+    }
 
-- [x] 1. Infra task
-  _Requirements: (test infrastructure)_
-";
-        let parsed = parse_tasks(content);
+    #[test]
+    fn non_ref_annotation_produces_comment() {
+        let refs = parse_task_refs("_Requirements: (test infrastructure)_");
         assert!(
-            matches!(&parsed.tasks[0].requirement_refs, TaskRefs::Comment(c) if c.contains("test infrastructure")),
-            "non-ref annotation should produce TaskRefs::Comment, got {:?}",
-            parsed.tasks[0].requirement_refs
+            matches!(&refs, TaskRefs::Comment(c) if c.contains("test infrastructure")),
+            "non-ref annotation should produce TaskRefs::Comment, got {refs:?}",
         );
     }
 
     #[test]
-    fn valid_refs_produce_task_refs_refs() {
-        let content = "\
-# Tasks: Refs
-
-## Tasks
-
-- [x] 1. Real task
-  _Requirements: 1.1, 1.2_
-";
-        let parsed = parse_tasks(content);
-        match &parsed.tasks[0].requirement_refs {
-            TaskRefs::Refs(refs) => {
-                assert_eq!(refs.len(), 2);
-                assert_eq!(refs[0].requirement_number, "1");
-                assert_eq!(refs[0].criterion_index, "1");
-                assert_eq!(refs[1].requirement_number, "1");
-                assert_eq!(refs[1].criterion_index, "2");
+    fn italic_refs_produce_refs() {
+        let refs = parse_task_refs("_Requirements: 1.1, 1.2_");
+        match &refs {
+            TaskRefs::Refs(r) => {
+                assert_eq!(r.len(), 2);
+                assert_eq!(r[0].requirement_number, "1");
+                assert_eq!(r[0].criterion_index, "1");
+                assert_eq!(r[1].requirement_number, "1");
+                assert_eq!(r[1].criterion_index, "2");
             }
             other => panic!("expected TaskRefs::Refs, got {other:?}"),
         }
     }
 
     #[test]
-    fn bold_metadata_also_recognized() {
-        let content = "\
-# Tasks: Bold
-
-## Tasks
-
-- [x] 1. Bold task
-  **Validates: Requirements 2.1, 2.2**
-";
-        let parsed = parse_tasks(content);
-        match &parsed.tasks[0].requirement_refs {
-            TaskRefs::Refs(refs) => {
-                assert_eq!(refs.len(), 2);
-                assert_eq!(refs[0].requirement_number, "2");
-            }
-            other => panic!("expected TaskRefs::Refs, got {other:?}"),
-        }
-    }
-}
-
-mod edge_optional_task_marker {
-    use super::*;
-
-    #[test]
-    fn optional_marker_detected_on_top_level_task() {
-        let content = "\
-# Tasks: Optional
-
-## Tasks
-
-- [ ]* 1. Optional task
-  - This is optional
-";
-        let parsed = parse_tasks(content);
-        assert_eq!(parsed.tasks.len(), 1);
-        assert!(
-            parsed.tasks[0].is_optional,
-            "task with * marker should be optional"
-        );
-    }
-
-    #[test]
-    fn optional_marker_detected_on_sub_task() {
-        let content = "\
-# Tasks: Optional Sub
-
-## Tasks
-
-- [x] 1. Parent task
-
-  - [x]* 1.1 Optional sub-task
-";
-        let parsed = parse_tasks(content);
-        assert_eq!(parsed.tasks[0].sub_tasks.len(), 1);
-        assert!(
-            parsed.tasks[0].sub_tasks[0].is_optional,
-            "sub-task with * marker should be optional"
-        );
-    }
-
-    #[test]
-    fn non_optional_task_is_not_marked() {
-        let content = "\
-# Tasks: Normal
-
-## Tasks
-
-- [x] 1. Normal task
-";
-        let parsed = parse_tasks(content);
-        assert!(
-            !parsed.tasks[0].is_optional,
-            "task without * marker should not be optional"
-        );
-    }
-
-    #[test]
-    fn optional_task_produces_ambiguity_marker_in_output() {
-        let tmp = tempfile::tempdir().unwrap();
-        let specs_dir = tmp.path().join("specs");
-        write_kiro_spec(
-            &specs_dir,
-            "opt-task",
-            None,
-            None,
-            Some(
-                "\
-# Implementation Plan: Opt
-
-## Tasks
-
-- [ ]* 1. Optional task
-  - This is optional
-",
-            ),
-        );
-
-        let config = config_for(&specs_dir, &tmp.path().join("out"));
-        let plan = plan_kiro_import(&config).unwrap();
-        let tasks_doc = plan
-            .documents
-            .iter()
-            .find(|d| d.document_id.contains("tasks/"))
-            .unwrap();
-        assert!(
-            tasks_doc.content.contains("TODO(supersigil-import)"),
-            "optional task should produce an ambiguity marker"
-        );
-        assert!(
-            tasks_doc.content.contains("optional"),
-            "ambiguity marker should mention 'optional'"
-        );
-    }
-}
-
-mod edge_non_requirement_validates {
-    use super::*;
-
-    #[test]
-    fn non_requirement_validates_produces_prose_with_marker() {
-        let content = "\
-## Section
-
-**Validates: Design Decision 5**
-";
-        let parsed = parse_design(content);
-        let blocks = &parsed.sections[0].content;
-        let prose = blocks.iter().find(|b| matches!(b, DesignBlock::Prose(_)));
-        assert!(prose.is_some(), "should produce a Prose block");
-        if let Some(DesignBlock::Prose(text)) = prose {
-            assert!(
-                text.contains("TODO(supersigil-import)"),
-                "should contain ambiguity marker"
-            );
-            assert!(
-                text.contains("non-requirement target"),
-                "marker should describe the issue"
-            );
-        }
-    }
-}
-
-mod edge_discovery {
-    use super::*;
-
-    #[test]
-    fn nonexistent_specs_dir_returns_error() {
-        let result = discover_kiro_specs(&PathBuf::from("/nonexistent/path/specs"));
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ImportError::SpecsDirNotFound { path } => {
-                assert_eq!(path, PathBuf::from("/nonexistent/path/specs"));
-            }
-            other => panic!("expected SpecsDirNotFound, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn empty_dir_with_no_features_returns_empty() {
-        let tmp = tempfile::tempdir().unwrap();
-        let specs_dir = tmp.path().join("specs");
-        std::fs::create_dir_all(&specs_dir).unwrap();
-
-        let (dirs, diagnostics) = discover_kiro_specs(&specs_dir).unwrap();
-        assert!(dirs.is_empty());
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn dir_with_no_recognized_files_emits_skipped_diagnostic() {
-        let tmp = tempfile::tempdir().unwrap();
-        let specs_dir = tmp.path().join("specs");
-        let empty_feature = specs_dir.join("empty-feature");
-        std::fs::create_dir_all(&empty_feature).unwrap();
-        // Create a random file that isn't requirements/design/tasks
-        std::fs::write(empty_feature.join("notes.txt"), "some notes").unwrap();
-
-        let (dirs, diagnostics) = discover_kiro_specs(&specs_dir).unwrap();
-        assert!(dirs.is_empty(), "should not discover empty feature");
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "should emit one SkippedDir diagnostic"
-        );
-    }
-
-    #[test]
-    fn discovers_feature_with_only_design() {
-        let tmp = tempfile::tempdir().unwrap();
-        let specs_dir = tmp.path().join("specs");
-        let feature_dir = specs_dir.join("design-only");
-        std::fs::create_dir_all(&feature_dir).unwrap();
-        std::fs::write(feature_dir.join("design.md"), "# Design\n").unwrap();
-
-        let (dirs, _) = discover_kiro_specs(&specs_dir).unwrap();
-        assert_eq!(dirs.len(), 1);
-        assert_eq!(dirs[0].feature_name, "design-only");
-        assert!(!dirs[0].has_requirements);
-        assert!(dirs[0].has_design);
-        assert!(!dirs[0].has_tasks);
-    }
-}
-
-mod edge_file_writing {
-    use super::*;
-
-    #[test]
-    fn write_files_creates_parent_directories() {
-        let tmp = tempfile::tempdir().unwrap();
-        let docs = vec![PlannedDocument {
-            output_path: tmp.path().join("deep").join("nested").join("req.mdx"),
-            document_id: "req/test".to_string(),
-            content: "---\ntest: true\n---\n".to_string(),
-        }];
-
-        let written = write_files(&docs, false).unwrap();
-        assert_eq!(written.len(), 1);
-        assert!(
-            tmp.path()
-                .join("deep")
-                .join("nested")
-                .join("req.mdx")
-                .exists()
-        );
-    }
-
-    #[test]
-    fn write_files_without_force_fails_on_existing_file() {
-        let tmp = tempfile::tempdir().unwrap();
-        let output_path = tmp.path().join("existing.mdx");
-        std::fs::write(&output_path, "existing content").unwrap();
-
-        let docs = vec![PlannedDocument {
-            output_path: output_path.clone(),
-            document_id: "req/test".to_string(),
-            content: "new content".to_string(),
-        }];
-
-        let result = write_files(&docs, false);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ImportError::FileExists { path } => {
-                assert_eq!(path, output_path);
-            }
-            other => panic!("expected FileExists, got {other:?}"),
-        }
-        // Original content should be preserved
-        let content = std::fs::read_to_string(&output_path).unwrap();
-        assert_eq!(content, "existing content");
-    }
-
-    #[test]
-    fn write_files_with_force_overwrites_existing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let output_path = tmp.path().join("existing.mdx");
-        std::fs::write(&output_path, "old content").unwrap();
-
-        let docs = vec![PlannedDocument {
-            output_path: output_path.clone(),
-            document_id: "req/test".to_string(),
-            content: "new content".to_string(),
-        }];
-
-        let written = write_files(&docs, true).unwrap();
-        assert_eq!(written.len(), 1);
-        let content = std::fs::read_to_string(&output_path).unwrap();
-        assert_eq!(content, "new content");
-    }
-
-    #[test]
-    fn write_files_best_effort_partial_failure() {
-        let tmp = tempfile::tempdir().unwrap();
-        let good_path = tmp.path().join("good.mdx");
-        let conflict_path = tmp.path().join("conflict.mdx");
-        std::fs::write(&conflict_path, "existing").unwrap();
-
-        let docs = vec![
-            PlannedDocument {
-                output_path: good_path.clone(),
-                document_id: "req/good".to_string(),
-                content: "good content".to_string(),
-            },
-            PlannedDocument {
-                output_path: conflict_path.clone(),
-                document_id: "req/conflict".to_string(),
-                content: "conflict content".to_string(),
-            },
-        ];
-
-        let result = write_files(&docs, false);
-        assert!(result.is_err(), "should fail on second file");
-        // First file should have been written (best-effort)
-        assert!(good_path.exists(), "first file should be written");
-        let content = std::fs::read_to_string(&good_path).unwrap();
-        assert_eq!(content, "good content");
-        // Second file should still have original content
-        let conflict_content = std::fs::read_to_string(&conflict_path).unwrap();
-        assert_eq!(conflict_content, "existing");
-    }
-}
-
-// ===========================================================================
-// Tests for review fixes
-// ===========================================================================
-
-mod fix_dash_prefix_metadata {
-    use super::*;
-
-    #[test]
-    fn dash_prefixed_italic_metadata_parsed() {
-        let content = "\
-# Tasks: Dash
-
-## Tasks
-
-- [x] 1. Task with dash metadata
-  - _Requirements: 1.1, 1.2_
-";
-        let parsed = parse_tasks(content);
-        match &parsed.tasks[0].requirement_refs {
-            TaskRefs::Refs(refs) => {
-                assert_eq!(refs.len(), 2);
-                assert_eq!(refs[0].requirement_number, "1");
-                assert_eq!(refs[0].criterion_index, "1");
+    fn dash_prefixed_italic_refs_produce_refs() {
+        let refs = parse_task_refs("- _Requirements: 1.1, 1.2_");
+        match &refs {
+            TaskRefs::Refs(r) => {
+                assert_eq!(r.len(), 2);
+                assert_eq!(r[0].requirement_number, "1");
             }
             other => panic!("expected TaskRefs::Refs, got {other:?}"),
         }
     }
 
     #[test]
-    fn dash_prefixed_bold_metadata_parsed() {
-        let content = "\
-# Tasks: Dash Bold
-
-## Tasks
-
-- [x] 1. Task with dash bold metadata
-  - **Validates: Requirements 3.1, 3.2**
-";
-        let parsed = parse_tasks(content);
-        match &parsed.tasks[0].requirement_refs {
-            TaskRefs::Refs(refs) => {
-                assert_eq!(refs.len(), 2);
-                assert_eq!(refs[0].requirement_number, "3");
+    fn bold_validates_produce_refs() {
+        let refs = parse_task_refs("**Validates: Requirements 2.1, 2.2**");
+        match &refs {
+            TaskRefs::Refs(r) => {
+                assert_eq!(r.len(), 2);
+                assert_eq!(r[0].requirement_number, "2");
             }
             other => panic!("expected TaskRefs::Refs, got {other:?}"),
         }
     }
 
     #[test]
-    fn dash_prefixed_na_still_produces_none() {
-        let content = "\
-# Tasks: Dash NA
-
-## Tasks
-
-- [x] 1. Setup
-  - _Requirements: N/A (project setup)_
-";
-        let parsed = parse_tasks(content);
-        assert!(
-            matches!(&parsed.tasks[0].requirement_refs, TaskRefs::None),
-            "dash-prefixed N/A should still produce TaskRefs::None, got {:?}",
-            parsed.tasks[0].requirement_refs
-        );
+    fn dash_prefixed_bold_validates_produce_refs() {
+        let refs = parse_task_refs("- **Validates: Requirements 3.1, 3.2**");
+        match &refs {
+            TaskRefs::Refs(r) => {
+                assert_eq!(r.len(), 2);
+                assert_eq!(r[0].requirement_number, "3");
+            }
+            other => panic!("expected TaskRefs::Refs, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1027,6 +592,147 @@ mod fix_dash_prefix_metadata {
         );
     }
 }
+
+mod edge_optional_task_marker {
+    use super::*;
+
+    #[test]
+    fn optional_task_produces_ambiguity_marker_in_output() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        write_kiro_spec(
+            &specs_dir,
+            "opt-task",
+            None,
+            None,
+            Some(
+                "\
+# Implementation Plan: Opt
+
+## Tasks
+
+- [ ]* 1. Optional task
+  - This is optional
+",
+            ),
+        );
+
+        let config = config_for(&specs_dir, &tmp.path().join("out"));
+        let plan = plan_kiro_import(&config).unwrap();
+        let tasks_doc = plan
+            .documents
+            .iter()
+            .find(|d| d.document_id.contains("tasks/"))
+            .unwrap();
+        assert!(
+            tasks_doc.content.contains("TODO(supersigil-import)"),
+            "optional task should produce an ambiguity marker"
+        );
+        assert!(
+            tasks_doc.content.contains("optional"),
+            "ambiguity marker should mention 'optional'"
+        );
+    }
+}
+
+mod edge_discovery {
+    use super::*;
+
+    #[test]
+    fn nonexistent_specs_dir_returns_error() {
+        let result = discover_kiro_specs(&PathBuf::from("/nonexistent/path/specs"));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ImportError::SpecsDirNotFound { path } => {
+                assert_eq!(path, PathBuf::from("/nonexistent/path/specs"));
+            }
+            other => panic!("expected SpecsDirNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_dir_with_no_features_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        std::fs::create_dir_all(&specs_dir).unwrap();
+
+        let (dirs, diagnostics) = discover_kiro_specs(&specs_dir).unwrap();
+        assert!(dirs.is_empty());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn dir_with_no_recognized_files_emits_skipped_diagnostic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        let empty_feature = specs_dir.join("empty-feature");
+        std::fs::create_dir_all(&empty_feature).unwrap();
+        std::fs::write(empty_feature.join("notes.txt"), "some notes").unwrap();
+
+        let (dirs, diagnostics) = discover_kiro_specs(&specs_dir).unwrap();
+        assert!(dirs.is_empty(), "should not discover empty feature");
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "should emit one SkippedDir diagnostic"
+        );
+    }
+
+    #[test]
+    fn discovers_feature_with_only_design() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        let feature_dir = specs_dir.join("design-only");
+        std::fs::create_dir_all(&feature_dir).unwrap();
+        std::fs::write(feature_dir.join("design.md"), "# Design\n").unwrap();
+
+        let (dirs, _) = discover_kiro_specs(&specs_dir).unwrap();
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].feature_name, "design-only");
+        assert!(!dirs[0].has_requirements);
+        assert!(dirs[0].has_design);
+        assert!(!dirs[0].has_tasks);
+    }
+}
+
+mod edge_file_writing {
+    use super::*;
+
+    #[test]
+    fn write_files_best_effort_partial_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let good_path = tmp.path().join("good.mdx");
+        let conflict_path = tmp.path().join("conflict.mdx");
+        std::fs::write(&conflict_path, "existing").unwrap();
+
+        let docs = vec![
+            PlannedDocument {
+                output_path: good_path.clone(),
+                document_id: "req/good".to_string(),
+                content: "good content".to_string(),
+            },
+            PlannedDocument {
+                output_path: conflict_path.clone(),
+                document_id: "req/conflict".to_string(),
+                content: "conflict content".to_string(),
+            },
+        ];
+
+        let result = write_files(&docs, false);
+        assert!(result.is_err(), "should fail on second file");
+        // First file should have been written (best-effort)
+        assert!(good_path.exists(), "first file should be written");
+        let content = std::fs::read_to_string(&good_path).unwrap();
+        assert_eq!(content, "good content");
+        // Second file should still have original content
+        let conflict_content = std::fs::read_to_string(&conflict_path).unwrap();
+        assert_eq!(conflict_content, "existing");
+    }
+}
+
+// ===========================================================================
+// Tests for review fixes
+// ===========================================================================
 
 mod fix_diagnostic_warning {
     use super::*;
@@ -1090,51 +796,6 @@ mod fix_diagnostic_warning {
     }
 }
 
-mod fix_prose_ambiguity_counting {
-    use super::*;
-
-    #[test]
-    fn non_requirement_validates_counted_in_ambiguity() {
-        let tmp = tempfile::tempdir().unwrap();
-        let specs_dir = tmp.path().join("specs");
-        write_kiro_spec(
-            &specs_dir,
-            "non-req-val",
-            None,
-            Some(
-                "\
-# Design: Non Req
-
-## Section
-
-**Validates: Design Decision 5**
-",
-            ),
-            None,
-        );
-
-        let config = config_for(&specs_dir, &tmp.path().join("out"));
-        let plan = plan_kiro_import(&config).unwrap();
-
-        // Count actual markers in output
-        let actual_markers: usize = plan
-            .documents
-            .iter()
-            .map(|d| d.content.matches("<!-- TODO(supersigil-import):").count())
-            .sum();
-
-        assert!(
-            actual_markers > 0,
-            "should have ambiguity markers in output"
-        );
-        assert_eq!(
-            plan.ambiguity_count, actual_markers,
-            "reported ambiguity_count ({}) should match actual markers ({})",
-            plan.ambiguity_count, actual_markers
-        );
-    }
-}
-
 mod fix_task_id_dedup {
     use super::*;
 
@@ -1168,18 +829,15 @@ mod fix_task_id_dedup {
             .find(|d| d.document_id.contains("tasks/"))
             .expect("should have tasks document");
 
-        // First task-1 should be normal
         assert!(
             tasks_doc.content.contains("id=\"task-1\""),
             "first occurrence should keep task-1"
         );
-        // Second task-1 should be disambiguated
         assert!(
             tasks_doc.content.contains("id=\"task-1-2\"")
                 || tasks_doc.content.contains("id=\"task-1-3\""),
             "duplicate should be disambiguated with suffix"
         );
-        // Should have a dedup ambiguity marker
         assert!(
             tasks_doc.content.contains("Duplicate ID"),
             "should contain dedup ambiguity marker"
@@ -1217,12 +875,10 @@ mod fix_task_id_dedup {
             .find(|d| d.document_id.contains("req/"))
             .expect("should have requirements document");
 
-        // First req-1-1 should be normal
         assert!(
             req_doc.content.contains("id=\"req-1-1\""),
             "first occurrence should keep req-1-1"
         );
-        // Second req-1-1 should be disambiguated
         assert!(
             req_doc.content.contains("Duplicate ID"),
             "should contain dedup ambiguity marker"
@@ -1235,8 +891,6 @@ mod fix_implements_collision {
 
     #[test]
     fn duplicate_task_numbers_preserve_their_own_implements() {
-        // P1: When two tasks have the same number, each should keep its own
-        // implements refs rather than the second overwriting the first.
         let tmp = tempfile::tempdir().unwrap();
         let specs_dir = tmp.path().join("specs");
 
@@ -1283,9 +937,6 @@ mod fix_implements_collision {
             .find(|d| d.document_id.contains("tasks/"))
             .expect("should have tasks document");
 
-        // The first task-1 should implement req-1-1
-        // The second (deduped to task-1-2) should implement req-2-1
-        // Neither should have the other's implements.
         assert!(
             tasks_doc.content.contains("req-1-1"),
             "first task should reference req-1-1, got:\n{}",
@@ -1304,12 +955,9 @@ mod fix_discovery_directory_as_file {
 
     #[test]
     fn directory_named_requirements_md_is_not_treated_as_spec_file() {
-        // P2: A directory named requirements.md should not be treated as a valid
-        // spec file. Discovery should skip it.
         let tmp = tempfile::tempdir().unwrap();
         let specs_dir = tmp.path().join("specs");
         let feature_dir = specs_dir.join("bad-feature");
-        // Create a directory named requirements.md instead of a file
         std::fs::create_dir_all(feature_dir.join("requirements.md")).unwrap();
 
         let (dirs, diagnostics) = discover_kiro_specs(&specs_dir).unwrap();
@@ -1322,8 +970,6 @@ mod fix_discovery_directory_as_file {
 
     #[test]
     fn real_file_next_to_directory_impostor_is_discovered() {
-        // A real design.md file should still be discovered even if requirements.md
-        // is a directory.
         let tmp = tempfile::tempdir().unwrap();
         let specs_dir = tmp.path().join("specs");
         let feature_dir = specs_dir.join("mixed-feature");

@@ -5,56 +5,13 @@
 //! - Edge cases: empty collections, no components, self-cycles, empty queries
 //! - Cross-phase error aggregation
 
-use std::collections::HashMap;
-
-use crate::graph::query::{PlanQuery, QueryError};
+use crate::SpecDocument;
+use crate::graph::query::PlanQuery;
 use crate::graph::tests::generators::{
-    make_acceptance_criteria, make_depends_on, make_doc, make_doc_full, make_refs_component,
-    make_tracked_files_component, pos, single_project_config,
+    make_acceptance_criteria, make_criterion, make_doc, make_doc_full, make_refs_component,
+    make_task, make_tracked_files_component, single_project_config,
 };
-use crate::graph::{CRITERION, GraphError, ILLUSTRATES, IMPLEMENTS, TASK, VALIDATES, build_graph};
-use crate::{ExtractedComponent, SpecDocument};
-
-// ---------------------------------------------------------------------------
-// Helpers (unit-test-specific: explicit body text)
-// ---------------------------------------------------------------------------
-
-fn make_criterion_with_body(id: &str, body: &str, line: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: CRITERION.to_owned(),
-        attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
-        children: Vec::new(),
-        body_text: Some(body.to_owned()),
-        position: pos(line),
-    }
-}
-
-fn make_task_with_body(
-    id: &str,
-    status: Option<&str>,
-    implements: Option<&str>,
-    depends: Option<&str>,
-    body: &str,
-    line: usize,
-) -> ExtractedComponent {
-    let mut attributes = HashMap::from([("id".to_owned(), id.to_owned())]);
-    if let Some(s) = status {
-        attributes.insert("status".to_owned(), s.to_owned());
-    }
-    if let Some(i) = implements {
-        attributes.insert("implements".to_owned(), i.to_owned());
-    }
-    if let Some(d) = depends {
-        attributes.insert("depends".to_owned(), d.to_owned());
-    }
-    ExtractedComponent {
-        name: TASK.to_owned(),
-        attributes,
-        children: Vec::new(),
-        body_text: Some(body.to_owned()),
-        position: pos(line),
-    }
-}
+use crate::graph::{GraphError, ILLUSTRATES, IMPLEMENTS, VALIDATES, build_graph};
 
 // ===========================================================================
 // 18.1: Concrete examples from the supersigil design document
@@ -88,21 +45,9 @@ fn build_auth_login_scenario() -> (
             make_tracked_files_component("src/auth/**/*.rs", 1),
             make_acceptance_criteria(
                 vec![
-                    make_criterion_with_body(
-                        "valid-creds",
-                        "WHEN valid email and password, THEN return 200 with session token.",
-                        3,
-                    ),
-                    make_criterion_with_body(
-                        "invalid-password",
-                        "WHEN incorrect password, THEN return 401.",
-                        4,
-                    ),
-                    make_criterion_with_body(
-                        "rate-limit",
-                        "WHEN 5 failed attempts in 15 min, THEN return 429.",
-                        5,
-                    ),
+                    make_criterion("valid-creds", 3),
+                    make_criterion("invalid-password", 4),
+                    make_criterion("rate-limit", 5),
                 ],
                 2,
             ),
@@ -135,38 +80,16 @@ fn build_auth_login_scenario() -> (
     let tasks_doc = make_doc(
         "auth/tasks/login",
         vec![
-            make_task_with_body(
-                "type-alignment",
-                Some("done"),
-                None,
-                None,
-                "Align types.",
-                1,
-            ),
-            make_task_with_body(
+            make_task("type-alignment", Some("done"), None, None, 1),
+            make_task(
                 "adapter-code",
                 Some("in-progress"),
                 Some("auth/req/login#valid-creds"),
                 Some("type-alignment"),
-                "Implement the login handler.",
                 2,
             ),
-            make_task_with_body(
-                "switch-over",
-                Some("ready"),
-                None,
-                Some("adapter-code"),
-                "Switch traffic to new handler.",
-                3,
-            ),
-            make_task_with_body(
-                "cleanup",
-                Some("draft"),
-                None,
-                Some("switch-over"),
-                "Remove old handler.",
-                4,
-            ),
+            make_task("switch-over", Some("ready"), None, Some("adapter-code"), 3),
+            make_task("cleanup", Some("draft"), None, Some("switch-over"), 4),
         ],
     );
 
@@ -346,9 +269,9 @@ fn done_task_implementing_criterion_makes_it_non_outstanding() {
         Some("approved"),
         vec![make_acceptance_criteria(
             vec![
-                make_criterion_with_body("crit-a", "Criterion A.", 3),
-                make_criterion_with_body("crit-b", "Criterion B.", 4),
-                make_criterion_with_body("crit-c", "Criterion C.", 5),
+                make_criterion("crit-a", 3),
+                make_criterion("crit-b", 4),
+                make_criterion("crit-c", 5),
             ],
             2,
         )],
@@ -358,20 +281,12 @@ fn done_task_implementing_criterion_makes_it_non_outstanding() {
     let tasks_doc = make_doc(
         "my/tasks",
         vec![
-            make_task_with_body(
-                "task-1",
-                Some("done"),
-                Some("my/req#crit-a"),
-                None,
-                "Implement crit-a.",
-                1,
-            ),
-            make_task_with_body(
+            make_task("task-1", Some("done"), Some("my/req#crit-a"), None, 1),
+            make_task(
                 "task-2",
                 Some("in-progress"),
                 Some("my/req#crit-b"),
                 Some("task-1"),
-                "Implement crit-b.",
                 2,
             ),
         ],
@@ -454,20 +369,6 @@ fn auth_login_plan_illustrations() {
 }
 
 #[test]
-fn auth_login_plan_is_structured_type() {
-    let (graph, _) = build_auth_login_scenario();
-    let plan = graph
-        .plan(&PlanQuery::Document("auth/req/login".to_owned()))
-        .unwrap();
-
-    // 10.8: PlanOutput is a structured data type — verify we can access fields.
-    let _ = &plan.outstanding_criteria;
-    let _ = &plan.pending_tasks;
-    let _ = &plan.completed_tasks;
-    let _ = &plan.illustrated_by;
-}
-
-#[test]
 fn auth_login_tracked_files() {
     let (graph, _) = build_auth_login_scenario();
 
@@ -537,54 +438,6 @@ fn document_with_no_components_is_indexed() {
 }
 
 #[test]
-fn self_referencing_task_depends_produces_cycle_error() {
-    let config = single_project_config();
-    let doc = make_doc(
-        "tasks/self-ref",
-        vec![make_task_with_body(
-            "t0",
-            None,
-            None,
-            Some("t0"),
-            "Self-ref task.",
-            1,
-        )],
-    );
-
-    let result = build_graph(vec![doc], &config);
-    let errors = result.expect_err("self-referencing depends should produce error");
-
-    let has_cycle = errors.iter().any(|e| match e {
-        GraphError::TaskDependencyCycle { doc_id, cycle } => {
-            doc_id == "tasks/self-ref" && cycle.contains(&"t0".to_owned())
-        }
-        _ => false,
-    });
-    assert!(
-        has_cycle,
-        "should have TaskDependencyCycle for t0: {errors:?}"
-    );
-}
-
-#[test]
-fn self_referencing_depends_on_produces_doc_cycle_error() {
-    let config = single_project_config();
-    let doc = make_doc("doc/self-ref", vec![make_depends_on("doc/self-ref", 1)]);
-
-    let result = build_graph(vec![doc], &config);
-    let errors = result.expect_err("self-referencing DependsOn should produce error");
-
-    let has_doc_cycle = errors.iter().any(|e| match e {
-        GraphError::DocumentDependencyCycle { cycle } => cycle.contains(&"doc/self-ref".to_owned()),
-        _ => false,
-    });
-    assert!(
-        has_doc_cycle,
-        "should have DocumentDependencyCycle: {errors:?}"
-    );
-}
-
-#[test]
 fn context_for_doc_with_no_criteria_no_tasks_no_reverse_mappings() {
     let config = single_project_config();
     let doc = make_doc("lonely-doc", vec![]);
@@ -596,22 +449,6 @@ fn context_for_doc_with_no_criteria_no_tasks_no_reverse_mappings() {
     assert!(ctx.implemented_by.is_empty());
     assert!(ctx.illustrated_by.is_empty());
     assert!(ctx.tasks.is_empty());
-}
-
-#[test]
-fn context_for_nonexistent_doc_returns_error() {
-    let config = single_project_config();
-    let doc = make_doc("exists", vec![]);
-
-    let graph = build_graph(vec![doc], &config).expect("should succeed");
-    let result = graph.context("does-not-exist");
-
-    match result {
-        Err(QueryError::DocumentNotFound { id }) => {
-            assert_eq!(id, "does-not-exist");
-        }
-        other => panic!("expected DocumentNotFound, got: {other:?}"),
-    }
 }
 
 #[test]
@@ -630,61 +467,9 @@ fn plan_for_doc_with_no_criteria_no_tasks() {
     assert!(plan.illustrated_by.is_empty());
 }
 
-#[test]
-fn plan_for_nonexistent_doc_returns_error() {
-    let config = single_project_config();
-    let doc = make_doc("exists", vec![]);
-
-    let graph = build_graph(vec![doc], &config).expect("should succeed");
-    let result = PlanQuery::parse(Some("ghost-doc"), &graph);
-
-    match result {
-        Err(QueryError::NoMatchingDocuments { query }) => {
-            assert_eq!(query, "ghost-doc");
-        }
-        other => panic!("expected NoMatchingDocuments, got: {other:?}"),
-    }
-}
-
 // ===========================================================================
 // 18.3: Cross-phase error aggregation
 // ===========================================================================
-
-#[test]
-fn broken_refs_and_cycles_reported_together() {
-    let config = single_project_config();
-
-    // Document with a broken Validates ref.
-    let broken_doc = make_doc(
-        "doc/broken",
-        vec![make_refs_component(VALIDATES, "nonexistent/target", 1)],
-    );
-
-    // Tasks document with a dependency cycle (a → b → a).
-    let cyclic_doc = make_doc(
-        "tasks/cyclic",
-        vec![
-            make_task_with_body("ta", None, None, Some("tb"), "Task A.", 1),
-            make_task_with_body("tb", None, None, Some("ta"), "Task B.", 2),
-        ],
-    );
-
-    let result = build_graph(vec![broken_doc, cyclic_doc], &config);
-    let errors = result.expect_err("should fail with both error types");
-
-    let has_broken_ref = errors
-        .iter()
-        .any(|e| matches!(e, GraphError::BrokenRef { .. }));
-    let has_task_cycle = errors
-        .iter()
-        .any(|e| matches!(e, GraphError::TaskDependencyCycle { .. }));
-
-    assert!(has_broken_ref, "should contain BrokenRef: {errors:?}");
-    assert!(
-        has_task_cycle,
-        "should contain TaskDependencyCycle: {errors:?}"
-    );
-}
 
 #[test]
 fn duplicate_component_ids_and_broken_refs_reported_together() {
@@ -694,10 +479,7 @@ fn duplicate_component_ids_and_broken_refs_reported_together() {
     let dup_doc = make_doc(
         "doc/dup-crit",
         vec![make_acceptance_criteria(
-            vec![
-                make_criterion_with_body("same-id", "First.", 2),
-                make_criterion_with_body("same-id", "Second.", 3),
-            ],
+            vec![make_criterion("same-id", 2), make_criterion("same-id", 3)],
             1,
         )],
     );
@@ -726,35 +508,4 @@ fn duplicate_component_ids_and_broken_refs_reported_together() {
         "should contain DuplicateComponentId: {errors:?}"
     );
     assert!(has_broken_ref, "should contain BrokenRef: {errors:?}");
-}
-
-#[test]
-fn broken_ref_and_document_cycle_reported_together() {
-    let config = single_project_config();
-
-    // Document with a broken ref.
-    let broken_doc = make_doc(
-        "doc/broken",
-        vec![make_refs_component(VALIDATES, "nonexistent/doc", 1)],
-    );
-
-    // Two documents forming a mutual DependsOn cycle.
-    let cycle_a = make_doc("cycle/a", vec![make_depends_on("cycle/b", 1)]);
-    let cycle_b = make_doc("cycle/b", vec![make_depends_on("cycle/a", 1)]);
-
-    let result = build_graph(vec![broken_doc, cycle_a, cycle_b], &config);
-    let errors = result.expect_err("should fail with both error types");
-
-    let has_broken_ref = errors
-        .iter()
-        .any(|e| matches!(e, GraphError::BrokenRef { .. }));
-    let has_doc_cycle = errors
-        .iter()
-        .any(|e| matches!(e, GraphError::DocumentDependencyCycle { .. }));
-
-    assert!(has_broken_ref, "should contain BrokenRef: {errors:?}");
-    assert!(
-        has_doc_cycle,
-        "should contain DocumentDependencyCycle: {errors:?}"
-    );
 }

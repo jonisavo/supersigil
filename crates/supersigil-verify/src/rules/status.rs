@@ -14,16 +14,14 @@ pub fn check(graph: &DocumentGraph) -> Vec<Finding> {
             let has_validates = has_component(&doc.components, "Validates");
             let has_verified_by = has_component(&doc.components, "VerifiedBy");
             if has_validates && !has_verified_by {
-                findings.push(Finding {
-                    rule: RuleName::StatusInconsistency,
-                    doc_id: Some(doc_id.to_owned()),
-                    message: format!(
+                findings.push(Finding::new(
+                    RuleName::StatusInconsistency,
+                    Some(doc_id.to_owned()),
+                    format!(
                         "document `{doc_id}` has status `verified` but contains Validates without VerifiedBy"
                     ),
-                    effective_severity: RuleName::StatusInconsistency.default_severity(),
-                    raw_severity: RuleName::StatusInconsistency.default_severity(),
-                    position: None,
-                });
+                    None,
+                ));
             }
         }
 
@@ -34,16 +32,14 @@ pub fn check(graph: &DocumentGraph) -> Vec<Finding> {
                 if let Some(criterion_id) = criterion.attributes.get("id")
                     && graph.validates(doc_id, Some(criterion_id)).is_empty()
                 {
-                    findings.push(Finding {
-                        rule: RuleName::StatusInconsistency,
-                        doc_id: Some(doc_id.to_owned()),
-                        message: format!(
+                    findings.push(Finding::new(
+                        RuleName::StatusInconsistency,
+                        Some(doc_id.to_owned()),
+                        format!(
                             "document `{doc_id}` has status `implemented` but criterion `{criterion_id}` is uncovered"
                         ),
-                        effective_severity: RuleName::StatusInconsistency.default_severity(),
-                        raw_severity: RuleName::StatusInconsistency.default_severity(),
-                        position: Some(criterion.position),
-                    });
+                        Some(criterion.position),
+                    ));
                 }
             }
         }

@@ -20,16 +20,12 @@ pub fn check_empty_globs(graph: &DocumentGraph, project_root: &Path) -> Vec<Find
                 .unwrap_or(0);
 
             if match_count == 0 {
-                findings.push(Finding {
-                    rule: RuleName::EmptyTrackedGlob,
-                    doc_id: Some(doc_id.to_owned()),
-                    message: format!(
-                        "TrackedFiles glob `{glob_pattern}` in `{doc_id}` matched zero files"
-                    ),
-                    effective_severity: RuleName::EmptyTrackedGlob.default_severity(),
-                    raw_severity: RuleName::EmptyTrackedGlob.default_severity(),
-                    position: None,
-                });
+                findings.push(Finding::new(
+                    RuleName::EmptyTrackedGlob,
+                    Some(doc_id.to_owned()),
+                    format!("TrackedFiles glob `{glob_pattern}` in `{doc_id}` matched zero files"),
+                    None,
+                ));
             }
         }
     }
@@ -70,16 +66,14 @@ pub fn check_staleness(
                 .count();
 
             if stale_count > 0 {
-                findings.push(Finding {
-                    rule: RuleName::StaleTrackedFiles,
-                    doc_id: Some(doc_id.to_owned()),
-                    message: format!(
+                findings.push(Finding::new(
+                    RuleName::StaleTrackedFiles,
+                    Some(doc_id.to_owned()),
+                    format!(
                         "TrackedFiles glob `{glob_pattern}` in `{doc_id}` has {stale_count} changed file(s)",
                     ),
-                    effective_severity: RuleName::StaleTrackedFiles.default_severity(),
-                    raw_severity: RuleName::StaleTrackedFiles.default_severity(),
-                    position: None,
-                });
+                    None,
+                ));
             }
         }
     }

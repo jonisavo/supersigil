@@ -7,12 +7,13 @@ use std::collections::HashMap;
 
 use proptest::prelude::*;
 
+use crate::ExtractedComponent;
 use crate::graph::tests::generators::{
-    arb_component_id, arb_dag, arb_id, make_depends_on, make_doc_with_path, make_task, pos,
+    arb_component_id, arb_dag, arb_id, dag_deps_map, dag_to_depends_on_docs,
+    dag_to_task_components, make_depends_on, make_doc_with_path, make_task, pos,
     single_project_config,
 };
 use crate::graph::{GraphError, TASK, build_graph};
-use crate::{ExtractedComponent, SpecDocument};
 
 // ---------------------------------------------------------------------------
 // Property 9: Acyclic task graphs produce no cycle errors
@@ -26,23 +27,8 @@ proptest! {
     #[test]
     fn prop_acyclic_task_graph_no_cycle_errors(dag in arb_dag(6)) {
         let config = single_project_config();
-
-        // Build a lookup: node → list of dependencies (nodes it depends on).
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Create a Task component for each node in the DAG.
-        let tasks: Vec<ExtractedComponent> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let depends = deps_map.get(node).map(|deps| deps.join(", "));
-                make_task(node, None, None, depends.as_deref(), i + 1)
-            })
-            .collect();
+        let deps_map = dag_deps_map(&dag);
+        let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc = make_doc_with_path("tasks/test", "specs/tasks/test.mdx", tasks);
         let result = build_graph(vec![doc], &config);
@@ -74,48 +60,25 @@ proptest! {
     /// whose `cycle` field contains the nodes involved in the cycle.
     ///
     /// Validates: Requirements 5.3
-    ///
-    /// NOTE: Ignored until cycle detection is implemented in task 9.6.
     #[test]
     fn prop_cyclic_task_graph_with_back_edge(dag in arb_dag(6)) {
         // We need at least 2 nodes to inject a meaningful back-edge.
         prop_assume!(dag.nodes.len() >= 2);
 
         let config = single_project_config();
+        let mut deps_map = dag_deps_map(&dag);
 
-        // Build the original dependency map from the DAG edges.
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Inject a back-edge: make node 0 depend on the last node.
-        // Since the DAG has t0 as the root (no dependencies) and t(n-1) as
-        // the highest-indexed node, adding t0 → t(n-1) creates a cycle
-        // through any path from t0 to t(n-1).
+        // Inject mutual back-edges between first and last nodes.
         let first = &dag.nodes[0];
         let last = &dag.nodes[dag.nodes.len() - 1];
         deps_map.entry(first.clone()).or_default().push(last.clone());
-
-        // Also ensure there's a forward edge from last to first so the cycle
-        // is guaranteed (the DAG might not have a path from first to last).
         deps_map.entry(last.clone()).or_default().push(first.clone());
 
-        // Create Task components with the (now cyclic) dependency map.
-        let tasks: Vec<ExtractedComponent> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let depends = deps_map.get(node).map(|deps| deps.join(", "));
-                make_task(node, None, None, depends.as_deref(), i + 1)
-            })
-            .collect();
+        let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc = make_doc_with_path("tasks/cyclic", "specs/tasks/cyclic.mdx", tasks);
         let result = build_graph(vec![doc], &config);
 
-        // The graph should report at least one TaskDependencyCycle error.
         match result {
             Ok(_) => {
                 prop_assert!(
@@ -135,8 +98,6 @@ proptest! {
                     errors
                 );
 
-                // Verify cycle participants include at least one of the nodes
-                // involved in the injected back-edge.
                 for err in &cycle_errors {
                     if let GraphError::TaskDependencyCycle { cycle, .. } = err {
                         prop_assert!(
@@ -153,8 +114,6 @@ proptest! {
     /// Assert that `build_graph` returns a `TaskDependencyCycle` error.
     ///
     /// Validates: Requirements 5.3
-    ///
-    /// NOTE: Ignored until cycle detection is implemented in task 9.6.
     #[test]
     fn prop_self_referencing_task_produces_cycle_error(
         id_suffix in "[a-z]{1,4}"
@@ -162,7 +121,6 @@ proptest! {
         let config = single_project_config();
         let task_id = format!("t{id_suffix}");
 
-        // A single task that depends on itself.
         let task = make_task(&task_id, None, None, Some(&task_id), 1);
         let doc = make_doc_with_path("tasks/self-ref", "specs/tasks/self-ref.mdx", vec![task]);
         let result = build_graph(vec![doc], &config);
@@ -186,7 +144,6 @@ proptest! {
                     errors
                 );
 
-                // The cycle should contain the self-referencing task ID.
                 for err in &cycle_errors {
                     if let GraphError::TaskDependencyCycle { cycle, .. } = err {
                         prop_assert!(
@@ -238,12 +195,10 @@ proptest! {
         id_a in arb_component_id(),
         id_b in arb_component_id(),
     ) {
-        // Ensure distinct IDs so we have two separate tasks.
         prop_assume!(id_a != id_b);
 
         let config = single_project_config();
 
-        // Task B depends on Task A — both are top-level siblings.
         let task_a = make_task(&id_a, None, None, None, 1);
         let task_b = make_task(&id_b, None, None, Some(&id_a), 2);
 
@@ -254,7 +209,6 @@ proptest! {
         );
         let result = build_graph(vec![doc], &config);
 
-        // There should be no BrokenRef errors for the depends attribute.
         match result {
             Ok(_) => { /* no errors — property holds */ }
             Err(errors) => {
@@ -282,14 +236,12 @@ proptest! {
         child_id in arb_component_id(),
         toplevel_id in arb_component_id(),
     ) {
-        // Ensure all IDs are distinct.
         prop_assume!(parent_id != child_id);
         prop_assume!(parent_id != toplevel_id);
         prop_assume!(child_id != toplevel_id);
 
         let config = single_project_config();
 
-        // Nested child task depends on a top-level task (non-sibling).
         let child = make_task(&child_id, None, None, Some(&toplevel_id), 2);
         let parent = make_task_with_children(&parent_id, None, vec![child], 1);
         let toplevel = make_task(&toplevel_id, None, None, None, 3);
@@ -301,8 +253,6 @@ proptest! {
         );
         let result = build_graph(vec![doc], &config);
 
-        // Should produce a BrokenRef because the nested child references a
-        // non-sibling (the top-level task).
         match result {
             Ok(_) => {
                 prop_assert!(
@@ -341,12 +291,10 @@ proptest! {
         task_id in arb_component_id(),
         ghost_id in arb_component_id(),
     ) {
-        // Ensure the ghost ID is different from the task's own ID.
         prop_assume!(task_id != ghost_id);
 
         let config = single_project_config();
 
-        // Single task that depends on a nonexistent task.
         let task = make_task(&task_id, None, None, Some(&ghost_id), 1);
         let doc = make_doc_with_path(
             "tasks/ghost",
@@ -355,7 +303,6 @@ proptest! {
         );
         let result = build_graph(vec![doc], &config);
 
-        // Should produce a BrokenRef for the nonexistent depends target.
         match result {
             Ok(_) => {
                 prop_assert!(
@@ -394,34 +341,12 @@ proptest! {
     /// Generate documents with `DependsOn` refs forming a DAG (using
     /// `arb_dag`), assert no `DocumentDependencyCycle` errors.
     ///
-    /// Each DAG node becomes a document. Each edge (A depends on B) adds a
-    /// `DependsOn` component to document A with `refs="B"`.
-    ///
     /// **Validates: Requirements 6.2**
     #[test]
     fn prop_acyclic_document_dependency_graph_no_cycle_errors(dag in arb_dag(6)) {
         let config = single_project_config();
-
-        // Build a lookup: node → list of document IDs it depends on.
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Create a SpecDocument for each node. If the node has DependsOn
-        // edges, attach a DependsOn component with comma-separated refs.
-        let documents: Vec<SpecDocument> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let components = match deps_map.get(node) {
-                    Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
-                    None => Vec::new(),
-                };
-                make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
-            })
-            .collect();
+        let deps_map = dag_deps_map(&dag);
+        let documents = dag_to_depends_on_docs(&dag, &deps_map);
 
         let result = build_graph(documents, &config);
 
@@ -448,45 +373,23 @@ proptest! {
 
 proptest! {
     /// Take an `arb_dag` and inject mutual back-edges between the first and
-    /// last nodes to create a guaranteed cycle. Each node becomes a document
-    /// with `DependsOn` refs. Assert that `build_graph` returns errors
-    /// containing at least one `DocumentDependencyCycle` whose `cycle` field
-    /// is non-empty.
+    /// last nodes to create a guaranteed cycle.
     ///
     /// **Validates: Requirements 6.3**
     #[test]
     fn prop_cyclic_document_dependency_graph_with_back_edge(dag in arb_dag(6)) {
-        // Need at least 2 nodes to inject a meaningful back-edge.
         prop_assume!(dag.nodes.len() >= 2);
 
         let config = single_project_config();
+        let mut deps_map = dag_deps_map(&dag);
 
-        // Build the original dependency map from the DAG edges.
-        let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (from, to) in &dag.edges {
-            deps_map.entry(from.clone()).or_default().push(to.clone());
-        }
-
-        // Inject mutual back-edges between first and last nodes to guarantee
-        // a cycle regardless of the original DAG structure.
+        // Inject mutual back-edges.
         let first = &dag.nodes[0];
         let last = &dag.nodes[dag.nodes.len() - 1];
         deps_map.entry(first.clone()).or_default().push(last.clone());
         deps_map.entry(last.clone()).or_default().push(first.clone());
 
-        // Create a SpecDocument for each node with DependsOn components.
-        let documents: Vec<SpecDocument> = dag
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let components = match deps_map.get(node) {
-                    Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
-                    None => Vec::new(),
-                };
-                make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
-            })
-            .collect();
+        let documents = dag_to_depends_on_docs(&dag, &deps_map);
 
         let result = build_graph(documents, &config);
 
@@ -510,7 +413,6 @@ proptest! {
                     errors
                 );
 
-                // Every reported cycle must have a non-empty cycle field.
                 for err in &cycle_errors {
                     if let GraphError::DocumentDependencyCycle { cycle } = err {
                         prop_assert!(
@@ -524,8 +426,7 @@ proptest! {
     }
 
     /// Generate a single document with a `DependsOn` component that references
-    /// itself. Assert `DocumentDependencyCycle` error containing the
-    /// self-referencing document ID.
+    /// itself. Assert `DocumentDependencyCycle` error.
     ///
     /// **Validates: Requirements 6.3**
     #[test]
@@ -534,7 +435,6 @@ proptest! {
     ) {
         let config = single_project_config();
 
-        // A single document that depends on itself.
         let depends_on = make_depends_on(&doc_id, 1);
         let doc = make_doc_with_path(&doc_id, &format!("specs/{doc_id}.mdx"), vec![depends_on]);
         let result = build_graph(vec![doc], &config);
@@ -559,7 +459,6 @@ proptest! {
                     errors
                 );
 
-                // The cycle should contain the self-referencing document ID.
                 for err in &cycle_errors {
                     if let GraphError::DocumentDependencyCycle { cycle } = err {
                         prop_assert!(

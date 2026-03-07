@@ -1,58 +1,12 @@
 //! Property tests for referenceable component indexing (pipeline stage 2).
 
-use std::collections::HashMap;
-
 use proptest::prelude::*;
 
-use crate::graph::tests::generators::{arb_component_id, arb_config, arb_id, make_doc};
-use crate::graph::{ACCEPTANCE_CRITERIA, CRITERION, GraphError, TASK, build_graph};
-use crate::{ExtractedComponent, SourcePosition};
-
-fn make_criterion(id: &str, line: usize, byte_offset: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: CRITERION.to_owned(),
-        attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
-        children: Vec::new(),
-        body_text: Some(format!("criterion {id}")),
-        position: SourcePosition {
-            byte_offset,
-            line,
-            column: 1,
-        },
-    }
-}
-
-fn make_task(id: &str, line: usize, byte_offset: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: TASK.to_owned(),
-        attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
-        children: Vec::new(),
-        body_text: Some(format!("task {id}")),
-        position: SourcePosition {
-            byte_offset,
-            line,
-            column: 1,
-        },
-    }
-}
-
-fn make_acceptance_criteria(
-    children: Vec<ExtractedComponent>,
-    line: usize,
-    byte_offset: usize,
-) -> ExtractedComponent {
-    ExtractedComponent {
-        name: ACCEPTANCE_CRITERIA.to_owned(),
-        attributes: HashMap::new(),
-        children,
-        body_text: None,
-        position: SourcePosition {
-            byte_offset,
-            line,
-            column: 1,
-        },
-    }
-}
+use crate::graph::tests::generators::{
+    arb_component_id, arb_config, arb_id, make_acceptance_criteria, make_criterion, make_doc,
+    make_task,
+};
+use crate::graph::{CRITERION, GraphError, TASK, build_graph};
 
 // ---------------------------------------------------------------------------
 // Property 3: Referenceable component index round-trip
@@ -78,10 +32,10 @@ proptest! {
         prop_assume!(crit_id_a != task_id);
         prop_assume!(crit_id_b != task_id);
 
-        let top_criterion = make_criterion(&crit_id_a, 1, 0);
-        let nested_criterion = make_criterion(&crit_id_b, 5, 100);
-        let ac = make_acceptance_criteria(vec![nested_criterion], 4, 80);
-        let task = make_task(&task_id, 10, 200);
+        let top_criterion = make_criterion(&crit_id_a, 1);
+        let nested_criterion = make_criterion(&crit_id_b, 5);
+        let ac = make_acceptance_criteria(vec![nested_criterion], 4);
+        let task = make_task(&task_id, None, None, None, 10);
 
         let doc = make_doc(&doc_id, vec![top_criterion, ac, task]);
 
@@ -127,8 +81,8 @@ proptest! {
         shared_id in arb_component_id(),
         config in arb_config(),
     ) {
-        let comp_a = make_criterion(&shared_id, 1, 0);
-        let comp_b = make_task(&shared_id, 10, 200);
+        let comp_a = make_criterion(&shared_id, 1);
+        let comp_b = make_task(&shared_id, None, None, None, 10);
 
         let doc = make_doc(&doc_id, vec![comp_a.clone(), comp_b.clone()]);
 

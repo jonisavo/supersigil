@@ -20,14 +20,12 @@ pub fn check_unverified(graph: &DocumentGraph) -> Vec<Finding> {
         let has_verified_by = has_component(&doc.components, "VerifiedBy");
 
         if has_validates && !has_verified_by {
-            findings.push(Finding {
-                rule: RuleName::UnverifiedValidation,
-                doc_id: Some(doc_id.to_owned()),
-                message: format!("document `{doc_id}` has Validates but no VerifiedBy"),
-                effective_severity: RuleName::UnverifiedValidation.default_severity(),
-                raw_severity: RuleName::UnverifiedValidation.default_severity(),
-                position: None,
-            });
+            findings.push(Finding::new(
+                RuleName::UnverifiedValidation,
+                Some(doc_id.to_owned()),
+                format!("document `{doc_id}` has Validates but no VerifiedBy"),
+                None,
+            ));
         }
     }
 
@@ -53,14 +51,12 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
             }
 
             let Some(paths_raw) = vb.attributes.get("paths") else {
-                findings.push(Finding {
-                    rule: RuleName::MissingTestFiles,
-                    doc_id: Some(doc_id.clone()),
-                    message: format!("VerifiedBy file-glob in `{doc_id}` has no paths attribute"),
-                    effective_severity: RuleName::MissingTestFiles.default_severity(),
-                    raw_severity: RuleName::MissingTestFiles.default_severity(),
-                    position: Some(vb.position),
-                });
+                findings.push(Finding::new(
+                    RuleName::MissingTestFiles,
+                    Some(doc_id.clone()),
+                    format!("VerifiedBy file-glob in `{doc_id}` has no paths attribute"),
+                    Some(vb.position),
+                ));
                 continue;
             };
 
@@ -75,16 +71,14 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
                     .unwrap_or(0);
 
                 if matches == 0 {
-                    findings.push(Finding {
-                        rule: RuleName::MissingTestFiles,
-                        doc_id: Some(doc_id.clone()),
-                        message: format!(
+                    findings.push(Finding::new(
+                        RuleName::MissingTestFiles,
+                        Some(doc_id.clone()),
+                        format!(
                             "VerifiedBy file-glob in `{doc_id}` matched zero files (path: {path})"
                         ),
-                        effective_severity: RuleName::MissingTestFiles.default_severity(),
-                        raw_severity: RuleName::MissingTestFiles.default_severity(),
-                        position: Some(vb.position),
-                    });
+                        Some(vb.position),
+                    ));
                 }
             }
         }
@@ -111,29 +105,23 @@ pub fn check_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<Finding
             }
 
             let Some(tag) = vb.attributes.get("tag") else {
-                findings.push(Finding {
-                    rule: RuleName::ZeroTagMatches,
-                    doc_id: Some(doc_id.clone()),
-                    message: format!("VerifiedBy tag in `{doc_id}` has no tag attribute"),
-                    effective_severity: RuleName::ZeroTagMatches.default_severity(),
-                    raw_severity: RuleName::ZeroTagMatches.default_severity(),
-                    position: Some(vb.position),
-                });
+                findings.push(Finding::new(
+                    RuleName::ZeroTagMatches,
+                    Some(doc_id.clone()),
+                    format!("VerifiedBy tag in `{doc_id}` has no tag attribute"),
+                    Some(vb.position),
+                ));
                 continue;
             };
 
             let matches = scan_for_tag(tag, test_files);
             if matches.is_empty() {
-                findings.push(Finding {
-                    rule: RuleName::ZeroTagMatches,
-                    doc_id: Some(doc_id.clone()),
-                    message: format!(
-                        "VerifiedBy tag `{tag}` in `{doc_id}` matched zero test files"
-                    ),
-                    effective_severity: RuleName::ZeroTagMatches.default_severity(),
-                    raw_severity: RuleName::ZeroTagMatches.default_severity(),
-                    position: Some(vb.position),
-                });
+                findings.push(Finding::new(
+                    RuleName::ZeroTagMatches,
+                    Some(doc_id.clone()),
+                    format!("VerifiedBy tag `{tag}` in `{doc_id}` matched zero test files"),
+                    Some(vb.position),
+                ));
             }
         }
     }

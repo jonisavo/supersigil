@@ -116,28 +116,9 @@ fn arb_multi_project_config() -> impl Strategy<Value = Config> {
                 isolated: false,
             },
         );
-        Config {
-            paths: None,
-            tests: None,
-            projects: Some(projects),
-            id_pattern: None,
-            documents: DocumentsConfig {
-                types: HashMap::new(),
-            },
-            components: HashMap::new(),
-            verify: VerifyConfig {
-                strictness: None,
-                rules: HashMap::new(),
-            },
-            ecosystem: EcosystemConfig {
-                plugins: vec!["rust".to_owned()],
-            },
-            hooks: HooksConfig::default(),
-            test_results: TestResultsConfig {
-                formats: Vec::new(),
-                paths: Vec::new(),
-            },
-        }
+        let mut c = base_test_config();
+        c.projects = Some(projects);
+        c
     })
 }
 
@@ -346,34 +327,22 @@ pub fn two_project_config(a_isolated: bool, b_isolated: bool) -> Config {
             isolated: b_isolated,
         },
     );
-    Config {
-        paths: None,
-        tests: None,
-        projects: Some(projects),
-        id_pattern: None,
-        documents: DocumentsConfig {
-            types: HashMap::new(),
-        },
-        components: HashMap::new(),
-        verify: VerifyConfig {
-            strictness: None,
-            rules: HashMap::new(),
-        },
-        ecosystem: EcosystemConfig {
-            plugins: vec!["rust".to_owned()],
-        },
-        hooks: HooksConfig::default(),
-        test_results: TestResultsConfig {
-            formats: Vec::new(),
-            paths: Vec::new(),
-        },
-    }
+    let mut c = base_test_config();
+    c.projects = Some(projects);
+    c
 }
 
 /// Build a default single-project `Config`.
 pub fn single_project_config() -> Config {
+    let mut c = base_test_config();
+    c.paths = Some(vec!["specs/**/*.mdx".to_owned()]);
+    c
+}
+
+/// Base `Config` with all optional/boilerplate fields populated.
+fn base_test_config() -> Config {
     Config {
-        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
+        paths: None,
         tests: None,
         projects: None,
         id_pattern: None,
@@ -394,4 +363,46 @@ pub fn single_project_config() -> Config {
             paths: Vec::new(),
         },
     }
+}
+
+/// Build a DAG's dependency map: node → list of nodes it depends on.
+pub fn dag_deps_map(dag: &GeneratedDag) -> HashMap<String, Vec<String>> {
+    let mut deps_map: HashMap<String, Vec<String>> = HashMap::new();
+    for (from, to) in &dag.edges {
+        deps_map.entry(from.clone()).or_default().push(to.clone());
+    }
+    deps_map
+}
+
+/// Convert DAG nodes to Task components using a dependency map.
+pub fn dag_to_task_components(
+    dag: &GeneratedDag,
+    deps_map: &HashMap<String, Vec<String>>,
+) -> Vec<ExtractedComponent> {
+    dag.nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            let depends = deps_map.get(node).map(|deps| deps.join(", "));
+            make_task(node, None, None, depends.as_deref(), i + 1)
+        })
+        .collect()
+}
+
+/// Convert DAG nodes to documents with `DependsOn` components using a dependency map.
+pub fn dag_to_depends_on_docs(
+    dag: &GeneratedDag,
+    deps_map: &HashMap<String, Vec<String>>,
+) -> Vec<SpecDocument> {
+    dag.nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            let components = match deps_map.get(node) {
+                Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
+                None => Vec::new(),
+            };
+            make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
+        })
+        .collect()
 }

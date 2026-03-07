@@ -114,15 +114,16 @@ proptest! {
 // Feature: kiro-import, Property 5: Requirement ref range expansion
 // Validates: Requirements 20.5
 proptest! {
-    /// Numeric range `X.Y–X.Z` (en-dash) expands to individual refs.
+    /// Numeric range `X.Y–X.Z` (en-dash) or `X.Y-X.Z` (hyphen) expands to individual refs.
     #[test]
-    fn prop_numeric_range_expansion_endash(
+    fn prop_numeric_range_expansion(
         req_num in generators::arb_requirement_number(),
         start in 1..10u32,
         span in 1..6u32,
+        separator in prop_oneof![Just("\u{2013}"), Just("-")],
     ) {
         let end = start + span;
-        let input = format!("{req_num}.{start}\u{2013}{req_num}.{end}");
+        let input = format!("{req_num}.{start}{separator}{req_num}.{end}");
         let (parsed, markers) = parse_requirement_refs(&input);
 
         let expected_count = (end - start + 1) as usize;
@@ -136,30 +137,6 @@ proptest! {
 
         prop_assert!(markers.is_empty(),
             "Numeric range should not produce markers: {:?}", markers);
-    }
-
-    /// Numeric range `X.Y-X.Z` (hyphen) expands to individual refs.
-    #[test]
-    fn prop_numeric_range_expansion_hyphen(
-        req_num in generators::arb_requirement_number(),
-        start in 1..10u32,
-        span in 1..6u32,
-    ) {
-        let end = start + span;
-        let input = format!("{req_num}.{start}-{req_num}.{end}");
-        let (parsed, markers) = parse_requirement_refs(&input);
-
-        let expected_count = (end - start + 1) as usize;
-        prop_assert_eq!(parsed.len(), expected_count);
-
-        for (i, r) in parsed.iter().enumerate() {
-            let expected_idx = (start as usize) + i;
-            prop_assert_eq!(&r.requirement_number, &req_num);
-            prop_assert_eq!(&r.criterion_index, &expected_idx.to_string());
-        }
-
-        prop_assert!(markers.is_empty(),
-            "Numeric hyphen range should not produce markers: {:?}", markers);
     }
 
     /// Non-numeric range indices emit ambiguity markers.

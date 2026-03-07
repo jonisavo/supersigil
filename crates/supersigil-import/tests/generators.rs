@@ -95,6 +95,14 @@ pub fn arb_mermaid_block() -> BoxedStrategy<String> {
 // Parsed IR generators
 // ---------------------------------------------------------------------------
 
+pub fn arb_optional_title() -> BoxedStrategy<Option<String>> {
+    prop_oneof![
+        Just(None),
+        arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
+    ]
+    .boxed()
+}
+
 pub fn arb_parsed_criterion() -> BoxedStrategy<ParsedCriterion> {
     let conditions = prop::sample::select(vec![
         "a user submits a form",
@@ -119,10 +127,7 @@ pub fn arb_parsed_criterion() -> BoxedStrategy<ParsedCriterion> {
 }
 
 pub fn arb_parsed_requirement() -> BoxedStrategy<ParsedRequirement> {
-    let title_strat = prop_oneof![
-        1 => Just(None),
-        3 => arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
-    ];
+    let title_strat = arb_optional_title();
     let story_strat = prop_oneof![
         Just(None),
         arb_prose_block().prop_map(|s| Some(format!(
@@ -154,10 +159,7 @@ pub fn arb_parsed_requirement() -> BoxedStrategy<ParsedRequirement> {
 }
 
 pub fn arb_parsed_requirements() -> BoxedStrategy<ParsedRequirements> {
-    let title_strat = prop_oneof![
-        Just(None),
-        arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
-    ];
+    let title_strat = arb_optional_title();
     let glossary_strat = prop_oneof![
         2 => Just(None),
         1 => arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
@@ -246,10 +248,7 @@ pub fn arb_parsed_task() -> BoxedStrategy<ParsedTask> {
 }
 
 pub fn arb_parsed_tasks() -> BoxedStrategy<ParsedTasks> {
-    let title_strat = prop_oneof![
-        Just(None),
-        arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
-    ];
+    let title_strat = arb_optional_title();
     (
         title_strat,
         proptest::collection::vec(arb_prose_block(), 0..3),
@@ -299,10 +298,7 @@ fn arb_design_section() -> BoxedStrategy<DesignSection> {
 }
 
 pub fn arb_parsed_design() -> BoxedStrategy<ParsedDesign> {
-    let title_strat = prop_oneof![
-        Just(None),
-        arb_prose_block().prop_map(|s| Some(s.trim().to_string())),
-    ];
+    let title_strat = arb_optional_title();
     (
         title_strat,
         proptest::collection::vec(arb_design_section(), 1..5),

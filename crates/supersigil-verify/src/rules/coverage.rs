@@ -24,14 +24,12 @@ fn for_each_criterion(
         {
             let validators = graph.validates(doc_id, Some(criterion_id));
             if validators.is_empty() {
-                findings.push(Finding {
-                    rule: RuleName::UncoveredCriterion,
-                    doc_id: Some(doc_id.to_owned()),
-                    message: format!("criterion `{criterion_id}` has no validating property"),
-                    effective_severity: RuleName::UncoveredCriterion.default_severity(),
-                    raw_severity: RuleName::UncoveredCriterion.default_severity(),
-                    position: Some(component.position),
-                });
+                findings.push(Finding::new(
+                    RuleName::UncoveredCriterion,
+                    Some(doc_id.to_owned()),
+                    format!("criterion `{criterion_id}` has no validating property"),
+                    Some(component.position),
+                ));
             }
         }
         // Recurse into children (Criterion inside AcceptanceCriteria)

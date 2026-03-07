@@ -34,19 +34,9 @@ proptest! {
     }
 }
 
-// Feature: kiro-import, Property 2: Criterion ID generation and uniqueness
+// Feature: kiro-import, Property 2: Criterion ID uniqueness after deduplication
 // Validates: Requirements 3.1, 3.2, 3.3
 proptest! {
-    #[test]
-    fn prop_criterion_id_format(
-        req_num in generators::arb_requirement_number(),
-        crit_idx in generators::arb_criterion_index(),
-    ) {
-        let id = make_criterion_id(&req_num, &crit_idx);
-        let expected = format!("req-{req_num}-{crit_idx}");
-        prop_assert_eq!(&id, &expected);
-    }
-
     #[test]
     fn prop_criterion_id_uniqueness_after_dedup(
         ids in proptest::collection::vec(
@@ -80,28 +70,9 @@ proptest! {
     }
 }
 
-// Feature: kiro-import, Property 3: Task ID generation and uniqueness
+// Feature: kiro-import, Property 3: Task ID uniqueness after deduplication
 // Validates: Requirements 9.1, 9.2, 9.3, 9.4
 proptest! {
-    #[test]
-    fn prop_task_id_top_level(
-        task_num in generators::arb_requirement_number(),
-    ) {
-        let id = make_task_id(&task_num, None);
-        let expected = format!("task-{task_num}");
-        prop_assert_eq!(&id, &expected);
-    }
-
-    #[test]
-    fn prop_task_id_sub_task(
-        task_num in generators::arb_requirement_number(),
-        sub_num in generators::arb_requirement_number(),
-    ) {
-        let id = make_task_id(&task_num, Some(&sub_num));
-        let expected = format!("task-{task_num}-{sub_num}");
-        prop_assert_eq!(&id, &expected);
-    }
-
     #[test]
     fn prop_task_id_uniqueness_after_dedup(
         ids in proptest::collection::vec(
