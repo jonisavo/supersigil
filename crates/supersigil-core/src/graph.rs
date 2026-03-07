@@ -76,6 +76,8 @@ pub struct DocumentGraph {
     implements_reverse: HashMap<String, BTreeSet<String>>,
     /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of illustrating doc IDs.
     illustrates_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
+    /// Reverse mapping: target `doc_id` → set of depending doc IDs.
+    depends_on_reverse: HashMap<String, BTreeSet<String>>,
 
     /// Task topological orderings per tasks document.
     task_topo_orders: HashMap<String, Vec<String>>,
@@ -194,6 +196,14 @@ impl DocumentGraph {
             .unwrap_or(&EMPTY_BTREESET)
     }
 
+    /// Get all documents that depend on a given document.
+    #[must_use]
+    pub fn depends_on(&self, doc_id: &str) -> &BTreeSet<String> {
+        self.depends_on_reverse
+            .get(doc_id)
+            .unwrap_or(&EMPTY_BTREESET)
+    }
+
     // -- TrackedFiles accessors (task 13.3) ----------------------------------
 
     /// Get `TrackedFiles` globs for a document. Returns `None` if none declared.
@@ -299,7 +309,7 @@ pub fn build_graph(
     let doc_topo_order = topo::compute_doc_topo_order(&resolved_refs, &doc_index);
 
     // Stage 8: Reverse mappings
-    let (validates_reverse, implements_reverse, illustrates_reverse) =
+    let (validates_reverse, implements_reverse, illustrates_reverse, depends_on_reverse) =
         reverse::build_reverse_mappings(&resolved_refs, &doc_index);
 
     // Stage 9: TrackedFiles indexing
@@ -312,6 +322,7 @@ pub fn build_graph(
         validates_reverse,
         implements_reverse,
         illustrates_reverse,
+        depends_on_reverse,
         task_topo_orders,
         doc_topo_order,
         tracked_files_index,

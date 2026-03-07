@@ -1,10 +1,10 @@
-//! Reverse mapping computation for Validates/Implements/Illustrates (pipeline stage 8).
+//! Reverse mapping computation for Validates/Implements/Illustrates/DependsOn (pipeline stage 8).
 
 use std::collections::{BTreeSet, HashMap};
 
 use crate::{ExtractedComponent, SpecDocument};
 
-use super::{ILLUSTRATES, IMPLEMENTS, ResolvedRef, VALIDATES};
+use super::{DEPENDS_ON, ILLUSTRATES, IMPLEMENTS, ResolvedRef, VALIDATES};
 
 // ---------------------------------------------------------------------------
 // Stage 8: Reverse mappings
@@ -13,12 +13,13 @@ use super::{ILLUSTRATES, IMPLEMENTS, ResolvedRef, VALIDATES};
 /// Build reverse mappings from resolved refs.
 ///
 /// Iterates all resolved refs, identifies the source component type
-/// (Validates, Implements, or Illustrates), and populates the three
-/// reverse indexes.
+/// (Validates, Implements, Illustrates, or `DependsOn`), and populates
+/// the four reverse indexes.
 ///
 /// - `Validates`: keyed by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
 /// - `Implements`: keyed by `target_doc_id` → `BTreeSet<source_doc_id>` (fragments discarded)
 /// - `Illustrates`: keyed by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
+/// - `DependsOn`: keyed by `target_doc_id` → `BTreeSet<source_doc_id>` (fragments discarded)
 #[expect(clippy::type_complexity, reason = "return type is clear in context")]
 pub(super) fn build_reverse_mappings(
     resolved_refs: &HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
@@ -27,11 +28,13 @@ pub(super) fn build_reverse_mappings(
     HashMap<(String, Option<String>), BTreeSet<String>>,
     HashMap<String, BTreeSet<String>>,
     HashMap<(String, Option<String>), BTreeSet<String>>,
+    HashMap<String, BTreeSet<String>>,
 ) {
     let mut validates_reverse: HashMap<(String, Option<String>), BTreeSet<String>> = HashMap::new();
     let mut implements_reverse: HashMap<String, BTreeSet<String>> = HashMap::new();
     let mut illustrates_reverse: HashMap<(String, Option<String>), BTreeSet<String>> =
         HashMap::new();
+    let mut depends_on_reverse: HashMap<String, BTreeSet<String>> = HashMap::new();
 
     for ((source_doc_id, component_path), refs) in resolved_refs {
         // Look up the source document to find the component at this path.
@@ -55,7 +58,6 @@ pub(super) fn build_reverse_mappings(
                         .insert(source_doc_id.clone());
                 }
                 IMPLEMENTS => {
-                    // Fragments discarded — mapping is document-level only.
                     implements_reverse
                         .entry(resolved.target_doc_id.clone())
                         .or_default()
@@ -68,15 +70,23 @@ pub(super) fn build_reverse_mappings(
                         .or_default()
                         .insert(source_doc_id.clone());
                 }
-                _ => {
-                    // Other component types (e.g., DependsOn) don't contribute
-                    // to reverse mappings.
+                DEPENDS_ON => {
+                    depends_on_reverse
+                        .entry(resolved.target_doc_id.clone())
+                        .or_default()
+                        .insert(source_doc_id.clone());
                 }
+                _ => {}
             }
         }
     }
 
-    (validates_reverse, implements_reverse, illustrates_reverse)
+    (
+        validates_reverse,
+        implements_reverse,
+        illustrates_reverse,
+        depends_on_reverse,
+    )
 }
 
 /// Walk a component tree following the index path to find the component.

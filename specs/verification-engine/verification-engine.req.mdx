@@ -2,7 +2,7 @@
 supersigil:
   id: req/verification-engine
   type: requirement
-  status: draft
+  status: implemented
 title: "Verification Engine"
 ---
 
@@ -116,6 +116,9 @@ As a developer, I want `VerifiedBy strategy="tag"` to scan test files for matchi
   </Criterion>
   <Criterion id="req-5-4">
     WHEN matches are found, THE Verify_Engine SHALL record the match count and file locations for reporting (e.g., "3 tests matched (tag: prop:login)").
+  </Criterion>
+  <Criterion id="req-5-5">
+    WHEN operating in multi-project mode (`[projects]` is configured), THE Verify_Engine SHALL resolve test file paths from the selected project's `tests` globs. WHEN no `--project` filter is specified, THE Verify_Engine SHALL resolve test file paths from all projects' `tests` globs combined. In single-project mode, THE Verify_Engine SHALL use the top-level `tests` globs.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -231,7 +234,7 @@ As a developer, I want to optionally detect documents that are disconnected from
 
 <AcceptanceCriteria>
   <Criterion id="req-13-1">
-    WHEN the `isolated_document` rule is enabled, THE Verify_Engine SHALL check each document for incoming or outgoing component refs. Documents with no refs in either direction SHALL produce an `isolated_document` finding.
+    WHEN the `isolated_document` rule is enabled, THE Verify_Engine SHALL check each document for incoming or outgoing reference components (`Validates`, `Implements`, `Illustrates`, `DependsOn`). Documents with no refs in either direction SHALL produce an `isolated_document` finding.
   </Criterion>
   <Criterion id="req-13-2">
     THE `isolated_document` rule SHALL have a built-in default severity of `off`.

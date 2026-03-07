@@ -3,6 +3,7 @@ members = [
     "crates/supersigil-core",
     "crates/supersigil-parser",
     "crates/supersigil-import",
+    "crates/supersigil-verify",
     "crates/supersigil-cli",
 ]
 resolver = "3"
