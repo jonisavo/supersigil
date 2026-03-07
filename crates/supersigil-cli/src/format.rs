@@ -379,6 +379,209 @@ fn are_consecutive(a: &str, b: &str) -> bool {
     num_b == num_a + 1
 }
 
+/// Write a dependency graph showing task chains with fork/merge notation.
+///
+/// Tasks are rendered as chains joined by ` → `, with forks shown as indented
+/// tree branches and merges shown as `(merge) → ...`.
+///
+/// # Errors
+///
+/// Returns an I/O error if writing fails.
+pub fn write_dependency_graph(
+    out: &mut impl Write,
+    tasks: &[&TaskInfo],
+    color: ColorConfig,
+) -> io::Result<()> {
+    if tasks.is_empty() {
+        return Ok(());
+    }
+
+    let mut renderer = GraphRenderer::new(tasks, color);
+    renderer.render_all(out)
+}
+
+use std::collections::{HashMap, HashSet};
+
+struct GraphRenderer<'a> {
+    forward: HashMap<&'a str, Vec<&'a str>>,
+    back: HashMap<&'a str, Vec<&'a str>>,
+    task_map: HashMap<&'a str, &'a TaskInfo>,
+    roots: Vec<&'a str>,
+    visited: HashSet<&'a str>,
+    color: ColorConfig,
+}
+
+impl<'a> GraphRenderer<'a> {
+    fn new(tasks: &[&'a TaskInfo], color: ColorConfig) -> Self {
+        let task_set: HashSet<&str> = tasks.iter().map(|t| t.task_id.as_str()).collect();
+        let task_map: HashMap<&str, &TaskInfo> =
+            tasks.iter().map(|t| (t.task_id.as_str(), *t)).collect();
+
+        let mut back: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut forward: HashMap<&str, Vec<&str>> = HashMap::new();
+
+        for task in tasks {
+            let tid = task.task_id.as_str();
+            let preds: Vec<&str> = task
+                .depends_on
+                .iter()
+                .filter(|d| task_set.contains(d.as_str()))
+                .map(String::as_str)
+                .collect();
+            for pred in &preds {
+                forward.entry(*pred).or_default().push(tid);
+            }
+            back.insert(tid, preds);
+        }
+
+        // Roots: tasks with no predecessors, preserving input order.
+        let roots: Vec<&str> = tasks
+            .iter()
+            .filter(|t| back.get(t.task_id.as_str()).is_none_or(Vec::is_empty))
+            .map(|t| t.task_id.as_str())
+            .collect();
+
+        Self {
+            forward,
+            back,
+            task_map,
+            roots,
+            visited: HashSet::new(),
+            color,
+        }
+    }
+
+    fn render_all(&mut self, out: &mut impl Write) -> io::Result<()> {
+        // Clone roots to avoid borrow conflict with &mut self.
+        let roots: Vec<&str> = self.roots.clone();
+        for root in &roots {
+            if !self.visited.contains(*root) {
+                self.render_chain(out, root, "", "")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn paint_task_id(&self, task_id: &str) -> String {
+        let status = self
+            .task_map
+            .get(task_id)
+            .and_then(|t| t.status.as_deref())
+            .unwrap_or("?");
+        let tok = status_token(status);
+        self.color.paint(tok, task_id).to_string()
+    }
+
+    /// Render a chain starting from `start`.
+    ///
+    /// `line_prefix` is written before the first line (includes connector like `├── `).
+    /// `cont_prefix` is used for continuation lines within this subtree (e.g. `│   `).
+    fn render_chain(
+        &mut self,
+        out: &mut impl Write,
+        start: &'a str,
+        line_prefix: &str,
+        cont_prefix: &str,
+    ) -> io::Result<()> {
+        let mut chain: Vec<&str> = vec![start];
+        self.visited.insert(start);
+
+        let mut current: &str = start;
+        loop {
+            let Some(succs) = self.forward.get(current) else {
+                break;
+            };
+            if succs.len() == 1 {
+                let next = succs[0];
+                let next_preds = self.back.get(next).map_or(0, Vec::len);
+                if next_preds == 1 && !self.visited.contains(next) {
+                    self.visited.insert(next);
+                    chain.push(next);
+                    current = next;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        // Write the chain.
+        let chain_str: Vec<String> = chain.iter().map(|id| self.paint_task_id(id)).collect();
+        write!(out, "{line_prefix}{}", chain_str.join(" → "))?;
+
+        // Check what comes after the chain end.
+        let last = *chain.last().unwrap();
+        let succs: Vec<&str> = self
+            .forward
+            .get(last)
+            .map(|v| {
+                v.iter()
+                    .copied()
+                    .filter(|s| !self.visited.contains(*s))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if succs.is_empty() {
+            writeln!(out)?;
+            return Ok(());
+        }
+
+        if succs.len() == 1 {
+            let next = succs[0];
+            let next_preds = self.back.get(next).map(Vec::as_slice).unwrap_or_default();
+            // Only continue inline if all predecessors are visited AND this
+            // isn't a merge point (multiple predecessors). Merge points should
+            // be rendered by the fork's parent so they get the (merge) label.
+            if next_preds.len() <= 1 && next_preds.iter().all(|p| self.visited.contains(*p)) {
+                write!(out, " → ")?;
+                return self.render_chain(out, next, "", cont_prefix);
+            }
+            writeln!(out)?;
+            return Ok(());
+        }
+
+        // Fork: multiple successors.
+        writeln!(out)?;
+
+        for (i, &succ) in succs.iter().enumerate() {
+            let is_last = i == succs.len() - 1;
+            let connector = if is_last { "└── " } else { "├── " };
+            let continuation = if is_last { "    " } else { "│   " };
+            self.render_chain(
+                out,
+                succ,
+                &format!("{cont_prefix}{connector}"),
+                &format!("{cont_prefix}{continuation}"),
+            )?;
+        }
+
+        // Find merge point: scan all forward edges from visited nodes for
+        // unvisited nodes whose predecessors are all visited.
+        if let Some(mp) = self.find_merge_point() {
+            write!(out, "{cont_prefix}(merge) → ")?;
+            self.render_chain(out, mp, "", cont_prefix)?;
+        }
+
+        Ok(())
+    }
+
+    fn find_merge_point(&self) -> Option<&'a str> {
+        for &tid in &self.visited {
+            if let Some(fwd) = self.forward.get(tid) {
+                for &s in fwd {
+                    if !self.visited.contains(s) {
+                        let preds = self.back.get(s).map(Vec::as_slice).unwrap_or_default();
+                        if preds.len() > 1 && preds.iter().all(|p| self.visited.contains(*p)) {
+                            return Some(s);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 fn write_joined(out: &mut impl Write, values: &[String]) -> io::Result<()> {
     let mut iter = values.iter();
     if let Some(first) = iter.next() {
@@ -403,6 +606,32 @@ mod tests {
             implements: vec![],
             depends_on: vec![],
         }
+    }
+
+    fn pending_task(task_id: &str, depends_on: &[&str]) -> TaskInfo {
+        TaskInfo {
+            tasks_doc_id: "tasks/test".to_owned(),
+            task_id: task_id.to_owned(),
+            status: Some("pending".to_owned()),
+            body_text: None,
+            implements: vec![],
+            depends_on: depends_on.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn done_task(task_id: &str, depends_on: &[&str]) -> TaskInfo {
+        TaskInfo {
+            tasks_doc_id: "tasks/test".to_owned(),
+            task_id: task_id.to_owned(),
+            status: Some("done".to_owned()),
+            body_text: None,
+            implements: vec![],
+            depends_on: depends_on.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn no_color() -> ColorConfig {
+        ColorConfig::resolve(ColorChoice::Never)
     }
 
     #[test]
@@ -540,5 +769,107 @@ mod tests {
         let cc = ColorConfig::resolve(ColorChoice::Never);
         let painted = cc.paint(Token::DocId, "cli/req");
         assert_eq!(painted.to_string(), "cli/req");
+    }
+
+    // Dependency graph tests
+
+    fn as_refs(tasks: &[TaskInfo]) -> Vec<&TaskInfo> {
+        tasks.iter().collect()
+    }
+
+    #[test]
+    fn dep_graph_empty_is_noop() {
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &[], no_color()).unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn dep_graph_single_task() {
+        let tasks = vec![pending_task("task-1-1", &[])];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.trim(), "task-1-1");
+    }
+
+    #[test]
+    fn dep_graph_linear_chain() {
+        let tasks = vec![
+            pending_task("task-1-1", &[]),
+            pending_task("task-1-2", &["task-1-1"]),
+            pending_task("task-1-3", &["task-1-2"]),
+        ];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.trim(), "task-1-1 → task-1-2 → task-1-3");
+    }
+
+    #[test]
+    fn dep_graph_fork() {
+        // A → B, A → C
+        let tasks = vec![
+            pending_task("a", &[]),
+            pending_task("b", &["a"]),
+            pending_task("c", &["a"]),
+        ];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains('a'), "should contain 'a': {output}");
+        assert!(
+            output.contains("├──") || output.contains("└──"),
+            "should contain tree markers: {output}"
+        );
+        assert!(output.contains('b'), "should contain 'b': {output}");
+        assert!(output.contains('c'), "should contain 'c': {output}");
+    }
+
+    #[test]
+    fn dep_graph_diamond() {
+        // A → B, A → C, B → D, C → D
+        let tasks = vec![
+            pending_task("a", &[]),
+            pending_task("b", &["a"]),
+            pending_task("c", &["a"]),
+            pending_task("d", &["b", "c"]),
+        ];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("(merge)"),
+            "should contain merge marker: {output}"
+        );
+        assert!(output.contains('d'), "should contain 'd': {output}");
+    }
+
+    #[test]
+    fn dep_graph_multiple_roots() {
+        let tasks = vec![pending_task("a", &[]), pending_task("b", &[])];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 2, "should have two lines: {output}");
+        assert_eq!(lines[0], "a");
+        assert_eq!(lines[1], "b");
+    }
+
+    #[test]
+    fn dep_graph_colors_done_green() {
+        let tasks = vec![done_task("a", &[]), pending_task("b", &["a"])];
+        let mut buf = Vec::new();
+        write_dependency_graph(
+            &mut buf,
+            &as_refs(&tasks),
+            ColorConfig::resolve(ColorChoice::Always),
+        )
+        .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Done task "a" should have ANSI green, pending "b" should have yellow.
+        assert!(output.contains('a'), "should contain 'a': {output}");
+        assert!(output.contains('→'), "should contain arrow: {output}");
     }
 }

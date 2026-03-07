@@ -97,6 +97,157 @@ fn plan_no_match_exits_one() {
 }
 
 #[test]
+fn plan_shows_dependency_graph() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">
+    First criterion.
+  </Criterion>
+  <Criterion id="c2">
+    Second criterion.
+  </Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_mdx(
+        tmp.path(),
+        "specs/tasks.mdx",
+        "test/tasks",
+        Some("tasks"),
+        None,
+        r#"# Tasks
+
+<Task id="task-1-1" implements="test/req#c1">
+  First task.
+</Task>
+<Task id="task-1-2" implements="test/req#c2" depends="task-1-1">
+  Second task depends on first.
+</Task>
+"#,
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["plan", "test"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dependency graph"))
+        .stdout(predicate::str::contains("→"));
+}
+
+#[test]
+fn plan_default_shows_actionable_criteria() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">
+    First criterion.
+  </Criterion>
+  <Criterion id="c2">
+    Second criterion.
+  </Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_mdx(
+        tmp.path(),
+        "specs/tasks.mdx",
+        "test/tasks",
+        Some("tasks"),
+        None,
+        r#"# Tasks
+
+<Task id="task-1-1" implements="test/req#c1">
+  First task.
+</Task>
+<Task id="task-1-2" implements="test/req#c2" depends="task-1-1">
+  Second task depends on first.
+</Task>
+"#,
+    );
+
+    // Default mode: only c1 is actionable (task-1-1 has no deps).
+    // c2 is blocked (task-1-2 depends on task-1-1).
+    cargo_bin_cmd!("supersigil")
+        .args(["plan", "test"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Actionable criteria"))
+        .stdout(predicate::str::contains("c1"))
+        .stdout(predicate::str::contains("1 more criteria blocked"));
+}
+
+#[test]
+fn plan_verbose_shows_all_criteria_and_task_list() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">
+    First criterion.
+  </Criterion>
+  <Criterion id="c2">
+    Second criterion.
+  </Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_mdx(
+        tmp.path(),
+        "specs/tasks.mdx",
+        "test/tasks",
+        Some("tasks"),
+        None,
+        r#"# Tasks
+
+<Task id="task-1-1" implements="test/req#c1">
+  First task.
+</Task>
+<Task id="task-1-2" implements="test/req#c2" depends="task-1-1">
+  Second task depends on first.
+</Task>
+"#,
+    );
+
+    // Verbose mode: all criteria shown + task list with implements refs.
+    cargo_bin_cmd!("supersigil")
+        .args(["plan", "test", "--verbose"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Outstanding criteria"))
+        .stdout(predicate::str::contains("c1"))
+        .stdout(predicate::str::contains("c2"))
+        .stdout(predicate::str::contains("Pending tasks"))
+        .stdout(predicate::str::contains("implements:"));
+}
+
+#[test]
 fn plan_json_format() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());

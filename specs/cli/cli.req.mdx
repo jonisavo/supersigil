@@ -138,6 +138,15 @@ As an agent or developer, I want to see outstanding work for a feature or the wh
   <Criterion id="req-6-5">
     WHEN no argument is given, `plan` SHALL show project-wide outstanding work across all documents.
   </Criterion>
+  <Criterion id="req-6-6">
+    WHEN pending tasks exist, `plan` terminal output SHALL include a dependency graph section showing the task DAG. Sequential chains SHALL be rendered with `→` arrows. Fork points (a task with multiple dependents) SHALL use `├──` / `└──` tree notation. Merge points (a task depending on multiple branches) SHALL use a `(merge) →` marker.
+  </Criterion>
+  <Criterion id="req-6-7">
+    In default mode, `plan` SHALL show only actionable criteria — those whose implementing tasks are currently unblocked (all dependencies satisfied or completed). Criteria with no implementing task (uncovered) SHALL always be shown. Remaining blocked criteria SHALL be collapsed to a count (e.g., "38 more criteria blocked by upstream tasks").
+  </Criterion>
+  <Criterion id="req-6-8">
+    `plan` SHALL accept a `--verbose` flag. WHEN `--verbose` is set, all outstanding criteria SHALL be shown with full body text, and a numbered task list with per-task `implements` refs SHALL be included after the dependency graph.
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 7: import

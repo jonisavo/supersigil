@@ -2,7 +2,7 @@
 supersigil:
   id: cli/tasks
   type: tasks
-  status: done
+  status: in-progress
 title: "CLI Tasks"
 ---
 
@@ -205,4 +205,32 @@ New commands to implement: `verify`, `status`, `affected`, `graph`, `init`, `new
   `use_color` flag. Add a `use_unicode` parameter (or accept the full display
   config) and fall back to ASCII when unicode is disabled, matching the rest of
   the CLI's output conventions.
+</Task>
+
+## Phase 8: Improved plan output
+
+<Task id="task-8-1" status="draft" implements="cli/req#req-6-8">
+  Add `--verbose` flag to `PlanArgs` in `commands.rs`. Thread the flag through
+  to `plan::run()`.
+</Task>
+
+<Task id="task-8-2" status="draft" depends="task-8-1" implements="cli/req#req-6-6">
+  Implement dependency graph renderer in `format.rs`. Takes `&[TaskInfo]`
+  (pending + completed), builds forward adjacency from `depends_on`, traces
+  chains from roots, renders fork points with `├──`/`└──` and merge points
+  with `(merge) →`. Task IDs colored by status.
+</Task>
+
+<Task id="task-8-3" status="draft" depends="task-8-2" implements="cli/req#req-6-7">
+  Implement actionable criteria filtering in `plan.rs`. Compute unblocked
+  tasks (all deps satisfied or completed). Partition outstanding criteria into
+  actionable (implementing task is unblocked or no task at all) vs blocked.
+  In default mode, show actionable with body text, collapse blocked to count.
+</Task>
+
+<Task id="task-8-4" status="draft" depends="task-8-3" implements="cli/req#req-6-6, cli/req#req-6-7, cli/req#req-6-8">
+  Wire the new sections into `plan::run()` terminal output. Default mode:
+  dependency graph → actionable criteria → illustrated by → completed summary.
+  Verbose mode: dependency graph → all criteria → full task list with implements
+  refs → illustrated by → completed summary.
 </Task>

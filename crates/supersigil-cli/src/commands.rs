@@ -93,6 +93,9 @@ pub struct PlanArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
+    /// Show all criteria and full task details
+    #[arg(long)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]

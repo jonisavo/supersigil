@@ -171,6 +171,18 @@ The existing symbol methods (`ok()`, `err()`, `warn()`, `info()`) return `Painte
 5. Print to stdout
 6. Exit code from `report.result_status()`: Clean → 0, HasErrors → 1, WarningsOnly → 2
 
+### plan
+
+1. `load_graph()` to get `(Config, DocumentGraph)`
+2. Parse query (exact ID, prefix, or all)
+3. Call `graph.plan(&query)` to get `PlanOutput`
+4. For terminal output:
+   a. **Dependency graph**: Build a forward adjacency map from `pending_tasks` + `completed_tasks`. Trace chains from roots (tasks with no pending deps). At fork points (multiple successors), render `├──`/`└──` branches. At merge points (task depending on multiple branches), emit `(merge) →`. Task IDs colored by status.
+   b. **Actionable criteria** (default mode): Compute unblocked tasks (all `depends_on` satisfied or completed). A criterion is actionable if at least one implementing task is unblocked. Uncovered criteria (no implementing task) are always shown. Blocked criteria collapsed to a count.
+   c. **Verbose mode** (`--verbose`): Show all outstanding criteria with full body text. Add numbered task list with `implements` refs after the graph.
+   d. **Illustrated by**, **completed summary**: unchanged.
+5. JSON output unchanged — always full `PlanOutput`.
+
 ### status
 
 1. `load_graph()` to get `(Config, DocumentGraph)`
