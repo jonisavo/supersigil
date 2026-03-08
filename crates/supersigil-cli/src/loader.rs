@@ -84,7 +84,8 @@ pub(crate) fn parse_all_with_stats(config_path: &Path) -> Result<ParseAllStats, 
 
     let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
         .map_err(CliError::ComponentDef)?;
-    let (documents, errors) = parse_files(&file_paths, &component_defs);
+    let (mut documents, errors) = parse_files(&file_paths, &component_defs);
+    relativize_document_paths(&mut documents, base_dir);
 
     Ok(ParseAllStats {
         config,
@@ -203,6 +204,14 @@ where
     }
 
     (documents, errors)
+}
+
+fn relativize_document_paths(documents: &mut [SpecDocument], base_dir: &Path) {
+    for doc in documents {
+        if let Ok(relative) = doc.path.strip_prefix(base_dir) {
+            doc.path = relative.to_path_buf();
+        }
+    }
 }
 
 fn parse_one(path: &Path, component_defs: &ComponentDefs) -> ParseOutcome {

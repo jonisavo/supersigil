@@ -95,3 +95,31 @@ fn list_alias_works() {
         .success()
         .stdout(predicate::str::contains("doc/a"));
 }
+
+#[test]
+fn ls_filter_by_project_in_multi_project_mode() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join("supersigil.toml"),
+        r#"[projects.workspace]
+paths = ["specs/**/*.mdx"]
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(tmp.path().join("specs")).unwrap();
+    common::write_mdx(
+        tmp.path(),
+        "specs/workspace-doc.mdx",
+        "workspace/doc",
+        Some("requirements"),
+        Some("draft"),
+        "",
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["ls", "--project", "workspace"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workspace/doc"));
+}

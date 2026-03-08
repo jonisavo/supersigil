@@ -1,6 +1,7 @@
 //! Document and referenceable component indexing (pipeline stages 1–2).
 
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
 use crate::{
@@ -60,22 +61,32 @@ pub(super) fn build_doc_project(
     match &config.projects {
         Some(projects) => {
             // Extract directory prefixes from glob patterns.
-            // e.g. "project-a/specs/**/*.mdx" → "project-a/specs/"
-            let prefixes: Vec<(&str, Vec<String>)> = projects
+            // e.g. "project-a/specs/**/*.mdx" → ["project-a", "specs"]
+            let prefixes: Vec<(&str, Vec<Vec<OsString>>)> = projects
                 .iter()
                 .map(|(name, pc)| {
-                    let dirs: Vec<String> = pc.paths.iter().map(|p| glob_prefix(p)).collect();
+                    let dirs: Vec<Vec<OsString>> = pc
+                        .paths
+                        .iter()
+                        .map(|p| prefix_components(&glob_prefix(p)))
+                        .collect();
                     (name.as_str(), dirs)
                 })
                 .collect();
 
             for (id, doc) in doc_index {
-                let path_str = doc.path.to_string_lossy();
-                let project = prefixes.iter().find_map(|(name, dirs)| {
-                    dirs.iter()
-                        .any(|prefix| path_str.starts_with(prefix.as_str()))
-                        .then(|| (*name).to_owned())
-                });
+                let project = prefixes
+                    .iter()
+                    .filter_map(|(name, project_prefixes)| {
+                        project_prefixes
+                            .iter()
+                            .filter(|prefix| path_matches_prefix(&doc.path, prefix))
+                            .map(Vec::len)
+                            .max()
+                            .map(|matched_len| (*name, matched_len))
+                    })
+                    .max_by_key(|(_, matched_len)| *matched_len)
+                    .map(|(name, _)| name.to_owned());
                 doc_project.insert(id.clone(), project);
             }
         }
@@ -105,6 +116,35 @@ fn glob_prefix(pattern: &str) -> String {
     match prefix.rfind('/') {
         Some(pos) => prefix[..=pos].to_owned(),
         None => String::new(),
+    }
+}
+
+fn prefix_components(prefix: &str) -> Vec<OsString> {
+    std::path::Path::new(prefix)
+        .components()
+        .filter_map(component_name)
+        .map(OsStr::to_os_string)
+        .collect()
+}
+
+fn path_matches_prefix(path: &std::path::Path, prefix: &[OsString]) -> bool {
+    if prefix.is_empty() {
+        return true;
+    }
+
+    let components: Vec<&OsStr> = path.components().filter_map(component_name).collect();
+    components.windows(prefix.len()).any(|window| {
+        window
+            .iter()
+            .zip(prefix)
+            .all(|(component, prefix_component)| *component == prefix_component.as_os_str())
+    })
+}
+
+fn component_name(component: std::path::Component<'_>) -> Option<&OsStr> {
+    match component {
+        std::path::Component::Normal(name) => Some(name),
+        _ => None,
     }
 }
 
