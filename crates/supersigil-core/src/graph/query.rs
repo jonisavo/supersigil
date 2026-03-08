@@ -53,12 +53,28 @@ pub struct DocRef {
     pub status: Option<String>,
 }
 
+/// Serialize `None` as `"pending"` so JSON consumers see an explicit status.
+#[expect(
+    clippy::ref_option,
+    reason = "serde serialize_with requires &Option<T>"
+)]
+fn serialize_status_pending<S: serde::Serializer>(
+    status: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match status {
+        Some(s) => serializer.serialize_str(s),
+        None => serializer.serialize_str("pending"),
+    }
+}
+
 /// A task with dependency and implements info, used in both context and plan output.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TaskInfo {
     /// Which tasks document this task belongs to.
     pub tasks_doc_id: String,
     pub task_id: String,
+    #[serde(serialize_with = "serialize_status_pending")]
     pub status: Option<String>,
     pub body_text: Option<String>,
     /// Verification targets this task implements: `(doc_id, target_id)`.

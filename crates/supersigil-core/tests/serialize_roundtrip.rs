@@ -111,3 +111,33 @@ fn plan_output_serializes_to_json() {
     );
     assert_eq!(json["completed_tasks"], json!([]));
 }
+
+#[test]
+fn task_info_none_status_serializes_as_pending() {
+    let task = TaskInfo {
+        tasks_doc_id: "tasks/1".into(),
+        task_id: "t1".into(),
+        status: None,
+        body_text: None,
+        implements: vec![],
+        depends_on: vec![],
+    };
+    let json = serde_json::to_value(&task).expect("serialize TaskInfo");
+
+    assert_eq!(json["status"], "pending");
+}
+
+#[test]
+fn task_info_explicit_status_serializes_as_is() {
+    let task = TaskInfo {
+        tasks_doc_id: "tasks/1".into(),
+        task_id: "t1".into(),
+        status: Some("done".into()),
+        body_text: None,
+        implements: vec![],
+        depends_on: vec![],
+    };
+    let json = serde_json::to_value(&task).expect("serialize TaskInfo");
+
+    assert_eq!(json["status"], "done");
+}

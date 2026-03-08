@@ -238,7 +238,7 @@ pub fn write_yaml<T: Serialize>(value: &T) -> io::Result<()> {
 /// Returns an I/O error if writing fails.
 pub fn write_tasks(out: &mut impl Write, tasks: &[TaskInfo], color: ColorConfig) -> io::Result<()> {
     for (i, task) in tasks.iter().enumerate() {
-        let task_status = task.status.as_deref().unwrap_or("?");
+        let task_status = task.status.as_deref().unwrap_or("pending");
         let tok = status_token(task_status);
         write!(
             out,
