@@ -82,7 +82,8 @@ pub(crate) fn parse_all_with_stats(config_path: &Path) -> Result<ParseAllStats, 
     let file_paths = discover_spec_files(globs, base_dir)?;
     let files_checked = file_paths.len();
 
-    let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone());
+    let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
+        .map_err(CliError::ComponentDef)?;
     let (documents, errors) = parse_files(&file_paths, &component_defs);
 
     Ok(ParseAllStats {

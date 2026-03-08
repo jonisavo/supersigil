@@ -16,6 +16,16 @@ pub fn setup_project(dir: &Path) {
     fs::create_dir_all(dir.join("specs")).unwrap();
 }
 
+/// Set up a project with the Rust ecosystem plugin enabled.
+pub fn setup_project_with_rust_plugin(dir: &Path) {
+    fs::write(
+        dir.join("supersigil.toml"),
+        "paths = [\"specs/**/*.mdx\"]\n\n[ecosystem]\nplugins = [\"rust\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("specs")).unwrap();
+}
+
 pub fn write_spec(dir: &Path, name: &str, id: &str, doc_type: &str, status: &str) {
     write_mdx(
         dir,

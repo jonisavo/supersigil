@@ -45,6 +45,8 @@ pub struct ComponentDef {
     pub attributes: HashMap<String, AttributeDef>,
     #[serde(default)]
     pub referenceable: bool,
+    #[serde(default)]
+    pub verifiable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_component: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,18 +105,74 @@ fn default_plugins() -> Vec<String> {
     vec!["rust".to_string()]
 }
 
+// ---------------------------------------------------------------------------
+// RustValidationPolicy
+// ---------------------------------------------------------------------------
+
+/// Controls which Cargo manifests are validated by the Rust ecosystem plugin.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RustValidationPolicy {
+    /// Skip all Cargo-based validation.
+    Off,
+    /// Validate only dev-dependency manifests (default).
+    #[default]
+    Dev,
+    /// Validate every reachable Cargo.toml.
+    All,
+}
+
+// ---------------------------------------------------------------------------
+// RustProjectScope
+// ---------------------------------------------------------------------------
+
+/// Maps a manifest directory prefix to a named project for multi-project Rust
+/// workspaces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RustProjectScope {
+    /// Cargo.toml directories matching this prefix are assigned to `project`.
+    pub manifest_dir_prefix: String,
+    /// The supersigil project name this scope maps to.
+    pub project: String,
+}
+
+// ---------------------------------------------------------------------------
+// RustEcosystemConfig
+// ---------------------------------------------------------------------------
+
+fn default_validation_policy() -> RustValidationPolicy {
+    RustValidationPolicy::Dev
+}
+
+/// Per-plugin configuration for the Rust ecosystem plugin.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RustEcosystemConfig {
+    /// Which manifests to validate.
+    #[serde(default = "default_validation_policy")]
+    pub validation: RustValidationPolicy,
+    /// Optional project-scope mappings for multi-project workspaces.
+    #[serde(default)]
+    pub project_scope: Vec<RustProjectScope>,
+}
+
 /// Ecosystem plugin declarations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EcosystemConfig {
     #[serde(default = "default_plugins")]
     pub plugins: Vec<String>,
+    /// Per-plugin configuration for the Rust ecosystem plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust: Option<RustEcosystemConfig>,
 }
 
 impl Default for EcosystemConfig {
     fn default() -> Self {
         Self {
             plugins: default_plugins(),
+            rust: None,
         }
     }
 }
@@ -190,7 +248,7 @@ pub struct ProjectConfig {
 // ---------------------------------------------------------------------------
 
 /// Top-level configuration deserialized from `supersigil.toml`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Single-project mode: glob patterns for spec files.
@@ -226,13 +284,19 @@ pub struct Config {
 }
 
 // ---------------------------------------------------------------------------
+// Known built-in plugin identifiers
+// ---------------------------------------------------------------------------
+
+/// The set of known built-in ecosystem plugin identifiers.
+pub const KNOWN_PLUGINS: &[&str] = &["rust"];
+
+// ---------------------------------------------------------------------------
 // Known verification rule names
 // ---------------------------------------------------------------------------
 
 /// The set of known verification rule names that can appear in `[verify.rules]`.
 pub const KNOWN_RULES: &[&str] = &[
-    "uncovered_criterion",
-    "unverified_validation",
+    "missing_verification_evidence",
     "missing_test_files",
     "zero_tag_matches",
     "stale_tracked_files",
@@ -242,6 +306,8 @@ pub const KNOWN_RULES: &[&str] = &[
     "isolated_document",
     "status_inconsistency",
     "missing_required_component",
+    "invalid_verified_by_placement",
+    "plugin_discovery_failure",
 ];
 
 // ---------------------------------------------------------------------------
@@ -304,6 +370,15 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
         if !KNOWN_RULES.contains(&rule_name.as_str()) {
             errors.push(ConfigError::UnknownRule {
                 rule: rule_name.clone(),
+            });
+        }
+    }
+
+    // Unknown ecosystem plugin names
+    for plugin in &config.ecosystem.plugins {
+        if !KNOWN_PLUGINS.contains(&plugin.as_str()) {
+            errors.push(ConfigError::UnknownPlugin {
+                plugin: plugin.clone(),
             });
         }
     }

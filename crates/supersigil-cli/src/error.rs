@@ -13,6 +13,8 @@ pub enum CliError {
     Parse(Vec<supersigil_core::ParseError>),
     #[error("graph errors:\n{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"))]
     Graph(Vec<supersigil_core::GraphError>),
+    #[error("component definition errors:\n{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"))]
+    ComponentDef(Vec<supersigil_core::ComponentDefError>),
     #[error("{0}")]
     Query(#[from] supersigil_core::QueryError),
     #[error("{0}")]

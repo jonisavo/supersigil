@@ -36,14 +36,13 @@ impl From<Severity> for ReportSeverity {
 
 /// Identifies a specific verification rule.
 ///
-/// The 11 built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
+/// The 12 built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
 /// `HookOutput` and `HookFailure` are synthetic rules emitted by hook
 /// execution rather than config-driven checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleName {
-    UncoveredCriterion,
-    UnverifiedValidation,
+    MissingVerificationEvidence,
     MissingTestFiles,
     ZeroTagMatches,
     StaleTrackedFiles,
@@ -53,15 +52,16 @@ pub enum RuleName {
     IsolatedDocument,
     StatusInconsistency,
     MissingRequiredComponent,
+    InvalidVerifiedByPlacement,
     HookOutput,
     HookFailure,
+    PluginDiscoveryFailure,
 }
 
 impl RuleName {
-    /// The 11 built-in rules (excludes hook-related synthetic rules).
+    /// The 12 built-in rules (excludes hook-related synthetic rules).
     pub const ALL: &[Self] = &[
-        Self::UncoveredCriterion,
-        Self::UnverifiedValidation,
+        Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
         Self::ZeroTagMatches,
         Self::StaleTrackedFiles,
@@ -71,13 +71,14 @@ impl RuleName {
         Self::IsolatedDocument,
         Self::StatusInconsistency,
         Self::MissingRequiredComponent,
+        Self::InvalidVerifiedByPlacement,
+        Self::PluginDiscoveryFailure,
     ];
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
     pub fn config_key(self) -> &'static str {
         match self {
-            Self::UncoveredCriterion => "uncovered_criterion",
-            Self::UnverifiedValidation => "unverified_validation",
+            Self::MissingVerificationEvidence => "missing_verification_evidence",
             Self::MissingTestFiles => "missing_test_files",
             Self::ZeroTagMatches => "zero_tag_matches",
             Self::StaleTrackedFiles => "stale_tracked_files",
@@ -87,8 +88,10 @@ impl RuleName {
             Self::IsolatedDocument => "isolated_document",
             Self::StatusInconsistency => "status_inconsistency",
             Self::MissingRequiredComponent => "missing_required_component",
+            Self::InvalidVerifiedByPlacement => "invalid_verified_by_placement",
             Self::HookOutput => "hook_output",
             Self::HookFailure => "hook_failure",
+            Self::PluginDiscoveryFailure => "plugin_discovery_failure",
         }
     }
 
@@ -97,10 +100,10 @@ impl RuleName {
     #[must_use]
     pub fn default_severity(self) -> ReportSeverity {
         match self {
-            Self::UncoveredCriterion
+            Self::MissingVerificationEvidence
             | Self::MissingTestFiles
-            | Self::UnverifiedValidation
-            | Self::HookFailure => ReportSeverity::Error,
+            | Self::HookFailure
+            | Self::InvalidVerifiedByPlacement => ReportSeverity::Error,
 
             Self::IsolatedDocument => ReportSeverity::Off,
 
@@ -111,7 +114,8 @@ impl RuleName {
             | Self::InvalidIdPattern
             | Self::StatusInconsistency
             | Self::MissingRequiredComponent
-            | Self::HookOutput => ReportSeverity::Warning,
+            | Self::HookOutput
+            | Self::PluginDiscoveryFailure => ReportSeverity::Warning,
         }
     }
 }
@@ -203,6 +207,115 @@ pub enum ResultStatus {
 }
 
 // ---------------------------------------------------------------------------
+// EvidenceSummary (req-9-1, req-9-2, req-9-3)
+// ---------------------------------------------------------------------------
+
+/// Evidence summary for report enrichment (req-9-1, req-9-2, req-9-3).
+#[derive(Debug, Clone, Serialize)]
+pub struct EvidenceSummary {
+    /// All effective evidence records after merge.
+    pub records: Vec<EvidenceReportEntry>,
+    /// Evidence counts per verification target.
+    pub coverage: Vec<TargetCoverage>,
+    /// Any conflicts detected during merge.
+    pub conflict_count: usize,
+}
+
+/// A single evidence entry for report output.
+#[derive(Debug, Clone, Serialize)]
+pub struct EvidenceReportEntry {
+    pub test_name: String,
+    pub test_file: String,
+    pub test_kind: String,
+    pub evidence_kind: String,
+    pub targets: Vec<String>,
+    pub provenance: Vec<String>,
+    /// Source file where the evidence was discovered.
+    pub source_file: String,
+    /// Source line (1-based) where the evidence was discovered.
+    pub source_line: usize,
+    /// Source column (1-based) where the evidence was discovered.
+    pub source_column: usize,
+}
+
+/// Coverage status for a single verification target.
+///
+/// Note: entries are only created for criteria that have at least one
+/// evidence record, so `test_count` is always >= 1. Consumers should
+/// check `test_count > 0` if they need a boolean "covered" flag.
+#[derive(Debug, Clone, Serialize)]
+pub struct TargetCoverage {
+    pub target: String,
+    pub test_count: usize,
+}
+
+impl EvidenceSummary {
+    /// Build an evidence summary from an `ArtifactGraph`.
+    #[must_use]
+    pub fn from_artifact_graph(ag: &crate::artifact_graph::ArtifactGraph<'_>) -> Self {
+        use std::collections::BTreeMap;
+        use supersigil_evidence::PluginProvenance;
+
+        let records: Vec<EvidenceReportEntry> = ag
+            .evidence
+            .iter()
+            .map(|rec| {
+                let test_kind = rec.test.kind.as_str().to_string();
+                let evidence_kind = rec.evidence_kind.as_str().to_string();
+                let targets: Vec<String> = rec
+                    .targets
+                    .iter()
+                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
+                    .collect();
+                let provenance: Vec<String> = rec
+                    .provenance
+                    .iter()
+                    .map(|p| match p {
+                        PluginProvenance::RustAttribute { .. } => "plugin:rust".to_string(),
+                        PluginProvenance::VerifiedByTag { doc_id, tag } => {
+                            format!("authored:tag({doc_id}:{tag})")
+                        }
+                        PluginProvenance::VerifiedByFileGlob { doc_id, .. } => {
+                            format!("authored:glob({doc_id})")
+                        }
+                    })
+                    .collect();
+                EvidenceReportEntry {
+                    test_name: rec.test.name.clone(),
+                    test_file: rec.test.file.to_string_lossy().to_string(),
+                    test_kind,
+                    evidence_kind,
+                    targets,
+                    provenance,
+                    source_file: rec.source_location.file.to_string_lossy().to_string(),
+                    source_line: rec.source_location.line,
+                    source_column: rec.source_location.column,
+                }
+            })
+            .collect();
+
+        // Build coverage: count tests per verification target
+        let mut crit_tests: BTreeMap<String, usize> = BTreeMap::new();
+        for rec in &ag.evidence {
+            for crit in &rec.targets {
+                let key = format!("{}#{}", crit.doc_id, crit.target_id);
+                *crit_tests.entry(key).or_default() += 1;
+            }
+        }
+        let coverage: Vec<TargetCoverage> = crit_tests
+            .into_iter()
+            .map(|(target, test_count)| TargetCoverage { target, test_count })
+            .collect();
+
+        Self {
+            records,
+            coverage,
+            conflict_count: ag.conflicts.len(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // VerificationReport
 // ---------------------------------------------------------------------------
 
@@ -211,6 +324,9 @@ pub enum ResultStatus {
 pub struct VerificationReport {
     pub findings: Vec<Finding>,
     pub summary: Summary,
+    /// Optional evidence summary from `ArtifactGraph` enrichment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_summary: Option<EvidenceSummary>,
 }
 
 impl VerificationReport {
@@ -285,6 +401,27 @@ pub fn format_markdown(report: &VerificationReport) -> String {
         s.total_documents, s.error_count, s.warning_count, s.info_count,
     );
 
+    // Evidence (optional)
+    if let Some(ref ev) = report.evidence_summary {
+        out.push_str("\n## Evidence\n\n");
+        out.push_str("| Test | File | Kind | Evidence | Targets | Provenance |\n");
+        out.push_str("|------|------|------|----------|---------|------------|\n");
+        for entry in &ev.records {
+            let targets = entry.targets.join(", ");
+            let prov = entry.provenance.join(", ");
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} | {} |",
+                entry.test_name,
+                entry.test_file,
+                entry.test_kind,
+                entry.evidence_kind,
+                targets,
+                prov,
+            );
+        }
+    }
+
     out
 }
 
@@ -309,7 +446,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 11);
+        assert_eq!(RuleName::ALL.len(), 12);
     }
 
     // -----------------------------------------------------------------------
@@ -319,10 +456,10 @@ mod tests {
     #[test]
     fn default_severity_all_variants() {
         let expected = [
-            (RuleName::UncoveredCriterion, ReportSeverity::Error),
+            (RuleName::MissingVerificationEvidence, ReportSeverity::Error),
             (RuleName::MissingTestFiles, ReportSeverity::Error),
-            (RuleName::UnverifiedValidation, ReportSeverity::Error),
             (RuleName::HookFailure, ReportSeverity::Error),
+            (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
             (RuleName::StaleTrackedFiles, ReportSeverity::Warning),
@@ -332,6 +469,7 @@ mod tests {
             (RuleName::StatusInconsistency, ReportSeverity::Warning),
             (RuleName::MissingRequiredComponent, ReportSeverity::Warning),
             (RuleName::HookOutput, ReportSeverity::Warning),
+            (RuleName::PluginDiscoveryFailure, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");
@@ -378,6 +516,7 @@ mod tests {
                 warning_count: 1,
                 info_count: 0,
             },
+            evidence_summary: None,
         };
 
         let json = serde_json::to_string(&report).expect("serialization should succeed");
@@ -414,6 +553,7 @@ mod tests {
                     warning_count: warnings,
                     info_count: infos,
                 },
+                evidence_summary: None,
             };
             assert_eq!(
                 report.result_status(),
@@ -444,6 +584,7 @@ mod tests {
                 warning_count: 0,
                 info_count: 0,
             },
+            evidence_summary: None,
         };
 
         let json = format_json(&report);
@@ -463,7 +604,7 @@ mod tests {
         let report = VerificationReport {
             findings: vec![
                 Finding {
-                    rule: RuleName::UncoveredCriterion,
+                    rule: RuleName::MissingVerificationEvidence,
                     doc_id: Some("req/auth".to_string()),
                     message: "criterion AC-1 not covered".to_string(),
                     effective_severity: ReportSeverity::Error,
@@ -485,6 +626,7 @@ mod tests {
                 warning_count: 1,
                 info_count: 0,
             },
+            evidence_summary: None,
         };
 
         let out = format_markdown(&report);
@@ -495,7 +637,7 @@ mod tests {
         );
         assert!(out.contains("error"), "should contain error severity");
         assert!(
-            out.contains("uncovered_criterion"),
+            out.contains("missing_verification_evidence"),
             "should contain rule name",
         );
         assert!(out.contains("req/auth"), "should contain doc_id");
@@ -512,6 +654,7 @@ mod tests {
                 warning_count: 0,
                 info_count: 0,
             },
+            evidence_summary: None,
         };
 
         let out = format_markdown(&report);
@@ -519,5 +662,190 @@ mod tests {
             out.contains("✔ Clean"),
             "clean report should show clean status, got: {out}",
         );
+    }
+
+    use crate::test_helpers::sample_evidence_summary;
+
+    // -----------------------------------------------------------------------
+    // evidence_summary_serializes_in_json (req-9-1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn evidence_summary_serializes_in_json() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 0,
+                warning_count: 0,
+                info_count: 0,
+            },
+            evidence_summary: Some(sample_evidence_summary()),
+        };
+
+        let json = format_json(&report);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("should parse as valid JSON");
+
+        // The evidence_summary key should be present
+        assert!(
+            parsed.get("evidence_summary").is_some(),
+            "JSON should contain evidence_summary key, got: {json}",
+        );
+
+        // Drill into the first record
+        let records = &parsed["evidence_summary"]["records"];
+        assert!(records.is_array(), "records should be an array");
+        assert_eq!(records.as_array().unwrap().len(), 2);
+        assert_eq!(records[0]["test_name"], "test_login_flow");
+        assert_eq!(records[0]["evidence_kind"], "rust-attribute");
+        assert_eq!(records[0]["provenance"][0], "plugin:rust");
+    }
+
+    // -----------------------------------------------------------------------
+    // evidence_summary_absent_when_none
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn evidence_summary_absent_when_none() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 0,
+                warning_count: 0,
+                info_count: 0,
+            },
+            evidence_summary: None,
+        };
+
+        let json = format_json(&report);
+        assert!(
+            !json.contains("evidence_summary"),
+            "JSON should NOT contain evidence_summary when None, got: {json}",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // markdown_includes_evidence_section (req-9-2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn markdown_includes_evidence_section() {
+        let report = VerificationReport {
+            findings: vec![Finding {
+                rule: RuleName::MissingVerificationEvidence,
+                doc_id: Some("req/auth".to_string()),
+                message: "criterion req-1 not covered".to_string(),
+                effective_severity: ReportSeverity::Error,
+                raw_severity: ReportSeverity::Error,
+                position: None,
+            }],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 1,
+                warning_count: 0,
+                info_count: 0,
+            },
+            evidence_summary: Some(sample_evidence_summary()),
+        };
+
+        let out = format_markdown(&report);
+        assert!(
+            out.contains("## Evidence"),
+            "markdown should include Evidence section when evidence_summary is present, got: {out}",
+        );
+        assert!(
+            out.contains("test_login_flow"),
+            "markdown Evidence section should list test names, got: {out}",
+        );
+        assert!(
+            out.contains("rust-attribute"),
+            "markdown Evidence section should show evidence kind, got: {out}",
+        );
+        assert!(
+            out.contains("plugin:rust"),
+            "markdown Evidence section should show provenance, got: {out}",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // markdown_no_evidence_section_when_absent
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn markdown_no_evidence_section_when_absent() {
+        let report = VerificationReport {
+            findings: vec![Finding {
+                rule: RuleName::MissingVerificationEvidence,
+                doc_id: Some("req/auth".to_string()),
+                message: "criterion req-1 not covered".to_string(),
+                effective_severity: ReportSeverity::Error,
+                raw_severity: ReportSeverity::Error,
+                position: None,
+            }],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 1,
+                warning_count: 0,
+                info_count: 0,
+            },
+            evidence_summary: None,
+        };
+
+        let out = format_markdown(&report);
+        assert!(
+            !out.contains("## Evidence"),
+            "markdown should NOT include Evidence section when evidence_summary is None, got: {out}",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // multiple_tests_per_criterion_listed_separately (req-9-3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn multiple_tests_per_criterion_listed_separately() {
+        let evidence = sample_evidence_summary();
+        // Confirm our sample has multiple tests targeting the same criterion
+        assert_eq!(evidence.coverage.len(), 1);
+        assert_eq!(evidence.coverage[0].test_count, 2);
+
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 0,
+                warning_count: 0,
+                info_count: 0,
+            },
+            evidence_summary: Some(evidence),
+        };
+
+        let json = format_json(&report);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("should parse as valid JSON");
+
+        // Each test should appear as a separate record in the JSON
+        let records = &parsed["evidence_summary"]["records"];
+        let names: Vec<&str> = records
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["test_name"].as_str().unwrap())
+            .collect();
+        assert!(
+            names.contains(&"test_login_flow"),
+            "should list test_login_flow separately",
+        );
+        assert!(
+            names.contains(&"test_session_timeout"),
+            "should list test_session_timeout separately",
+        );
+
+        // Coverage should show the aggregate
+        let coverage = &parsed["evidence_summary"]["coverage"];
+        assert_eq!(coverage[0]["target"], "req-1");
+        assert_eq!(coverage[0]["test_count"], 2);
     }
 }

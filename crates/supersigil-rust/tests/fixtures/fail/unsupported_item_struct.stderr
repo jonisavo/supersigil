@@ -1,0 +1,7 @@
+error: `#[verifies(...)]` can only be applied to functions
+ --> tests/fixtures/fail/unsupported_item_struct.rs:3:1
+  |
+3 | #[verifies("req/auth#crit-1")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `verifies` (in Nightly builds, run with -Z macro-backtrace for more info)

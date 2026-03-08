@@ -35,7 +35,7 @@ Implementation tasks for the `supersigil-verify` crate, ordered by dependency. T
 ## Phase 2: Coverage and Test Mapping Rules
 
 <Task id="task-2-1" status="done" depends="task-1-2" implements="verification-engine/req#req-3-1">
-  Implement `rules/coverage.rs`: `check(graph) -> Vec<Finding>`. For each Criterion in the graph, check if any Validates ref points to it. Use the graph's reverse mappings. Emit `uncovered_criterion` findings. Write unit tests with fixture graphs.
+  Implement `rules/coverage.rs`: `check(graph) -> Vec<Finding>`. For each Criterion in the graph, check if any References ref points to it. Use the graph's reverse mappings. Emit `uncovered_criterion` findings. Write unit tests with fixture graphs.
 </Task>
 
 <Task id="task-2-2" status="done" depends="task-2-1" implements="verification-engine/req#req-3-3">
@@ -59,7 +59,7 @@ Implementation tasks for the `supersigil-verify` crate, ordered by dependency. T
 </Task>
 
 <Task id="task-2-7" status="done" depends="task-1-2" implements="verification-engine/req#req-6-1">
-  Implement `rules/tests.rs` — `check_unverified()`: for each document with `Validates` but no `VerifiedBy`, emit `unverified_validation`. Write unit tests.
+  Implement `rules/tests.rs` — `check_unverified()`: for each document with `References` but no `VerifiedBy`, emit `unverified_validation`. Write unit tests.
 </Task>
 
 ## Phase 3: Tracked Files and Git

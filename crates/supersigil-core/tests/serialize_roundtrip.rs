@@ -3,8 +3,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 use supersigil_core::{
-    ContextOutput, CriterionContext, DocRef, IllustrationRef, OutstandingCriterion, PlanOutput,
-    SpecDocument, TaskInfo,
+    ContextOutput, DocRef, OutstandingTarget, PlanOutput, SpecDocument, TargetContext, TaskInfo,
 };
 
 #[test]
@@ -42,17 +41,16 @@ fn context_output_serializes_to_json() {
             extra: HashMap::new(),
             components: vec![],
         },
-        criteria: vec![CriterionContext {
+        criteria: vec![TargetContext {
             id: "c1".into(),
             body_text: Some("criterion text".into()),
-            validated_by: vec![DocRef {
+            referenced_by: vec![DocRef {
                 doc_id: "prop/1".into(),
                 status: Some("verified".into()),
             }],
-            illustrated_by: vec![],
         }],
         implemented_by: vec![],
-        illustrated_by: vec![],
+        referenced_by: vec![],
         tasks: vec![],
     };
     let json = serde_json::to_value(&ctx).expect("serialize ContextOutput");
@@ -64,21 +62,20 @@ fn context_output_serializes_to_json() {
         json!([{
             "id": "c1",
             "body_text": "criterion text",
-            "validated_by": [{ "doc_id": "prop/1", "status": "verified" }],
-            "illustrated_by": [],
+            "referenced_by": [{ "doc_id": "prop/1", "status": "verified" }],
         }])
     );
     assert_eq!(json["implemented_by"], json!([]));
-    assert_eq!(json["illustrated_by"], json!([]));
+    assert_eq!(json["referenced_by"], json!([]));
     assert_eq!(json["tasks"], json!([]));
 }
 
 #[test]
 fn plan_output_serializes_to_json() {
     let plan = PlanOutput {
-        outstanding_criteria: vec![OutstandingCriterion {
+        outstanding_targets: vec![OutstandingTarget {
             doc_id: "req/1".into(),
-            criterion_id: "c1".into(),
+            target_id: "c1".into(),
             body_text: Some("uncovered".into()),
         }],
         pending_tasks: vec![TaskInfo {
@@ -90,19 +87,14 @@ fn plan_output_serializes_to_json() {
             depends_on: vec![],
         }],
         completed_tasks: vec![],
-        illustrated_by: vec![IllustrationRef {
-            doc_id: "ex/1".into(),
-            target_doc_id: "req/1".into(),
-            target_fragment: Some("c1".into()),
-        }],
     };
     let json = serde_json::to_value(&plan).expect("serialize PlanOutput");
 
     assert_eq!(
-        json["outstanding_criteria"],
+        json["outstanding_targets"],
         json!([{
             "doc_id": "req/1",
-            "criterion_id": "c1",
+            "target_id": "c1",
             "body_text": "uncovered",
         }])
     );
@@ -118,12 +110,4 @@ fn plan_output_serializes_to_json() {
         }])
     );
     assert_eq!(json["completed_tasks"], json!([]));
-    assert_eq!(
-        json["illustrated_by"],
-        json!([{
-            "doc_id": "ex/1",
-            "target_doc_id": "req/1",
-            "target_fragment": "c1",
-        }])
-    );
 }

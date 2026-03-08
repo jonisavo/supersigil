@@ -1,12 +1,7 @@
 mod common;
 
-use std::collections::HashMap;
-
 use common::{config_for, workspace_root};
-use supersigil_core::{
-    ComponentDefs, Config, DocumentsConfig, EcosystemConfig, HooksConfig, ParseResult,
-    TestResultsConfig, VerifyConfig, build_graph,
-};
+use supersigil_core::{ComponentDefs, Config, ParseResult, build_graph};
 use supersigil_import::{ImportPlan, plan_kiro_import};
 use supersigil_parser::parse_file;
 use tempfile::TempDir;
@@ -75,15 +70,7 @@ fn imported_real_specs_build_graph_successfully() {
 
     let graph_config = Config {
         paths: Some(vec!["specs/**/*.mdx".to_string()]),
-        tests: None,
-        projects: None,
-        id_pattern: None,
-        documents: DocumentsConfig::default(),
-        components: HashMap::new(),
-        verify: VerifyConfig::default(),
-        ecosystem: EcosystemConfig::default(),
-        hooks: HooksConfig::default(),
-        test_results: TestResultsConfig::default(),
+        ..Config::default()
     };
 
     if let Err(errors) = build_graph(docs, &graph_config) {

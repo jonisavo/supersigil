@@ -12,10 +12,7 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 
 use crate::graph::{ACCEPTANCE_CRITERIA, CRITERION, DEPENDS_ON, TASK, TRACKED_FILES};
-use crate::{
-    Config, DocumentsConfig, EcosystemConfig, ExtractedComponent, Frontmatter, HooksConfig,
-    ProjectConfig, SourcePosition, SpecDocument, TestResultsConfig, VerifyConfig,
-};
+use crate::{Config, ExtractedComponent, Frontmatter, ProjectConfig, SourcePosition, SpecDocument};
 
 // ---------------------------------------------------------------------------
 // ID generation
@@ -116,9 +113,10 @@ fn arb_multi_project_config() -> impl Strategy<Value = Config> {
                 isolated: false,
             },
         );
-        let mut c = base_test_config();
-        c.projects = Some(projects);
-        c
+        Config {
+            projects: Some(projects),
+            ..Config::default()
+        }
     })
 }
 
@@ -327,41 +325,17 @@ pub fn two_project_config(a_isolated: bool, b_isolated: bool) -> Config {
             isolated: b_isolated,
         },
     );
-    let mut c = base_test_config();
-    c.projects = Some(projects);
-    c
+    Config {
+        projects: Some(projects),
+        ..Config::default()
+    }
 }
 
 /// Build a default single-project `Config`.
 pub fn single_project_config() -> Config {
-    let mut c = base_test_config();
-    c.paths = Some(vec!["specs/**/*.mdx".to_owned()]);
-    c
-}
-
-/// Base `Config` with all optional/boilerplate fields populated.
-fn base_test_config() -> Config {
     Config {
-        paths: None,
-        tests: None,
-        projects: None,
-        id_pattern: None,
-        documents: DocumentsConfig {
-            types: HashMap::new(),
-        },
-        components: HashMap::new(),
-        verify: VerifyConfig {
-            strictness: None,
-            rules: HashMap::new(),
-        },
-        ecosystem: EcosystemConfig {
-            plugins: vec!["rust".to_owned()],
-        },
-        hooks: HooksConfig::default(),
-        test_results: TestResultsConfig {
-            formats: Vec::new(),
-            paths: Vec::new(),
-        },
+        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
+        ..Config::default()
     }
 }
 

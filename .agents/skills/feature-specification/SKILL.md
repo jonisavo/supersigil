@@ -120,7 +120,6 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
 - Use `<VerifiedBy>` with the strategies the verification engine understands today.
   Prefer `strategy="tag"` when tests carry `supersigil: ...` comments.
   Use `strategy="file-glob"` when concrete test file globs are known.
-  Use `strategy="review"` only when the user explicitly wants manual evidence and understands that it does not provide automated test coverage.
 - Use `<TrackedFiles>` only when concrete source paths are already known.
 
 ## Failure Modes

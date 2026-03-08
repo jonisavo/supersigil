@@ -49,20 +49,21 @@ pub fn run(args: &ContextArgs, config_path: &Path, color: ColorConfig) -> Result
             )?;
 
             if !ctx.criteria.is_empty() {
-                writeln!(out, "\n{}", c.paint(Token::Header, "## Criteria:"))?;
+                writeln!(
+                    out,
+                    "\n{}",
+                    c.paint(Token::Header, "## Verification targets:")
+                )?;
                 for crit in &ctx.criteria {
                     let body = crit.body_text.as_deref().unwrap_or("(no description)");
                     writeln!(out, "- {}: {body}", c.paint(Token::DocId, &crit.id))?;
-                    for vref in &crit.validated_by {
+                    for vref in &crit.referenced_by {
                         let vstatus = vref.status.as_deref().unwrap_or("?");
                         writeln!(
                             out,
-                            "  -> Validated by: {} ({vstatus})",
+                            "  -> Referenced by: {} ({vstatus})",
                             c.paint(Token::DocId, &vref.doc_id),
                         )?;
-                    }
-                    for illus in &crit.illustrated_by {
-                        writeln!(out, "  -> Illustrated by: {illus}")?;
                     }
                 }
             }
@@ -79,10 +80,10 @@ pub fn run(args: &ContextArgs, config_path: &Path, color: ColorConfig) -> Result
                 }
             }
 
-            if !ctx.illustrated_by.is_empty() {
-                writeln!(out, "\n{}", c.paint(Token::Header, "## Illustrated by:"))?;
-                for illus in &ctx.illustrated_by {
-                    writeln!(out, "- {illus}")?;
+            if !ctx.referenced_by.is_empty() {
+                writeln!(out, "\n{}", c.paint(Token::Header, "## Referenced by:"))?;
+                for ref_doc in &ctx.referenced_by {
+                    writeln!(out, "- {ref_doc}")?;
                 }
             }
 

@@ -308,7 +308,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
     - Emit front matter with `id`, `type: design`, `status: draft`, `title`
     - Emit `<Implements>` component when requirements doc exists
     - Preserve all prose, code blocks, mermaid diagrams
-    - Emit `<Validates>` components after correctness properties with resolved refs
+    - Emit `<References>` components after correctness properties with resolved refs
     - Emit ambiguity markers for unresolvable refs
   </Task>
 </Task>
@@ -484,7 +484,7 @@ Build the `supersigil-import` crate following TDD: for each pipeline stage, writ
 
     - Empty requirements file → diagnostic warning, MDX with raw prose only (Req 2.5)
     - Tasks with no sub-tasks → single-level `<Task>` components
-    - Design with no Validates lines → no `<Validates>` components
+    - Design with no Validates lines → no `<References>` components
     - `N/A` and non-ref metadata sentinels → `TaskRefs::None` / `TaskRefs::Comment` (Req 8.7)
     - Optional task marker detection (Req 22.1)
     - Non-requirement Validates targets like `Design Decision 5` (Req 5.4)

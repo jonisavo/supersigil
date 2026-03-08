@@ -30,6 +30,8 @@ struct SchemaComponentDef {
     attributes: BTreeMap<String, SchemaAttributeDef>,
     #[serde(skip_serializing_if = "is_false")]
     referenceable: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    verifiable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_component: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -114,6 +116,7 @@ impl From<&ComponentDef> for SchemaComponentDef {
                 .map(|(name, attr)| (name.clone(), SchemaAttributeDef::from(attr)))
                 .collect(),
             referenceable: value.referenceable,
+            verifiable: value.verifiable,
             target_component: value.target_component.clone(),
             examples: value.examples.clone(),
         }
@@ -138,7 +141,8 @@ impl From<&DocumentTypeDef> for SchemaDocumentTypeDef {
 /// Returns `CliError` if config loading or output serialization fails.
 pub fn run(args: &SchemaArgs, config_path: &Path, _color: ColorConfig) -> Result<(), CliError> {
     let config = load_config(config_path).map_err(CliError::Config)?;
-    let merged_components = ComponentDefs::merge(ComponentDefs::defaults(), config.components);
+    let merged_components = ComponentDefs::merge(ComponentDefs::defaults(), config.components)
+        .map_err(CliError::ComponentDef)?;
     let mut document_types = default_document_types();
     document_types.extend(
         config

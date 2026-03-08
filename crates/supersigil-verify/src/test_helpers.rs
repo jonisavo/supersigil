@@ -1,15 +1,16 @@
-#![cfg(test)]
 #![allow(dead_code, reason = "shared test helpers — not all used yet")]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::missing_panics_doc,
+    reason = "test helper constructors — panics are intentional, must_use is noise"
+)]
 
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use supersigil_core::{
-    Config, DocumentsConfig, EcosystemConfig, ExtractedComponent, Frontmatter, HooksConfig,
-    SourcePosition, SpecDocument, TestResultsConfig, VerifyConfig,
-};
+use supersigil_core::{Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument};
 use tempfile::TempDir;
 
 pub fn pos(line: usize) -> SourcePosition {
@@ -23,23 +24,7 @@ pub fn pos(line: usize) -> SourcePosition {
 pub fn test_config() -> Config {
     Config {
         paths: Some(vec!["specs/**/*.mdx".into()]),
-        tests: None,
-        projects: None,
-        id_pattern: None,
-        documents: DocumentsConfig {
-            types: HashMap::new(),
-        },
-        components: HashMap::new(),
-        verify: VerifyConfig {
-            strictness: None,
-            rules: HashMap::new(),
-        },
-        ecosystem: EcosystemConfig { plugins: vec![] },
-        hooks: HooksConfig::default(),
-        test_results: TestResultsConfig {
-            formats: vec![],
-            paths: vec![],
-        },
+        ..Config::default()
     }
 }
 
@@ -114,19 +99,9 @@ pub fn make_acceptance_criteria(
     }
 }
 
-pub fn make_validates(refs: &str, line: usize) -> ExtractedComponent {
+pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Validates".into(),
-        attributes: HashMap::from([("refs".into(), refs.into())]),
-        children: vec![],
-        body_text: None,
-        position: pos(line),
-    }
-}
-
-pub fn make_illustrates(refs: &str, line: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: "Illustrates".into(),
+        name: "References".into(),
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
@@ -156,6 +131,20 @@ pub fn make_verified_by_glob(paths: &str, line: usize) -> ExtractedComponent {
         ]),
         children: vec![],
         body_text: None,
+        position: pos(line),
+    }
+}
+
+pub fn make_criterion_with_verified_by(
+    id: &str,
+    verified_by: ExtractedComponent,
+    line: usize,
+) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Criterion".into(),
+        attributes: HashMap::from([("id".into(), id.into())]),
+        children: vec![verified_by],
+        body_text: Some(format!("criterion {id}")),
         position: pos(line),
     }
 }
@@ -251,4 +240,49 @@ pub fn write_test_file(dir: &TempDir, name: &str, content: &str) -> PathBuf {
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(content.as_bytes()).unwrap();
     path
+}
+
+// ---------------------------------------------------------------------------
+// Report test helpers
+// ---------------------------------------------------------------------------
+
+use crate::report::{EvidenceReportEntry, EvidenceSummary, TargetCoverage};
+
+/// Build a sample `EvidenceSummary` for tests that need evidence data.
+///
+/// Contains two records targeting "req-1" with different provenance sources,
+/// and a single coverage entry reflecting both.
+#[must_use]
+pub fn sample_evidence_summary() -> EvidenceSummary {
+    EvidenceSummary {
+        records: vec![
+            EvidenceReportEntry {
+                test_name: "test_login_flow".to_string(),
+                test_file: "tests/auth.rs".to_string(),
+                test_kind: "unit".to_string(),
+                evidence_kind: "rust-attribute".to_string(),
+                targets: vec!["req-1".to_string()],
+                provenance: vec!["plugin:rust".to_string()],
+                source_file: "tests/auth.rs".to_string(),
+                source_line: 10,
+                source_column: 1,
+            },
+            EvidenceReportEntry {
+                test_name: "test_session_timeout".to_string(),
+                test_file: "tests/auth.rs".to_string(),
+                test_kind: "unit".to_string(),
+                evidence_kind: "rust-attribute".to_string(),
+                targets: vec!["req-1".to_string()],
+                provenance: vec!["authored".to_string()],
+                source_file: "tests/auth.rs".to_string(),
+                source_line: 25,
+                source_column: 1,
+            },
+        ],
+        coverage: vec![TargetCoverage {
+            target: "req-1".to_string(),
+            test_count: 2,
+        }],
+        conflict_count: 0,
+    }
 }

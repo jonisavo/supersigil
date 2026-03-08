@@ -1,0 +1,23 @@
+[package]
+name = "supersigil-rust"
+version = "0.1.0"
+edition = "2024"
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+supersigil-core.workspace = true
+supersigil-evidence.workspace = true
+supersigil-rust-macros.workspace = true
+proc-macro2.workspace = true
+syn.workspace = true
+
+[dev-dependencies]
+trybuild = "1.0.116"
+
+[lints]
+workspace = true

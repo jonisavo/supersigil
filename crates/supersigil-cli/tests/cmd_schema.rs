@@ -236,10 +236,9 @@ fn schema_builtin_components_have_descriptions() {
     for name in [
         "AcceptanceCriteria",
         "Criterion",
-        "Validates",
+        "References",
         "VerifiedBy",
         "Implements",
-        "Illustrates",
         "DependsOn",
         "Task",
         "TrackedFiles",
@@ -268,10 +267,9 @@ fn schema_builtin_components_have_examples() {
     for name in [
         "AcceptanceCriteria",
         "Criterion",
-        "Validates",
+        "References",
         "VerifiedBy",
         "Implements",
-        "Illustrates",
         "DependsOn",
         "Task",
         "TrackedFiles",

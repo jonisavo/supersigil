@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{AttributeDef, ComponentDef};
+use crate::{AttributeDef, ComponentDef, ComponentDefError};
 
 /// The merged set of component definitions: built-in defaults + user overrides.
 /// This is the runtime type passed to the parser for lint-time validation.
@@ -12,11 +12,11 @@ pub struct ComponentDefs {
 }
 
 impl ComponentDefs {
-    /// Returns the 9 built-in default component definitions.
+    /// Returns the 8 built-in default component definitions.
     #[must_use]
     #[expect(
         clippy::too_many_lines,
-        reason = "declarative definition of all 9 built-in components"
+        reason = "declarative definition of all 8 built-in components"
     )]
     pub fn defaults() -> Self {
         /// Insert a component with a single required list attribute `refs`.
@@ -37,6 +37,7 @@ impl ComponentDefs {
                         },
                     )]),
                     referenceable: false,
+                    verifiable: false,
                     target_component: None,
                     description: Some(description.into()),
                     examples: vec![example.into()],
@@ -52,13 +53,14 @@ impl ComponentDefs {
             ComponentDef {
                 attributes: HashMap::new(),
                 referenceable: false,
+                verifiable: false,
                 target_component: None,
                 description: Some("Free-text acceptance criteria block. Use when criteria don't need individual IDs or cross-referencing.".into()),
                 examples: vec!["<AcceptanceCriteria>\n- User can log in with valid credentials\n- Invalid credentials show an error message\n</AcceptanceCriteria>".into()],
             },
         );
 
-        // Criterion — id: required; referenceable
+        // Criterion — id: required; referenceable; verifiable
         defs.insert(
             "Criterion".into(),
             ComponentDef {
@@ -70,28 +72,19 @@ impl ComponentDefs {
                     },
                 )]),
                 referenceable: true,
+                verifiable: true,
                 target_component: None,
-                description: Some("A single verifiable criterion with a unique ID. Use for fine-grained traceability — each Criterion can be referenced by Validates, VerifiedBy, and Task components.".into()),
+                description: Some("A single verifiable criterion with a unique ID. Use for fine-grained traceability — each Criterion can be referenced by References, VerifiedBy, and Task components.".into()),
                 examples: vec!["<Criterion id=\"login-success\">User sees the dashboard after entering valid credentials</Criterion>".into()],
             },
         );
 
-        // Validates — refs: required, list; targets Criterion
-        defs.insert(
-            "Validates".into(),
-            ComponentDef {
-                attributes: HashMap::from([(
-                    "refs".into(),
-                    AttributeDef {
-                        required: true,
-                        list: true,
-                    },
-                )]),
-                referenceable: false,
-                target_component: Some("Criterion".into()),
-                description: Some("Declares that this document validates one or more Criterion IDs from another document. Creates a cross-document traceability link.".into()),
-                examples: vec!["<Validates refs={[\"auth/req/login#login-success\", \"auth/req/login#login-failure\"]} />".into()],
-            },
+        // References — refs: required, list; informational traceability link
+        refs_only(
+            "References",
+            "Declares that this document references one or more other documents or criteria. Creates informational traceability links with no verification semantics.",
+            "<References refs={[\"auth/req/login#login-success\", \"auth/req/login#login-failure\"]} />",
+            &mut defs,
         );
 
         // VerifiedBy — strategy: required; tag: optional; paths: optional, list
@@ -122,27 +115,21 @@ impl ComponentDefs {
                     ),
                 ]),
                 referenceable: false,
+                verifiable: false,
                 target_component: None,
-                description: Some("Specifies how a criterion is verified: by automated tests (with tag or file paths) or by manual review.".into()),
+                description: Some("Specifies how a criterion is verified: by tag-based test matching or by file glob patterns.".into()),
                 examples: vec![
-                    "<VerifiedBy strategy=\"test\" tag=\"test_login_success\" />".into(),
-                    "<VerifiedBy strategy=\"test\" paths={[\"tests/auth/login_test.rs\"]} />".into(),
-                    "<VerifiedBy strategy=\"review\" />".into(),
+                    "<VerifiedBy strategy=\"tag\" tag=\"test_login_success\" />".into(),
+                    "<VerifiedBy strategy=\"file-glob\" paths={[\"tests/auth/login_test.rs\"]} />".into(),
                 ],
             },
         );
 
-        // Implements, Illustrates, DependsOn — refs: required, list
+        // Implements, DependsOn — refs: required, list
         refs_only(
             "Implements",
             "Declares that this document implements one or more criteria from another document.",
             "<Implements refs={[\"auth/req/login#login-success\"]} />",
-            &mut defs,
-        );
-        refs_only(
-            "Illustrates",
-            "Declares that this document illustrates or provides examples for one or more criteria from another document.",
-            "<Illustrates refs={[\"auth/req/login#login-success\"]} />",
             &mut defs,
         );
         refs_only(
@@ -187,6 +174,7 @@ impl ComponentDefs {
                     ),
                 ]),
                 referenceable: true,
+                verifiable: false,
                 target_component: None,
                 description: Some("A trackable work item with status. Tasks can implement criteria and depend on other tasks. Referenceable by ID.".into()),
                 examples: vec![
@@ -208,6 +196,7 @@ impl ComponentDefs {
                     },
                 )]),
                 referenceable: false,
+                verifiable: false,
                 target_component: None,
                 description: Some("Declares file paths (globs) that are tracked as part of this document. Used to detect stale references.".into()),
                 examples: vec!["<TrackedFiles paths={[\"src/auth/**/*.rs\", \"tests/auth/**/*.rs\"]} />".into()],
@@ -219,10 +208,48 @@ impl ComponentDefs {
 
     /// Merge user-defined components over defaults. User defs with the same
     /// name override; new names are added; unmentioned built-ins remain.
-    #[must_use]
-    pub fn merge(mut defaults: Self, user: HashMap<String, ComponentDef>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComponentDefError`] if any component definition is invalid
+    /// (e.g. verifiable but not referenceable, or verifiable without a
+    /// required `id` attribute).
+    pub fn merge(
+        mut defaults: Self,
+        user: HashMap<String, ComponentDef>,
+    ) -> Result<Self, Vec<ComponentDefError>> {
         defaults.defs.extend(user);
-        defaults
+        Self::validate(&defaults.defs)?;
+        Ok(defaults)
+    }
+
+    /// Validate all component definitions in the map.
+    fn validate(defs: &HashMap<String, ComponentDef>) -> Result<(), Vec<ComponentDefError>> {
+        let mut errors = Vec::new();
+
+        for (name, def) in defs {
+            if def.verifiable {
+                if !def.referenceable {
+                    errors.push(ComponentDefError::VerifiableNotReferenceable {
+                        component: name.clone(),
+                    });
+                }
+
+                let has_required_id = def.attributes.get("id").is_some_and(|attr| attr.required);
+
+                if !has_required_id {
+                    errors.push(ComponentDefError::VerifiableMissingId {
+                        component: name.clone(),
+                    });
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// Returns the number of component definitions.

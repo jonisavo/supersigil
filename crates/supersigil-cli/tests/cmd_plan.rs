@@ -2,10 +2,11 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn plan_all_shows_outstanding_criteria() {
+fn plan_all_shows_outstanding_targets() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     common::write_mdx(
@@ -145,7 +146,7 @@ fn plan_shows_dependency_graph() {
 }
 
 #[test]
-fn plan_default_shows_actionable_criteria() {
+fn plan_default_shows_actionable_work() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     common::write_mdx(
@@ -190,13 +191,13 @@ fn plan_default_shows_actionable_criteria() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Actionable criteria"))
+        .stdout(predicate::str::contains("Actionable work"))
         .stdout(predicate::str::contains("c1"))
-        .stdout(predicate::str::contains("1 more criteria blocked"));
+        .stdout(predicate::str::contains("1 more targets blocked"));
 }
 
 #[test]
-fn plan_verbose_shows_all_criteria_and_task_list() {
+fn plan_verbose_shows_all_targets_and_task_list() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     common::write_mdx(
@@ -240,7 +241,7 @@ fn plan_verbose_shows_all_criteria_and_task_list() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Outstanding criteria"))
+        .stdout(predicate::str::contains("Outstanding work"))
         .stdout(predicate::str::contains("c1"))
         .stdout(predicate::str::contains("c2"))
         .stdout(predicate::str::contains("Pending tasks"))
@@ -269,5 +270,73 @@ fn plan_json_format() {
     assert!(output.status.success());
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
-    assert!(json.get("outstanding_criteria").is_some());
+    assert!(json.get("outstanding_targets").is_some());
+}
+
+/// When the Rust plugin is enabled but finds Rust files with zero test items,
+/// the plugin failure warning must appear on stderr while stdout stays clean.
+#[test]
+fn plan_plugin_failure_warning_on_stderr() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project_with_rust_plugin(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        None,
+        "# Test\n\n<AcceptanceCriteria>\n  <Criterion id=\"c1\">\n    Test.\n  </Criterion>\n</AcceptanceCriteria>\n",
+    );
+
+    // Create a Rust source file with no test items to trigger the plugin failure.
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::write(tmp.path().join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+
+    cargo_bin_cmd!("supersigil")
+        .args(["plan"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("plugin"))
+        .stderr(predicate::str::contains("zero supported Rust test items"));
+}
+
+/// With --format json, stdout must be valid JSON even when plugin warnings
+/// are emitted on stderr.
+#[test]
+fn plan_json_stdout_clean_despite_plugin_warning() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project_with_rust_plugin(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        None,
+        "# Test\n",
+    );
+
+    // Rust file with no tests triggers the plugin failure path.
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::write(tmp.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["plan", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // stderr has the plugin warning.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("zero supported Rust test items"),
+        "stderr should contain plugin warning, got: {stderr}",
+    );
+
+    // stdout is valid JSON.
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert!(json.get("outstanding_targets").is_some());
 }

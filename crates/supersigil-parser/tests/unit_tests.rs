@@ -1047,12 +1047,13 @@ mod lint_validation {
                     },
                 )]),
                 referenceable: false,
+                verifiable: false,
                 target_component: None,
                 description: None,
                 examples: Vec::new(),
             },
         )]);
-        let defs = ComponentDefs::merge(ComponentDefs::defaults(), user_defs);
+        let defs = ComponentDefs::merge(ComponentDefs::defaults(), user_defs).unwrap();
 
         // Widget is known, but missing required `color`
         let components = vec![make_component("Widget", &[])];
@@ -1077,8 +1078,8 @@ mod lint_validation {
     #[test]
     fn validation_uses_builtin_defaults_when_no_config() {
         let defs = ComponentDefs::defaults();
-        // "Validates" is a built-in requiring `refs`
-        let components = vec![make_component("Validates", &[])];
+        // "References" is a built-in requiring `refs`
+        let components = vec![make_component("References", &[])];
         let mut errors = Vec::new();
 
         validate_components(&components, &defs, &dummy_path(), &mut errors);
@@ -1088,9 +1089,9 @@ mod lint_validation {
             matches!(
                 &errors[0],
                 ParseError::MissingRequiredAttribute { component, attribute, .. }
-                if component == "Validates" && attribute == "refs"
+                if component == "References" && attribute == "refs"
             ),
-            "expected MissingRequiredAttribute for Validates.refs, got: {:?}",
+            "expected MissingRequiredAttribute for References.refs, got: {:?}",
             errors[0]
         );
     }
@@ -1323,7 +1324,7 @@ mod parse_file_integration {
     #[test]
     fn stage3_expression_attr_and_validation_errors_collected() {
         // Expression attribute + unknown component + missing required attr
-        let content = "---\nsupersigil:\n  id: test\n---\n<Criterion id={expr} />\n\n<UnknownComp />\n\n<Validates />\n";
+        let content = "---\nsupersigil:\n  id: test\n---\n<Criterion id={expr} />\n\n<UnknownComp />\n\n<References />\n";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
 
@@ -1345,11 +1346,11 @@ mod parse_file_integration {
                 if component == "Criterion" && attribute == "id"
             )
         });
-        let has_missing_validates = errors.iter().any(|e| {
+        let has_missing_references = errors.iter().any(|e| {
             matches!(
                 e,
                 ParseError::MissingRequiredAttribute { component, attribute, .. }
-                if component == "Validates" && attribute == "refs"
+                if component == "References" && attribute == "refs"
             )
         });
 
@@ -1360,8 +1361,8 @@ mod parse_file_integration {
             "expected MissingRequiredAttribute for Criterion.id"
         );
         assert!(
-            has_missing_validates,
-            "expected MissingRequiredAttribute for Validates.refs"
+            has_missing_references,
+            "expected MissingRequiredAttribute for References.refs"
         );
     }
 

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use supersigil_core::{AttributeDef, ComponentDef, ComponentDefs};
+use supersigil_core::{AttributeDef, ComponentDef, ComponentDefError, ComponentDefs};
 
 // ---------------------------------------------------------------------------
 // Helper: build an AttributeDef concisely
@@ -15,25 +15,24 @@ fn attr(required: bool, list: bool) -> AttributeDef {
 }
 
 // ---------------------------------------------------------------------------
-// ComponentDefs::defaults() — 9 built-in components (Req 7.3, 14.4)
+// ComponentDefs::defaults() — 8 built-in components (Req 7.3, 14.4)
 // ---------------------------------------------------------------------------
 
-const BUILTIN_NAMES: [&str; 9] = [
+const BUILTIN_NAMES: [&str; 8] = [
     "AcceptanceCriteria",
     "Criterion",
-    "Validates",
+    "References",
     "VerifiedBy",
     "Implements",
-    "Illustrates",
     "Task",
     "TrackedFiles",
     "DependsOn",
 ];
 
 #[test]
-fn defaults_returns_exactly_nine_components() {
+fn defaults_returns_exactly_eight_components() {
     let defs = ComponentDefs::defaults();
-    assert_eq!(defs.len(), 9);
+    assert_eq!(defs.len(), 8);
     for name in &BUILTIN_NAMES {
         assert!(defs.is_known(name), "missing built-in: {name}");
     }
@@ -59,13 +58,13 @@ fn criterion_has_required_id_and_is_referenceable() {
 }
 
 #[test]
-fn validates_has_required_list_refs_and_targets_criterion() {
+fn references_has_required_list_refs() {
     let defs = ComponentDefs::defaults();
-    let v = defs.get("Validates").unwrap();
+    let v = defs.get("References").unwrap();
     assert_eq!(v.attributes.len(), 1);
     assert_eq!(v.attributes["refs"], attr(true, true));
     assert!(!v.referenceable);
-    assert_eq!(v.target_component, Some("Criterion".to_string()));
+    assert_eq!(v.target_component, None);
 }
 
 #[test]
@@ -84,16 +83,6 @@ fn verified_by_attributes() {
 fn implements_has_required_list_refs() {
     let defs = ComponentDefs::defaults();
     let i = defs.get("Implements").unwrap();
-    assert_eq!(i.attributes.len(), 1);
-    assert_eq!(i.attributes["refs"], attr(true, true));
-    assert!(!i.referenceable);
-    assert_eq!(i.target_component, None);
-}
-
-#[test]
-fn illustrates_has_required_list_refs() {
-    let defs = ComponentDefs::defaults();
-    let i = defs.get("Illustrates").unwrap();
     assert_eq!(i.attributes.len(), 1);
     assert_eq!(i.attributes["refs"], attr(true, true));
     assert!(!i.referenceable);
@@ -138,9 +127,9 @@ fn depends_on_has_required_list_refs() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_typed_refs_on_validates_implements_illustrates_depends_on() {
+fn list_typed_refs_on_references_implements_depends_on() {
     let defs = ComponentDefs::defaults();
-    for name in ["Validates", "Implements", "Illustrates", "DependsOn"] {
+    for name in ["References", "Implements", "DependsOn"] {
         let def = defs.get(name).unwrap();
         assert!(
             def.attributes["refs"].list,
@@ -181,7 +170,7 @@ fn is_known_returns_false_for_unknown() {
     let defs = ComponentDefs::defaults();
     assert!(!defs.is_known("Nonexistent"));
     assert!(!defs.is_known(""));
-    assert!(!defs.is_known("validates")); // case-sensitive
+    assert!(!defs.is_known("references")); // case-sensitive
 }
 
 #[test]
@@ -204,13 +193,14 @@ fn merge_user_override_replaces_builtin() {
         ComponentDef {
             attributes: HashMap::from([("label".to_string(), attr(true, false))]),
             referenceable: false,
+            verifiable: false,
             target_component: None,
             description: None,
             examples: Vec::new(),
         },
     );
 
-    let merged = ComponentDefs::merge(defaults, user);
+    let merged = ComponentDefs::merge(defaults, user).unwrap();
     let criterion = merged.get("Criterion").unwrap();
     // Should have the user's schema, not the built-in
     assert_eq!(criterion.attributes.len(), 1);
@@ -228,13 +218,14 @@ fn merge_new_user_component_added() {
         ComponentDef {
             attributes: HashMap::from([("color".to_string(), attr(false, false))]),
             referenceable: false,
+            verifiable: false,
             target_component: None,
             description: None,
             examples: Vec::new(),
         },
     );
 
-    let merged = ComponentDefs::merge(defaults, user);
+    let merged = ComponentDefs::merge(defaults, user).unwrap();
     assert!(merged.is_known("CustomWidget"));
     let cw = merged.get("CustomWidget").unwrap();
     assert_eq!(cw.attributes.len(), 1);
@@ -251,16 +242,17 @@ fn merge_unmentioned_builtins_preserved() {
         ComponentDef {
             attributes: HashMap::new(),
             referenceable: false,
+            verifiable: false,
             target_component: None,
             description: None,
             examples: Vec::new(),
         },
     );
 
-    let merged = ComponentDefs::merge(defaults, user);
-    // All 9 built-ins should still be present (Criterion overridden + 8 unchanged)
+    let merged = ComponentDefs::merge(defaults, user).unwrap();
+    // All 8 built-ins should still be present (Criterion overridden + 7 unchanged)
     // plus no new ones since we only overrode
-    assert_eq!(merged.len(), 9);
+    assert_eq!(merged.len(), 8);
     for name in &BUILTIN_NAMES {
         assert!(merged.is_known(name), "built-in {name} should be preserved");
     }
@@ -275,6 +267,7 @@ fn merge_override_plus_new_component() {
         ComponentDef {
             attributes: HashMap::new(),
             referenceable: false,
+            verifiable: false,
             target_component: None,
             description: None,
             examples: Vec::new(),
@@ -285,14 +278,15 @@ fn merge_override_plus_new_component() {
         ComponentDef {
             attributes: HashMap::from([("x".to_string(), attr(true, true))]),
             referenceable: true,
+            verifiable: false,
             target_component: Some("Criterion".to_string()),
             description: None,
             examples: Vec::new(),
         },
     );
 
-    let merged = ComponentDefs::merge(defaults, user);
-    assert_eq!(merged.len(), 10); // 9 built-in + 1 new
+    let merged = ComponentDefs::merge(defaults, user).unwrap();
+    assert_eq!(merged.len(), 9); // 8 built-in + 1 new
     assert!(merged.is_known("NewComp"));
     assert!(merged.is_known("Criterion"));
     // Criterion should be the overridden version
@@ -302,8 +296,8 @@ fn merge_override_plus_new_component() {
 #[test]
 fn merge_empty_user_defs_preserves_all_defaults() {
     let defaults = ComponentDefs::defaults();
-    let merged = ComponentDefs::merge(defaults, HashMap::new());
-    assert_eq!(merged.len(), 9);
+    let merged = ComponentDefs::merge(defaults, HashMap::new()).unwrap();
+    assert_eq!(merged.len(), 8);
     // Verify a sample built-in is intact
     let criterion = merged.get("Criterion").unwrap();
     assert!(criterion.referenceable);
@@ -336,4 +330,103 @@ fn all_builtins_have_examples() {
             "{name} should have at least one example"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Verifiable field (Task 1: verifiable targets)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn criterion_is_verifiable() {
+    let defs = ComponentDefs::defaults();
+    let c = defs.get("Criterion").unwrap();
+    assert!(c.verifiable, "Criterion should be verifiable");
+}
+
+#[test]
+fn non_criterion_components_are_not_verifiable() {
+    let defs = ComponentDefs::defaults();
+    for name in &BUILTIN_NAMES {
+        if *name == "Criterion" {
+            continue;
+        }
+        let def = defs.get(name).unwrap();
+        assert!(!def.verifiable, "{name} should NOT be verifiable");
+    }
+}
+
+#[test]
+fn verifiable_requires_referenceable() {
+    let user = HashMap::from([(
+        "BadVerifiable".to_string(),
+        ComponentDef {
+            attributes: HashMap::from([("id".to_string(), attr(true, false))]),
+            referenceable: false,
+            verifiable: true,
+            target_component: None,
+            description: None,
+            examples: Vec::new(),
+        },
+    )]);
+
+    let errs = ComponentDefs::merge(ComponentDefs::defaults(), user).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ComponentDefError::VerifiableNotReferenceable { .. })),
+        "expected VerifiableNotReferenceable error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn verifiable_requires_id_attribute() {
+    let user = HashMap::from([(
+        "BadVerifiable".to_string(),
+        ComponentDef {
+            attributes: HashMap::new(),
+            referenceable: true,
+            verifiable: true,
+            target_component: None,
+            description: None,
+            examples: Vec::new(),
+        },
+    )]);
+
+    let errs = ComponentDefs::merge(ComponentDefs::defaults(), user).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ComponentDefError::VerifiableMissingId { .. })),
+        "expected VerifiableMissingId error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn verifiable_not_referenceable_and_missing_id_produces_two_errors() {
+    let user = HashMap::from([(
+        "DoublyBad".to_string(),
+        ComponentDef {
+            attributes: HashMap::new(),
+            referenceable: false,
+            verifiable: true,
+            target_component: None,
+            description: None,
+            examples: Vec::new(),
+        },
+    )]);
+
+    let errs = ComponentDefs::merge(ComponentDefs::defaults(), user).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ComponentDefError::VerifiableNotReferenceable { .. })),
+        "expected VerifiableNotReferenceable error, got: {errs:?}"
+    );
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ComponentDefError::VerifiableMissingId { .. })),
+        "expected VerifiableMissingId error, got: {errs:?}"
+    );
+    assert_eq!(
+        errs.len(),
+        2,
+        "expected exactly 2 errors for dual failure, got: {errs:?}"
+    );
 }

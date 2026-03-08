@@ -86,6 +86,7 @@ fn arb_component_def() -> impl Strategy<Value = ComponentDef> {
             |(attributes, referenceable, target_component, description, examples)| ComponentDef {
                 attributes,
                 referenceable,
+                verifiable: false,
                 target_component,
                 description,
                 examples,
@@ -144,7 +145,10 @@ fn arb_hooks_config() -> impl Strategy<Value = HooksConfig> {
 }
 
 fn arb_ecosystem_config() -> impl Strategy<Value = EcosystemConfig> {
-    prop::collection::vec(arb_ident(), 0..4).prop_map(|plugins| EcosystemConfig { plugins })
+    prop::collection::vec(arb_ident(), 0..4).prop_map(|plugins| EcosystemConfig {
+        plugins,
+        rust: None,
+    })
 }
 
 fn arb_test_results_config() -> impl Strategy<Value = TestResultsConfig> {
@@ -240,7 +244,8 @@ proptest! {
         let default_names: std::collections::HashSet<String> =
             defaults.names().map(str::to_owned).collect();
 
-        let merged = ComponentDefs::merge(defaults, user_defs.clone());
+        let merged = ComponentDefs::merge(defaults, user_defs.clone())
+            .expect("merge with verifiable=false should not fail");
 
         // (a) User-defined components with the same name as a built-in override it
         for (name, user_def) in &user_defs {
@@ -270,8 +275,8 @@ proptest! {
         let new_user_names = user_defs.keys()
             .filter(|n| !default_names.contains(n.as_str()))
             .count();
-        prop_assert_eq!(merged.len(), 9 + new_user_names,
-            "merged count should be 9 defaults + new user components");
+        prop_assert_eq!(merged.len(), 8 + new_user_names,
+            "merged count should be 8 defaults + new user components");
     }
 }
 

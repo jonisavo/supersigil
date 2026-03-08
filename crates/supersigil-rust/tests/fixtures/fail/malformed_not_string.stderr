@@ -1,0 +1,5 @@
+error: expected a string literal criterion reference, found `123`
+ --> tests/fixtures/fail/malformed_not_string.rs:3:12
+  |
+3 | #[verifies(123)]
+  |            ^^^

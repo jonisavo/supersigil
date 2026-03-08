@@ -9,7 +9,7 @@ use crate::graph::tests::generators::{
     arb_component_id, arb_id, make_acceptance_criteria, make_criterion, make_doc, make_doc_full,
     make_refs_component, make_task, single_project_config,
 };
-use crate::graph::{ILLUSTRATES, IMPLEMENTS, VALIDATES, build_graph};
+use crate::graph::{IMPLEMENTS, REFERENCES, build_graph};
 
 // ---------------------------------------------------------------------------
 // Property 17: Context output completeness
@@ -17,7 +17,7 @@ use crate::graph::{ILLUSTRATES, IMPLEMENTS, VALIDATES, build_graph};
 
 proptest! {
     /// The context output for a document contains the document itself,
-    /// its criteria with validation/illustration status, implementing
+    /// its criteria with reference status, implementing
     /// documents, and linked tasks in topological order.
     ///
     /// Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5
@@ -26,14 +26,14 @@ proptest! {
         req_id in arb_id(),
         val_id in arb_id(),
         impl_id in arb_id(),
-        illus_id in arb_id(),
+        ref_id in arb_id(),
         tasks_id in arb_id(),
         crit_a in arb_component_id(),
         crit_b in arb_component_id(),
         task_id in arb_component_id(),
     ) {
         // Ensure all IDs are distinct.
-        let ids = [&req_id, &val_id, &impl_id, &illus_id, &tasks_id];
+        let ids = [&req_id, &val_id, &impl_id, &ref_id, &tasks_id];
         for i in 0..ids.len() {
             for j in (i + 1)..ids.len() {
                 prop_assume!(ids[i] != ids[j]);
@@ -53,12 +53,12 @@ proptest! {
             )],
         );
 
-        // Validating doc targets crit_a.
+        // Referencing doc targets crit_a.
         let val_doc = make_doc_full(
             &val_id,
             None,
             Some("active"),
-            vec![make_refs_component(VALIDATES, &format!("{req_id}#{crit_a}"), 1)],
+            vec![make_refs_component(REFERENCES, &format!("{req_id}#{crit_a}"), 1)],
         );
 
         // Implementing doc.
@@ -67,10 +67,10 @@ proptest! {
             vec![make_refs_component(IMPLEMENTS, &req_id, 1)],
         );
 
-        // Illustrating doc targets crit_b.
-        let illus_doc = make_doc(
-            &illus_id,
-            vec![make_refs_component(ILLUSTRATES, &format!("{req_id}#{crit_b}"), 1)],
+        // Another referencing doc targets crit_b.
+        let ref_doc = make_doc(
+            &ref_id,
+            vec![make_refs_component(REFERENCES, &format!("{req_id}#{crit_b}"), 1)],
         );
 
         // Tasks doc with a task implementing crit_a.
@@ -81,7 +81,7 @@ proptest! {
         );
 
         let graph = build_graph(
-            vec![req_doc.clone(), val_doc, impl_doc, illus_doc, tasks_doc],
+            vec![req_doc.clone(), val_doc, impl_doc, ref_doc, tasks_doc],
             &config,
         )
         .expect("build_graph should succeed");
@@ -91,13 +91,13 @@ proptest! {
         // 9.1: Contains the target document.
         prop_assert_eq!(&ctx.document, &req_doc);
 
-        // 9.2: Criteria include validation status.
+        // 9.2: Criteria include reference status.
         let crit_a_ctx = ctx.criteria.iter().find(|c| c.id == crit_a);
         prop_assert!(crit_a_ctx.is_some(), "crit_a should be in context");
         let crit_a_ctx = crit_a_ctx.unwrap();
         prop_assert!(
-            crit_a_ctx.validated_by.iter().any(|d| d.doc_id == val_id && d.status.as_deref() == Some("active")),
-            "crit_a should be validated by val_doc with status 'active'"
+            crit_a_ctx.referenced_by.iter().any(|d| d.doc_id == val_id && d.status.as_deref() == Some("active")),
+            "crit_a should be referenced by val_doc with status 'active'"
         );
 
         // 9.3: Implementing documents.
@@ -106,13 +106,13 @@ proptest! {
             "context should include implementing doc"
         );
 
-        // 9.4: Illustrating documents per criterion.
+        // 9.4: Referencing documents per criterion.
         let crit_b_ctx = ctx.criteria.iter().find(|c| c.id == crit_b);
         prop_assert!(crit_b_ctx.is_some(), "crit_b should be in context");
         let crit_b_ctx = crit_b_ctx.unwrap();
         prop_assert!(
-            crit_b_ctx.illustrated_by.contains(&illus_id),
-            "crit_b should be illustrated by illus_doc"
+            crit_b_ctx.referenced_by.iter().any(|d| d.doc_id == ref_id),
+            "crit_b should be referenced by ref_doc"
         );
 
         // 9.5: Tasks from linked tasks documents.
@@ -122,33 +122,33 @@ proptest! {
         );
     }
 
-    /// Document-level illustrations appear in the context output's
-    /// `illustrated_by` field.
+    /// Document-level references appear in the context output's
+    /// `referenced_by` field.
     ///
     /// Validates: Requirements 9.4
     #[test]
-    fn prop_context_doc_level_illustration(
+    fn prop_context_doc_level_reference(
         req_id in arb_id(),
-        illus_id in arb_id(),
+        ref_id in arb_id(),
     ) {
-        prop_assume!(req_id != illus_id);
+        prop_assume!(req_id != ref_id);
 
         let config = single_project_config();
 
         let req_doc = make_doc(&req_id, vec![]);
-        let illus_doc = make_doc(
-            &illus_id,
-            vec![make_refs_component(ILLUSTRATES, &req_id, 1)],
+        let ref_doc = make_doc(
+            &ref_id,
+            vec![make_refs_component(REFERENCES, &req_id, 1)],
         );
 
-        let graph = build_graph(vec![req_doc, illus_doc], &config)
+        let graph = build_graph(vec![req_doc, ref_doc], &config)
             .expect("build_graph should succeed");
 
         let ctx = graph.context(&req_id).expect("context should succeed");
 
         prop_assert!(
-            ctx.illustrated_by.contains(&illus_id),
-            "doc-level illustration should appear in illustrated_by"
+            ctx.referenced_by.contains(&ref_id),
+            "doc-level reference should appear in referenced_by"
         );
     }
 

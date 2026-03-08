@@ -22,7 +22,7 @@ A design with both requirement and non-requirement Validates targets.
 
 This property validates against requirements.
 
-<Validates refs="req/mixed-validates#req-1-1, req/mixed-validates#req-1-2" />
+<References refs="req/mixed-validates#req-1-1, req/mixed-validates#req-1-2" />
 
 ### Property 2: Non-standard property
 
@@ -35,4 +35,4 @@ This property validates against a design decision.
 
 This one is normal.
 
-<Validates refs="req/mixed-validates#req-2-1" />
+<References refs="req/mixed-validates#req-2-1" />

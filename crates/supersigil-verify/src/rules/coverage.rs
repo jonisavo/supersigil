@@ -1,12 +1,14 @@
 use supersigil_core::DocumentGraph;
 
+use crate::artifact_graph::ArtifactGraph;
+
 use crate::report::{Finding, RuleName};
 
-pub fn check(graph: &DocumentGraph) -> Vec<Finding> {
+pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for (doc_id, doc) in graph.documents() {
-        for_each_criterion(&doc.components, doc_id, graph, &mut findings);
+        for_each_criterion(&doc.components, doc_id, artifact_graph, &mut findings);
     }
 
     findings
@@ -15,25 +17,25 @@ pub fn check(graph: &DocumentGraph) -> Vec<Finding> {
 fn for_each_criterion(
     components: &[supersigil_core::ExtractedComponent],
     doc_id: &str,
-    graph: &DocumentGraph,
+    artifact_graph: &ArtifactGraph<'_>,
     findings: &mut Vec<Finding>,
 ) {
     for component in components {
         if component.name == "Criterion"
             && let Some(criterion_id) = component.attributes.get("id")
         {
-            let validators = graph.validates(doc_id, Some(criterion_id));
-            if validators.is_empty() {
+            let has_evidence = artifact_graph.has_evidence(doc_id, criterion_id);
+            if !has_evidence {
                 findings.push(Finding::new(
-                    RuleName::UncoveredCriterion,
+                    RuleName::MissingVerificationEvidence,
                     Some(doc_id.to_owned()),
-                    format!("criterion `{criterion_id}` has no validating property"),
+                    format!("criterion `{criterion_id}` has no verification evidence"),
                     Some(component.position),
                 ));
             }
         }
         // Recurse into children (Criterion inside AcceptanceCriteria)
-        for_each_criterion(&component.children, doc_id, graph, findings);
+        for_each_criterion(&component.children, doc_id, artifact_graph, findings);
     }
 }
 
@@ -43,24 +45,7 @@ mod tests {
     use crate::test_helpers::*;
 
     #[test]
-    fn criterion_with_validates_is_covered() {
-        let docs = vec![
-            make_doc(
-                "req/auth",
-                vec![make_acceptance_criteria(
-                    vec![make_criterion("req-1", 10)],
-                    9,
-                )],
-            ),
-            make_doc("prop/auth", vec![make_validates("req/auth#req-1", 5)]),
-        ];
-        let graph = build_test_graph(docs);
-        let findings = check(&graph);
-        assert!(findings.is_empty(), "expected no findings: {findings:?}");
-    }
-
-    #[test]
-    fn criterion_without_validates_is_uncovered() {
+    fn criterion_without_evidence_is_uncovered() {
         let docs = vec![make_doc(
             "req/auth",
             vec![make_acceptance_criteria(
@@ -69,15 +54,17 @@ mod tests {
             )],
         )];
         let graph = build_test_graph(docs);
-        let findings = check(&graph);
+        let ag = ArtifactGraph::empty(&graph);
+        let findings = check(&graph, &ag);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule, RuleName::UncoveredCriterion);
+        assert_eq!(findings[0].rule, RuleName::MissingVerificationEvidence);
         assert_eq!(findings[0].doc_id.as_deref(), Some("req/auth"));
         assert!(findings[0].message.contains("req-1"));
+        assert!(findings[0].message.contains("no verification evidence"));
     }
 
     #[test]
-    fn illustrates_does_not_satisfy_coverage() {
+    fn references_do_not_satisfy_coverage() {
         let docs = vec![
             make_doc(
                 "req/auth",
@@ -86,29 +73,84 @@ mod tests {
                     9,
                 )],
             ),
-            make_doc("example/auth", vec![make_illustrates("req/auth#req-1", 5)]),
+            make_doc("design/auth", vec![make_references("req/auth#req-1", 5)]),
         ];
         let graph = build_test_graph(docs);
-        let findings = check(&graph);
-        assert_eq!(findings.len(), 1, "Illustrates should not satisfy coverage");
-        assert_eq!(findings[0].rule, RuleName::UncoveredCriterion);
+        let ag = ArtifactGraph::empty(&graph);
+        let findings = check(&graph, &ag);
+        assert_eq!(findings.len(), 1, "References should not satisfy coverage");
+        assert_eq!(findings[0].rule, RuleName::MissingVerificationEvidence);
     }
 
     #[test]
     fn multiple_uncovered_criteria() {
-        let docs = vec![
-            make_doc(
-                "req/auth",
-                vec![make_acceptance_criteria(
-                    vec![make_criterion("req-1", 10), make_criterion("req-2", 20)],
-                    9,
-                )],
-            ),
-            make_doc("prop/auth", vec![make_validates("req/auth#req-1", 5)]),
-        ];
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10), make_criterion("req-2", 20)],
+                9,
+            )],
+        )];
         let graph = build_test_graph(docs);
-        let findings = check(&graph);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("req-2"));
+        let ag = ArtifactGraph::empty(&graph);
+        let findings = check(&graph, &ag);
+        assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn direct_artifact_evidence_satisfies_coverage_without_validating_doc() {
+        use std::collections::{BTreeMap, BTreeSet};
+        use std::path::PathBuf;
+
+        use supersigil_evidence::{
+            EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
+            VerifiableRef, VerificationEvidenceRecord,
+        };
+
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let ag = crate::artifact_graph::build_artifact_graph(
+            &graph,
+            vec![],
+            vec![VerificationEvidenceRecord {
+                id: EvidenceId(0),
+                targets: BTreeSet::from([VerifiableRef {
+                    doc_id: "req/auth".into(),
+                    target_id: "req-1".into(),
+                }]),
+                test: TestIdentity {
+                    file: PathBuf::from("tests/auth_test.rs"),
+                    name: "login_succeeds".into(),
+                    kind: TestKind::Unit,
+                },
+                source_location: SourceLocation {
+                    file: PathBuf::from("tests/auth_test.rs"),
+                    line: 3,
+                    column: 1,
+                },
+                evidence_kind: EvidenceKind::RustAttribute,
+                provenance: vec![PluginProvenance::RustAttribute {
+                    attribute_span: SourceLocation {
+                        file: PathBuf::from("tests/auth_test.rs"),
+                        line: 3,
+                        column: 1,
+                    },
+                }],
+                metadata: BTreeMap::new(),
+            }],
+        );
+
+        let findings = check(&graph, &ag);
+
+        assert!(
+            findings.is_empty(),
+            "direct criterion evidence should satisfy coverage: {findings:?}",
+        );
     }
 }

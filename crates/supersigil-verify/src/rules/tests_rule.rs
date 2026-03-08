@@ -1,36 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{DocumentGraph, SpecDocument, split_list_attribute};
+use supersigil_core::{SpecDocument, split_list_attribute};
 
 use crate::report::{Finding, RuleName};
-use crate::rules::{find_components, has_component};
+use crate::rules::find_criterion_nested_verified_by;
 use crate::scan::scan_for_tag;
-
-// ---------------------------------------------------------------------------
-// check_unverified
-// ---------------------------------------------------------------------------
-
-/// For each document that has a `Validates` component but no `VerifiedBy`
-/// component, emit `UnverifiedValidation`.
-pub fn check_unverified(graph: &DocumentGraph) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for (doc_id, doc) in graph.documents() {
-        let has_validates = has_component(&doc.components, "Validates");
-        let has_verified_by = has_component(&doc.components, "VerifiedBy");
-
-        if has_validates && !has_verified_by {
-            findings.push(Finding::new(
-                RuleName::UnverifiedValidation,
-                Some(doc_id.to_owned()),
-                format!("document `{doc_id}` has Validates but no VerifiedBy"),
-                None,
-            ));
-        }
-    }
-
-    findings
-}
 
 // ---------------------------------------------------------------------------
 // check_file_globs
@@ -39,12 +13,17 @@ pub fn check_unverified(graph: &DocumentGraph) -> Vec<Finding> {
 /// For each `VerifiedBy` with `strategy="file-glob"`, expand `paths` as globs
 /// relative to `project_root`. Emit `MissingTestFiles` when a glob matches
 /// zero files.
+///
+/// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
+/// placement is caught by `check_verified_by_placement` in `structural.rs`.
 pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for doc in docs {
         let doc_id = &doc.frontmatter.id;
-        for vb in find_components(&doc.components, "VerifiedBy") {
+        let criterion_nested = find_criterion_nested_verified_by(&doc.components);
+
+        for vb in &criterion_nested {
             let strategy = vb.attributes.get("strategy").map(String::as_str);
             if strategy != Some("file-glob") {
                 continue;
@@ -93,12 +72,17 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
 
 /// For each `VerifiedBy` with `strategy="tag"`, use the scanner to find
 /// matches. Emit `ZeroTagMatches` for zero matches.
+///
+/// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
+/// placement is caught by `check_verified_by_placement` in `structural.rs`.
 pub fn check_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for doc in docs {
         let doc_id = &doc.frontmatter.id;
-        for vb in find_components(&doc.components, "VerifiedBy") {
+        let criterion_nested = find_criterion_nested_verified_by(&doc.components);
+
+        for vb in &criterion_nested {
             let strategy = vb.attributes.get("strategy").map(String::as_str);
             if strategy != Some("tag") {
                 continue;
@@ -140,67 +124,7 @@ mod tests {
     use tempfile::TempDir;
 
     // -----------------------------------------------------------------------
-    // check_unverified
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn validates_without_verified_by_emits_finding() {
-        let docs = vec![
-            make_doc(
-                "req/auth",
-                vec![make_acceptance_criteria(
-                    vec![make_criterion("req-1", 10)],
-                    9,
-                )],
-            ),
-            make_doc("prop/auth", vec![make_validates("req/auth#req-1", 5)]),
-        ];
-        let graph = build_test_graph(docs);
-        let findings = check_unverified(&graph);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule, RuleName::UnverifiedValidation);
-        assert_eq!(findings[0].doc_id.as_deref(), Some("prop/auth"));
-    }
-
-    #[test]
-    fn validates_with_verified_by_is_clean() {
-        let docs = vec![
-            make_doc(
-                "req/auth",
-                vec![make_acceptance_criteria(
-                    vec![make_criterion("req-1", 10)],
-                    9,
-                )],
-            ),
-            make_doc(
-                "prop/auth",
-                vec![
-                    make_validates("req/auth#req-1", 5),
-                    make_verified_by_tag("prop:auth", 6),
-                ],
-            ),
-        ];
-        let graph = build_test_graph(docs);
-        let findings = check_unverified(&graph);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn doc_without_validates_is_not_flagged() {
-        let docs = vec![make_doc(
-            "req/auth",
-            vec![make_acceptance_criteria(
-                vec![make_criterion("req-1", 10)],
-                9,
-            )],
-        )];
-        let graph = build_test_graph(docs);
-        let findings = check_unverified(&graph);
-        assert!(findings.is_empty());
-    }
-
-    // -----------------------------------------------------------------------
-    // check_file_globs
+    // check_file_globs — criterion-nested VerifiedBy
     // -----------------------------------------------------------------------
 
     #[test]
@@ -208,10 +132,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_glob("tests/nonexistent/**/*.rs", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_glob("tests/nonexistent/**/*.rs", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let doc_refs: Vec<&_> = docs.iter().collect();
         let findings = check_file_globs(&doc_refs, dir.path());
@@ -226,10 +154,14 @@ mod tests {
         std::fs::write(dir.path().join("tests/auth_test.rs"), "test").unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_glob("tests/auth_test.rs", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_glob("tests/auth_test.rs", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let doc_refs: Vec<&_> = docs.iter().collect();
         let findings = check_file_globs(&doc_refs, dir.path());
@@ -241,10 +173,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_tag("prop:auth", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_tag("prop:auth", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let doc_refs: Vec<&_> = docs.iter().collect();
         let findings = check_file_globs(&doc_refs, dir.path());
@@ -252,7 +188,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // check_tags
+    // check_tags — criterion-nested VerifiedBy
     // -----------------------------------------------------------------------
 
     #[test]
@@ -262,10 +198,14 @@ mod tests {
         std::fs::write(dir.path().join("tests/test.rs"), "// no tags here\n").unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_tag("prop:auth-login", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_tag("prop:auth-login", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
         let doc_refs: Vec<&_> = docs.iter().collect();
@@ -285,10 +225,14 @@ mod tests {
         .unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_tag("prop:auth-login", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_tag("prop:auth-login", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
         let doc_refs: Vec<&_> = docs.iter().collect();
@@ -306,10 +250,14 @@ mod tests {
         // tests/old/ does NOT exist — stale glob
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_glob("tests/active/**/*.rs, tests/old/**/*.rs", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_glob("tests/active/**/*.rs, tests/old/**/*.rs", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let doc_refs: Vec<&_> = docs.iter().collect();
         let findings = check_file_globs(&doc_refs, dir.path());
@@ -327,10 +275,14 @@ mod tests {
         std::fs::write(dir.path().join("tests/test.rs"), "// no tags\n").unwrap();
         let docs = [make_doc(
             "prop/auth",
-            vec![
-                make_validates("req/auth#req-1", 5),
-                make_verified_by_glob("tests/**/*.rs", 6),
-            ],
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_glob("tests/**/*.rs", 8),
+                    7,
+                )],
+                6,
+            )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
         let doc_refs: Vec<&_> = docs.iter().collect();

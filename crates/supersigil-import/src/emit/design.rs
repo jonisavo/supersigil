@@ -81,7 +81,7 @@ pub fn emit_design_mdx(
 
                     if let Some(resolved_refs) = resolved.filter(|r| !r.is_empty()) {
                         let refs_str = resolved_refs.join(", ");
-                        let _ = writeln!(out, "<Validates refs=\"{refs_str}\" />");
+                        let _ = writeln!(out, "<References refs=\"{refs_str}\" />");
                         out.push('\n');
                     } else if refs.is_empty() && markers.is_empty() {
                         // No refs at all — preserve raw line as prose with marker

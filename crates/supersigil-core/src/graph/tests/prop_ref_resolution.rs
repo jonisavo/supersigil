@@ -8,7 +8,7 @@ use crate::graph::tests::generators::{
     arb_component_id, arb_id, make_acceptance_criteria, make_criterion, make_doc_with_path,
     make_refs_component, single_project_config, two_project_config,
 };
-use crate::graph::{GraphError, IMPLEMENTS, TASK, VALIDATES, build_graph};
+use crate::graph::{GraphError, IMPLEMENTS, REFERENCES, TASK, build_graph};
 use crate::{ExtractedComponent, SourcePosition};
 
 // ---------------------------------------------------------------------------
@@ -41,21 +41,21 @@ proptest! {
             vec![make_criterion(&crit_id, 1)],
         );
 
-        // Source document A: Validates with doc#fragment ref (target_component = Criterion).
+        // Source document A: References with doc#fragment ref (target_component = Criterion).
         let fragment_ref = format!("{target_doc_id}#{crit_id}");
         let source_doc_a = make_doc_with_path(
             &source_doc_id,
             &format!("specs/{source_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, &fragment_ref, 1)],
+            vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
         let graph = build_graph(vec![target_doc.clone(), source_doc_a], &config)
             .expect("build_graph should succeed with valid refs");
 
-        // The Validates component is at index [0] in source_doc_a.
+        // The References component is at index [0] in source_doc_a.
         let resolved = graph
             .resolved_refs(&source_doc_id, &[0])
-            .expect("resolved_refs should return refs for the Validates component");
+            .expect("resolved_refs should return refs for the References component");
 
         prop_assert_eq!(resolved.len(), 1);
         prop_assert_eq!(&resolved[0].target_doc_id, &target_doc_id);
@@ -100,7 +100,7 @@ proptest! {
         prop_assert!(resolved[0].fragment.is_none());
     }
 
-    /// Validates component with target_component = "Criterion" resolves when
+    /// References component with target_component = "Criterion" resolves when
     /// the fragment points to a Criterion.
     ///
     /// Validates: Requirements 3.4
@@ -127,11 +127,11 @@ proptest! {
         let source_doc = make_doc_with_path(
             &source_doc_id,
             &format!("specs/{source_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, &fragment_ref, 1)],
+            vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
         let graph = build_graph(vec![target_doc, source_doc], &config)
-            .expect("build_graph should succeed: Validates targets Criterion correctly");
+            .expect("build_graph should succeed: References targets Criterion correctly");
 
         let resolved = graph
             .resolved_refs(&source_doc_id, &[0])
@@ -208,7 +208,7 @@ proptest! {
         let source_doc = make_doc_with_path(
             &source_doc_id,
             &format!("specs/{source_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, &ref_str, 1)],
+            vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
         let result = build_graph(vec![target_doc, source_doc], &config);
@@ -229,12 +229,12 @@ proptest! {
         prop_assert!(!broken.is_empty(), "expected BrokenRef for nonexistent fragment");
     }
 
-    /// A Validates ref with a fragment that resolves to a non-Criterion component
-    /// (wrong target_component type) produces a BrokenRef error.
+    /// A References ref with a fragment pointing to a referenceable Task component
+    /// resolves successfully (References has no target_component constraint).
     ///
-    /// Validates: Requirements 3.7
+    /// Validates: Requirements 3.4
     #[test]
-    fn prop_broken_ref_wrong_target_component(
+    fn prop_references_resolves_any_referenceable_component(
         target_doc_id in arb_id(),
         source_doc_id in arb_id(),
         task_id in arb_component_id(),
@@ -243,7 +243,7 @@ proptest! {
 
         let config = single_project_config();
 
-        // Target doc has a Task (referenceable), not a Criterion.
+        // Target doc has a Task (referenceable).
         let task = ExtractedComponent {
             name: TASK.to_owned(),
             attributes: HashMap::from([("id".to_owned(), task_id.clone())]),
@@ -261,31 +261,24 @@ proptest! {
             vec![task],
         );
 
-        // Validates has target_component = "Criterion", but fragment points to a Task.
+        // References has target_component = None, so it resolves any referenceable component.
         let ref_str = format!("{target_doc_id}#{task_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
             &format!("specs/{source_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, &ref_str, 1)],
+            vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
-        let result = build_graph(vec![target_doc, source_doc], &config);
-        let errors = result.expect_err("build_graph should fail with wrong target_component");
+        let graph = build_graph(vec![target_doc, source_doc], &config)
+            .expect("build_graph should succeed: References can target any referenceable component");
 
-        let broken: Vec<_> = errors
-            .iter()
-            .filter_map(|e| match e {
-                GraphError::BrokenRef {
-                    doc_id,
-                    ref_str: rs,
-                    reason,
-                    ..
-                } if doc_id == &source_doc_id && rs == &ref_str => Some(reason.clone()),
-                _ => None,
-            })
-            .collect();
+        let resolved = graph
+            .resolved_refs(&source_doc_id, &[0])
+            .expect("resolved_refs should return refs");
 
-        prop_assert!(!broken.is_empty(), "expected BrokenRef for wrong target_component type");
+        prop_assert_eq!(resolved.len(), 1);
+        prop_assert_eq!(&resolved[0].target_doc_id, &target_doc_id);
+        prop_assert_eq!(resolved[0].fragment.as_deref(), Some(task_id.as_str()));
     }
 }
 

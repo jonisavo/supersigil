@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
 
-use supersigil_core::{OutstandingCriterion, PlanOutput, PlanQuery, TaskInfo};
+use supersigil_core::{OutstandingTarget, PlanOutput, PlanQuery, TaskInfo};
 
 use crate::commands::PlanArgs;
 use crate::error::CliError;
@@ -11,6 +11,7 @@ use crate::format::{
     write_json, write_tasks,
 };
 use crate::loader;
+use crate::plugins;
 
 /// Run the `plan` command: show outstanding work for a document, prefix,
 /// or the whole project.
@@ -21,7 +22,8 @@ use crate::loader;
 /// `CliError::Parse` or `CliError::Graph` if loading fails, or
 /// `CliError::Io` if writing output fails.
 pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
-    let (_config, graph) = loader::load_graph(config_path)?;
+    let (config, graph) = loader::load_graph(config_path)?;
+    let project_root = loader::project_root(config_path);
 
     let query = match PlanQuery::parse(args.id_or_prefix.as_deref(), &graph) {
         Ok(q) => q,
@@ -30,7 +32,16 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
             return Err(e.into());
         }
     };
-    let plan = graph.plan(&query)?;
+    let mut plan = graph.plan(&query)?;
+
+    // Filter outstanding criteria by evidence: criteria with verification
+    // evidence in the ArtifactGraph are no longer outstanding.
+    let (artifact_graph, plugin_findings) =
+        plugins::build_evidence(&config, &graph, project_root, None);
+    plugins::warn_plugin_findings(&plugin_findings, &color);
+    plan.outstanding_targets
+        .retain(|c| !artifact_graph.has_evidence(&c.doc_id, &c.target_id));
+    let plan = plan;
 
     match args.format {
         OutputFormat::Json => write_json(&plan)?,
@@ -64,35 +75,35 @@ fn write_terminal(
     }
 
     // 2. Criteria section.
-    if !plan.outstanding_criteria.is_empty() {
+    if !plan.outstanding_targets.is_empty() {
         if verbose {
             writeln!(
                 out,
                 "\n{} ({})",
-                c.paint(Token::Header, "## Outstanding criteria"),
-                c.paint(Token::Count, &plan.outstanding_criteria.len().to_string()),
+                c.paint(Token::Header, "## Outstanding work"),
+                c.paint(Token::Count, &plan.outstanding_targets.len().to_string()),
             )?;
-            let all_refs: Vec<&OutstandingCriterion> = plan.outstanding_criteria.iter().collect();
-            write_criteria_list(out, &all_refs, c)?;
+            let all_refs: Vec<&OutstandingTarget> = plan.outstanding_targets.iter().collect();
+            write_targets_list(out, &all_refs, c)?;
         } else {
-            let (actionable, blocked) = partition_criteria(
-                &plan.outstanding_criteria,
+            let (actionable, blocked) = partition_targets(
+                &plan.outstanding_targets,
                 &plan.pending_tasks,
                 &plan.completed_tasks,
             );
-            let total = plan.outstanding_criteria.len();
+            let total = plan.outstanding_targets.len();
             writeln!(
                 out,
                 "\n{} ({} of {}):",
-                c.paint(Token::Header, "## Actionable criteria"),
+                c.paint(Token::Header, "## Actionable work"),
                 c.paint(Token::Count, &actionable.len().to_string()),
                 total,
             )?;
-            write_criteria_list(out, &actionable, c)?;
+            write_targets_list(out, &actionable, c)?;
             if !blocked.is_empty() {
                 writeln!(
                     out,
-                    "  ({} more criteria blocked by upstream tasks)",
+                    "  ({} more targets blocked by upstream tasks)",
                     blocked.len(),
                 )?;
             }
@@ -109,31 +120,13 @@ fn write_terminal(
         write_tasks(out, &plan.pending_tasks, color)?;
     }
 
-    // 4. Illustrated by.
-    if !plan.illustrated_by.is_empty() {
-        writeln!(out, "\n{}", c.paint(Token::Header, "## Illustrated by:"))?;
-        for illus in &plan.illustrated_by {
-            let frag = illus
-                .target_fragment
-                .as_ref()
-                .map_or(String::new(), |f| format!("#{f}"));
-            writeln!(
-                out,
-                "- {} (illustrates {}{})",
-                c.paint(Token::DocId, &illus.doc_id),
-                c.paint(Token::DocId, &illus.target_doc_id),
-                frag,
-            )?;
-        }
-    }
-
     // 5. Completed summary.
     if !plan.completed_tasks.is_empty() {
         writeln!(out)?;
         write_completed_summary(out, &plan.completed_tasks, color)?;
     }
 
-    if plan.outstanding_criteria.is_empty()
+    if plan.outstanding_targets.is_empty()
         && plan.pending_tasks.is_empty()
         && plan.completed_tasks.is_empty()
     {
@@ -143,14 +136,14 @@ fn write_terminal(
     Ok(())
 }
 
-fn write_criteria_list(
+fn write_targets_list(
     out: &mut impl Write,
-    criteria: &[&OutstandingCriterion],
+    criteria: &[&OutstandingTarget],
     color: ColorConfig,
 ) -> io::Result<()> {
     for crit in criteria {
         let body = crit.body_text.as_deref().unwrap_or("(no description)");
-        let ref_str = format!("{}#{}", crit.doc_id, crit.criterion_id);
+        let ref_str = format!("{}#{}", crit.doc_id, crit.target_id);
         writeln!(out, "- {}: {body}", color.paint(Token::DocId, &ref_str))?;
     }
     Ok(())
@@ -163,11 +156,11 @@ fn write_criteria_list(
 /// - No pending task implements it at all (uncovered).
 ///
 /// Returns `(actionable, blocked)`.
-fn partition_criteria<'a>(
-    criteria: &'a [OutstandingCriterion],
+fn partition_targets<'a>(
+    criteria: &'a [OutstandingTarget],
     pending_tasks: &[TaskInfo],
     completed_tasks: &[TaskInfo],
-) -> (Vec<&'a OutstandingCriterion>, Vec<&'a OutstandingCriterion>) {
+) -> (Vec<&'a OutstandingTarget>, Vec<&'a OutstandingTarget>) {
     let completed_ids: HashSet<&str> = completed_tasks.iter().map(|t| t.task_id.as_str()).collect();
     let pending_ids: HashSet<&str> = pending_tasks.iter().map(|t| t.task_id.as_str()).collect();
 
@@ -208,7 +201,7 @@ fn partition_criteria<'a>(
     let mut blocked = Vec::new();
 
     for crit in criteria {
-        let key = (crit.doc_id.as_str(), crit.criterion_id.as_str());
+        let key = (crit.doc_id.as_str(), crit.target_id.as_str());
         if actionable_refs.contains(&key) || !all_pending_refs.contains(&key) {
             actionable.push(crit);
         } else {
@@ -223,10 +216,10 @@ fn partition_criteria<'a>(
 mod tests {
     use super::*;
 
-    fn crit(doc_id: &str, crit_id: &str) -> OutstandingCriterion {
-        OutstandingCriterion {
+    fn crit(doc_id: &str, crit_id: &str) -> OutstandingTarget {
+        OutstandingTarget {
             doc_id: doc_id.to_owned(),
-            criterion_id: crit_id.to_owned(),
+            target_id: crit_id.to_owned(),
             body_text: Some(format!("Body for {crit_id}")),
         }
     }
@@ -263,7 +256,7 @@ mod tests {
             task_info("t1", &[("req", "c1")], &[]),
             task_info("t2", &[("req", "c2")], &[]),
         ];
-        let (actionable, blocked) = partition_criteria(&criteria, &pending, &[]);
+        let (actionable, blocked) = partition_targets(&criteria, &pending, &[]);
         assert_eq!(actionable.len(), 2);
         assert!(blocked.is_empty());
     }
@@ -275,11 +268,11 @@ mod tests {
             task_info("t1", &[("req", "c1")], &[]),
             task_info("t2", &[("req", "c2")], &["t1"]),
         ];
-        let (actionable, blocked) = partition_criteria(&criteria, &pending, &[]);
+        let (actionable, blocked) = partition_targets(&criteria, &pending, &[]);
         assert_eq!(actionable.len(), 1);
-        assert_eq!(actionable[0].criterion_id, "c1");
+        assert_eq!(actionable[0].target_id, "c1");
         assert_eq!(blocked.len(), 1);
-        assert_eq!(blocked[0].criterion_id, "c2");
+        assert_eq!(blocked[0].target_id, "c2");
     }
 
     #[test]
@@ -287,7 +280,7 @@ mod tests {
         let criteria = vec![crit("req", "c2")];
         let pending = vec![task_info("t2", &[("req", "c2")], &["t1"])];
         let completed = vec![done_task_info("t1")];
-        let (actionable, blocked) = partition_criteria(&criteria, &pending, &completed);
+        let (actionable, blocked) = partition_targets(&criteria, &pending, &completed);
         assert_eq!(actionable.len(), 1);
         assert!(blocked.is_empty());
     }
@@ -297,16 +290,16 @@ mod tests {
         let criteria = vec![crit("req", "c1")];
         // No tasks implement c1
         let pending = vec![task_info("t1", &[("req", "other")], &[])];
-        let (actionable, blocked) = partition_criteria(&criteria, &pending, &[]);
+        let (actionable, blocked) = partition_targets(&criteria, &pending, &[]);
         assert_eq!(actionable.len(), 1);
-        assert_eq!(actionable[0].criterion_id, "c1");
+        assert_eq!(actionable[0].target_id, "c1");
         assert!(blocked.is_empty());
     }
 
     #[test]
     fn partition_no_tasks_all_actionable() {
         let criteria = vec![crit("req", "c1"), crit("req", "c2")];
-        let (actionable, blocked) = partition_criteria(&criteria, &[], &[]);
+        let (actionable, blocked) = partition_targets(&criteria, &[], &[]);
         assert_eq!(actionable.len(), 2);
         assert!(blocked.is_empty());
     }

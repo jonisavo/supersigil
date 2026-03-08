@@ -16,7 +16,7 @@ yaml_serde.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-tempfile = "3.26.0"
+tempfile.workspace = true
 
 [lints]
 workspace = true

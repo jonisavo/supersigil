@@ -17,9 +17,9 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     Create `crates/supersigil-core/src/graph/` directory with `mod.rs`, `error.rs`, `index.rs`, `resolve.rs`, `cycle.rs`, `topo.rs`, `reverse.rs`, `query.rs`, and `tests/` subdirectory with `mod.rs` and `generators.rs`
 
     - Define `GraphError` enum in `error.rs` and `QueryError` enum in `query.rs` (both with `thiserror` derives) per the design
-    - Define `ResolvedRef`, `DocumentGraph` struct (with empty fields), `ContextOutput`, `CriterionContext`, `DocRef`, `TaskContext`, `PlanOutput`, `OutstandingCriterion`, `PlanTask`, `IllustrationRef`, `PlanQuery` types in `mod.rs` / `query.rs`
+    - Define `ResolvedRef`, `DocumentGraph` struct (with empty fields), `ContextOutput`, `CriterionContext`, `DocRef`, `TaskContext`, `PlanOutput`, `OutstandingCriterion`, `PlanTask`, `PlanQuery` types in `mod.rs` / `query.rs`
     - Stub `build_graph` function signature: `pub fn build_graph(documents: Vec<SpecDocument>, config: &Config) -> Result<DocumentGraph, Vec<GraphError>>`
-    - Stub `DocumentGraph` read-only accessor methods (return `None`/empty defaults). These stubs are replaced with real implementations as each pipeline stage is completed: `document`/`documents` in task 3.3, `component` in task 4.3, `resolved_refs` in task 6.5, `task_implements` in task 7.2, `task_order`/`doc_order` in task 10.3, `validates`/`implements`/`illustrates` in task 12.3, `tracked_files`/`all_tracked_files` in task 13.3, `doc_project` in task 3.3.
+    - Stub `DocumentGraph` read-only accessor methods (return `None`/empty defaults). These stubs are replaced with real implementations as each pipeline stage is completed: `document`/`documents` in task 3.3, `component` in task 4.3, `resolved_refs` in task 6.5, `task_implements` in task 7.2, `task_order`/`doc_order` in task 10.3, `references`/`implements`/`depends_on` in task 12.3, `tracked_files`/`all_tracked_files` in task 13.3, `doc_project` in task 3.3.
     - Register `mod graph;` in `crates/supersigil-core/src/lib.rs` and add public re-exports
   </Task>
 
@@ -272,23 +272,23 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     Write property test for reverse mapping completeness
 
     - **Property 16: Reverse mapping completeness**
-    - Generate documents with `Validates`, `Implements`, `Illustrates` components with resolved refs. Assert each target has the source doc ID in its reverse set. Assert `Implements` discards fragments (document-level only). Assert duplicate refs contribute only once.
+    - Generate documents with `References`, `Implements`, `DependsOn` components with resolved refs. Assert each target has the source doc ID in its reverse set. Assert `Implements` and `DependsOn` discard fragments (document-level only). Assert duplicate refs contribute only once.
   </Task>
 
   <Task id="task-12-2" status="done" depends="task-12-1" implements="document-graph/req#req-8-4, document-graph/req#req-8-5">
     Write property test for reverse mapping queryability
 
     - **Property 23: Reverse mapping queryability**
-    - Build a graph, query `validates`, `implements`, `illustrates` by target doc ID and `(doc_id, fragment)`. Assert correct results. Assert unreferenced targets return empty set.
+    - Build a graph, query `references`, `implements`, `depends_on` by target doc ID and `(doc_id, fragment)`. Assert correct results. Assert unreferenced targets return empty set.
   </Task>
 
   <Task id="task-12-3" status="done" depends="task-12-2" implements="document-graph/req#req-8-1, document-graph/req#req-8-2, document-graph/req#req-8-3, document-graph/req#req-8-4, document-graph/req#req-8-5, document-graph/req#req-8-6">
     Implement reverse mappings in `reverse.rs`
 
-    - Iterate all resolved refs, build three reverse indexes: `validates_reverse`, `implements_reverse`, `illustrates_reverse`
-    - `Validates`: key by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
+    - Iterate all resolved refs, build three reverse indexes: `references_reverse`, `implements_reverse`, `depends_on_reverse`
+    - `References`: key by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
     - `Implements`: key by `target_doc_id` → `BTreeSet<source_doc_id>` (discard fragments)
-    - `Illustrates`: key by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
+    - `DependsOn`: key by `target_doc_id` → `BTreeSet<source_doc_id>`
     - Deduplicate refs within same attribute
     - Implement accessor methods that return empty `BTreeSet` for unreferenced targets
     - Wire into `build_graph` as pipeline stage 8
@@ -377,7 +377,7 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
     - Look up document by ID, return `QueryError::DocumentNotFound` if missing
     - Extract criteria from document components
-    - For each criterion, look up `validates_reverse` and `illustrates_reverse`, include validating doc status
+    - For each criterion, look up `references_reverse`, include referencing doc status
     - Look up `implements_reverse` for the document
     - Find linked tasks documents (tasks whose `implements` refs point to criteria in this document), collect tasks in topological order
     - Assemble and return `ContextOutput`

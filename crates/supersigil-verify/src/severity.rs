@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn uses_built_in_default_when_no_overrides() {
         let config = empty_config();
-        let result = resolve_severity(&RuleName::UncoveredCriterion, None, &config);
+        let result = resolve_severity(&RuleName::MissingVerificationEvidence, None, &config);
         assert_eq!(result, ReportSeverity::Error);
     }
 
@@ -61,7 +61,7 @@ mod tests {
             strictness: Some(Severity::Warning),
             rules: HashMap::new(),
         };
-        let result = resolve_severity(&RuleName::UncoveredCriterion, None, &config);
+        let result = resolve_severity(&RuleName::MissingVerificationEvidence, None, &config);
         assert_eq!(result, ReportSeverity::Warning);
     }
 
@@ -69,9 +69,9 @@ mod tests {
     fn per_rule_override_beats_global_strictness() {
         let config = VerifyConfig {
             strictness: Some(Severity::Warning),
-            rules: HashMap::from([("uncovered_criterion".into(), Severity::Error)]),
+            rules: HashMap::from([("missing_verification_evidence".into(), Severity::Error)]),
         };
-        let result = resolve_severity(&RuleName::UncoveredCriterion, None, &config);
+        let result = resolve_severity(&RuleName::MissingVerificationEvidence, None, &config);
         assert_eq!(result, ReportSeverity::Error);
     }
 
@@ -79,16 +79,24 @@ mod tests {
     fn draft_gating_beats_everything() {
         let config = VerifyConfig {
             strictness: Some(Severity::Error),
-            rules: HashMap::from([("uncovered_criterion".into(), Severity::Error)]),
+            rules: HashMap::from([("missing_verification_evidence".into(), Severity::Error)]),
         };
-        let result = resolve_severity(&RuleName::UncoveredCriterion, Some("draft"), &config);
+        let result = resolve_severity(
+            &RuleName::MissingVerificationEvidence,
+            Some("draft"),
+            &config,
+        );
         assert_eq!(result, ReportSeverity::Info);
     }
 
     #[test]
     fn non_draft_status_uses_normal_resolution() {
         let config = empty_config();
-        let result = resolve_severity(&RuleName::UncoveredCriterion, Some("active"), &config);
+        let result = resolve_severity(
+            &RuleName::MissingVerificationEvidence,
+            Some("active"),
+            &config,
+        );
         assert_eq!(result, ReportSeverity::Error);
     }
 
@@ -96,9 +104,9 @@ mod tests {
     fn off_severity_propagates() {
         let config = VerifyConfig {
             strictness: None,
-            rules: HashMap::from([("uncovered_criterion".into(), Severity::Off)]),
+            rules: HashMap::from([("missing_verification_evidence".into(), Severity::Off)]),
         };
-        let result = resolve_severity(&RuleName::UncoveredCriterion, None, &config);
+        let result = resolve_severity(&RuleName::MissingVerificationEvidence, None, &config);
         assert_eq!(result, ReportSeverity::Off);
     }
 

@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::error::GraphError;
-use super::{CRITERION, ResolvedRef, TASK};
+use super::{ResolvedRef, TASK};
 
 // ---------------------------------------------------------------------------
 // Ref parsing
@@ -33,6 +33,7 @@ fn parse_ref(raw: &str) -> (String, Option<String>) {
 struct ResolveContext<'a> {
     doc_index: &'a HashMap<String, SpecDocument>,
     component_index: &'a HashMap<(String, String), (String, ExtractedComponent)>,
+    component_defs: &'a ComponentDefs,
     doc_project: &'a HashMap<String, Option<String>>,
     project_isolation: &'a HashMap<String, bool>,
 }
@@ -49,11 +50,26 @@ enum RefValidation {
     Error,
 }
 
+/// Fragment validation mode for `validate_ref`.
+#[derive(Clone, Copy)]
+enum FragmentCheck<'a> {
+    /// No constraint on the resolved component type (used by generic `refs`
+    /// resolution when `target_component` is `None`).
+    None,
+    /// The resolved fragment must be a specific component type (used by
+    /// `refs` resolution when `target_component` is `Some`).
+    ExactComponent(&'a str),
+    /// The resolved fragment must be a *verifiable* component (checked via
+    /// `ComponentDefs`). Used by `Task.implements` resolution.
+    Verifiable,
+}
+
 /// Validate a single parsed ref: check cross-project isolation, document
 /// existence, and optionally fragment existence and component type.
 ///
 /// If `require_fragment` is `true`, refs without a `#fragment` are rejected.
-/// If `expected_component` is `Some`, the fragment must resolve to that type.
+/// `fragment_check` controls how the resolved fragment's component type is
+/// validated (see [`FragmentCheck`]).
 ///
 /// Errors are pushed directly into `errors`; callers inspect the return value
 /// to decide whether to record the resolved ref.
@@ -63,7 +79,7 @@ fn validate_ref(
     raw: &str,
     position: SourcePosition,
     require_fragment: bool,
-    expected_component: Option<&str>,
+    fragment_check: FragmentCheck<'_>,
     errors: &mut Vec<GraphError>,
 ) -> RefValidation {
     let (target_doc_id, fragment) = parse_ref(raw);
@@ -73,7 +89,8 @@ fn validate_ref(
         errors.push(GraphError::BrokenRef {
             doc_id: doc_id.to_owned(),
             ref_str: raw.to_owned(),
-            reason: "implements ref must include a #fragment targeting a Criterion".to_owned(),
+            reason: "implements ref must include a #fragment targeting a verifiable component"
+                .to_owned(),
             position,
         });
         return RefValidation::Error;
@@ -112,19 +129,40 @@ fn validate_ref(
     if let Some(ref frag) = fragment {
         let key = (target_doc_id.clone(), frag.clone());
         if let Some((_, comp)) = ctx.component_index.get(&key) {
-            if let Some(expected) = expected_component
-                && comp.name != expected
-            {
-                errors.push(GraphError::BrokenRef {
-                    doc_id: doc_id.to_owned(),
-                    ref_str: raw.to_owned(),
-                    reason: format!(
-                        "fragment `{frag}` resolves to `{}` but expected `{expected}`",
-                        comp.name
-                    ),
-                    position,
-                });
-                return RefValidation::Error;
+            match fragment_check {
+                FragmentCheck::None => {}
+                FragmentCheck::ExactComponent(expected) => {
+                    if comp.name != expected {
+                        errors.push(GraphError::BrokenRef {
+                            doc_id: doc_id.to_owned(),
+                            ref_str: raw.to_owned(),
+                            reason: format!(
+                                "fragment `{frag}` resolves to `{}` but expected `{expected}`",
+                                comp.name
+                            ),
+                            position,
+                        });
+                        return RefValidation::Error;
+                    }
+                }
+                FragmentCheck::Verifiable => {
+                    let is_verifiable = ctx
+                        .component_defs
+                        .get(&comp.name)
+                        .is_some_and(|def| def.verifiable);
+                    if !is_verifiable {
+                        errors.push(GraphError::BrokenRef {
+                            doc_id: doc_id.to_owned(),
+                            ref_str: raw.to_owned(),
+                            reason: format!(
+                                "fragment `{frag}` resolves to `{}` which is not a verifiable component",
+                                comp.name
+                            ),
+                            position,
+                        });
+                        return RefValidation::Error;
+                    }
+                }
             }
         } else {
             errors.push(GraphError::BrokenRef {
@@ -165,6 +203,7 @@ pub(super) fn resolve_refs(
     let ctx = ResolveContext {
         doc_index,
         component_index,
+        component_defs,
         doc_project,
         project_isolation,
     };
@@ -204,12 +243,16 @@ fn resolve_components_recursive(
         if let Some(def) = component_defs.get(&component.name)
             && let Some(refs_value) = component.attributes.get("refs")
         {
+            let fragment_check = match def.target_component.as_deref() {
+                Some(tc) => FragmentCheck::ExactComponent(tc),
+                None => FragmentCheck::None,
+            };
             let resolved = resolve_single_refs_attribute(
                 ctx,
                 doc_id,
                 refs_value,
                 component.position,
-                def.target_component.as_deref(),
+                fragment_check,
                 errors,
             );
 
@@ -239,7 +282,7 @@ fn resolve_single_refs_attribute(
     doc_id: &str,
     refs_value: &str,
     position: SourcePosition,
-    target_component: Option<&str>,
+    fragment_check: FragmentCheck<'_>,
     errors: &mut Vec<GraphError>,
 ) -> Vec<ResolvedRef> {
     let items = match split_list_attribute(refs_value) {
@@ -259,7 +302,7 @@ fn resolve_single_refs_attribute(
 
     for raw in items {
         if let RefValidation::Valid(target_doc_id, fragment) =
-            validate_ref(ctx, doc_id, raw, position, false, target_component, errors)
+            validate_ref(ctx, doc_id, raw, position, false, fragment_check, errors)
         {
             resolved.push(ResolvedRef {
                 raw: raw.to_owned(),
@@ -309,14 +352,16 @@ fn is_cross_project_violation(
 /// Resolve `implements` attributes on all `Task` components.
 ///
 /// Each ref in an `implements` attribute MUST include a `#fragment` targeting
-/// a `Criterion` component. A ref without a fragment, or one that does not
-/// resolve to an existing `Criterion`, produces a `BrokenRef` error.
+/// a verifiable component (one whose `ComponentDef` has `verifiable: true`).
+/// A ref without a fragment, or one that does not resolve to a verifiable
+/// component, produces a `BrokenRef` error.
 ///
 /// Returns the resolved mappings and any errors.
 #[expect(clippy::type_complexity, reason = "return type is clear in context")]
 pub(super) fn resolve_task_implements(
     doc_index: &HashMap<String, SpecDocument>,
     component_index: &HashMap<(String, String), (String, ExtractedComponent)>,
+    component_defs: &ComponentDefs,
     doc_project: &HashMap<String, Option<String>>,
     project_isolation: &HashMap<String, bool>,
 ) -> (
@@ -326,6 +371,7 @@ pub(super) fn resolve_task_implements(
     let ctx = ResolveContext {
         doc_index,
         component_index,
+        component_defs,
         doc_project,
         project_isolation,
     };
@@ -386,7 +432,7 @@ fn resolve_task_implements_recursive(
 
 /// Resolve a single `implements` attribute value.
 ///
-/// Each ref must have a `#fragment` targeting a `Criterion`.
+/// Each ref must have a `#fragment` targeting a verifiable component.
 fn resolve_single_implements_attribute(
     ctx: &ResolveContext<'_>,
     doc_id: &str,
@@ -410,9 +456,15 @@ fn resolve_single_implements_attribute(
     let mut resolved = Vec::with_capacity(items.len());
 
     for raw in items {
-        if let RefValidation::Valid(target_doc_id, Some(frag)) =
-            validate_ref(ctx, doc_id, raw, position, true, Some(CRITERION), errors)
-        {
+        if let RefValidation::Valid(target_doc_id, Some(frag)) = validate_ref(
+            ctx,
+            doc_id,
+            raw,
+            position,
+            true,
+            FragmentCheck::Verifiable,
+            errors,
+        ) {
             resolved.push((target_doc_id, frag));
         }
     }

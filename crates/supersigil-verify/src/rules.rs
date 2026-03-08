@@ -27,3 +27,31 @@ pub(crate) fn has_component(components: &[ExtractedComponent], name: &str) -> bo
         .iter()
         .any(|c| c.name == name || has_component(&c.children, name))
 }
+
+/// Collect all `VerifiedBy` components that are direct children of a
+/// `Criterion` component.
+///
+/// Only criterion-nested `VerifiedBy` components produce coverage evidence.
+/// Document-level placement is caught separately by
+/// `structural::check_verified_by_placement`.
+pub(crate) fn find_criterion_nested_verified_by(
+    components: &[ExtractedComponent],
+) -> Vec<&ExtractedComponent> {
+    let mut result = Vec::new();
+    collect_criterion_nested_verified_by(components, false, &mut result);
+    result
+}
+
+fn collect_criterion_nested_verified_by<'a>(
+    components: &'a [ExtractedComponent],
+    inside_criterion: bool,
+    result: &mut Vec<&'a ExtractedComponent>,
+) {
+    for c in components {
+        if c.name == "VerifiedBy" && inside_criterion {
+            result.push(c);
+        }
+        let child_inside_criterion = c.name == "Criterion";
+        collect_criterion_nested_verified_by(&c.children, child_inside_criterion, result);
+    }
+}

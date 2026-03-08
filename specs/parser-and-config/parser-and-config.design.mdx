@@ -191,7 +191,7 @@ pub struct Frontmatter {
 ```rust
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtractedComponent {
-    /// Component name (e.g., "Criterion", "Validates").
+    /// Component name (e.g., "Criterion", "References").
     pub name: String,
     /// All attribute values as raw strings. No list splitting.
     pub attributes: HashMap<String, String>,
@@ -394,7 +394,7 @@ pub struct ComponentDefs {
 }
 
 impl ComponentDefs {
-    /// Returns the built-in defaults (AcceptanceCriteria, Criterion, Validates, etc.).
+    /// Returns the built-in defaults (AcceptanceCriteria, Criterion, References, etc.).
     pub fn defaults() -> Self;
 
     /// Merge user-defined components over defaults. User defs with the same name
@@ -417,10 +417,9 @@ The following are the literal default entries returned by `ComponentDefs::defaul
 |-----------|-----------|---------------|-----------------|
 | `AcceptanceCriteria` | *(none)* | no | — |
 | `Criterion` | `id`: required | yes | — |
-| `Validates` | `refs`: required, list | no | `Criterion` |
+| `References` | `refs`: required, list | no | `Criterion` |
 | `VerifiedBy` | `strategy`: required; `tag`: optional; `paths`: optional, list | no | — |
 | `Implements` | `refs`: required, list | no | — |
-| `Illustrates` | `refs`: required, list | no | — |
 | `Task` | `id`: required; `status`: optional; `implements`: optional, list; `depends`: optional, list | yes | — |
 | `TrackedFiles` | `paths`: required, list | no | — |
 | `DependsOn` | `refs`: required, list | no | — |
@@ -485,115 +484,115 @@ pub struct ListSplitError {
 
 *For any* valid `Frontmatter` value (with an `id`, optional `doc_type`, optional `status`), serializing it to YAML and deserializing the YAML back into a `Frontmatter` shall produce a value equal to the original. The `type` ↔ `doc_type` field rename must be preserved across the round-trip.
 
-<Validates refs="parser-and-config/req#req-22-1, parser-and-config/req#req-4-1" />
+<References refs="parser-and-config/req#req-22-1, parser-and-config/req#req-4-1" />
 
 ### Property 2: Config TOML round-trip
 
 *For any* valid `Config` value (in either single-project or multi-project mode, with arbitrary document types, component definitions, verification rules, ecosystem plugins, hooks, and test results), serializing it to TOML and deserializing the TOML back into a `Config` shall produce a value equal to the original. The `id_pattern` field is serialized as the pattern string and recompiled on deserialization.
 
-<Validates refs="parser-and-config/req#req-23-1, parser-and-config/req#req-11-1" />
+<References refs="parser-and-config/req#req-23-1, parser-and-config/req#req-11-1" />
 
 ### Property 3: BOM stripping preserves content
 
 *For any* byte sequence representing valid UTF-8 file content, preprocessing shall decode UTF-8, strip a leading BOM (U+FEFF) if present, and leave the remaining content unchanged (modulo CRLF normalization). If no BOM is present, the content shall be unchanged (modulo CRLF normalization). If the byte sequence is not valid UTF-8, preprocessing shall return an error.
 
-<Validates refs="parser-and-config/req#req-1-1, parser-and-config/req#req-1-2, parser-and-config/req#req-1-3" />
+<References refs="parser-and-config/req#req-1-1, parser-and-config/req#req-1-2, parser-and-config/req#req-1-3" />
 
 ### Property 4: CRLF normalization replaces all original CRLF pairs
 
 *For any* string, CRLF normalization replaces every original `\r\n` pair with `\n` and preserves bare `\r` characters (not part of a `\r\n` pair) as-is. Specifically: (a) the number of `\r` characters in the output equals the number of bare `\r` characters in the input, (b) the number of `\n` characters in the output equals the number of bare `\n` characters in the input plus the number of original `\r\n` pairs, and (c) the output length equals the input length minus the number of original `\r\n` pairs. Note: a bare `\r` preserved from the input may end up adjacent to a `\n` produced by normalizing a subsequent `\r\n` pair (e.g., input `\r\r\n` → output `\r\n`); this is correct behavior, not a residual CRLF.
 
-<Validates refs="parser-and-config/req#req-2-1, parser-and-config/req#req-2-2" />
+<References refs="parser-and-config/req#req-2-1, parser-and-config/req#req-2-2" />
 
 ### Property 5: Files without supersigil front matter return NotSupersigil
 
 *For any* file content that either (a) does not start with `---` (after trimming trailing whitespace), or (b) has valid YAML front matter but no `supersigil:` key, the parser shall return `ParseResult::NotSupersigil(path)`.
 
-<Validates refs="parser-and-config/req#req-3-3, parser-and-config/req#req-4-6, parser-and-config/req#req-10-2" />
+<References refs="parser-and-config/req#req-3-3, parser-and-config/req#req-4-6, parser-and-config/req#req-10-2" />
 
 ### Property 6: Unclosed front matter produces an error
 
 *For any* file content that starts with a line matching `---` (optionally followed by trailing whitespace) and a newline, followed by arbitrary content but containing no closing `---` line (optionally followed by trailing whitespace), the parser shall return an `UnclosedFrontMatter` error.
 
-<Validates refs="parser-and-config/req#req-3-2" />
+<References refs="parser-and-config/req#req-3-2" />
 
 ### Property 7: Extra metadata preservation
 
 *For any* valid YAML front matter containing a `supersigil:` key and additional arbitrary keys, the parser shall preserve all non-supersigil keys in `SpecDocument.extra` with their original values. The set of keys in `extra` shall equal the set of top-level YAML keys minus `supersigil`.
 
-<Validates refs="parser-and-config/req#req-4-4" />
+<References refs="parser-and-config/req#req-4-4" />
 
 ### Property 8: String attribute extraction fidelity
 
 *For any* MDX component with string literal attributes, the parser shall store each attribute value as the exact raw string from the source. No interpretation, splitting, or transformation is applied.
 
-<Validates refs="parser-and-config/req#req-6-1, parser-and-config/req#req-6-4" />
+<References refs="parser-and-config/req#req-6-1, parser-and-config/req#req-6-4" />
 
 ### Property 9: Body text is trimmed concatenation of non-component text nodes
 
 *For any* MDX component, `body_text` shall be `None` if the component is self-closing or contains only child components with no text nodes. Otherwise, `body_text` shall equal the concatenation of all non-component text nodes within the component, with leading and trailing whitespace trimmed.
 
-<Validates refs="parser-and-config/req#req-8-3, parser-and-config/req#req-8-4, parser-and-config/req#req-8-5" />
+<References refs="parser-and-config/req#req-8-3, parser-and-config/req#req-8-4, parser-and-config/req#req-8-5" />
 
 ### Property 10: Recursive child collection preserves nesting structure
 
 *For any* MDX document with nested components (e.g., `<Criterion>` inside `<AcceptanceCriteria>`), the parser shall produce an `ExtractedComponent` tree where each parent's `children` list contains exactly the child components from the source, at all nesting depths. Components with no children shall have an empty `children` list.
 
-<Validates refs="parser-and-config/req#req-9-1, parser-and-config/req#req-9-2, parser-and-config/req#req-9-3" />
+<References refs="parser-and-config/req#req-9-1, parser-and-config/req#req-9-2, parser-and-config/req#req-9-3" />
 
 ### Property 11: Unknown TOML keys are rejected at all nesting levels
 
 *For any* valid `Config` TOML with an unknown key injected at any nesting level (top-level, inside `[documents]`, inside `[components.<Name>]`, inside `[projects.<name>]`, inside `[verify]`, inside `[hooks]`, inside `[ecosystem]`, inside `[test_results]`), the config loader shall emit an error identifying the unknown key.
 
-<Validates refs="parser-and-config/req#req-11-3" />
+<References refs="parser-and-config/req#req-11-3" />
 
 ### Property 12: Single-project and multi-project modes are mutually exclusive
 
 *For any* TOML config, exactly one of the following must hold: (a) `paths` is present and `projects` is absent (single-project mode), (b) `projects` is present and neither `paths` nor `tests` is present (multi-project mode), or (c) the config loader emits an error. Configs with both `paths` and `projects`, or both `tests` and `projects`, or neither `paths` nor `projects`, are rejected.
 
-<Validates refs="parser-and-config/req#req-12-1, parser-and-config/req#req-12-2, parser-and-config/req#req-12-3, parser-and-config/req#req-12-4, parser-and-config/req#req-12-5" />
+<References refs="parser-and-config/req#req-12-1, parser-and-config/req#req-12-2, parser-and-config/req#req-12-3, parser-and-config/req#req-12-4, parser-and-config/req#req-12-5" />
 
 ### Property 13: Component definition merge is additive over built-in defaults
 
 *For any* set of user-defined component definitions, merging over the built-in defaults shall produce a set where: (a) user-defined components with the same name as a built-in override the built-in, (b) user-defined components with new names are added, and (c) built-in components not mentioned by the user remain unchanged.
 
-<Validates refs="parser-and-config/req#req-14-5" />
+<References refs="parser-and-config/req#req-14-5" />
 
 ### Property 14: Unknown verification rule names are rejected
 
 *For any* rule name in `[verify.rules]` that is not in the set of known rule names, the config loader shall emit an error identifying the unknown rule.
 
-<Validates refs="parser-and-config/req#req-15-3" />
+<References refs="parser-and-config/req#req-15-3" />
 
 ### Property 15: List splitting produces trimmed non-empty items
 
 *For any* raw comma-separated string, `split_list_attribute` shall split on `,`, trim each item, and produce a list where every item is non-empty and has no leading or trailing whitespace. Trailing commas and consecutive commas (which would produce empty items) are rejected with an error.
 
-<Validates refs="parser-and-config/req#req-7-2" />
+<References refs="parser-and-config/req#req-7-2" />
 
 ### Property 16: Missing required attributes are detected
 
 *For any* component definition with `required = true` attributes, and *for any* component instance missing one or more of those required attributes, the parser shall emit a `MissingRequiredAttribute` error. Conversely, *for any* component instance that has all required attributes present, no `MissingRequiredAttribute` error shall be emitted.
 
-<Validates refs="parser-and-config/req#req-21-1, parser-and-config/req#req-21-2" />
+<References refs="parser-and-config/req#req-21-1, parser-and-config/req#req-21-2" />
 
 ### Property 17: Unknown component names are detected
 
 *For any* PascalCase component name that does not appear in the merged set of built-in and user-defined component definitions, the parser shall emit an `UnknownComponent` error identifying the name and source position. Lowercase element names (standard HTML) are silently ignored and never produce unknown component errors.
 
-<Validates refs="parser-and-config/req#req-25-1" />
+<References refs="parser-and-config/req#req-25-1" />
 
 ### Property 18: Parser collects all errors rather than stopping at the first
 
 *For any* input file with multiple independent error conditions (e.g., an expression attribute on one component and a missing required attribute on another), the parser shall return all errors, not just the first one encountered.
 
-<Validates refs="parser-and-config/req#req-10-3" />
+<References refs="parser-and-config/req#req-10-3" />
 
 ### Property 19: id_pattern accepts valid regex and rejects invalid regex
 
 *For any* string that is a valid Rust regex, the config loader shall accept it as an `id_pattern`. *For any* string that is not a valid regex, the config loader shall emit an `InvalidIdPattern` error.
 
-<Validates refs="parser-and-config/req#req-20-1, parser-and-config/req#req-20-2" />
+<References refs="parser-and-config/req#req-20-1, parser-and-config/req#req-20-2" />
 
 ## Error Handling
 

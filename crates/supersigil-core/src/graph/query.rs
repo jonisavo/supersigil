@@ -27,25 +27,23 @@ pub enum QueryError {
 pub struct ContextOutput {
     /// The target document.
     pub document: crate::SpecDocument,
-    /// Criteria with their validation/illustration status.
-    pub criteria: Vec<CriterionContext>,
+    /// Verification targets (criteria) with their reference status.
+    pub criteria: Vec<TargetContext>,
     /// Documents that implement this document.
     pub implemented_by: Vec<DocRef>,
-    /// Documents that illustrate this document (document-level).
-    pub illustrated_by: Vec<String>,
+    /// Documents that reference this document (document-level).
+    pub referenced_by: Vec<String>,
     /// Tasks from linked tasks documents, in topological order.
     pub tasks: Vec<TaskInfo>,
 }
 
-/// A criterion with its incoming validation and illustration relationships.
+/// A verification target (criterion) with its incoming reference relationships.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct CriterionContext {
+pub struct TargetContext {
     pub id: String,
     pub body_text: Option<String>,
-    /// Documents that validate this criterion, with their status.
-    pub validated_by: Vec<DocRef>,
-    /// Documents that illustrate this criterion.
-    pub illustrated_by: Vec<String>,
+    /// Documents that reference this criterion, with their status.
+    pub referenced_by: Vec<DocRef>,
 }
 
 /// A reference to a document with its optional status.
@@ -63,7 +61,7 @@ pub struct TaskInfo {
     pub task_id: String,
     pub status: Option<String>,
     pub body_text: Option<String>,
-    /// Criteria this task implements: `(doc_id, criterion_id)`.
+    /// Verification targets this task implements: `(doc_id, target_id)`.
     pub implements: Vec<(String, String)>,
     /// Task IDs this task depends on.
     pub depends_on: Vec<String>,
@@ -76,32 +74,21 @@ pub struct TaskInfo {
 /// Structured output for the `plan` command.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PlanOutput {
-    /// Criteria with no validating document.
-    pub outstanding_criteria: Vec<OutstandingCriterion>,
+    /// Verification targets with no evidence.
+    pub outstanding_targets: Vec<OutstandingTarget>,
     /// Tasks not yet done, in topological order, grouped by tasks document.
     pub pending_tasks: Vec<TaskInfo>,
     /// Completed tasks with the criteria they implement.
     pub completed_tasks: Vec<TaskInfo>,
-    /// Documents that illustrate the target.
-    pub illustrated_by: Vec<IllustrationRef>,
 }
 
-/// A criterion that has no validating document.
+/// A verification target that has no verification evidence.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct OutstandingCriterion {
-    /// The requirement document containing this criterion.
+pub struct OutstandingTarget {
+    /// The document containing this verification target.
     pub doc_id: String,
-    pub criterion_id: String,
+    pub target_id: String,
     pub body_text: Option<String>,
-}
-
-/// A document that illustrates a target criterion or document.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct IllustrationRef {
-    pub doc_id: String,
-    /// The target criterion or document being illustrated.
-    pub target_doc_id: String,
-    pub target_fragment: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -182,8 +169,8 @@ pub(super) fn build_context(graph: &DocumentGraph, id: &str) -> Result<ContextOu
         })
         .collect();
 
-    // Document-level illustrations.
-    let illustrated_by = graph.illustrates(id, None).iter().cloned().collect();
+    // Document-level references.
+    let referenced_by = graph.references(id, None).iter().cloned().collect();
 
     // Linked tasks: find all tasks documents that have tasks implementing
     // criteria in this document, then collect those tasks in topo order.
@@ -193,25 +180,25 @@ pub(super) fn build_context(graph: &DocumentGraph, id: &str) -> Result<ContextOu
         document,
         criteria,
         implemented_by,
-        illustrated_by,
+        referenced_by,
         tasks,
     })
 }
 
 /// Recursively extract `Criterion` components from a component tree,
-/// building `CriterionContext` with reverse mapping lookups.
+/// building `TargetContext` with reverse mapping lookups.
 fn extract_criteria(
     graph: &DocumentGraph,
     doc_id: &str,
     components: &[ExtractedComponent],
-) -> Vec<CriterionContext> {
+) -> Vec<TargetContext> {
     let mut result = Vec::new();
     for comp in components {
         if comp.name == CRITERION
             && let Some(crit_id) = comp.attributes.get("id")
         {
-            let validated_by = graph
-                .validates(doc_id, Some(crit_id))
+            let referenced_by = graph
+                .references(doc_id, Some(crit_id))
                 .iter()
                 .map(|vid| DocRef {
                     doc_id: vid.clone(),
@@ -221,17 +208,10 @@ fn extract_criteria(
                 })
                 .collect();
 
-            let illustrated_by = graph
-                .illustrates(doc_id, Some(crit_id))
-                .iter()
-                .cloned()
-                .collect();
-
-            result.push(CriterionContext {
+            result.push(TargetContext {
                 id: crit_id.clone(),
                 body_text: comp.body_text.clone(),
-                validated_by,
-                illustrated_by,
+                referenced_by,
             });
         }
         // Recurse into children (e.g., AcceptanceCriteria → Criterion).
@@ -360,21 +340,19 @@ pub(super) fn build_plan(
     };
 
     let (pending_tasks, completed_tasks) = collect_plan_tasks(graph, &target_doc_ids);
-    let done_implemented = collect_done_implemented_criteria(graph, &completed_tasks);
-    let outstanding_criteria =
-        collect_outstanding_criteria(graph, &target_doc_ids, &done_implemented);
-    let illustrated_by = collect_illustrations(graph, &target_doc_ids);
+    let done_implemented = collect_done_implemented_targets(graph, &completed_tasks);
+    let outstanding_targets =
+        collect_outstanding_targets(graph, &target_doc_ids, &done_implemented);
 
     Ok(PlanOutput {
-        outstanding_criteria,
+        outstanding_targets,
         pending_tasks,
         completed_tasks,
-        illustrated_by,
     })
 }
 
-/// Build the set of `(doc_id, criterion_id)` pairs covered by completed tasks.
-fn collect_done_implemented_criteria(
+/// Build the set of `(doc_id, target_id)` pairs covered by completed tasks.
+fn collect_done_implemented_targets(
     graph: &DocumentGraph,
     completed_tasks: &[TaskInfo],
 ) -> HashSet<(String, String)> {
@@ -389,18 +367,17 @@ fn collect_done_implemented_criteria(
     set
 }
 
-/// Collect criteria that have no validating document and no completed task
-/// implementing them.
-fn collect_outstanding_criteria(
+/// Collect verification targets that have no referencing document and no
+/// completed task implementing them.
+fn collect_outstanding_targets(
     graph: &DocumentGraph,
     target_doc_ids: &HashSet<String>,
     done_implemented: &HashSet<(String, String)>,
-) -> Vec<OutstandingCriterion> {
+) -> Vec<OutstandingTarget> {
     let mut result = Vec::new();
     for doc_id in target_doc_ids {
         if let Some(doc) = graph.document(doc_id) {
             collect_outstanding_from_components(
-                graph,
                 doc_id,
                 &doc.components,
                 done_implemented,
@@ -411,36 +388,32 @@ fn collect_outstanding_criteria(
     result
 }
 
-/// Recursively find `Criterion` components with no validators and no
-/// completed task implementing them.
+/// Recursively find verifiable components with no completed task
+/// implementing them.
+///
+/// Note: `References` links are informational and do not suppress targets.
+/// Evidence-based coverage filtering happens at the CLI layer using the
+/// `ArtifactGraph`.
 fn collect_outstanding_from_components(
-    graph: &DocumentGraph,
     doc_id: &str,
     components: &[ExtractedComponent],
     done_implemented: &HashSet<(String, String)>,
-    result: &mut Vec<OutstandingCriterion>,
+    result: &mut Vec<OutstandingTarget>,
 ) {
     for comp in components {
         if comp.name == CRITERION
             && let Some(crit_id) = comp.attributes.get("id")
         {
-            let has_validator = !graph.validates(doc_id, Some(crit_id)).is_empty();
             let has_done_task = done_implemented.contains(&(doc_id.to_owned(), crit_id.clone()));
-            if !has_validator && !has_done_task {
-                result.push(OutstandingCriterion {
+            if !has_done_task {
+                result.push(OutstandingTarget {
                     doc_id: doc_id.to_owned(),
-                    criterion_id: crit_id.clone(),
+                    target_id: crit_id.clone(),
                     body_text: comp.body_text.clone(),
                 });
             }
         }
-        collect_outstanding_from_components(
-            graph,
-            doc_id,
-            &comp.children,
-            done_implemented,
-            result,
-        );
+        collect_outstanding_from_components(doc_id, &comp.children, done_implemented, result);
     }
 }
 
@@ -491,51 +464,4 @@ fn collect_plan_tasks(
     }
 
     (pending, completed)
-}
-
-/// Collect illustration references for the target documents and their criteria.
-fn collect_illustrations(
-    graph: &DocumentGraph,
-    target_doc_ids: &HashSet<String>,
-) -> Vec<IllustrationRef> {
-    let mut result = Vec::new();
-    for doc_id in target_doc_ids {
-        // Document-level illustrations.
-        for illus_doc_id in graph.illustrates(doc_id, None) {
-            result.push(IllustrationRef {
-                doc_id: illus_doc_id.clone(),
-                target_doc_id: doc_id.to_owned(),
-                target_fragment: None,
-            });
-        }
-
-        // Criterion-level illustrations.
-        if let Some(doc) = graph.document(doc_id) {
-            collect_criterion_illustrations(graph, doc_id, &doc.components, &mut result);
-        }
-    }
-    result
-}
-
-/// Recursively find `Criterion` components and collect their illustrations.
-fn collect_criterion_illustrations(
-    graph: &DocumentGraph,
-    doc_id: &str,
-    components: &[ExtractedComponent],
-    result: &mut Vec<IllustrationRef>,
-) {
-    for comp in components {
-        if comp.name == CRITERION
-            && let Some(crit_id) = comp.attributes.get("id")
-        {
-            for illus_doc_id in graph.illustrates(doc_id, Some(crit_id)) {
-                result.push(IllustrationRef {
-                    doc_id: illus_doc_id.clone(),
-                    target_doc_id: doc_id.to_owned(),
-                    target_fragment: Some(crit_id.clone()),
-                });
-            }
-        }
-        collect_criterion_illustrations(graph, doc_id, &comp.children, result);
-    }
 }

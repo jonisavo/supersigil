@@ -27,7 +27,7 @@ The subsystem spans two crates: `supersigil-parser` (front matter extraction, MD
 - **CRLF**: Carriage Return + Line Feed (`\r\n`), a Windows-style line ending.
 - **Expression_Attribute**: A JSX expression attribute using `{...}` syntax, which Supersigil rejects.
 - **Source_Position**: A struct recording the byte offset, line, and column of a component in the original file (after BOM stripping but including front matter).
-- **PascalCase_Element**: An MDX JSX element whose name starts with an uppercase letter (e.g., `<Validates>`, `<Criterion>`). Only PascalCase elements are treated as supersigil components. Lowercase elements (e.g., `<div>`, `<p>`) are standard HTML and are silently ignored.
+- **PascalCase_Element**: An MDX JSX element whose name starts with an uppercase letter (e.g., `<References>`, `<Criterion>`). Only PascalCase elements are treated as supersigil components. Lowercase elements (e.g., `<div>`, `<p>`) are standard HTML and are silently ignored.
 - **Flow_Element**: A block-level MDX JSX element (`MdxJsxFlowElement` in the AST). Supersigil extracts only flow elements as components.
 - **Text_Element**: An inline MDX JSX element (`MdxJsxTextElement` in the AST). Supersigil ignores inline elements.
 
@@ -145,7 +145,7 @@ As a developer, I want component definitions in config to declare attribute type
     THE `supersigil-core` crate SHALL provide a `split_list_attribute(raw: &str) -> Result<Vec<&str>, ListSplitError>` utility function that splits the raw string value on `,`, trims leading and trailing whitespace from each item, and rejects empty items (e.g., trailing comma or consecutive commas). This function is tested in this spec as a shared utility, though it is consumed by downstream specs (graph, verification).
   </Criterion>
   <Criterion id="req-7-3">
-    THE built-in default component definitions SHALL declare `refs` (on `Validates`, `Implements`, `Illustrates`, `DependsOn`), `paths` (on `VerifiedBy`, `TrackedFiles`), `implements` (on `Task`), and `depends` (on `Task`) as list-typed attributes.
+    THE built-in default component definitions SHALL declare `refs` (on `References`, `Implements`, `DependsOn`), `paths` (on `VerifiedBy`, `TrackedFiles`), `implements` (on `Task`), and `depends` (on `Task`) as list-typed attributes.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -164,7 +164,7 @@ As a developer, I want the parser to walk the MDX AST and collect all MDX compon
     WHEN an MDX component contains body text (non-component text nodes between opening and closing tags), THE Parser SHALL collect all non-component text nodes, concatenate them, trim leading and trailing whitespace from the concatenated result, and store it in `ExtractedComponent.body_text`. Child components are excluded from body text and extracted separately into `ExtractedComponent.children`.
   </Criterion>
   <Criterion id="req-8-4">
-    WHEN an MDX component is self-closing (e.g., `<Validates refs="..." />`), THE Parser SHALL set `ExtractedComponent.body_text` to `None`.
+    WHEN an MDX component is self-closing (e.g., `<References refs="..." />`), THE Parser SHALL set `ExtractedComponent.body_text` to `None`.
   </Criterion>
   <Criterion id="req-8-5">
     WHEN an MDX component has child components but no non-component text nodes, THE Parser SHALL set `ExtractedComponent.body_text` to `None`.
@@ -284,7 +284,7 @@ As a developer, I want to define components with attribute requirements in confi
     WHEN a component definition includes a `target_component` field, THE Config_Loader SHALL store the target component name for fragment type checking.
   </Criterion>
   <Criterion id="req-14-4">
-    WHEN no `[components]` section is present, THE Config_Loader SHALL use the built-in default component definitions for `AcceptanceCriteria`, `Criterion`, `Validates`, `VerifiedBy`, `Implements`, `Illustrates`, `Task`, `TrackedFiles`, and `DependsOn`.
+    WHEN no `[components]` section is present, THE Config_Loader SHALL use the built-in default component definitions for `AcceptanceCriteria`, `Criterion`, `References`, `VerifiedBy`, `Implements`, `Task`, `TrackedFiles`, and `DependsOn`.
   </Criterion>
   <Criterion id="req-14-5">
     WHEN a `[components]` section is present, THE Config_Loader SHALL merge user-defined component definitions over the built-in defaults. User-defined components with the same name as a built-in SHALL override the built-in definition. User-defined components with new names SHALL be added to the set. Built-in components not overridden SHALL remain in the set.

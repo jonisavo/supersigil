@@ -17,7 +17,7 @@ The Document Graph module builds the cross-document data structure from parsed s
 - **Component_Index**: A map keyed by `(document_id, component_id)` pairs, mapping each referenceable component (e.g., `Criterion`, `Task`) to the owning document ID and the component itself. The key is a compound key because component IDs (like Criterion `id`) are only unique within a document, not globally.
 - **Ref**: A string in a `refs` attribute, consisting of a document ID and an optional `#fragment` suffix targeting a referenceable component.
 - **Fragment**: The portion of a ref after `#`, which must match the `id` attribute of a referenceable component in the target document.
-- **Reverse_Mapping**: A computed index from a target document or criterion to the set of documents that reference it via `Validates`, `Implements`, or `Illustrates`.
+- **Reverse_Mapping**: A computed index from a target document or criterion to the set of documents that reference it via `References`, `Implements`, or `DependsOn`.
 - **Topological_Order**: A linear ordering of nodes in a DAG such that for every directed edge (u, v), u appears before v.
 - **Context_Output**: A structured data representation of a document, its relationships, and its tasks in dependency order, used by the `context` command.
 - **Plan_Output**: A structured data representation of outstanding criteria, pending tasks, and completed work for a document or feature prefix, used by the `plan` command.
@@ -170,17 +170,17 @@ As a query consumer, I want tasks and document dependencies computed in topologi
 
 ## Requirement 8: Reverse Mappings
 
-As a query consumer, I want to know which documents validate, implement, or illustrate a given criterion or document, so that the `context` and `plan` commands can display incoming relationships without requiring bidirectional refs in source documents.
+As a query consumer, I want to know which documents reference, implement, or depend on a given criterion or document, so that the `context` and `plan` commands can display incoming relationships without requiring bidirectional refs in source documents.
 
 <AcceptanceCriteria>
   <Criterion id="req-8-1">
-    WHEN documents contain `Validates` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target criterion (document_id, fragment) to the set of validating document IDs.
+    WHEN documents contain `References` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target criterion (document_id, fragment) to the set of referencing document IDs.
   </Criterion>
   <Criterion id="req-8-2">
     WHEN documents contain `Implements` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target document ID to the set of implementing document IDs. Fragment portions of `Implements` refs are resolved for validation (Requirement 3) but discarded in the reverse mapping — Implements mappings are always document-level, consistent with the design principle that Implements provides traceability without requiring criterion-level coverage.
   </Criterion>
   <Criterion id="req-8-3">
-    WHEN documents contain `Illustrates` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target criterion or document to the set of illustrating document IDs.
+    WHEN documents contain `DependsOn` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target document ID to the set of depending document IDs.
   </Criterion>
   <Criterion id="req-8-4">
     THE Reverse_Mapping SHALL be queryable by target document ID or by (document_id, fragment) pair.

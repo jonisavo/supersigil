@@ -5,13 +5,14 @@ use std::path::Path;
 
 use supersigil_verify::{
     Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport, VerifyOptions,
-    format_json, format_markdown,
+    format_json, format_markdown, resolve_severity,
 };
 
 use crate::commands::{VerifyArgs, VerifyFormat};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, ExitStatus, Token};
 use crate::loader;
+use crate::plugins;
 
 /// Maximum number of findings per (document, rule) group before collapsing.
 const COLLAPSE_THRESHOLD: usize = 3;
@@ -38,7 +39,75 @@ pub fn run(
         use_merge_base: args.merge_base,
     };
 
-    let report = supersigil_verify::verify(&graph, &config, project_root, &options)?;
+    // -- Plugin assembly & artifact graph construction --
+    let (artifact_graph, mut plugin_findings) =
+        plugins::build_evidence(&config, &graph, project_root, options.project.as_deref());
+
+    let mut report =
+        supersigil_verify::verify(&graph, &config, project_root, &options, &artifact_graph)?;
+
+    // Append plugin failure findings (req-8-6), applying severity resolution
+    // so they respect the same config overrides as built-in rules.
+    if !plugin_findings.is_empty() {
+        for finding in &mut plugin_findings {
+            let doc_status = finding
+                .doc_id
+                .as_ref()
+                .and_then(|id| graph.document(id))
+                .and_then(|doc| doc.frontmatter.status.as_deref());
+            finding.effective_severity =
+                resolve_severity(&finding.rule, doc_status, &config.verify);
+        }
+        plugin_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
+        report.findings.extend(plugin_findings);
+    }
+
+    // Convert artifact graph conflicts into findings so they are visible in
+    // the report, not just as a count in the evidence summary.
+    if !artifact_graph.conflicts.is_empty() {
+        let mut conflict_findings: Vec<Finding> = artifact_graph
+            .conflicts
+            .iter()
+            .map(|conflict| {
+                let test_name =
+                    format!("{}::{}", conflict.test.file.display(), conflict.test.name,);
+                let left: Vec<String> = conflict
+                    .left
+                    .iter()
+                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
+                    .collect();
+                let right: Vec<String> = conflict
+                    .right
+                    .iter()
+                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
+                    .collect();
+                let message = format!(
+                    "evidence conflict for test `{test_name}`: \
+                     criterion sets disagree — [{}] vs [{}]",
+                    left.join(", "),
+                    right.join(", "),
+                );
+                Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
+            })
+            .collect();
+        for finding in &mut conflict_findings {
+            finding.effective_severity = resolve_severity(&finding.rule, None, &config.verify);
+        }
+        conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
+        report.findings.extend(conflict_findings);
+    }
+
+    // Recompute summary after appending plugin and conflict findings.
+    report.summary =
+        supersigil_verify::Summary::from_findings(report.summary.total_documents, &report.findings);
+
+    // Populate evidence summary from artifact graph (req-9-1, req-9-2, req-9-3).
+    if !artifact_graph.evidence.is_empty() {
+        report.evidence_summary = Some(supersigil_verify::EvidenceSummary::from_artifact_graph(
+            &artifact_graph,
+        ));
+    }
+
     let status = report.result_status();
 
     let stdout = io::stdout();
@@ -154,6 +223,25 @@ fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
         );
     }
 
+    // Evidence summary (optional)
+    if let Some(ref ev) = report.evidence_summary {
+        let _ = writeln!(out);
+        for entry in &ev.records {
+            let targets = entry.targets.join(", ");
+            let prov = entry.provenance.join(", ");
+            let _ = writeln!(
+                out,
+                "  {} {} [{}] {} ({} via {})",
+                color.paint(Token::Hint, "▸"),
+                entry.test_name,
+                entry.evidence_kind,
+                targets,
+                entry.test_file,
+                prov,
+            );
+        }
+    }
+
     out
 }
 
@@ -176,6 +264,7 @@ mod tests {
     use super::*;
     use crate::format::ColorChoice;
     use supersigil_verify::Summary;
+    use supersigil_verify::test_helpers::sample_evidence_summary;
 
     fn color() -> ColorConfig {
         ColorConfig::resolve(ColorChoice::Always)
@@ -189,7 +278,7 @@ mod tests {
     fn groups_by_document() {
         let findings = vec![
             Finding::new(
-                RuleName::UncoveredCriterion,
+                RuleName::MissingVerificationEvidence,
                 Some("req/auth".to_string()),
                 "criterion AC-1 not covered".to_string(),
                 None,
@@ -202,7 +291,11 @@ mod tests {
             ),
         ];
         let summary = Summary::from_findings(2, &findings);
-        let report = VerificationReport { findings, summary };
+        let report = VerificationReport {
+            findings,
+            summary,
+            evidence_summary: None,
+        };
 
         // With color: Unicode symbols + ANSI
         let out = format_terminal(&report, color());
@@ -211,7 +304,7 @@ mod tests {
         assert!(out.contains("✖"), "should contain error symbol");
         assert!(out.contains("⚠"), "should contain warning symbol");
         assert!(
-            out.contains("[uncovered_criterion]"),
+            out.contains("[missing_verification_evidence]"),
             "should contain rule name",
         );
         assert!(
@@ -240,6 +333,7 @@ mod tests {
         let report = VerificationReport {
             findings: vec![],
             summary: Summary::from_findings(3, &[]),
+            evidence_summary: None,
         };
 
         let out = format_terminal(&report, color());
@@ -260,7 +354,7 @@ mod tests {
         let findings: Vec<Finding> = (0..10)
             .map(|i| {
                 Finding::new(
-                    RuleName::UncoveredCriterion,
+                    RuleName::MissingVerificationEvidence,
                     Some("req/auth".to_string()),
                     format!("criterion `req-{i}` has no validating property"),
                     None,
@@ -268,11 +362,15 @@ mod tests {
             })
             .collect();
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport { findings, summary };
+        let report = VerificationReport {
+            findings,
+            summary,
+            evidence_summary: None,
+        };
 
         let out = format_terminal(&report, no_color());
         assert!(
-            out.contains("[uncovered_criterion] 10 findings"),
+            out.contains("[missing_verification_evidence] 10 findings"),
             "should show collapsed count, got:\n{out}",
         );
         assert!(
@@ -302,7 +400,7 @@ mod tests {
         let findings: Vec<Finding> = (0..3)
             .map(|i| {
                 Finding::new(
-                    RuleName::UncoveredCriterion,
+                    RuleName::MissingVerificationEvidence,
                     Some("req/auth".to_string()),
                     format!("criterion `req-{i}` has no validating property"),
                     None,
@@ -310,7 +408,11 @@ mod tests {
             })
             .collect();
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport { findings, summary };
+        let report = VerificationReport {
+            findings,
+            summary,
+            evidence_summary: None,
+        };
 
         let out = format_terminal(&report, no_color());
         assert!(out.contains("criterion `req-0`"), "got:\n{out}");
@@ -319,5 +421,54 @@ mod tests {
         assert!(!out.contains("findings"), "got:\n{out}");
         assert!(!out.contains("more"), "got:\n{out}");
         assert!(!out.contains("--format json"), "got:\n{out}");
+    }
+
+    #[test]
+    fn terminal_shows_evidence_summary() {
+        let findings = vec![Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "criterion req-2 not covered".to_string(),
+            None,
+        )];
+        let summary = Summary::from_findings(1, &findings);
+        let report = VerificationReport {
+            findings,
+            summary,
+            evidence_summary: Some(sample_evidence_summary()),
+        };
+
+        let out = format_terminal(&report, no_color());
+        assert!(
+            out.contains("test_login_flow"),
+            "terminal output should include evidence test name when evidence_summary is present, got:\n{out}",
+        );
+        assert!(
+            out.contains("rust-attribute"),
+            "terminal output should include evidence kind, got:\n{out}",
+        );
+    }
+
+    #[test]
+    fn terminal_no_evidence_when_absent() {
+        let findings = vec![Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "criterion req-2 not covered".to_string(),
+            None,
+        )];
+        let summary = Summary::from_findings(1, &findings);
+        let report = VerificationReport {
+            findings,
+            summary,
+            evidence_summary: None,
+        };
+
+        let out = format_terminal(&report, no_color());
+        // Should not contain evidence-related sections
+        assert!(
+            !out.contains("Evidence"),
+            "terminal output should NOT include Evidence section when absent, got:\n{out}",
+        );
     }
 }

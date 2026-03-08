@@ -100,10 +100,10 @@ Use your Rust skills while developing.
   <Task id="task-4-1" status="done" implements="parser-and-config/req#req-7-1, parser-and-config/req#req-7-3, parser-and-config/req#req-14-4, parser-and-config/req#req-14-5">
     Write unit tests for ComponentDefs (TDD)
 
-    - Test `ComponentDefs::defaults()` returns exactly the 9 built-in components (AcceptanceCriteria, Criterion, Validates, VerifiedBy, Implements, Illustrates, Task, TrackedFiles, DependsOn) with correct attribute schemas
+    - Test `ComponentDefs::defaults()` returns exactly the 8 built-in components (AcceptanceCriteria, Criterion, References, VerifiedBy, Implements, Task, TrackedFiles, DependsOn) with correct attribute schemas
     - Test `ComponentDefs::merge()`: user override replaces built-in, new user component added, unmentioned built-ins preserved
     - Test `ComponentDefs::is_known()` and `ComponentDefs::get()`
-    - Test list-typed attributes: `refs` on Validates/Implements/Illustrates/DependsOn, `paths` on VerifiedBy/TrackedFiles, `implements`/`depends` on Task
+    - Test list-typed attributes: `refs` on References/Implements/DependsOn, `paths` on VerifiedBy/TrackedFiles, `implements`/`depends` on Task
   </Task>
 
   <Task id="task-4-2" status="done" depends="task-4-1" implements="parser-and-config/req#req-7-3, parser-and-config/req#req-14-4, parser-and-config/req#req-14-5">

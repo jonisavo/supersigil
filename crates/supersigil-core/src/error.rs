@@ -84,6 +84,21 @@ pub enum ConfigError {
     UnknownRule { rule: String },
     #[error("invalid id_pattern `{pattern}`: {message}")]
     InvalidIdPattern { pattern: String, message: String },
+    #[error("unknown ecosystem plugin: `{plugin}`")]
+    UnknownPlugin { plugin: String },
+}
+
+// ---------------------------------------------------------------------------
+// ComponentDefError
+// ---------------------------------------------------------------------------
+
+/// Errors produced when validating component definitions.
+#[derive(Debug, thiserror::Error)]
+pub enum ComponentDefError {
+    #[error("component `{component}` is verifiable but not referenceable")]
+    VerifiableNotReferenceable { component: String },
+    #[error("component `{component}` is verifiable but has no required `id` attribute")]
+    VerifiableMissingId { component: String },
 }
 
 // ---------------------------------------------------------------------------

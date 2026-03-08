@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::SourcePosition;
+use crate::{ComponentDefError, SourcePosition};
 
 /// Hard errors produced during graph construction.
 ///
@@ -46,4 +46,7 @@ pub enum GraphError {
 
     #[error("dependency cycle in document graph: {}", cycle.join(" → "))]
     DocumentDependencyCycle { cycle: Vec<String> },
+
+    #[error(transparent)]
+    InvalidComponentDef(#[from] ComponentDefError),
 }

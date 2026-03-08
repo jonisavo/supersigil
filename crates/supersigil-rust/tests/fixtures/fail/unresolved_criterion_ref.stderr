@@ -1,0 +1,5 @@
+error: unresolved criterion reference "nonexistent/doc#missing-criterion": no matching criterion found in the specification graph
+ --> tests/fixtures/fail/unresolved_criterion_ref.rs:5:12
+  |
+5 | #[verifies("nonexistent/doc#missing-criterion")]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

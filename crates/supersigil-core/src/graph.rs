@@ -20,8 +20,8 @@ use std::fmt;
 
 pub use error::GraphError;
 pub use query::{
-    ContextOutput, CriterionContext, DocRef, IllustrationRef, OutstandingCriterion, PlanOutput,
-    PlanQuery, QueryError, TaskInfo,
+    ContextOutput, DocRef, OutstandingTarget, PlanOutput, PlanQuery, QueryError, TargetContext,
+    TaskInfo,
 };
 
 use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
@@ -31,9 +31,8 @@ pub(crate) const TASK: &str = "Task";
 pub(crate) const CRITERION: &str = "Criterion";
 #[cfg(test)]
 pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
-pub(crate) const VALIDATES: &str = "Validates";
+pub(crate) const REFERENCES: &str = "References";
 pub(crate) const IMPLEMENTS: &str = "Implements";
-pub(crate) const ILLUSTRATES: &str = "Illustrates";
 pub(crate) const DEPENDS_ON: &str = "DependsOn";
 pub(crate) const TRACKED_FILES: &str = "TrackedFiles";
 
@@ -70,12 +69,10 @@ pub struct DocumentGraph {
     /// `Vec<usize>` index path from root to the component.
     resolved_refs: HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
 
-    /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of validating doc IDs.
-    validates_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
+    /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of referencing doc IDs.
+    references_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
     /// Reverse mapping: target `doc_id` → set of implementing doc IDs.
     implements_reverse: HashMap<String, BTreeSet<String>>,
-    /// Reverse mapping: target `(doc_id, Option<fragment>)` → set of illustrating doc IDs.
-    illustrates_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
     /// Reverse mapping: target `doc_id` → set of depending doc IDs.
     depends_on_reverse: HashMap<String, BTreeSet<String>>,
 
@@ -87,7 +84,7 @@ pub struct DocumentGraph {
     /// `TrackedFiles` index: document ID → list of path globs.
     tracked_files_index: HashMap<String, Vec<String>>,
 
-    /// Resolved task implements: `(doc_id, task_id)` → `Vec<(target_doc_id, criterion_id)>`.
+    /// Resolved task implements: `(doc_id, task_id)` → `Vec<(target_doc_id, target_id)>`.
     task_implements: HashMap<(String, String), Vec<(String, String)>>,
 
     /// Project membership: document ID → project name (`None` for single-project).
@@ -172,11 +169,11 @@ impl DocumentGraph {
 
     // -- Reverse mapping accessors (task 12.3) -----------------------
 
-    /// Get all documents that validate a given target.
+    /// Get all documents that reference a given target.
     #[must_use]
-    pub fn validates(&self, doc_id: &str, fragment: Option<&str>) -> &BTreeSet<String> {
+    pub fn references(&self, doc_id: &str, fragment: Option<&str>) -> &BTreeSet<String> {
         let key = (doc_id.to_owned(), fragment.map(str::to_owned));
-        self.validates_reverse.get(&key).unwrap_or(&EMPTY_BTREESET)
+        self.references_reverse.get(&key).unwrap_or(&EMPTY_BTREESET)
     }
 
     /// Get all documents that implement a given document.
@@ -184,15 +181,6 @@ impl DocumentGraph {
     pub fn implements(&self, doc_id: &str) -> &BTreeSet<String> {
         self.implements_reverse
             .get(doc_id)
-            .unwrap_or(&EMPTY_BTREESET)
-    }
-
-    /// Get all documents that illustrate a given target.
-    #[must_use]
-    pub fn illustrates(&self, doc_id: &str, fragment: Option<&str>) -> &BTreeSet<String> {
-        let key = (doc_id.to_owned(), fragment.map(str::to_owned));
-        self.illustrates_reverse
-            .get(&key)
             .unwrap_or(&EMPTY_BTREESET)
     }
 
@@ -267,7 +255,12 @@ pub fn build_graph(
     let doc_project = index::build_doc_project(&doc_index, config);
 
     // Stage 2: Referenceable component indexing
-    let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone());
+    let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
+        .map_err(|errs| {
+            errs.into_iter()
+                .map(GraphError::InvalidComponentDef)
+                .collect::<Vec<_>>()
+        })?;
     let (component_index, comp_errors) = index::build_component_index(&doc_index, &component_defs);
     errors.extend(comp_errors);
 
@@ -286,6 +279,7 @@ pub fn build_graph(
     let (task_implements, impl_errors) = resolve::resolve_task_implements(
         &doc_index,
         &component_index,
+        &component_defs,
         &doc_project,
         &project_isolation,
     );
@@ -309,7 +303,7 @@ pub fn build_graph(
     let doc_topo_order = topo::compute_doc_topo_order(&resolved_refs, &doc_index);
 
     // Stage 8: Reverse mappings
-    let (validates_reverse, implements_reverse, illustrates_reverse, depends_on_reverse) =
+    let (references_reverse, implements_reverse, depends_on_reverse) =
         reverse::build_reverse_mappings(&resolved_refs, &doc_index);
 
     // Stage 9: TrackedFiles indexing
@@ -319,9 +313,8 @@ pub fn build_graph(
         doc_index,
         component_index,
         resolved_refs,
-        validates_reverse,
+        references_reverse,
         implements_reverse,
-        illustrates_reverse,
         depends_on_reverse,
         task_topo_orders,
         doc_topo_order,

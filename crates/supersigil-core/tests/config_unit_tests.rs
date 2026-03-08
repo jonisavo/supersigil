@@ -3,13 +3,8 @@
 // Requirements: 11.1, 11.3, 12.1, 12.2, 12.6, 12.7, 13.1-13.4, 14.1-14.3,
 //               15.1-15.2, 16.1-16.3, 17.1-17.4, 18.1-18.2, 19.1-19.5, 24.1
 
-use std::collections::HashMap;
-
 use serde::Deserialize;
-use supersigil_core::{
-    Config, DocumentsConfig, EcosystemConfig, HooksConfig, Severity, TestResultsConfig,
-    VerifyConfig,
-};
+use supersigil_core::{Config, EcosystemConfig, HooksConfig, Severity, VerifyConfig};
 
 // ---------------------------------------------------------------------------
 // Minimal config (Req 24)
@@ -470,14 +465,7 @@ fn config_toml_round_trip_basic() {
     let original = Config {
         paths: Some(vec!["specs/**/*.mdx".to_string()]),
         tests: Some(vec!["tests/**/*.rs".to_string()]),
-        projects: None,
-        id_pattern: None,
-        documents: DocumentsConfig::default(),
-        components: HashMap::new(),
-        verify: VerifyConfig::default(),
-        ecosystem: EcosystemConfig::default(),
-        hooks: HooksConfig::default(),
-        test_results: TestResultsConfig::default(),
+        ..Config::default()
     };
     let toml_str = toml::to_string(&original).unwrap();
     let deserialized: Config = toml::from_str(&toml_str).unwrap();
@@ -551,7 +539,7 @@ unknown = "bad"
 // ===========================================================================
 
 use std::path::Path;
-use supersigil_core::{ConfigError, load_config};
+use supersigil_core::{ConfigError, RustEcosystemConfig, RustValidationPolicy, load_config};
 
 mod common;
 use common::write_temp_toml;
@@ -639,7 +627,7 @@ fn load_config_known_rule_names_accepted() {
 paths = ["specs/**/*.mdx"]
 
 [verify.rules]
-uncovered_criterion = "warning"
+missing_verification_evidence = "warning"
 zero_tag_matches = "error"
 stale_tracked_files = "off"
 "#,
@@ -763,7 +751,7 @@ id_pattern = "^[a-z]+"
 
 [verify.rules]
 zero_tag_matches = "error"
-uncovered_criterion = "warning"
+missing_verification_evidence = "warning"
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
@@ -890,4 +878,265 @@ nonexistent_rule = "warning"
         "expected at least 3 errors, got {}: {errs:?}",
         errs.len()
     );
+}
+
+// ===========================================================================
+// Task 1-3: Ecosystem plugin activation & Rust policy config tests (TDD)
+// Tests for: RustValidationPolicy, RustProjectScope, RustEcosystemConfig,
+//            unknown plugin validation, and project_scope resolution.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Default ecosystem config: plugins = ["rust"], validation defaults to "dev"
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_default_rust_validation_is_dev() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    assert_eq!(config.ecosystem.plugins, vec!["rust".to_string()]);
+    // When no [ecosystem.rust] section is present, accessing the rust config
+    // (via default) should yield validation = "dev"
+    let rust_config = config.ecosystem.rust.unwrap_or_default();
+    assert_eq!(rust_config.validation, RustValidationPolicy::Dev);
+    assert!(rust_config.project_scope.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 2. Explicit plugins = [] → no plugins enabled
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_explicit_empty_plugins_via_load_config() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem]
+plugins = []
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    assert!(config.ecosystem.plugins.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 3. Unknown plugin plugins = ["python"] → config error
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_unknown_plugin_rejected() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem]
+plugins = ["python"]
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin } if plugin == "python")),
+        "expected UnknownPlugin error for 'python', got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4. [ecosystem.rust] validation = "off" → parsed correctly
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_validation_off() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "off"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust_config = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust_config.validation, RustValidationPolicy::Off);
+}
+
+// ---------------------------------------------------------------------------
+// 5. [ecosystem.rust] validation = "dev" → parsed correctly
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_validation_dev() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "dev"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust_config = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust_config.validation, RustValidationPolicy::Dev);
+}
+
+// ---------------------------------------------------------------------------
+// 6. [ecosystem.rust] validation = "all" → parsed correctly
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_validation_all() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "all"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust_config = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust_config.validation, RustValidationPolicy::All);
+}
+
+// ---------------------------------------------------------------------------
+// 7. [ecosystem.rust] validation = "invalid" → config error
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_validation_invalid_rejected() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "invalid"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ConfigError::TomlSyntax { .. })),
+        "expected TomlSyntax error for invalid validation policy, got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. [[ecosystem.rust.project_scope]] with manifest_dir_prefix and project
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_single_project_scope() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "dev"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "services/api"
+project = "backend"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust_config = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust_config.project_scope.len(), 1);
+    assert_eq!(
+        rust_config.project_scope[0].manifest_dir_prefix,
+        "services/api"
+    );
+    assert_eq!(rust_config.project_scope[0].project, "backend");
+}
+
+// ---------------------------------------------------------------------------
+// 9. Multiple project scopes → parsed correctly
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_multiple_project_scopes() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "all"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "services/api"
+project = "backend"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "crates/ui"
+project = "frontend"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust_config = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust_config.project_scope.len(), 2);
+    assert_eq!(
+        rust_config.project_scope[0].manifest_dir_prefix,
+        "services/api"
+    );
+    assert_eq!(rust_config.project_scope[0].project, "backend");
+    assert_eq!(
+        rust_config.project_scope[1].manifest_dir_prefix,
+        "crates/ui"
+    );
+    assert_eq!(rust_config.project_scope[1].project, "frontend");
+}
+
+// ---------------------------------------------------------------------------
+// 10. Missing `project` field in project_scope → config error
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_project_scope_missing_project_rejected() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "dev"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "services/api"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ConfigError::TomlSyntax { .. })),
+        "expected TomlSyntax error for missing project field, got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Supplementary: RustEcosystemConfig defaults
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rust_ecosystem_config_default_values() {
+    let default_config = RustEcosystemConfig::default();
+    assert_eq!(default_config.validation, RustValidationPolicy::Dev);
+    assert!(default_config.project_scope.is_empty());
 }

@@ -373,8 +373,8 @@ More prose here.
             .find(|d| d.document_id.contains("design/"))
             .expect("should have a design document");
         assert!(
-            !design_doc.content.contains("<Validates"),
-            "should not contain <Validates> component"
+            !design_doc.content.contains("<References"),
+            "should not contain <References> component"
         );
     }
 
@@ -430,13 +430,13 @@ Some design rationale between validations.
         assert!(
             design_doc
                 .content
-                .contains("<Validates refs=\"req/validates-scope#req-1-1\" />"),
+                .contains("<References refs=\"req/validates-scope#req-1-1\" />"),
             "first validates line should map to requirement 1.1 only"
         );
         assert!(
             design_doc
                 .content
-                .contains("<Validates refs=\"req/validates-scope#req-2-1\" />"),
+                .contains("<References refs=\"req/validates-scope#req-2-1\" />"),
             "second validates line should map to requirement 2.1 only"
         );
         assert!(

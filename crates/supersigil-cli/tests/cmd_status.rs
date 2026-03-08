@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use std::fs;
 use tempfile::TempDir;
 
 /// task-7-1: Criterion nested inside `AcceptanceCriteria` must be counted.
@@ -23,5 +24,198 @@ fn status_counts_nested_criteria() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"criteria_total\": 2"));
+        .stdout(predicate::str::contains("\"targets_total\": 2"));
+}
+
+/// Per-document status JSON includes per-criterion `verified_by` labels when
+/// `<VerifiedBy>` components are nested inside `<Criterion>`.
+#[test]
+fn status_per_document_shows_verified_by_per_criterion() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="ac-1">
+    Must log in
+    <VerifiedBy strategy="tag" tag="auth:login" />
+  </Criterion>
+  <Criterion id="ac-2">
+    Must log out
+    <VerifiedBy strategy="file-glob" paths="tests/logout_test.rs" />
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "auth/req", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    let criteria = json["criteria"]
+        .as_array()
+        .expect("criteria should be array");
+    assert_eq!(criteria.len(), 2);
+
+    // ac-1 has tag-based VerifiedBy
+    let ac1 = &criteria[0];
+    assert_eq!(ac1["id"], "ac-1");
+    let ac1_vb = ac1["verified_by"]
+        .as_array()
+        .expect("verified_by should be array");
+    assert_eq!(ac1_vb.len(), 1);
+    assert_eq!(ac1_vb[0], "tag:auth:login");
+
+    // ac-2 has file-glob-based VerifiedBy
+    let ac2 = &criteria[1];
+    assert_eq!(ac2["id"], "ac-2");
+    let ac2_vb = ac2["verified_by"]
+        .as_array()
+        .expect("verified_by should be array");
+    assert_eq!(ac2_vb.len(), 1);
+    assert_eq!(ac2_vb[0], "file-glob:tests/logout_test.rs");
+}
+
+/// Per-document status JSON omits `verified_by` key for criteria without
+/// `VerifiedBy` components (via `skip_serializing_if`).
+#[test]
+fn status_per_document_omits_empty_verified_by() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "auth/req", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    let criteria = json["criteria"]
+        .as_array()
+        .expect("criteria should be array");
+    assert_eq!(criteria.len(), 1);
+
+    // No VerifiedBy → key should be absent (skip_serializing_if)
+    assert!(
+        criteria[0].get("verified_by").is_none(),
+        "verified_by should be omitted when empty, got: {:?}",
+        criteria[0],
+    );
+}
+
+/// Terminal output shows per-criterion "verified by:" lines.
+#[test]
+fn status_terminal_shows_verified_by_per_criterion() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="ac-1">
+    Must log in
+    <VerifiedBy strategy="tag" tag="auth:login" />
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["status", "auth/req"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("verified by: tag:auth:login"));
+}
+
+/// When the Rust plugin is enabled but finds Rust files with zero test items,
+/// the plugin failure warning must appear on stderr while stdout stays clean.
+#[test]
+fn status_plugin_failure_warning_on_stderr() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project_with_rust_plugin(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+
+    // Rust source with no test items triggers the plugin failure.
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::write(tmp.path().join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+
+    cargo_bin_cmd!("supersigil")
+        .args(["status"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("plugin"))
+        .stderr(predicate::str::contains("zero supported Rust test items"));
+}
+
+/// With --format json, stdout must be valid JSON even when plugin warnings
+/// are emitted on stderr.
+#[test]
+fn status_json_stdout_clean_despite_plugin_warning() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project_with_rust_plugin(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+
+    // Rust source with no test items.
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::write(tmp.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // stderr has the plugin warning.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("zero supported Rust test items"),
+        "stderr should contain plugin warning, got: {stderr}",
+    );
+
+    // stdout is valid JSON.
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert!(json.get("targets_total").is_some());
 }

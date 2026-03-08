@@ -12,7 +12,7 @@ The Kiro Import module (`supersigil-import` crate) reads `.kiro/specs/` director
 
 The module is a library crate exposing a public API that the CLI crate (`supersigil-cli`) will consume via the `supersigil import --from kiro` subcommand. It has no dependency on the CLI — all functionality is testable as a library.
 
-Each Kiro spec directory produces up to three uniquely named MDX files: a requirement document, a design document, and a tasks document. The conversion preserves prose, code blocks, and mermaid diagrams while mapping Kiro's structured elements (EARS criteria, `Validates:` references, ordered task lists) into supersigil MDX components (`<Criterion>`, `<Validates>`, `<Task>`, etc.). Ambiguous conversion points are marked with `<!-- TODO(supersigil-import): ... -->` comments for human review.
+Each Kiro spec directory produces up to three uniquely named MDX files: a requirement document, a design document, and a tasks document. The conversion preserves prose, code blocks, and mermaid diagrams while mapping Kiro's structured elements (EARS criteria, `Validates:` references, ordered task lists) into supersigil MDX components (`<Criterion>`, `<References>`, `<Task>`, etc.). Ambiguous conversion points are marked with `<!-- TODO(supersigil-import): ... -->` comments for human review.
 
 ## Requirements
 
@@ -139,17 +139,17 @@ As a developer migrating from Kiro, I want the Importer to parse Kiro design.md 
 
 ## Requirement 6: Validates Reference Resolution
 
-As a developer migrating from Kiro, I want `Validates: Requirements X.Y` references in my design.md to be converted into `<Validates>` components with correct criterion refs, so that the verification chain is preserved.
+As a developer migrating from Kiro, I want `Validates: Requirements X.Y` references in my design.md to be converted into `<References>` components with correct criterion refs, so that the verification chain is preserved.
 
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
-    WHEN a Requirement_Ref `X.Y` can be mapped to a Criterion_ID in the same feature's requirements document (where `X` is the requirement number and `Y` is the criterion index), THE Importer SHALL emit a `<Validates>` component with `refs` pointing to `{id_prefix}/req/{feature_name}#req-{X}-{Y}`.
+    WHEN a Requirement_Ref `X.Y` can be mapped to a Criterion_ID in the same feature's requirements document (where `X` is the requirement number and `Y` is the criterion index), THE Importer SHALL emit a `<References>` component with `refs` pointing to `{id_prefix}/req/{feature_name}#req-{X}-{Y}`.
   </Criterion>
   <Criterion id="req-6-2">
     WHEN a Requirement_Ref `X.Y` cannot be unambiguously resolved to a Criterion_ID (e.g., the requirement number or criterion index does not exist in the parsed requirements), THE Importer SHALL emit an Ambiguity_Marker at the conversion point describing the unresolvable reference.
   </Criterion>
   <Criterion id="req-6-3">
-    WHEN multiple Requirement_Refs appear in a single `Validates:` line, THE Importer SHALL combine all resolvable refs into a single `<Validates>` component with a comma-separated `refs` attribute. WHEN some refs in the line resolve and others do not, THE Importer SHALL emit the `<Validates>` component containing only the resolvable refs AND emit an Ambiguity_Marker for each unresolvable ref.
+    WHEN multiple Requirement_Refs appear in a single `Validates:` line, THE Importer SHALL combine all resolvable refs into a single `<References>` component with a comma-separated `refs` attribute. WHEN some refs in the line resolve and others do not, THE Importer SHALL emit the `<References>` component containing only the resolvable refs AND emit an Ambiguity_Marker for each unresolvable ref.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -168,10 +168,10 @@ As a developer migrating from Kiro, I want the Importer to produce a valid super
     THE Importer SHALL preserve all prose, code blocks, and mermaid diagrams from the Kiro design.md in the MDX body.
   </Criterion>
   <Criterion id="req-7-4">
-    WHEN a correctness property has resolved `Validates:` references, THE Importer SHALL emit a `<Validates>` component after the property's prose.
+    WHEN a correctness property has resolved `Validates:` references, THE Importer SHALL emit a `<References>` component after the property's prose.
   </Criterion>
   <Criterion id="req-7-5">
-    WHEN a correctness property has only unresolvable `Validates:` references, THE Importer SHALL emit an Ambiguity_Marker instead of a `<Validates>` component. WHEN a correctness property has a mix of resolvable and unresolvable references, THE Importer SHALL emit a `<Validates>` component with the resolvable refs and an Ambiguity_Marker for each unresolvable ref.
+    WHEN a correctness property has only unresolvable `Validates:` references, THE Importer SHALL emit an Ambiguity_Marker instead of a `<References>` component. WHEN a correctness property has a mix of resolvable and unresolvable references, THE Importer SHALL emit a `<References>` component with the resolvable refs and an Ambiguity_Marker for each unresolvable ref.
   </Criterion>
 </AcceptanceCriteria>
 

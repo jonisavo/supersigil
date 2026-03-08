@@ -74,7 +74,7 @@ As a developer, I want to know which acceptance criteria have no validating prop
 
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
-    FOR EACH `Criterion` component in the graph, THE Verify_Engine SHALL check whether at least one `Validates` ref in any document points to it. WHEN no `Validates` ref exists, THE Verify_Engine SHALL emit an `uncovered_criterion` finding for the document containing the criterion.
+    FOR EACH `Criterion` component in the graph, THE Verify_Engine SHALL check whether at least one `References` ref in any document points to it. WHEN no `References` ref exists, THE Verify_Engine SHALL emit an `uncovered_criterion` finding for the document containing the criterion.
   </Criterion>
   <Criterion id="req-3-2">
     THE `uncovered_criterion` rule SHALL have a built-in default severity of `error`.
@@ -128,7 +128,7 @@ As a developer, I want to be warned when a document claims to validate criteria 
 
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
-    WHEN a document contains a `Validates` component but no `VerifiedBy` component, THE Verify_Engine SHALL emit an `unverified_validation` finding for that document.
+    WHEN a document contains a `References` component but no `VerifiedBy` component, THE Verify_Engine SHALL emit an `unverified_validation` finding for that document.
   </Criterion>
   <Criterion id="req-6-2">
     THE `unverified_validation` rule SHALL have a built-in default severity of `error`.
@@ -234,7 +234,7 @@ As a developer, I want to optionally detect documents that are disconnected from
 
 <AcceptanceCriteria>
   <Criterion id="req-13-1">
-    WHEN the `isolated_document` rule is enabled, THE Verify_Engine SHALL check each document for incoming or outgoing reference components (`Validates`, `Implements`, `Illustrates`, `DependsOn`). Documents with no refs in either direction SHALL produce an `isolated_document` finding.
+    WHEN the `isolated_document` rule is enabled, THE Verify_Engine SHALL check each document for incoming or outgoing reference components (`References`, `Implements`, `DependsOn`). Documents with no refs in either direction SHALL produce an `isolated_document` finding.
   </Criterion>
   <Criterion id="req-13-2">
     THE `isolated_document` rule SHALL have a built-in default severity of `off`.

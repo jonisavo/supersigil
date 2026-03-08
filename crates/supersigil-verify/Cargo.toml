@@ -10,17 +10,25 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-git2 = "0.20"
-glob = "0.3"
+git2 = "0.20.4"
+glob = "0.3.3"
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 supersigil-core.workspace = true
+supersigil-evidence.workspace = true
 thiserror.workspace = true
+
+[features]
+test-helpers = ["dep:tempfile"]
+
+[dependencies.tempfile]
+workspace = true
+optional = true
 
 [dev-dependencies]
 proptest.workspace = true
-tempfile = "3"
+tempfile.workspace = true
 
 [lints]
 workspace = true

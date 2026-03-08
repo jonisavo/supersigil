@@ -200,7 +200,7 @@ The existing symbol methods (`ok()`, `err()`, `warn()`, `info()`) return `Painte
 
 1. `load_graph()` to get the graph
 2. Iterate `graph.documents()` for nodes
-3. For each document, extract ref components (`Validates`, `Implements`, `Illustrates`, `DependsOn`) for edges
+3. For each document, extract ref components (`References`, `Implements`, `DependsOn`) for edges
 4. Emit mermaid or graphviz dot syntax
 
 ### init
@@ -244,7 +244,7 @@ Error messages follow the remediation pattern: what happened, why, and what to d
 
 - "config file not found (searched upward from /foo/bar). Run `supersigil init` to create one."
 - "document `auth/req/login` not found. Run `supersigil ls` to see available documents."
-- "parse error in specs/auth/req/login.mdx:15: unknown component `Verifies`. Did you mean `Validates`?"
+- "parse error in specs/auth/req/login.mdx:15: unknown component `Verifies`. Did you mean `References`?"
 
 ## Exit Code Policy
 

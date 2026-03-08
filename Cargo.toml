@@ -3,6 +3,9 @@ members = [
     "crates/supersigil-core",
     "crates/supersigil-parser",
     "crates/supersigil-import",
+    "crates/supersigil-evidence",
+    "crates/supersigil-rust",
+    "crates/supersigil-rust-macros",
     "crates/supersigil-verify",
     "crates/supersigil-cli",
 ]
@@ -18,14 +21,22 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.12"
+thiserror = "2.0.18"
 yaml_serde = "0.10.3"
 toml = "1.0.3"
 regex = "1.12.3"
 markdown = "1.0.0"
 proptest = "1.10.0"
-serde_json = "1"
+tempfile = "3.26.0"
+serde_json = "1.0.149"
 supersigil-core = { path = "crates/supersigil-core" }
+supersigil-evidence = { path = "crates/supersigil-evidence" }
+supersigil-rust = { path = "crates/supersigil-rust" }
+supersigil-rust-macros = { path = "crates/supersigil-rust-macros" }
+supersigil-parser = { path = "crates/supersigil-parser" }
+glob = "0.3.3"
+proc-macro2 = { version = "1.0.106", features = ["span-locations"] }
+syn = { version = "2.0.117", features = ["full"] }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
@@ -70,3 +81,6 @@ unnecessary_safety_comment = "warn"
 unnecessary_safety_doc = "warn"
 unneeded_field_pattern = "warn"
 unused_result_ok = "warn"
+
+# wasmparser pulls in older hashbrown 0.15.5
+multiple_crate_versions = "allow"

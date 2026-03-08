@@ -9,14 +9,14 @@ mod types;
 pub use component_defs::ComponentDefs;
 pub use config::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
-    HooksConfig, KNOWN_RULES, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
-    load_config,
+    HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, ProjectConfig, RustEcosystemConfig, RustProjectScope,
+    RustValidationPolicy, Severity, TestResultsConfig, VerifyConfig, load_config,
 };
-pub use error::{ConfigError, ListSplitError, ParseError, split_list_attribute};
+pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use types::{ExtractedComponent, Frontmatter, ParseResult, SourcePosition, SpecDocument};
 
 // Graph module re-exports
 pub use graph::{
-    ContextOutput, CriterionContext, DocRef, DocumentGraph, GraphError, IllustrationRef,
-    OutstandingCriterion, PlanOutput, PlanQuery, QueryError, ResolvedRef, TaskInfo, build_graph,
+    ContextOutput, DocRef, DocumentGraph, GraphError, OutstandingTarget, PlanOutput, PlanQuery,
+    QueryError, ResolvedRef, TargetContext, TaskInfo, build_graph,
 };

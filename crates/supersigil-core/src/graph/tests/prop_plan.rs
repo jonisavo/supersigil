@@ -9,7 +9,7 @@ use crate::graph::tests::generators::{
     make_acceptance_criteria, make_criterion, make_doc, make_doc_full, make_refs_component,
     make_task, single_project_config,
 };
-use crate::graph::{ILLUSTRATES, VALIDATES, build_graph};
+use crate::graph::{REFERENCES, build_graph};
 
 // ---------------------------------------------------------------------------
 // Property 18: Plan output correctness
@@ -64,22 +64,22 @@ proptest! {
             )],
         );
 
-        // Validating doc covers crit_covered only → crit_outstanding is outstanding.
+        // Referencing doc covers crit_covered only → crit_outstanding is outstanding.
         let val_doc = make_doc_full(
             &val_id,
             None,
             Some("active"),
             vec![make_refs_component(
-                VALIDATES,
+                REFERENCES,
                 &format!("{req_id}#{crit_covered}"),
                 1,
             )],
         );
 
-        // Illustrating doc targets the requirement doc.
-        let illus_doc = make_doc(
+        // Another referencing doc targets the requirement doc (doc-level).
+        let ref_doc = make_doc(
             &illus_id,
-            vec![make_refs_component(ILLUSTRATES, &req_id, 1)],
+            vec![make_refs_component(REFERENCES, &req_id, 1)],
         );
 
         // Tasks doc: one done task implementing crit_covered, two pending
@@ -102,7 +102,7 @@ proptest! {
         );
 
         let graph = build_graph(
-            vec![req_doc, val_doc, illus_doc, tasks_doc],
+            vec![req_doc, val_doc, ref_doc, tasks_doc],
             &config,
         )
         .expect("build_graph should succeed");
@@ -113,16 +113,16 @@ proptest! {
 
         // 10.1: Outstanding criteria — crit_outstanding has no validator.
         prop_assert!(
-            plan.outstanding_criteria
+            plan.outstanding_targets
                 .iter()
-                .any(|c| c.criterion_id == crit_outstanding && c.doc_id == req_id),
+                .any(|c| c.target_id == crit_outstanding && c.doc_id == req_id),
             "crit_outstanding should be outstanding: {:?}",
-            plan.outstanding_criteria
+            plan.outstanding_targets
         );
         prop_assert!(
-            !plan.outstanding_criteria
+            !plan.outstanding_targets
                 .iter()
-                .any(|c| c.criterion_id == crit_covered),
+                .any(|c| c.target_id == crit_covered),
             "crit_covered should NOT be outstanding"
         );
 
@@ -155,15 +155,6 @@ proptest! {
                 .any(|t| t.task_id == task_done_id
                     && t.implements.contains(&(req_id.clone(), crit_covered.clone()))),
             "completed tasks should include task_done with implements ref"
-        );
-
-        // 10.4: Illustrating documents.
-        prop_assert!(
-            plan.illustrated_by
-                .iter()
-                .any(|i| i.doc_id == illus_id && i.target_doc_id == req_id),
-            "plan should include illustrating doc: {:?}",
-            plan.illustrated_by
         );
     }
 }
@@ -240,15 +231,15 @@ proptest! {
 
         // Outstanding criteria from both docs (no validators).
         prop_assert!(
-            plan.outstanding_criteria
+            plan.outstanding_targets
                 .iter()
-                .any(|c| c.doc_id == req_id_a && c.criterion_id == crit_a),
+                .any(|c| c.doc_id == req_id_a && c.target_id == crit_a),
             "crit_a from req_doc_a should be outstanding"
         );
         prop_assert!(
-            plan.outstanding_criteria
+            plan.outstanding_targets
                 .iter()
-                .any(|c| c.doc_id == req_id_b && c.criterion_id == crit_b),
+                .any(|c| c.doc_id == req_id_b && c.target_id == crit_b),
             "crit_b from req_doc_b should be outstanding"
         );
 
@@ -343,16 +334,16 @@ proptest! {
 
         // crit_a: done task implements it → NOT outstanding.
         prop_assert!(
-            !plan.outstanding_criteria
+            !plan.outstanding_targets
                 .iter()
-                .any(|c| c.doc_id == req_id_a && c.criterion_id == crit_a),
+                .any(|c| c.doc_id == req_id_a && c.target_id == crit_a),
             "crit_a should NOT be outstanding (done task implements it)"
         );
         // crit_b: pending task implements it → still outstanding.
         prop_assert!(
-            plan.outstanding_criteria
+            plan.outstanding_targets
                 .iter()
-                .any(|c| c.doc_id == req_id_b && c.criterion_id == crit_b),
+                .any(|c| c.doc_id == req_id_b && c.target_id == crit_b),
             "crit_b should be outstanding (task not done)"
         );
 

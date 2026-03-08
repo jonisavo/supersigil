@@ -9,7 +9,7 @@ use crate::graph::tests::generators::{
     arb_config, arb_document_set, arb_id, make_depends_on, make_doc_with_path, make_refs_component,
     make_task, single_project_config,
 };
-use crate::graph::{GraphError, VALIDATES, build_graph};
+use crate::graph::{GraphError, REFERENCES, build_graph};
 
 // ---------------------------------------------------------------------------
 // Property 22: Error aggregation
@@ -97,11 +97,11 @@ proptest! {
 
         let config = single_project_config();
 
-        // Document with a Validates ref to a nonexistent target.
+        // Document with a References ref to a nonexistent target.
         let broken_ref_doc = make_doc_with_path(
             &doc_id,
             &format!("specs/{doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, "nonexistent/target", 1)],
+            vec![make_refs_component(REFERENCES, "nonexistent/target", 1)],
         );
 
         // Tasks document with a self-referencing task (trivial cycle).
@@ -158,7 +158,7 @@ proptest! {
         let broken_ref_doc = make_doc_with_path(
             &ref_doc_id,
             &format!("specs/{ref_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, "ghost/doc", 1)],
+            vec![make_refs_component(REFERENCES, "ghost/doc", 1)],
         );
 
         // Two documents forming a mutual dependency cycle.
@@ -222,7 +222,7 @@ proptest! {
         let broken_ref_doc = make_doc_with_path(
             &ref_doc_id,
             &format!("specs/{ref_doc_id}.mdx"),
-            vec![make_refs_component(VALIDATES, "nonexistent/target", 1)],
+            vec![make_refs_component(REFERENCES, "nonexistent/target", 1)],
         );
 
         // 2. Tasks document with a self-referencing cycle.

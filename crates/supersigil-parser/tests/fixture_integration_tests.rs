@@ -33,7 +33,7 @@ fn fixture_valid_simple_produces_document() {
             assert_eq!(doc.components.len(), 1);
 
             let validates = &doc.components[0];
-            assert_eq!(validates.name, "Validates");
+            assert_eq!(validates.name, "References");
             assert_eq!(validates.attributes.get("refs").unwrap(), "req/login");
             assert!(validates.body_text.is_none(), "self-closing component");
             assert!(validates.children.is_empty());
@@ -160,9 +160,9 @@ fn fixture_extra_metadata_preserved_in_extra_map() {
                 Some("custom_value")
             );
 
-            // One Validates component
+            // One References component
             assert_eq!(doc.components.len(), 1);
-            assert_eq!(doc.components[0].name, "Validates");
+            assert_eq!(doc.components[0].name, "References");
         }
         ParseResult::NotSupersigil(_) => panic!("expected Document, got NotSupersigil"),
     }

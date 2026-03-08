@@ -3,19 +3,21 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
+use supersigil_verify::artifact_graph::ArtifactGraph;
 
 use crate::commands::StatusArgs;
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, status_token, write_json};
 use crate::loader;
+use crate::plugins;
 
 #[derive(Debug, Serialize)]
 struct ProjectStatus {
     total_documents: usize,
     by_type: BTreeMap<String, usize>,
     by_status: BTreeMap<String, usize>,
-    criteria_total: usize,
-    criteria_covered: usize,
+    targets_total: usize,
+    targets_covered: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -23,15 +25,18 @@ struct DocumentStatus {
     id: String,
     doc_type: Option<String>,
     status: Option<String>,
-    criteria: Vec<CriterionStatus>,
+    criteria: Vec<TargetStatus>,
     tracked_files: Vec<String>,
-    verified_by: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct CriterionStatus {
+struct TargetStatus {
     id: String,
     covered: bool,
+    /// `VerifiedBy` strategies associated with this criterion (e.g. `"tag:my_tag"`,
+    /// `"file-glob:tests/**"`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    verified_by: Vec<String>,
 }
 
 /// Run the `status` command.
@@ -40,24 +45,29 @@ struct CriterionStatus {
 ///
 /// Returns `CliError` if loading fails.
 pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
-    let (_config, graph) = loader::load_graph(config_path)?;
+    let (config, graph) = loader::load_graph(config_path)?;
+    let project_root = loader::project_root(config_path);
+    let (artifact_graph, plugin_findings) =
+        plugins::build_evidence(&config, &graph, project_root, None);
+    plugins::warn_plugin_findings(&plugin_findings, &color);
 
     match &args.id {
-        None => run_project_wide(&args.format, &graph, color),
-        Some(id) => run_per_document(id, &args.format, &graph, color),
+        None => run_project_wide(&args.format, &graph, &artifact_graph, color),
+        Some(id) => run_per_document(id, &args.format, &graph, &artifact_graph, color),
     }
 }
 
 fn run_project_wide(
     fmt: &OutputFormat,
     graph: &supersigil_core::DocumentGraph,
+    artifact_graph: &ArtifactGraph<'_>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0;
-    let mut criteria_total = 0;
-    let mut criteria_covered = 0;
+    let mut targets_total = 0;
+    let mut targets_covered = 0;
 
     for (id, doc) in graph.documents() {
         total += 1;
@@ -76,12 +86,12 @@ fn run_project_wide(
             .to_owned();
         *by_status.entry(s).or_default() += 1;
 
-        count_criteria_recursive(
-            graph,
+        count_targets_recursive(
             id,
             &doc.components,
-            &mut criteria_total,
-            &mut criteria_covered,
+            artifact_graph,
+            &mut targets_total,
+            &mut targets_covered,
         );
     }
 
@@ -89,8 +99,8 @@ fn run_project_wide(
         total_documents: total,
         by_type,
         by_status,
-        criteria_total,
-        criteria_covered,
+        targets_total,
+        targets_covered,
     };
 
     match fmt {
@@ -136,30 +146,30 @@ fn write_project_terminal(status: &ProjectStatus, color: ColorConfig) -> Result<
     writeln!(out)?;
     #[expect(
         clippy::cast_precision_loss,
-        reason = "criteria counts are small enough for f64"
+        reason = "target counts are small enough for f64"
     )]
-    let pct = if status.criteria_total > 0 {
-        status.criteria_covered as f64 / status.criteria_total as f64 * 100.0
+    let pct = if status.targets_total > 0 {
+        status.targets_covered as f64 / status.targets_total as f64 * 100.0
     } else {
         100.0
     };
     writeln!(
         out,
         "{} {}/{} ({pct:.0}%)",
-        c.paint(Token::Label, "Criteria coverage:"),
-        c.paint(Token::Count, &status.criteria_covered.to_string()),
-        c.paint(Token::Count, &status.criteria_total.to_string()),
+        c.paint(Token::Label, "Verification coverage:"),
+        c.paint(Token::Count, &status.targets_covered.to_string()),
+        c.paint(Token::Count, &status.targets_total.to_string()),
     )?;
 
-    if status.criteria_covered < status.criteria_total {
+    if status.targets_covered < status.targets_total {
         format::hint(
             color,
-            "Some criteria are uncovered. Run `supersigil verify` to see details.",
+            "Some verification targets are uncovered. Run `supersigil verify` to see details.",
         );
     } else {
         format::hint(
             color,
-            "All criteria covered. Run `supersigil verify` for full verification.",
+            "All verification targets covered. Run `supersigil verify` for full verification.",
         );
     }
 
@@ -170,32 +180,20 @@ fn run_per_document(
     id: &str,
     fmt: &OutputFormat,
     graph: &supersigil_core::DocumentGraph,
+    artifact_graph: &ArtifactGraph<'_>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let ctx = graph.context(id)?;
     let doc = &ctx.document;
 
-    let criteria: Vec<CriterionStatus> = ctx
-        .criteria
-        .iter()
-        .map(|c| CriterionStatus {
-            id: c.id.clone(),
-            covered: !c.validated_by.is_empty(),
-        })
-        .collect();
+    // Build per-criterion status with VerifiedBy info extracted from the
+    // component tree (VerifiedBy is always nested inside Criterion).
+    let criteria = build_targets_status(id, &doc.components, artifact_graph);
 
     let tracked_files = graph
         .tracked_files(id)
         .map(<[String]>::to_vec)
         .unwrap_or_default();
-
-    // Extract VerifiedBy tags from components
-    let verified_by: Vec<String> = doc
-        .components
-        .iter()
-        .filter(|c| c.name == "VerifiedBy")
-        .filter_map(|c| c.attributes.get("tag").cloned())
-        .collect();
 
     let status = DocumentStatus {
         id: id.to_owned(),
@@ -203,7 +201,6 @@ fn run_per_document(
         status: doc.frontmatter.status.clone(),
         criteria,
         tracked_files,
-        verified_by,
     };
 
     match fmt {
@@ -228,7 +225,7 @@ fn run_per_document(
             )?;
 
             if !status.criteria.is_empty() {
-                writeln!(out, "\n{}", c.paint(Token::Label, "Criteria:"))?;
+                writeln!(out, "\n{}", c.paint(Token::Label, "Verification targets:"))?;
                 for crit in &status.criteria {
                     let (marker, tok) = if crit.covered {
                         ("covered", Token::StatusGood)
@@ -241,6 +238,9 @@ fn run_per_document(
                         c.paint(Token::DocId, &crit.id),
                         c.paint(tok, marker),
                     )?;
+                    for vb in &crit.verified_by {
+                        writeln!(out, "    verified by: {vb}")?;
+                    }
                 }
             }
 
@@ -248,13 +248,6 @@ fn run_per_document(
                 writeln!(out, "\n{}", c.paint(Token::Label, "Tracked files:"))?;
                 for tf in &status.tracked_files {
                     writeln!(out, "  - {}", c.paint(Token::Path, tf))?;
-                }
-            }
-
-            if !status.verified_by.is_empty() {
-                writeln!(out, "\n{}", c.paint(Token::Label, "Verified by:"))?;
-                for tag in &status.verified_by {
-                    writeln!(out, "  - {tag}")?;
                 }
             }
 
@@ -268,10 +261,10 @@ fn run_per_document(
     Ok(())
 }
 
-fn count_criteria_recursive(
-    graph: &supersigil_core::DocumentGraph,
+fn count_targets_recursive(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
+    artifact_graph: &ArtifactGraph<'_>,
     total: &mut usize,
     covered: &mut usize,
 ) {
@@ -279,11 +272,69 @@ fn count_criteria_recursive(
         if comp.name == "Criterion" {
             *total += 1;
             if let Some(crit_id) = comp.attributes.get("id")
-                && !graph.validates(doc_id, Some(crit_id)).is_empty()
+                && artifact_graph.has_evidence(doc_id, crit_id)
             {
                 *covered += 1;
             }
         }
-        count_criteria_recursive(graph, doc_id, &comp.children, total, covered);
+        count_targets_recursive(doc_id, &comp.children, artifact_graph, total, covered);
+    }
+}
+
+/// Recursively walk the component tree, building a [`TargetStatus`] for each
+/// verifiable component found.  `VerifiedBy` children are collected into the
+/// target's `verified_by` list as human-readable labels (e.g.
+/// `"tag:my_tag"`, `"file-glob:tests/**"`).
+fn build_targets_status(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    artifact_graph: &ArtifactGraph<'_>,
+) -> Vec<TargetStatus> {
+    let mut result = Vec::new();
+    collect_targets_status(doc_id, components, artifact_graph, &mut result);
+    result
+}
+
+fn collect_targets_status(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    artifact_graph: &ArtifactGraph<'_>,
+    result: &mut Vec<TargetStatus>,
+) {
+    for comp in components {
+        if comp.name == "Criterion"
+            && let Some(crit_id) = comp.attributes.get("id")
+        {
+            let verified_by: Vec<String> = comp
+                .children
+                .iter()
+                .filter(|child| child.name == "VerifiedBy")
+                .map(|child| {
+                    let strategy = child
+                        .attributes
+                        .get("strategy")
+                        .map_or("unknown", String::as_str);
+                    match strategy {
+                        "tag" => {
+                            let tag = child.attributes.get("tag").map_or("?", String::as_str);
+                            format!("tag:{tag}")
+                        }
+                        "file-glob" => {
+                            let paths = child.attributes.get("paths").map_or("?", String::as_str);
+                            format!("file-glob:{paths}")
+                        }
+                        other => other.to_owned(),
+                    }
+                })
+                .collect();
+
+            result.push(TargetStatus {
+                id: crit_id.clone(),
+                covered: artifact_graph.has_evidence(doc_id, crit_id),
+                verified_by,
+            });
+        }
+        // Recurse into children (e.g. AcceptanceCriteria -> Criterion).
+        collect_targets_status(doc_id, &comp.children, artifact_graph, result);
     }
 }

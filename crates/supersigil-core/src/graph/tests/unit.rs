@@ -11,7 +11,7 @@ use crate::graph::tests::generators::{
     make_acceptance_criteria, make_criterion, make_doc, make_doc_full, make_refs_component,
     make_task, make_tracked_files_component, single_project_config,
 };
-use crate::graph::{GraphError, ILLUSTRATES, IMPLEMENTS, VALIDATES, build_graph};
+use crate::graph::{GraphError, IMPLEMENTS, REFERENCES, build_graph};
 
 // ===========================================================================
 // 18.1: Concrete examples from the supersigil design document
@@ -21,11 +21,11 @@ use crate::graph::{GraphError, ILLUSTRATES, IMPLEMENTS, VALIDATES, build_graph};
 ///
 /// - `auth/req/login` — requirement with 3 criteria (valid-creds,
 ///   invalid-password, rate-limit) and `TrackedFiles`
-/// - `auth/prop/token-generation` — validates `auth/req/login#valid-creds`
+/// - `auth/prop/token-generation` — references `auth/req/login#valid-creds`
 /// - `auth/design/login-flow` — implements `auth/req/login`
 /// - `auth/tasks/login` — tasks doc with 4 tasks in dependency chain,
 ///   one implementing `#valid-creds`
-/// - `auth/example/login-happy-path` — illustrates `auth/req/login#valid-creds`
+/// - `auth/example/login-happy-path` — references `auth/req/login#valid-creds`
 #[allow(
     clippy::too_many_lines,
     reason = "test scenario builder with many documents"
@@ -54,13 +54,13 @@ fn build_auth_login_scenario() -> (
         ],
     );
 
-    // Property document: validates valid-creds
+    // Property document: references valid-creds
     let prop_doc = make_doc_full(
         "auth/prop/token-generation",
         Some("design"),
         Some("verified"),
         vec![make_refs_component(
-            VALIDATES,
+            REFERENCES,
             "auth/req/login#valid-creds",
             1,
         )],
@@ -93,11 +93,11 @@ fn build_auth_login_scenario() -> (
         ],
     );
 
-    // Example document: illustrates valid-creds criterion
+    // Example document: references valid-creds criterion
     let example_doc = make_doc(
         "auth/example/login-happy-path",
         vec![make_refs_component(
-            ILLUSTRATES,
+            REFERENCES,
             "auth/req/login#valid-creds",
             1,
         )],
@@ -142,33 +142,33 @@ fn auth_login_context_validation_status() {
     let (graph, _) = build_auth_login_scenario();
     let ctx = graph.context("auth/req/login").unwrap();
 
-    // 9.2: valid-creds is validated by auth/prop/token-generation with status "verified".
+    // 9.2: valid-creds is referenced by auth/prop/token-generation with status "verified".
     let valid_creds = ctx.criteria.iter().find(|c| c.id == "valid-creds").unwrap();
     assert!(
         valid_creds
-            .validated_by
+            .referenced_by
             .iter()
             .any(|d| d.doc_id == "auth/prop/token-generation"
                 && d.status.as_deref() == Some("verified")),
-        "valid-creds should be validated by token-generation: {:?}",
-        valid_creds.validated_by
+        "valid-creds should be referenced by token-generation: {:?}",
+        valid_creds.referenced_by
     );
 
-    // invalid-password and rate-limit have no validators.
+    // invalid-password and rate-limit have no referencing docs.
     let invalid_pw = ctx
         .criteria
         .iter()
         .find(|c| c.id == "invalid-password")
         .unwrap();
     assert!(
-        invalid_pw.validated_by.is_empty(),
-        "invalid-password should have no validators"
+        invalid_pw.referenced_by.is_empty(),
+        "invalid-password should have no referencing docs"
     );
 
     let rate_limit = ctx.criteria.iter().find(|c| c.id == "rate-limit").unwrap();
     assert!(
-        rate_limit.validated_by.is_empty(),
-        "rate-limit should have no validators"
+        rate_limit.referenced_by.is_empty(),
+        "rate-limit should have no referencing docs"
     );
 }
 
@@ -188,18 +188,19 @@ fn auth_login_context_implementing_docs() {
 }
 
 #[test]
-fn auth_login_context_illustrations() {
+fn auth_login_context_criterion_references() {
     let (graph, _) = build_auth_login_scenario();
     let ctx = graph.context("auth/req/login").unwrap();
 
-    // 9.4: Criterion-level illustration.
+    // 9.4: Criterion-level references include the example doc.
     let valid_creds = ctx.criteria.iter().find(|c| c.id == "valid-creds").unwrap();
     assert!(
         valid_creds
-            .illustrated_by
-            .contains(&"auth/example/login-happy-path".to_owned()),
-        "valid-creds should be illustrated by login-happy-path: {:?}",
-        valid_creds.illustrated_by
+            .referenced_by
+            .iter()
+            .any(|d| d.doc_id == "auth/example/login-happy-path"),
+        "valid-creds should be referenced by login-happy-path: {:?}",
+        valid_creds.referenced_by
     );
 }
 
@@ -232,17 +233,20 @@ fn auth_login_context_tasks_in_topo_order() {
 }
 
 #[test]
-fn auth_login_plan_outstanding_criteria() {
+fn auth_login_plan_outstanding_targets() {
     let (graph, _) = build_auth_login_scenario();
     let plan = graph
         .plan(&PlanQuery::Document("auth/req/login".to_owned()))
         .expect("plan should succeed");
 
-    // 10.1: Outstanding criteria — invalid-password and rate-limit have no validators.
+    // 10.1: Outstanding criteria — all three are outstanding because
+    // References links are informational (no verification semantics) and
+    // the task implementing valid-creds is in-progress, not done.
+    // Evidence-based coverage filtering happens at the CLI layer.
     let outstanding_ids: Vec<&str> = plan
-        .outstanding_criteria
+        .outstanding_targets
         .iter()
-        .map(|c| c.criterion_id.as_str())
+        .map(|c| c.target_id.as_str())
         .collect();
     assert!(
         outstanding_ids.contains(&"invalid-password"),
@@ -253,8 +257,8 @@ fn auth_login_plan_outstanding_criteria() {
         "rate-limit should be outstanding: {outstanding_ids:?}"
     );
     assert!(
-        !outstanding_ids.contains(&"valid-creds"),
-        "valid-creds should NOT be outstanding (it has a validator): {outstanding_ids:?}"
+        outstanding_ids.contains(&"valid-creds"),
+        "valid-creds should be outstanding (References are informational, task not done): {outstanding_ids:?}"
     );
 }
 
@@ -298,9 +302,9 @@ fn done_task_implementing_criterion_makes_it_non_outstanding() {
         .expect("plan should succeed");
 
     let outstanding_ids: Vec<&str> = plan
-        .outstanding_criteria
+        .outstanding_targets
         .iter()
-        .map(|c| c.criterion_id.as_str())
+        .map(|c| c.target_id.as_str())
         .collect();
 
     // crit-a: done task implements it → NOT outstanding
@@ -352,20 +356,15 @@ fn auth_login_plan_pending_and_completed_tasks() {
 }
 
 #[test]
-fn auth_login_plan_illustrations() {
+fn auth_login_plan_has_no_illustration_field() {
     let (graph, _) = build_auth_login_scenario();
     let plan = graph
         .plan(&PlanQuery::Document("auth/req/login".to_owned()))
         .unwrap();
 
-    // 10.4: Illustrating documents.
-    assert!(
-        plan.illustrated_by
-            .iter()
-            .any(|i| i.doc_id == "auth/example/login-happy-path"),
-        "plan should include illustration: {:?}",
-        plan.illustrated_by
-    );
+    // Plan output no longer carries illustrations (removed with Illustrates).
+    // Verify the plan succeeds and has expected structure.
+    assert!(!plan.outstanding_targets.is_empty());
 }
 
 #[test]
@@ -392,9 +391,9 @@ fn auth_login_prefix_plan() {
 
     // Should include outstanding criteria from auth/req/login.
     assert!(
-        plan.outstanding_criteria
+        plan.outstanding_targets
             .iter()
-            .any(|c| c.doc_id == "auth/req/login" && c.criterion_id == "invalid-password"),
+            .any(|c| c.doc_id == "auth/req/login" && c.target_id == "invalid-password"),
         "prefix plan should include outstanding criteria"
     );
 }
@@ -429,9 +428,8 @@ fn document_with_no_components_is_indexed() {
     assert!(graph.component("bare-doc", "anything").is_none());
 
     // No reverse mappings.
-    assert!(graph.validates("bare-doc", None).is_empty());
+    assert!(graph.references("bare-doc", None).is_empty());
     assert!(graph.implements("bare-doc").is_empty());
-    assert!(graph.illustrates("bare-doc", None).is_empty());
 
     // No tracked files.
     assert!(graph.tracked_files("bare-doc").is_none());
@@ -447,7 +445,7 @@ fn context_for_doc_with_no_criteria_no_tasks_no_reverse_mappings() {
 
     assert!(ctx.criteria.is_empty());
     assert!(ctx.implemented_by.is_empty());
-    assert!(ctx.illustrated_by.is_empty());
+    assert!(ctx.referenced_by.is_empty());
     assert!(ctx.tasks.is_empty());
 }
 
@@ -461,10 +459,9 @@ fn plan_for_doc_with_no_criteria_no_tasks() {
         .plan(&PlanQuery::Document("empty-req".to_owned()))
         .expect("plan should succeed");
 
-    assert!(plan.outstanding_criteria.is_empty());
+    assert!(plan.outstanding_targets.is_empty());
     assert!(plan.pending_tasks.is_empty());
     assert!(plan.completed_tasks.is_empty());
-    assert!(plan.illustrated_by.is_empty());
 }
 
 // ===========================================================================
@@ -487,7 +484,7 @@ fn duplicate_component_ids_and_broken_refs_reported_together() {
     // Another document with a broken ref.
     let broken_doc = make_doc(
         "doc/broken-ref",
-        vec![make_refs_component(VALIDATES, "ghost/doc#phantom", 1)],
+        vec![make_refs_component(REFERENCES, "ghost/doc#phantom", 1)],
     );
 
     let result = build_graph(vec![dup_doc, broken_doc], &config);
@@ -508,4 +505,174 @@ fn duplicate_component_ids_and_broken_refs_reported_together() {
         "should contain DuplicateComponentId: {errors:?}"
     );
     assert!(has_broken_ref, "should contain BrokenRef: {errors:?}");
+}
+
+// ===========================================================================
+// Task 5: Generalize Task.implements to verifiable targets
+// ===========================================================================
+
+/// Task `implements` targeting a Criterion (which is verifiable) should resolve
+/// successfully. This is the existing behavior, preserved after generalization.
+#[test]
+fn task_implements_accepts_refs_to_verifiable_components() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "my/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("my-crit", 2)],
+            1,
+        )],
+    );
+
+    let tasks_doc = make_doc(
+        "my/tasks",
+        vec![make_task(
+            "task-1",
+            Some("todo"),
+            Some("my/req#my-crit"),
+            None,
+            1,
+        )],
+    );
+
+    let graph =
+        build_graph(vec![req_doc, tasks_doc], &config).expect("graph should build successfully");
+
+    let implements = graph
+        .task_implements("my/tasks", "task-1")
+        .expect("task-1 should have implements entries");
+
+    assert_eq!(implements.len(), 1);
+    assert_eq!(implements[0], ("my/req".to_owned(), "my-crit".to_owned()));
+}
+
+/// Task `implements` targeting a Task (which is referenceable but NOT
+/// verifiable) should produce a `BrokenRef` error. The validation now checks
+/// the `verifiable` flag on the component definition rather than hardcoding
+/// the `Criterion` name.
+#[test]
+fn task_implements_rejects_refs_to_non_verifiable_components() {
+    let config = single_project_config();
+
+    // Document with a Task component (referenceable but not verifiable).
+    let target_doc = make_doc(
+        "my/tasks-target",
+        vec![make_task("target-task", Some("done"), None, None, 1)],
+    );
+
+    // Another document with a Task that tries to implement the target Task.
+    let source_doc = make_doc(
+        "my/tasks-source",
+        vec![make_task(
+            "source-task",
+            Some("todo"),
+            Some("my/tasks-target#target-task"),
+            None,
+            1,
+        )],
+    );
+
+    let result = build_graph(vec![target_doc, source_doc], &config);
+    let errors =
+        result.expect_err("build_graph should fail: implements ref to non-verifiable Task");
+
+    let broken: Vec<_> = errors
+        .iter()
+        .filter_map(|e| match e {
+            GraphError::BrokenRef {
+                doc_id,
+                ref_str,
+                reason,
+                ..
+            } if doc_id == "my/tasks-source" && ref_str == "my/tasks-target#target-task" => {
+                Some(reason.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        !broken.is_empty(),
+        "expected BrokenRef for implements ref to non-verifiable component: {errors:?}"
+    );
+    assert!(
+        broken[0].contains("verifiable"),
+        "error reason should mention 'verifiable', got: {}",
+        broken[0]
+    );
+}
+
+/// The plan/query system still correctly links tasks to criteria they
+/// implement after the generalization from `Criterion`-only to verifiable
+/// target validation.
+#[test]
+fn plan_task_linkage_still_works_for_criterion() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "my/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-x", 2), make_criterion("crit-y", 3)],
+            1,
+        )],
+    );
+
+    let tasks_doc = make_doc(
+        "my/tasks",
+        vec![
+            make_task("task-a", Some("done"), Some("my/req#crit-x"), None, 1),
+            make_task(
+                "task-b",
+                Some("todo"),
+                Some("my/req#crit-y"),
+                Some("task-a"),
+                2,
+            ),
+        ],
+    );
+
+    let graph = build_graph(vec![req_doc, tasks_doc], &config).expect("graph should build");
+
+    // Plan query: crit-x should NOT be outstanding (done task implements it).
+    let plan = graph
+        .plan(&PlanQuery::Document("my/req".to_owned()))
+        .expect("plan should succeed");
+
+    let outstanding_ids: Vec<&str> = plan
+        .outstanding_targets
+        .iter()
+        .map(|c| c.target_id.as_str())
+        .collect();
+
+    assert!(
+        !outstanding_ids.contains(&"crit-x"),
+        "crit-x should NOT be outstanding (done task): {outstanding_ids:?}"
+    );
+    assert!(
+        outstanding_ids.contains(&"crit-y"),
+        "crit-y should be outstanding (task not done): {outstanding_ids:?}"
+    );
+
+    // Completed tasks should include task-a with its implements ref.
+    let completed = plan.completed_tasks.iter().find(|t| t.task_id == "task-a");
+    assert!(completed.is_some(), "task-a should be in completed_tasks");
+    assert!(
+        completed
+            .unwrap()
+            .implements
+            .contains(&("my/req".to_owned(), "crit-x".to_owned())),
+        "task-a should implement crit-x"
+    );
+
+    // Pending tasks should include task-b.
+    let pending_ids: Vec<&str> = plan
+        .pending_tasks
+        .iter()
+        .map(|t| t.task_id.as_str())
+        .collect();
+    assert!(
+        pending_ids.contains(&"task-b"),
+        "task-b should be pending: {pending_ids:?}"
+    );
 }
