@@ -59,6 +59,20 @@ impl<'g> ArtifactGraph<'g> {
             target_id: target_id.to_owned(),
         })
     }
+
+    /// Returns evidence records that have no resolved targets.
+    ///
+    /// These typically represent `#[verifies("...")]` attributes where the
+    /// target ref could not be resolved to a known criterion (e.g. a bare
+    /// fragment like `"login-succeeds"` instead of the full
+    /// `"doc-id#criterion-id"` form).
+    #[must_use]
+    pub fn unresolved_evidence(&self) -> Vec<&VerificationEvidenceRecord> {
+        self.evidence
+            .iter()
+            .filter(|rec| rec.targets.is_empty())
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
