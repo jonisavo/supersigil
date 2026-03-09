@@ -1,0 +1,38 @@
+---
+supersigil:
+  id: authoring-commands/tasks
+  type: tasks
+  status: draft
+title: "CLI Authoring Commands Tasks"
+---
+
+## Overview
+
+This tasks document tracks the bounded recovery pass for the CLI `init` and
+`new` domain.
+
+<Task id="task-1" status="done" implements="authoring-commands/req#req-1-1, authoring-commands/req#req-1-2, authoring-commands/req#req-1-3, authoring-commands/req#req-2-1, authoring-commands/req#req-2-2, authoring-commands/req#req-2-3, authoring-commands/req#req-2-4, authoring-commands/req#req-3-1, authoring-commands/req#req-3-2, authoring-commands/req#req-3-3, authoring-commands/req#req-3-4">
+  Recover the current `init` and `new` command behavior into project-local
+  req, design, and tasks docs under
+  `crates/supersigil-cli/specs/authoring-commands/`.
+</Task>
+
+<Task id="task-2" status="ready">
+  Add end-to-end CLI coverage for `init`, including successful creation and the
+  `supersigil.toml already exists` failure path.
+</Task>
+
+<Task id="task-3" status="ready">
+  Decide how `init` should scaffold multi-project workspaces now that this repo
+  uses `projects.*` rather than a single top-level `paths` entry.
+</Task>
+
+<Task id="task-4" status="ready">
+  Decide whether `new` should keep warning-and-continue behavior for unknown
+  document types or fail fast instead.
+</Task>
+
+<Task id="task-5" status="ready">
+  Decide whether `new` should keep accepting a Feature_Slug or move to a real
+  document-ID and project-aware authoring model.
+</Task>

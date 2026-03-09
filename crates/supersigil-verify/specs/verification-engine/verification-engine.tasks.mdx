@@ -1,0 +1,39 @@
+---
+supersigil:
+  id: verification-engine/tasks
+  type: tasks
+  status: draft
+title: "Verification Engine Tasks"
+---
+
+## Overview
+
+This tasks document tracks the next cleanup passes exposed by the recovered
+verification spec. It replaces the stale implementation-history tasks doc with
+current debt in the ArtifactGraph-era verification surface.
+
+<Task id="task-1" status="done" implements="verification-engine/req#req-1-1, verification-engine/req#req-1-4, verification-engine/req#req-2-4, verification-engine/req#req-3-1, verification-engine/req#req-4-4, verification-engine/req#req-5-3, verification-engine/req#req-6-3, verification-engine/req#req-7-1, verification-engine/req#req-7-2, verification-engine/req#req-7-3">
+  Recover the current verification behavior into project-local req, design, and
+  tasks docs under `crates/supersigil-verify/specs/verification-engine/`, and
+  retire the stale root-level verification docs.
+</Task>
+
+<Task id="task-2" status="ready">
+  Decide whether `status_inconsistency` remains a real rule. Either implement
+  the intended status checks and add coverage for them, or remove the rule from
+  the public rule registry so config and docs no longer imply behavior that the
+  pipeline does not perform today.
+</Task>
+
+<Task id="task-3" status="ready">
+  Add end-to-end multi-project coverage for `verify --project`, `status`, and
+  `affected` so the CLI evidence assembly and project filtering behavior are
+  exercised outside the crate unit tests.
+</Task>
+
+<Task id="task-4" status="ready">
+  Decide whether plugin failure and evidence-conflict findings should stay in
+  CLI glue or move into a shared verification-library boundary. The current
+  split works, but it makes the public verification contract harder to describe
+  and test.
+</Task>

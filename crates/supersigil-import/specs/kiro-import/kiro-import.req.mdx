@@ -1,0 +1,195 @@
+---
+supersigil:
+  id: kiro-import/req
+  type: requirements
+  status: draft
+title: "Kiro Import"
+---
+
+## Introduction
+
+This spec recovers the current `supersigil-import` domain and the CLI adapter
+behind `supersigil import --from kiro`.
+
+It describes the importer as implemented today: Kiro-only, library-first,
+feature-local ref resolution, and explicit output targeting rather than
+project-aware workspace import.
+
+## Definitions
+
+- **Kiro_Spec_Root**: The configured directory that contains imported Kiro
+  feature directories. In the CLI adapter, this defaults to `.kiro/specs`.
+- **Discovered_Feature**: One immediate child directory of Kiro_Spec_Root that
+  contains at least one of `requirements.md`, `design.md`, or `tasks.md` as a
+  file.
+- **Feature_Title**: The title chosen for emitted documents in precedence
+  order: requirements title, then design title, then tasks title, then the
+  feature directory name.
+- **Import_Plan**: The dry-run result returned by `plan_kiro_import`,
+  containing planned documents, summary counters, ambiguity count, and
+  diagnostics.
+- **Ambiguity_Marker**: A `<!-- TODO(supersigil-import): ... -->` comment
+  emitted when the current import model cannot represent or fully resolve
+  source content.
+
+## Requirement 1: Discovery and Planning
+
+As a user migrating existing Kiro specs, I want the importer to discover import
+units deterministically and preview the output before any write, so that I can
+inspect the conversion safely.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE importer SHALL scan only the immediate child directories of the
+    configured Kiro_Spec_Root, sort them by directory name, and treat a child
+    as a Discovered_Feature when at least one of `requirements.md`,
+    `design.md`, or `tasks.md` exists as a file.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    IF a child directory contains none of the recognized Kiro source files,
+    THEN the importer SHALL skip that directory and SHALL report a
+    `SkippedDir` diagnostic instead of emitting documents for it.
+  </Criterion>
+  <Criterion id="req-1-3">
+    IF the configured Kiro_Spec_Root does not exist, THEN the importer SHALL
+    fail with `ImportError::SpecsDirNotFound`.
+  </Criterion>
+  <Criterion id="req-1-4">
+    `plan_kiro_import` SHALL return one `PlannedDocument` per present source
+    file and SHALL report `features_processed`, `criteria_converted`,
+    `validates_resolved`, `tasks_converted`, diagnostics, and
+    `ambiguity_count` without writing output files.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Document Identity and Output Layout
+
+As a user reviewing imported docs, I want stable IDs and predictable paths, so
+that the generated output is easy to trace and re-run.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    FOR EACH emitted document, THE importer SHALL generate the document ID as
+    `{prefix}/{type_hint}/{feature_name}` when `id_prefix` is present and as
+    `{type_hint}/{feature_name}` otherwise. IF the configured prefix ends in
+    `/`, THEN the importer SHALL trim the trailing slash before constructing
+    the ID.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/ids.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    THE importer SHALL write planned output paths under
+    `{output_dir}/{feature_name}/`, using the current filename shape
+    `{feature_name}.req.mdx`, `{feature_name}.design.mdx`, and
+    `{feature_name}.tasks.mdx`.
+  </Criterion>
+  <Criterion id="req-2-3">
+    THE emitted front matter SHALL use `supersigil.status: draft` for every
+    generated document and SHALL use the current document-type values
+    `requirements`, `design`, and `tasks`.
+  </Criterion>
+  <Criterion id="req-2-4">
+    THE importer SHALL choose one Feature_Title per feature in precedence order
+    of parsed requirements title, parsed design title, parsed tasks title, and
+    finally the feature directory name, and SHALL reuse that title across the
+    emitted documents for that feature.
+  </Criterion>
+  <Criterion id="req-2-5">
+    THE generated MDX output for the current real-world Kiro fixture set SHALL
+    parse as supersigil documents and SHALL build into a `DocumentGraph`
+    without graph-construction errors.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/e2e_pipeline.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Feature-Local Traceability and Ambiguity Handling
+
+As a user migrating traceability data, I want the importer to preserve what it
+can model and flag the rest explicitly, so that imported docs are graph-safe
+without hiding unresolved cases.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    Requirements emission SHALL preserve the per-requirement grouping from the
+    Kiro source by emitting one `<AcceptanceCriteria>` block per requirement
+    section with generated criterion IDs shaped as
+    `req-{requirement_number}-{criterion_index}`.
+  </Criterion>
+  <Criterion id="req-3-2">
+    Design emission SHALL emit `<Implements refs="{req_doc_id}" />` only when
+    the same feature also has a parsed requirements document. OTHERWISE it
+    SHALL emit an Ambiguity_Marker instead of a broken `Implements` ref.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_emit.rs" />
+  </Criterion>
+  <Criterion id="req-3-3">
+    THE importer SHALL resolve design `Validates` lines and task
+    `Requirements` or `Validates` metadata only against criterion IDs in the
+    same feature's imported requirements document. Resolved refs SHALL become
+    `<References>` components or task `implements` attributes.
+  </Criterion>
+  <Criterion id="req-3-4">
+    IF duplicate criterion IDs, duplicate task IDs, optional-task markers,
+    unresolved refs, partially resolved refs, or non-modelable Kiro metadata
+    are encountered, THEN the importer SHALL preserve graph-safe output and
+    SHALL emit Ambiguity_Markers or inline comments rather than silent loss.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/unit.rs" />
+  </Criterion>
+  <Criterion id="req-3-5">
+    THE reported `ambiguity_count` in an Import_Plan or Import_Result SHALL
+    equal the total number of emitted Ambiguity_Markers across the generated
+    documents.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: CLI Import Flow
+
+As an operator, I want the CLI adapter to expose the importer with predictable
+defaults and summaries, so that I can run migrations directly from a workspace.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THE current CLI adapter SHALL support only `--from kiro` and SHALL derive
+    `ImportConfig.kiro_specs_dir` using this precedence order:
+    `--source-dir`, then `SUPERSIGIL_IMPORT_SOURCE_DIR`, then `.kiro/specs`.
+    IF `--output-dir` is omitted, THEN it SHALL default to `specs`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_import.rs" />
+  </Criterion>
+  <Criterion id="req-4-2">
+    WHEN `--dry-run` is set, THE CLI SHALL print diagnostics to stderr, SHALL
+    print the planned document list and summary counts to stdout, and SHALL NOT
+    write imported documents to disk.
+  </Criterion>
+  <Criterion id="req-4-3">
+    WHEN write mode succeeds, THE CLI SHALL print the written file list and the
+    same summary counts, then SHALL emit a next-step hint of
+    `supersigil lint` when `supersigil.toml` exists in the current directory
+    and SHALL otherwise hint `supersigil init` followed by `supersigil lint`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: File Writing Semantics
+
+As an operator running a real import, I want file creation to have explicit
+conflict behavior, so that reruns and partial failures are understandable.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    THE write phase SHALL create missing parent directories for planned output
+    paths and SHALL write documents sequentially in plan order.
+  </Criterion>
+  <Criterion id="req-5-2">
+    IF `force` is false and a target file already exists, THEN the write phase
+    SHALL fail with `ImportError::FileExists` and SHALL use create-new
+    semantics instead of overwriting the existing file.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_write.rs" />
+  </Criterion>
+  <Criterion id="req-5-3">
+    IF `force` is true, THEN the write phase SHALL overwrite existing files.
+  </Criterion>
+  <Criterion id="req-5-4">
+    THE current write phase SHALL be best-effort and non-transactional: if a
+    later write fails, earlier successful writes SHALL NOT be rolled back.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/write.rs" />
+  </Criterion>
+</AcceptanceCriteria>

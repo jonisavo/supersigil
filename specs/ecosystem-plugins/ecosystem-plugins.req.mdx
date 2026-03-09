@@ -8,408 +8,123 @@ title: "Ecosystem Plugins"
 
 ## Introduction
 
-Ecosystem plugins let source code and other artifact systems contribute
-verification evidence to Supersigil in ecosystem-native ways, without forcing
-spec authors to mirror every verification link manually in MDX. This feature
-introduces a layered model: `DocumentGraph` remains the authoritative graph of
-authored Supersigil documents, and verification-time enrichment builds an
-`ArtifactGraph` that overlays source-derived and authored evidence.
+This spec now captures only the cross-cutting ecosystem plugin layer that
+spans config, CLI orchestration, verification, and reporting.
 
-The first ecosystem integration is Rust. The Rust integration uses a public
-proc-macro attribute API for criterion-level verification links, validates
-those links against the Supersigil document graph at compile time when policy
-enables it, and contributes normalized evidence records to the ArtifactGraph at
-verification time. In Rust projects that adopt this annotation API, authored
-`<VerifiedBy>` components become optional for the covered cases.
+The crate-local behaviors are recovered separately in:
 
-This spec covers built-in ecosystem plugins and the first Rust plugin. It does
-not include external or WASM plugin loading, and it does not implement
-JavaScript or TypeScript yet. The architecture must still leave room for those
-follow-up ecosystems and other future artifact systems.
+- `evidence-contract/*` under `crates/supersigil-evidence/specs/`
+- `rust-plugin/*` under `crates/supersigil-rust/specs/`
+- `verifies-macro/*` under `crates/supersigil-rust-macros/specs/`
 
 ## Definitions
 
-- **DocumentGraph**: The existing graph of authored Supersigil documents,
-  criteria, and document-to-document refs. It is built only from Supersigil
-  documents and config, without source scanning or external system access.
-- **ArtifactGraph**: A larger verification-time graph that contains the
-  DocumentGraph plus evidence and artifact nodes derived from authored
-  verification declarations, source code, ecosystem plugins, and future
-  external systems.
-- **Ecosystem_Plugin**: A built-in Supersigil subsystem that understands one
-  programming ecosystem's source format and contributes verification evidence
-  to the ArtifactGraph.
-- **Explicit_Verification_Evidence**: Evidence declared in authored spec
-  documents, including `<VerifiedBy>` components and their configured
-  strategies.
-- **Implicit_Verification_Evidence**: Evidence discovered from source code by
-  an enabled ecosystem plugin, without a corresponding authored `<VerifiedBy>`
-  component in a spec document.
-- **Verification_Evidence_Record**: A normalized edge between a discovered or
-  declared artifact and one or more Supersigil criterion refs, carrying
-  provenance, source location, test identity, and optional framework metadata.
-- **Effective_Criterion_Set**: The normalized set of criterion refs that a
-  given evidence source backs after its source-specific representation has
-  been resolved into criterion-level evidence.
-- **Criterion_Target**: A Supersigil criterion ref of the form
-  `doc-id#fragment`. Rust source annotations in v1 target criteria only.
-- **Rust_Verification_Attribute**: The public proc-macro attribute exported by
-  Supersigil for declaring criterion-level verification links in Rust source
-  code.
-- **Compile_Time_Validation_Policy**: The project configuration that decides
-  whether the Rust attribute validates refs in no builds, in development and
-  test-oriented builds only, or in all builds including release.
-- **Supported_Rust_Test**: A Rust test declaration shape that the Rust plugin
-  understands in v1. This includes `#[test]`, `#[tokio::test]`,
-  proptest-generated tests, and snapshot-oriented tests that use `insta`
-  within supported test items.
-- **Plugin_Provenance**: Metadata indicating which ecosystem plugin produced a
-  given Verification_Evidence_Record and whether the evidence was authored in
-  specs, discovered from comment tags, or derived from source annotations.
+- **Enabled_Plugin_Set**: The built-in plugin names resolved from
+  `ecosystem.plugins`.
+- **Plugin_Evidence_Pipeline**: The current CLI-driven flow that assembles
+  plugins, resolves source files, extracts explicit evidence, and builds an
+  `ArtifactGraph`.
+- **Plugin_Finding**: A verification finding surfaced when plugin discovery
+  fails or yields an ecosystem-level problem.
 
-## Requirement 1: Plugin Activation and Configuration
+## Requirement 1: Ecosystem Activation and Policy
 
-As a developer, I want ecosystem plugins to be configured explicitly, so that
-language-native verification can be enabled, disabled, and tightened per
-project policy.
+As a workspace maintainer, I want ecosystem behavior configured explicitly, so
+that plugin-backed evidence can be enabled, disabled, and scoped predictably.
 
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
-    WHEN `[ecosystem]` declares a `plugins` list, THE Config_Loader SHALL
-    store the list of enabled built-in plugin identifiers and make it
-    available to ArtifactGraph construction and verification-time discovery.
+    THE config model SHALL expose `ecosystem.plugins` as the Enabled_Plugin_Set
+    and SHALL default that set to `["rust"]`.
   </Criterion>
   <Criterion id="req-1-2">
-    WHEN the `[ecosystem]` section is omitted, THE Config_Loader SHALL default
-    to enabling the built-in Rust plugin.
+    IF config explicitly sets `plugins = []`, THEN the Plugin_Evidence_Pipeline
+    SHALL disable plugin-derived evidence while leaving explicit `VerifiedBy`
+    extraction available.
   </Criterion>
   <Criterion id="req-1-3">
-    WHEN the config explicitly sets `plugins = []`, THE Config_Loader SHALL
-    disable all plugin-derived ArtifactGraph contributions while leaving
-    explicit `<VerifiedBy>` strategies, including comment-tag scanning,
-    available.
+    IF config names an unknown built-in plugin, THEN config loading SHALL fail
+    before CLI plugin assembly runs.
   </Criterion>
   <Criterion id="req-1-4">
-    WHEN the config names an unknown built-in plugin identifier, THE
-    Config_Loader SHALL emit a config error identifying the unknown plugin.
-  </Criterion>
-  <Criterion id="req-1-5">
-    THE Rust plugin configuration SHALL allow compile-time validation to be
-    disabled, enabled for development and test-oriented builds only, or
-    enabled for all builds including release. The default policy SHALL enable
-    validation for development and test-oriented builds only.
+    THE config model SHALL expose the current Rust-specific ecosystem policy
+    surface under `ecosystem.rust`, including `validation` and
+    `project_scope`.
   </Criterion>
 </AcceptanceCriteria>
 
-## Requirement 2: ArtifactGraph Construction
+## Requirement 2: Cross-Cutting Evidence Orchestration
 
-As a developer, I want verification to reason over a larger artifact graph, so
-that authored specs, source-derived evidence, and future external systems can
-contribute to one merged verification view.
+As an operator, I want plugin and authored evidence to flow through one
+pipeline, so that verification and query surfaces see one merged evidence view.
 
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
-    THE Verify_Engine SHALL construct an ArtifactGraph from the current
-    DocumentGraph plus enabled evidence sources, without rewriting the authored
-    Supersigil documents on disk.
+    THE CLI plugin layer SHALL assemble built-in plugin instances from the
+    Enabled_Plugin_Set and SHALL currently instantiate the Rust plugin for the
+    built-in `"rust"` identifier.
   </Criterion>
   <Criterion id="req-2-2">
-    THE DocumentGraph SHALL remain usable on its own for graph construction,
-    lint, and document-only queries without requiring ecosystem plugins or
-    source scanning.
+    WHEN the Rust plugin is enabled, THE CLI plugin layer SHALL broaden plugin
+    discovery inputs beyond resolved test globs by inferring Rust source files
+    from the conventional `src/`, `tests/`, `benches/`, and `examples/`
+    locations, including workspace-member crates.
   </Criterion>
   <Criterion id="req-2-3">
-    EACH Verification_Evidence_Record in the ArtifactGraph SHALL include the
-    target criterion ref or refs, source file path, line, discovered or
-    declared test identity, evidence kind, and Plugin_Provenance. Optional
-    framework metadata SHALL be included when the producing source can derive
-    it reliably.
+    THE Plugin_Evidence_Pipeline SHALL merge explicit `VerifiedBy` evidence and
+    plugin-derived evidence into one `ArtifactGraph` instead of keeping
+    separate evidence channels.
   </Criterion>
   <Criterion id="req-2-4">
-    THE ArtifactGraph SHALL merge explicit and implicit verification evidence
-    into one logical evidence set while preserving the provenance of each
-    contributing source.
-  </Criterion>
-  <Criterion id="req-2-5">
-    WHEN one enabled plugin fails during verification-time ArtifactGraph
-    construction, THE failure SHALL be isolated to that plugin's contribution
-    and SHALL NOT prevent the baseline DocumentGraph-based checks or other
-    enabled plugins from running.
+    IF plugin discovery fails for one enabled plugin, THEN the pipeline SHALL
+    surface a Plugin_Finding and SHALL continue returning a verification result
+    instead of aborting the whole verification flow.
   </Criterion>
 </AcceptanceCriteria>
 
-## Requirement 3: Rust Source Annotation API
+## Requirement 3: Evidence Surfacing
 
-As a Rust developer, I want a public source-level annotation API, so that Rust
-tests can declare their Supersigil criterion links directly in code.
+As a developer inspecting verification results, I want ecosystem-backed
+evidence surfaced clearly, so that plugin-derived coverage is visible and
+debuggable.
 
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
-    Supersigil SHALL publish a public Rust_Verification_Attribute implemented
-    as a proc-macro attribute crate.
+    THE verification report surface SHALL be able to include an evidence
+    summary that shows evidence kind, discovered test identity, source
+    location, and provenance.
   </Criterion>
   <Criterion id="req-3-2">
-    THE Rust_Verification_Attribute SHALL accept one or more
-    Criterion_Target refs and SHALL reject full document refs that do not
-    identify a specific criterion fragment.
+    THE reporting layer SHALL preserve merged provenance strings when multiple
+    sources back the same effective evidence record.
   </Criterion>
   <Criterion id="req-3-3">
-    WHEN the Rust_Verification_Attribute is attached to an unsupported Rust
-    item, THE compiler SHALL emit an error at the attribute site describing
-    the unsupported attachment target.
-  </Criterion>
-  <Criterion id="req-3-4">
-    WHEN the Rust_Verification_Attribute syntax is malformed, THE compiler
-    SHALL emit an error at the attribute site describing the syntax problem.
-  </Criterion>
-  <Criterion id="req-3-5">
-    THE Rust_Verification_Attribute SHALL NOT change the runtime behavior of a
-    supported test beyond performing Supersigil validation and exposing the
-    annotation to Supersigil's Rust ecosystem tooling.
+    THE ecosystem layer SHALL surface plugin discovery failures through the
+    existing verification/reporting surfaces rather than as configuration or
+    graph-construction failures.
   </Criterion>
 </AcceptanceCriteria>
 
-## Requirement 4: Compile-Time Graph Validation
+## Requirement 4: Modular Extension Boundary
 
-As a Rust developer, I want source annotations validated against the
-DocumentGraph during compilation, so that stale criterion refs are caught when
-the code changes.
+As a maintainer, I want ecosystem support split cleanly from the document-only
+core, so that new ecosystems can be added without changing the authored spec
+format.
 
 <AcceptanceCriteria>
   <Criterion id="req-4-1">
-    WHEN the active Compile_Time_Validation_Policy enables validation for the
-    current build, THE Rust_Verification_Attribute SHALL load the Supersigil
-    project configuration and validate each referenced Criterion_Target
-    against the current DocumentGraph.
+    THE language-agnostic `DocumentGraph` and core config model SHALL remain
+    usable without taking a compile-time dependency on Rust parsing or proc-
+    macro code.
   </Criterion>
   <Criterion id="req-4-2">
-    WHEN a referenced Criterion_Target does not resolve in the current
-    DocumentGraph, THE compiler SHALL emit an error at the attribute site
-    identifying the unresolved criterion ref.
+    THE current ecosystem implementation SHALL remain split between a shared
+    evidence-contract crate, a Rust runtime crate, and a Rust proc-macro
+    crate, with root-level specs only for cross-cutting orchestration.
   </Criterion>
   <Criterion id="req-4-3">
-    WHEN compile-time validation is enabled and the Supersigil configuration
-    or DocumentGraph cannot be loaded, THE compiler SHALL emit an error
-    describing the load failure rather than silently skipping validation.
-  </Criterion>
-  <Criterion id="req-4-4">
-    WHEN the active Compile_Time_Validation_Policy disables validation for the
-    current build, syntactically valid Rust_Verification_Attribute usage SHALL
-    compile without graph loading or ref resolution.
-  </Criterion>
-  <Criterion id="req-4-5">
-    THE default Compile_Time_Validation_Policy SHALL avoid affecting release
-    builds unless the project explicitly opts into release-time validation.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 5: Workspace Scoping and Build Freshness
-
-As a Rust developer, I want compile-time validation to select the correct
-Supersigil project and stay fresh when specs change, so that attribute checks
-remain correct in workspaces.
-
-<AcceptanceCriteria>
-  <Criterion id="req-5-1">
-    IN single-project mode, THE Rust_Verification_Attribute SHALL validate
-    against the workspace's single Supersigil project configuration.
-  </Criterion>
-  <Criterion id="req-5-2">
-    IN multi-project mode, compile-time validation SHALL determine the
-    applicable Supersigil project using explicit Rust plugin configuration or
-    an unambiguous path-based inference. Ambiguous or missing project
-    selection SHALL produce a compile-time error describing the ambiguity.
-  </Criterion>
-  <Criterion id="req-5-3">
-    THE compile-time validation implementation SHALL treat `supersigil.toml`
-    and every spec document loaded into the DocumentGraph as validation
-    inputs.
-  </Criterion>
-  <Criterion id="req-5-4">
-    WHEN the toolchain supports tracked file inputs for procedural macros or
-    the surrounding build integration, changes to those validation inputs
-    SHALL trigger revalidation on the next relevant build.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 6: Rust Ecosystem Discovery
-
-As a developer, I want Supersigil to discover Rust verification annotations
-idiomatically, so that Rust projects do not need to rely only on generic
-comment scanning for precise criterion-level evidence.
-
-<AcceptanceCriteria>
-  <Criterion id="req-6-1">
-    WHEN the Rust plugin is enabled, THE Verify_Engine SHALL use Rust-native
-    parsing to discover Rust_Verification_Attribute usage in Rust source files.
-  </Criterion>
-  <Criterion id="req-6-2">
-    THE Rust plugin SHALL support the Supported_Rust_Test forms used in this
-    repository: `#[test]`, `#[tokio::test]`, proptest-generated tests, and
-    snapshot-oriented tests that use `insta` within supported test items.
-  </Criterion>
-  <Criterion id="req-6-3">
-    FOR EACH discovered Rust test, THE Rust plugin SHALL record the source
-    file path, line, test name, referenced Criterion_Target refs, and a test
-    kind such as `unit`, `async`, `property`, or `snapshot`.
-  </Criterion>
-  <Criterion id="req-6-4">
-    WHEN the Rust plugin can derive framework-specific metadata reliably, it
-    SHALL include that metadata in the Verification_Evidence_Record. This
-    includes proptest-related metadata such as case or regression details, and
-    snapshot-related metadata such as snapshot identifiers, when available.
-  </Criterion>
-  <Criterion id="req-6-5">
-    WHEN Rust-specific test globs are configured for a project, THE
-    Verify_Engine SHALL use those configured globs as the Rust plugin's source
-    discovery scope instead of broadening discovery beyond the configured
-    scope.
-  </Criterion>
-  <Criterion id="req-6-6">
-    WHEN no explicit Rust-specific test globs are configured, THE Rust plugin
-    SHALL infer candidate Rust source files from conventional Rust project
-    locations such as `tests/**/*.rs`, `src/**/*.rs`, `benches/**/*.rs`, and
-    `examples/**/*.rs`, and SHALL still limit evidence extraction to
-    Supported_Rust_Test forms.
-  </Criterion>
-  <Criterion id="req-6-7">
-    WHEN the Rust plugin is enabled but its configured or inferred discovery
-    scope yields zero candidate Rust source files or zero supported Rust test
-    items, THE Verify_Engine SHALL emit a plugin-scoped finding that explains
-    the empty discovery result and how the user can refine or override the
-    discovery scope.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 7: Evidence Source Coexistence
-
-As a developer, I want authored evidence, comment-tag evidence, and
-Rust-attribute evidence to work together, so that teams can adopt ecosystem
-plugins incrementally without losing existing workflows.
-
-<AcceptanceCriteria>
-  <Criterion id="req-7-1">
-    THE ArtifactGraph SHALL accept verification evidence from all of the
-    following sources in the same project: authored `<VerifiedBy>`
-    declarations, comment-tag matches discovered through
-    `strategy="tag"`, and Rust_Verification_Attribute annotations.
-  </Criterion>
-  <Criterion id="req-7-2">
-    WHEN multiple evidence sources describe the same test backing the same
-    Criterion_Target, THE ArtifactGraph SHALL deduplicate the effective
-    evidence link while preserving all contributing provenances.
-  </Criterion>
-  <Criterion id="req-7-3">
-    FOR Rust source files, comment-based tag scanning SHALL remain supported
-    as a backward-compatible fallback when no Rust_Verification_Attribute is
-    present, and as an additional evidence source when both mechanisms are
-    used.
-  </Criterion>
-  <Criterion id="req-7-4">
-    WHEN the same discovered Rust test resolves to different
-    Effective_Criterion_Set values across evidence sources, THE Verify_Engine
-    SHALL emit a plugin-scoped conflict finding identifying the disagreeing
-    sources rather than guessing which target is correct. Evidence sources
-    that normalize to the same Effective_Criterion_Set, even if one source is
-    less direct than another, SHALL be treated as compatible and deduplicated.
-  </Criterion>
-  <Criterion id="req-7-5">
-    Explicit `<VerifiedBy strategy="file-glob">` evidence SHALL remain
-    supported as coarse file-level evidence and SHALL coexist with finer
-    test-level evidence in the ArtifactGraph.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 8: Verification Semantics for Merged Evidence
-
-As a spec author, I want merged ArtifactGraph evidence to satisfy verification
-expectations, so that authored `<VerifiedBy>` components are not required when
-the code already declares the verification links.
-
-<AcceptanceCriteria>
-  <Criterion id="req-8-1">
-    THE Verify_Engine SHALL evaluate evidence-backed validation claims against
-    the merged ArtifactGraph evidence set rather than only against authored
-    `<VerifiedBy>` components.
-  </Criterion>
-  <Criterion id="req-8-2">
-    WHEN a document contains `References` refs and the referenced targets are
-    backed by merged explicit or implicit verification evidence, THE
-    Verify_Engine SHALL treat that validation claim as evidence-backed even if
-    the document contains no authored `<VerifiedBy>` component.
-  </Criterion>
-  <Criterion id="req-8-3">
-    THE `unverified_validation` rule SHALL only emit a finding when a
-    validation claim lacks both authored verification evidence and applicable
-    plugin-derived verification evidence in the ArtifactGraph.
-  </Criterion>
-  <Criterion id="req-8-4">
-    WHEN source-derived evidence targets a criterion ref directly, THE
-    ArtifactGraph and evidence-related query outputs SHALL surface that
-    evidence on the target criterion and SHALL treat validating documents that
-    point to that criterion as evidence-backed for that target.
-  </Criterion>
-  <Criterion id="req-8-5">
-    Explicit `<VerifiedBy>` components SHALL remain supported as a fallback
-    for ecosystems without plugins and for mixed projects that combine
-    authored and derived evidence.
-  </Criterion>
-  <Criterion id="req-8-6">
-    WHEN plugin discovery encounters invalid or unresolved source annotations
-    in a context where compile-time validation did not reject them, THE
-    Verify_Engine SHALL report a plugin-scoped finding instead of failing the
-    verification run with an unhandled error.
-  </Criterion>
-  <Criterion id="req-8-7">
-    WHEN the ArtifactGraph contains direct source-derived evidence for a
-    Criterion_Target, THE coverage evaluation SHALL treat that target as
-    covered even if no authored validating document exists for the target.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 9: Reporting and Query Surfacing
-
-As a developer, I want verification and context outputs to show source-derived
-evidence clearly, so that I can inspect which tests back a criterion or
-validation claim.
-
-<AcceptanceCriteria>
-  <Criterion id="req-9-1">
-    WHEN the verification report includes ArtifactGraph evidence, THE report
-    SHALL include the discovered or declared test identity, source location,
-    evidence kind, and Plugin_Provenance for each surfaced evidence record.
-  </Criterion>
-  <Criterion id="req-9-2">
-    Outputs that surface verification evidence, including `verify` and
-    evidence-related query views, SHALL include merged ArtifactGraph evidence
-    alongside authored evidence in one coherent view.
-  </Criterion>
-  <Criterion id="req-9-3">
-    WHEN multiple tests contribute evidence for the same Criterion_Target, THE
-    output SHALL present each contributing test separately while still
-    reporting the aggregate target as covered.
-  </Criterion>
-</AcceptanceCriteria>
-
-## Requirement 10: Built-In Plugin Architecture
-
-As a Supersigil maintainer, I want ecosystem integrations to be built in but
-modular, so that new ecosystems can be added without polluting the
-language-agnostic core.
-
-<AcceptanceCriteria>
-  <Criterion id="req-10-1">
-    Supersigil v1 ecosystem support SHALL ship built-in plugins compiled into
-    the Supersigil distribution, without requiring an external plugin runtime.
-  </Criterion>
-  <Criterion id="req-10-2">
-    THE language-agnostic core data model and DocumentGraph SHALL remain
-    usable without taking a compile-time dependency on Rust-specific parsing or
-    proc-macro code.
-  </Criterion>
-  <Criterion id="req-10-3">
-    THE built-in plugin architecture SHALL allow additional ecosystems such as
-    JavaScript and TypeScript to be added in follow-up work without changing
-    the authored MDX document format.
+    THE ecosystem layer SHALL leave room for future built-in ecosystems to
+    adopt the same shared evidence contract without changing the MDX document
+    format.
   </Criterion>
 </AcceptanceCriteria>

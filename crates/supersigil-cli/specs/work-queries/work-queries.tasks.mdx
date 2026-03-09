@@ -1,0 +1,34 @@
+---
+supersigil:
+  id: work-queries/tasks
+  type: tasks
+  status: draft
+title: "CLI Work Queries Tasks"
+---
+
+## Overview
+
+This tasks document tracks the bounded recovery pass for the CLI `context` and
+`plan` domain.
+
+<Task id="task-1" status="done" implements="work-queries/req#req-1-1, work-queries/req#req-1-2, work-queries/req#req-1-3, work-queries/req#req-2-1, work-queries/req#req-2-2, work-queries/req#req-2-3, work-queries/req#req-3-1, work-queries/req#req-3-2, work-queries/req#req-3-3, work-queries/req#req-4-1, work-queries/req#req-4-2, work-queries/req#req-4-3">
+  Recover the current `context` and `plan` command behavior into project-local
+  req, design, and tasks docs under
+  `crates/supersigil-cli/specs/work-queries/`.
+</Task>
+
+<Task id="task-2" status="ready">
+  Add richer CLI coverage for `context` terminal sections, especially
+  `implemented_by`, `referenced_by`, and linked-task rendering.
+</Task>
+
+<Task id="task-3" status="ready">
+  Decide whether ArtifactGraph evidence suppression for `plan` should remain in
+  `supersigil-cli` or move down into the lower-level query model so non-CLI
+  consumers see the same filtered notion of outstanding work.
+</Task>
+
+<Task id="task-4" status="ready">
+  Add an end-to-end CLI test for the fully clean `plan` case that should print
+  `No outstanding work.` after evidence filtering.
+</Task>

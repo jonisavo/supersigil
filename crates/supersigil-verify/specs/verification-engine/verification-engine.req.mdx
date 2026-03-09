@@ -1,0 +1,278 @@
+---
+supersigil:
+  id: verification-engine/req
+  type: requirements
+  status: draft
+title: "Verification Engine"
+---
+
+## Introduction
+
+This spec recovers the current verification surface spanning the
+`supersigil-verify` crate plus the CLI glue that assembles evidence and renders
+`verify`, `status`, and `affected`.
+
+The current model is evidence-backed rather than reference-backed. Coverage is
+driven by `ArtifactGraph` records assembled from authored `<VerifiedBy>`
+components and ecosystem plugins. Plain `References` links remain traceability
+data and do not satisfy verification coverage.
+
+## Definitions
+
+- **Verification_Surface**: The combined library and CLI behavior exposed by
+  `supersigil-verify`, `supersigil verify`, `supersigil status`, and
+  `supersigil affected`.
+- **ArtifactGraph**: The merged evidence graph built from Explicit_Evidence and
+  Plugin_Evidence, plus indexes by verification target and test identity.
+- **Explicit_Evidence**: Normalized verification records extracted from
+  criterion-nested authored `<VerifiedBy>` components.
+- **Plugin_Evidence**: Normalized verification records returned by enabled
+  ecosystem plugins.
+- **Project_Filter**: An optional named project scope that limits reported
+  document findings without rebuilding the workspace graph.
+- **Verification_Finding**: One rule result with a rule name, message, optional
+  document ID, optional source position, and resolved severity.
+- **Evidence_Summary**: Optional report enrichment listing effective evidence
+  records, test counts per verification target, and conflict counts.
+
+## Requirement 1: Verification Pipeline and Scope
+
+As a workspace maintainer, I want one verification surface that evaluates the
+workspace graph and then reports findings at workspace or project scope, so
+that verification stays coherent even in multi-project mode.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE `supersigil_verify::verify` entry point SHALL accept a
+    `DocumentGraph`, `Config`, project root path, `VerifyOptions`, and
+    `ArtifactGraph`, and SHALL return a `VerificationReport`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE verification pipeline SHALL execute the built-in coverage, test-mapping,
+    tracked-files, structural, and status rule groups independently and collect
+    all emitted findings into one report.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs, crates/supersigil-verify/src/rules.rs" />
+  </Criterion>
+  <Criterion id="req-1-3">
+    WHEN a Project_Filter is supplied, THE pipeline SHALL continue to evaluate
+    against the workspace-wide graph and ArtifactGraph, but SHALL retain only
+    document-scoped findings for documents in the selected project. Global
+    findings with no `doc_id` SHALL remain reportable.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE CLI `verify` command SHALL build an ArtifactGraph from authored
+    Explicit_Evidence and enabled Plugin_Evidence before invoking
+    `supersigil_verify::verify`, and SHALL append plugin failure findings,
+    evidence-conflict findings, and optional Evidence_Summary to the final
+    report after the library pipeline returns.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/plugins.rs, crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/explicit_evidence.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Severity Resolution and Result Status
+
+As a spec author, I want configurable severities with predictable precedence, so
+that draft recovery work and CI gating behave consistently.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE effective severity of each Verification_Finding SHALL be resolved in
+    this precedence order: draft gating, per-rule override from
+    `[verify.rules]`, global `[verify] strictness`, then the built-in default
+    for the rule.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/severity.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    WHEN the owning document status is `draft`, THE finding SHALL be suppressed
+    to `info` regardless of stricter config overrides.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/severity.rs" />
+  </Criterion>
+  <Criterion id="req-2-3">
+    AFTER severity resolution, THE pipeline SHALL remove findings whose
+    effective severity is `off` before building the final summary.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
+  </Criterion>
+  <Criterion id="req-2-4">
+    THE built-in rule registry SHALL include `missing_verification_evidence`,
+    `missing_test_files`, `zero_tag_matches`, `stale_tracked_files`,
+    `empty_tracked_glob`, `orphan_test_tag`, `invalid_id_pattern`,
+    `isolated_document`, `status_inconsistency`,
+    `missing_required_component`, `invalid_verified_by_placement`, and
+    `plugin_discovery_failure`, with `isolated_document` defaulting to `off`
+    and `missing_verification_evidence`, `missing_test_files`, and
+    `invalid_verified_by_placement` defaulting to `error`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
+  </Criterion>
+  <Criterion id="req-2-5">
+    THE final report result status SHALL be `has_errors` when the summary has
+    any errors, `warnings_only` when it has warnings but no errors, and `clean`
+    otherwise.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Evidence-Backed Coverage
+
+As a maintainer, I want verification coverage to be driven by concrete evidence
+records, so that authored traceability links do not masquerade as proof.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    THE coverage rule SHALL recurse through every document component tree, find
+    each `Criterion`, and check whether the ArtifactGraph has evidence for the
+    `(doc_id, criterion_id)` target. IF no evidence exists, THEN the pipeline
+    SHALL emit a `missing_verification_evidence` finding at the criterion
+    position.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/coverage.rs" />
+  </Criterion>
+  <Criterion id="req-3-2">
+    Authored `References` links SHALL NOT satisfy coverage. A criterion that is
+    only referenced from another document SHALL still be reported as missing
+    verification evidence.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/coverage.rs" />
+  </Criterion>
+  <Criterion id="req-3-3">
+    Direct Explicit_Evidence or Plugin_Evidence targeting a criterion SHALL
+    satisfy coverage even when there is no separate validating spec document.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/coverage.rs, crates/supersigil-verify/src/artifact_graph.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Explicit VerifiedBy Handling and Test Discovery
+
+As a spec author, I want authored `<VerifiedBy>` declarations turned into both
+rule checks and normalized evidence, so that verification evidence is explicit
+and machine-readable.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THE shared test-file resolver SHALL expand top-level `tests` globs plus all
+    `projects[*].tests` globs relative to the project root and return the
+    combined file list used by explicit-evidence extraction, tag scanning, and
+    plugin discovery.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs, crates/supersigil-cli/src/plugins.rs" />
+  </Criterion>
+  <Criterion id="req-4-2">
+    FOR each criterion-nested `<VerifiedBy strategy=\"file-glob\">`, THE test
+    rule SHALL expand every declared path relative to the project root. IF a
+    path matches zero files, or IF the component omits `paths`, THEN the
+    pipeline SHALL emit `missing_test_files`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tests_rule.rs" />
+  </Criterion>
+  <Criterion id="req-4-3">
+    FOR each criterion-nested `<VerifiedBy strategy=\"tag\">`, THE test rule
+    SHALL scan the resolved test files for the literal pattern
+    `supersigil: {tag}` across `//`, `#`, `///`, `--`, and `/* */` comment
+    styles. IF no matches are found, or IF the component omits `tag`, THEN the
+    pipeline SHALL emit `zero_tag_matches`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tests_rule.rs, crates/supersigil-verify/src/scan.rs" />
+  </Criterion>
+  <Criterion id="req-4-4">
+    Explicit_Evidence extraction SHALL treat only criterion-nested `VerifiedBy`
+    components as evidence-bearing. Tag matches SHALL produce one evidence
+    record per matched test tag, and file-glob matches SHALL produce one
+    evidence record per matched file, each targeting the parent criterion.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/explicit_evidence.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: Structural, Status, and Plugin Discovery Findings
+
+As a maintainer, I want verification to enforce the current authored-shape and
+discovery conventions, so that malformed docs and plugin failures are visible.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    WHEN a document declares a configured `doc_type`, THE structural rules SHALL
+    require every configured `required_components` entry and SHALL emit
+    `missing_required_component` for omissions. WHEN `id_pattern` is configured,
+    non-matching document IDs SHALL emit `invalid_id_pattern`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/structural.rs" />
+  </Criterion>
+  <Criterion id="req-5-2">
+    THE structural rules SHALL emit `isolated_document` for documents with no
+    incoming or outgoing `References`, `Implements`, or `DependsOn` edges, and
+    SHALL emit `orphan_test_tag` for discovered `supersigil:` tags that are not
+    declared by any authored `VerifiedBy strategy=\"tag\"`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/structural.rs" />
+  </Criterion>
+  <Criterion id="req-5-3">
+    THE pipeline SHALL emit `invalid_verified_by_placement` when a `VerifiedBy`
+    component appears at document root or under a non-verifiable parent. Errors
+    merging runtime component definitions SHALL also surface through the same
+    rule name before placement checks continue with the default definitions.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs, crates/supersigil-verify/src/rules/structural.rs" />
+  </Criterion>
+  <Criterion id="req-5-4">
+    THE current built-in status check SHALL reserve the `status_inconsistency`
+    rule as an extension point and SHALL NOT treat `References` as verification
+    evidence. Coverage semantics SHALL remain delegated to the
+    ArtifactGraph-backed coverage rule.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/status.rs" />
+  </Criterion>
+  <Criterion id="req-5-5">
+    Plugin discovery failures and evidence conflicts SHALL surface in the CLI
+    verify flow as `plugin_discovery_failure` findings rather than aborting the
+    verification run.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/plugins.rs, crates/supersigil-cli/src/commands/verify.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 6: Tracked Files and Affected Documents
+
+As a maintainer, I want verification to connect specs to changed source files,
+so that stale docs and affected review scope are visible after code changes.
+
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    FOR each `TrackedFiles` glob, THE verification rules SHALL expand the glob
+    relative to the project root and emit `empty_tracked_glob` when it matches
+    zero files.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tracked.rs" />
+  </Criterion>
+  <Criterion id="req-6-2">
+    WHEN `since_ref` is supplied, THE verification rules SHALL compute changed
+    files via the git diff helper, honoring `committed_only` and
+    `use_merge_base`, and SHALL emit `stale_tracked_files` when changed files
+    match a document's tracked-file globs.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tracked.rs, crates/supersigil-verify/src/git.rs" />
+  </Criterion>
+  <Criterion id="req-6-3">
+    THE `affected` query SHALL use the same git diff semantics as
+    `stale_tracked_files` and SHALL return each affected document's ID, path
+    relative to the project root, matched globs, and matched changed files.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/affected.rs, crates/supersigil-cli/src/commands/affected.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 7: Status Summaries and Report Output
+
+As a user, I want verification output that can be consumed by terminals, JSON
+tools, markdown workflows, and quick status queries, so that evidence and debt
+are inspectable without reimplementing the pipeline.
+
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    THE `status` command SHALL use the ArtifactGraph to count project-wide
+    verification targets and covered targets, and SHALL expose per-document
+    target coverage plus the authored `VerifiedBy` strategies nested under each
+    criterion.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/status.rs" />
+  </Criterion>
+  <Criterion id="req-7-2">
+    THE verification report formatters SHALL serialize findings and summary in
+    JSON and markdown forms, and SHALL include `evidence_summary` only when an
+    Evidence_Summary is present.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
+  </Criterion>
+  <Criterion id="req-7-3">
+    Post-verify hooks SHALL run sequentially as shell commands, receive the
+    interim report JSON on stdin, parse stdout as JSON `[level, message]`
+    pairs into `hook_output` findings, and surface invalid JSON, spawn errors,
+    non-zero exit, and timeout conditions as `hook_failure` findings with
+    output truncated to 64 KiB.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/hooks.rs, crates/supersigil-verify/src/report.rs" />
+  </Criterion>
+</AcceptanceCriteria>

@@ -1,0 +1,33 @@
+---
+supersigil:
+  id: inventory-queries/tasks
+  type: tasks
+  status: draft
+title: "CLI Inventory Queries Tasks"
+---
+
+## Overview
+
+This tasks document tracks the bounded recovery pass for the CLI `ls`,
+`schema`, and `graph` domain.
+
+<Task id="task-1" status="done" implements="inventory-queries/req#req-1-1, inventory-queries/req#req-1-2, inventory-queries/req#req-1-3, inventory-queries/req#req-1-4, inventory-queries/req#req-2-1, inventory-queries/req#req-2-2, inventory-queries/req#req-2-3, inventory-queries/req#req-2-4, inventory-queries/req#req-3-1, inventory-queries/req#req-3-2, inventory-queries/req#req-3-3">
+  Recover the current `ls`, `schema`, and `graph` command behavior into
+  project-local req, design, and tasks docs under
+  `crates/supersigil-cli/specs/inventory-queries/`.
+</Task>
+
+<Task id="task-2" status="ready">
+  Add end-to-end CLI coverage for `graph`, including Mermaid output, DOT
+  output, and the stderr-only summary and hint behavior.
+</Task>
+
+<Task id="task-3" status="ready">
+  Add broader CLI coverage for `ls --format json`, especially combined filters
+  and the current omission of absent optional fields.
+</Task>
+
+<Task id="task-4" status="ready">
+  Decide whether `graph` should stay workspace-wide only or grow a project
+  filter aligned with `ls` and `verify` in multi-project mode.
+</Task>

@@ -1,0 +1,43 @@
+---
+supersigil:
+  id: kiro-import/tasks
+  type: tasks
+  status: draft
+title: "Kiro Import Tasks"
+---
+
+## Overview
+
+This tasks document tracks the bounded retroactive-specification pass for the
+current Kiro import domain.
+
+<Task id="task-1" status="done" implements="kiro-import/req#req-1-1, kiro-import/req#req-1-2, kiro-import/req#req-1-3, kiro-import/req#req-1-4, kiro-import/req#req-2-1, kiro-import/req#req-2-2, kiro-import/req#req-2-3, kiro-import/req#req-2-4, kiro-import/req#req-2-5, kiro-import/req#req-3-1, kiro-import/req#req-3-2, kiro-import/req#req-3-3, kiro-import/req#req-3-4, kiro-import/req#req-3-5, kiro-import/req#req-4-1, kiro-import/req#req-4-2, kiro-import/req#req-4-3, kiro-import/req#req-5-1, kiro-import/req#req-5-2, kiro-import/req#req-5-3, kiro-import/req#req-5-4">
+  Recover the current import behavior into project-local req, design, and
+  tasks docs under `crates/supersigil-import/specs/kiro-import/`, then retire
+  the stale root `specs/kiro-import/*` set.
+</Task>
+
+<Task id="task-2" status="ready">
+  Decide how `supersigil import` should target a named project in a
+  multi-project workspace instead of always requiring an explicit output root.
+</Task>
+
+<Task id="task-3" status="ready">
+  Decide whether document IDs and `id_prefix` should stay manual or be derived
+  automatically from the selected project and repository conventions.
+</Task>
+
+<Task id="task-4" status="ready">
+  Add end-to-end CLI coverage for the config-aware next-step hints and for
+  write-conflict behavior, not just the library-level write semantics.
+</Task>
+
+<Task id="task-5" status="ready">
+  Decide whether the current best-effort, non-transactional write phase is an
+  acceptable steady-state behavior or should become transactional.
+</Task>
+
+<Task id="task-6" status="ready">
+  Decide whether future non-Kiro importers should live in this same domain or
+  whether the `import` project should be split into source-specific domains.
+</Task>

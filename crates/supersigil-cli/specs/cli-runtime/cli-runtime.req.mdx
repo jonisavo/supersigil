@@ -1,0 +1,159 @@
+---
+supersigil:
+  id: cli-runtime/req
+  type: requirements
+  status: draft
+title: "CLI Runtime"
+---
+
+## Introduction
+
+This spec recovers the runtime shell of `supersigil-cli`: clap parsing, process
+startup and dispatch, config discovery, the shared loader pipeline, semantic
+terminal formatting, hint output, and top-level error and exit semantics.
+
+It does not attempt to re-spec every command's domain behavior. Query,
+authoring, verification, and import workflows are separate CLI domains that
+consume this runtime layer.
+
+## Definitions
+
+- **CLI_Runtime**: The startup and dispatch boundary implemented by
+  `main.rs`, `lib.rs`, `commands.rs`, `loader.rs`, `format.rs`, and `error.rs`.
+- **Config_Free_Command**: A command that can run without locating
+  `supersigil.toml`. Today this means `import` and `init`.
+- **Config_Bound_Command**: A command that first resolves a config path from
+  the current directory or its ancestors before dispatching.
+- **Display_Config**: The resolved `ColorConfig` deciding ANSI styling and
+  Unicode-versus-ASCII symbol output.
+- **Loader_Pipeline**: The shared config, discovery, parse, and graph-building
+  flow used by config-bound commands.
+- **Runtime_Error**: A top-level `CliError` surfaced by startup, loader, or a
+  command handler.
+
+## Requirement 1: Clap Surface and Startup Dispatch
+
+As an operator, I want one typed CLI entry point with consistent startup
+behavior, so that all commands share the same parse and dispatch contract.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE `Cli` entry point SHALL expose a global `--color always|never|auto`
+    flag plus the current subcommands `lint`, `ls`, `schema`, `context`,
+    `plan`, `import`, `verify`, `status`, `affected`, `graph`, `init`, and
+    `new`. Subcommand arguments SHALL be parsed into typed structs and enums
+    re-exported by the crate.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/lib.rs, crates/supersigil-cli/src/commands.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE process entry point SHALL resolve the Display_Config before command
+    dispatch and SHALL pass it through to the selected command handler.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/main.rs" />
+  </Criterion>
+  <Criterion id="req-1-3">
+    THE startup dispatcher SHALL treat `import` and `init` as
+    Config_Free_Commands. All other commands SHALL be Config_Bound_Commands and
+    SHALL locate `supersigil.toml` before command-specific execution begins.
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE startup dispatcher SHALL map successful command runs to exit status 0,
+    except that `verify` MAY return specialized nonzero statuses through the
+    shared `ExitStatus` enum.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Config Discovery and Loader Pipeline
+
+As a developer, I want config-bound commands to share one discovery and loading
+pipeline, so that command behavior stays consistent regardless of the current
+working directory.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE config finder SHALL search upward from the provided start directory for
+    `supersigil.toml` and return the first file found. IF no config file is
+    found, THEN it SHALL return `CliError::ConfigNotFound` carrying the original
+    start directory. Metadata errors other than missing-file SHALL be surfaced
+    as I/O failures rather than being treated as "not found".
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/loader.rs, crates/supersigil-cli/tests/loader.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    THE project root used by CLI commands SHALL be the parent directory of the
+    resolved config path.
+  </Criterion>
+  <Criterion id="req-2-3">
+    THE public `parse_all` loader entry point SHALL load config, collect spec
+    discovery globs from either top-level `paths` or every configured project
+    path, parse each discovered file with merged component definitions, and
+    return the successfully parsed documents plus any parse errors without
+    failing the whole call solely because some files did not parse.
+  </Criterion>
+  <Criterion id="req-2-4">
+    THE public `load_graph` loader entry point SHALL treat parse errors and
+    graph-construction errors as fatal and SHALL return a fully built
+    `DocumentGraph` only when the project parses and links cleanly.
+  </Criterion>
+  <Criterion id="req-2-5">
+    THE loader SHALL normalize parsed document paths to project-root-relative
+    paths before graph construction so downstream terminal and JSON outputs do
+    not depend on the caller's absolute filesystem layout.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Display Configuration and Shared Output Utilities
+
+As an operator, I want consistent terminal styling and output discipline across
+commands, so that human-readable output stays predictable and machine-readable
+output remains pipe-safe.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    THE Display_Config resolver SHALL apply this precedence order for color:
+    `--color` flag, then `FORCE_COLOR`, then `NO_COLOR`, then stdout TTY
+    detection.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/format.rs" />
+  </Criterion>
+  <Criterion id="req-3-2">
+    Unicode symbol output SHALL track the resolved color decision: `always`
+    enables Unicode symbols, `never` disables them, and automatic mode uses the
+    same TTY/env decision as color.
+  </Criterion>
+  <Criterion id="req-3-3">
+    Shared terminal formatting SHALL use semantic tokens rather than ad-hoc ANSI
+    escape sequences, and the symbol helpers `ok`, `err`, `warn`, and `info`
+    SHALL fall back to ASCII forms when Unicode output is disabled.
+  </Criterion>
+  <Criterion id="req-3-4">
+    Shared data writers such as `write_json` and `write_yaml` SHALL write to
+    stdout, while the shared `hint()` helper SHALL write its `hint:` prefix and
+    message to stderr.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Runtime Errors and Exit Semantics
+
+As a developer or CI system, I want predictable top-level failures and exit
+codes, so that commands can be composed reliably.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THE top-level runtime error type SHALL aggregate config, parse, graph,
+    component-definition, query, import, verify, I/O, lint-failure, and generic
+    command-failure cases in `CliError`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/error.rs" />
+  </Criterion>
+  <Criterion id="req-4-2">
+    WHEN startup or dispatch returns a Runtime_Error, THE process entry point
+    SHALL print it to stderr with the `error:` prefix and SHALL exit with status
+    code 1.
+  </Criterion>
+  <Criterion id="req-4-3">
+    THE shared `ExitStatus` mapping SHALL reserve exit code 2 exclusively for
+    verify warnings-only runs (`ExitStatus::VerifyWarnings`). `ExitStatus::Success`
+    SHALL map to 0 and `ExitStatus::VerifyFailed` SHALL map to 1.
+  </Criterion>
+  <Criterion id="req-4-4">
+    The `ConfigNotFound` runtime error message SHALL include remediation guidance
+    telling the user to run `supersigil init`.
+  </Criterion>
+</AcceptanceCriteria>

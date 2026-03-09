@@ -8,112 +8,27 @@ title: "Ecosystem Plugins Tasks"
 
 ## Overview
 
-Implementation tasks for ecosystem plugins, ordered by dependency and written
-for TDD execution. Each implementation slice starts with failing tests, then
-the implementation, then integration wiring. Keep the feature work bounded to
-the new evidence layer: `DocumentGraph` remains document-only while verification
-gains `ArtifactGraph` enrichment.
+This tasks document now tracks the recovered cross-cutting ecosystem layer and
+the split from the old root monolith into crate-local domains.
 
-Use `cargo nextest run` as the default test command while implementing. Run
-`cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`, and
-`cargo nextest run` before closing the implementation phase.
-
-## Phase 1: Shared Evidence And Config Foundations
-
-<Task id="task-1-1" status="ready" implements="ecosystem-plugins/req#req-2-3, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-10-2, ecosystem-plugins/req#req-10-3">
-  Write failing unit tests and crate scaffolding for the shared evidence layer (TDD). Add a new `supersigil-evidence` crate to the workspace, create test coverage for `CriterionRef`, `VerificationEvidenceRecord`, `TestIdentity`, `ProjectScope`, `PluginProvenance`, `EvidenceConflict`, and the `EcosystemPlugin` trait contract, and verify the new crate builds cleanly inside the workspace before implementation.
+<Task id="task-1" status="done" implements="ecosystem-plugins/req#req-1-1, ecosystem-plugins/req#req-1-2, ecosystem-plugins/req#req-1-3, ecosystem-plugins/req#req-1-4, ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-2-2, ecosystem-plugins/req#req-2-3, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-3-1, ecosystem-plugins/req#req-3-2, ecosystem-plugins/req#req-3-3, ecosystem-plugins/req#req-4-1, ecosystem-plugins/req#req-4-2, ecosystem-plugins/req#req-4-3">
+  Recover the ecosystem project by splitting crate-local behavior into
+  `evidence-contract`, `rust-plugin`, and `verifies-macro`, while narrowing the
+  root `ecosystem-plugins` docs to cross-cutting activation, orchestration, and
+  report-surfacing behavior.
 </Task>
 
-<Task id="task-1-2" status="ready" depends="task-1-1" implements="ecosystem-plugins/req#req-2-3, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-10-2, ecosystem-plugins/req#req-10-3">
-  Implement the `supersigil-evidence` crate. Add the shared normalized evidence types and generic plugin error/trait surface, wire the crate into the workspace, and keep the API language-agnostic so future ecosystems can produce the same evidence records without adding Rust-specific dependencies to `supersigil-core` or `supersigil-verify`.
+<Task id="task-2" status="ready">
+  Decide whether Rust source-file inference should remain in CLI orchestration
+  or move behind the Rust plugin boundary.
 </Task>
 
-<Task id="task-1-3" status="ready" depends="task-1-2" implements="ecosystem-plugins/req#req-1-1, ecosystem-plugins/req#req-1-2, ecosystem-plugins/req#req-1-3, ecosystem-plugins/req#req-1-4, ecosystem-plugins/req#req-1-5">
-  Write failing config tests for ecosystem plugin activation and Rust policy (TDD). Cover default `plugins = ["rust"]`, explicit `plugins = []`, unknown built-in plugin identifiers, `[ecosystem.rust] validation = "off|dev|all"`, and multi-project `project_scope` resolution inputs in `supersigil-core` config tests.
+<Task id="task-3" status="ready">
+  Add end-to-end CLI coverage for ecosystem config-policy branches and report
+  surfacing, not just unit coverage for plugin assembly and report formatting.
 </Task>
 
-<Task id="task-1-4" status="ready" depends="task-1-3" implements="ecosystem-plugins/req#req-1-1, ecosystem-plugins/req#req-1-2, ecosystem-plugins/req#req-1-3, ecosystem-plugins/req#req-1-4, ecosystem-plugins/req#req-1-5">
-  Implement the config extensions in `supersigil-core`. Add the Rust ecosystem policy structs, validate unknown plugin identifiers during config loading, and expose the resolved plugin and validation policy values to downstream build-time and verification-time consumers.
-</Task>
-
-## Phase 2: Rust Validation Path
-
-<Task id="task-2-1" status="ready" depends="task-1-4" implements="ecosystem-plugins/req#req-3-1, ecosystem-plugins/req#req-10-1">
-  Scaffold the Rust integration crates. Add `supersigil-rust` and `supersigil-rust-macros` to the workspace, set up `trybuild`-based proc-macro test coverage, and re-export the proc macro from `supersigil_rust` so consumers depend on one public Rust package.
-</Task>
-
-<Task id="task-2-2" status="ready" depends="task-2-1" implements="ecosystem-plugins/req#req-3-2, ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-2, ecosystem-plugins/req#req-5-3, ecosystem-plugins/req#req-5-4">
-  Write failing unit tests for `supersigil_rust` support code (TDD). Cover criterion-target parsing, rejection of fragmentless document refs, single-project and multi-project scope resolution, ambiguous scope detection, and build-support input discovery for `supersigil.toml` plus loaded spec files.
-</Task>
-
-<Task id="task-2-3" status="ready" depends="task-2-2" implements="ecosystem-plugins/req#req-3-2, ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-2, ecosystem-plugins/req#req-5-3, ecosystem-plugins/req#req-5-4">
-  Implement `supersigil_rust` support modules. Add criterion-target parsing, project-scope resolution, DocumentGraph-backed validation helpers, and the optional `build_support` helper for stable Cargo freshness improvements.
-</Task>
-
-<Task id="task-2-4" status="ready" depends="task-2-3" implements="ecosystem-plugins/req#req-3-2, ecosystem-plugins/req#req-3-3, ecosystem-plugins/req#req-3-4, ecosystem-plugins/req#req-4-1, ecosystem-plugins/req#req-4-2, ecosystem-plugins/req#req-4-3, ecosystem-plugins/req#req-4-4, ecosystem-plugins/req#req-4-5, ecosystem-plugins/req#req-5-2">
-  Write failing `trybuild` tests for the proc-macro API (TDD). Cover valid criterion-level usage, malformed syntax, unsupported item attachment, unresolved criterion refs, graph/config load failures when validation is active, skipped validation when policy is off, and ambiguous project selection in multi-project workspaces.
-</Task>
-
-<Task id="task-2-5" status="ready" depends="task-2-4" implements="ecosystem-plugins/req#req-3-1, ecosystem-plugins/req#req-3-2, ecosystem-plugins/req#req-3-3, ecosystem-plugins/req#req-3-4, ecosystem-plugins/req#req-3-5, ecosystem-plugins/req#req-4-1, ecosystem-plugins/req#req-4-2, ecosystem-plugins/req#req-4-3, ecosystem-plugins/req#req-4-4, ecosystem-plugins/req#req-4-5, ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-2, ecosystem-plugins/req#req-5-3, ecosystem-plugins/req#req-5-4">
-  Implement `supersigil_rust_macros` and its integration with `supersigil_rust`. Export `#[supersigil::verified_by(...)]`, enforce criterion-only refs, run DocumentGraph validation according to policy, and emit compile-time diagnostics without changing test runtime behavior.
-</Task>
-
-## Phase 3: Rust Discovery And Explicit Evidence Normalization
-
-<Task id="task-3-1" status="ready" depends="task-2-5" implements="ecosystem-plugins/req#req-6-1, ecosystem-plugins/req#req-6-2, ecosystem-plugins/req#req-6-3, ecosystem-plugins/req#req-6-4, ecosystem-plugins/req#req-6-5, ecosystem-plugins/req#req-6-6, ecosystem-plugins/req#req-6-7">
-  Write failing fixture-based tests for Rust discovery (TDD). Cover `#[test]`, `#[tokio::test]`, supported `proptest` shapes, and `insta` snapshot-oriented tests, including extracted test identity, criterion targets, test kind, and best-effort metadata. Also cover configured discovery scope overrides, conventional-location inference when no explicit scope is configured, and plugin-scoped findings for empty discovery results.
-</Task>
-
-<Task id="task-3-2" status="ready" depends="task-3-1" implements="ecosystem-plugins/req#req-6-1, ecosystem-plugins/req#req-6-2, ecosystem-plugins/req#req-6-3, ecosystem-plugins/req#req-6-4, ecosystem-plugins/req#req-6-5, ecosystem-plugins/req#req-6-6, ecosystem-plugins/req#req-6-7, ecosystem-plugins/req#req-10-3">
-  Implement the Rust discovery plugin in `supersigil_rust`. Use `syn` to parse supported Rust test items, normalize them directly into `VerificationEvidenceRecord` values, honor explicit Rust discovery scope overrides, infer conventional Rust source locations when no explicit scope is configured, and surface empty-discovery diagnostics through the shared plugin finding path.
-</Task>
-
-<Task id="task-3-3" status="ready" depends="task-1-4" implements="ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-2-2, ecosystem-plugins/req#req-2-3, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-7-1, ecosystem-plugins/req#req-7-3, ecosystem-plugins/req#req-7-5">
-  Write failing tests for explicit evidence normalization in `supersigil-verify` (TDD). Cover `VerifiedBy strategy="tag"` resolving through the owning document's `References` refs into criterion-level evidence, `strategy="file-glob"` becoming coarse file-level evidence, and provenance tracking across normalized explicit evidence.
-</Task>
-
-<Task id="task-3-4" status="ready" depends="task-3-3" implements="ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-2-2, ecosystem-plugins/req#req-2-3, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-7-1, ecosystem-plugins/req#req-7-3, ecosystem-plugins/req#req-7-5">
-  Implement explicit evidence extraction in `supersigil-verify`. Normalize authored `VerifiedBy` tag and file-glob evidence into shared evidence records so explicit and plugin-derived evidence enter the merge pipeline in the same criterion-level form.
-</Task>
-
-## Phase 4: ArtifactGraph Merge And Plugin Orchestration
-
-<Task id="task-4-1" status="ready" depends="task-3-2, task-3-4" implements="ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-2-5, ecosystem-plugins/req#req-7-2, ecosystem-plugins/req#req-7-4, ecosystem-plugins/req#req-8-6">
-  Write failing unit tests for `ArtifactGraph` construction and merge semantics (TDD). Cover compatible-source deduplication, multiple provenances on one effective record, conflicts when the same test normalizes to different effective criterion sets, plugin failure isolation, and verification-time invalid-source findings.
-</Task>
-
-<Task id="task-4-2" status="ready" depends="task-4-1" implements="ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-2-4, ecosystem-plugins/req#req-2-5, ecosystem-plugins/req#req-7-2, ecosystem-plugins/req#req-7-4, ecosystem-plugins/req#req-8-6">
-  Implement `ArtifactGraph` and its merge/conflict algorithm in `supersigil-verify`. Group normalized evidence by `TestIdentity`, merge compatible effective criterion sets, preserve provenance, record `EvidenceConflict` values, and surface plugin failures as verification findings instead of structural errors.
-</Task>
-
-<Task id="task-4-3" status="ready" depends="task-4-2" implements="ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-10-1, ecosystem-plugins/req#req-10-3">
-  Write failing integration tests for plugin assembly and built-in registry behavior (TDD). Cover config-driven plugin enable/disable, unknown-plugin rejection already enforced at config load, and single-project vs multi-project plugin selection from the CLI/verify entrypoint.
-</Task>
-
-<Task id="task-4-4" status="ready" depends="task-4-3" implements="ecosystem-plugins/req#req-2-1, ecosystem-plugins/req#req-10-1, ecosystem-plugins/req#req-10-3">
-  Implement built-in plugin assembly in `supersigil-cli` and pass enabled plugin instances into `supersigil-verify`. Keep `supersigil-verify` generic over the shared plugin trait and avoid hard-coding Rust-specific discovery logic inside the verify crate itself.
-</Task>
-
-## Phase 5: Rule, Query, And Reporting Integration
-
-<Task id="task-5-1" status="ready" depends="task-4-4" implements="ecosystem-plugins/req#req-8-1, ecosystem-plugins/req#req-8-2, ecosystem-plugins/req#req-8-3, ecosystem-plugins/req#req-8-4, ecosystem-plugins/req#req-8-5, ecosystem-plugins/req#req-8-7">
-  Write failing tests for merged-evidence verification semantics (TDD). Cover `unverified_validation` using ArtifactGraph evidence instead of authored `<VerifiedBy>` only, criterion-backed validating docs becoming evidence-backed through merged evidence, direct source-derived criterion evidence satisfying coverage without an authored validating document, and `zero_tag_matches` remaining specific to declared tag strategies.
-</Task>
-
-<Task id="task-5-2" status="ready" depends="task-5-1" implements="ecosystem-plugins/req#req-8-1, ecosystem-plugins/req#req-8-2, ecosystem-plugins/req#req-8-3, ecosystem-plugins/req#req-8-4, ecosystem-plugins/req#req-8-5, ecosystem-plugins/req#req-8-7">
-  Implement the verification-rule updates in `supersigil-verify`. Make merged ArtifactGraph evidence the backing source for evidence-aware checks, allow direct source-derived criterion evidence to satisfy coverage, and preserve existing explicit-tag rule behavior where the requirement says those rules remain explicit.
-</Task>
-
-<Task id="task-5-3" status="ready" depends="task-5-2" implements="ecosystem-plugins/req#req-9-1, ecosystem-plugins/req#req-9-2, ecosystem-plugins/req#req-9-3">
-  Write failing reporting and CLI-output tests (TDD). Cover evidence kind display, test identity display, merged provenance display, multiple tests per criterion target, and optional ArtifactGraph enrichment for `context`/`status` outputs without forcing document-only queries to perform source scanning by default.
-</Task>
-
-<Task id="task-5-4" status="ready" depends="task-5-3" implements="ecosystem-plugins/req#req-9-1, ecosystem-plugins/req#req-9-2, ecosystem-plugins/req#req-9-3">
-  Implement reporting and query surfacing changes in `supersigil-verify` and `supersigil-cli`. Add ArtifactGraph-backed evidence summaries to verify output and CLI enrichment paths while keeping `DocumentGraph::context()` document-only.
-</Task>
-
-## Phase 6: Final Integration And Verification
-
-<Task id="task-6-1" status="ready" depends="task-5-4" implements="ecosystem-plugins/req#req-2-5, ecosystem-plugins/req#req-10-1, ecosystem-plugins/req#req-10-2, ecosystem-plugins/req#req-10-3">
-  Run the full implementation closeout. Ensure the new crates, plugin wiring, ArtifactGraph merge path, and reporting integration all pass `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`, and `cargo nextest run`, and fix any remaining issues until the feature is verify-clean enough for implementation handoff.
+<Task id="task-4" status="ready">
+  Decide whether future ecosystems should join this same project layout or get
+  separate domain roots once a second built-in plugin exists.
 </Task>

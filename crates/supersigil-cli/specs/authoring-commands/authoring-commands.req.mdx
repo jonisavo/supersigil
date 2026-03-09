@@ -1,0 +1,110 @@
+---
+supersigil:
+  id: authoring-commands/req
+  type: requirements
+  status: draft
+title: "CLI Authoring Commands"
+---
+
+## Introduction
+
+This spec recovers the current CLI authoring workflow for `init` and `new`.
+
+It intentionally captures the current single-project, root-centric behavior as
+implemented today. It does not treat missing multi-project authoring support as
+solved behavior.
+
+## Definitions
+
+- **Config_Scaffold**: The minimal `supersigil.toml` emitted by `init`.
+- **Feature_Slug**: The current second positional argument to `new`, used to
+  derive both the generated document ID and output path.
+- **Generated_Doc_ID**: The document ID synthesized by `new` from the
+  Feature_Slug and the current type-shortening rules.
+- **Generated_Doc_Path**: The file path synthesized by `new` under the root
+  `specs/` tree.
+- **Existing_Feature_Requirement**: The sibling file
+  `specs/{feature}/{feature}.req.mdx` used by the design template to decide
+  whether it can emit a live `Implements` ref.
+
+## Requirement 1: Repository Bootstrap
+
+As a new user, I want one command to bootstrap a working supersigil config, so
+that I can start writing documents without hand-authoring the initial TOML.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE `init` command SHALL create `supersigil.toml` in the current directory
+    using the current single-project Config_Scaffold:
+    `paths = ["specs/**/*.mdx"]`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/init.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    IF `supersigil.toml` already exists in the current directory, THEN `init`
+    SHALL fail the command and SHALL NOT overwrite the existing file.
+  </Criterion>
+  <Criterion id="req-1-3">
+    AFTER successful creation, `init` SHALL print the created path to stdout and
+    a next-step hint directing the operator to `supersigil new` and
+    `supersigil lint`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Root-Centric Document Scaffolding
+
+As a developer, I want `new` to create a starter document from the current
+repository convention, so that I can begin authoring from a valid scaffold.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE current `new` command SHALL treat its second positional argument as a
+    Feature_Slug rather than as an arbitrary document ID. It SHALL derive the
+    Generated_Doc_ID as `{feature}/{type_short}` and the Generated_Doc_Path as
+    `specs/{feature}/{feature}.{type_short}.mdx`, where `requirements`
+    shortens to `req` and other document types keep their current name.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/new.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    THE `new` command SHALL load config and treat built-in document types plus
+    configured custom document types as the known authoring types for the
+    current workspace.
+  </Criterion>
+  <Criterion id="req-2-3">
+    THE `new` command SHALL create missing parent directories for the
+    Generated_Doc_Path and SHALL use create-new semantics so an existing target
+    file causes the command to fail instead of being overwritten.
+  </Criterion>
+  <Criterion id="req-2-4">
+    AFTER successful creation, `new` SHALL print the Generated_Doc_Path to
+    stdout and a `supersigil lint` next-step hint to stderr.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Template Generation
+
+As a developer or agent, I want scaffolds that are immediately usable, so that
+I start from valid front matter and structure rather than an empty file.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    ALL generated scaffolds SHALL include valid front matter with
+    `supersigil.id`, `supersigil.type`, and `supersigil.status: draft` set from
+    the current Generated_Doc_ID and requested document type.
+  </Criterion>
+  <Criterion id="req-3-2">
+    The current `requirements` and `tasks` scaffolds SHALL be lint-clean
+    immediately after generation.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_new.rs" />
+  </Criterion>
+  <Criterion id="req-3-3">
+    The current `design` scaffold SHALL avoid emitting live broken refs. WHEN
+    an Existing_Feature_Requirement is present, it SHALL emit
+    `<Implements refs="{feature}/req" />`; OTHERWISE it SHALL leave the
+    `Implements` placeholder commented out.
+  </Criterion>
+  <Criterion id="req-3-4">
+    The current scaffolds SHALL include type-appropriate placeholder sections
+    and guidance: requirements with acceptance criteria, design with
+    architecture/testing sections, and tasks with starter task structure.
+  </Criterion>
+</AcceptanceCriteria>

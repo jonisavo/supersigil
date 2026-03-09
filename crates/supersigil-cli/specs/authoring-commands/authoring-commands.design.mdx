@@ -1,0 +1,164 @@
+---
+supersigil:
+  id: authoring-commands/design
+  type: design
+  status: draft
+title: "CLI Authoring Commands"
+---
+
+<Implements refs="authoring-commands/req" />
+<DependsOn refs="cli-runtime/design, config/design, workspace-projects/design" />
+<TrackedFiles paths="crates/supersigil-cli/src/commands/init.rs, crates/supersigil-cli/src/commands/new.rs, crates/supersigil-cli/tests/cmd_new.rs, crates/supersigil-cli/tests/clap_parse.rs" />
+
+## Overview
+
+`authoring-commands` is the CLI domain for bootstrapping and scaffolding:
+
+- `init` creates the first `supersigil.toml`
+- `new` creates a starter spec document
+
+The important current property is that both commands still follow the original
+single-project root-spec convention. `init` scaffolds a top-level `paths`
+config, and `new` always writes into the root `specs/` tree rather than into a
+selected project-local spec root.
+
+## Architecture
+
+```mermaid
+graph TD
+    RUNTIME["cli-runtime"]
+    INIT["init"]
+    NEW["new"]
+    LOADCFG["load_config(config_path)"]
+    PROOT["project_root(config_path)"]
+    TEMPLATE["generate_template"]
+    FILES["create_new file writes"]
+    OUT["stdout created path + stderr hint"]
+
+    RUNTIME --> INIT
+    RUNTIME --> NEW
+    NEW --> LOADCFG
+    NEW --> PROOT
+    NEW --> TEMPLATE
+    INIT --> FILES
+    TEMPLATE --> FILES
+    FILES --> OUT
+```
+
+## Runtime Flow
+
+### `init`
+
+1. Treat `init` as a config-free command.
+2. Attempt to create `supersigil.toml` in the current directory with
+   `OpenOptions::create_new(true)`.
+3. Write the current default scaffold:
+
+```toml
+paths = ["specs/**/*.mdx"]
+```
+
+4. Map `AlreadyExists` to a command failure message rather than overwriting.
+5. Print `Created supersigil.toml` to stdout.
+6. Print the `new` plus `lint` next-step hint to stderr.
+
+`init` does not currently branch on workspace mode or offer a `projects.*`
+scaffold path.
+
+### `new`
+
+1. Treat `new` as a config-bound command.
+2. Load config from the resolved `supersigil.toml`.
+3. Determine whether the requested type is built-in or configured.
+4. If the type is unknown, warn on stderr but continue anyway.
+5. Derive the current `type_short`:
+   - `requirements` -> `req`
+   - everything else -> unchanged
+6. Derive the Generated_Doc_ID as `{feature}/{type_short}`.
+7. Derive the Generated_Doc_Path as `specs/{feature}/{feature}.{type_short}.mdx`.
+8. Resolve `project_root(config_path)` and probe for the sibling requirement
+   file `specs/{feature}/{feature}.req.mdx`.
+9. Generate the scaffold body.
+10. Create parent directories as needed and create the file with
+    `create_new(true)`.
+11. Print the created path to stdout and the lint hint to stderr.
+
+The current `new` input is therefore closer to a feature slug than to a full
+document ID. That is the implemented behavior even though the older root CLI
+spec described a more general `new <type> <id>` workflow.
+
+## Template Model
+
+### Requirements
+
+The requirements template emits:
+
+- front matter for `{feature}/req`
+- `Introduction`
+- `Definitions`
+- `Requirement 1: Title`
+- one starter `AcceptanceCriteria` block with `Criterion id="req-1-1"`
+
+### Design
+
+The design template emits:
+
+- front matter for `{feature}/design`
+- a live `<Implements refs="{feature}/req" />` only when the sibling
+  requirement file exists
+- otherwise a commented-out `Implements` placeholder
+- commented `DependsOn` and `TrackedFiles` placeholders
+- standard sections for overview, architecture, key types, error handling,
+  testing strategy, and alternatives considered
+
+### Tasks
+
+The tasks template emits:
+
+- front matter for `{feature}/tasks`
+- `Overview`
+- one starter `<Task id="task-1" status="draft">`
+- commented examples for subtasks and dependency chains
+
+Unknown document types fall through to a frontmatter-only scaffold. That is
+current code behavior, but it is treated as product debt rather than as a
+stable intended workflow.
+
+## Key Helpers
+
+```rust
+fn type_short_name(doc_type: &str) -> &str {
+    match doc_type {
+        "requirements" => "req",
+        other => other,
+    }
+}
+
+fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String
+```
+
+`type_short_name` is what locks the current command to the root repository
+convention. There is no project-specific path policy or configurable path
+scheme yet.
+
+## Testing Strategy
+
+- [cmd_new.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_new.rs)
+  covers lint-clean requirements/tasks scaffolds, graph-safe design scaffolds,
+  and auto-filled `Implements` when the sibling requirement exists.
+- [clap_parse.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/clap_parse.rs)
+  covers the parse surface for `init` and `new`.
+
+## Current Gaps
+
+- There is no dedicated end-to-end CLI coverage for `init`, including success
+  output and the existing-file failure path.
+- `init` still scaffolds a single-project config only. It does not know how to
+  bootstrap `projects.*`.
+- `new` always writes into root `specs/...`, and its sibling requirement
+  detection only checks that root path.
+- `new` currently warns on unknown document types but still creates a
+  frontmatter-only file. That behavior is observable, but it is not clearly
+  intended.
+- `new` accepts a Feature_Slug, not an arbitrary document ID, so it cannot
+  currently scaffold nested IDs such as `auth/req/login`.

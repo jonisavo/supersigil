@@ -1,1 +1,30 @@
+# Root-level specs that describe workspace-wide or cross-cutting behavior.
+[projects.workspace]
 paths = ["specs/**/*.mdx"]
+
+# Foundational parsing and graph behavior shared across the core libraries.
+[projects.foundation]
+paths = [
+  "crates/supersigil-core/specs/**/*.mdx",
+  "crates/supersigil-parser/specs/**/*.mdx",
+]
+
+# CLI surface and operator-facing workflows.
+[projects.cli]
+paths = ["crates/supersigil-cli/specs/**/*.mdx"]
+
+# Verification pipeline, reporting, and affected-file analysis.
+[projects.verify]
+paths = ["crates/supersigil-verify/specs/**/*.mdx"]
+
+# Kiro import and other migration-oriented flows.
+[projects.import]
+paths = ["crates/supersigil-import/specs/**/*.mdx"]
+
+# Ecosystem integrations and evidence models.
+[projects.ecosystem]
+paths = [
+  "crates/supersigil-evidence/specs/**/*.mdx",
+  "crates/supersigil-rust/specs/**/*.mdx",
+  "crates/supersigil-rust-macros/specs/**/*.mdx",
+]
