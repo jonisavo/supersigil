@@ -7,9 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::{
-    EcosystemPlugin, EvidenceConflict, EvidenceId, EvidenceKind, PluginError, PluginProvenance,
-    ProjectScope, SourceLocation, TestIdentity, TestKind, VerifiableRef,
-    VerificationEvidenceRecord, VerificationTargets,
+    EcosystemPlugin, EvidenceConflict, EvidenceId, EvidenceKind, PluginDiagnostic,
+    PluginDiscoveryResult, PluginError, PluginProvenance, ProjectScope, SourceLocation,
+    TestIdentity, TestKind, VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
 };
 
 // ===========================================================================
@@ -419,6 +419,17 @@ fn plugin_error_io() {
     assert!(msg.contains("/nonexistent"));
 }
 
+#[test]
+fn plugin_diagnostic_warning_for_path_records_message_and_path() {
+    let diagnostic = PluginDiagnostic::warning_for_path(
+        PathBuf::from("src/lib.rs"),
+        "skipping due to parse failure",
+    );
+
+    assert_eq!(diagnostic.message, "skipping due to parse failure");
+    assert_eq!(diagnostic.path, Some(PathBuf::from("src/lib.rs")));
+}
+
 // ===========================================================================
 // EcosystemPlugin trait
 // ===========================================================================
@@ -436,7 +447,7 @@ impl EcosystemPlugin for MockPlugin {
         files: &[PathBuf],
         _scope: &ProjectScope,
         _documents: &supersigil_core::DocumentGraph,
-    ) -> Result<Vec<VerificationEvidenceRecord>, PluginError> {
+    ) -> Result<PluginDiscoveryResult, PluginError> {
         // Return one evidence record per input file.
         let records = files
             .iter()
@@ -462,7 +473,7 @@ impl EcosystemPlugin for MockPlugin {
                 metadata: BTreeMap::new(),
             })
             .collect();
-        Ok(records)
+        Ok(PluginDiscoveryResult::from_evidence(records))
     }
 }
 
@@ -479,7 +490,7 @@ impl EcosystemPlugin for FailingPlugin {
         _files: &[PathBuf],
         _scope: &ProjectScope,
         _documents: &supersigil_core::DocumentGraph,
-    ) -> Result<Vec<VerificationEvidenceRecord>, PluginError> {
+    ) -> Result<PluginDiscoveryResult, PluginError> {
         Err(PluginError::Discovery {
             plugin: "failing".into(),
             message: "intentional failure".into(),

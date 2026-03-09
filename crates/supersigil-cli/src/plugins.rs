@@ -9,7 +9,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use supersigil_core::{Config, DocumentGraph};
-use supersigil_evidence::{EcosystemPlugin, ProjectScope, VerificationEvidenceRecord};
+use supersigil_evidence::{
+    EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, ProjectScope,
+    VerificationEvidenceRecord,
+};
 use supersigil_verify::artifact_graph::{ArtifactGraph, build_artifact_graph};
 use supersigil_verify::explicit_evidence::extract_explicit_evidence;
 use supersigil_verify::{Finding, RuleName};
@@ -41,20 +44,22 @@ pub fn assemble_plugins(config: &Config) -> Vec<Box<dyn EcosystemPlugin>> {
     plugins
 }
 
-/// Result of collecting plugin evidence, including any plugin failure findings.
+/// Result of collecting plugin evidence, including any plugin warning/failure
+/// findings.
 #[derive(Debug)]
 pub struct PluginEvidenceResult {
     /// Evidence records from all successful plugins.
     pub evidence: Vec<VerificationEvidenceRecord>,
-    /// Findings for plugin failures (surfaced as verification findings per req-8-6).
+    /// Findings for plugin diagnostics and fatal failures surfaced as
+    /// verification findings.
     pub findings: Vec<Finding>,
 }
 
 /// Collect evidence from all enabled plugins.
 ///
 /// Runs each plugin's `discover` method against the resolved source files and
-/// returns the aggregated evidence records.  Plugin errors become verification
-/// findings rather than hard errors (req-8-6).
+/// returns the aggregated evidence records. Plugin diagnostics and fatal errors
+/// become verification findings rather than hard errors (req-8-6).
 #[must_use]
 pub fn collect_plugin_evidence(
     plugins: &[Box<dyn EcosystemPlugin>],
@@ -66,7 +71,17 @@ pub fn collect_plugin_evidence(
     let mut findings = Vec::new();
     for plugin in plugins {
         match plugin.discover(files, scope, documents) {
-            Ok(mut records) => evidence.append(&mut records),
+            Ok(PluginDiscoveryResult {
+                evidence: mut plugin_evidence,
+                diagnostics,
+            }) => {
+                evidence.append(&mut plugin_evidence);
+                findings.extend(
+                    diagnostics
+                        .into_iter()
+                        .map(|diagnostic| plugin_diagnostic_to_finding(plugin.name(), diagnostic)),
+                );
+            }
             Err(err) => {
                 findings.push(Finding::new(
                     RuleName::PluginDiscoveryFailure,
@@ -78,6 +93,19 @@ pub fn collect_plugin_evidence(
         }
     }
     PluginEvidenceResult { evidence, findings }
+}
+
+fn plugin_diagnostic_to_finding(plugin_name: &str, diagnostic: PluginDiagnostic) -> Finding {
+    let message = match diagnostic.path {
+        Some(path) => format!(
+            "plugin '{plugin_name}': {}: {}",
+            path.display(),
+            diagnostic.message
+        ),
+        None => format!("plugin '{plugin_name}': {}", diagnostic.message),
+    };
+
+    Finding::new(RuleName::PluginDiscoveryWarning, None, message, None)
 }
 
 /// Resolve source files for plugin discovery.
@@ -144,10 +172,10 @@ pub fn build_evidence<'g>(
     (artifact_graph, plugin_result.findings)
 }
 
-/// Emit plugin failure findings as warnings on stderr.
+/// Emit plugin findings as warnings on stderr.
 ///
 /// Each finding's message is printed with the CLI's warning marker so that
-/// plugin failures are visible even though they are non-fatal.
+/// plugin diagnostics remain visible even though they are non-fatal.
 pub fn warn_plugin_findings(
     findings: &[supersigil_verify::Finding],
     color: &crate::format::ColorConfig,
@@ -243,7 +271,7 @@ fn read_workspace_member_dirs(project_root: &Path) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use supersigil_core::EcosystemConfig;
 
@@ -448,7 +476,8 @@ mod tests {
             _files: &[PathBuf],
             _scope: &ProjectScope,
             _documents: &DocumentGraph,
-        ) -> Result<Vec<VerificationEvidenceRecord>, supersigil_evidence::PluginError> {
+        ) -> Result<supersigil_evidence::PluginDiscoveryResult, supersigil_evidence::PluginError>
+        {
             Err(supersigil_evidence::PluginError::Discovery {
                 plugin: "failing".into(),
                 message: "simulated failure".into(),
@@ -488,6 +517,87 @@ mod tests {
         assert!(
             result.findings[0].message.contains("failing"),
             "finding message should mention plugin name, got: {}",
+            result.findings[0].message,
+        );
+    }
+
+    #[derive(Debug)]
+    struct WarningPlugin;
+
+    impl supersigil_evidence::EcosystemPlugin for WarningPlugin {
+        fn name(&self) -> &'static str {
+            "warning"
+        }
+
+        fn discover(
+            &self,
+            files: &[PathBuf],
+            _scope: &ProjectScope,
+            _documents: &DocumentGraph,
+        ) -> Result<supersigil_evidence::PluginDiscoveryResult, supersigil_evidence::PluginError>
+        {
+            Ok(supersigil_evidence::PluginDiscoveryResult {
+                evidence: vec![VerificationEvidenceRecord {
+                    id: supersigil_evidence::EvidenceId(0),
+                    targets: supersigil_evidence::VerificationTargets::single(
+                        supersigil_evidence::VerifiableRef {
+                            doc_id: "req/mock".into(),
+                            target_id: "crit-1".into(),
+                        },
+                    ),
+                    test: supersigil_evidence::TestIdentity {
+                        file: files[0].clone(),
+                        name: "warning_test".into(),
+                        kind: supersigil_evidence::TestKind::Unknown,
+                    },
+                    source_location: supersigil_evidence::SourceLocation {
+                        file: files[0].clone(),
+                        line: 1,
+                        column: 1,
+                    },
+                    evidence_kind: supersigil_evidence::EvidenceKind::Tag,
+                    provenance: vec![],
+                    metadata: BTreeMap::new(),
+                }],
+                diagnostics: vec![supersigil_evidence::PluginDiagnostic::warning(
+                    "warning plugin skipped a file",
+                )],
+            })
+        }
+    }
+
+    #[test]
+    fn plugin_diagnostics_become_findings_without_dropping_evidence() {
+        let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
+            vec![Box::new(WarningPlugin)];
+        let scope = ProjectScope {
+            project: None,
+            project_root: PathBuf::from("/tmp"),
+        };
+        let graph = {
+            let cfg = base_config();
+            supersigil_core::build_graph(vec![], &cfg).unwrap()
+        };
+        let files = vec![PathBuf::from("/tmp/tests/warning_test.rs")];
+
+        let result = collect_plugin_evidence(&plugins, &files, &scope, &graph);
+
+        assert_eq!(
+            result.evidence.len(),
+            1,
+            "warning plugin should keep evidence"
+        );
+        assert_eq!(
+            result.findings.len(),
+            1,
+            "warning plugin should surface exactly 1 finding",
+        );
+        assert_eq!(result.findings[0].rule, RuleName::PluginDiscoveryWarning);
+        assert!(
+            result.findings[0]
+                .message
+                .contains("warning plugin skipped a file"),
+            "finding should include structured diagnostic text, got: {}",
             result.findings[0].message,
         );
     }

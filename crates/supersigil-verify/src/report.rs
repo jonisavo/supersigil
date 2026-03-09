@@ -36,7 +36,7 @@ impl From<Severity> for ReportSeverity {
 
 /// Identifies a specific verification rule.
 ///
-/// The 12 built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
+/// The 13 built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
 /// `HookOutput` and `HookFailure` are synthetic rules emitted by hook
 /// execution rather than config-driven checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -56,10 +56,11 @@ pub enum RuleName {
     HookOutput,
     HookFailure,
     PluginDiscoveryFailure,
+    PluginDiscoveryWarning,
 }
 
 impl RuleName {
-    /// The 12 built-in rules (excludes hook-related synthetic rules).
+    /// The 13 built-in rules (excludes hook-related synthetic rules).
     pub const ALL: &[Self] = &[
         Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
@@ -73,6 +74,7 @@ impl RuleName {
         Self::MissingRequiredComponent,
         Self::InvalidVerifiedByPlacement,
         Self::PluginDiscoveryFailure,
+        Self::PluginDiscoveryWarning,
     ];
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
@@ -92,6 +94,7 @@ impl RuleName {
             Self::HookOutput => "hook_output",
             Self::HookFailure => "hook_failure",
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
+            Self::PluginDiscoveryWarning => "plugin_discovery_warning",
         }
     }
 
@@ -115,7 +118,8 @@ impl RuleName {
             | Self::StatusInconsistency
             | Self::MissingRequiredComponent
             | Self::HookOutput
-            | Self::PluginDiscoveryFailure => ReportSeverity::Warning,
+            | Self::PluginDiscoveryFailure
+            | Self::PluginDiscoveryWarning => ReportSeverity::Warning,
         }
     }
 }
@@ -446,7 +450,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 12);
+        assert_eq!(RuleName::ALL.len(), 13);
     }
 
     // -----------------------------------------------------------------------
@@ -470,6 +474,7 @@ mod tests {
             (RuleName::MissingRequiredComponent, ReportSeverity::Warning),
             (RuleName::HookOutput, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryFailure, ReportSeverity::Warning),
+            (RuleName::PluginDiscoveryWarning, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

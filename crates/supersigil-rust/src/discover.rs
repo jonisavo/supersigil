@@ -11,9 +11,9 @@ use syn::spanned::Spanned;
 
 use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
-    EcosystemPlugin, EvidenceId, EvidenceKind, PluginError, PluginProvenance, ProjectScope,
-    SourceLocation, TestIdentity, TestKind, VerifiableRef, VerificationEvidenceRecord,
-    VerificationTargets,
+    EcosystemPlugin, EvidenceId, EvidenceKind, PluginDiagnostic, PluginDiscoveryResult,
+    PluginError, PluginProvenance, ProjectScope, SourceLocation, TestIdentity, TestKind,
+    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
 };
 
 const PLUGIN_NAME: &str = "rust";
@@ -44,32 +44,31 @@ impl EcosystemPlugin for RustPlugin {
         files: &[PathBuf],
         _scope: &ProjectScope,
         _documents: &DocumentGraph,
-    ) -> Result<Vec<VerificationEvidenceRecord>, PluginError> {
+    ) -> Result<PluginDiscoveryResult, PluginError> {
         let rust_files: Vec<&PathBuf> = files
             .iter()
             .filter(|file| file.extension().is_some_and(|ext| ext == "rs"))
             .collect();
         if rust_files.is_empty() {
-            return Ok(Vec::new());
+            return Ok(PluginDiscoveryResult::default());
         }
 
-        let mut all_records = Vec::new();
+        let mut result = PluginDiscoveryResult::default();
         let mut supported_test_items = 0usize;
         let mut first_error = None;
         for file in rust_files {
             match discover_file_summary(file) {
                 Ok(summary) => {
                     supported_test_items += summary.supported_test_items;
-                    all_records.extend(summary.records);
+                    result.evidence.extend(summary.records);
                 }
                 Err(err @ PluginError::Discovery { .. }) => {
                     return Err(err);
                 }
                 Err(err) => {
-                    eprintln!(
-                        "warning: plugin '{PLUGIN_NAME}': skipping {}: {err}",
-                        file.display()
-                    );
+                    result
+                        .diagnostics
+                        .push(recoverable_plugin_diagnostic(file, &err));
                     if first_error.is_none() {
                         first_error = Some(err);
                     }
@@ -87,7 +86,7 @@ impl EcosystemPlugin for RustPlugin {
             });
         }
 
-        Ok(all_records)
+        Ok(result)
     }
 }
 
@@ -290,6 +289,20 @@ fn parse_error_to_plugin_error(path: &Path, error: &VerifiesParseError) -> Plugi
             error.message
         ),
     }
+}
+
+fn recoverable_plugin_diagnostic(path: &Path, error: &PluginError) -> PluginDiagnostic {
+    let message = match error {
+        PluginError::ParseFailure { message, .. } => {
+            format!("skipping due to parse failure: {message}")
+        }
+        PluginError::Io { source, .. } => {
+            format!("skipping due to I/O error: {source}")
+        }
+        PluginError::Discovery { message, .. } => message.clone(),
+    };
+
+    PluginDiagnostic::warning_for_path(path.to_path_buf(), message)
 }
 
 // ---------------------------------------------------------------------------
@@ -924,8 +937,17 @@ mod tests {
         let plugin = RustPlugin;
         assert_eq!(plugin.name(), PLUGIN_NAME);
 
-        let records = plugin.discover(&files, &scope, &graph).unwrap();
-        assert_eq!(records.len(), 2, "expected 2 evidence records from 3 files");
+        let result = plugin.discover(&files, &scope, &graph).unwrap();
+        assert_eq!(
+            result.evidence.len(),
+            2,
+            "expected 2 evidence records from 3 files",
+        );
+        assert!(
+            result.diagnostics.is_empty(),
+            "expected no diagnostics from clean files, got {:?}",
+            result.diagnostics,
+        );
     }
 
     #[test]
@@ -944,12 +966,23 @@ mod tests {
         ];
 
         let plugin = RustPlugin;
-        let records = plugin.discover(&files, &scope, &graph).unwrap();
+        let result = plugin.discover(&files, &scope, &graph).unwrap();
         assert_eq!(
-            records.len(),
+            result.evidence.len(),
             2,
             "should discover 2 records despite 1 missing file, got {}",
-            records.len(),
+            result.evidence.len(),
+        );
+        assert_eq!(
+            result.diagnostics.len(),
+            1,
+            "missing file should surface exactly 1 structured diagnostic, got {:?}",
+            result.diagnostics,
+        );
+        assert!(
+            result.diagnostics[0].message.contains("skipping"),
+            "diagnostic should explain the skipped file, got {:?}",
+            result.diagnostics,
         );
     }
 
@@ -968,8 +1001,17 @@ mod tests {
         ];
 
         let plugin = RustPlugin;
-        let records = plugin.discover(&files, &scope, &graph).unwrap();
-        assert_eq!(records.len(), 1, "should only discover from .rs files");
+        let result = plugin.discover(&files, &scope, &graph).unwrap();
+        assert_eq!(
+            result.evidence.len(),
+            1,
+            "should only discover from .rs files"
+        );
+        assert!(
+            result.diagnostics.is_empty(),
+            "non-Rust files should be ignored without diagnostics, got {:?}",
+            result.diagnostics,
+        );
     }
 
     /// Empty file list should return Ok(empty), not an error.
@@ -993,7 +1035,7 @@ mod tests {
             "empty Rust scope should return Ok, not Err: {result:?}",
         );
         assert!(
-            result.unwrap().is_empty(),
+            result.unwrap().evidence.is_empty(),
             "should produce zero evidence for non-Rust files",
         );
     }

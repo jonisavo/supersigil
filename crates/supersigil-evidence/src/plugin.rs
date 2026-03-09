@@ -1,4 +1,4 @@
-//! `EcosystemPlugin` trait and `PluginError` error surface.
+//! `EcosystemPlugin` trait and plugin discovery error/diagnostic surfaces.
 
 use std::path::PathBuf;
 
@@ -6,6 +6,62 @@ use supersigil_core::DocumentGraph;
 use thiserror::Error;
 
 use crate::types::{ProjectScope, VerificationEvidenceRecord};
+
+// ---------------------------------------------------------------------------
+// PluginDiscoveryResult
+// ---------------------------------------------------------------------------
+
+/// Structured output from a successful plugin discovery pass.
+///
+/// Plugins can emit evidence alongside non-fatal diagnostics for recoverable
+/// per-file issues. Fatal discovery failures still use `PluginError`.
+#[derive(Debug, Default)]
+pub struct PluginDiscoveryResult {
+    pub evidence: Vec<VerificationEvidenceRecord>,
+    pub diagnostics: Vec<PluginDiagnostic>,
+}
+
+impl PluginDiscoveryResult {
+    /// Build a result containing evidence with no diagnostics.
+    #[must_use]
+    pub fn from_evidence(evidence: Vec<VerificationEvidenceRecord>) -> Self {
+        Self {
+            evidence,
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PluginDiagnostic
+// ---------------------------------------------------------------------------
+
+/// Non-fatal plugin diagnostic emitted during a successful discovery pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginDiagnostic {
+    pub message: String,
+    pub path: Option<PathBuf>,
+}
+
+impl PluginDiagnostic {
+    /// Create a warning diagnostic without an associated path.
+    #[must_use]
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            path: None,
+        }
+    }
+
+    /// Create a warning diagnostic tied to a specific file path.
+    #[must_use]
+    pub fn warning_for_path(path: PathBuf, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            path: Some(path),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // PluginError
@@ -39,9 +95,9 @@ pub enum PluginError {
 
 /// Extension contract for built-in and future ecosystem integrations.
 ///
-/// Implementations return normalized evidence records. Plugin failures are
-/// reported through `PluginError`, which `supersigil-verify` turns into
-/// verification findings.
+/// Implementations return normalized evidence records plus any non-fatal
+/// diagnostics. Fatal plugin failures are reported through `PluginError`,
+/// which `supersigil-verify` turns into verification findings.
 pub trait EcosystemPlugin {
     /// Human-readable plugin name (e.g. `"rust"`).
     fn name(&self) -> &'static str;
@@ -50,11 +106,13 @@ pub trait EcosystemPlugin {
     ///
     /// # Errors
     ///
-    /// Returns `PluginError` if the plugin encounters a fatal discovery failure.
+    /// Returns `PluginError` if the plugin encounters a fatal discovery
+    /// failure. Recoverable diagnostics should be returned in the successful
+    /// `PluginDiscoveryResult`.
     fn discover(
         &self,
         files: &[PathBuf],
         scope: &ProjectScope,
         documents: &DocumentGraph,
-    ) -> Result<Vec<VerificationEvidenceRecord>, PluginError>;
+    ) -> Result<PluginDiscoveryResult, PluginError>;
 }

@@ -219,3 +219,91 @@ fn status_json_stdout_clean_despite_plugin_warning() {
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert!(json.get("targets_total").is_some());
 }
+
+/// Set up a project where one Rust file parses successfully and another is
+/// intentionally broken, so the plugin emits a recoverable diagnostic.
+fn setup_partial_rust_warning_fixture(root: &std::path::Path) {
+    common::setup_project_with_rust_plugin(root);
+    common::write_mdx(
+        root,
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("tests/auth_test.rs"),
+        "#[test]\n#[verifies(\"auth/req#ac-1\")]\nfn login_succeeds() {}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/bad.rs"),
+        "#[verifies(\"auth/req#ac-1\")] fn { broken\n",
+    )
+    .unwrap();
+}
+
+/// Recoverable Rust discovery issues should still surface as warnings through
+/// the CLI reporting path when another file yields usable evidence.
+#[test]
+fn status_partial_rust_plugin_warning_on_stderr() {
+    let tmp = TempDir::new().unwrap();
+    setup_partial_rust_warning_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("plugin 'rust'"),
+        "stderr should mention the rust plugin, got: {stderr}",
+    );
+    assert!(
+        stderr.contains("skipping due to parse failure"),
+        "stderr should contain the structured parse warning, got: {stderr}",
+    );
+    assert_eq!(
+        stderr.matches("skipping due to parse failure").count(),
+        1,
+        "partial-warning path should emit the parse warning once, got: {stderr}",
+    );
+}
+
+/// Recoverable Rust discovery warnings must not pollute JSON stdout.
+#[test]
+fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
+    let tmp = TempDir::new().unwrap();
+    setup_partial_rust_warning_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("skipping due to parse failure"),
+        "stderr should contain the structured parse warning, got: {stderr}",
+    );
+    assert_eq!(
+        stderr.matches("skipping due to parse failure").count(),
+        1,
+        "partial-warning path should emit the parse warning once, got: {stderr}",
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert!(json.get("targets_total").is_some());
+}

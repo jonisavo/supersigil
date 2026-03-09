@@ -308,6 +308,7 @@ pub const KNOWN_RULES: &[&str] = &[
     "missing_required_component",
     "invalid_verified_by_placement",
     "plugin_discovery_failure",
+    "plugin_discovery_warning",
 ];
 
 // ---------------------------------------------------------------------------
