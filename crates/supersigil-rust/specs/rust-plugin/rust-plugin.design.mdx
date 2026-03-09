@@ -77,14 +77,16 @@ No other framework-specific metadata is currently normalized.
 
 The current runtime plugin has two different failure paths:
 
-- per-file read or parse failures are handled locally in `discover` by printing
-  a warning and continuing
+- per-file read or parse failures are handled locally in `discover` by adding
+  a non-fatal `PluginDiagnostic` to the successful discovery result and
+  continuing
 - invalid `#[verifies(...)]` ref shapes become `PluginError::Discovery`
 - whole-scope "no supported Rust test items found" becomes
   `PluginError::Discovery`
 
 This means the plugin still tolerates unreadable or unparsable files, but it no
-longer tolerates invalid `#[verifies(...)]` annotations as recoverable input.
+longer tolerates invalid `#[verifies(...)]` annotations as recoverable input,
+and it no longer writes recoverable warnings directly to stderr.
 
 ## Scope Helpers
 
@@ -121,6 +123,6 @@ It just takes already-loaded spec paths and emits Cargo
 ## Current Gaps
 
 - `RustPlugin::discover` currently ignores the `ProjectScope` argument.
-- Per-file plugin failures go directly to stderr instead of returning through a
-  structured partial-warning channel.
+- Recoverable diagnostics currently carry file paths and warning text, but not
+  richer span-level source positions.
 - Async framework detection is currently specific to `tokio::test`.

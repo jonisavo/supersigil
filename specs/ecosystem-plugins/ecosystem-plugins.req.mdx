@@ -25,7 +25,8 @@ The crate-local behaviors are recovered separately in:
   plugins, resolves source files, extracts explicit evidence, and builds an
   `ArtifactGraph`.
 - **Plugin_Finding**: A verification finding surfaced when plugin discovery
-  fails or yields an ecosystem-level problem.
+  yields a recoverable diagnostic, fails, or otherwise yields an ecosystem-
+  level problem.
 
 ## Requirement 1: Ecosystem Activation and Policy
 
@@ -76,9 +77,10 @@ pipeline, so that verification and query surfaces see one merged evidence view.
     separate evidence channels.
   </Criterion>
   <Criterion id="req-2-4">
-    IF plugin discovery fails for one enabled plugin, THEN the pipeline SHALL
-    surface a Plugin_Finding and SHALL continue returning a verification result
-    instead of aborting the whole verification flow.
+    IF plugin discovery emits recoverable diagnostics or fails for one enabled
+    plugin, THEN the pipeline SHALL surface Plugin_Finding entries and SHALL
+    continue returning a verification result instead of aborting the whole
+    verification flow.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -99,9 +101,9 @@ debuggable.
     sources back the same effective evidence record.
   </Criterion>
   <Criterion id="req-3-3">
-    THE ecosystem layer SHALL surface plugin discovery failures through the
-    existing verification/reporting surfaces rather than as configuration or
-    graph-construction failures.
+    THE ecosystem layer SHALL surface plugin discovery diagnostics and
+    failures through the existing verification/reporting surfaces rather than
+    as configuration or graph-construction failures.
   </Criterion>
 </AcceptanceCriteria>
 

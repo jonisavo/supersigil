@@ -83,7 +83,8 @@ flags.
 
 - built-in plugin assembly
 - Rust source-file inference across workspace members
-- conversion of fatal plugin errors into verification findings
+- conversion of plugin diagnostics and fatal plugin errors into verification
+  findings
 - the top-level `build_evidence` orchestration function
 
 This means the runtime Rust crate does not currently own end-to-end discovery
@@ -107,7 +108,7 @@ ecosystem-defined types.
   Rust ecosystem policy parsing.
 - `crates/supersigil-cli/src/plugins.rs`
   covers built-in plugin assembly, Rust source-file inference, plugin-failure
-  findings, and end-to-end evidence-pipeline assembly.
+  and plugin-diagnostic findings, and end-to-end evidence-pipeline assembly.
 - `crates/supersigil-verify/src/artifact_graph.rs`
   covers merge, deduplication, provenance preservation, and conflict handling.
 - `crates/supersigil-verify/src/report.rs`
@@ -119,3 +120,5 @@ ecosystem-defined types.
   implementation itself.
 - Cross-cutting scope resolution is still duplicated between
   `supersigil-rust::scope` and `supersigil-rust-macros`.
+- Plugin diagnostics use `plugin_discovery_warning` and fatal failures use
+  `plugin_discovery_failure`, allowing consumers to distinguish severity.

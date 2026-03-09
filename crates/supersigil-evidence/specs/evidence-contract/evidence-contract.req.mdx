@@ -97,11 +97,12 @@ changing the document model.
   <Criterion id="req-3-2">
     `supersigil-evidence` SHALL expose an `EcosystemPlugin` trait with a
     stable plugin name and a `discover(files, scope, documents)` method that
-    returns normalized evidence records.
+    returns a normalized `PluginDiscoveryResult` containing evidence records
+    plus any non-fatal plugin diagnostics.
   </Criterion>
   <Criterion id="req-3-3">
-    `supersigil-evidence` SHALL expose `PluginError` variants for parse
-    failures, discovery failures, and I/O failures so plugin-specific failures
-    can be surfaced without changing the evidence record format.
+    `supersigil-evidence` SHALL expose `PluginDiagnostic` and `PluginError`
+    surfaces so recoverable warnings and fatal parse, discovery, or I/O
+    failures can be surfaced without changing the evidence record format.
   </Criterion>
 </AcceptanceCriteria>

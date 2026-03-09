@@ -106,8 +106,9 @@ continue where possible, so that one bad file does not hide all other evidence.
   <Criterion id="req-3-2">
     IF an individual Rust file cannot be parsed or read, THEN the current
     runtime plugin SHALL skip that file, SHALL continue processing the rest of
-    the discovery scope, and SHALL print a warning to stderr instead of
-    returning `PluginError` for the whole run.
+    the discovery scope, and SHALL return a non-fatal plugin diagnostic for
+    that file instead of printing directly to stderr or returning
+    `PluginError` for the whole run.
   </Criterion>
   <Criterion id="req-3-3">
     IF the discovery scope contains Rust files but zero Supported_Rust_Test
