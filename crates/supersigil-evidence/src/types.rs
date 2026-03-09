@@ -1,7 +1,9 @@
 //! Core evidence types: `VerifiableRef`, `TestIdentity`, `VerificationEvidenceRecord`,
-//! `ProjectScope`, `SourceLocation`, `EvidenceId`, `EvidenceKind`, and `TestKind`.
+//! `VerificationTargets`, `ProjectScope`, `SourceLocation`, `EvidenceId`,
+//! `EvidenceKind`, and `TestKind`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -45,14 +47,111 @@ pub struct VerifiableRef {
 impl VerifiableRef {
     /// Parse a verifiable reference string like `"req/auth#crit-1"`.
     ///
-    /// Returns `None` if the string does not contain a `#` separator.
+    /// Returns `None` unless the string contains a `#` separator with
+    /// non-empty document and target fragments on both sides.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         let (doc_id, target_id) = s.split_once('#')?;
+        if doc_id.is_empty() || target_id.is_empty() {
+            return None;
+        }
         Some(Self {
             doc_id: doc_id.to_string(),
             target_id: target_id.to_string(),
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VerificationTargets
+// ---------------------------------------------------------------------------
+
+/// Non-empty set of criterion targets backed by a single evidence record.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct VerificationTargets(BTreeSet<VerifiableRef>);
+
+impl VerificationTargets {
+    /// Construct a non-empty target set.
+    #[must_use]
+    pub fn new(targets: BTreeSet<VerifiableRef>) -> Option<Self> {
+        if targets.is_empty() {
+            return None;
+        }
+        Some(Self(targets))
+    }
+
+    /// Construct a target set containing exactly one criterion ref.
+    #[must_use]
+    pub fn single(target: VerifiableRef) -> Self {
+        Self(BTreeSet::from([target]))
+    }
+
+    /// Borrow the underlying target set.
+    #[must_use]
+    pub fn as_set(&self) -> &BTreeSet<VerifiableRef> {
+        &self.0
+    }
+
+    /// Iterate over the targeted criteria.
+    pub fn iter(&self) -> std::collections::btree_set::Iter<'_, VerifiableRef> {
+        self.0.iter()
+    }
+
+    /// Number of criterion targets.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Target sets are guaranteed to be non-empty by construction.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Consume the wrapper and return the underlying set.
+    #[must_use]
+    pub fn into_set(self) -> BTreeSet<VerifiableRef> {
+        self.0
+    }
+}
+
+impl Deref for VerificationTargets {
+    type Target = BTreeSet<VerifiableRef>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a VerificationTargets {
+    type Item = &'a VerifiableRef;
+    type IntoIter = std::collections::btree_set::Iter<'a, VerifiableRef>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for VerificationTargets {
+    type Item = VerifiableRef;
+    type IntoIter = std::collections::btree_set::IntoIter<VerifiableRef>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl PartialEq<BTreeSet<VerifiableRef>> for VerificationTargets {
+    fn eq(&self, other: &BTreeSet<VerifiableRef>) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<VerificationTargets> for BTreeSet<VerifiableRef> {
+    fn eq(&self, other: &VerificationTargets) -> bool {
+        *self == other.0
     }
 }
 
@@ -128,11 +227,11 @@ impl EvidenceKind {
 // VerificationEvidenceRecord
 // ---------------------------------------------------------------------------
 
-/// A single normalized evidence record linking a test to one or more verifiable targets.
+/// A single normalized evidence record linking a test to one or more criterion targets.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerificationEvidenceRecord {
     pub id: EvidenceId,
-    pub targets: BTreeSet<VerifiableRef>,
+    pub targets: VerificationTargets,
     pub test: TestIdentity,
     pub source_location: SourceLocation,
     pub evidence_kind: EvidenceKind,

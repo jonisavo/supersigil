@@ -181,9 +181,16 @@ fn glob_rs_files(dir: &Path, files: &mut BTreeSet<PathBuf>) {
     let pattern = dir.join("**/*.rs").to_string_lossy().to_string();
     if let Ok(entries) = glob::glob(&pattern) {
         for entry in entries.flatten() {
-            files.insert(entry);
+            if !path_contains_fixture_dir(&entry) {
+                files.insert(entry);
+            }
         }
     }
+}
+
+fn path_contains_fixture_dir(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "fixtures")
 }
 
 /// Read workspace member directories from `Cargo.toml`.
@@ -732,6 +739,43 @@ mod tests {
                 .iter()
                 .any(|p| p.ends_with("crates/my-crate/tests/integration.rs")),
             "should include workspace member test files, got {files:?}",
+        );
+    }
+
+    #[test]
+    fn infer_rust_source_files_skips_fixture_directories() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests/fixtures/fail")).unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+
+        std::fs::write(
+            dir.path().join("tests/fixtures/fail/bad_case.rs"),
+            "#[verifies(\"req/auth\")]\n#[test]\nfn bad_case() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("tests/real_test.rs"),
+            "#[test]\nfn real_test() {}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+
+        let files = infer_rust_source_files(dir.path());
+
+        assert!(
+            files.iter().any(|p| p.ends_with("tests/real_test.rs")),
+            "real test files should still be inferred, got {files:?}",
+        );
+        assert!(
+            files.iter().any(|p| p.ends_with("src/lib.rs")),
+            "src files should still be inferred, got {files:?}",
+        );
+        assert!(
+            files
+                .iter()
+                .all(|p| !p.ends_with("tests/fixtures/fail/bad_case.rs")),
+            "fixture files should be excluded from inferred Rust discovery, got {files:?}",
         );
     }
 

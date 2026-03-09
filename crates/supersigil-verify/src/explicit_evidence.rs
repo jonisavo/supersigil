@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use supersigil_core::{DocumentGraph, split_list_attribute};
 use supersigil_evidence::{
     EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-    VerifiableRef, VerificationEvidenceRecord,
+    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
 };
 
 use crate::scan::{TagMatch, scan_all_tags};
@@ -70,7 +70,7 @@ pub fn extract_explicit_evidence(
 fn process_verified_by(
     comp: &supersigil_core::ExtractedComponent,
     doc_id: &str,
-    targets: &BTreeSet<VerifiableRef>,
+    targets: &VerificationTargets,
     tag_index: &HashMap<&str, Vec<&TagMatch>>,
     project_root: &Path,
     records: &mut Vec<VerificationEvidenceRecord>,
@@ -170,6 +170,7 @@ fn collect_criterion_evidence(
                 doc_id: doc_id.to_owned(),
                 target_id: criterion_id.to_owned(),
             }]);
+            let targets = VerificationTargets::new(targets).expect("criterion evidence target set");
 
             for child in &component.children {
                 if child.name == "VerifiedBy" {

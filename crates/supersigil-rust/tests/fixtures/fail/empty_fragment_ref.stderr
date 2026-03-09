@@ -1,0 +1,5 @@
+error: invalid criterion reference "req/auth#": expected `document-id#criterion-id`
+ --> tests/fixtures/fail/empty_fragment_ref.rs:3:12
+  |
+3 | #[verifies("req/auth#")]
+  |            ^^^^^^^^^^^

@@ -275,31 +275,43 @@ fn validate_refs(refs: &[String], project_root: &Path) -> Vec<(Option<String>, S
     // Check each ref.
     let mut errors = Vec::new();
     for ref_str in refs {
-        if let Some((doc_id, fragment)) = ref_str.split_once('#') {
-            // Criterion-level ref: validate the component exists.
-            if graph.component(doc_id, fragment).is_none() {
-                errors.push((
-                    Some(ref_str.clone()),
-                    format!(
-                        "unresolved criterion reference \"{ref_str}\": \
-                         no matching criterion found in the specification graph"
-                    ),
-                ));
-            }
-        } else {
-            // Document-level ref: validate the document exists.
-            if graph.document(ref_str).is_none() {
-                errors.push((
-                    Some(ref_str.clone()),
-                    format!(
-                        "unresolved document reference \"{ref_str}\": \
-                         no matching document found in the specification graph"
-                    ),
-                ));
-            }
+        let Some((doc_id, fragment)) = ref_str.split_once('#') else {
+            continue;
+        };
+
+        if graph.component(doc_id, fragment).is_none() {
+            errors.push((
+                Some(ref_str.clone()),
+                format!(
+                    "unresolved criterion reference \"{ref_str}\": \
+                     no matching criterion found in the specification graph"
+                ),
+            ));
         }
     }
     errors
+}
+
+fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()> {
+    let Some((doc_id, criterion_id)) = ref_str.split_once('#') else {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "invalid criterion reference \"{ref_str}\": expected `document-id#criterion-id`"
+            ),
+        ));
+    };
+
+    if doc_id.is_empty() || criterion_id.is_empty() || criterion_id.contains('#') {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "invalid criterion reference \"{ref_str}\": expected `document-id#criterion-id`"
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Resolve spec file globs in multi-project mode.
@@ -412,9 +424,8 @@ fn resolve_multi_project_globs(
 ///
 /// The macro validates:
 /// 1. **Syntax**: at least one string-literal argument.
-/// 2. **Graph** (when enabled): each ref resolves in the `DocumentGraph`.
-///    Criterion refs (`doc#crit`) validate the component exists.
-///    Document refs (`doc`) validate the document exists.
+/// 2. **Shape**: each ref must use the `document-id#criterion-id` form.
+/// 3. **Graph** (when enabled): each criterion ref resolves in the `DocumentGraph`.
 ///
 /// The annotated item is emitted unchanged — no runtime behaviour is added.
 #[proc_macro_attribute]
@@ -441,7 +452,12 @@ pub fn verifies(attr: TokenStream, item: TokenStream) -> TokenStream {
         match expr {
             Expr::Lit(expr_lit) => match &expr_lit.lit {
                 Lit::Str(s) => {
-                    ref_strings.push(s.value());
+                    let ref_string = s.value();
+                    if let Err(err) = validate_ref_shape(&ref_string, s.span()) {
+                        return err.to_compile_error().into();
+                    }
+
+                    ref_strings.push(ref_string);
                     ref_spans.push(s.span());
                 }
                 other => {

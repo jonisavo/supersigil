@@ -15,5 +15,5 @@ pub use plugin::{EcosystemPlugin, PluginError};
 pub use provenance::{EvidenceConflict, PluginProvenance};
 pub use types::{
     EvidenceId, EvidenceKind, ProjectScope, SourceLocation, TestIdentity, TestKind, VerifiableRef,
-    VerificationEvidenceRecord,
+    VerificationEvidenceRecord, VerificationTargets,
 };

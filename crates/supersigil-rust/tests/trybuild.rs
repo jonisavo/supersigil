@@ -10,6 +10,8 @@ fn verifies_macro() {
     unsafe { std::env::set_var("SUPERSIGIL_PROJECT_ROOT", "") };
     let t = trybuild::TestCases::new();
     t.pass("tests/fixtures/pass/*.rs");
+    t.compile_fail("tests/fixtures/fail/empty_fragment_ref.rs");
+    t.compile_fail("tests/fixtures/fail/fragmentless_ref.rs");
     t.compile_fail("tests/fixtures/fail/malformed_empty_args.rs");
     t.compile_fail("tests/fixtures/fail/malformed_not_string.rs");
     t.compile_fail("tests/fixtures/fail/unsupported_item_struct.rs");

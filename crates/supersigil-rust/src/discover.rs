@@ -13,6 +13,7 @@ use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
     EcosystemPlugin, EvidenceId, EvidenceKind, PluginError, PluginProvenance, ProjectScope,
     SourceLocation, TestIdentity, TestKind, VerifiableRef, VerificationEvidenceRecord,
+    VerificationTargets,
 };
 
 const PLUGIN_NAME: &str = "rust";
@@ -54,22 +55,32 @@ impl EcosystemPlugin for RustPlugin {
 
         let mut all_records = Vec::new();
         let mut supported_test_items = 0usize;
+        let mut first_error = None;
         for file in rust_files {
             match discover_file_summary(file) {
                 Ok(summary) => {
                     supported_test_items += summary.supported_test_items;
                     all_records.extend(summary.records);
                 }
+                Err(err @ PluginError::Discovery { .. }) => {
+                    return Err(err);
+                }
                 Err(err) => {
                     eprintln!(
                         "warning: plugin '{PLUGIN_NAME}': skipping {}: {err}",
                         file.display()
                     );
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
                 }
             }
         }
 
         if supported_test_items == 0 {
+            if let Some(err) = first_error {
+                return Err(err);
+            }
             return Err(PluginError::Discovery {
                 plugin: PLUGIN_NAME.to_string(),
                 message: "zero supported Rust test items were found in the discovery scope; supported forms include #[test], #[tokio::test], supported proptest wrappers, and snapshot-oriented tests".to_string(),
@@ -224,7 +235,7 @@ fn collect_items(
 fn build_record(
     acc: &mut DiscoveryAccumulator,
     path: &Path,
-    targets: BTreeSet<VerifiableRef>,
+    targets: VerificationTargets,
     attr_span: proc_macro2::Span,
     test_name: String,
     test_kind: TestKind,
@@ -252,6 +263,19 @@ fn build_record(
         }],
         metadata,
     }
+}
+
+fn invalid_verifies_ref(span: proc_macro2::Span, value: &str) -> VerifiesParseError {
+    let message = if value.is_empty() {
+        "empty verifies reference".to_string()
+    } else {
+        format!(
+            "invalid verifies reference `{value}`; use a full criterion ref like \
+             `doc-id#criterion-id`",
+        )
+    };
+
+    VerifiesParseError { message, span }
 }
 
 /// Map a `VerifiesParseError` into a `PluginError::Discovery` with location info.
@@ -348,7 +372,7 @@ fn process_macro(
 /// Returns the set of criterion refs and the span of the attribute.
 fn extract_verifies_targets(
     attrs: &[syn::Attribute],
-) -> Result<Option<(BTreeSet<VerifiableRef>, proc_macro2::Span)>, VerifiesParseError> {
+) -> Result<Option<(VerificationTargets, proc_macro2::Span)>, VerifiesParseError> {
     for attr in attrs {
         let path = attr.path();
         let is_verifies = path.is_ident("verifies")
@@ -358,7 +382,7 @@ fn extract_verifies_targets(
         if is_verifies {
             let span = attr.span();
             let mut targets = BTreeSet::new();
-            let mut saw_valid_ref = false;
+            let mut saw_string_literal = false;
 
             // Parse the attribute arguments: verifies("ref1", "ref2", ...)
             if let syn::Meta::List(meta_list) = &attr.meta {
@@ -375,24 +399,18 @@ fn extract_verifies_targets(
                         }
 
                         let value = raw.trim_matches('"');
-                        if let Some(verifiable_ref) = VerifiableRef::parse(value) {
-                            targets.insert(verifiable_ref);
-                            saw_valid_ref = true;
-                        } else if !value.is_empty() {
-                            // Fragmentless document ref — accepted but produces
-                            // no criterion targets (document-level evidence).
-                            saw_valid_ref = true;
-                        } else {
-                            return Err(VerifiesParseError {
-                                message: "empty verifies reference".to_string(),
-                                span,
-                            });
-                        }
+                        saw_string_literal = true;
+                        let Some(verifiable_ref) = VerifiableRef::parse(value) else {
+                            return Err(invalid_verifies_ref(span, value));
+                        };
+                        targets.insert(verifiable_ref);
                     }
                 }
             }
 
-            if saw_valid_ref {
+            if saw_string_literal {
+                let targets = VerificationTargets::new(targets)
+                    .expect("at least one valid criterion ref should yield a non-empty target set");
                 return Ok(Some((targets, span)));
             }
 
@@ -711,24 +729,37 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Document-level refs (Phase 6)
+    // Invalid refs are rejected
     // -----------------------------------------------------------------------
 
     #[test]
-    fn discovers_document_level_ref_with_empty_targets() {
-        let records = discover_file(&fixture("doc_level_ref.rs")).unwrap();
+    fn document_level_ref_is_rejected() {
+        let result = discover_file(&fixture("doc_level_ref.fixture"));
 
-        assert_eq!(records.len(), 1, "expected exactly one evidence record");
-        let record = &records[0];
-
-        assert_eq!(record.test.name, "test_auth_basics");
-        assert_eq!(record.test.kind, TestKind::Unit);
+        let err = result.expect_err("fragmentless ref should be rejected");
         assert!(
-            record.targets.is_empty(),
-            "document-level ref should produce empty targets, got {:?}",
-            record.targets,
+            matches!(err, PluginError::Discovery { .. }),
+            "expected PluginError::Discovery, got {err:?}",
         );
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert!(
+            err.to_string().contains("full criterion ref"),
+            "error should require a full criterion ref: {err}",
+        );
+    }
+
+    #[test]
+    fn empty_fragment_ref_is_rejected() {
+        let result = discover_file(&fixture("empty_fragment_ref.fixture"));
+
+        let err = result.expect_err("empty fragment ref should be rejected");
+        assert!(
+            matches!(err, PluginError::Discovery { .. }),
+            "expected PluginError::Discovery, got {err:?}",
+        );
+        assert!(
+            err.to_string().contains("full criterion ref"),
+            "error should require a full criterion ref: {err}",
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1003,7 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn fragmentless_ref_accepted_as_document_level_evidence() {
+    fn fragmentless_ref_is_rejected_by_plugin_discovery() {
         let dir = std::env::temp_dir().join("supersigil_test_doc_level_ref");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("auth_test.rs");
@@ -1025,14 +1056,15 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
 
-        let records = result.expect("document-level ref should be accepted");
-        assert_eq!(records.len(), 1, "expected one evidence record");
+        let err = result.expect_err("fragmentless ref should be rejected");
         assert!(
-            records[0].targets.is_empty(),
-            "document-level ref should have empty targets, got {:?}",
-            records[0].targets,
+            matches!(err, PluginError::Discovery { .. }),
+            "expected PluginError::Discovery, got {err:?}",
         );
-        assert_eq!(records[0].test.name, "login_succeeds");
+        assert!(
+            err.to_string().contains("full criterion ref"),
+            "error should require a full criterion ref: {err}",
+        );
     }
 
     // -----------------------------------------------------------------------

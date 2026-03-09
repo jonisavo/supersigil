@@ -26,19 +26,7 @@ fn for_each_criterion(
         {
             let has_evidence = artifact_graph.has_evidence(doc_id, criterion_id);
             if !has_evidence {
-                let unresolved = artifact_graph.unresolved_evidence();
-                let message = if unresolved.is_empty() {
-                    format!("criterion `{criterion_id}` has no verification evidence")
-                } else {
-                    let test_names: Vec<&str> =
-                        unresolved.iter().map(|r| r.test.name.as_str()).collect();
-                    format!(
-                        "criterion `{criterion_id}` has no verification evidence \
-                         (test {} has an unresolved #[verifies] target — \
-                         use the full criterion ref `{doc_id}#{criterion_id}`)",
-                        test_names.join(", "),
-                    )
-                };
+                let message = format!("criterion `{criterion_id}` has no verification evidence");
                 findings.push(Finding::new(
                     RuleName::MissingVerificationEvidence,
                     Some(doc_id.to_owned()),
@@ -111,78 +99,13 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_evidence_suggests_full_criterion_ref() {
-        use std::collections::{BTreeMap, BTreeSet};
-        use std::path::PathBuf;
-
-        use supersigil_evidence::{
-            EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-            VerificationEvidenceRecord,
-        };
-
-        let docs = vec![make_doc(
-            "req/auth",
-            vec![make_acceptance_criteria(
-                vec![make_criterion("req-1", 10)],
-                9,
-            )],
-        )];
-        let graph = build_test_graph(docs);
-
-        // Evidence record with empty targets (unresolved #[verifies] attribute)
-        let ag = crate::artifact_graph::build_artifact_graph(
-            &graph,
-            vec![],
-            vec![VerificationEvidenceRecord {
-                id: EvidenceId(0),
-                targets: BTreeSet::new(),
-                test: TestIdentity {
-                    file: PathBuf::from("tests/auth_test.rs"),
-                    name: "login_succeeds".into(),
-                    kind: TestKind::Unit,
-                },
-                source_location: SourceLocation {
-                    file: PathBuf::from("tests/auth_test.rs"),
-                    line: 3,
-                    column: 1,
-                },
-                evidence_kind: EvidenceKind::RustAttribute,
-                provenance: vec![PluginProvenance::RustAttribute {
-                    attribute_span: SourceLocation {
-                        file: PathBuf::from("tests/auth_test.rs"),
-                        line: 3,
-                        column: 1,
-                    },
-                }],
-                metadata: BTreeMap::new(),
-            }],
-        );
-
-        let findings = check(&graph, &ag);
-
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule, RuleName::MissingVerificationEvidence);
-        // Message should mention the unresolved test and suggest the full ref
-        assert!(
-            findings[0].message.contains("login_succeeds"),
-            "message should mention the test name: {}",
-            findings[0].message,
-        );
-        assert!(
-            findings[0].message.contains("req/auth#req-1"),
-            "message should suggest the full criterion ref: {}",
-            findings[0].message,
-        );
-    }
-
-    #[test]
     fn direct_artifact_evidence_satisfies_coverage_without_validating_doc() {
-        use std::collections::{BTreeMap, BTreeSet};
+        use std::collections::BTreeMap;
         use std::path::PathBuf;
 
         use supersigil_evidence::{
             EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-            VerifiableRef, VerificationEvidenceRecord,
+            VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
         };
 
         let docs = vec![make_doc(
@@ -198,10 +121,10 @@ mod tests {
             vec![],
             vec![VerificationEvidenceRecord {
                 id: EvidenceId(0),
-                targets: BTreeSet::from([VerifiableRef {
+                targets: VerificationTargets::single(VerifiableRef {
                     doc_id: "req/auth".into(),
                     target_id: "req-1".into(),
-                }]),
+                }),
                 test: TestIdentity {
                     file: PathBuf::from("tests/auth_test.rs"),
                     name: "login_succeeds".into(),

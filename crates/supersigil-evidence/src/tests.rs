@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::{
     EcosystemPlugin, EvidenceConflict, EvidenceId, EvidenceKind, PluginError, PluginProvenance,
     ProjectScope, SourceLocation, TestIdentity, TestKind, VerifiableRef,
-    VerificationEvidenceRecord,
+    VerificationEvidenceRecord, VerificationTargets,
 };
 
 // ===========================================================================
@@ -51,9 +51,12 @@ fn verifiable_ref_parse_missing_fragment() {
 
 #[test]
 fn verifiable_ref_parse_empty_fragment() {
-    let cr = VerifiableRef::parse("req/auth#").unwrap();
-    assert_eq!(cr.doc_id, "req/auth");
-    assert_eq!(cr.target_id, "");
+    assert!(VerifiableRef::parse("req/auth#").is_none());
+}
+
+#[test]
+fn verifiable_ref_parse_empty_document() {
+    assert!(VerifiableRef::parse("#crit-1").is_none());
 }
 
 // ===========================================================================
@@ -196,6 +199,27 @@ fn plugin_provenance_inequality_across_variants() {
 }
 
 // ===========================================================================
+// VerificationTargets
+// ===========================================================================
+
+#[test]
+fn verification_targets_reject_empty_sets() {
+    assert!(VerificationTargets::new(BTreeSet::new()).is_none());
+}
+
+#[test]
+fn verification_targets_accept_non_empty_sets() {
+    let targets = VerificationTargets::new(BTreeSet::from([VerifiableRef {
+        doc_id: "req/auth".into(),
+        target_id: "crit-1".into(),
+    }]))
+    .expect("non-empty target set should be accepted");
+
+    assert_eq!(targets.len(), 1);
+    assert!(targets.iter().any(|target| target.target_id == "crit-1"));
+}
+
+// ===========================================================================
 // VerificationEvidenceRecord
 // ===========================================================================
 
@@ -209,7 +233,7 @@ fn verification_evidence_record_construction() {
 
     let record = VerificationEvidenceRecord {
         id: EvidenceId(0),
-        targets: targets.clone(),
+        targets: VerificationTargets::new(targets.clone()).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/auth.rs"),
             name: "test_login".into(),
@@ -250,7 +274,7 @@ fn verification_evidence_record_multiple_criteria() {
 
     let record = VerificationEvidenceRecord {
         id: EvidenceId(1),
-        targets: targets.clone(),
+        targets: VerificationTargets::new(targets.clone()).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/auth.rs"),
             name: "test_full_flow".into(),
@@ -280,9 +304,15 @@ fn verification_evidence_record_with_metadata() {
     let mut metadata = BTreeMap::new();
     metadata.insert("snapshot_id".into(), "auth_login_1".into());
 
+    let mut targets = BTreeSet::new();
+    targets.insert(VerifiableRef {
+        doc_id: "req/snapshots".into(),
+        target_id: "crit-1".into(),
+    });
+
     let record = VerificationEvidenceRecord {
         id: EvidenceId(2),
-        targets: BTreeSet::new(),
+        targets: VerificationTargets::new(targets).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/snapshots.rs"),
             name: "test_snapshot".into(),
@@ -413,7 +443,10 @@ impl EcosystemPlugin for MockPlugin {
             .enumerate()
             .map(|(i, file)| VerificationEvidenceRecord {
                 id: EvidenceId(i),
-                targets: BTreeSet::new(),
+                targets: VerificationTargets::single(VerifiableRef {
+                    doc_id: format!("req/mock-{i}"),
+                    target_id: "crit-1".into(),
+                }),
                 test: TestIdentity {
                     file: file.clone(),
                     name: format!("test_{i}"),

@@ -2,12 +2,12 @@
 //! into a unified graph with deduplication, conflict detection, and secondary
 //! indexes.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
     EvidenceConflict, EvidenceId, PluginProvenance, TestIdentity, VerifiableRef,
-    VerificationEvidenceRecord,
+    VerificationEvidenceRecord, VerificationTargets,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,20 +59,6 @@ impl<'g> ArtifactGraph<'g> {
             target_id: target_id.to_owned(),
         })
     }
-
-    /// Returns evidence records that have no resolved targets.
-    ///
-    /// These typically represent `#[verifies("...")]` attributes where the
-    /// target ref could not be resolved to a known criterion (e.g. a bare
-    /// fragment like `"login-succeeds"` instead of the full
-    /// `"doc-id#criterion-id"` form).
-    #[must_use]
-    pub fn unresolved_evidence(&self) -> Vec<&VerificationEvidenceRecord> {
-        self.evidence
-            .iter()
-            .filter(|rec| rec.targets.is_empty())
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +90,6 @@ pub fn build_artifact_graph(
         Vec::with_capacity(explicit_evidence.len() + plugin_evidence.len());
     all_evidence.extend(explicit_evidence);
     all_evidence.extend(plugin_evidence);
-
     // 2. Group by TestIdentity.
     let mut groups: HashMap<TestIdentity, Vec<VerificationEvidenceRecord>> = HashMap::new();
     for record in all_evidence {
@@ -118,7 +103,7 @@ pub fn build_artifact_graph(
     for (_test_identity, records) in groups {
         // Sub-group by targets set: records with the same criterion set
         // can be merged together.
-        let mut by_criteria: HashMap<BTreeSet<VerifiableRef>, Vec<VerificationEvidenceRecord>> =
+        let mut by_criteria: HashMap<VerificationTargets, Vec<VerificationEvidenceRecord>> =
             HashMap::new();
         for record in records {
             by_criteria
@@ -134,7 +119,7 @@ pub fn build_artifact_graph(
         } else {
             // Multiple distinct criterion sets — emit conflicts and keep all
             // records separate (merging within each compatible sub-group).
-            let sub_groups: Vec<(BTreeSet<VerifiableRef>, Vec<VerificationEvidenceRecord>)> =
+            let sub_groups: Vec<(VerificationTargets, Vec<VerificationEvidenceRecord>)> =
                 by_criteria.into_iter().collect();
 
             // Collect all provenances across all conflicting records for the
@@ -150,8 +135,8 @@ pub fn build_artifact_graph(
             for other in &sub_groups[1..] {
                 conflicts.push(EvidenceConflict {
                     test: sub_groups[0].1[0].test.clone(),
-                    left: left.clone(),
-                    right: other.0.clone(),
+                    left: left.as_set().clone(),
+                    right: other.0.as_set().clone(),
                     sources: all_provenances.clone(),
                 });
             }
@@ -219,7 +204,7 @@ fn merge_compatible_records(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
 
     use supersigil_evidence::{EvidenceKind, SourceLocation, TestKind};
@@ -258,7 +243,7 @@ mod tests {
     ) -> VerificationEvidenceRecord {
         VerificationEvidenceRecord {
             id: EvidenceId(id),
-            targets: criteria,
+            targets: VerificationTargets::new(criteria).expect("test evidence target set"),
             test: test.clone(),
             source_location: SourceLocation {
                 file: test.file,
