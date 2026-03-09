@@ -59,6 +59,24 @@ impl<'g> ArtifactGraph<'g> {
             target_id: target_id.to_owned(),
         })
     }
+
+    /// Return evidence records where ALL targets fail to resolve to components
+    /// in the document graph.
+    ///
+    /// These are evidence records that reference non-existent documents or
+    /// components — useful for suggesting corrections ("did you mean ...?").
+    #[must_use]
+    pub fn unresolved_evidence(&self) -> Vec<&VerificationEvidenceRecord> {
+        self.evidence
+            .iter()
+            .filter(|record| {
+                record
+                    .targets
+                    .iter()
+                    .all(|t| self.documents.component(&t.doc_id, &t.target_id).is_none())
+            })
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------

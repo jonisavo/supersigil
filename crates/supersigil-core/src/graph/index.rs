@@ -103,13 +103,15 @@ pub(super) fn build_doc_project(
 /// Extract the static directory prefix from a glob pattern.
 ///
 /// Strips everything from the first glob metacharacter (`*`, `?`, `[`)
-/// onward, then trims back to the last `/` to get a clean directory prefix.
+/// onward, then trims back to the last `/` to get a clean directory prefix
+/// (with trailing slash).
 ///
 /// Examples:
 /// - `"project-a/specs/**/*.mdx"` → `"project-a/specs/"`
 /// - `"specs/*.mdx"` → `"specs/"`
 /// - `"**/*.mdx"` → `""`
-fn glob_prefix(pattern: &str) -> String {
+#[must_use]
+pub fn glob_prefix(pattern: &str) -> String {
     let meta_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
     let prefix = &pattern[..meta_pos];
     // Trim back to last '/' for a clean directory prefix.

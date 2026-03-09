@@ -17,6 +17,6 @@ pub use types::{ExtractedComponent, Frontmatter, ParseResult, SourcePosition, Sp
 
 // Graph module re-exports
 pub use graph::{
-    ContextOutput, DocRef, DocumentGraph, GraphError, OutstandingTarget, PlanOutput, PlanQuery,
-    QueryError, ResolvedRef, TargetContext, TaskInfo, build_graph,
+    CRITERION, ContextOutput, DocRef, DocumentGraph, GraphError, OutstandingTarget, PlanOutput,
+    PlanQuery, QueryError, ResolvedRef, TargetContext, TaskInfo, build_graph, glob_prefix,
 };

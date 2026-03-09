@@ -676,3 +676,171 @@ fn plan_task_linkage_still_works_for_criterion() {
         "task-b should be pending: {pending_ids:?}"
     );
 }
+
+// ===========================================================================
+// criteria() and criteria_by_fragment()
+// ===========================================================================
+
+#[test]
+fn criteria_yields_all_referenceable_components() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "my/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-a", 2), make_criterion("crit-b", 3)],
+            1,
+        )],
+    );
+
+    let tasks_doc = make_doc(
+        "my/tasks",
+        vec![make_task("task-1", Some("todo"), None, None, 1)],
+    );
+
+    let graph = build_graph(vec![req_doc, tasks_doc], &config).expect("graph should build");
+
+    let all: Vec<_> = graph.criteria().collect();
+
+    // Should contain the two criteria and the task (all referenceable components).
+    assert_eq!(all.len(), 3, "expected 3 referenceable components: {all:?}");
+
+    // Check that doc_id and fragment are correct for each.
+    assert!(
+        all.iter().any(|(doc_id, frag, comp)| *doc_id == "my/req"
+            && *frag == "crit-a"
+            && comp.name == "Criterion"),
+        "should contain crit-a: {all:?}"
+    );
+    assert!(
+        all.iter().any(|(doc_id, frag, comp)| *doc_id == "my/req"
+            && *frag == "crit-b"
+            && comp.name == "Criterion"),
+        "should contain crit-b: {all:?}"
+    );
+    assert!(
+        all.iter().any(|(doc_id, frag, comp)| *doc_id == "my/tasks"
+            && *frag == "task-1"
+            && comp.name == "Task"),
+        "should contain task-1: {all:?}"
+    );
+}
+
+#[test]
+fn criteria_by_fragment_finds_matches_across_documents() {
+    let config = single_project_config();
+
+    // Two documents that each have a component with fragment "shared-id".
+    let doc_a = make_doc(
+        "doc-a",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("shared-id", 2)],
+            1,
+        )],
+    );
+
+    let doc_b = make_doc(
+        "doc-b",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("shared-id", 2)],
+            1,
+        )],
+    );
+
+    let graph = build_graph(vec![doc_a, doc_b], &config).expect("graph should build");
+
+    let matches = graph.criteria_by_fragment("shared-id");
+    assert_eq!(
+        matches.len(),
+        2,
+        "should find shared-id in both documents: {matches:?}"
+    );
+
+    let doc_ids: Vec<&str> = matches.iter().map(|(doc_id, _)| *doc_id).collect();
+    assert!(
+        doc_ids.contains(&"doc-a"),
+        "should include doc-a: {doc_ids:?}"
+    );
+    assert!(
+        doc_ids.contains(&"doc-b"),
+        "should include doc-b: {doc_ids:?}"
+    );
+}
+
+// ===========================================================================
+// implements_targets: forward direction of Implements relationships
+// ===========================================================================
+
+#[test]
+fn implements_targets_returns_target_doc_ids() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "feat/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-1", 2)],
+            1,
+        )],
+    );
+    let design_doc = make_doc(
+        "feat/design",
+        vec![make_refs_component(IMPLEMENTS, "feat/req", 1)],
+    );
+
+    let graph = build_graph(vec![req_doc, design_doc], &config).expect("graph should build");
+
+    let targets = graph.implements_targets("feat/design");
+    assert_eq!(targets, &["feat/req"], "design should implement req");
+}
+
+#[test]
+fn implements_targets_returns_empty_for_doc_without_implements() {
+    let config = single_project_config();
+
+    let doc = make_doc(
+        "feat/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-1", 2)],
+            1,
+        )],
+    );
+
+    let graph = build_graph(vec![doc], &config).expect("graph should build");
+
+    let targets = graph.implements_targets("feat/req");
+    assert!(
+        targets.is_empty(),
+        "req doc should not implement anything: {targets:?}"
+    );
+}
+
+#[test]
+fn implements_targets_returns_empty_for_unknown_doc() {
+    let config = single_project_config();
+    let doc = make_doc("feat/req", vec![]);
+    let graph = build_graph(vec![doc], &config).expect("graph should build");
+
+    let targets = graph.implements_targets("nonexistent");
+    assert!(targets.is_empty());
+}
+
+#[test]
+fn criteria_by_fragment_returns_empty_for_unknown_fragment() {
+    let config = single_project_config();
+
+    let doc = make_doc(
+        "my/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("known-id", 2)],
+            1,
+        )],
+    );
+
+    let graph = build_graph(vec![doc], &config).expect("graph should build");
+
+    let matches = graph.criteria_by_fragment("unknown-fragment");
+    assert!(
+        matches.is_empty(),
+        "should return empty vec for unknown fragment: {matches:?}"
+    );
+}

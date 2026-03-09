@@ -19,6 +19,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 
 pub use error::GraphError;
+pub use index::glob_prefix;
 pub use query::{
     ContextOutput, DocRef, OutstandingTarget, PlanOutput, PlanQuery, QueryError, TargetContext,
     TaskInfo,
@@ -26,9 +27,10 @@ pub use query::{
 
 use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
 
-// Well-known component names used during graph construction.
+// Well-known component names used during graph construction and downstream queries.
 pub(crate) const TASK: &str = "Task";
-pub(crate) const CRITERION: &str = "Criterion";
+/// The well-known component name for criterion components.
+pub const CRITERION: &str = "Criterion";
 #[cfg(test)]
 pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
 pub(crate) const REFERENCES: &str = "References";
@@ -133,6 +135,27 @@ impl DocumentGraph {
             .map(|(_, comp)| comp)
     }
 
+    // -- Criteria accessors (ref-discovery) ----------------------------------
+
+    /// Iterate all referenceable components.
+    /// Yields `(doc_id, fragment_id, &ExtractedComponent)`.
+    pub fn criteria(&self) -> impl Iterator<Item = (&str, &str, &ExtractedComponent)> {
+        self.component_index
+            .iter()
+            .map(|((doc_id, frag), (_, comp))| (doc_id.as_str(), frag.as_str(), comp))
+    }
+
+    /// Find all components whose fragment ID matches, across all documents.
+    #[must_use]
+    pub fn criteria_by_fragment(&self, fragment: &str) -> Vec<(&str, &ExtractedComponent)> {
+        self.component_index
+            .iter()
+            .filter_map(|((doc_id, frag), (_, comp))| {
+                (frag == fragment).then_some((doc_id.as_str(), comp))
+            })
+            .collect()
+    }
+
     // -- Resolved refs stub (replaced in task 6.5) ---------------------------
 
     /// Get resolved refs for a component at the given index path in a document.
@@ -176,12 +199,24 @@ impl DocumentGraph {
         self.references_reverse.get(&key).unwrap_or(&EMPTY_BTREESET)
     }
 
-    /// Get all documents that implement a given document.
+    /// Get all documents that implement a given document (reverse direction).
     #[must_use]
     pub fn implements(&self, doc_id: &str) -> &BTreeSet<String> {
         self.implements_reverse
             .get(doc_id)
             .unwrap_or(&EMPTY_BTREESET)
+    }
+
+    /// Get all documents that `doc_id` implements (forward direction).
+    ///
+    /// Scans the reverse mapping to find targets. Returns an empty vec for
+    /// docs that don't implement anything or for unknown doc IDs.
+    #[must_use]
+    pub fn implements_targets(&self, doc_id: &str) -> Vec<&str> {
+        self.implements_reverse
+            .iter()
+            .filter_map(|(target, sources)| sources.contains(doc_id).then_some(target.as_str()))
+            .collect()
     }
 
     /// Get all documents that depend on a given document.

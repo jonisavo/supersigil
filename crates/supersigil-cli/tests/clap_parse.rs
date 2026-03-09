@@ -316,6 +316,92 @@ fn parse_new() {
     }
 }
 
+// -----------------------------------------------------------------------
+// refs command
+// -----------------------------------------------------------------------
+
+#[test]
+fn parse_refs_defaults() {
+    let cli = Cli::parse_from(["supersigil", "refs"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert!(!args.all);
+        assert!(matches!(
+            args.format,
+            supersigil_cli::OutputFormat::Terminal
+        ));
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_all_flag() {
+    let cli = Cli::parse_from(["supersigil", "refs", "--all"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert!(args.all);
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_json_format() {
+    let cli = Cli::parse_from(["supersigil", "refs", "--format", "json"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::OutputFormat::Json));
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_all_with_json() {
+    let cli = Cli::parse_from(["supersigil", "refs", "--all", "--format", "json"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert!(args.all);
+        assert!(matches!(args.format, supersigil_cli::OutputFormat::Json));
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_with_prefix() {
+    let cli = Cli::parse_from(["supersigil", "refs", "auth/"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert_eq!(args.prefix, Some("auth/".into()));
+        assert!(!args.all);
+        assert!(matches!(
+            args.format,
+            supersigil_cli::OutputFormat::Terminal
+        ));
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_no_prefix() {
+    let cli = Cli::parse_from(["supersigil", "refs"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert!(args.prefix.is_none());
+    } else {
+        panic!("expected Refs");
+    }
+}
+
+#[test]
+fn parse_refs_prefix_with_flags() {
+    let cli = Cli::parse_from(["supersigil", "refs", "auth/", "--all", "--format", "json"]);
+    if let supersigil_cli::Command::Refs(args) = cli.command {
+        assert_eq!(args.prefix, Some("auth/".into()));
+        assert!(args.all);
+        assert!(matches!(args.format, supersigil_cli::OutputFormat::Json));
+    } else {
+        panic!("expected Refs");
+    }
+}
+
 #[test]
 fn parse_color_flag() {
     let cli = Cli::parse_from(["supersigil", "--color", "never", "lint"]);

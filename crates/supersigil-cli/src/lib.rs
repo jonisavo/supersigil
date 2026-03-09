@@ -7,7 +7,7 @@ pub mod plugins;
 
 pub use commands::{
     AffectedArgs, Command, ContextArgs, GraphArgs, GraphFormat, ImportArgs, ImportSource, LsArgs,
-    NewArgs, PlanArgs, SchemaArgs, SchemaFormat, StatusArgs, VerifyArgs, VerifyFormat,
+    NewArgs, PlanArgs, RefsArgs, SchemaArgs, SchemaFormat, StatusArgs, VerifyArgs, VerifyFormat,
 };
 pub use discover::discover_spec_files;
 pub use format::{ColorChoice, ColorConfig, ExitStatus, OutputFormat};

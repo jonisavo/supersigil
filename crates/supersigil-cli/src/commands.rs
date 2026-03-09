@@ -7,6 +7,7 @@ pub mod lint;
 pub mod ls;
 pub mod new;
 pub mod plan;
+pub mod refs;
 pub mod schema;
 pub mod status;
 pub mod verify;
@@ -46,6 +47,8 @@ pub enum Command {
     Init,
     /// Scaffold a new spec document
     New(NewArgs),
+    /// List criterion refs in the project
+    Refs(RefsArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -197,6 +200,18 @@ pub struct NewArgs {
     pub doc_type: String,
     /// Feature name (e.g., auth, cli)
     pub id: String,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct RefsArgs {
+    /// Filter refs by document ID prefix
+    pub prefix: Option<String>,
+    /// Show all criterion refs (no context scoping)
+    #[arg(long)]
+    pub all: bool,
+    /// Output format
+    #[arg(long, default_value = "terminal")]
+    pub format: OutputFormat,
 }
 
 fn parse_import_prefix(raw: &str) -> Result<String, String> {
