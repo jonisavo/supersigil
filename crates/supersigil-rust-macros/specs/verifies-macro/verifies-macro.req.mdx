@@ -1,0 +1,132 @@
+---
+supersigil:
+  id: verifies-macro/req
+  type: requirements
+  status: draft
+title: "Verifies Macro"
+---
+
+## Introduction
+
+This spec recovers the current compile-time contract for the
+`#[verifies(...)]` proc macro owned by `supersigil-rust-macros`.
+
+It captures the behavior as implemented today, including strict criterion-ref
+validation and the current graph-validation skip paths.
+
+## Definitions
+
+- **Verifies_Attribute**: The proc-macro attribute exported as
+  `supersigil_rust::verifies`.
+- **Validation_Root**: The project root used for graph validation, resolved
+  from `SUPERSIGIL_PROJECT_ROOT` or by walking upward from `CARGO_MANIFEST_DIR`
+  to find `supersigil.toml`.
+- **Validation_Skip**: A path where the current macro emits the annotated item
+  unchanged without graph validation.
+
+## Requirement 1: Attribute Parse Surface
+
+As a Rust developer, I want the macro to validate its own syntax and attachment
+shape, so that misuse fails early at compile time.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE Verifies_Attribute SHALL require at least one argument and SHALL accept
+    only string-literal refs inside `#[verifies(...)]`.
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE Verifies_Attribute SHALL only be attachable to functions. When attached
+    to another item, it SHALL emit a compile-time error.
+  </Criterion>
+  <Criterion id="req-1-3">
+    WHEN syntax validation succeeds, THE Verifies_Attribute SHALL emit the
+    annotated function unchanged and SHALL NOT add runtime behavior.
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE Verifies_Attribute SHALL require every ref argument to use the full
+    `{doc_id}#{target_id}` shape with non-empty document and criterion
+    fragments.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Validation Root and Policy Resolution
+
+As a workspace maintainer, I want compile-time validation to activate only when
+the current environment and config say it should, so that builds stay
+predictable.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE macro SHALL resolve Validation_Root by first checking
+    `SUPERSIGIL_PROJECT_ROOT`, then falling back to upward discovery from
+    `CARGO_MANIFEST_DIR`.
+  </Criterion>
+  <Criterion id="req-2-2">
+    IF `SUPERSIGIL_PROJECT_ROOT` is set to an empty string, THEN the current
+    macro SHALL take the Validation_Skip path.
+  </Criterion>
+  <Criterion id="req-2-3">
+    IF `SUPERSIGIL_PROJECT_ROOT` is set to a path that does not contain
+    `supersigil.toml`, THEN the macro SHALL emit a compile-time error instead
+    of silently skipping validation.
+  </Criterion>
+  <Criterion id="req-2-4">
+    THE macro SHALL load `ecosystem.rust.validation` and SHALL skip graph
+    validation when the policy is `off`, SHALL validate in non-release builds
+    for the default `dev` policy, and SHALL validate in all builds for `all`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Graph Validation Behavior
+
+As a developer, I want active validation to check refs against the current
+specification graph, so that stale refs are caught during compilation.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    WHEN graph validation is active, THE macro SHALL load config, discover spec
+    files, parse them, and build a `DocumentGraph` before validating refs.
+  </Criterion>
+  <Criterion id="req-3-2">
+    WHEN graph validation is active, THE macro SHALL validate that each
+    provided criterion ref resolves to an existing target in the built graph.
+  </Criterion>
+  <Criterion id="req-3-3">
+    WHEN config loading, spec parsing, or graph construction fails while
+    validation is active, THE macro SHALL emit compile-time diagnostics instead
+    of silently skipping validation.
+  </Criterion>
+  <Criterion id="req-3-4">
+    THE macro SHALL cache the built graph within the compiler process and
+    SHALL currently invalidate that cache using the `supersigil.toml` modified
+    time.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Multi-Project Resolution
+
+As a maintainer of multi-project workspaces, I want compile-time validation to
+select the right spec scope, so that attribute validation uses the intended
+project graph.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    IN single-project mode, THE macro SHALL validate against the configured
+    top-level `paths`.
+  </Criterion>
+  <Criterion id="req-4-2">
+    IN multi-project mode, THE macro SHALL resolve project paths by
+    longest-prefix `ecosystem.rust.project_scope` matching when explicit scope
+    entries exist.
+  </Criterion>
+  <Criterion id="req-4-3">
+    IN multi-project mode without explicit scope mappings, THE macro SHALL use
+    path-based inference from `CARGO_MANIFEST_DIR` relative to the resolved
+    project root.
+  </Criterion>
+  <Criterion id="req-4-4">
+    IF multi-project resolution finds no matching project or multiple
+    candidates, THEN the macro SHALL emit a compile-time error rather than
+    guessing.
+  </Criterion>
+</AcceptanceCriteria>

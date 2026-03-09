@@ -1,0 +1,126 @@
+---
+supersigil:
+  id: verifies-macro/design
+  type: design
+  status: draft
+title: "Verifies Macro"
+---
+
+<Implements refs="verifies-macro/req" />
+<DependsOn refs="config/design, workspace-projects/design" />
+<TrackedFiles paths="crates/supersigil-rust-macros/src/lib.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/pass/*.rs, crates/supersigil-rust/tests/fixtures/fail/*.rs, crates/supersigil-rust/tests/fixtures/validation-project/supersigil.toml, crates/supersigil-rust/tests/fixtures/validation-project/specs/test-req.mdx" />
+
+## Overview
+
+`verifies-macro` is the compile-time half of the Rust ecosystem story.
+
+The macro parses `#[verifies(...)]`, optionally validates the provided refs
+against the current supersigil graph, and then emits the annotated item
+unchanged.
+
+## Architecture
+
+```mermaid
+graph TD
+    ATTR["#[verifies(...)]"]
+    PARSE["argument parsing + function check"]
+    ROOT["resolve_project_root"]
+    CFG["load config + validation policy"]
+    SCOPE["resolve multi-project globs"]
+    GRAPH["discover specs + parse + build graph"]
+    VALID["validate refs"]
+    EMIT["emit original function unchanged"]
+
+    ATTR --> PARSE
+    PARSE --> ROOT
+    ROOT --> CFG
+    CFG --> SCOPE
+    SCOPE --> GRAPH
+    GRAPH --> VALID
+    VALID --> EMIT
+```
+
+## Parse and Emission Model
+
+The proc macro performs three local checks before any graph work:
+
+1. parse the attribute arguments as a comma-separated list
+2. require at least one string literal
+3. require every ref string to use the `document-id#criterion-id` shape
+4. require the annotated item to parse as `syn::ItemFn`
+
+If those checks pass, the macro eventually emits the original function token
+stream unchanged.
+
+## Validation Root Resolution
+
+`resolve_project_root` currently behaves in this order:
+
+1. use `SUPERSIGIL_PROJECT_ROOT` when set
+2. treat an empty env var as an explicit skip
+3. error if an explicit env path does not contain `supersigil.toml`
+4. otherwise walk upward from `CARGO_MANIFEST_DIR` looking for
+   `supersigil.toml`
+5. if nothing is found, skip validation
+
+That means the macro has both hard-error and silent-skip branches depending on
+how root discovery fails.
+
+## Validation Policy
+
+`should_validate` reads `ecosystem.rust.validation` from the loaded config:
+
+- `off` skips all graph validation
+- `dev` validates unless `PROFILE == "release"`
+- `all` always validates
+
+The policy is only consulted after config load succeeds.
+
+## Graph Build and Cache
+
+When validation is active, the macro:
+
+1. loads `supersigil.toml`
+2. resolves either single-project globs or multi-project project globs
+3. discovers spec files
+4. parses them with merged component definitions
+5. builds a `DocumentGraph`
+6. validates each ref against a criterion in that graph
+
+The built graph is cached in a thread-local `Rc<DocumentGraph>` keyed only by
+the `supersigil.toml` modified time.
+
+## Multi-Project Resolution
+
+The proc macro cannot depend on `supersigil-rust`, so it duplicates the
+multi-project resolution logic that also exists in `scope.rs`.
+
+The current algorithm is:
+
+- if `ecosystem.rust.project_scope` is configured, use longest-prefix
+  `manifest_dir_prefix` matching against `CARGO_MANIFEST_DIR` relative to the
+  project root
+- otherwise infer candidate projects by checking whether any project name
+  appears in the relative manifest path
+- error on zero or multiple candidates
+
+## Testing Strategy
+
+- `crates/supersigil-rust/tests/trybuild.rs`
+  covers the macro's compile-pass and compile-fail surface.
+- `crates/supersigil-rust/tests/fixtures/pass/*.rs`
+  covers basic success cases, multiple refs, async functions, and
+  validation-off behavior.
+- `crates/supersigil-rust/tests/fixtures/fail/*.rs`
+  covers empty args, non-string args, invalid ref shape, unsupported
+  attachment, and unresolved refs under active graph validation.
+
+## Current Gaps
+
+- Cache invalidation currently keys only on `supersigil.toml` mtime, not on
+  spec file mtimes.
+- Multi-project scope resolution logic is duplicated between this crate and
+  `supersigil-rust::scope`.
+- The proc macro only supports function attachment, even though the runtime
+  Rust discovery logic also understands `proptest!` macro items with outer
+  `#[verifies(...)]` attributes in parsed source.

@@ -1,0 +1,107 @@
+---
+supersigil:
+  id: evidence-contract/req
+  type: requirements
+  status: draft
+title: "Evidence Contract"
+---
+
+## Introduction
+
+This spec recovers the shared evidence contract owned by
+`supersigil-evidence`.
+
+It captures the current language-agnostic model consumed by
+`supersigil-verify` and implemented by ecosystem plugins such as the Rust
+plugin. It does not describe plugin discovery logic or verification rules.
+
+## Definitions
+
+- **Verifiable_Ref**: A normalized reference to one verifiable target inside a
+  supersigil document, represented as `{doc_id}#{target_id}`.
+- **Test_Identity**: The normalized key used to decide whether multiple
+  evidence sources describe the same test.
+- **Evidence_Record**: The normalized record linking one test identity to one
+  or more verifiable targets, plus source location, provenance, and metadata.
+- **Plugin_Provenance**: Metadata describing how an Evidence_Record was
+  authored or discovered.
+- **Project_Scope**: The language-agnostic project context passed to
+  ecosystem plugin discovery.
+
+## Requirement 1: Shared Evidence Primitives
+
+As an ecosystem integrator, I want one shared set of reference, test, and
+location primitives, so that plugins and verification can exchange evidence
+without Rust-specific coupling.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    `supersigil-evidence` SHALL define `VerifiableRef { doc_id, target_id }`
+    as the normalized verifiable-target reference used by the evidence layer.
+    `VerifiableRef::parse` SHALL accept only strings with `#` and non-empty
+    document and target fragments, and SHALL return `None` for all other
+    shapes.
+  </Criterion>
+  <Criterion id="req-1-2">
+    `supersigil-evidence` SHALL define `SourceLocation { file, line, column }`
+    and `TestIdentity { file, name, kind }` as serializable location and
+    deduplication primitives for evidence producers and consumers.
+  </Criterion>
+  <Criterion id="req-1-3">
+    `supersigil-evidence` SHALL define stable `TestKind` string surfaces for
+    the current built-in kinds `unit`, `async`, `property`, `snapshot`, and
+    `unknown`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Normalized Evidence Records
+
+As the verification pipeline, I want plugin outputs normalized into one record
+shape, so that explicit and plugin-derived evidence can be merged uniformly.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    `supersigil-evidence` SHALL define `VerificationTargets` as a non-empty
+    target set and SHALL define `VerificationEvidenceRecord` with an opaque
+    `EvidenceId`, one VerificationTargets value, one Test_Identity, one
+    SourceLocation, one evidence-kind classification, a provenance list, and a
+    string-keyed metadata map.
+  </Criterion>
+  <Criterion id="req-2-2">
+    `supersigil-evidence` SHALL define stable `EvidenceKind` string surfaces
+    for the current built-in kinds `tag`, `file-glob`, and `rust-attribute`.
+  </Criterion>
+  <Criterion id="req-2-3">
+    `supersigil-evidence` SHALL define `PluginProvenance` variants for
+    authored `VerifiedBy` tag evidence, authored `VerifiedBy` file-glob
+    evidence, and Rust attribute evidence.
+  </Criterion>
+  <Criterion id="req-2-4">
+    `supersigil-evidence` SHALL define `EvidenceConflict` as the shared
+    conflict payload describing one test identity, two disagreeing target sets,
+    and the contributing provenances.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Plugin Discovery Contract
+
+As a maintainer adding new ecosystems, I want one plugin trait and error
+surface, so that built-in or future plugins can plug into verification without
+changing the document model.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    `supersigil-evidence` SHALL expose `ProjectScope { project, project_root }`
+    as the language-agnostic scope descriptor passed into plugin discovery.
+  </Criterion>
+  <Criterion id="req-3-2">
+    `supersigil-evidence` SHALL expose an `EcosystemPlugin` trait with a
+    stable plugin name and a `discover(files, scope, documents)` method that
+    returns normalized evidence records.
+  </Criterion>
+  <Criterion id="req-3-3">
+    `supersigil-evidence` SHALL expose `PluginError` variants for parse
+    failures, discovery failures, and I/O failures so plugin-specific failures
+    can be surfaced without changing the evidence record format.
+  </Criterion>
+</AcceptanceCriteria>
