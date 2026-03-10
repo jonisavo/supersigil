@@ -21,9 +21,9 @@ The crate-local behaviors are recovered separately in:
 
 - **Enabled_Plugin_Set**: The built-in plugin names resolved from
   `ecosystem.plugins`.
-- **Plugin_Evidence_Pipeline**: The current CLI-driven flow that assembles
-  plugins, resolves source files, extracts explicit evidence, and builds an
-  `ArtifactGraph`.
+- **Plugin_Evidence_Pipeline**: The current cross-cutting flow that assembles
+  plugins, resolves shared test files, lets enabled plugins augment their own
+  discovery inputs, extracts explicit evidence, and builds an `ArtifactGraph`.
 - **Plugin_Finding**: A verification finding surfaced when plugin discovery
   yields a recoverable diagnostic, fails, or otherwise yields an ecosystem-
   level problem.
@@ -66,10 +66,9 @@ pipeline, so that verification and query surfaces see one merged evidence view.
     built-in `"rust"` identifier.
   </Criterion>
   <Criterion id="req-2-2">
-    WHEN the Rust plugin is enabled, THE CLI plugin layer SHALL broaden plugin
-    discovery inputs beyond resolved test globs by inferring Rust source files
-    from the conventional `src/`, `tests/`, `benches/`, and `examples/`
-    locations, including workspace-member crates.
+    THE Plugin_Evidence_Pipeline SHALL resolve shared test files once for
+    explicit-evidence extraction and plugin discovery, and SHALL let enabled
+    plugins broaden that baseline with plugin-owned discovery inputs.
   </Criterion>
   <Criterion id="req-2-3">
     THE Plugin_Evidence_Pipeline SHALL merge explicit `VerifiedBy` evidence and

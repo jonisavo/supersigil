@@ -1026,11 +1026,14 @@ dependencies = [
 name = "supersigil-rust"
 version = "0.1.0"
 dependencies = [
+ "glob",
  "proc-macro2",
  "supersigil-core",
  "supersigil-evidence",
  "supersigil-rust-macros",
  "syn",
+ "tempfile",
+ "toml",
  "trybuild",
 ]
 

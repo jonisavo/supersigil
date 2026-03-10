@@ -27,7 +27,8 @@ Rust plugin surface.
   findings instead of direct stderr writes.
 </Task>
 
-<Task id="task-4" status="ready">
-  Decide whether `ProjectScope` should actively narrow runtime discovery rather
-  than being ignored by `RustPlugin::discover`.
+<Task id="task-4" status="done" implements="rust-plugin/req#req-1-5, rust-plugin/req#req-4-5">
+  Move Rust-specific source-file inference behind the plugin boundary while
+  keeping `ProjectScope` as workspace context rather than a runtime discovery
+  filter.
 </Task>

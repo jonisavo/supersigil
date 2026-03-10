@@ -77,8 +77,10 @@ Owns:
 - `PluginError`
 - `EcosystemPlugin`
 
-The current plugin trait depends on `DocumentGraph` from `supersigil-core` and
-returns already-normalized evidence plus non-fatal diagnostics through
+The current plugin trait depends on `DocumentGraph` from `supersigil-core`,
+keeps `ProjectScope` minimal, gives plugins an explicit place to plan
+plugin-owned discovery inputs from shared resolved test files, and returns
+already-normalized evidence plus non-fatal diagnostics through
 `PluginDiscoveryResult`.
 
 ## Re-Export Surface

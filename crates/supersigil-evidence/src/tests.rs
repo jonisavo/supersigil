@@ -498,13 +498,74 @@ impl EcosystemPlugin for FailingPlugin {
     }
 }
 
+struct PlanningPlugin;
+
+impl EcosystemPlugin for PlanningPlugin {
+    fn name(&self) -> &'static str {
+        "planning"
+    }
+
+    fn plan_discovery_inputs(&self, test_files: &[PathBuf], scope: &ProjectScope) -> Vec<PathBuf> {
+        let mut planned_files = test_files.to_vec();
+        planned_files.push(scope.project_root.join("shared/support.rs"));
+        planned_files
+    }
+
+    fn discover(
+        &self,
+        _files: &[PathBuf],
+        _scope: &ProjectScope,
+        _documents: &supersigil_core::DocumentGraph,
+    ) -> Result<PluginDiscoveryResult, PluginError> {
+        Ok(PluginDiscoveryResult::default())
+    }
+}
+
+fn sample_scope() -> ProjectScope {
+    ProjectScope {
+        project: Some("demo".into()),
+        project_root: PathBuf::from("/workspace/demo"),
+    }
+}
+
+#[test]
+fn ecosystem_plugin_default_plan_discovery_inputs_returns_test_files() {
+    let plugin = MockPlugin;
+    let test_files = vec![
+        PathBuf::from("tests/unit/auth.rs"),
+        PathBuf::from("tests/integration/session.rs"),
+    ];
+
+    let planned_files = plugin.plan_discovery_inputs(&test_files, &sample_scope());
+
+    assert_eq!(planned_files, test_files);
+}
+
 #[test]
 fn ecosystem_plugin_trait_object() {
     let plugin: Box<dyn EcosystemPlugin> = Box::new(MockPlugin);
     assert_eq!(plugin.name(), "mock");
+    let planned_files =
+        plugin.plan_discovery_inputs(&[PathBuf::from("tests/auth.rs")], &sample_scope());
+    assert_eq!(planned_files, vec![PathBuf::from("tests/auth.rs")]);
 
     let failing: Box<dyn EcosystemPlugin> = Box::new(FailingPlugin);
     assert_eq!(failing.name(), "failing");
+}
+
+#[test]
+fn ecosystem_plugin_trait_object_dispatches_plan_discovery_inputs_override() {
+    let plugin: Box<dyn EcosystemPlugin> = Box::new(PlanningPlugin);
+    let planned_files =
+        plugin.plan_discovery_inputs(&[PathBuf::from("tests/auth.rs")], &sample_scope());
+
+    assert_eq!(
+        planned_files,
+        vec![
+            PathBuf::from("tests/auth.rs"),
+            PathBuf::from("/workspace/demo/shared/support.rs"),
+        ],
+    );
 }
 
 // NOTE: Full discover() tests require a DocumentGraph instance, which depends

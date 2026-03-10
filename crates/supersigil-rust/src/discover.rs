@@ -23,6 +23,82 @@ struct VerifiesParseError {
     span: proc_macro2::Span,
 }
 
+const RUST_DISCOVERY_DIRS: [&str; 4] = ["tests", "src", "benches", "examples"];
+
+// ---------------------------------------------------------------------------
+// Discovery input planning
+// ---------------------------------------------------------------------------
+
+fn plan_rust_discovery_inputs(test_files: &[PathBuf], project_root: &Path) -> Vec<PathBuf> {
+    let mut files: BTreeSet<PathBuf> = test_files.iter().cloned().collect();
+
+    let roots =
+        std::iter::once(project_root.to_path_buf()).chain(read_workspace_member_dirs(project_root));
+    for root in roots {
+        for dir in RUST_DISCOVERY_DIRS {
+            glob_rs_files(&root.join(dir), &mut files);
+        }
+    }
+
+    files.into_iter().collect()
+}
+
+fn glob_rs_files(dir: &Path, files: &mut BTreeSet<PathBuf>) {
+    let pattern = dir.join("**/*.rs").to_string_lossy().to_string();
+    if let Ok(entries) = glob::glob(&pattern) {
+        for entry in entries.flatten() {
+            if !path_contains_fixture_dir(&entry) {
+                files.insert(entry);
+            }
+        }
+    }
+}
+
+fn path_contains_fixture_dir(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "fixtures")
+}
+
+fn read_workspace_member_dirs(project_root: &Path) -> Vec<PathBuf> {
+    let cargo_path = project_root.join("Cargo.toml");
+    let Ok(content) = std::fs::read_to_string(&cargo_path) else {
+        return Vec::new();
+    };
+    let Ok(table) = content.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+
+    let Some(members) = table
+        .get("workspace")
+        .and_then(|workspace| workspace.get("members"))
+        .and_then(|members| members.as_array())
+    else {
+        return Vec::new();
+    };
+
+    let mut dirs = Vec::new();
+    for member in members {
+        let Some(pattern) = member.as_str() else {
+            continue;
+        };
+        let full = project_root.join(pattern).to_string_lossy().to_string();
+        if let Ok(entries) = glob::glob(&full) {
+            for entry in entries.flatten() {
+                if entry.is_dir() {
+                    dirs.push(entry);
+                }
+            }
+        } else {
+            let dir = project_root.join(pattern);
+            if dir.is_dir() {
+                dirs.push(dir);
+            }
+        }
+    }
+
+    dirs
+}
+
 // ---------------------------------------------------------------------------
 // RustPlugin — EcosystemPlugin implementation
 // ---------------------------------------------------------------------------
@@ -37,6 +113,10 @@ pub struct RustPlugin;
 impl EcosystemPlugin for RustPlugin {
     fn name(&self) -> &'static str {
         PLUGIN_NAME
+    }
+
+    fn plan_discovery_inputs(&self, test_files: &[PathBuf], scope: &ProjectScope) -> Vec<PathBuf> {
+        plan_rust_discovery_inputs(test_files, &scope.project_root)
     }
 
     fn discover(
@@ -918,6 +998,160 @@ mod tests {
             ..supersigil_core::Config::default()
         };
         supersigil_core::build_graph(vec![], &config).unwrap()
+    }
+
+    #[test]
+    fn rust_plugin_plans_discovery_inputs_infers_rust_defaults_when_tests_absent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("tests/login_test.rs"), "#[test] fn ok() {}").unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn helper() {}").unwrap();
+
+        let plugin = RustPlugin;
+        let scope = ProjectScope {
+            project: None,
+            project_root: dir.path().to_path_buf(),
+        };
+
+        let files = plugin.plan_discovery_inputs(&[], &scope);
+
+        assert!(
+            files
+                .iter()
+                .any(|path| path.ends_with("tests/login_test.rs")),
+            "expected inferred Rust discovery to include tests/**/*.rs, got {files:?}",
+        );
+        assert!(
+            files.iter().any(|path| path.ends_with("src/lib.rs")),
+            "expected inferred Rust discovery to include src/**/*.rs, got {files:?}",
+        );
+    }
+
+    #[test]
+    fn rust_plugin_plans_discovery_inputs_include_src_when_test_globs_configured() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("tests/integration_test.rs"),
+            "#[test] fn ok() {}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "#[cfg(test)] mod tests { #[test] fn unit() {} }",
+        )
+        .unwrap();
+
+        let plugin = RustPlugin;
+        let scope = ProjectScope {
+            project: None,
+            project_root: dir.path().to_path_buf(),
+        };
+        let test_files = vec![dir.path().join("tests/integration_test.rs")];
+
+        let files = plugin.plan_discovery_inputs(&test_files, &scope);
+
+        assert!(
+            files
+                .iter()
+                .any(|path| path.ends_with("tests/integration_test.rs")),
+            "should include explicit test files, got {files:?}",
+        );
+        assert!(
+            files.iter().any(|path| path.ends_with("src/lib.rs")),
+            "should also include src/**/*.rs for Rust plugin unit test discovery, got {files:?}",
+        );
+    }
+
+    #[test]
+    fn rust_plugin_plans_discovery_inputs_traverse_workspace_members() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/my-crate\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("crates/my-crate/src")).unwrap();
+        std::fs::write(
+            dir.path().join("crates/my-crate/src/lib.rs"),
+            "pub fn hello() {}",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("crates/my-crate/tests")).unwrap();
+        std::fs::write(
+            dir.path().join("crates/my-crate/tests/integration.rs"),
+            "#[test] fn ok() {}",
+        )
+        .unwrap();
+
+        let plugin = RustPlugin;
+        let scope = ProjectScope {
+            project: None,
+            project_root: dir.path().to_path_buf(),
+        };
+
+        let files = plugin.plan_discovery_inputs(&[], &scope);
+
+        assert!(
+            files
+                .iter()
+                .any(|path| path.ends_with("crates/my-crate/src/lib.rs")),
+            "should include workspace member src files, got {files:?}",
+        );
+        assert!(
+            files
+                .iter()
+                .any(|path| path.ends_with("crates/my-crate/tests/integration.rs")),
+            "should include workspace member test files, got {files:?}",
+        );
+    }
+
+    #[test]
+    fn rust_plugin_plans_discovery_inputs_skip_fixture_directories() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests/fixtures/fail")).unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+
+        std::fs::write(
+            dir.path().join("tests/fixtures/fail/bad_case.rs"),
+            "#[verifies(\"req/auth\")]\n#[test]\nfn bad_case() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("tests/real_test.rs"),
+            "#[test]\nfn real_test() {}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+
+        let plugin = RustPlugin;
+        let scope = ProjectScope {
+            project: None,
+            project_root: dir.path().to_path_buf(),
+        };
+
+        let files = plugin.plan_discovery_inputs(&[], &scope);
+
+        assert!(
+            files
+                .iter()
+                .any(|path| path.ends_with("tests/real_test.rs")),
+            "real test files should still be inferred, got {files:?}",
+        );
+        assert!(
+            files.iter().any(|path| path.ends_with("src/lib.rs")),
+            "src files should still be inferred, got {files:?}",
+        );
+        assert!(
+            files
+                .iter()
+                .all(|path| !path.ends_with("tests/fixtures/fail/bad_case.rs")),
+            "fixture files should be excluded from inferred Rust discovery, got {files:?}",
+        );
     }
 
     #[test]

@@ -102,6 +102,16 @@ pub trait EcosystemPlugin {
     /// Human-readable plugin name (e.g. `"rust"`).
     fn name(&self) -> &'static str;
 
+    /// Plan plugin-specific discovery inputs from shared test files and project scope.
+    ///
+    /// The default implementation preserves the shared discovery inputs
+    /// unchanged. Plugins can override this hook to add or replace files based
+    /// on the project context before `discover` runs.
+    #[must_use]
+    fn plan_discovery_inputs(&self, test_files: &[PathBuf], _scope: &ProjectScope) -> Vec<PathBuf> {
+        test_files.to_vec()
+    }
+
     /// Discover evidence records from the given source files.
     ///
     /// # Errors

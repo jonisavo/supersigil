@@ -18,9 +18,9 @@ the split from the old root monolith into crate-local domains.
   report-surfacing behavior.
 </Task>
 
-<Task id="task-2" status="ready">
-  Decide whether Rust source-file inference should remain in CLI orchestration
-  or move behind the Rust plugin boundary.
+<Task id="task-2" status="done" implements="ecosystem-plugins/req#req-2-2">
+  Move plugin-specific discovery-input planning behind the shared plugin
+  boundary while keeping workspace-wide evidence semantics unchanged.
 </Task>
 
 <Task id="task-3" status="ready">

@@ -5,7 +5,6 @@
 //! rejected at config-load time (`supersigil-core`), so this module only
 //! needs a match arm for each known built-in plugin.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use supersigil_core::{Config, DocumentGraph};
@@ -57,20 +56,22 @@ pub struct PluginEvidenceResult {
 
 /// Collect evidence from all enabled plugins.
 ///
-/// Runs each plugin's `discover` method against the resolved source files and
-/// returns the aggregated evidence records. Plugin diagnostics and fatal errors
-/// become verification findings rather than hard errors (req-8-6).
+/// Lets each plugin plan its effective discovery inputs from the shared test
+/// files and project scope, then runs `discover` against those plugin-owned
+/// inputs. Plugin diagnostics and fatal errors become verification findings
+/// rather than hard errors (req-8-6).
 #[must_use]
 pub fn collect_plugin_evidence(
     plugins: &[Box<dyn EcosystemPlugin>],
-    files: &[PathBuf],
+    test_files: &[PathBuf],
     scope: &ProjectScope,
     documents: &DocumentGraph,
 ) -> PluginEvidenceResult {
     let mut evidence = Vec::new();
     let mut findings = Vec::new();
     for plugin in plugins {
-        match plugin.discover(files, scope, documents) {
+        let files = plugin.plan_discovery_inputs(test_files, scope);
+        match plugin.discover(&files, scope, documents) {
             Ok(PluginDiscoveryResult {
                 evidence: mut plugin_evidence,
                 diagnostics,
@@ -108,39 +109,6 @@ fn plugin_diagnostic_to_finding(plugin_name: &str, diagnostic: PluginDiagnostic)
     Finding::new(RuleName::PluginDiscoveryWarning, None, message, None)
 }
 
-/// Resolve source files for plugin discovery.
-///
-/// Accepts pre-resolved test files (from `resolve_test_files`) and augments
-/// them with inferred Rust source locations when the Rust plugin is enabled.
-#[must_use]
-pub fn resolve_plugin_files(
-    test_files: &[PathBuf],
-    config: &Config,
-    project_root: &Path,
-) -> Vec<PathBuf> {
-    if !config.ecosystem.plugins.iter().any(|name| name == "rust") {
-        return test_files.to_vec();
-    }
-
-    // For the Rust plugin, always include inferred Rust source locations
-    // (src/, tests/, benches/, examples/) so that #[verifies] attributes
-    // in inline unit tests under src/ are not missed when test globs are set.
-    let inferred = infer_rust_source_files(project_root);
-
-    if test_files.is_empty() && inferred.is_empty() {
-        return Vec::new();
-    }
-
-    let mut combined = BTreeSet::new();
-    for f in test_files {
-        combined.insert(f.clone());
-    }
-    for f in inferred {
-        combined.insert(f);
-    }
-    combined.into_iter().collect()
-}
-
 /// Build an `ArtifactGraph` from the full evidence pipeline.
 ///
 /// Assembles ecosystem plugins, resolves source files, collects plugin
@@ -161,12 +129,11 @@ pub fn build_evidence<'g>(
 ) -> (ArtifactGraph<'g>, Vec<Finding>) {
     let enabled_plugins = assemble_plugins(config);
     let test_files = supersigil_verify::resolve_test_files(config, project_root);
-    let source_files = resolve_plugin_files(&test_files, config, project_root);
     let scope = ProjectScope {
         project: project.map(str::to_owned),
         project_root: project_root.to_path_buf(),
     };
-    let plugin_result = collect_plugin_evidence(&enabled_plugins, &source_files, &scope, graph);
+    let plugin_result = collect_plugin_evidence(&enabled_plugins, &test_files, &scope, graph);
     let explicit_evidence = extract_explicit_evidence(graph, &test_files, project_root);
     let artifact_graph = build_artifact_graph(graph, explicit_evidence, plugin_result.evidence);
     (artifact_graph, plugin_result.findings)
@@ -183,86 +150,6 @@ pub fn warn_plugin_findings(
     for f in findings {
         eprintln!("{} {}", color.warn(), f.message);
     }
-}
-
-fn infer_rust_source_files(project_root: &Path) -> Vec<PathBuf> {
-    let mut files = BTreeSet::new();
-
-    // Collect root-level Rust sources (single-crate layout).
-    let root_dirs = ["tests", "src", "benches", "examples"];
-    for dir in root_dirs {
-        glob_rs_files(&project_root.join(dir), &mut files);
-    }
-
-    // Traverse workspace member crates from Cargo.toml.
-    for member_dir in read_workspace_member_dirs(project_root) {
-        for dir in root_dirs {
-            glob_rs_files(&member_dir.join(dir), &mut files);
-        }
-    }
-
-    files.into_iter().collect()
-}
-
-/// Glob `**/*.rs` under `dir` and insert matches into `files`.
-fn glob_rs_files(dir: &Path, files: &mut BTreeSet<PathBuf>) {
-    let pattern = dir.join("**/*.rs").to_string_lossy().to_string();
-    if let Ok(entries) = glob::glob(&pattern) {
-        for entry in entries.flatten() {
-            if !path_contains_fixture_dir(&entry) {
-                files.insert(entry);
-            }
-        }
-    }
-}
-
-fn path_contains_fixture_dir(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == "fixtures")
-}
-
-/// Read workspace member directories from `Cargo.toml`.
-///
-/// Parses `[workspace] members = [...]` and expands glob patterns in member
-/// paths (e.g., `"crates/*"`). Returns absolute paths to member directories.
-fn read_workspace_member_dirs(project_root: &Path) -> Vec<PathBuf> {
-    let cargo_path = project_root.join("Cargo.toml");
-    let Ok(content) = std::fs::read_to_string(&cargo_path) else {
-        return Vec::new();
-    };
-    let Ok(table) = content.parse::<toml::Table>() else {
-        return Vec::new();
-    };
-
-    let Some(members) = table
-        .get("workspace")
-        .and_then(|w| w.get("members"))
-        .and_then(|m| m.as_array())
-    else {
-        return Vec::new();
-    };
-
-    let mut dirs = Vec::new();
-    for member in members {
-        let Some(pattern) = member.as_str() else {
-            continue;
-        };
-        let full = project_root.join(pattern).to_string_lossy().to_string();
-        if let Ok(entries) = glob::glob(&full) {
-            for entry in entries.flatten() {
-                if entry.is_dir() {
-                    dirs.push(entry);
-                }
-            }
-        } else {
-            // Non-glob literal path.
-            let dir = project_root.join(pattern);
-            if dir.is_dir() {
-                dirs.push(dir);
-            }
-        }
-    }
-    dirs
 }
 
 // ===========================================================================
@@ -404,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_plugin_files_infers_rust_defaults_when_tests_absent() {
+    fn assembled_rust_plugin_plans_inferred_inputs_when_tests_absent() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("tests")).unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
@@ -419,8 +306,14 @@ mod tests {
         config.ecosystem.plugins = vec!["rust".into()];
         config.tests = None;
 
+        let plugins = assemble_plugins(&config);
+        assert_eq!(plugins.len(), 1);
         let test_files = supersigil_verify::resolve_test_files(&config, dir.path());
-        let files = resolve_plugin_files(&test_files, &config, dir.path());
+        let scope = ProjectScope {
+            project: None,
+            project_root: dir.path().to_path_buf(),
+        };
+        let files = plugins[0].plan_discovery_inputs(&test_files, &scope);
 
         assert!(
             files
@@ -603,64 +496,92 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
-    // 5c. resolve_plugin_files includes src/ even when tests globs are set
+    // 5c. Plugin-owned discovery-input planning feeds discover()
     // -------------------------------------------------------------------
 
     #[test]
-    fn resolve_plugin_files_includes_src_when_test_globs_configured() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(
-            dir.path().join("tests/integration_test.rs"),
-            "#[test] fn ok() {}",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("src/lib.rs"),
-            "#[cfg(test)] mod tests { #[test] fn unit() {} }",
-        )
-        .unwrap();
+    fn collect_plugin_evidence_uses_plugin_owned_discovery_inputs() {
+        #[derive(Debug)]
+        struct PlanningPlugin;
 
-        let mut config = base_config();
-        config.ecosystem.plugins = vec!["rust".into()];
-        config.tests = Some(vec!["tests/**/*.rs".into()]);
+        impl supersigil_evidence::EcosystemPlugin for PlanningPlugin {
+            fn name(&self) -> &'static str {
+                "planning"
+            }
 
-        let test_files = supersigil_verify::resolve_test_files(&config, dir.path());
-        let files = resolve_plugin_files(&test_files, &config, dir.path());
+            fn plan_discovery_inputs(
+                &self,
+                test_files: &[PathBuf],
+                scope: &ProjectScope,
+            ) -> Vec<PathBuf> {
+                let mut files = test_files.to_vec();
+                files.push(scope.project_root.join("src/generated.rs"));
+                files
+            }
 
-        assert!(
-            files
-                .iter()
-                .any(|p| p.ends_with("tests/integration_test.rs")),
-            "should include explicit test files, got {files:?}",
+            fn discover(
+                &self,
+                files: &[PathBuf],
+                _scope: &ProjectScope,
+                _documents: &DocumentGraph,
+            ) -> Result<supersigil_evidence::PluginDiscoveryResult, supersigil_evidence::PluginError>
+            {
+                let generated = files
+                    .iter()
+                    .find(|path| path.ends_with("src/generated.rs"))
+                    .expect("planned discovery inputs should be passed to discover")
+                    .clone();
+                Ok(supersigil_evidence::PluginDiscoveryResult {
+                    evidence: vec![VerificationEvidenceRecord {
+                        id: supersigil_evidence::EvidenceId(0),
+                        targets: supersigil_evidence::VerificationTargets::single(
+                            supersigil_evidence::VerifiableRef {
+                                doc_id: "req/mock".into(),
+                                target_id: "crit-1".into(),
+                            },
+                        ),
+                        test: supersigil_evidence::TestIdentity {
+                            file: generated.clone(),
+                            name: "planned_input_test".into(),
+                            kind: supersigil_evidence::TestKind::Unknown,
+                        },
+                        source_location: supersigil_evidence::SourceLocation {
+                            file: generated,
+                            line: 1,
+                            column: 1,
+                        },
+                        evidence_kind: supersigil_evidence::EvidenceKind::Tag,
+                        provenance: vec![],
+                        metadata: BTreeMap::new(),
+                    }],
+                    diagnostics: Vec::new(),
+                })
+            }
+        }
+
+        let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
+            vec![Box::new(PlanningPlugin)];
+        let scope = ProjectScope {
+            project: None,
+            project_root: PathBuf::from("/tmp/workspace"),
+        };
+        let graph = {
+            let cfg = base_config();
+            supersigil_core::build_graph(vec![], &cfg).unwrap()
+        };
+
+        let result = collect_plugin_evidence(&plugins, &[], &scope, &graph);
+
+        assert_eq!(result.evidence.len(), 1);
+        assert_eq!(
+            result.evidence[0].test.file,
+            PathBuf::from("/tmp/workspace/src/generated.rs"),
         );
-        assert!(
-            files.iter().any(|p| p.ends_with("src/lib.rs")),
-            "should also include src/**/*.rs for Rust plugin unit test discovery, got {files:?}",
-        );
+        assert!(result.findings.is_empty());
     }
 
     // -------------------------------------------------------------------
-    // 6. resolve_plugin_files returns empty when no explicit or inferred files
-    // -------------------------------------------------------------------
-
-    #[test]
-    fn resolve_plugin_files_empty_when_no_explicit_or_inferred_matches() {
-        let mut config = base_config();
-        config.ecosystem.plugins = vec!["rust".into()];
-        let test_files = supersigil_verify::resolve_test_files(&config, Path::new("/tmp"));
-        let files = resolve_plugin_files(&test_files, &config, Path::new("/tmp"));
-
-        assert!(
-            files.is_empty(),
-            "expected empty file list when discovery finds no Rust files, got {} files",
-            files.len(),
-        );
-    }
-
-    // -------------------------------------------------------------------
-    // 7. End-to-end: assembly -> discovery -> artifact graph
+    // 6. End-to-end: assembly -> discovery -> artifact graph
     // -------------------------------------------------------------------
 
     fn pos(line: usize) -> supersigil_core::SourcePosition {
@@ -764,14 +685,13 @@ mod tests {
         assert_eq!(plugins.len(), 1);
 
         let test_files = supersigil_verify::resolve_test_files(&config, dir.path());
-        let source_files = resolve_plugin_files(&test_files, &config, dir.path());
-        assert!(!source_files.is_empty(), "should resolve test files");
+        assert!(!test_files.is_empty(), "should resolve test files");
 
         let scope = ProjectScope {
             project: None,
             project_root: dir.path().to_path_buf(),
         };
-        let plugin_result = collect_plugin_evidence(&plugins, &source_files, &scope, &graph);
+        let plugin_result = collect_plugin_evidence(&plugins, &test_files, &scope, &graph);
         assert!(
             !plugin_result.evidence.is_empty(),
             "Rust plugin should find evidence"
@@ -806,105 +726,6 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
-    // 8. Workspace member crate traversal
+    // 7. Workspace member crate traversal
     // -------------------------------------------------------------------
-
-    #[test]
-    fn infer_rust_source_files_traverses_workspace_members() {
-        let dir = tempfile::TempDir::new().unwrap();
-
-        // Create a workspace Cargo.toml.
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/my-crate\"]\n",
-        )
-        .unwrap();
-
-        // Create member crate source file.
-        std::fs::create_dir_all(dir.path().join("crates/my-crate/src")).unwrap();
-        std::fs::write(
-            dir.path().join("crates/my-crate/src/lib.rs"),
-            "pub fn hello() {}",
-        )
-        .unwrap();
-
-        // Create member crate test file.
-        std::fs::create_dir_all(dir.path().join("crates/my-crate/tests")).unwrap();
-        std::fs::write(
-            dir.path().join("crates/my-crate/tests/integration.rs"),
-            "#[test] fn ok() {}",
-        )
-        .unwrap();
-
-        let files = infer_rust_source_files(dir.path());
-
-        assert!(
-            files
-                .iter()
-                .any(|p| p.ends_with("crates/my-crate/src/lib.rs")),
-            "should include workspace member src files, got {files:?}",
-        );
-        assert!(
-            files
-                .iter()
-                .any(|p| p.ends_with("crates/my-crate/tests/integration.rs")),
-            "should include workspace member test files, got {files:?}",
-        );
-    }
-
-    #[test]
-    fn infer_rust_source_files_skips_fixture_directories() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(dir.path().join("tests/fixtures/fail")).unwrap();
-        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
-
-        std::fs::write(
-            dir.path().join("tests/fixtures/fail/bad_case.rs"),
-            "#[verifies(\"req/auth\")]\n#[test]\nfn bad_case() {}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("tests/real_test.rs"),
-            "#[test]\nfn real_test() {}\n",
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
-
-        let files = infer_rust_source_files(dir.path());
-
-        assert!(
-            files.iter().any(|p| p.ends_with("tests/real_test.rs")),
-            "real test files should still be inferred, got {files:?}",
-        );
-        assert!(
-            files.iter().any(|p| p.ends_with("src/lib.rs")),
-            "src files should still be inferred, got {files:?}",
-        );
-        assert!(
-            files
-                .iter()
-                .all(|p| !p.ends_with("tests/fixtures/fail/bad_case.rs")),
-            "fixture files should be excluded from inferred Rust discovery, got {files:?}",
-        );
-    }
-
-    #[test]
-    fn read_workspace_member_dirs_handles_missing_cargo_toml() {
-        let dirs = read_workspace_member_dirs(Path::new("/nonexistent"));
-        assert!(dirs.is_empty());
-    }
-
-    #[test]
-    fn read_workspace_member_dirs_handles_non_workspace() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[package]\nname = \"single-crate\"\n",
-        )
-        .unwrap();
-
-        let dirs = read_workspace_member_dirs(dir.path());
-        assert!(dirs.is_empty());
-    }
 }

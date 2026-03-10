@@ -16,7 +16,8 @@ title: "Rust Plugin"
 
 The crate currently owns three closely related but distinct behaviors:
 
-- source discovery through `RustPlugin`
+- source discovery through `RustPlugin`, including Rust-specific discovery-
+  input planning
 - Rust workspace scope resolution helpers in `scope.rs`
 - build freshness helpers in `build_support.rs`
 
@@ -27,13 +28,17 @@ specified separately in `verifies-macro`.
 
 ```mermaid
 graph TD
-    FILES["Rust source files"]
+    BASE["shared test-file baseline"]
+    PLAN["discover.rs / input planning"]
+    FILES["effective Rust source files"]
     DISC["discover.rs / RustPlugin"]
     SCOPE["scope.rs"]
     BUILD["build_support.rs"]
     EVID["VerificationEvidenceRecord"]
     MACRO["re-exported verifies macro"]
 
+    BASE --> PLAN
+    PLAN --> FILES
     FILES --> DISC
     DISC --> EVID
     SCOPE --> EVID
@@ -42,22 +47,28 @@ graph TD
 
 ## Discovery Flow
 
-1. `RustPlugin::discover` filters the discovery input down to `.rs` files.
-2. For each file:
+1. The Rust plugin starts from a shared resolved test-file baseline.
+2. It broadens that baseline by inferring Rust source files from conventional
+   `src/`, `tests/`, `benches/`, and `examples/` locations, including
+   workspace-member crates, while excluding fixture directories and
+   deduplicating paths.
+3. `RustPlugin::discover` filters the effective discovery input down to `.rs`
+   files.
+4. For each file:
    - read the file
    - pre-filter by whether the source contains `verifies`
    - if needed, parse the file with `syn`
    - walk functions, macro items, and inline module contents
-3. `extract_verifies_targets` recognizes both `verifies` and
+5. `extract_verifies_targets` recognizes both `verifies` and
    `supersigil_rust::verifies`.
-4. `determine_fn_test_kind` classifies:
+6. `determine_fn_test_kind` classifies:
    - `#[tokio::test]` or async test functions as `async`
    - snapshot tests via `insta::assert_snapshot`
    - plain `#[test]` functions as `unit`
-5. `process_macro` handles `proptest!` items with outer `#[verifies(...)]`.
-6. `extract_verifies_targets` requires every string literal ref to parse as a
+7. `process_macro` handles `proptest!` items with outer `#[verifies(...)]`.
+8. `extract_verifies_targets` requires every string literal ref to parse as a
    full criterion ref before record construction.
-7. `build_record` produces one normalized evidence record per discovered test.
+9. `build_record` produces one normalized evidence record per discovered test.
 
 The current implementation normalizes criterion refs into non-empty
 `VerificationTargets`. Fragmentless or empty-fragment refs are rejected as
@@ -126,7 +137,6 @@ It just takes already-loaded spec paths and emits Cargo
 
 ## Current Gaps
 
-- `RustPlugin::discover` currently ignores the `ProjectScope` argument.
 - Recoverable diagnostics currently carry file paths and warning text, but not
   richer span-level source positions.
 - Async framework detection is currently specific to `tokio::test`.

@@ -31,7 +31,8 @@ It does not describe the proc-macro implementation details of the
 - **Invalid_Verifies_Ref**: A `#[verifies(...)]` string literal that does not
   use the full `{doc_id}#{target_id}` shape with non-empty fragments.
 - **Rust_Project_Scope**: The resolved project context for Rust workspaces,
-  represented as a shared `ProjectScope`.
+  represented as a shared `ProjectScope` passed into discovery-input planning
+  and runtime discovery.
 
 ## Requirement 1: Runtime Discovery Surface
 
@@ -57,6 +58,13 @@ annotations become normalized evidence automatically.
   <Criterion id="req-1-4">
     THE runtime plugin SHALL recurse into inline `mod` blocks and SHALL
     discover supported tests nested inside them.
+  </Criterion>
+  <Criterion id="req-1-5">
+    THE runtime plugin SHALL own its Rust-specific discovery-input planning.
+    Starting from shared resolved test files, it SHALL infer additional Rust
+    source files from the conventional `src/`, `tests/`, `benches/`, and
+    `examples/` locations, including workspace-member crates, while
+    deduplicating paths and excluding fixture directories.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -144,5 +152,10 @@ aligned with the workspace shape.
     `build_support::validation_input_paths` and
     `build_support::emit_rerun_if_changed` SHALL treat `supersigil.toml` and
     the loaded spec files as the current Cargo revalidation inputs.
+  </Criterion>
+  <Criterion id="req-4-5">
+    In this pass, `ProjectScope` SHALL provide workspace context for Rust
+    discovery-input planning, but `ProjectScope.project` SHALL NOT narrow
+    runtime discovery independently of the workspace-wide evidence pipeline.
   </Criterion>
 </AcceptanceCriteria>

@@ -8,7 +8,7 @@ title: "Ecosystem Plugins"
 
 <Implements refs="ecosystem-plugins/req" />
 <DependsOn refs="workspace-projects/design, cli-runtime/design, verification-engine/design, config/design, evidence-contract/design, rust-plugin/design, verifies-macro/design" />
-<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_unit_tests.rs" />
+<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-evidence/src/plugin.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_unit_tests.rs" />
 
 ## Overview
 
@@ -18,7 +18,10 @@ verification.
 The important current split is:
 
 - `supersigil-core` owns configuration for plugin activation and Rust policy
-- `supersigil-cli` owns built-in plugin assembly and source-file inference
+- `supersigil-cli` owns built-in plugin assembly and top-level evidence
+  orchestration
+- enabled plugins own plugin-specific discovery-input planning starting from
+  the shared test-file baseline
 - `supersigil-verify` owns explicit-evidence extraction, artifact-graph merge,
   rule consumption, and report serialization
 - `supersigil-evidence`, `supersigil-rust`, and `supersigil-rust-macros` own
@@ -31,8 +34,8 @@ graph TD
     CFG["supersigil.toml / ecosystem config"]
     CORE["supersigil-core config"]
     CLI["supersigil-cli plugins"]
-    TESTS["resolved test files"]
-    RUSTSRC["inferred Rust source files"]
+    TESTS["shared resolved test files"]
+    INPUTS["plugin-owned discovery inputs"]
     EXPL["explicit VerifiedBy extraction"]
     PLUG["plugin discovery"]
     AG["ArtifactGraph merge"]
@@ -42,8 +45,8 @@ graph TD
     CFG --> CORE
     CORE --> CLI
     TESTS --> CLI
-    RUSTSRC --> CLI
-    CLI --> PLUG
+    CLI --> INPUTS
+    INPUTS --> PLUG
     CLI --> EXPL
     PLUG --> AG
     EXPL --> AG
@@ -55,12 +58,13 @@ graph TD
 ## Cross-Cutting Flow
 
 1. Load config and determine the enabled built-in plugins.
-2. Resolve test files from the current verification scope.
-3. If the Rust plugin is enabled, infer additional Rust source files from
-   conventional source locations and workspace members.
-4. Assemble plugin instances from the enabled plugin set.
-5. Run plugin discovery over the resolved source files.
-6. Extract explicit `VerifiedBy` evidence from the document graph.
+2. Resolve shared test files from the current verification scope.
+3. Assemble plugin instances from the enabled plugin set.
+4. Let each enabled plugin plan its own discovery inputs from the shared
+   test-file baseline and workspace scope.
+5. Run plugin discovery over each plugin's effective source files.
+6. Extract explicit `VerifiedBy` evidence from the document graph and shared
+   test-file baseline.
 7. Merge explicit and plugin-derived evidence into one `ArtifactGraph`.
 8. Feed the merged evidence into report and query surfaces.
 
@@ -82,13 +86,26 @@ flags.
 `supersigil-cli::plugins` owns:
 
 - built-in plugin assembly
-- Rust source-file inference across workspace members
+- shared test-file resolution handoff into the plugin layer
 - conversion of plugin diagnostics and fatal plugin errors into verification
   findings
 - the top-level `build_evidence` orchestration function
 
-This means the runtime Rust crate does not currently own end-to-end discovery
-scope selection on its own.
+This keeps the CLI responsible for orchestration while leaving Rust-specific
+discovery assumptions outside the CLI glue.
+
+### Plugin Boundary
+
+Enabled ecosystem plugins own:
+
+- plugin-specific discovery-input planning starting from shared resolved test
+  files
+- any ecosystem-specific source-file inference needed to discover evidence
+- evidence discovery over the plugin's effective file set
+
+In this pass, project filtering remains a verification/report concern rather
+than a plugin-discovery filter. The shared `ProjectScope` stays minimal and is
+not meant to change the current workspace-wide ArtifactGraph semantics.
 
 ### Verification Boundary
 
@@ -107,8 +124,15 @@ ecosystem-defined types.
   covers plugin defaults, explicit disabling, unknown-plugin rejection, and
   Rust ecosystem policy parsing.
 - `crates/supersigil-cli/src/plugins.rs`
-  covers built-in plugin assembly, Rust source-file inference, plugin-failure
-  and plugin-diagnostic findings, and end-to-end evidence-pipeline assembly.
+  covers built-in plugin assembly, plugin-orchestration behavior,
+  plugin-failure and plugin-diagnostic findings, and end-to-end
+  evidence-pipeline assembly.
+- `crates/supersigil-evidence/src/plugin.rs`
+  covers the shared plugin contract for plugin-owned discovery-input planning
+  and normalized discovery results.
+- `crates/supersigil-rust/src/discover.rs`
+  covers Rust-specific input planning, supported test forms, metadata
+  extraction, source locations, invalid ref rejection, and fault tolerance.
 - `crates/supersigil-verify/src/artifact_graph.rs`
   covers merge, deduplication, provenance preservation, and conflict handling.
 - `crates/supersigil-verify/src/report.rs`
@@ -116,5 +140,5 @@ ecosystem-defined types.
 
 ## Current Gaps
 
-- Rust source-file inference lives in CLI glue rather than in the Rust plugin
-  implementation itself.
+- The current pipeline intentionally keeps project filters workspace-wide at
+  report time rather than narrowing plugin discovery by project.
