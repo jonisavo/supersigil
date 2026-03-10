@@ -27,6 +27,9 @@ The important current split is:
 - `supersigil-evidence`, `supersigil-rust`, and `supersigil-rust-macros` own
   the ecosystem-project-local contracts and Rust-specific behavior
 
+The current single `ecosystem` project is an intentional transitional shape
+because only one built-in plugin family exists today.
+
 ## Architecture
 
 ```mermaid
@@ -117,6 +120,24 @@ not meant to change the current workspace-wide ArtifactGraph semantics.
 
 That behavior remains part of the verification domain even though it consumes
 ecosystem-defined types.
+
+## Future Project Topology
+
+Once a second built-in ecosystem exists, the chosen project split is:
+
+- keep root `specs/ecosystem-plugins/*` docs in the `workspace` project for
+  cross-cutting activation, orchestration, and reporting behavior
+- move `crates/supersigil-evidence/specs/**/*` into a shared
+  `ecosystem-common` project
+- keep the Rust-family docs together in an `ecosystem-rust` project spanning
+  `crates/supersigil-rust/specs/**/*` and
+  `crates/supersigil-rust-macros/specs/**/*`
+- give each additional built-in ecosystem family its own project, such as
+  `ecosystem-python`
+
+This keeps `plan`, `context`, and `status` queries aligned with real plugin
+families instead of collapsing unrelated ecosystems into one broad crate-local
+project.
 
 ## Testing Strategy
 

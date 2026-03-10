@@ -28,7 +28,9 @@ the split from the old root monolith into crate-local domains.
   surfacing, not just unit coverage for plugin assembly and report formatting.
 </Task>
 
-<Task id="task-4" status="ready">
-  Decide whether future ecosystems should join this same project layout or get
-  separate domain roots once a second built-in plugin exists.
+<Task id="task-4" status="done" implements="ecosystem-plugins/req#req-4-3">
+  Record the future ecosystem topology decision: keep root
+  `ecosystem-plugins` docs in `workspace`, keep `evidence-contract` in a
+  shared ecosystem project, and split each built-in plugin family into its own
+  project once a second built-in ecosystem exists.
 </Task>

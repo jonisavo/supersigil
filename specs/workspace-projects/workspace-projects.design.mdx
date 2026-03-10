@@ -129,6 +129,21 @@ layer, while crate-local `evidence-contract`, `rust-plugin`, and
 `verifies-macro` docs live under the evidence and Rust crates. The staged
 workspace-topology migration is now fully recovered.
 
+The combined crate-local `ecosystem` project is intentionally temporary. Once
+the repo has a second built-in ecosystem family, the planned follow-up split
+is:
+
+```text
+workspace         -> specs/ecosystem-plugins/**/*.mdx
+ecosystem-common  -> crates/supersigil-evidence/specs/**/*.mdx
+ecosystem-rust    -> crates/supersigil-rust/specs/**/*.mdx
+                     crates/supersigil-rust-macros/specs/**/*.mdx
+ecosystem-<name>  -> crates/supersigil-<name>/specs/**/*.mdx
+```
+
+That preserves one cross-cutting workspace doc set while giving each plugin
+family a project-sized domain of its own.
+
 ## Error Handling
 
 - Mixed single-project and multi-project keys are configuration errors.
