@@ -8,7 +8,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{DocumentGraph, split_list_attribute};
+use supersigil_core::{CRITERION, DocumentGraph, VERIFIED_BY, split_list_attribute};
 use supersigil_evidence::{
     EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
     VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
@@ -163,7 +163,7 @@ fn collect_criterion_evidence(
     next_id: &mut usize,
 ) {
     for component in components {
-        if component.name == "Criterion"
+        if component.name == CRITERION
             && let Some(criterion_id) = component.attributes.get("id")
         {
             let targets = BTreeSet::from([VerifiableRef {
@@ -173,7 +173,7 @@ fn collect_criterion_evidence(
             let targets = VerificationTargets::new(targets).expect("criterion evidence target set");
 
             for child in &component.children {
-                if child.name == "VerifiedBy" {
+                if child.name == VERIFIED_BY {
                     process_verified_by(
                         child,
                         doc_id,

@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
+use supersigil_core::{CRITERION, VERIFIED_BY};
 use supersigil_verify::artifact_graph::ArtifactGraph;
 
 use crate::commands::StatusArgs;
@@ -269,7 +270,7 @@ fn count_targets_recursive(
     covered: &mut usize,
 ) {
     for comp in components {
-        if comp.name == "Criterion" {
+        if comp.name == CRITERION {
             *total += 1;
             if let Some(crit_id) = comp.attributes.get("id")
                 && artifact_graph.has_evidence(doc_id, crit_id)
@@ -302,13 +303,13 @@ fn collect_targets_status(
     result: &mut Vec<TargetStatus>,
 ) {
     for comp in components {
-        if comp.name == "Criterion"
+        if comp.name == CRITERION
             && let Some(crit_id) = comp.attributes.get("id")
         {
             let verified_by: Vec<String> = comp
                 .children
                 .iter()
-                .filter(|child| child.name == "VerifiedBy")
+                .filter(|child| child.name == VERIFIED_BY)
                 .map(|child| {
                     let strategy = child
                         .attributes

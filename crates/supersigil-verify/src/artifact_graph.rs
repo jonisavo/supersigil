@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
-    EvidenceConflict, EvidenceId, PluginProvenance, TestIdentity, VerifiableRef,
-    VerificationEvidenceRecord, VerificationTargets,
+    EvidenceConflict, EvidenceId, PluginProvenance, TestIdentity, VerificationEvidenceRecord,
+    VerificationTargets,
 };
 
 // ---------------------------------------------------------------------------
@@ -25,8 +25,8 @@ pub struct ArtifactGraph<'g> {
     pub documents: &'g DocumentGraph,
     /// All effective evidence records after merge/dedup.
     pub evidence: Vec<VerificationEvidenceRecord>,
-    /// Secondary index: verifiable ref → evidence IDs that target it.
-    pub evidence_by_target: HashMap<VerifiableRef, Vec<EvidenceId>>,
+    /// Secondary index: `doc_id` → `target_id` → evidence IDs that target it.
+    pub evidence_by_target: HashMap<String, HashMap<String, Vec<EvidenceId>>>,
     /// Secondary index: test identity → evidence IDs for that test.
     pub evidence_by_test: HashMap<TestIdentity, Vec<EvidenceId>>,
     /// Conflicts detected during merge (same test, different criterion sets).
@@ -54,10 +54,18 @@ impl<'g> ArtifactGraph<'g> {
     /// `evidence_by_target` secondary index.
     #[must_use]
     pub fn has_evidence(&self, doc_id: &str, target_id: &str) -> bool {
-        self.evidence_by_target.contains_key(&VerifiableRef {
-            doc_id: doc_id.to_owned(),
-            target_id: target_id.to_owned(),
-        })
+        self.evidence_by_target
+            .get(doc_id)
+            .is_some_and(|targets| targets.contains_key(target_id))
+    }
+
+    /// Return the evidence IDs for a specific verifiable target, if any.
+    #[must_use]
+    pub fn evidence_for(&self, doc_id: &str, target_id: &str) -> Option<&[EvidenceId]> {
+        self.evidence_by_target
+            .get(doc_id)
+            .and_then(|targets| targets.get(target_id))
+            .map(Vec::as_slice)
     }
 
     /// Return evidence records where ALL targets fail to resolve to components
@@ -172,13 +180,15 @@ pub fn build_artifact_graph(
     }
 
     // 5. Build secondary indexes.
-    let mut evidence_by_target: HashMap<VerifiableRef, Vec<EvidenceId>> = HashMap::new();
+    let mut evidence_by_target: HashMap<String, HashMap<String, Vec<EvidenceId>>> = HashMap::new();
     let mut evidence_by_test: HashMap<TestIdentity, Vec<EvidenceId>> = HashMap::new();
 
     for record in &merged_evidence {
         for crit in &record.targets {
             evidence_by_target
-                .entry(crit.clone())
+                .entry(crit.doc_id.clone())
+                .or_default()
+                .entry(crit.target_id.clone())
                 .or_default()
                 .push(record.id);
         }
@@ -225,7 +235,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
 
-    use supersigil_evidence::{EvidenceKind, SourceLocation, TestKind};
+    use supersigil_evidence::{EvidenceKind, SourceLocation, TestKind, VerifiableRef};
 
     use super::*;
     use crate::test_helpers::*;
@@ -584,10 +594,8 @@ mod tests {
         let ag = build_artifact_graph(&graph, explicit, vec![]);
 
         // crit-1 should be targeted by both records
-        let crit1 = crit_ref("req/auth", "crit-1");
         let crit1_ids = ag
-            .evidence_by_target
-            .get(&crit1)
+            .evidence_for("req/auth", "crit-1")
             .expect("crit-1 should be in the index");
         assert_eq!(
             crit1_ids.len(),
@@ -597,10 +605,8 @@ mod tests {
         );
 
         // crit-2 should be targeted by only the second record
-        let crit2 = crit_ref("req/auth", "crit-2");
         let crit2_ids = ag
-            .evidence_by_target
-            .get(&crit2)
+            .evidence_for("req/auth", "crit-2")
             .expect("crit-2 should be in the index");
         assert_eq!(
             crit2_ids.len(),

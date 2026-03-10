@@ -71,16 +71,8 @@ pub fn run(
             .map(|conflict| {
                 let test_name =
                     format!("{}::{}", conflict.test.file.display(), conflict.test.name,);
-                let left: Vec<String> = conflict
-                    .left
-                    .iter()
-                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
-                    .collect();
-                let right: Vec<String> = conflict
-                    .right
-                    .iter()
-                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
-                    .collect();
+                let left: Vec<String> = conflict.left.iter().map(ToString::to_string).collect();
+                let right: Vec<String> = conflict.right.iter().map(ToString::to_string).collect();
                 let message = format!(
                     "evidence conflict for test `{test_name}`: \
                      criterion sets disagree — [{}] vs [{}]",

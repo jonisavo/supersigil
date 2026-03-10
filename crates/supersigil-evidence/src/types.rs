@@ -3,6 +3,7 @@
 //! `EvidenceKind`, and `TestKind`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::ops::Deref;
 use std::path::PathBuf;
 
@@ -59,6 +60,12 @@ impl VerifiableRef {
             doc_id: doc_id.to_string(),
             target_id: target_id.to_string(),
         })
+    }
+}
+
+impl fmt::Display for VerifiableRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.doc_id, self.target_id)
     }
 }
 

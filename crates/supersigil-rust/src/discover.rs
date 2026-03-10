@@ -558,8 +558,14 @@ fn determine_fn_test_kind(item_fn: &syn::ItemFn) -> Option<TestKind> {
 fn has_async_test_attr(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         let path = attr.path();
-        let segments: Vec<_> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-        segments.len() == 2 && segments[1] == "test" && segments[0] == "tokio"
+        let mut segments = path.segments.iter();
+        let first = segments.next();
+        let second = segments.next();
+        let third = segments.next();
+        matches!(
+            (first, second, third),
+            (Some(a), Some(b), None) if a.ident == "tokio" && b.ident == "test"
+        )
     })
 }
 
@@ -569,11 +575,10 @@ fn has_test_attr(attrs: &[syn::Attribute]) -> bool {
 
 fn body_contains_insta_snapshot(block: &syn::Block) -> bool {
     for stmt in &block.stmts {
-        if let syn::Stmt::Macro(stmt_macro) = stmt {
-            let path_str = path_to_string(&stmt_macro.mac.path);
-            if path_str == "insta::assert_snapshot" {
-                return true;
-            }
+        if let syn::Stmt::Macro(stmt_macro) = stmt
+            && is_path(&stmt_macro.mac.path, &["insta", "assert_snapshot"])
+        {
+            return true;
         }
     }
     false
@@ -600,8 +605,7 @@ fn extract_insta_snapshot_name(block: &syn::Block) -> Option<String> {
     for stmt in &block.stmts {
         if let syn::Stmt::Macro(stmt_macro) = stmt {
             let mac = &stmt_macro.mac;
-            let path_str = path_to_string(&mac.path);
-            if path_str == "insta::assert_snapshot" {
+            if is_path(&mac.path, &["insta", "assert_snapshot"]) {
                 for token in mac.tokens.clone() {
                     if let TokenTree::Literal(lit) = token {
                         let raw = lit.to_string();
@@ -616,12 +620,15 @@ fn extract_insta_snapshot_name(block: &syn::Block) -> Option<String> {
     None
 }
 
-fn path_to_string(path: &syn::Path) -> String {
-    path.segments
-        .iter()
-        .map(|seg| seg.ident.to_string())
-        .collect::<Vec<_>>()
-        .join("::")
+/// Compare a `syn::Path`'s segments against expected identifier names
+/// without allocating intermediate strings.
+fn is_path(path: &syn::Path, expected: &[&str]) -> bool {
+    path.segments.len() == expected.len()
+        && path
+            .segments
+            .iter()
+            .zip(expected)
+            .all(|(seg, name)| seg.ident == name)
 }
 
 fn extract_fn_name_from_macro_tokens(tokens: &proc_macro2::TokenStream) -> Option<String> {

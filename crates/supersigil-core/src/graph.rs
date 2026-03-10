@@ -31,6 +31,8 @@ use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
 pub(crate) const TASK: &str = "Task";
 /// The well-known component name for criterion components.
 pub const CRITERION: &str = "Criterion";
+/// The well-known component name for verified-by components.
+pub const VERIFIED_BY: &str = "VerifiedBy";
 #[cfg(test)]
 pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
 pub(crate) const REFERENCES: &str = "References";

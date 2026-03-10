@@ -714,12 +714,8 @@ mod tests {
             "artifact graph should have evidence"
         );
 
-        let crit = supersigil_evidence::VerifiableRef {
-            doc_id: "req/auth".into(),
-            target_id: "crit-1".into(),
-        };
         assert!(
-            ag.evidence_by_target.contains_key(&crit),
+            ag.has_evidence("req/auth", "crit-1"),
             "criterion req/auth#crit-1 should be indexed",
         );
         assert!(ag.conflicts.is_empty(), "expected no conflicts");

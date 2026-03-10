@@ -6,7 +6,6 @@
 //! re-exports the macro.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::SystemTime;
@@ -27,7 +26,14 @@ use syn::{Expr, ItemFn, Lit, Token};
 /// and re-building the graph for every `#[verifies]` invocation.
 struct CachedGraph {
     graph: Rc<supersigil_core::DocumentGraph>,
-    config_mtime: SystemTime,
+    input_fingerprint: Vec<InputFingerprintEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InputFingerprintEntry {
+    path: PathBuf,
+    modified: SystemTime,
+    len: u64,
 }
 
 thread_local! {
@@ -68,19 +74,22 @@ fn find_config(start: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Discover spec files by expanding glob patterns relative to `base_dir`.
-fn discover_spec_files(globs: &[String], base_dir: &Path) -> Vec<PathBuf> {
-    let mut paths = BTreeSet::new();
-    for pattern in globs {
-        let full_pattern = base_dir.join(pattern);
-        let pattern_str = full_pattern.to_string_lossy();
-        if let Ok(entries) = glob::glob(pattern_str.as_ref()) {
-            for entry in entries.flatten() {
-                paths.insert(entry);
-            }
-        }
-    }
-    paths.into_iter().collect()
+fn fingerprint_inputs(paths: &[PathBuf]) -> Vec<InputFingerprintEntry> {
+    paths
+        .iter()
+        .map(|path| match std::fs::metadata(path) {
+            Ok(metadata) => InputFingerprintEntry {
+                path: path.clone(),
+                modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                len: metadata.len(),
+            },
+            Err(_) => InputFingerprintEntry {
+                path: path.clone(),
+                modified: SystemTime::UNIX_EPOCH,
+                len: 0,
+            },
+        })
+        .collect()
 }
 
 /// Determine the project root path: either from `SUPERSIGIL_PROJECT_ROOT`
@@ -146,27 +155,6 @@ fn get_or_build_graph(
     project_root: &Path,
 ) -> Result<Option<Rc<supersigil_core::DocumentGraph>>, GraphErrors> {
     let config_path = project_root.join("supersigil.toml");
-    let current_mtime = std::fs::metadata(&config_path)
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH);
-
-    // Check the thread-local cache.
-    let cached: Option<Result<Rc<supersigil_core::DocumentGraph>, GraphErrors>> =
-        GRAPH_CACHE.with(|cache| {
-            let borrow = cache.borrow();
-            if let Some(ref cached) = *borrow
-                && cached.config_mtime == current_mtime
-            {
-                return Some(Ok(Rc::clone(&cached.graph)));
-            }
-            None
-        });
-
-    if let Some(result) = cached {
-        return result.map(Some);
-    }
-
-    // Cache miss — rebuild.
     let config = match supersigil_core::load_config(&config_path) {
         Ok(c) => c,
         Err(errs) => {
@@ -186,16 +174,29 @@ fn get_or_build_graph(
         return Ok(None);
     }
 
-    let globs: Vec<String> = if let Some(paths) = &config.paths {
-        paths.clone()
-    } else {
-        match resolve_multi_project_globs(&config, project_root) {
-            Ok(g) => g,
-            Err(msg) => return Err(vec![(None, msg)]),
-        }
-    };
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map_or_else(|_| project_root.to_path_buf(), PathBuf::from);
+    let inputs =
+        supersigil_core::resolve_rust_validation_inputs(&config, &manifest_dir, project_root)
+            .map_err(|err| vec![(None, format_validation_input_error(&err))])?;
+    let current_fingerprint = fingerprint_inputs(&inputs.all_paths());
 
-    let spec_files = discover_spec_files(&globs, project_root);
+    // Check the thread-local cache after resolving the full validation inputs.
+    let cached: Option<Result<Rc<supersigil_core::DocumentGraph>, GraphErrors>> =
+        GRAPH_CACHE.with(|cache| {
+            let borrow = cache.borrow();
+            if let Some(ref cached) = *borrow
+                && cached.input_fingerprint == current_fingerprint
+            {
+                return Some(Ok(Rc::clone(&cached.graph)));
+            }
+            None
+        });
+
+    if let Some(result) = cached {
+        return result.map(Some);
+    }
+
     let component_defs = supersigil_core::ComponentDefs::merge(
         supersigil_core::ComponentDefs::defaults(),
         config.components.clone(),
@@ -213,7 +214,7 @@ fn get_or_build_graph(
 
     let mut documents = Vec::new();
     let mut parse_errors: Vec<String> = Vec::new();
-    for file in &spec_files {
+    for file in &inputs.spec_files {
         match supersigil_parser::parse_file(file, &component_defs) {
             Ok(supersigil_core::ParseResult::Document(doc)) => documents.push(doc),
             Ok(supersigil_core::ParseResult::NotSupersigil(_)) => {}
@@ -253,7 +254,7 @@ fn get_or_build_graph(
     GRAPH_CACHE.with(|cache| {
         *cache.borrow_mut() = Some(CachedGraph {
             graph: Rc::clone(&graph),
-            config_mtime: current_mtime,
+            input_fingerprint: current_fingerprint,
         });
     });
 
@@ -314,41 +315,14 @@ fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()>
     Ok(())
 }
 
-/// Resolve spec file globs in multi-project mode.
-///
-/// Uses `CARGO_MANIFEST_DIR` and the config's `ecosystem.rust.project_scope`
-/// entries (or path-based inference) to determine the applicable project.
-///
-/// The shared project-resolution rules live in `supersigil-core`.
-fn resolve_multi_project_globs(
-    config: &supersigil_core::Config,
-    project_root: &Path,
-) -> Result<Vec<String>, String> {
-    let projects = config.projects.as_ref().ok_or_else(|| {
-        "supersigil: multi-project mode detected but no projects configured".to_string()
-    })?;
-
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").map_err(|_env_err| {
-        "supersigil: multi-project mode requires CARGO_MANIFEST_DIR to be set".to_string()
-    })?;
-    let manifest_path = PathBuf::from(&manifest_dir);
-
-    // `resolve_rust_project` returns `Ok(None)` only when `config.projects` is
-    // `None`, which the early check above already rules out.
-    let project_name = supersigil_core::resolve_rust_project(config, &manifest_path, project_root)
-        .map_err(|e| format_multi_project_resolution_error(&e))?
-        .expect("projects already verified present");
-
-    Ok(projects[&project_name].paths.clone())
-}
-
-fn format_multi_project_resolution_error(
-    error: &supersigil_core::RustProjectResolutionError,
+fn format_validation_input_error(
+    error: &supersigil_core::RustValidationInputResolutionError,
 ) -> String {
-    let guidance = if matches!(
-        error,
-        supersigil_core::RustProjectResolutionError::AmbiguousProject { .. }
-    ) {
+    let guidance = if let Some(inner) = error.project_resolution()
+        && matches!(
+            inner,
+            supersigil_core::RustProjectResolutionError::AmbiguousProject { .. }
+        ) {
         "; configure [ecosystem.rust.project_scope] to resolve this"
     } else {
         ""
@@ -478,4 +452,61 @@ pub fn verifies(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Emit item unchanged.
     item
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn clear_graph_cache() {
+        GRAPH_CACHE.with(|cache| {
+            *cache.borrow_mut() = None;
+        });
+    }
+
+    fn write_config(root: &Path) {
+        fs::write(
+            root.join("supersigil.toml"),
+            "paths = [\"specs/**/*.mdx\"]\n",
+        )
+        .unwrap();
+    }
+
+    fn write_spec(root: &Path, criterion_id: &str) {
+        fs::create_dir_all(root.join("specs")).unwrap();
+        fs::write(
+            root.join("specs/auth.mdx"),
+            format!(
+                "---\nsupersigil:\n  id: auth/req\n  type: requirements\n  status: approved\n---\n\n<AcceptanceCriteria>\n  <Criterion id=\"{criterion_id}\">\n    Must log in.\n  </Criterion>\n</AcceptanceCriteria>\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_refs_rebuilds_graph_when_spec_file_changes() {
+        let tmp = TempDir::new().unwrap();
+        let project_root = tmp.path();
+        write_config(project_root);
+        write_spec(project_root, "ac-1");
+        clear_graph_cache();
+
+        let refs = vec!["auth/req#ac-1".to_string()];
+        let first = validate_refs(&refs, project_root);
+        assert!(first.is_empty(), "initial ref should resolve: {first:?}");
+
+        write_spec(project_root, "criterion-two-longer-than-before");
+
+        let second = validate_refs(&refs, project_root);
+        assert!(
+            second
+                .iter()
+                .any(|(_, message)| message.contains("unresolved criterion reference")),
+            "changed spec should invalidate the cache and make the old ref fail: {second:?}",
+        );
+    }
 }

@@ -8,7 +8,7 @@ title: "Verifies Macro"
 
 <Implements refs="verifies-macro/req" />
 <DependsOn refs="config/design, workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-rust-macros/src/lib.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/pass/*.rs, crates/supersigil-rust/tests/fixtures/fail/*.rs, crates/supersigil-rust/tests/fixtures/validation-project/supersigil.toml, crates/supersigil-rust/tests/fixtures/validation-project/specs/test-req.mdx" />
+<TrackedFiles paths="crates/supersigil-rust-macros/src/lib.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-core/src/rust_validation_inputs.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/pass/*.rs, crates/supersigil-rust/tests/fixtures/fail/*.rs, crates/supersigil-rust/tests/fixtures/validation-project/supersigil.toml, crates/supersigil-rust/tests/fixtures/validation-project/specs/test-req.mdx" />
 
 ## Overview
 
@@ -52,6 +52,10 @@ The proc macro performs three local checks before any graph work:
 If those checks pass, the macro eventually emits the original function token
 stream unchanged.
 
+The shared Rust validation input set is now resolved by
+`supersigil-core::rust_validation_inputs`, so the proc macro no longer carries
+its own separate spec-discovery logic.
+
 ## Validation Root Resolution
 
 `resolve_project_root` currently behaves in this order:
@@ -87,8 +91,12 @@ When validation is active, the macro:
 5. builds a `DocumentGraph`
 6. validates each ref against a criterion in that graph
 
-The built graph is cached in a thread-local `Rc<DocumentGraph>` keyed only by
-the `supersigil.toml` modified time.
+The built graph is cached in a thread-local `Rc<DocumentGraph>` keyed by the
+shared Rust validation input set:
+
+- the absolute `supersigil.toml` path
+- the active spec files for the current Rust manifest scope
+- file metadata used to detect freshness for those inputs
 
 ## Multi-Project Resolution
 
@@ -111,6 +119,9 @@ The current algorithm is:
 - `crates/supersigil-core/src/rust_scope.rs`
   covers the shared multi-project resolution helper used by both the proc
   macro and the runtime Rust scope adapter.
+- `crates/supersigil-core/src/rust_validation_inputs.rs`
+  covers the shared validation-input resolution helper consumed by the proc
+  macro and build-support freshness helpers.
 - `crates/supersigil-rust/tests/trybuild.rs`
   covers the macro's compile-pass and compile-fail surface.
 - `crates/supersigil-rust/tests/fixtures/pass/*.rs`
@@ -122,8 +133,6 @@ The current algorithm is:
 
 ## Current Gaps
 
-- Cache invalidation currently keys only on `supersigil.toml` mtime, not on
-  spec file mtimes.
 - The proc macro only supports function attachment, even though the runtime
   Rust discovery logic also understands `proptest!` macro items with outer
   `#[verifies(...)]` attributes in parsed source.

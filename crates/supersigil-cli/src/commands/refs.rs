@@ -76,6 +76,7 @@ fn resolve_context_scope(
         for glob_pattern in globs {
             if cwd_matches_glob(cwd, project_root, glob_pattern) {
                 matched_doc_ids.insert(doc_id.to_owned());
+                break;
             }
         }
     }

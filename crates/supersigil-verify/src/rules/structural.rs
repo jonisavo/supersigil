@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use supersigil_core::{ComponentDefs, Config, DocumentGraph, SpecDocument};
+use supersigil_core::{ComponentDefs, Config, DocumentGraph, SpecDocument, VERIFIED_BY};
 
 use crate::report::{Finding, RuleName};
 use crate::rules::{find_components, has_component};
@@ -105,7 +105,7 @@ pub fn check_orphan_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<
     // Collect declared tags from VerifiedBy components
     let mut declared_tags = std::collections::HashSet::new();
     for doc in docs {
-        for vb in find_components(&doc.components, "VerifiedBy") {
+        for vb in find_components(&doc.components, VERIFIED_BY) {
             if vb.attributes.get("strategy").map(String::as_str) == Some("tag")
                 && let Some(tag) = vb.attributes.get("tag")
             {
@@ -161,7 +161,7 @@ fn walk_for_verified_by(
     findings: &mut Vec<Finding>,
 ) {
     for comp in components {
-        if comp.name == "VerifiedBy" {
+        if comp.name == VERIFIED_BY {
             let parent_is_verifiable = parent_name
                 .and_then(|name| component_defs.get(name))
                 .is_some_and(|def| def.verifiable);

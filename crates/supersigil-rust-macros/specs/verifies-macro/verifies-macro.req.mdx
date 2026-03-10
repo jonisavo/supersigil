@@ -98,8 +98,9 @@ specification graph, so that stale refs are caught during compilation.
   </Criterion>
   <Criterion id="req-3-4">
     THE macro SHALL cache the built graph within the compiler process and
-    SHALL currently invalidate that cache using the `supersigil.toml` modified
-    time.
+    SHALL invalidate that cache from the shared Rust validation input set:
+    `supersigil.toml` plus the active spec files for the current Rust manifest
+    scope.
   </Criterion>
 </AcceptanceCriteria>
 

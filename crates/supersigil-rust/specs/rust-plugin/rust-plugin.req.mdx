@@ -151,7 +151,8 @@ aligned with the workspace shape.
   <Criterion id="req-4-4">
     `build_support::validation_input_paths` and
     `build_support::emit_rerun_if_changed` SHALL treat `supersigil.toml` and
-    the loaded spec files as the current Cargo revalidation inputs.
+    the active spec files resolved from the shared Rust validation-input
+    helper as the current Cargo revalidation inputs.
   </Criterion>
   <Criterion id="req-4-5">
     In this pass, `ProjectScope` SHALL provide workspace context for Rust

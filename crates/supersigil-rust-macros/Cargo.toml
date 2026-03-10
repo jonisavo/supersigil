@@ -20,5 +20,8 @@ supersigil-core.workspace = true
 supersigil-parser.workspace = true
 syn.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true

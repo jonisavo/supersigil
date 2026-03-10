@@ -8,7 +8,7 @@ title: "Rust Plugin"
 
 <Implements refs="rust-plugin/req" />
 <DependsOn refs="evidence-contract/design, config/design" />
-<TrackedFiles paths="crates/supersigil-rust/src/lib.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/scope.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/discover/**/*.rs" />
+<TrackedFiles paths="crates/supersigil-rust/src/lib.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/scope.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-core/src/rust_validation_inputs.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/discover/**/*.rs" />
 
 ## Overview
 
@@ -114,12 +114,12 @@ The current algorithm is:
 
 ## Build Support
 
-`build_support.rs` is intentionally small. It does not discover specs itself.
-It just takes already-loaded spec paths and emits Cargo
+`build_support.rs` is intentionally small. It delegates validation-input
+resolution to the shared `supersigil-core` helper and emits Cargo
 `rerun-if-changed` lines for:
 
 - `supersigil.toml`
-- each loaded spec file
+- each active spec file in the current Rust validation scope
 
 ## Testing Strategy
 
@@ -133,7 +133,7 @@ It just takes already-loaded spec paths and emits Cargo
 - `crates/supersigil-rust/src/scope.rs`
   covers single-project, explicit-scope, and path-inference resolution.
 - `crates/supersigil-rust/src/build_support.rs`
-  covers validation-input collection and emitted Cargo freshness lines.
+  covers emitted Cargo freshness lines over the shared validation-input set.
 
 ## Current Gaps
 

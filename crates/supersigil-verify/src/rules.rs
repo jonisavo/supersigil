@@ -1,4 +1,4 @@
-use supersigil_core::ExtractedComponent;
+use supersigil_core::{CRITERION, ExtractedComponent, VERIFIED_BY};
 
 pub mod coverage;
 pub mod status;
@@ -48,10 +48,10 @@ fn collect_criterion_nested_verified_by<'a>(
     result: &mut Vec<&'a ExtractedComponent>,
 ) {
     for c in components {
-        if c.name == "VerifiedBy" && inside_criterion {
+        if c.name == VERIFIED_BY && inside_criterion {
             result.push(c);
         }
-        let child_inside_criterion = c.name == "Criterion";
+        let child_inside_criterion = c.name == CRITERION;
         collect_criterion_nested_verified_by(&c.children, child_inside_criterion, result);
     }
 }

@@ -5,6 +5,7 @@ mod config;
 mod error;
 mod graph;
 mod rust_scope;
+mod rust_validation_inputs;
 mod types;
 
 pub use component_defs::ComponentDefs;
@@ -15,10 +16,14 @@ pub use config::{
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};
+pub use rust_validation_inputs::{
+    RustValidationInputResolutionError, RustValidationInputs, resolve_rust_validation_inputs,
+};
 pub use types::{ExtractedComponent, Frontmatter, ParseResult, SourcePosition, SpecDocument};
 
 // Graph module re-exports
 pub use graph::{
     CRITERION, ContextOutput, DocRef, DocumentGraph, GraphError, OutstandingTarget, PlanOutput,
-    PlanQuery, QueryError, ResolvedRef, TargetContext, TaskInfo, build_graph, glob_prefix,
+    PlanQuery, QueryError, ResolvedRef, TargetContext, TaskInfo, VERIFIED_BY, build_graph,
+    glob_prefix,
 };

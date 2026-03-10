@@ -260,6 +260,7 @@ impl EvidenceSummary {
         use std::collections::BTreeMap;
         use supersigil_evidence::PluginProvenance;
 
+        let mut crit_tests: BTreeMap<String, usize> = BTreeMap::new();
         let records: Vec<EvidenceReportEntry> = ag
             .evidence
             .iter()
@@ -269,7 +270,11 @@ impl EvidenceSummary {
                 let targets: Vec<String> = rec
                     .targets
                     .iter()
-                    .map(|c| format!("{}#{}", c.doc_id, c.target_id))
+                    .map(|c| {
+                        let key = c.to_string();
+                        *crit_tests.entry(key.clone()).or_default() += 1;
+                        key
+                    })
                     .collect();
                 let provenance: Vec<String> = rec
                     .provenance
@@ -298,14 +303,6 @@ impl EvidenceSummary {
             })
             .collect();
 
-        // Build coverage: count tests per verification target
-        let mut crit_tests: BTreeMap<String, usize> = BTreeMap::new();
-        for rec in &ag.evidence {
-            for crit in &rec.targets {
-                let key = format!("{}#{}", crit.doc_id, crit.target_id);
-                *crit_tests.entry(key).or_default() += 1;
-            }
-        }
         let coverage: Vec<TargetCoverage> = crit_tests
             .into_iter()
             .map(|(target, test_count)| TargetCoverage { target, test_count })
