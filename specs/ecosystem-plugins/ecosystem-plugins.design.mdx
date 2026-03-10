@@ -127,6 +127,14 @@ ecosystem-defined types.
   covers built-in plugin assembly, plugin-orchestration behavior,
   plugin-failure and plugin-diagnostic findings, and end-to-end
   evidence-pipeline assembly.
+- `crates/supersigil-cli/tests/cmd_status.rs` and
+  `crates/supersigil-cli/tests/cmd_plan.rs`
+  cover CLI stderr/stdout discipline for ecosystem-backed warnings on query
+  surfaces.
+- `crates/supersigil-cli/tests/cmd_verify.rs`
+  covers verification-report surfacing for plugin discovery warnings and
+  failures, explicit plugin disabling, unknown-plugin config rejection, and
+  plugin-finding severity overrides.
 - `crates/supersigil-evidence/src/plugin.rs`
   covers the shared plugin contract for plugin-owned discovery-input planning
   and normalized discovery results.
