@@ -8,7 +8,7 @@ title: "Ecosystem Plugins"
 
 <Implements refs="ecosystem-plugins/req" />
 <DependsOn refs="workspace-projects/design, cli-runtime/design, verification-engine/design, config/design, evidence-contract/design, rust-plugin/design, verifies-macro/design" />
-<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_unit_tests.rs" />
+<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_unit_tests.rs" />
 
 ## Overview
 
@@ -118,7 +118,3 @@ ecosystem-defined types.
 
 - Rust source-file inference lives in CLI glue rather than in the Rust plugin
   implementation itself.
-- Cross-cutting scope resolution is still duplicated between
-  `supersigil-rust::scope` and `supersigil-rust-macros`.
-- Plugin diagnostics use `plugin_discovery_warning` and fatal failures use
-  `plugin_discovery_failure`, allowing consumers to distinguish severity.

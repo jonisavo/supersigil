@@ -8,7 +8,7 @@ title: "Verifies Macro"
 
 <Implements refs="verifies-macro/req" />
 <DependsOn refs="config/design, workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-rust-macros/src/lib.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/pass/*.rs, crates/supersigil-rust/tests/fixtures/fail/*.rs, crates/supersigil-rust/tests/fixtures/validation-project/supersigil.toml, crates/supersigil-rust/tests/fixtures/validation-project/specs/test-req.mdx" />
+<TrackedFiles paths="crates/supersigil-rust-macros/src/lib.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/pass/*.rs, crates/supersigil-rust/tests/fixtures/fail/*.rs, crates/supersigil-rust/tests/fixtures/validation-project/supersigil.toml, crates/supersigil-rust/tests/fixtures/validation-project/specs/test-req.mdx" />
 
 ## Overview
 
@@ -92,20 +92,25 @@ the `supersigil.toml` modified time.
 
 ## Multi-Project Resolution
 
-The proc macro cannot depend on `supersigil-rust`, so it duplicates the
-multi-project resolution logic that also exists in `scope.rs`.
+The proc macro now relies on the shared Rust project-resolution helper in
+`supersigil-core` instead of carrying its own copy of the algorithm.
 
 The current algorithm is:
 
 - if `ecosystem.rust.project_scope` is configured, use longest-prefix
   `manifest_dir_prefix` matching against `CARGO_MANIFEST_DIR` relative to the
   project root
+- reject explicit scope mappings that point at projects not defined in
+  `[projects]`
 - otherwise infer candidate projects by checking whether any project name
   appears in the relative manifest path
 - error on zero or multiple candidates
 
 ## Testing Strategy
 
+- `crates/supersigil-core/src/rust_scope.rs`
+  covers the shared multi-project resolution helper used by both the proc
+  macro and the runtime Rust scope adapter.
 - `crates/supersigil-rust/tests/trybuild.rs`
   covers the macro's compile-pass and compile-fail surface.
 - `crates/supersigil-rust/tests/fixtures/pass/*.rs`
@@ -119,8 +124,6 @@ The current algorithm is:
 
 - Cache invalidation currently keys only on `supersigil.toml` mtime, not on
   spec file mtimes.
-- Multi-project scope resolution logic is duplicated between this crate and
-  `supersigil-rust::scope`.
 - The proc macro only supports function attachment, even though the runtime
   Rust discovery logic also understands `proptest!` macro items with outer
   `#[verifies(...)]` attributes in parsed source.

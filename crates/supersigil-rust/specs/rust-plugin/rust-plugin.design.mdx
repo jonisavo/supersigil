@@ -8,7 +8,7 @@ title: "Rust Plugin"
 
 <Implements refs="rust-plugin/req" />
 <DependsOn refs="evidence-contract/design, config/design" />
-<TrackedFiles paths="crates/supersigil-rust/src/lib.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/scope.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/discover/**/*.rs" />
+<TrackedFiles paths="crates/supersigil-rust/src/lib.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/scope.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-rust/tests/trybuild.rs, crates/supersigil-rust/tests/fixtures/discover/**/*.rs" />
 
 ## Overview
 
@@ -90,15 +90,16 @@ and it no longer writes recoverable warnings directly to stderr.
 
 ## Scope Helpers
 
-`scope.rs` owns Rust workspace project resolution:
+`scope.rs` now acts as the runtime adapter over the shared Rust workspace
+project-resolution helper in `supersigil-core`.
+
+The current algorithm is:
 
 - single-project mode returns `project: None`
 - explicit `ecosystem.rust.project_scope` entries use longest-prefix matching
+- explicit scope mappings to undefined projects are rejected
 - otherwise path-based inference checks which configured project name appears in
   the relative manifest directory path
-
-This logic is mirrored in `supersigil-rust-macros`, because the proc-macro
-crate cannot depend on `supersigil-rust`.
 
 ## Build Support
 
@@ -111,6 +112,9 @@ It just takes already-loaded spec paths and emits Cargo
 
 ## Testing Strategy
 
+- `crates/supersigil-core/src/rust_scope.rs`
+  covers the shared Rust workspace project-resolution helper consumed by the
+  runtime scope adapter and the proc macro.
 - `crates/supersigil-rust/src/discover.rs`
   covers supported test forms, metadata extraction, source locations,
   path-qualified attributes, invalid ref rejection, mod recursion, non-Rust

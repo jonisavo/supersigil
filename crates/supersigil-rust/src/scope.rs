@@ -4,50 +4,13 @@
 //! `Cargo.toml` workspace configuration and mapping source files to their
 //! owning crate.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use supersigil_core::{Config, RustProjectScope};
+use supersigil_core::{Config, RustProjectResolutionError, resolve_rust_project};
 use supersigil_evidence::ProjectScope;
 
-/// Errors that can occur during project scope resolution.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ScopeError {
-    /// Multi-project mode: no `project_scope` prefix matched the manifest dir.
-    NoMatchingScope { manifest_dir: PathBuf },
-    /// Multi-project mode without explicit rust config: path-based inference
-    /// found zero or multiple candidate projects.
-    AmbiguousProject {
-        manifest_dir: PathBuf,
-        candidates: Vec<String>,
-    },
-}
-
-impl std::fmt::Display for ScopeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NoMatchingScope { manifest_dir } => {
-                write!(
-                    f,
-                    "no project_scope prefix matched manifest dir '{}'",
-                    manifest_dir.display()
-                )
-            }
-            Self::AmbiguousProject {
-                manifest_dir,
-                candidates,
-            } => {
-                write!(
-                    f,
-                    "ambiguous project for manifest dir '{}': candidates {:?}",
-                    manifest_dir.display(),
-                    candidates
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for ScopeError {}
+pub type ScopeError = RustProjectResolutionError;
+pub use supersigil_core::match_rust_project_scope as match_explicit_scope;
 
 /// Resolve the `ProjectScope` for a crate given the supersigil configuration
 /// and the crate's `CARGO_MANIFEST_DIR`.
@@ -67,11 +30,8 @@ impl std::error::Error for ScopeError {}
 ///
 /// When there are multiple supersigil projects but no explicit Rust scope
 /// config, attempt path-based inference. If ambiguous or no match, return
-/// an error.
-/// NOTE: Multi-project scope resolution logic is mirrored in
-/// `supersigil_rust_macros` (the proc-macro crate cannot depend on
-/// `supersigil-rust`). Changes here should be reflected there.
-///
+/// an error. The shared decision logic lives in `supersigil-core` so the
+/// runtime helper and proc macro stay aligned.
 /// # Errors
 ///
 /// Returns [`ScopeError`] when:
@@ -86,76 +46,17 @@ pub fn resolve_scope(
     manifest_dir: &Path,
     project_root: &Path,
 ) -> Result<ProjectScope, ScopeError> {
-    // Single-project mode: no projects map at all.
-    if config.projects.is_none() {
-        return Ok(ProjectScope {
-            project: None,
-            project_root: project_root.to_path_buf(),
-        });
-    }
-
-    // Multi-project mode: check for explicit rust ecosystem config first.
-    if let Some(rust_config) = &config.ecosystem.rust
-        && !rust_config.project_scope.is_empty()
-    {
-        let relative = manifest_dir
-            .strip_prefix(project_root)
-            .unwrap_or(manifest_dir);
-
-        return match match_explicit_scope(&rust_config.project_scope, relative) {
-            Some(project) => Ok(ProjectScope {
-                project: Some(project),
-                project_root: project_root.to_path_buf(),
-            }),
-            None => Err(ScopeError::NoMatchingScope {
-                manifest_dir: manifest_dir.to_path_buf(),
-            }),
-        };
-    }
-
-    // Multi-project mode with path-based inference.
-    let projects = config.projects.as_ref().unwrap();
-    let relative = manifest_dir
-        .strip_prefix(project_root)
-        .unwrap_or(manifest_dir);
-
-    let mut candidates: Vec<String> = projects
-        .keys()
-        .filter(|name| {
-            relative
-                .components()
-                .any(|c| c.as_os_str() == name.as_str())
-        })
-        .cloned()
-        .collect();
-    candidates.sort();
-
-    match candidates.len() {
-        1 => Ok(ProjectScope {
-            project: Some(candidates.into_iter().next().unwrap()),
-            project_root: project_root.to_path_buf(),
-        }),
-        _ => Err(ScopeError::AmbiguousProject {
-            manifest_dir: manifest_dir.to_path_buf(),
-            candidates,
-        }),
-    }
-}
-
-/// Match a manifest directory against explicit `project_scope` entries,
-/// returning the project name from the longest matching prefix.
-#[must_use]
-pub fn match_explicit_scope(scopes: &[RustProjectScope], manifest_dir: &Path) -> Option<String> {
-    scopes
-        .iter()
-        .filter(|scope| manifest_dir.starts_with(&scope.manifest_dir_prefix))
-        .max_by_key(|scope| scope.manifest_dir_prefix.len())
-        .map(|scope| scope.project.clone())
+    Ok(ProjectScope {
+        project: resolve_rust_project(config, manifest_dir, project_root)?,
+        project_root: project_root.to_path_buf(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use supersigil_core::{ProjectConfig, RustEcosystemConfig};
+    use std::path::PathBuf;
+
+    use supersigil_core::{ProjectConfig, RustEcosystemConfig, RustProjectScope};
 
     use super::*;
 
@@ -220,7 +121,7 @@ mod tests {
     #[test]
     fn multi_project_explicit_scope_longest_prefix_wins() {
         let config = with_rust_scopes(
-            multi_project_config(&["alpha", "beta"]),
+            multi_project_config(&["alpha", "alpha-sub", "beta"]),
             vec![
                 RustProjectScope {
                     manifest_dir_prefix: "crates/alpha".to_string(),
@@ -291,12 +192,37 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            ScopeError::NoMatchingScope { manifest_dir: dir } => {
+            ScopeError::NoMatchingScope {
+                manifest_dir: dir, ..
+            } => {
                 assert_eq!(dir, manifest_dir);
             }
-            other @ ScopeError::AmbiguousProject { .. } => {
+            other @ (ScopeError::UnknownProject { .. } | ScopeError::AmbiguousProject { .. }) => {
                 panic!("expected NoMatchingScope, got {other:?}")
             }
+        }
+    }
+
+    #[test]
+    fn multi_project_explicit_scope_unknown_project_errors() {
+        let config = with_rust_scopes(
+            multi_project_config(&["alpha", "beta"]),
+            vec![RustProjectScope {
+                manifest_dir_prefix: "crates/alpha".to_string(),
+                project: "gamma".to_string(),
+            }],
+        );
+        let root = PathBuf::from("/workspace");
+        let manifest_dir = PathBuf::from("/workspace/crates/alpha/my-crate");
+
+        let result = resolve_scope(&config, &manifest_dir, &root);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ScopeError::UnknownProject { project } => {
+                assert_eq!(project, "gamma");
+            }
+            other => panic!("expected UnknownProject, got {other:?}"),
         }
     }
 
@@ -331,7 +257,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             ScopeError::AmbiguousProject { .. } => {}
-            other @ ScopeError::NoMatchingScope { .. } => {
+            other @ (ScopeError::UnknownProject { .. } | ScopeError::NoMatchingScope { .. }) => {
                 panic!("expected AmbiguousProject, got {other:?}")
             }
         }

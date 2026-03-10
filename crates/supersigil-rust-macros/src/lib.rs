@@ -319,9 +319,7 @@ fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()>
 /// Uses `CARGO_MANIFEST_DIR` and the config's `ecosystem.rust.project_scope`
 /// entries (or path-based inference) to determine the applicable project.
 ///
-/// NOTE: This logic mirrors `supersigil_rust::scope::resolve_scope()`.
-/// The proc-macro cannot depend on `supersigil-rust` (reverse dependency),
-/// so both implementations must be kept in sync.
+/// The shared project-resolution rules live in `supersigil-core`.
 fn resolve_multi_project_globs(
     config: &supersigil_core::Config,
     project_root: &Path,
@@ -334,75 +332,28 @@ fn resolve_multi_project_globs(
         "supersigil: multi-project mode requires CARGO_MANIFEST_DIR to be set".to_string()
     })?;
     let manifest_path = PathBuf::from(&manifest_dir);
-    let relative = manifest_path
-        .strip_prefix(project_root)
-        .unwrap_or(&manifest_path);
 
-    // Try explicit rust project_scope entries first.
-    if let Some(rust_config) = &config.ecosystem.rust
-        && !rust_config.project_scope.is_empty()
-    {
-        let matched = rust_config
-            .project_scope
-            .iter()
-            .filter(|scope| relative.starts_with(&scope.manifest_dir_prefix))
-            .max_by_key(|scope| scope.manifest_dir_prefix.len());
+    // `resolve_rust_project` returns `Ok(None)` only when `config.projects` is
+    // `None`, which the early check above already rules out.
+    let project_name = supersigil_core::resolve_rust_project(config, &manifest_path, project_root)
+        .map_err(|e| format_multi_project_resolution_error(&e))?
+        .expect("projects already verified present");
 
-        return match matched {
-            Some(scope) => {
-                let project_config = projects.get(&scope.project).ok_or_else(|| {
-                    format!(
-                        "supersigil: project_scope maps to project \"{}\" \
-                         which is not defined in [projects]",
-                        scope.project
-                    )
-                })?;
-                Ok(project_config.paths.clone())
-            }
-            None => Err(format!(
-                "supersigil: no project_scope prefix matched manifest dir \"{}\" \
-                 (relative: \"{}\")",
-                manifest_dir,
-                relative.display()
-            )),
-        };
-    }
+    Ok(projects[&project_name].paths.clone())
+}
 
-    // Path-based inference: check if manifest dir path components contain
-    // a project name.
-    let mut candidates: Vec<&str> = projects
-        .keys()
-        .filter(|name| {
-            relative
-                .components()
-                .any(|c| c.as_os_str() == name.as_str())
-        })
-        .map(String::as_str)
-        .collect();
-    candidates.sort_unstable();
-
-    match candidates.len() {
-        1 => {
-            let project_name = candidates[0];
-            let project_config = &projects[project_name];
-            Ok(project_config.paths.clone())
-        }
-        0 => Err(format!(
-            "supersigil: multi-project mode but no project matched \
-             manifest dir \"{}\" (relative: \"{}\"); configure \
-             [ecosystem.rust.project_scope] to resolve this",
-            manifest_dir,
-            relative.display()
-        )),
-        _ => Err(format!(
-            "supersigil: ambiguous project for manifest dir \"{}\" \
-             (relative: \"{}\"): candidates {:?}; configure \
-             [ecosystem.rust.project_scope] to resolve this",
-            manifest_dir,
-            relative.display(),
-            candidates
-        )),
-    }
+fn format_multi_project_resolution_error(
+    error: &supersigil_core::RustProjectResolutionError,
+) -> String {
+    let guidance = if matches!(
+        error,
+        supersigil_core::RustProjectResolutionError::AmbiguousProject { .. }
+    ) {
+        "; configure [ecosystem.rust.project_scope] to resolve this"
+    } else {
+        ""
+    };
+    format!("supersigil: {error}{guidance}")
 }
 
 // ---------------------------------------------------------------------------

@@ -136,8 +136,9 @@ aligned with the workspace shape.
   </Criterion>
   <Criterion id="req-4-3">
     IF explicit scope matching finds no match, or path-based inference finds
-    zero or multiple candidates, THEN `scope::resolve_scope` SHALL return a
-    `ScopeError` instead of guessing.
+    zero or multiple candidates, or an explicit scope mapping references an
+    undefined project, THEN `scope::resolve_scope` SHALL return a `ScopeError`
+    instead of guessing.
   </Criterion>
   <Criterion id="req-4-4">
     `build_support::validation_input_paths` and

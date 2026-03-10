@@ -125,8 +125,8 @@ project graph.
     project root.
   </Criterion>
   <Criterion id="req-4-4">
-    IF multi-project resolution finds no matching project or multiple
-    candidates, THEN the macro SHALL emit a compile-time error rather than
-    guessing.
+    IF multi-project resolution finds no matching project, an explicit scope
+    mapping to an undefined project, or multiple candidates, THEN the macro
+    SHALL emit a compile-time error rather than guessing.
   </Criterion>
 </AcceptanceCriteria>
