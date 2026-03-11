@@ -643,6 +643,39 @@ mod component_extraction {
         );
     }
 
+    #[test]
+    fn verified_by_paths_expression_attribute_is_rejected() {
+        let body =
+            "<VerifiedBy strategy=\"file-glob\" paths={[\"tests/a.rs\", \"tests/b.rs\"]} />\n";
+        let (components, errors) = extract(body, 0);
+
+        assert_eq!(components.len(), 1);
+        let comp = &components[0];
+        assert_eq!(comp.name, "VerifiedBy");
+        assert_eq!(
+            comp.attributes.get("strategy").map(String::as_str),
+            Some("file-glob")
+        );
+        assert!(
+            !comp.attributes.contains_key("paths"),
+            "expression paths should be excluded from attributes"
+        );
+
+        assert_eq!(errors.len(), 1, "expected 1 error, got: {errors:?}");
+        assert!(
+            matches!(
+                &errors[0],
+                ParseError::ExpressionAttribute {
+                    component,
+                    attribute,
+                    ..
+                } if component == "VerifiedBy" && attribute == "paths"
+            ),
+            "expected ExpressionAttribute error, got: {:?}",
+            errors[0]
+        );
+    }
+
     // ── Req 8.4: Self-closing component → body_text is None ──
 
     #[test]

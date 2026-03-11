@@ -26,6 +26,24 @@ pub fn setup_project_with_rust_plugin(dir: &Path) {
     fs::create_dir_all(dir.join("specs")).unwrap();
 }
 
+/// Set up a project with the Rust ecosystem plugin and explicit test globs.
+pub fn setup_project_with_rust_plugin_and_tests(dir: &Path, tests_glob: &str, extra_config: &str) {
+    let extra_config = if extra_config.is_empty() {
+        String::new()
+    } else {
+        format!("{extra_config}\n")
+    };
+
+    fs::write(
+        dir.join("supersigil.toml"),
+        format!(
+            "paths = [\"specs/**/*.mdx\"]\ntests = [\"{tests_glob}\"]\n\n[ecosystem]\nplugins = [\"rust\"]\n{extra_config}"
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("specs")).unwrap();
+}
+
 pub fn write_spec(dir: &Path, name: &str, id: &str, doc_type: &str, status: &str) {
     write_mdx(
         dir,

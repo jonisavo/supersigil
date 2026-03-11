@@ -332,6 +332,23 @@ fn all_builtins_have_examples() {
     }
 }
 
+#[test]
+fn list_attribute_examples_use_string_literal_syntax() {
+    let defs = ComponentDefs::defaults();
+
+    let verified_by = defs.get("VerifiedBy").unwrap();
+    assert_eq!(
+        verified_by.examples[1],
+        "<VerifiedBy strategy=\"file-glob\" paths=\"path/to/test-file.rs\" />"
+    );
+
+    let tracked_files = defs.get("TrackedFiles").unwrap();
+    assert_eq!(
+        tracked_files.examples[0],
+        "<TrackedFiles paths=\"src/auth/**/*.rs, tests/auth/**/*.rs\" />"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Verifiable field (Task 1: verifiable targets)
 // ---------------------------------------------------------------------------

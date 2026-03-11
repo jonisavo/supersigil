@@ -83,7 +83,7 @@ impl ComponentDefs {
         refs_only(
             "References",
             "Declares that this document references one or more other documents or criteria. Creates informational traceability links with no verification semantics.",
-            "<References refs={[\"auth/req/login#login-success\", \"auth/req/login#login-failure\"]} />",
+            "<References refs=\"auth/req/login#login-success, auth/req/login#login-failure\" />",
             &mut defs,
         );
 
@@ -120,7 +120,8 @@ impl ComponentDefs {
                 description: Some("Specifies how a criterion is verified: by tag-based test matching or by file glob patterns.".into()),
                 examples: vec![
                     "<VerifiedBy strategy=\"tag\" tag=\"test_login_success\" />".into(),
-                    "<VerifiedBy strategy=\"file-glob\" paths={[\"tests/auth/login_test.rs\"]} />".into(),
+                    "<VerifiedBy strategy=\"file-glob\" paths=\"path/to/test-file.rs\" />"
+                        .into(),
                 ],
             },
         );
@@ -129,13 +130,13 @@ impl ComponentDefs {
         refs_only(
             "Implements",
             "Declares that this document implements one or more criteria from another document.",
-            "<Implements refs={[\"auth/req/login#login-success\"]} />",
+            "<Implements refs=\"auth/req/login#login-success\" />",
             &mut defs,
         );
         refs_only(
             "DependsOn",
             "Declares that this document depends on one or more other documents.",
-            "<DependsOn refs={[\"auth/design/session-mgmt\"]} />",
+            "<DependsOn refs=\"auth/design/session-mgmt\" />",
             &mut defs,
         );
 
@@ -178,8 +179,8 @@ impl ComponentDefs {
                 target_component: None,
                 description: Some("A trackable work item with status. Tasks can implement criteria and depend on other tasks. Referenceable by ID.".into()),
                 examples: vec![
-                    "<Task id=\"task-1-1\" status=\"done\" implements={[\"auth/req/login#login-success\"]}>\nImplement login endpoint\n</Task>".into(),
-                    "<Task id=\"task-1-2\" status=\"in-progress\" depends={[\"task-1-1\"]}>\nAdd rate limiting to login\n</Task>".into(),
+                    "<Task id=\"task-1-1\" status=\"done\" implements=\"auth/req/login#login-success\">\nImplement login endpoint\n</Task>".into(),
+                    "<Task id=\"task-1-2\" status=\"in-progress\" depends=\"task-1-1\">\nAdd rate limiting to login\n</Task>".into(),
                 ],
             },
         );
@@ -199,7 +200,9 @@ impl ComponentDefs {
                 verifiable: false,
                 target_component: None,
                 description: Some("Declares file paths (globs) that are tracked as part of this document. Used to detect stale references.".into()),
-                examples: vec!["<TrackedFiles paths={[\"src/auth/**/*.rs\", \"tests/auth/**/*.rs\"]} />".into()],
+                examples: vec![
+                    "<TrackedFiles paths=\"src/auth/**/*.rs, tests/auth/**/*.rs\" />".into(),
+                ],
             },
         );
 

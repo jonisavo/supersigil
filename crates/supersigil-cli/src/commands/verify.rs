@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::path::Path;
 
+use supersigil_core::{ComponentDefs, Config};
 use supersigil_verify::{
     Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport, VerifyOptions,
     format_json, format_markdown, resolve_severity,
@@ -127,10 +128,87 @@ pub fn run(
             Ok(ExitStatus::Success)
         }
         ResultStatus::HasErrors => {
-            format::hint(color, "Run `supersigil plan` to see outstanding work.");
+            let hints = remediation_hints(&report, &config);
+            if hints.is_empty() {
+                format::hint(color, "Run `supersigil plan` to see outstanding work.");
+            } else {
+                for hint in hints {
+                    format::hint(color, &hint);
+                }
+            }
             Ok(ExitStatus::VerifyFailed)
         }
         ResultStatus::WarningsOnly => Ok(ExitStatus::VerifyWarnings),
+    }
+}
+
+fn remediation_hints(report: &VerificationReport, config: &Config) -> Vec<String> {
+    let mut hints = Vec::new();
+
+    if report
+        .findings
+        .iter()
+        .any(|finding| finding.rule == RuleName::MissingVerificationEvidence)
+    {
+        hints.push(
+            "Run `supersigil refs` to list canonical criterion refs you can copy into evidence."
+                .to_string(),
+        );
+
+        if config
+            .ecosystem
+            .plugins
+            .iter()
+            .any(|plugin| plugin.as_str() == "rust")
+        {
+            hints.push(
+                "Rust-native fix: annotate a supported test with `#[verifies(\"doc#criterion\")]`."
+                    .to_string(),
+            );
+        }
+
+        hints.push(authored_evidence_hint(config));
+    }
+
+    for finding in &report.findings {
+        if finding.rule != RuleName::PluginDiscoveryFailure {
+            continue;
+        }
+        let Some(suggestion) = finding
+            .details
+            .as_ref()
+            .and_then(|details| details.suggestion.as_ref())
+        else {
+            continue;
+        };
+        if !hints.iter().any(|hint| hint == suggestion) {
+            hints.push(suggestion.clone());
+        }
+    }
+
+    hints
+}
+
+fn authored_evidence_hint(config: &Config) -> String {
+    let defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
+        .unwrap_or_else(|_| ComponentDefs::defaults());
+    let Some(examples) = defs.get("VerifiedBy").map(|def| def.examples.as_slice()) else {
+        return "Authored fix: add criterion-nested `<VerifiedBy ... />` evidence.".to_string();
+    };
+
+    let quoted_examples: Vec<String> = examples
+        .iter()
+        .take(2)
+        .map(|example| format!("`{example}`"))
+        .collect();
+
+    match quoted_examples.as_slice() {
+        [] => "Authored fix: add criterion-nested `<VerifiedBy ... />` evidence.".to_string(),
+        [example] => format!("Authored fix: add criterion-nested {example} evidence."),
+        [first, second] => {
+            format!("Authored fix: add criterion-nested {first} or {second} evidence.")
+        }
+        _ => unreachable!("only the first two examples are used"),
     }
 }
 
