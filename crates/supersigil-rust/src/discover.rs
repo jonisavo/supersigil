@@ -12,8 +12,8 @@ use syn::spanned::Spanned;
 use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
     EcosystemPlugin, EvidenceId, EvidenceKind, PluginDiagnostic, PluginDiscoveryResult,
-    PluginError, PluginProvenance, ProjectScope, SourceLocation, TestIdentity, TestKind,
-    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+    PluginError, PluginErrorDetails, PluginProvenance, ProjectScope, SourceLocation, TestIdentity,
+    TestKind, VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
 };
 
 const PLUGIN_NAME: &str = "rust";
@@ -163,6 +163,13 @@ impl EcosystemPlugin for RustPlugin {
             return Err(PluginError::Discovery {
                 plugin: PLUGIN_NAME.to_string(),
                 message: "zero supported Rust test items were found in the discovery scope; supported forms include #[test], #[tokio::test], supported proptest wrappers, and snapshot-oriented tests".to_string(),
+                details: Some(Box::new(PluginErrorDetails {
+                    code: Some("zero_supported_test_items".to_string()),
+                    suggestion: Some(
+                        "Annotate a supported Rust test with `#[verifies(\"doc#criterion\")]` or add criterion-nested `<VerifiedBy ... />` evidence.".to_string(),
+                    ),
+                    ..PluginErrorDetails::default()
+                })),
             });
         }
 
@@ -361,13 +368,26 @@ fn invalid_verifies_ref(span: proc_macro2::Span, value: &str) -> VerifiesParseEr
 fn parse_error_to_plugin_error(path: &Path, error: &VerifiesParseError) -> PluginError {
     PluginError::Discovery {
         plugin: PLUGIN_NAME.to_string(),
-        message: format!(
-            "{}:{}:{}: {}",
-            path.display(),
-            error.span.start().line,
-            error.span.start().column + 1,
-            error.message
-        ),
+        message: error.message.clone(),
+        details: Some(Box::new(PluginErrorDetails {
+            path: Some(path.to_path_buf()),
+            line: Some(error.span.start().line),
+            column: Some(error.span.start().column + 1),
+            code: Some("invalid_verifies_attribute".to_string()),
+            suggestion: Some(suggestion_for_verifies_parse_error(&error.message)),
+        })),
+    }
+}
+
+fn suggestion_for_verifies_parse_error(message: &str) -> String {
+    if message.contains("string literal ref") {
+        "Use `#[verifies(\"doc#criterion\")]` with one or more string literal refs.".to_string()
+    } else if message.contains("invalid verifies reference")
+        || message.contains("empty verifies reference")
+    {
+        "Use a full criterion ref like `doc-id#criterion-id`.".to_string()
+    } else {
+        "Check the verifies attribute syntax and use a full criterion ref.".to_string()
     }
 }
 

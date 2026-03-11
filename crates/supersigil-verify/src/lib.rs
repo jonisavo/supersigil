@@ -22,8 +22,8 @@ use artifact_graph::ArtifactGraph;
 pub use affected::AffectedDocument;
 pub use error::VerifyError;
 pub use report::{
-    EvidenceReportEntry, EvidenceSummary, Finding, ReportSeverity, ResultStatus, RuleName, Summary,
-    TargetCoverage, VerificationReport, format_json, format_markdown,
+    EvidenceReportEntry, EvidenceSummary, Finding, FindingDetails, ReportSeverity, ResultStatus,
+    RuleName, Summary, TargetCoverage, VerificationReport, format_json, format_markdown,
 };
 pub use scan::{TagMatch, scan_all_tags, scan_for_tag};
 pub use severity::resolve_severity;
@@ -135,7 +135,10 @@ pub fn verify(
         findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
     }
 
-    // 5. Resolve severities
+    // 5. Attach owning spec paths for doc-backed findings
+    attach_doc_paths(&mut findings, graph);
+
+    // 6. Resolve severities
     for finding in &mut findings {
         let doc_status = finding
             .doc_id
@@ -145,7 +148,7 @@ pub fn verify(
         finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
     }
 
-    // 6. Run post-verify hooks (if any)
+    // 7. Run post-verify hooks (if any)
     if !config.hooks.post_verify.is_empty() {
         let interim = VerificationReport {
             findings: findings.clone(),
@@ -160,10 +163,10 @@ pub fn verify(
         ));
     }
 
-    // 7. Filter out Off findings
+    // 8. Filter out Off findings
     findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
-    // 8. Build summary
+    // 9. Build summary
     let summary = Summary::from_findings(doc_ids.len(), &findings);
 
     Ok(VerificationReport {
@@ -171,6 +174,24 @@ pub fn verify(
         summary,
         evidence_summary: None,
     })
+}
+
+fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
+    for finding in findings {
+        let Some(doc_id) = finding.doc_id.as_deref() else {
+            continue;
+        };
+        let Some(doc) = graph.document(doc_id) else {
+            continue;
+        };
+
+        let details = finding
+            .details
+            .get_or_insert_with(|| Box::new(FindingDetails::default()));
+        if details.path.is_none() {
+            details.path = Some(doc.path.to_string_lossy().into_owned());
+        }
+    }
 }
 
 /// Resolve test file paths by expanding test globs relative to `project_root`.
@@ -239,6 +260,66 @@ mod verify_tests {
                 .any(|f| f.rule == RuleName::MissingVerificationEvidence)
         );
         assert!(report.summary.error_count > 0);
+    }
+
+    #[test]
+    fn verify_attaches_owning_doc_path_to_doc_backed_findings() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+
+        let finding = report
+            .findings
+            .iter()
+            .find(|finding| finding.rule == RuleName::MissingVerificationEvidence)
+            .expect("missing coverage finding");
+
+        assert_eq!(
+            finding
+                .details
+                .as_ref()
+                .and_then(|details| details.path.as_deref()),
+            Some("specs/req/auth.mdx"),
+        );
+    }
+
+    #[test]
+    fn verify_attaches_canonical_target_ref_to_missing_coverage_findings() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+
+        let finding = report
+            .findings
+            .iter()
+            .find(|finding| finding.rule == RuleName::MissingVerificationEvidence)
+            .expect("missing coverage finding");
+
+        assert_eq!(
+            finding
+                .details
+                .as_ref()
+                .and_then(|details| details.target_ref.as_deref()),
+            Some("req/auth#req-1"),
+        );
     }
 
     #[test]

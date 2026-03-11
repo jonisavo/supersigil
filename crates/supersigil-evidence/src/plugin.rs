@@ -70,6 +70,15 @@ impl PluginDiagnostic {
 /// Error surface for ecosystem plugin discovery failures.
 ///
 /// Plugin failures become verification findings rather than hard errors.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginErrorDetails {
+    pub path: Option<PathBuf>,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub code: Option<String>,
+    pub suggestion: Option<String>,
+}
+
 #[derive(Debug, Error)]
 pub enum PluginError {
     #[error("plugin {plugin}: failed to parse {file}: {message}")]
@@ -79,7 +88,11 @@ pub enum PluginError {
         message: String,
     },
     #[error("plugin {plugin}: {message}")]
-    Discovery { plugin: String, message: String },
+    Discovery {
+        plugin: String,
+        message: String,
+        details: Option<Box<PluginErrorDetails>>,
+    },
     #[error("plugin {plugin}: I/O error on {path}: {source}")]
     Io {
         plugin: String,

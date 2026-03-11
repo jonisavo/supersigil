@@ -401,6 +401,7 @@ fn plugin_error_discovery() {
     let err = PluginError::Discovery {
         plugin: "rust".into(),
         message: "no test files found".into(),
+        details: None,
     };
     let msg = err.to_string();
     assert!(msg.contains("rust"));
@@ -494,6 +495,7 @@ impl EcosystemPlugin for FailingPlugin {
         Err(PluginError::Discovery {
             plugin: "failing".into(),
             message: "intentional failure".into(),
+            details: None,
         })
     }
 }

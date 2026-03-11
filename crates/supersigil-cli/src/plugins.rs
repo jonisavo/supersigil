@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 
 use supersigil_core::{Config, DocumentGraph};
 use supersigil_evidence::{
-    EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, ProjectScope,
+    EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError, ProjectScope,
     VerificationEvidenceRecord,
 };
 use supersigil_verify::artifact_graph::{ArtifactGraph, build_artifact_graph};
 use supersigil_verify::explicit_evidence::extract_explicit_evidence;
-use supersigil_verify::{Finding, RuleName};
+use supersigil_verify::{Finding, FindingDetails, RuleName};
 
 /// Assemble the enabled ecosystem plugin instances from the config.
 ///
@@ -80,24 +80,31 @@ pub fn collect_plugin_evidence(
                 findings.extend(
                     diagnostics
                         .into_iter()
-                        .map(|diagnostic| plugin_diagnostic_to_finding(plugin.name(), diagnostic)),
+                        .map(|diagnostic| plugin_diagnostic_to_finding(plugin.name(), &diagnostic)),
                 );
             }
             Err(err) => {
-                findings.push(Finding::new(
-                    RuleName::PluginDiscoveryFailure,
-                    None,
-                    format!("plugin '{}' failed: {err}", plugin.name()),
-                    None,
-                ));
+                findings.push(
+                    Finding::new(
+                        RuleName::PluginDiscoveryFailure,
+                        None,
+                        plugin_failure_message(plugin.name(), &err),
+                        None,
+                    )
+                    .with_details(plugin_error_details(plugin.name(), &err)),
+                );
             }
         }
     }
     PluginEvidenceResult { evidence, findings }
 }
 
-fn plugin_diagnostic_to_finding(plugin_name: &str, diagnostic: PluginDiagnostic) -> Finding {
-    let message = match diagnostic.path {
+fn plugin_diagnostic_to_finding(plugin_name: &str, diagnostic: &PluginDiagnostic) -> Finding {
+    let path = diagnostic
+        .path
+        .as_ref()
+        .map(|value| value.to_string_lossy().into_owned());
+    let message = match diagnostic.path.as_ref() {
         Some(path) => format!(
             "plugin '{plugin_name}': {}: {}",
             path.display(),
@@ -106,7 +113,80 @@ fn plugin_diagnostic_to_finding(plugin_name: &str, diagnostic: PluginDiagnostic)
         None => format!("plugin '{plugin_name}': {}", diagnostic.message),
     };
 
-    Finding::new(RuleName::PluginDiscoveryWarning, None, message, None)
+    Finding::new(RuleName::PluginDiscoveryWarning, None, message, None).with_details(
+        FindingDetails {
+            plugin: Some(plugin_name.to_string()),
+            path,
+            ..FindingDetails::default()
+        },
+    )
+}
+
+fn plugin_failure_message(plugin_name: &str, err: &PluginError) -> String {
+    if let PluginError::Discovery {
+        message, details, ..
+    } = err
+        && let Some(location) = details.as_deref().and_then(|details| {
+            format_plugin_location(details.path.as_deref(), details.line, details.column)
+        })
+    {
+        format!("plugin '{plugin_name}' failed: {location}: {message}")
+    } else {
+        err.to_string()
+    }
+}
+
+fn plugin_error_details(plugin_name: &str, err: &PluginError) -> FindingDetails {
+    match err {
+        PluginError::ParseFailure { file, .. } => FindingDetails {
+            plugin: Some(plugin_name.to_string()),
+            path: Some(file.to_string_lossy().into_owned()),
+            code: Some("parse_failure".to_string()),
+            ..FindingDetails::default()
+        },
+        PluginError::Discovery { details, .. } => details.as_deref().map_or_else(
+            || FindingDetails {
+                plugin: Some(plugin_name.to_string()),
+                ..FindingDetails::default()
+            },
+            |details| FindingDetails {
+                plugin: Some(plugin_name.to_string()),
+                path: details
+                    .path
+                    .as_ref()
+                    .map(|value| value.to_string_lossy().into_owned()),
+                line: details.line,
+                column: details.column,
+                code: details.code.clone(),
+                suggestion: details.suggestion.clone(),
+                ..FindingDetails::default()
+            },
+        ),
+        PluginError::Io { path, .. } => FindingDetails {
+            plugin: Some(plugin_name.to_string()),
+            path: Some(path.to_string_lossy().into_owned()),
+            code: Some("io_error".to_string()),
+            ..FindingDetails::default()
+        },
+    }
+}
+
+fn format_plugin_location(
+    path: Option<&Path>,
+    line: Option<usize>,
+    column: Option<usize>,
+) -> Option<String> {
+    let path = path?;
+    let mut location = path.display().to_string();
+    if let Some(line) = line {
+        location.push(':');
+        location.push_str(&line.to_string());
+        if let Some(column) = column {
+            location.push(':');
+            location.push_str(&column.to_string());
+        }
+    }
+    Some(location)
 }
 
 /// Build an `ArtifactGraph` from the full evidence pipeline.
@@ -374,6 +454,7 @@ mod tests {
             Err(supersigil_evidence::PluginError::Discovery {
                 plugin: "failing".into(),
                 message: "simulated failure".into(),
+                details: None,
             })
         }
     }

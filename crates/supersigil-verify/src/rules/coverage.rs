@@ -4,7 +4,7 @@ use supersigil_core::{CRITERION, DocumentGraph};
 
 use crate::artifact_graph::ArtifactGraph;
 
-use crate::report::{Finding, RuleName};
+use crate::report::{Finding, FindingDetails, RuleName};
 
 pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -60,12 +60,18 @@ fn for_each_criterion(
                     message = format!("{message}; did you mean `{doc_id}#{criterion_id}`?");
                 }
 
-                findings.push(Finding::new(
-                    RuleName::MissingVerificationEvidence,
-                    Some(doc_id.to_owned()),
-                    message,
-                    Some(component.position),
-                ));
+                findings.push(
+                    Finding::new(
+                        RuleName::MissingVerificationEvidence,
+                        Some(doc_id.to_owned()),
+                        message,
+                        Some(component.position),
+                    )
+                    .with_details(FindingDetails {
+                        target_ref: Some(format!("{doc_id}#{criterion_id}")),
+                        ..FindingDetails::default()
+                    }),
+                );
             }
         }
         // Recurse into children (Criterion inside AcceptanceCriteria)

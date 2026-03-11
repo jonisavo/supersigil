@@ -11,7 +11,9 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use plugin::{EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError};
+pub use plugin::{
+    EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError, PluginErrorDetails,
+};
 pub use provenance::{EvidenceConflict, PluginProvenance};
 pub use types::{
     EvidenceId, EvidenceKind, ProjectScope, SourceLocation, TestIdentity, TestKind, VerifiableRef,

@@ -173,6 +173,7 @@ fn process_output(cmd: &str, output: &std::process::Output) -> Vec<Finding> {
                     effective_severity: severity,
                     raw_severity: severity,
                     position: None,
+                    details: None,
                 });
             }
         }
@@ -184,6 +185,7 @@ fn process_output(cmd: &str, output: &std::process::Output) -> Vec<Finding> {
                 effective_severity: ReportSeverity::Warning,
                 raw_severity: ReportSeverity::Warning,
                 position: None,
+                details: None,
             });
         }
     }

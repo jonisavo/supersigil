@@ -139,6 +139,27 @@ pub struct Finding {
     pub raw_severity: ReportSeverity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<SourcePosition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Box<FindingDetails>>,
+}
+
+/// Structured metadata for programmatic remediation and source attribution.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FindingDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 impl Finding {
@@ -158,7 +179,15 @@ impl Finding {
             effective_severity: severity,
             raw_severity: severity,
             position,
+            details: None,
         }
+    }
+
+    /// Attach structured details to a finding without changing its headline text.
+    #[must_use]
+    pub fn with_details(mut self, details: FindingDetails) -> Self {
+        self.details = Some(Box::new(details));
+        self
     }
 }
 
@@ -511,6 +540,7 @@ mod tests {
                     line: 3,
                     column: 1,
                 }),
+                details: None,
             }],
             summary: Summary {
                 total_documents: 1,
@@ -579,6 +609,7 @@ mod tests {
                 effective_severity: ReportSeverity::Error,
                 raw_severity: ReportSeverity::Error,
                 position: None,
+                details: None,
             }],
             summary: Summary {
                 total_documents: 1,
@@ -612,6 +643,7 @@ mod tests {
                     effective_severity: ReportSeverity::Error,
                     raw_severity: ReportSeverity::Error,
                     position: None,
+                    details: None,
                 },
                 Finding {
                     rule: RuleName::ZeroTagMatches,
@@ -620,6 +652,7 @@ mod tests {
                     effective_severity: ReportSeverity::Warning,
                     raw_severity: ReportSeverity::Warning,
                     position: None,
+                    details: None,
                 },
             ],
             summary: Summary {
@@ -742,6 +775,7 @@ mod tests {
                 effective_severity: ReportSeverity::Error,
                 raw_severity: ReportSeverity::Error,
                 position: None,
+                details: None,
             }],
             summary: Summary {
                 total_documents: 1,
@@ -785,6 +819,7 @@ mod tests {
                 effective_severity: ReportSeverity::Error,
                 raw_severity: ReportSeverity::Error,
                 position: None,
+                details: None,
             }],
             summary: Summary {
                 total_documents: 1,
@@ -849,5 +884,68 @@ mod tests {
         let coverage = &parsed["evidence_summary"]["coverage"];
         assert_eq!(coverage[0]["target"], "req-1");
         assert_eq!(coverage[0]["test_count"], 2);
+    }
+
+    #[test]
+    fn finding_details_serialize_only_when_present() {
+        let with_details = VerificationReport {
+            findings: vec![
+                Finding::new(
+                    RuleName::PluginDiscoveryFailure,
+                    None,
+                    "plugin failed".to_string(),
+                    None,
+                )
+                .with_details(FindingDetails {
+                    plugin: Some("rust".to_string()),
+                    target_ref: Some("auth/req/login#happy-path-login".to_string()),
+                    code: Some("invalid_verifies_attribute".to_string()),
+                    suggestion: Some("Use #[verifies(\"doc#criterion\")]".to_string()),
+                    ..FindingDetails::default()
+                }),
+            ],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 0,
+                warning_count: 1,
+                info_count: 0,
+            },
+            evidence_summary: None,
+        };
+
+        let with_json = format_json(&with_details);
+        let with_parsed: serde_json::Value =
+            serde_json::from_str(&with_json).expect("details JSON should parse");
+        assert!(
+            with_parsed["findings"][0].get("details").is_some(),
+            "expected details in {with_json}",
+        );
+        assert_eq!(with_parsed["findings"][0]["details"]["plugin"], "rust");
+        assert_eq!(
+            with_parsed["findings"][0]["details"]["target_ref"],
+            "auth/req/login#happy-path-login"
+        );
+
+        let without_details = VerificationReport {
+            findings: vec![Finding::new(
+                RuleName::PluginDiscoveryFailure,
+                None,
+                "plugin failed".to_string(),
+                None,
+            )],
+            summary: Summary {
+                total_documents: 1,
+                error_count: 0,
+                warning_count: 1,
+                info_count: 0,
+            },
+            evidence_summary: None,
+        };
+
+        let without_json = format_json(&without_details);
+        assert!(
+            !without_json.contains("\"details\""),
+            "details should be skipped when absent: {without_json}",
+        );
     }
 }
