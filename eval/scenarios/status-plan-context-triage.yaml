@@ -1,0 +1,99 @@
+version: 1
+name: status-plan-context-triage
+description: |
+  Use structured Supersigil status and plan output plus context lookup to
+  identify actionable and blocked login work, then summarize it in a short
+  report file.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a Supersigil project with a small login spec set.
+
+  Your task is to figure out what work is actionable right now and what work is
+  blocked, then write a short report to `notes/actionable.md`.
+
+  Requirements:
+  1. Run `supersigil status --format json` to inspect the project summary.
+  2. Run `supersigil plan auth/req/login --format json` to inspect outstanding work.
+  3. Run `supersigil context auth/req/login` to inspect the requirement details.
+  4. Create `notes/actionable.md` with:
+     - the actionable criterion ref
+     - the actionable task id
+     - the blocked criterion ref
+     - the blocked task id
+     - one sentence explaining that the blocked task depends on task-1-1
+
+  Keep the report short and factual.
+
+template:
+  type: local
+  path: ../templates/status-plan-context-triage
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates the structured CLI workflow around status, plan, and
+  context.
+
+  Focus on:
+  - Whether the agent uses the JSON views to identify the correct actionable and blocked work.
+  - Whether the context lookup helps the agent map the plan output back to the requirement.
+  - Whether the final report reflects the actual CLI state rather than invented structure.
+
+success_criteria:
+  - type: file_exists
+    path: notes/actionable.md
+
+  - type: file_contains
+    path: notes/actionable.md
+    contains: "auth/req/login#valid-creds"
+
+  - type: file_contains
+    path: notes/actionable.md
+    contains: "task-1-1"
+
+  - type: file_contains
+    path: notes/actionable.md
+    contains: "auth/req/login#lockout"
+
+  - type: file_contains
+    path: notes/actionable.md
+    contains: "task-1-2"
+
+  - type: file_contains
+    path: notes/actionable.md
+    contains: "depends on task-1-1"
+
+  - type: supersigil_status_metric
+    command:
+      subcommand: status
+      args_contains: ["--format", "json"]
+    field: targets_total
+    equals: 2
+
+  - type: supersigil_plan_has_actionable
+    command:
+      subcommand: plan
+      args_contains: ["auth/req/login", "--format", "json"]
+    target: auth/req/login#valid-creds
+
+  - type: supersigil_plan_has_blocked
+    command:
+      subcommand: plan
+      args_contains: ["auth/req/login", "--format", "json"]
+    target: auth/req/login#lockout
+
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: status
+        args_contains: ["--format", "json"]
+        exit_code: 0
+      - subcommand: plan
+        args_contains: ["auth/req/login", "--format", "json"]
+        exit_code: 0
+      - subcommand: context
+        args_contains: ["auth/req/login"]
+        exit_code: 0

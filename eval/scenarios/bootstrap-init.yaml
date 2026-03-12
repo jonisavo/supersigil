@@ -1,0 +1,62 @@
+version: 1
+name: bootstrap-init
+description: |
+  Initialize a blank workspace as a Supersigil project, create one
+  requirements document, and leave the result lint-clean.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are starting in an empty workspace with no Supersigil config.
+
+  Create a minimal Supersigil project for an `auth` feature.
+
+  Requirements:
+  1. Initialize the project with `supersigil init`.
+  2. Create one requirements document for the `auth` feature.
+  3. Run `supersigil lint` and leave the workspace in a lint-clean state.
+
+  Do not create extra spec documents that are not needed for this task.
+
+template:
+  type: local
+  path: ../templates/bootstrap-init
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates first-run agent behavior in an empty workspace.
+
+  Focus on:
+  - Whether the agent discovers the correct init -> new -> lint workflow.
+  - Whether the agent uses the built-in `new` command instead of inventing a document.
+  - Whether the final workspace is minimal and lint-clean.
+
+success_criteria:
+  - type: file_exists
+    path: supersigil.toml
+
+  - type: file_exists
+    path: specs/auth/auth.req.mdx
+
+  - type: file_contains
+    path: specs/auth/auth.req.mdx
+    contains: "id: auth/req"
+
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: init
+        exit_code: 0
+      - subcommand: new
+        args_contains: ["requirements", "auth"]
+        exit_code: 0
+      - subcommand: lint
+        exit_code: 0
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: lint
+      occurrence: last
+    equals: 0

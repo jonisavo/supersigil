@@ -1,0 +1,79 @@
+version: 1
+name: verify-remediation
+description: |
+  Use supersigil verify to find a concrete coverage failure, repair it with a
+  focused change, and rerun verify until the report is clean.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a small Supersigil project with one login requirement and
+  one existing test file.
+
+  Your task is to use `supersigil verify --format json` to find the verification
+  problem, repair it with the smallest reasonable change, and rerun verify until
+  it is clean.
+
+  Requirements:
+  1. Run `supersigil verify --format json` before editing files.
+  2. Fix the verification problem without renaming the document id, criterion id,
+     or test file.
+  3. Run `supersigil verify --format json` again after the fix.
+
+template:
+  type: local
+  path: ../templates/verify-remediation
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates whether the agent can use structured verification
+  output to make one focused remediation.
+
+  Focus on:
+  - Whether the first verify run exposes the real missing-evidence problem.
+  - Whether the agent makes the smallest reasonable edit.
+  - Whether the second verify run is clean.
+  - When reproducing Supersigil CLI behavior, prefer the exact binary recorded
+    in `supersigil-binary.txt` when present instead of a PATH-installed
+    `supersigil`.
+  - Transcript stream fields may merge stdout/stderr under some agent wrappers.
+    For the CLI output contract, prefer per-invocation artifacts such as
+    `supersigil-verify-1.json` and `supersigil-verify-1.stderr.txt` when
+    present. Treat `supersigil-verify.json` and `supersigil-verify.stderr.txt`
+    as post-run snapshots of the final workspace state.
+
+success_criteria:
+  - type: supersigil_verify_has_finding
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: first
+    rule: missing_verification_evidence
+    severity: error
+    doc_id: auth/req/login
+    message_contains: happy-path-login
+
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: verify
+        args_contains: ["--format", "json"]
+        exit_code: 1
+      - subcommand: verify
+        args_contains: ["--format", "json"]
+        exit_code: 0
+
+  - type: supersigil_verify_clean
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+    equals: 0

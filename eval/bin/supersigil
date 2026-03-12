@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/../.." && pwd)"
+binary_path="${repo_root}/target/release/supersigil"
+
+cargo build --manifest-path "${repo_root}/Cargo.toml" -p supersigil-cli --release -q
+
+exec "${binary_path}" "$@"

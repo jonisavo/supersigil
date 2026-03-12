@@ -1,0 +1,72 @@
+version: 1
+name: unknown-id-recovery
+description: |
+  Recover from an unknown document lookup by using `supersigil ls` to find the
+  correct ID, then rerun context successfully.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a small Supersigil project with one login requirement.
+
+  A teammate asked you to inspect `auth/req/typo`, but that document ID is not
+  valid. Recover using the supported CLI workflow, then write a short note to
+  `notes/recovery.md`.
+
+  Requirements:
+  1. Run `supersigil context auth/req/typo` first.
+  2. Recover by running `supersigil ls --format json` to find the correct ID.
+  3. Run `supersigil context` again for the correct document using `--format json`.
+  4. Write `notes/recovery.md` with:
+     - the recovered document ID
+     - one exact criterion ref from that document
+
+  Keep the note short and factual.
+
+template:
+  type: local
+  path: ../templates/unknown-id-recovery
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates recovery from a wrong document ID.
+
+  Focus on:
+  - Whether the agent starts with the requested failing lookup.
+  - Whether it uses `supersigil ls` to recover instead of guessing a nearby ID.
+  - Whether the final note contains exact recovered refs from the real document.
+
+success_criteria:
+  - type: file_exists
+    path: notes/recovery.md
+
+  - type: file_contains
+    path: notes/recovery.md
+    contains: "auth/req/login"
+
+  - type: file_contains
+    path: notes/recovery.md
+    contains: "auth/req/login#valid-creds"
+
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: context
+        args_contains: ["auth/req/typo"]
+        exit_code: 1
+      - subcommand: ls
+        args_contains: ["--format", "json"]
+        exit_code: 0
+      - subcommand: context
+        args_contains: ["auth/req/login", "--format", "json"]
+        exit_code: 0
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: context
+      args_contains: ["auth/req/login", "--format", "json"]
+      occurrence: last
+    equals: 0
+

@@ -1,0 +1,63 @@
+version: 1
+name: rust-verifies
+description: |
+  Link an existing Rust test to a Supersigil criterion using the public
+  #[verifies(...)] attribute, then inspect the project with supersigil verify.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a small Rust project that already contains Supersigil specs and
+  an unannotated Rust test.
+
+  Your task is to connect the existing test to the existing Supersigil criterion using
+  the public `#[verifies(...)]` attribute from `supersigil_rust`, then inspect the
+  project with `supersigil verify`.
+
+  Requirements:
+  1. Find the criterion in the spec docs that describes successful login.
+  2. Update `tests/auth_login.rs` so the existing test is annotated with the exact
+     criterion ref using `#[verifies("...")]`.
+  3. Run `supersigil verify --format json` from the project root.
+
+  Do not rename files or change the criterion id.
+
+template:
+  type: local
+  path: ../templates/rust-verifies
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates Supersigil's Rust ecosystem plugin workflow at the source level.
+
+  Focus on:
+  - Whether the agent can discover the correct criterion ref from the specs.
+  - Whether the `#[verifies(...)]` usage is attached to the supported test function.
+  - Whether `supersigil verify` is a natural next step for inspecting the result.
+  - Whether the CLI and project layout make the evidence model understandable.
+
+  Common failure modes:
+  - Using a fragmentless doc ref instead of a criterion ref.
+  - Inventing a criterion id that does not exist in the specs.
+  - Editing the spec id instead of annotating the Rust test.
+  - Running unrelated cargo commands instead of `supersigil verify`.
+
+success_criteria:
+  - type: file_contains
+    path: tests/auth_login.rs
+    contains: '#[verifies("auth/req/login#login-succeeds")]'
+
+  - type: supersigil_verify_clean
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+    equals: 0

@@ -1,0 +1,94 @@
+version: 1
+name: missing-config-recovery
+description: |
+  Recover from a missing Supersigil config by using the CLI hint, initializing
+  the workspace, and rerunning status successfully.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a repository that already contains one Supersigil
+  requirement document, but the project is not initialized yet.
+
+  Your task is to inspect the workspace with `supersigil status --format json`.
+  If Supersigil reports that the config is missing, recover using the supported
+  CLI workflow and rerun status successfully.
+
+  Requirements:
+  1. Run `supersigil status --format json` before editing files.
+  2. Recover using `supersigil init`.
+  3. Run `supersigil status --format json` again after the recovery.
+
+  Do not create extra spec documents or rename the existing requirement file.
+
+template:
+  type: local
+  path: ../templates/missing-config-recovery
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates recovery from the most basic setup error: a workspace
+  with specs but no `supersigil.toml`.
+
+  Focus on:
+  - Whether the agent starts with the requested status inspection.
+  - Whether the agent recovers with `supersigil init` instead of inventing a
+    config by hand.
+  - Whether the final status output reflects the existing requirement doc.
+
+  Common failure modes:
+  - Skipping the initial status attempt and missing the recovery path entirely.
+  - Creating extra documents instead of initializing the workspace.
+  - Recovering the config but not rerunning status.
+
+success_criteria:
+  - type: file_exists
+    path: supersigil.toml
+
+  - type: file_exists
+    path: specs/auth.req.mdx
+
+  - type: file_contains
+    path: specs/auth.req.mdx
+    contains: "id: auth/req/login"
+
+  - type: file_contains
+    path: specs/auth.req.mdx
+    contains: '<Criterion id="login-succeeds">'
+
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: status
+        args_contains: ["--format", "json"]
+        exit_code: 1
+      - subcommand: init
+        exit_code: 0
+      - subcommand: status
+        args_contains: ["--format", "json"]
+        exit_code: 0
+
+  - type: supersigil_status_metric
+    command:
+      subcommand: status
+      args_contains: ["--format", "json"]
+      occurrence: last
+    field: total_documents
+    equals: 1
+
+  - type: supersigil_status_metric
+    command:
+      subcommand: status
+      args_contains: ["--format", "json"]
+      occurrence: last
+    field: targets_total
+    equals: 1
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: status
+      args_contains: ["--format", "json"]
+      occurrence: last
+    equals: 0

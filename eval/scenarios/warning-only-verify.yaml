@@ -1,0 +1,87 @@
+version: 1
+name: warning-only-verify
+description: |
+  Inspect a warning-only verify report without remediating it, and summarize
+  the warning details from structured output.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a Supersigil project where the missing verification
+  evidence rule has been downgraded to a warning.
+
+  Your task is to inspect the warning-only verify report and write a short
+  summary to `notes/verify-summary.md`.
+
+  Requirements:
+  1. Run `supersigil verify --format json`.
+  2. Write `notes/verify-summary.md` with:
+     - the document ID with the warning
+     - the rule name
+     - the finding severity
+     - the summary counts as `0 errors` and `1 warning`
+  3. Do not add verification evidence or create test files.
+
+template:
+  type: local
+  path: ../templates/warning-only-verify
+timeout: 180000
+
+reviewer_context: |
+  This scenario evaluates whether the agent can interpret a non-clean verify
+  report whose only finding has warning severity.
+
+  Focus on:
+  - Whether the agent uses structured verify output.
+  - Whether it distinguishes warning severity from error severity.
+  - Whether it avoids "fixing" the workspace when the task is inspection only.
+
+success_criteria:
+  - type: file_exists
+    path: notes/verify-summary.md
+
+  - type: file_contains
+    path: notes/verify-summary.md
+    contains: "auth/req/login"
+
+  - type: file_contains
+    path: notes/verify-summary.md
+    contains: "missing_verification_evidence"
+
+  - type: file_contains
+    path: notes/verify-summary.md
+    contains: "warning"
+
+  - type: file_contains
+    path: notes/verify-summary.md
+    contains: "0 errors"
+
+  - type: file_contains
+    path: notes/verify-summary.md
+    contains: "1 warning"
+
+  - type: file_not_contains
+    path: specs/auth.req.mdx
+    notContains: "VerifiedBy"
+
+  - type: dir_not_exists
+    path: tests
+
+  - type: supersigil_verify_has_finding
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+    rule: missing_verification_evidence
+    severity: warning
+    doc_id: auth/req/login
+    message_contains: happy-path-login
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+    equals: 2
