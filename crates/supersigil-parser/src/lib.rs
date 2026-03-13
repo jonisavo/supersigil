@@ -6,7 +6,7 @@ mod preprocess;
 
 pub use extract::{extract_components, validate_components};
 pub use frontmatter::{FrontMatterResult, deserialize_front_matter, extract_front_matter};
-pub use preprocess::preprocess;
+pub use preprocess::{normalize, preprocess};
 
 use std::path::Path;
 

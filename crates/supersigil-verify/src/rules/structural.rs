@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use supersigil_core::{ComponentDefs, Config, DocumentGraph, SpecDocument, VERIFIED_BY};
+use supersigil_core::{
+    ComponentDefs, Config, DocumentGraph, EXAMPLE, EXPECTED, SpecDocument, VERIFIED_BY,
+};
 
 use crate::report::{Finding, RuleName};
 use crate::rules::{find_components, has_component};
@@ -190,6 +192,147 @@ fn walk_for_verified_by(
             component_defs,
             findings,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// check_expected_placement
+// ---------------------------------------------------------------------------
+
+/// Check that every `Expected` component is a direct child of an `Example`
+/// component. `Expected` at document root or under any other component is a
+/// structural error.
+pub fn check_expected_placement(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        walk_for_expected_placement(doc_id, &doc.components, None, &mut findings);
+    }
+    findings
+}
+
+fn walk_for_expected_placement(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    parent_name: Option<&str>,
+    findings: &mut Vec<Finding>,
+) {
+    for comp in components {
+        if comp.name == EXPECTED {
+            let parent_is_example = parent_name == Some(EXAMPLE);
+            if !parent_is_example {
+                let context = match parent_name {
+                    Some(name) => format!("under `{name}`"),
+                    None => "at document root".into(),
+                };
+                findings.push(Finding::new(
+                    RuleName::InvalidExpectedPlacement,
+                    Some(doc_id.to_owned()),
+                    format!(
+                        "Expected in `{doc_id}` is placed {context}; \
+                         it must be a direct child of Example"
+                    ),
+                    Some(comp.position),
+                ));
+            }
+        }
+        walk_for_expected_placement(doc_id, &comp.children, Some(&comp.name), findings);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// check_code_block_cardinality
+// ---------------------------------------------------------------------------
+
+/// Check that every `Example` component has exactly one code block, and every
+/// `Expected` component has at most one code block.
+pub fn check_code_block_cardinality(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        walk_for_code_block_cardinality(doc_id, &doc.components, &mut findings);
+    }
+    findings
+}
+
+fn walk_for_code_block_cardinality(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    findings: &mut Vec<Finding>,
+) {
+    for comp in components {
+        if comp.name == EXAMPLE {
+            let count = comp.code_blocks.len();
+            if count != 1 {
+                findings.push(Finding::new(
+                    RuleName::InvalidCodeBlockCardinality,
+                    Some(doc_id.to_owned()),
+                    format!(
+                        "Example in `{doc_id}` has {count} code block(s); \
+                         it must have exactly 1"
+                    ),
+                    Some(comp.position),
+                ));
+            }
+        } else if comp.name == EXPECTED {
+            let count = comp.code_blocks.len();
+            if count > 1 {
+                findings.push(Finding::new(
+                    RuleName::InvalidCodeBlockCardinality,
+                    Some(doc_id.to_owned()),
+                    format!(
+                        "Expected in `{doc_id}` has {count} code block(s); \
+                         it must have at most 1"
+                    ),
+                    Some(comp.position),
+                ));
+            }
+        }
+        walk_for_code_block_cardinality(doc_id, &comp.children, findings);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// check_env_format
+// ---------------------------------------------------------------------------
+
+/// Check that every item in the `env` attribute of `Example` and `Expected`
+/// components contains `=` (i.e. is in `KEY=VALUE` form).
+pub fn check_env_format(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        walk_for_env_format(doc_id, &doc.components, &mut findings);
+    }
+    findings
+}
+
+fn walk_for_env_format(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    findings: &mut Vec<Finding>,
+) {
+    for comp in components {
+        if (comp.name == EXAMPLE || comp.name == EXPECTED)
+            && let Some(env_val) = comp.attributes.get("env")
+        {
+            for item in env_val.split(',') {
+                let item = item.trim();
+                if !item.is_empty() && !item.contains('=') {
+                    findings.push(Finding::new(
+                        RuleName::InvalidEnvFormat,
+                        Some(doc_id.to_owned()),
+                        format!(
+                            "{} in `{doc_id}` has invalid env item `{item}`; \
+                             each item must contain `=`",
+                            comp.name
+                        ),
+                        Some(comp.position),
+                    ));
+                }
+            }
+        }
+        walk_for_env_format(doc_id, &comp.children, findings);
     }
 }
 
@@ -439,6 +582,7 @@ mod tests {
         // works for VerifiedBy under Criterion. We check that the structural rule
         // does NOT flag it, which is the structural side of "still produces evidence".
         let component_defs = supersigil_core::ComponentDefs::defaults();
+
         let docs = [make_doc(
             "req/auth",
             vec![make_acceptance_criteria(
@@ -462,6 +606,7 @@ mod tests {
     fn multiple_verified_by_children_under_one_verifiable_component_are_additive() {
         // Multiple VerifiedBy under one Criterion should all be accepted
         let component_defs = supersigil_core::ComponentDefs::defaults();
+
         let criterion = supersigil_core::ExtractedComponent {
             name: "Criterion".into(),
             attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
@@ -471,6 +616,7 @@ mod tests {
                 make_verified_by_tag("auth:tag2", 13),
             ],
             body_text: Some("criterion req-1".into()),
+            code_blocks: vec![],
             position: pos(10),
         };
         let docs = [make_doc(
@@ -483,5 +629,309 @@ mod tests {
             findings.is_empty(),
             "multiple VerifiedBy under one Criterion should all be valid, got: {findings:?}",
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_expected_placement
+    // -----------------------------------------------------------------------
+
+    fn make_code_block() -> supersigil_core::CodeBlock {
+        supersigil_core::CodeBlock {
+            lang: Some("bash".into()),
+            content: "echo hello".into(),
+            content_offset: 0,
+        }
+    }
+
+    fn make_example(
+        children: Vec<supersigil_core::ExtractedComponent>,
+        line: usize,
+    ) -> supersigil_core::ExtractedComponent {
+        supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::new(),
+            children,
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(line),
+        }
+    }
+
+    fn make_expected(line: usize) -> supersigil_core::ExtractedComponent {
+        supersigil_core::ExtractedComponent {
+            name: "Expected".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![],
+            position: pos(line),
+        }
+    }
+
+    #[test]
+    fn expected_under_example_is_valid() {
+        let expected = make_expected(11);
+        let example = make_example(vec![expected], 10);
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_expected_placement(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Expected under Example should be valid, got: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn expected_at_document_root_is_structural_error() {
+        let expected = make_expected(5);
+        let docs = [make_doc("ex/doc", vec![expected])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_expected_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidExpectedPlacement);
+        assert!(
+            findings[0].message.contains("document root"),
+            "message should mention document root, got: {}",
+            findings[0].message,
+        );
+    }
+
+    #[test]
+    fn expected_under_non_example_component_is_structural_error() {
+        // Expected nested inside AcceptanceCriteria (not Example)
+        let expected = make_expected(11);
+        let ac = make_acceptance_criteria(vec![expected], 9);
+        let docs = [make_doc("ex/doc", vec![ac])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_expected_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidExpectedPlacement);
+        assert!(
+            findings[0].message.contains("AcceptanceCriteria"),
+            "message should mention parent name, got: {}",
+            findings[0].message,
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_code_block_cardinality
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn example_with_exactly_one_code_block_is_valid() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Example with 1 code block should be valid, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn example_with_zero_code_blocks_emits_finding() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidCodeBlockCardinality);
+        assert!(
+            findings[0].message.contains("exactly 1"),
+            "got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn example_with_two_code_blocks_emits_finding() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block(), make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidCodeBlockCardinality);
+    }
+
+    #[test]
+    fn expected_with_zero_code_blocks_is_valid() {
+        let expected = supersigil_core::ExtractedComponent {
+            name: "Expected".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![expected])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Expected with 0 code blocks should be valid, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn expected_with_one_code_block_is_valid() {
+        let expected = supersigil_core::ExtractedComponent {
+            name: "Expected".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![expected])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Expected with 1 code block should be valid, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn expected_with_two_code_blocks_emits_finding() {
+        let expected = supersigil_core::ExtractedComponent {
+            name: "Expected".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block(), make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![expected])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_code_block_cardinality(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidCodeBlockCardinality);
+        assert!(
+            findings[0].message.contains("at most 1"),
+            "got: {}",
+            findings[0].message
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_env_format
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn example_with_valid_env_is_clean() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BAZ=qux".into())]),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_env_format(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "valid env items should not emit findings, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn example_with_env_item_missing_equals_emits_finding() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BADITEM".into())]),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_env_format(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidEnvFormat);
+        assert!(
+            findings[0].message.contains("BADITEM"),
+            "got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn expected_with_env_item_missing_equals_emits_finding() {
+        let expected = supersigil_core::ExtractedComponent {
+            name: "Expected".into(),
+            attributes: std::collections::HashMap::from([("env".into(), "NOEQUALS".into())]),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![expected])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_env_format(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidEnvFormat);
+    }
+
+    #[test]
+    fn component_without_env_attribute_is_clean() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::new(),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_env_format(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "no env attribute should not emit findings, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_invalid_env_items_emit_multiple_findings() {
+        let example = supersigil_core::ExtractedComponent {
+            name: "Example".into(),
+            attributes: std::collections::HashMap::from([(
+                "env".into(),
+                "NOEQ1,NOEQ2,VALID=ok".into(),
+            )]),
+            children: vec![],
+            body_text: None,
+            code_blocks: vec![make_code_block()],
+            position: pos(5),
+        };
+        let docs = [make_doc("ex/doc", vec![example])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_env_format(&doc_refs);
+        assert_eq!(findings.len(), 2);
     }
 }

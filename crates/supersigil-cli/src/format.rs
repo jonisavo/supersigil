@@ -149,9 +149,9 @@ impl ColorConfig {
 pub enum ExitStatus {
     /// Exit code 0.
     Success,
-    /// Exit code 1 — findings already printed (no extra error message).
+    /// Exit code 1: findings already printed (no extra error message).
     VerifyFailed,
-    /// Exit code 2 — warnings only.
+    /// Exit code 2: warnings only.
     VerifyWarnings,
 }
 

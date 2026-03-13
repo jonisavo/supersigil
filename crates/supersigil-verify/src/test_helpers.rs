@@ -82,6 +82,7 @@ pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![],
         body_text: Some(format!("criterion {id}")),
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -95,6 +96,7 @@ pub fn make_acceptance_criteria(
         attributes: HashMap::new(),
         children,
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -105,6 +107,7 @@ pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -118,6 +121,7 @@ pub fn make_verified_by_tag(tag: &str, line: usize) -> ExtractedComponent {
         ]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -131,6 +135,7 @@ pub fn make_verified_by_glob(paths: &str, line: usize) -> ExtractedComponent {
         ]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -145,6 +150,7 @@ pub fn make_criterion_with_verified_by(
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![verified_by],
         body_text: Some(format!("criterion {id}")),
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -155,6 +161,7 @@ pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("paths".into(), paths.into())]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -165,6 +172,7 @@ pub fn make_implements(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }
@@ -175,6 +183,7 @@ pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
+        code_blocks: vec![],
         position: pos(line),
     }
 }

@@ -4,7 +4,9 @@
 //               15.1-15.2, 16.1-16.3, 17.1-17.4, 18.1-18.2, 19.1-19.5, 24.1
 
 use serde::Deserialize;
-use supersigil_core::{Config, EcosystemConfig, HooksConfig, Severity, VerifyConfig};
+use supersigil_core::{
+    Config, EcosystemConfig, ExamplesConfig, HooksConfig, Severity, VerifyConfig,
+};
 
 // ---------------------------------------------------------------------------
 // Minimal config (Req 24)
@@ -1139,4 +1141,88 @@ fn rust_ecosystem_config_default_values() {
     let default_config = RustEcosystemConfig::default();
     assert_eq!(default_config.validation, RustValidationPolicy::Dev);
     assert!(default_config.project_scope.is_empty());
+}
+
+// ===========================================================================
+// Task 2: ExamplesConfig and RunnerConfig tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Default values: timeout=30, parallelism=1, empty runners
+// ---------------------------------------------------------------------------
+
+#[test]
+fn examples_config_defaults() {
+    let config = ExamplesConfig::default();
+    assert_eq!(config.timeout, 30);
+    assert_eq!(config.parallelism, 1);
+    assert!(config.runners.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 2. Custom values via TOML parsing
+// ---------------------------------------------------------------------------
+
+#[test]
+fn examples_config_custom_values() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[examples]
+timeout = 60
+parallelism = 4
+
+[examples.runners.python]
+command = "python3 {file}"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.examples.timeout, 60);
+    assert_eq!(config.examples.parallelism, 4);
+    assert_eq!(config.examples.runners.len(), 1);
+    assert_eq!(config.examples.runners["python"].command, "python3 {file}");
+}
+
+// ---------------------------------------------------------------------------
+// 3. Invalid placeholder produces ConfigError
+// ---------------------------------------------------------------------------
+
+#[test]
+fn examples_config_invalid_placeholder() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[examples.runners.python]
+command = "python3 {invalid}"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter().any(
+            |e| matches!(e, ConfigError::InvalidRunnerPlaceholder { runner, placeholder } if runner == "python" && placeholder == "{invalid}")
+        ),
+        "expected InvalidRunnerPlaceholder error, got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4. Valid placeholders accepted
+// ---------------------------------------------------------------------------
+
+#[test]
+fn examples_config_valid_placeholders() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.mdx"]
+
+[examples.runners.python]
+command = "python3 {file} --dir {dir} --lang {lang} --name {name}"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    assert_eq!(config.examples.runners.len(), 1);
+    assert_eq!(
+        config.examples.runners["python"].command,
+        "python3 {file} --dir {dir} --lang {lang} --name {name}"
+    );
 }

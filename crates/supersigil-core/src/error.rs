@@ -86,6 +86,10 @@ pub enum ConfigError {
     InvalidIdPattern { pattern: String, message: String },
     #[error("unknown ecosystem plugin: `{plugin}`")]
     UnknownPlugin { plugin: String },
+    #[error(
+        "runner `{runner}` has invalid placeholder `{placeholder}` (valid: {{file}}, {{dir}}, {{lang}}, {{name}})"
+    )]
+    InvalidRunnerPlaceholder { runner: String, placeholder: String },
 }
 
 // ---------------------------------------------------------------------------

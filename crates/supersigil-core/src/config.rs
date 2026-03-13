@@ -178,6 +178,53 @@ impl Default for EcosystemConfig {
 }
 
 // ---------------------------------------------------------------------------
+// RunnerConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration for a single example runner.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerConfig {
+    pub command: String,
+}
+
+// ---------------------------------------------------------------------------
+// ExamplesConfig
+// ---------------------------------------------------------------------------
+
+const DEFAULT_EXAMPLE_TIMEOUT: u64 = 30;
+
+fn default_example_timeout() -> u64 {
+    DEFAULT_EXAMPLE_TIMEOUT
+}
+
+fn default_parallelism() -> usize {
+    1
+}
+
+/// Configuration for executable examples.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExamplesConfig {
+    #[serde(default = "default_example_timeout")]
+    pub timeout: u64,
+    #[serde(default = "default_parallelism")]
+    pub parallelism: usize,
+    #[serde(default)]
+    pub runners: HashMap<String, RunnerConfig>,
+}
+
+impl Default for ExamplesConfig {
+    fn default() -> Self {
+        Self {
+            timeout: default_example_timeout(),
+            parallelism: default_parallelism(),
+            runners: HashMap::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // HooksConfig
 // ---------------------------------------------------------------------------
 
@@ -281,6 +328,9 @@ pub struct Config {
     /// Test results configuration.
     #[serde(default)]
     pub test_results: TestResultsConfig,
+    /// Executable examples configuration.
+    #[serde(default)]
+    pub examples: ExamplesConfig,
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +357,10 @@ pub const KNOWN_RULES: &[&str] = &[
     "status_inconsistency",
     "missing_required_component",
     "invalid_verified_by_placement",
+    "invalid_expected_placement",
+    "invalid_code_block_cardinality",
+    "invalid_env_format",
+    "example_failed",
     "plugin_discovery_failure",
     "plugin_discovery_warning",
 ];
@@ -327,6 +381,10 @@ pub const KNOWN_RULES: &[&str] = &[
 /// # Errors
 ///
 /// Returns `Vec<ConfigError>` containing all detected errors.
+#[allow(
+    clippy::missing_panics_doc,
+    reason = "regex literals are compile-time known-valid"
+)]
 pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
     let path = path.as_ref();
     let content = std::fs::read_to_string(path).map_err(|e| {
@@ -392,6 +450,21 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
             pattern: pattern.clone(),
             message: e.to_string(),
         });
+    }
+
+    // Runner placeholder validation
+    let valid_placeholders = ["{file}", "{dir}", "{lang}", "{name}"];
+    let placeholder_re = regex::Regex::new(r"\{(\w+)\}").expect("valid regex");
+    for (name, runner) in &config.examples.runners {
+        for cap in placeholder_re.captures_iter(&runner.command) {
+            let placeholder = cap.get(0).expect("group 0 always exists").as_str();
+            if !valid_placeholders.contains(&placeholder) {
+                errors.push(ConfigError::InvalidRunnerPlaceholder {
+                    runner: name.clone(),
+                    placeholder: placeholder.to_string(),
+                });
+            }
+        }
     }
 
     if errors.is_empty() {

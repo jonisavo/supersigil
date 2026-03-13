@@ -1,5 +1,6 @@
 pub mod affected;
 pub mod context;
+pub mod examples;
 pub mod graph;
 pub mod import;
 pub mod init;
@@ -49,6 +50,8 @@ pub enum Command {
     New(NewArgs),
     /// List criterion refs in the project
     Refs(RefsArgs),
+    /// List executable examples in the spec
+    Examples(ExamplesArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -137,6 +140,10 @@ pub enum VerifyFormat {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "CLI flags map naturally to independent boolean options"
+)]
 pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
     #[arg(long)]
@@ -153,6 +160,12 @@ pub struct VerifyArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: VerifyFormat,
+    /// Skip example execution
+    #[arg(long)]
+    pub skip_examples: bool,
+    /// Update snapshot expectations with actual output
+    #[arg(long)]
+    pub update_snapshots: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -209,6 +222,15 @@ pub struct RefsArgs {
     /// Show all criterion refs (no context scoping)
     #[arg(long)]
     pub all: bool,
+    /// Output format
+    #[arg(long, default_value = "terminal")]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ExamplesArgs {
+    /// Filter by document ID prefix
+    pub prefix: Option<String>,
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,

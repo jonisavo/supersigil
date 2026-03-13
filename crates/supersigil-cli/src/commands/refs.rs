@@ -45,7 +45,7 @@ fn cwd_matches_glob(cwd: &Path, project_root: &Path, glob_str: &str) -> bool {
 
     let prefix = glob_prefix(glob_str);
     if prefix.is_empty() {
-        // Glob like `**/*.rs` — the prefix is the project root itself.
+        // Glob like `**/*.rs`: the prefix is the project root itself.
         // Any cwd inside the project matches.
         return true;
     }

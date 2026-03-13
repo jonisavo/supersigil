@@ -696,12 +696,15 @@ mod tests {
                         ]),
                         children: vec![],
                         body_text: None,
+                        code_blocks: vec![],
                         position: pos(11),
                     }],
                     body_text: Some("criterion crit-1".into()),
+                    code_blocks: vec![],
                     position: pos(10),
                 }],
                 body_text: None,
+                code_blocks: vec![],
                 position: pos(9),
             }],
         }
@@ -721,6 +724,7 @@ mod tests {
                 attributes: HashMap::from([("refs".into(), "req/auth#crit-1".into())]),
                 children: vec![],
                 body_text: None,
+                code_blocks: vec![],
                 position: pos(5),
             }],
         }

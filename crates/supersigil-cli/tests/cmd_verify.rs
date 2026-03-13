@@ -42,6 +42,26 @@ fn write_requirement_for_plugin_evidence(root: &Path) {
     );
 }
 
+fn write_requirement_with_shared_file_glob_evidence(root: &Path) {
+    common::write_mdx(
+        root,
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="ac-1">
+    Must log in
+    <VerifiedBy strategy="file-glob" paths="tests/auth_test.rs" />
+  </Criterion>
+  <Criterion id="ac-2">
+    Must keep the session alive
+    <VerifiedBy strategy="file-glob" paths="tests/auth_test.rs" />
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+}
+
 fn setup_plugin_failure_fixture(root: &Path) {
     common::setup_project_with_rust_plugin_and_tests(root, "tests/**/*.rs", "");
     write_requirement_with_explicit_evidence(root);
@@ -81,6 +101,138 @@ fn setup_missing_evidence_fixture(root: &Path) {
         "#[test]\nfn login_succeeds() {}\n",
     )
     .unwrap();
+}
+
+fn setup_shared_file_glob_fixture(root: &Path) {
+    write_config(
+        root,
+        r#"paths = ["specs/**/*.mdx"]
+tests = ["tests/**/*.rs"]
+
+[ecosystem]
+plugins = []
+"#,
+    );
+    write_requirement_with_shared_file_glob_evidence(root);
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("tests/auth_test.rs"),
+        "# shared authored evidence\n",
+    )
+    .unwrap();
+}
+
+fn setup_clean_example_fixture(root: &Path) {
+    common::setup_project(root);
+    common::write_mdx(
+        root,
+        "specs/examples.mdx",
+        "examples/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="examples-1">cargo-test examples run during verify</Criterion>
+</AcceptanceCriteria>
+
+<Example
+  id="cargo-pass"
+  lang="rust"
+  runner="cargo-test"
+  verifies="examples/req#examples-1"
+>
+
+```rust
+#[test]
+fn cargo_pass() {
+    println!("cargo-test-pass");
+}
+```
+
+<Expected status="0" contains="cargo-test-pass" />
+</Example>"#,
+    );
+}
+
+fn setup_failing_example_fixture(root: &Path) {
+    common::setup_project(root);
+    common::write_mdx(
+        root,
+        "specs/examples.mdx",
+        "examples/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="examples-1">cargo-test examples run during verify</Criterion>
+</AcceptanceCriteria>
+
+<Example
+  id="cargo-pass"
+  lang="rust"
+  runner="cargo-test"
+  verifies="examples/req#examples-1"
+>
+
+```rust
+#[test]
+fn cargo_pass() {
+    println!("cargo-test-pass");
+}
+```
+
+<Expected status="0" contains="cargo-test-pass" />
+</Example>
+
+<Example
+  id="cargo-fail"
+  lang="rust"
+  runner="cargo-test"
+  verifies="examples/req#examples-1"
+>
+
+```rust
+#[test]
+fn cargo_fail() {
+    assert_eq!(1, 2);
+}
+```
+
+<Expected status="0" />
+</Example>"#,
+    );
+}
+
+fn setup_non_blocking_failing_example_fixture(root: &Path) {
+    common::setup_project(root);
+    common::write_mdx(
+        root,
+        "specs/examples.mdx",
+        "examples/req",
+        Some("requirements"),
+        Some("draft"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="examples-1">draft examples can fail without blocking verify</Criterion>
+</AcceptanceCriteria>
+
+<Example
+  id="body-mismatch"
+  lang="sh"
+  runner="sh"
+  verifies="examples/req#examples-1"
+>
+
+```sh
+printf 'line1\nline2\n'
+```
+
+<Expected status="0" format="regex">
+
+```regex
+expected-output
+```
+
+</Expected>
+</Example>"#,
+    );
 }
 
 #[test]
@@ -151,6 +303,12 @@ fn verify_json_surfaces_partial_plugin_warning_and_preserves_evidence() {
         }),
         "expected plugin-derived evidence in report summary, got: {report}",
     );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "json verify output should not emit human-readable stderr, got: {stderr}",
+    );
 }
 
 #[test]
@@ -174,28 +332,8 @@ fn verify_missing_evidence_prints_concrete_remediation_hints() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("supersigil refs"),
-        "missing-evidence runs should point users at criterion-ref discovery, got: {stderr}",
-    );
-    assert!(
-        stderr.contains("#[verifies(\"doc#criterion\")]"),
-        "Rust-native evidence guidance should mention verifies syntax, got: {stderr}",
-    );
-    assert!(
-        stderr.contains("<VerifiedBy strategy=\"file-glob\""),
-        "authored evidence guidance should mention VerifiedBy, got: {stderr}",
-    );
-    assert!(
-        stderr.contains("paths=\"path/to/test-file.rs\""),
-        "authored evidence guidance should use a schematic string-literal path example, got: {stderr}",
-    );
-    assert!(
-        !stderr.contains("paths={["),
-        "authored evidence guidance should not use expression syntax, got: {stderr}",
-    );
-    assert!(
-        !stderr.contains("Run `supersigil plan` to see outstanding work."),
-        "missing-evidence remediation should avoid the generic plan hint, got: {stderr}",
+        stderr.is_empty(),
+        "json verify output should not emit human-readable stderr, got: {stderr}",
     );
 }
 
@@ -228,6 +366,37 @@ fn verify_json_plugin_failure_includes_structured_details() {
             .as_str()
             .is_some_and(|value| value.contains("#[verifies(\"doc#criterion\")]")),
         "expected a structured remediation suggestion, got: {finding}",
+    );
+}
+
+#[test]
+fn verify_json_shared_file_glob_evidence_does_not_surface_conflicts() {
+    let tmp = TempDir::new().unwrap();
+    setup_shared_file_glob_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shared file-glob evidence should not downgrade verify to warnings: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(report["summary"]["warning_count"], 0);
+    assert!(
+        !report["findings"]
+            .as_array()
+            .expect("findings should be an array")
+            .iter()
+            .any(|finding| finding["rule"] == "plugin_discovery_failure"),
+        "shared file-glob evidence should not surface conflict warnings, got: {report}",
     );
 }
 
@@ -275,12 +444,8 @@ plugins = []
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("verified, no findings"),
-        "clean verify run should still report its clean summary, got: {stderr}",
-    );
-    assert!(
-        !stderr.contains("plugin"),
-        "plugin diagnostics should stay absent when plugins are disabled, got: {stderr}",
+        stderr.is_empty(),
+        "json verify output should not emit human-readable stderr, got: {stderr}",
     );
 }
 
@@ -334,4 +499,142 @@ plugins = ["python"]
         .failure()
         .stderr(predicate::str::contains("unknown ecosystem plugin"))
         .stderr(predicate::str::contains("python"));
+}
+
+#[test]
+fn verify_terminal_reports_example_pass_counts_on_clean_run() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .arg("verify")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Executing 1 example"),
+        "terminal verify output should announce example execution, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-pass"),
+        "terminal verify output should name the example being executed, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-pass (cargo-test) passed"),
+        "terminal verify output should show the example completion status, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("Examples"),
+        "terminal verify output should include an Examples section when examples run, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "terminal verify output should report passing example counts, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("Clean"),
+        "clean verify output should still include the clean summary, got: {stdout}",
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "terminal verify output should not emit an extra clean summary to stderr, got: {stderr}",
+    );
+}
+
+#[test]
+fn verify_terminal_reports_failed_examples_after_summary() {
+    let tmp = TempDir::new().unwrap();
+    setup_failing_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .arg("verify")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Executing 2 examples"),
+        "terminal verify output should announce example execution, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-pass") && stdout.contains("cargo-fail"),
+        "terminal verify output should name each example as it executes, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-pass (cargo-test) passed"),
+        "terminal verify output should show passing example completion status, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-fail (cargo-test) failed"),
+        "terminal verify output should show failing example completion status, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("Examples"),
+        "terminal verify output should include an Examples section when examples run, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "terminal verify output should report passing example counts, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("1 failed"),
+        "terminal verify output should report failing example counts, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-fail"),
+        "terminal verify output should list failed examples by id, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("cargo-test"),
+        "terminal verify output should mention the failed example runner, got: {stdout}",
+    );
+}
+
+#[test]
+fn verify_terminal_non_blocking_failed_examples_stay_readable() {
+    let tmp = TempDir::new().unwrap();
+    setup_non_blocking_failing_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .arg("verify")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("body-mismatch"),
+        "terminal verify output should list the failing example id, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("expected:"),
+        "terminal verify output should show a readable expected block for failed examples, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("actual:"),
+        "terminal verify output should show a readable actual block for failed examples, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("line1") && stdout.contains("line2"),
+        "terminal verify output should render multiline actual output instead of escaping it, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("No blocking findings"),
+        "terminal verify output should explain that draft-only failures are non-blocking, got: {stdout}",
+    );
+    assert!(
+        !stdout.contains("Clean — no findings"),
+        "terminal verify output should not claim there were no findings when examples failed, got: {stdout}",
+    );
 }

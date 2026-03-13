@@ -18,8 +18,9 @@ green before moving on.
   Add core types and component definitions. Register `Example` and
   `Expected` as built-in components in `component_defs.rs` with the
   attribute sets, referenceable/verifiable flags, and `references` edge
-  semantics from the design. Add `CodeBlock` (with `content_offset`) to
-  `types.rs`. Add `EvidenceKind::Example` to `supersigil-evidence`.
+  semantics from the design, including optional `lang` derivation from
+  the first fenced code block. Add `CodeBlock` (with `content_offset`)
+  to `types.rs`. Add `EvidenceKind::Example` to `supersigil-evidence`.
 </Task>
 
 <Task id="task-2" status="ready" implements="executable-examples/req#req-6-1, executable-examples/req#req-6-2, executable-examples/req#req-6-3">
@@ -81,13 +82,14 @@ green before moving on.
   evidence into the `ArtifactGraph`.
 </Task>
 
-<Task id="task-9" status="ready" depends="task-4, task-8" implements="executable-examples/req#req-4-1, executable-examples/req#req-4-4, executable-examples/req#req-4-6">
+<Task id="task-9" status="ready" depends="task-4, task-8" implements="executable-examples/req#req-4-1, executable-examples/req#req-4-4, executable-examples/req#req-4-6, executable-examples/req#req-4-7">
   Wire up the two-phase verify pipeline in the CLI. Orchestrate:
   `build_evidence()` → `verify_structural()` → structural-error gate →
   `execute_examples()` → `merge_example_evidence()` → `verify_coverage()`
   → assemble interim report → `run_hooks()` → final report. On
   structural errors, skip examples, run coverage against the Phase-1 AG,
-  and note the skip in the report.
+  and note the skip in the report. Render live example progress on TTYs
+  and append-only progress output on non-TTY terminals.
 </Task>
 
 <Task id="task-10" status="ready" depends="task-3, task-6, task-9" implements="executable-examples/req#req-3-4, executable-examples/req#req-4-5">
@@ -111,12 +113,12 @@ green before moving on.
   concurrent writes to the same MDX file.
 </Task>
 
-<Task id="task-13" status="ready" depends="task-9, task-11" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-4-1, executable-examples/req#req-5-1, executable-examples/req#req-5-3">
+<Task id="task-13" status="ready" depends="task-9, task-11" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-4-1, executable-examples/req#req-5-1, executable-examples/req#req-5-3">
   Add self-referential executable examples to supersigil specs. Use the
-  `sh` runner to exercise the feature against fixture projects: verify
-  that `supersigil lint` accepts Example/Expected components, that
-  `supersigil examples --format json` discovers them, and that
-  `supersigil verify` runs examples and reports results. Place these
-  examples in the `executable-examples/req` spec where they can verify
-  their own criteria.
+  `sh` and `cargo-test` runners to exercise the feature against fixture
+  projects: verify that `supersigil lint` accepts Example/Expected
+  components, that `supersigil examples --format json` discovers them,
+  and that `supersigil verify` runs examples and reports results. Place
+  these examples in the `executable-examples/req` spec where they can
+  verify their own criteria.
 </Task>

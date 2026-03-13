@@ -18,17 +18,19 @@ serde_json.workspace = true
 supersigil-core.workspace = true
 supersigil-evidence.workspace = true
 thiserror.workspace = true
+ureq.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [features]
-test-helpers = ["dep:tempfile"]
+test-helpers = []
 
 [dependencies.tempfile]
 workspace = true
-optional = true
 
 [dev-dependencies]
 proptest.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

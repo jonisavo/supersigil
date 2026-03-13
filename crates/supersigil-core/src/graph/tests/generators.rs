@@ -232,6 +232,7 @@ pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children: Vec::new(),
         body_text: Some(format!("criterion {id}")),
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }
@@ -246,6 +247,7 @@ pub fn make_acceptance_criteria(
         attributes: HashMap::new(),
         children,
         body_text: None,
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }
@@ -257,6 +259,7 @@ pub fn make_refs_component(name: &str, refs: &str, line: usize) -> ExtractedComp
         attributes: HashMap::from([("refs".to_owned(), refs.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }
@@ -284,6 +287,7 @@ pub fn make_task(
         attributes,
         children: Vec::new(),
         body_text: Some(format!("task {id}")),
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }
@@ -295,6 +299,7 @@ pub fn make_tracked_files_component(paths: &str, line: usize) -> ExtractedCompon
         attributes: HashMap::from([("paths".to_owned(), paths.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }

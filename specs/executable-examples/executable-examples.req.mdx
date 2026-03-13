@@ -70,8 +70,10 @@ co-located with the criteria they verify.
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
     THE parser SHALL recognize `Example` as a built-in component with
-    required attributes `id`, `lang`, and `runner`, and optional
-    attributes `verifies`, `references`, `timeout`, `env`, and `setup`.
+    required attributes `id` and `runner`, and optional attributes
+    `lang`, `verifies`, `references`, `timeout`, `env`, and `setup`.
+    IF `lang` is omitted, the executor SHALL derive it from the first
+    fenced code block on the example.
   </Criterion>
 
   <Criterion id="req-1-2">
@@ -261,6 +263,24 @@ as structural verification.
     merged to produce the final report, preserving the existing hook
     contract from `verification-engine/req` (req-7-3).
   </Criterion>
+
+  <Criterion id="req-4-7">
+    WHEN `supersigil verify` writes terminal output to a TTY while
+    examples are executing, it SHALL render live per-example progress
+    with a spinner for running examples and an aggregate completion
+    count. WHEN terminal output is not a TTY, it SHALL emit append-only
+    progress lines instead of live redraws.
+  </Criterion>
+
+  <Criterion id="req-4-8">
+    Example findings SHALL participate in the existing severity
+    resolution chain: draft gating, per-rule overrides, global
+    strictness, and built-in defaults. WHEN draft gating or
+    configuration downgrades findings from error or warning to info,
+    the terminal output SHALL include a hint stating the number of
+    downgraded findings and the reason, so that users are not surprised
+    by a clean exit status despite visible example failures.
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 5: Examples Discovery Command
@@ -309,7 +329,9 @@ my project's tooling.
 
   <Criterion id="req-6-3">
     RUNNER command templates SHALL support `{file}`, `{dir}`, `{lang}`,
-    and `{name}` placeholders interpolated by the executor.
+    and `{name}` placeholders interpolated by the executor. `{lang}`
+    SHALL use the explicit `lang` attribute when present and the
+    derived code-block language otherwise.
   </Criterion>
 
   <Criterion id="req-6-4">
@@ -320,3 +342,177 @@ my project's tooling.
     writes to the same MDX file.
   </Criterion>
 </AcceptanceCriteria>
+
+## Self-Verification
+
+These examples exercise the feature against a fixture project in
+`tests/fixtures/example-project`.
+
+<Example
+  id="fixture-lint"
+  lang="sh"
+  runner="sh"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-1-1, executable-examples/req#req-1-2"
+>
+
+```sh
+cd fixture
+cargo run -q -p supersigil-cli -- lint
+```
+
+<Expected status="0" contains="no errors" />
+</Example>
+
+<Example
+  id="fixture-examples-json"
+  lang="sh"
+  runner="sh"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-5-1, executable-examples/req#req-5-3"
+>
+
+```sh
+cd fixture
+cargo run -q -p supersigil-cli -- examples --format json
+```
+
+<Expected status="0" format="json">
+
+```json
+[
+  {
+    "doc_id": "demo/req",
+    "example_id": "echo-test",
+    "lang": "sh",
+    "runner": "sh",
+    "has_expected": true,
+    "verifies": ["demo/req#demo-1"]
+  },
+  {
+    "doc_id": "demo/req",
+    "example_id": "rust-test",
+    "lang": "rust",
+    "runner": "cargo-test",
+    "has_expected": true,
+    "verifies": ["demo/req#demo-1"]
+  }
+]
+```
+
+</Expected>
+</Example>
+
+<Example
+  id="fixture-cargo-test-examples-json"
+  lang="rust"
+  runner="cargo-test"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-5-1, executable-examples/req#req-5-3"
+>
+
+```rust
+use std::process::Command;
+
+#[test]
+fn fixture_examples_json_from_rust() {
+    let output = Command::new("cargo")
+        .args(["run", "-q", "-p", "supersigil-cli", "--", "examples", "--format", "json"])
+        .current_dir("fixture")
+        .output()
+        .expect("run supersigil examples");
+
+    assert!(
+        output.status.success(),
+        "examples command failed: {:?}",
+        output.status,
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    println!("{stdout}");
+    assert!(
+        stdout.contains("\"example_id\": \"echo-test\"")
+            && stdout.contains("\"example_id\": \"rust-test\"")
+            && stdout.contains("\"lang\": \"rust\""),
+        "stdout did not include fixture example metadata: {stdout}",
+    );
+}
+```
+
+<Expected status="0" contains="rust-test" />
+</Example>
+
+<Example
+  id="fixture-cargo-test-verify"
+  lang="rust"
+  runner="cargo-test"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-4-1"
+>
+
+```rust
+use std::process::Command;
+
+#[test]
+fn fixture_verify_from_rust() {
+    let output = Command::new("cargo")
+        .args(["run", "-q", "-p", "supersigil-cli", "--", "verify", "--format", "json"])
+        .current_dir("fixture")
+        .output()
+        .expect("run supersigil verify");
+
+    assert!(
+        output.status.success(),
+        "verify command failed: {:?}",
+        output.status,
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    println!("{stdout}");
+    assert!(
+        stdout.contains("\"evidence_summary\""),
+        "stdout did not include evidence summary: {stdout}",
+    );
+}
+```
+
+<Expected status="0" contains="evidence_summary" />
+</Example>
+
+<Example
+  id="fixture-verify-terminal"
+  lang="sh"
+  runner="sh"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-3-3, executable-examples/req#req-4-1"
+>
+
+```sh
+cd fixture
+cargo run -q -p supersigil-cli -- verify
+```
+
+<Expected status="0" format="regex">
+
+```regex
+(?s).*Executing 2 examples:.*demo/req::echo-test.*demo/req::rust-test.*Examples: 2 passed.*
+```
+
+</Expected>
+</Example>
+
+<Example
+  id="fixture-verify"
+  lang="sh"
+  runner="sh"
+  setup="tests/fixtures/example-project/setup-workspace-links.sh"
+  verifies="executable-examples/req#req-4-1"
+>
+
+```sh
+cd fixture
+cargo run -q -p supersigil-cli -- verify --format json
+```
+
+<Expected status="0" contains="evidence_summary" />
+</Example>

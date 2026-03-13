@@ -130,6 +130,7 @@ fn evidence_kind_as_str() {
     assert_eq!(EvidenceKind::Tag.as_str(), "tag");
     assert_eq!(EvidenceKind::FileGlob.as_str(), "file-glob");
     assert_eq!(EvidenceKind::RustAttribute.as_str(), "rust-attribute");
+    assert_eq!(EvidenceKind::Example.as_str(), "example");
 }
 
 // ===========================================================================

@@ -3,6 +3,7 @@
 pub mod affected;
 pub mod artifact_graph;
 mod error;
+pub mod examples;
 pub mod explicit_evidence;
 pub mod git;
 pub mod hooks;
@@ -41,28 +42,9 @@ pub struct VerifyOptions {
     pub use_merge_base: bool,
 }
 
-/// Run the full verification pipeline.
-///
-/// Collects findings from all built-in rules, resolves severities, filters
-/// out `Off` findings, and builds a summary report.
-///
-/// Evidence-aware rules (such as `missing_verification_evidence`) consult the
-/// `artifact_graph` to check for merged evidence before emitting findings.
-/// Pass [`ArtifactGraph::empty`] when no evidence sources are available.
-///
-/// # Errors
-///
-/// Returns [`VerifyError`] if an underlying I/O or git operation fails
-/// fatally (most git errors are handled gracefully within individual rules).
-pub fn verify(
-    graph: &DocumentGraph,
-    config: &Config,
-    project_root: &Path,
-    options: &VerifyOptions,
-    artifact_graph: &ArtifactGraph<'_>,
-) -> Result<VerificationReport, VerifyError> {
-    // 1. Collect doc IDs (filter by project if specified)
-    let doc_ids: Vec<String> = if let Some(project) = &options.project {
+/// Collect document IDs, optionally filtered by project.
+fn collect_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<String> {
+    if let Some(project) = &options.project {
         graph
             .documents()
             .filter(|(id, _)| graph.doc_project(id) == Some(project.as_str()))
@@ -70,19 +52,37 @@ pub fn verify(
             .collect()
     } else {
         graph.documents().map(|(id, _)| id.to_owned()).collect()
-    };
+    }
+}
 
-    // Collect SpecDocument refs for rules that need document details
+/// Run all structural verification rules (everything except coverage and hooks).
+///
+/// Returns raw findings without severity resolution or filtering. The caller is
+/// responsible for resolving severities, running hooks, and filtering `Off`
+/// findings.
+///
+/// Rules included:
+/// - test mapping (`file_globs`, `tags`)
+/// - tracked files (`empty_globs`, `staleness`)
+/// - structural (`required_components`, `id_pattern`, `isolated`, `orphan_tags`,
+///   `verified_by_placement`)
+/// - status
+///
+/// # Errors
+///
+/// Returns [`VerifyError`] if an underlying I/O or git operation fails.
+pub fn verify_structural(
+    graph: &DocumentGraph,
+    config: &Config,
+    project_root: &Path,
+    options: &VerifyOptions,
+    _artifact_graph: &ArtifactGraph<'_>,
+) -> Result<Vec<Finding>, VerifyError> {
+    let doc_ids = collect_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
-
-    // 2. Resolve test file paths from config
     let test_files = resolve_test_files(config, project_root);
 
-    // 3. Run all rules
     let mut findings = Vec::new();
-
-    // Coverage
-    findings.extend(rules::coverage::check(graph, artifact_graph));
 
     // Test mapping
     findings.extend(rules::tests_rule::check_file_globs(&docs, project_root));
@@ -126,19 +126,67 @@ pub fn verify(
         &docs,
         &component_defs,
     ));
+    findings.extend(rules::structural::check_expected_placement(&docs));
+    findings.extend(rules::structural::check_code_block_cardinality(&docs));
+    findings.extend(rules::structural::check_env_format(&docs));
 
     // Status
     findings.extend(rules::status::check(graph));
 
-    // 4. Filter to project scope
+    // Filter to project scope
     if options.project.is_some() {
         findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
     }
 
-    // 5. Attach owning spec paths for doc-backed findings
+    // Attach owning spec paths for doc-backed findings
     attach_doc_paths(&mut findings, graph);
 
-    // 6. Resolve severities
+    Ok(findings)
+}
+
+/// Run only the coverage verification rule.
+///
+/// Returns raw findings without severity resolution or filtering.
+#[must_use]
+pub fn verify_coverage(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<Finding> {
+    rules::coverage::check(graph, artifact_graph)
+}
+
+/// Run the full verification pipeline.
+///
+/// Collects findings from all built-in rules, resolves severities, filters
+/// out `Off` findings, and builds a summary report.
+///
+/// Evidence-aware rules (such as `missing_verification_evidence`) consult the
+/// `artifact_graph` to check for merged evidence before emitting findings.
+/// Pass [`ArtifactGraph::empty`] when no evidence sources are available.
+///
+/// # Errors
+///
+/// Returns [`VerifyError`] if an underlying I/O or git operation fails
+/// fatally (most git errors are handled gracefully within individual rules).
+pub fn verify(
+    graph: &DocumentGraph,
+    config: &Config,
+    project_root: &Path,
+    options: &VerifyOptions,
+    artifact_graph: &ArtifactGraph<'_>,
+) -> Result<VerificationReport, VerifyError> {
+    let doc_ids = collect_doc_ids(graph, options);
+
+    // Run structural rules and coverage rules
+    let mut findings = verify_structural(graph, config, project_root, options, artifact_graph)?;
+    let mut coverage_findings = verify_coverage(graph, artifact_graph);
+
+    // Filter coverage findings to project scope and attach doc paths
+    if options.project.is_some() {
+        coverage_findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
+    }
+    attach_doc_paths(&mut coverage_findings, graph);
+
+    findings.extend(coverage_findings);
+
+    // Resolve severities
     for finding in &mut findings {
         let doc_status = finding
             .doc_id
@@ -148,7 +196,7 @@ pub fn verify(
         finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
     }
 
-    // 7. Run post-verify hooks (if any)
+    // Run post-verify hooks (if any)
     if !config.hooks.post_verify.is_empty() {
         let interim = VerificationReport {
             findings: findings.clone(),
@@ -163,10 +211,10 @@ pub fn verify(
         ));
     }
 
-    // 8. Filter out Off findings
+    // Filter out Off findings
     findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
-    // 9. Build summary
+    // Build summary
     let summary = Summary::from_findings(doc_ids.len(), &findings);
 
     Ok(VerificationReport {
@@ -498,6 +546,47 @@ mod verify_tests {
         assert_eq!(
             report.summary.error_count + report.summary.warning_count + report.summary.info_count,
             report.findings.len(),
+        );
+    }
+
+    #[test]
+    fn verify_structural_excludes_coverage() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let findings =
+            verify_structural(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.rule == RuleName::MissingVerificationEvidence)
+        );
+    }
+
+    #[test]
+    fn verify_coverage_returns_coverage_findings() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let ag = ArtifactGraph::empty(&graph);
+        let findings = verify_coverage(&graph, &ag);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule == RuleName::MissingVerificationEvidence)
         );
     }
 }

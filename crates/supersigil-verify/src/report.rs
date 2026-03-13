@@ -53,14 +53,18 @@ pub enum RuleName {
     StatusInconsistency,
     MissingRequiredComponent,
     InvalidVerifiedByPlacement,
+    InvalidExpectedPlacement,
+    InvalidCodeBlockCardinality,
+    InvalidEnvFormat,
     HookOutput,
     HookFailure,
     PluginDiscoveryFailure,
     PluginDiscoveryWarning,
+    ExampleFailed,
 }
 
 impl RuleName {
-    /// The 13 built-in rules (excludes hook-related synthetic rules).
+    /// The 17 built-in rules (excludes hook-related synthetic rules).
     pub const ALL: &[Self] = &[
         Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
@@ -73,6 +77,10 @@ impl RuleName {
         Self::StatusInconsistency,
         Self::MissingRequiredComponent,
         Self::InvalidVerifiedByPlacement,
+        Self::InvalidExpectedPlacement,
+        Self::InvalidCodeBlockCardinality,
+        Self::InvalidEnvFormat,
+        Self::ExampleFailed,
         Self::PluginDiscoveryFailure,
         Self::PluginDiscoveryWarning,
     ];
@@ -91,10 +99,14 @@ impl RuleName {
             Self::StatusInconsistency => "status_inconsistency",
             Self::MissingRequiredComponent => "missing_required_component",
             Self::InvalidVerifiedByPlacement => "invalid_verified_by_placement",
+            Self::InvalidExpectedPlacement => "invalid_expected_placement",
+            Self::InvalidCodeBlockCardinality => "invalid_code_block_cardinality",
+            Self::InvalidEnvFormat => "invalid_env_format",
             Self::HookOutput => "hook_output",
             Self::HookFailure => "hook_failure",
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
             Self::PluginDiscoveryWarning => "plugin_discovery_warning",
+            Self::ExampleFailed => "example_failed",
         }
     }
 
@@ -106,7 +118,11 @@ impl RuleName {
             Self::MissingVerificationEvidence
             | Self::MissingTestFiles
             | Self::HookFailure
-            | Self::InvalidVerifiedByPlacement => ReportSeverity::Error,
+            | Self::InvalidVerifiedByPlacement
+            | Self::InvalidExpectedPlacement
+            | Self::InvalidCodeBlockCardinality
+            | Self::InvalidEnvFormat
+            | Self::ExampleFailed => ReportSeverity::Error,
 
             Self::IsolatedDocument => ReportSeverity::Off,
 
@@ -316,6 +332,9 @@ impl EvidenceSummary {
                         PluginProvenance::VerifiedByFileGlob { doc_id, .. } => {
                             format!("authored:glob({doc_id})")
                         }
+                        PluginProvenance::Example { doc_id, example_id } => {
+                            format!("example:{doc_id}:{example_id}")
+                        }
                     })
                     .collect();
                 EvidenceReportEntry {
@@ -476,7 +495,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 13);
+        assert_eq!(RuleName::ALL.len(), 17);
     }
 
     // -----------------------------------------------------------------------
@@ -490,6 +509,10 @@ mod tests {
             (RuleName::MissingTestFiles, ReportSeverity::Error),
             (RuleName::HookFailure, ReportSeverity::Error),
             (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
+            (RuleName::InvalidExpectedPlacement, ReportSeverity::Error),
+            (RuleName::InvalidCodeBlockCardinality, ReportSeverity::Error),
+            (RuleName::InvalidEnvFormat, ReportSeverity::Error),
+            (RuleName::ExampleFailed, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
             (RuleName::StaleTrackedFiles, ReportSeverity::Warning),

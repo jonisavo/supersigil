@@ -181,6 +181,7 @@ fn make_task_with_children(
         attributes,
         children,
         body_text: Some(format!("task {id}")),
+        code_blocks: Vec::new(),
         position: pos(line),
     }
 }

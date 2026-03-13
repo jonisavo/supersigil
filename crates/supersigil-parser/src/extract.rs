@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use markdown::{mdast, unist};
-use supersigil_core::{ComponentDefs, ExtractedComponent, ParseError, SourcePosition};
+use supersigil_core::{
+    CodeBlock, ComponentDefs, EXAMPLE, EXPECTED, ExtractedComponent, ParseError, SourcePosition,
+};
 
 /// Returns `true` if the name starts with an uppercase ASCII letter (`PascalCase`).
 fn is_pascal_case(name: &str) -> bool {
@@ -105,6 +107,45 @@ fn extract_attributes(
         }
     }
     map
+}
+
+/// Extract fenced code blocks from the direct children of an MDX component.
+///
+/// Only `Example` and `Expected` components have code blocks extracted; all
+/// other components return an empty vector (no allocation).
+///
+/// Each `Code` node in the AST becomes a [`CodeBlock`] with its language tag,
+/// content, and a byte offset pointing to the start of the opening fence line
+/// in the normalized source file. The snapshot rewrite code handles precise
+/// content slicing from this offset.
+fn extract_code_blocks(
+    children: &[mdast::Node],
+    body_offset: usize,
+    component_name: &str,
+) -> Vec<CodeBlock> {
+    if component_name != EXAMPLE && component_name != EXPECTED {
+        return Vec::new();
+    }
+
+    let mut blocks = Vec::new();
+    for child in children {
+        if let mdast::Node::Code(code) = child {
+            // content_offset points to the start of the opening fence line.
+            // The snapshot rewrite code (Task 10) handles slicing from here
+            // to locate the actual content within the fence.
+            let content_offset = code
+                .position
+                .as_ref()
+                .map_or(0, |pos| body_offset + pos.start.offset);
+
+            blocks.push(CodeBlock {
+                lang: code.lang.clone(),
+                content: code.value.clone(),
+                content_offset,
+            });
+        }
+    }
+    blocks
 }
 
 /// Walk the AST and extract `PascalCase` `MdxJsxFlowElement` nodes as
@@ -235,12 +276,14 @@ fn process_jsx_element(
     collect_from_children(children, body_offset, path, errors, &mut child_components);
 
     let body_text = collect_body_text(children);
+    let code_blocks = extract_code_blocks(children, body_offset, name);
 
     out.push(ExtractedComponent {
         name: name.to_owned(),
         attributes: attrs,
         children: child_components,
         body_text,
+        code_blocks,
         position: pos,
     });
 }

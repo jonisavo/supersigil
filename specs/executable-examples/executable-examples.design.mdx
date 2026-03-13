@@ -171,6 +171,19 @@ is backwards-compatible for callers that don't use the two-phase path.
 The CLI two-phase path does NOT call `verify()` — it calls the split
 functions directly and handles hooks itself.
 
+### Terminal Progress Rendering
+
+Example execution progress is rendered differently depending on whether
+terminal output is interactive.
+
+- On a TTY, the CLI renders a live progress view that redraws in place.
+  Each example row shows queued, running, passed, or failed state, and
+  running examples use a spinner because exact completion percentage is
+  not known.
+- On non-TTY output, the CLI emits append-only progress lines instead of
+  cursor control or redraws. This keeps logs, pipes, snapshots, and CI
+  output stable and readable.
+
 ### Hook Timing
 
 Post-verify hooks run once, after all findings (structural, example,
@@ -264,7 +277,7 @@ files are expected to be LF-normalized.
 ComponentDef {
     attributes: {
         "id":         { required: true,  list: false },
-        "lang":       { required: true,  list: false },
+        "lang":       { required: false, list: false },
         "runner":     { required: true,  list: false },
         "verifies":   { required: false, list: true  },
         "references": { required: false, list: true  },
@@ -278,6 +291,10 @@ ComponentDef {
     description: "Embeds a runnable code sample...",
 }
 ```
+
+If `lang` is omitted, the executor derives it from the first fenced
+code block inside the example. That derived language is also what
+`{lang}` interpolates in runner command templates.
 
 `verifies` refs are validated at graph-build time using the same
 resolution path as `Implements` refs — they must target verifiable

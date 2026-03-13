@@ -1,9 +1,17 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use supersigil_core::{ComponentDefs, Config};
+use supersigil_verify::examples::executor;
+use supersigil_verify::examples::types::{
+    ExampleOutcome, ExampleResult, ExampleSpec, MatchCheck, MatchFormat,
+};
 use supersigil_verify::{
     Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport, VerifyOptions,
     format_json, format_markdown, resolve_severity,
@@ -20,11 +28,92 @@ const COLLAPSE_THRESHOLD: usize = 3;
 /// Number of individual messages shown when a group is collapsed.
 const COLLAPSE_PREVIEW: usize = 2;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExampleExecutionSummary {
+    passed: usize,
+    failed: usize,
+    failures: Vec<ExampleFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExampleFailure {
+    doc_id: String,
+    example_id: String,
+    runner: String,
+    details: Vec<ExampleFailureDetail>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExampleFailureDetail {
+    Match {
+        check: String,
+        expected: String,
+        actual: String,
+    },
+    Message(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExampleProgressDisplay {
+    LiveSpinner,
+    Stream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExampleProgressState {
+    Queued,
+    Running,
+    Passed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExampleProgressEntry {
+    doc_id: String,
+    example_id: String,
+    runner: String,
+    state: ExampleProgressState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExampleProgressSnapshot {
+    entries: Vec<ExampleProgressEntry>,
+}
+
+struct ExampleProgressReporter {
+    shared: Arc<ExampleProgressShared>,
+    ticker: Option<JoinHandle<()>>,
+}
+
+struct ExampleProgressShared {
+    state: Mutex<ExampleProgressReporterState>,
+    display: ExampleProgressDisplay,
+    color: ColorConfig,
+    stop_spinner: AtomicBool,
+}
+
+struct ExampleProgressReporterState {
+    snapshot: ExampleProgressSnapshot,
+    rendered_lines: usize,
+    spinner_frame: usize,
+    writer: Box<dyn Write + Send>,
+}
+
 /// Run the `verify` command: cross-document verification.
+///
+/// Orchestrates the multi-phase pipeline:
+/// 1. Plugin evidence + structural checks
+/// 2. Example execution (gated by structural errors or --skip-examples)
+/// 3. Coverage check against (possibly enriched) artifact graph
+/// 4. Hooks
 ///
 /// # Errors
 ///
 /// Returns `CliError` if loading fails or verification encounters a fatal error.
+#[allow(
+    clippy::too_many_lines,
+    reason = "multi-phase verify pipeline: structural + examples + coverage + hooks"
+)]
 pub fn run(
     args: &VerifyArgs,
     config_path: &Path,
@@ -40,38 +129,113 @@ pub fn run(
         use_merge_base: args.merge_base,
     };
 
-    // -- Plugin assembly & artifact graph construction --
+    // -- Phase 1: Plugin evidence + structural checks --
     let (artifact_graph, mut plugin_findings) =
         plugins::build_evidence(&config, &graph, project_root, options.project.as_deref());
 
-    let mut report =
-        supersigil_verify::verify(&graph, &config, project_root, &options, &artifact_graph)?;
+    let mut structural_findings = supersigil_verify::verify_structural(
+        &graph,
+        &config,
+        project_root,
+        &options,
+        &artifact_graph,
+    )?;
 
-    // Append plugin failure findings (req-8-6), applying severity resolution
-    // so they respect the same config overrides as built-in rules.
-    if !plugin_findings.is_empty() {
-        for finding in &mut plugin_findings {
-            let doc_status = finding
-                .doc_id
-                .as_ref()
-                .and_then(|id| graph.document(id))
-                .and_then(|doc| doc.frontmatter.status.as_deref());
-            finding.effective_severity =
-                resolve_severity(&finding.rule, doc_status, &config.verify);
+    resolve_finding_severities(&mut structural_findings, &graph, &config);
+
+    let has_structural_errors = structural_findings
+        .iter()
+        .any(|f| f.effective_severity == ReportSeverity::Error);
+
+    // -- Phase 2: Example execution (gated by structural errors or --skip-examples) --
+    let mut example_findings: Vec<Finding> = Vec::new();
+    let mut example_evidence = Vec::new();
+    let mut example_summary = None;
+    let mut example_progress_display = None;
+
+    let examples_skipped = if has_structural_errors {
+        // Structural errors gate example execution
+        true
+    } else if args.skip_examples {
+        true
+    } else {
+        // Collect and execute examples
+        let specs = executor::collect_examples(&graph, &config.examples);
+        if !specs.is_empty() {
+            let results = if matches!(args.format, VerifyFormat::Terminal) {
+                let display = if io::stdout().is_terminal() {
+                    ExampleProgressDisplay::LiveSpinner
+                } else {
+                    ExampleProgressDisplay::Stream
+                };
+                example_progress_display = Some(display);
+                let mut reporter = ExampleProgressReporter::new(&specs, color, display);
+                reporter.initialize()?;
+                let results = executor::execute_examples_with_progress(
+                    &specs,
+                    project_root,
+                    &config.examples,
+                    Some(&reporter),
+                );
+                reporter.finish()?;
+                results
+            } else {
+                executor::execute_examples(&specs, project_root, &config.examples)
+            };
+            example_summary = Some(ExampleExecutionSummary::from_results(&results));
+
+            // Handle --update-snapshots
+            if args.update_snapshots {
+                update_snapshots(&results, !matches!(args.format, VerifyFormat::Json));
+            }
+
+            example_evidence = executor::results_to_evidence(&results);
+            example_findings = executor::results_to_findings(&results);
         }
-        plugin_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
-        report.findings.extend(plugin_findings);
+        false
+    };
+
+    // Optionally add an info finding noting why examples were skipped
+    if examples_skipped {
+        let reason = if has_structural_errors {
+            "example execution skipped due to structural errors in phase 1"
+        } else {
+            "example execution skipped via --skip-examples"
+        };
+        let mut skip_finding =
+            Finding::new(RuleName::ExampleFailed, None, reason.to_string(), None);
+        skip_finding.effective_severity = ReportSeverity::Info;
+        skip_finding.raw_severity = ReportSeverity::Info;
+        example_findings.push(skip_finding);
     }
 
-    // Convert artifact graph conflicts into findings so they are visible in
-    // the report, not just as a count in the evidence summary.
-    if !artifact_graph.conflicts.is_empty() {
-        let mut conflict_findings: Vec<Finding> = artifact_graph
+    // Merge example evidence into artifact graph if we have any
+    let final_artifact_graph = if example_evidence.is_empty() {
+        artifact_graph
+    } else {
+        // Extract existing evidence and append example evidence, then rebuild
+        let mut all_plugin_evidence: Vec<_> = artifact_graph.evidence.into_iter().collect();
+        all_plugin_evidence.extend(example_evidence);
+        supersigil_verify::artifact_graph::build_artifact_graph(&graph, vec![], all_plugin_evidence)
+    };
+
+    // -- Phase 3: Coverage --
+    let mut coverage_findings = supersigil_verify::verify_coverage(&graph, &final_artifact_graph);
+
+    resolve_finding_severities(&mut coverage_findings, &graph, &config);
+
+    resolve_finding_severities(&mut plugin_findings, &graph, &config);
+    plugin_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
+
+    // Convert artifact graph conflicts into findings
+    let mut conflict_findings: Vec<Finding> = if final_artifact_graph.conflicts.is_empty() {
+        Vec::new()
+    } else {
+        final_artifact_graph
             .conflicts
             .iter()
             .map(|conflict| {
-                let test_name =
-                    format!("{}::{}", conflict.test.file.display(), conflict.test.name,);
+                let test_name = format!("{}::{}", conflict.test.file.display(), conflict.test.name);
                 let left: Vec<String> = conflict.left.iter().map(ToString::to_string).collect();
                 let right: Vec<String> = conflict.right.iter().map(ToString::to_string).collect();
                 let message = format!(
@@ -82,24 +246,75 @@ pub fn run(
                 );
                 Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
             })
-            .collect();
-        for finding in &mut conflict_findings {
-            finding.effective_severity = resolve_severity(&finding.rule, None, &config.verify);
+            .collect()
+    };
+    resolve_finding_severities(&mut conflict_findings, &graph, &config);
+    conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
+
+    // Resolve severities for example findings, but skip the manually-set
+    // skip-info finding (it has raw_severity=Info, which real ExampleFailed
+    // findings never have since they default to Error).
+    for finding in &mut example_findings {
+        if finding.raw_severity != ReportSeverity::Info {
+            let doc_status = finding
+                .doc_id
+                .as_ref()
+                .and_then(|id| graph.document(id))
+                .and_then(|doc| doc.frontmatter.status.as_deref());
+            finding.effective_severity =
+                resolve_severity(&finding.rule, doc_status, &config.verify);
         }
-        conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
-        report.findings.extend(conflict_findings);
     }
 
-    // Recompute summary after appending plugin and conflict findings.
-    report.summary =
-        supersigil_verify::Summary::from_findings(report.summary.total_documents, &report.findings);
+    // Count documents for summary
+    let doc_count = if let Some(project) = &options.project {
+        graph
+            .documents()
+            .filter(|(id, _)| graph.doc_project(id) == Some(project.as_str()))
+            .count()
+    } else {
+        graph.documents().count()
+    };
 
-    // Populate evidence summary from artifact graph (req-9-1, req-9-2, req-9-3).
-    if !artifact_graph.evidence.is_empty() {
-        report.evidence_summary = Some(supersigil_verify::EvidenceSummary::from_artifact_graph(
-            &artifact_graph,
-        ));
+    // Assemble all findings
+    let mut all_findings: Vec<Finding> = Vec::new();
+    all_findings.extend(structural_findings);
+    all_findings.extend(coverage_findings);
+    all_findings.extend(plugin_findings);
+    all_findings.extend(conflict_findings);
+    all_findings.extend(example_findings);
+
+    // Run post-verify hooks
+    if !config.hooks.post_verify.is_empty() {
+        let interim = VerificationReport {
+            findings: all_findings.clone(),
+            summary: supersigil_verify::Summary::from_findings(doc_count, &all_findings),
+            evidence_summary: None,
+        };
+        let interim_json = serde_json::to_string(&interim).unwrap_or_default();
+        let hook_findings = supersigil_verify::hooks::run_hooks(
+            &config.hooks.post_verify,
+            &interim_json,
+            config.hooks.timeout_seconds,
+        );
+        all_findings.extend(hook_findings);
     }
+
+    // Filter out Off-severity findings
+    all_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
+
+    // Recompute summary after all findings assembled
+    let summary = supersigil_verify::Summary::from_findings(doc_count, &all_findings);
+
+    // Populate evidence summary from the final artifact graph
+    let evidence_summary = (!final_artifact_graph.evidence.is_empty())
+        .then(|| supersigil_verify::EvidenceSummary::from_artifact_graph(&final_artifact_graph));
+
+    let report = VerificationReport {
+        findings: all_findings,
+        summary,
+        evidence_summary,
+    };
 
     let status = report.result_status();
 
@@ -108,7 +323,11 @@ pub fn run(
 
     match args.format {
         VerifyFormat::Terminal => {
-            let text = format_terminal(&report, color);
+            let terminal_summary = example_summary.as_ref().filter(|summary| {
+                example_progress_display
+                    .is_none_or(|display| should_render_example_summary(summary, display))
+            });
+            let text = format_terminal(&report, terminal_summary, color);
             write!(out, "{text}")?;
         }
         VerifyFormat::Json => {
@@ -123,22 +342,410 @@ pub fn run(
 
     match status {
         ResultStatus::Clean => {
-            let n = report.summary.total_documents;
-            eprintln!("{} {n} documents verified, no findings.", color.ok());
+            if matches!(args.format, VerifyFormat::Markdown) {
+                let n = report.summary.total_documents;
+                eprintln!("{} {n} documents verified, no findings.", color.ok());
+            }
             Ok(ExitStatus::Success)
         }
         ResultStatus::HasErrors => {
-            let hints = remediation_hints(&report, &config);
-            if hints.is_empty() {
-                format::hint(color, "Run `supersigil plan` to see outstanding work.");
-            } else {
-                for hint in hints {
-                    format::hint(color, &hint);
+            if !matches!(args.format, VerifyFormat::Json) {
+                let hints = remediation_hints(&report, &config);
+                if hints.is_empty() {
+                    format::hint(color, "Run `supersigil plan` to see outstanding work.");
+                } else {
+                    for hint in hints {
+                        format::hint(color, &hint);
+                    }
                 }
             }
             Ok(ExitStatus::VerifyFailed)
         }
         ResultStatus::WarningsOnly => Ok(ExitStatus::VerifyWarnings),
+    }
+}
+
+impl ExampleProgressSnapshot {
+    fn from_specs(specs: &[ExampleSpec]) -> Self {
+        Self {
+            entries: specs
+                .iter()
+                .map(|spec| ExampleProgressEntry {
+                    doc_id: spec.doc_id.clone(),
+                    example_id: spec.example_id.clone(),
+                    runner: spec.runner.clone(),
+                    state: ExampleProgressState::Queued,
+                })
+                .collect(),
+        }
+    }
+
+    fn mark_started(&mut self, spec: &ExampleSpec) {
+        if let Some(entry) = self.find_mut(spec) {
+            entry.state = ExampleProgressState::Running;
+        }
+    }
+
+    fn mark_finished(&mut self, result: &ExampleResult) {
+        if let Some(entry) = self.find_mut(&result.spec) {
+            entry.state = if matches!(&result.outcome, ExampleOutcome::Pass) {
+                ExampleProgressState::Passed
+            } else {
+                ExampleProgressState::Failed
+            };
+        }
+    }
+
+    fn complete_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| entry.state.is_complete())
+            .count()
+    }
+
+    fn has_running(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.state == ExampleProgressState::Running)
+    }
+
+    fn find_mut(&mut self, spec: &ExampleSpec) -> Option<&mut ExampleProgressEntry> {
+        self.entries
+            .iter_mut()
+            .find(|entry| entry.doc_id == spec.doc_id && entry.example_id == spec.example_id)
+    }
+}
+
+impl ExampleProgressState {
+    fn is_complete(self) -> bool {
+        matches!(self, Self::Passed | Self::Failed)
+    }
+}
+
+impl ExampleProgressReporter {
+    fn new(specs: &[ExampleSpec], color: ColorConfig, display: ExampleProgressDisplay) -> Self {
+        Self {
+            shared: Arc::new(ExampleProgressShared {
+                state: Mutex::new(ExampleProgressReporterState {
+                    snapshot: ExampleProgressSnapshot::from_specs(specs),
+                    rendered_lines: 0,
+                    spinner_frame: 0,
+                    writer: Box::new(io::stdout()),
+                }),
+                display,
+                color,
+                stop_spinner: AtomicBool::new(false),
+            }),
+            ticker: None,
+        }
+    }
+
+    fn initialize(&mut self) -> io::Result<()> {
+        {
+            let mut state = self.shared.state.lock().unwrap();
+
+            match self.shared.display {
+                ExampleProgressDisplay::LiveSpinner => self.shared.render_live(&mut state),
+                ExampleProgressDisplay::Stream => {
+                    let total = state.snapshot.entries.len();
+                    writeln!(
+                        &mut state.writer,
+                        "{} Executing {} {}:",
+                        self.shared.color.info(),
+                        total,
+                        pluralize(total, "example"),
+                    )?;
+                    state.writer.flush()
+                }
+            }?;
+        };
+
+        if matches!(self.shared.display, ExampleProgressDisplay::LiveSpinner) {
+            let shared = Arc::clone(&self.shared);
+            self.ticker = Some(std::thread::spawn(move || {
+                while !shared.stop_spinner.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(80));
+
+                    if shared.stop_spinner.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let mut state = shared.state.lock().unwrap();
+                    if !state.snapshot.has_running() {
+                        continue;
+                    }
+
+                    state.spinner_frame = state.spinner_frame.wrapping_add(1);
+                    let _ = shared.render_live(&mut state);
+                }
+            }));
+        }
+
+        Ok(())
+    }
+
+    fn finish(&mut self) -> io::Result<()> {
+        self.shared.stop_spinner.store(true, Ordering::Relaxed);
+
+        if let Some(ticker) = self.ticker.take() {
+            let _ = ticker.join();
+        }
+
+        if !matches!(self.shared.display, ExampleProgressDisplay::LiveSpinner) {
+            return Ok(());
+        }
+
+        let mut state = self.shared.state.lock().unwrap();
+        writeln!(&mut state.writer)?;
+        state.writer.flush()
+    }
+}
+
+impl ExampleProgressShared {
+    fn render_live(&self, state: &mut ExampleProgressReporterState) -> io::Result<()> {
+        let lines = render_progress_snapshot(&state.snapshot, self.color, state.spinner_frame);
+
+        if state.rendered_lines > 0 {
+            write!(&mut state.writer, "\x1b[{}A", state.rendered_lines)?;
+        }
+
+        for line in &lines {
+            writeln!(&mut state.writer, "\x1b[2K\r{line}")?;
+        }
+
+        state.writer.flush()?;
+        state.rendered_lines = lines.len();
+        Ok(())
+    }
+
+    fn write_stream_started(
+        &self,
+        state: &mut ExampleProgressReporterState,
+        spec: &ExampleSpec,
+    ) -> io::Result<()> {
+        writeln!(
+            &mut state.writer,
+            "  {} {}::{} ({}) started",
+            self.color.info(),
+            spec.doc_id,
+            spec.example_id,
+            spec.runner,
+        )?;
+        state.writer.flush()
+    }
+
+    fn write_stream_finished(
+        &self,
+        state: &mut ExampleProgressReporterState,
+        result: &ExampleResult,
+    ) -> io::Result<()> {
+        let (symbol, status) = match &result.outcome {
+            ExampleOutcome::Pass => (self.color.ok(), "passed"),
+            _ => (self.color.err(), "failed"),
+        };
+
+        writeln!(
+            &mut state.writer,
+            "  {symbol} {}::{} ({}) {status}",
+            result.spec.doc_id, result.spec.example_id, result.spec.runner,
+        )?;
+        state.writer.flush()
+    }
+}
+
+fn should_render_example_summary(
+    summary: &ExampleExecutionSummary,
+    display: ExampleProgressDisplay,
+) -> bool {
+    match display {
+        ExampleProgressDisplay::LiveSpinner => summary.failed > 0,
+        ExampleProgressDisplay::Stream => true,
+    }
+}
+
+impl executor::ExampleProgressObserver for ExampleProgressReporter {
+    fn example_started(&self, spec: &ExampleSpec) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.snapshot.mark_started(spec);
+
+        let _ = match self.shared.display {
+            ExampleProgressDisplay::LiveSpinner => self.shared.render_live(&mut state),
+            ExampleProgressDisplay::Stream => self.shared.write_stream_started(&mut state, spec),
+        };
+    }
+
+    fn example_finished(&self, result: &ExampleResult) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.snapshot.mark_finished(result);
+
+        let _ = match self.shared.display {
+            ExampleProgressDisplay::LiveSpinner => self.shared.render_live(&mut state),
+            ExampleProgressDisplay::Stream => self.shared.write_stream_finished(&mut state, result),
+        };
+    }
+}
+
+impl ExampleExecutionSummary {
+    fn from_results(results: &[ExampleResult]) -> Self {
+        let mut passed = 0;
+        let mut failures = Vec::new();
+
+        for result in results {
+            match &result.outcome {
+                ExampleOutcome::Pass => passed += 1,
+                ExampleOutcome::Fail(match_failures) => failures.push(ExampleFailure {
+                    doc_id: result.spec.doc_id.clone(),
+                    example_id: result.spec.example_id.clone(),
+                    runner: result.spec.runner.clone(),
+                    details: if match_failures.is_empty() {
+                        vec![ExampleFailureDetail::Message(
+                            "output did not match expected result".to_string(),
+                        )]
+                    } else {
+                        match_failures
+                            .iter()
+                            .map(|failure| ExampleFailureDetail::Match {
+                                check: format!("{:?}", failure.check),
+                                expected: failure.expected.clone(),
+                                actual: failure.actual.clone(),
+                            })
+                            .collect()
+                    },
+                }),
+                ExampleOutcome::Timeout => failures.push(ExampleFailure {
+                    doc_id: result.spec.doc_id.clone(),
+                    example_id: result.spec.example_id.clone(),
+                    runner: result.spec.runner.clone(),
+                    details: vec![ExampleFailureDetail::Message(format!(
+                        "timed out after {}s",
+                        result.spec.timeout
+                    ))],
+                }),
+                ExampleOutcome::Error(error) => failures.push(ExampleFailure {
+                    doc_id: result.spec.doc_id.clone(),
+                    example_id: result.spec.example_id.clone(),
+                    runner: result.spec.runner.clone(),
+                    details: vec![ExampleFailureDetail::Message(error.clone())],
+                }),
+            }
+        }
+
+        Self {
+            passed,
+            failed: failures.len(),
+            failures,
+        }
+    }
+}
+
+/// Resolve effective severity for a batch of findings against the document graph.
+fn resolve_finding_severities(
+    findings: &mut [Finding],
+    graph: &supersigil_core::DocumentGraph,
+    config: &Config,
+) {
+    for finding in findings {
+        let doc_status = finding
+            .doc_id
+            .as_ref()
+            .and_then(|id| graph.document(id))
+            .and_then(|doc| doc.frontmatter.status.as_deref());
+        finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
+    }
+}
+
+/// Update snapshot files by replacing `body_span` content with the actual output
+/// from failed example results.
+///
+/// Only rewrites `Expected` blocks that use `format="snapshot"`, matching the
+/// spec requirement (req-3-4). Source files are normalized (BOM strip, CRLF→LF)
+/// before applying byte offsets, since offsets are computed against the
+/// normalized source by the parser.
+fn update_snapshots(
+    results: &[supersigil_verify::examples::types::ExampleResult],
+    emit_warnings: bool,
+) {
+    // Collect patches: (source_path, start, end, replacement)
+    let mut patches: BTreeMap<&Path, Vec<(usize, usize, &str)>> = BTreeMap::new();
+
+    for result in results {
+        let Some(ref expected) = result.spec.expected else {
+            continue;
+        };
+        if expected.format != MatchFormat::Snapshot {
+            continue;
+        }
+        let Some((start, end)) = expected.body_span else {
+            continue;
+        };
+
+        let actual_output = match &result.outcome {
+            ExampleOutcome::Fail(failures) => failures
+                .iter()
+                .find(|f| f.check == MatchCheck::Body)
+                .map(|f| f.actual.as_str()),
+            _ => continue,
+        };
+
+        let Some(actual) = actual_output else {
+            continue;
+        };
+
+        patches
+            .entry(&result.spec.source_path)
+            .or_default()
+            .push((start, end, actual));
+    }
+
+    // Apply patches per file, sorted by offset descending so earlier offsets
+    // remain valid after later splices.
+    for (source_path, mut file_patches) in patches {
+        let Ok(raw_source) = std::fs::read_to_string(source_path) else {
+            if emit_warnings {
+                eprintln!(
+                    "warning: could not read {} for snapshot update",
+                    source_path.display()
+                );
+            }
+            continue;
+        };
+
+        let mut source = supersigil_parser::normalize(&raw_source);
+
+        // Sort by start offset descending: apply from end of file backwards
+        file_patches.sort_by(|a, b| b.0.cmp(&a.0));
+
+        let mut skipped = false;
+        for (start, end, actual) in &file_patches {
+            if *start > *end
+                || *end > source.len()
+                || !source.is_char_boundary(*start)
+                || !source.is_char_boundary(*end)
+            {
+                if emit_warnings {
+                    eprintln!(
+                        "warning: stale byte offsets for snapshot in {}, skipping update",
+                        source_path.display()
+                    );
+                }
+                skipped = true;
+                break;
+            }
+            source.replace_range(*start..*end, actual);
+        }
+
+        if skipped {
+            continue;
+        }
+
+        if let Err(e) = std::fs::write(source_path, &source)
+            && emit_warnings
+        {
+            eprintln!(
+                "warning: could not write snapshot update to {}: {e}",
+                source_path.display()
+            );
+        }
     }
 }
 
@@ -216,9 +823,25 @@ fn authored_evidence_hint(config: &Config) -> String {
 ///
 /// Groups findings by `doc_id`, sub-groups by rule, and collapses repeated
 /// findings of the same rule when there are more than [`COLLAPSE_THRESHOLD`].
-fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
+fn format_terminal(
+    report: &VerificationReport,
+    example_summary: Option<&ExampleExecutionSummary>,
+    color: ColorConfig,
+) -> String {
+    let mut out = String::new();
+
+    if let Some(summary) = example_summary {
+        write_example_summary(&mut out, summary, color);
+    }
+
     if report.result_status() == ResultStatus::Clean {
-        return format!("{} Clean — no findings\n", color.ok());
+        if example_summary.is_some_and(|summary| summary.failed > 0) {
+            let _ = writeln!(out, "{} No blocking findings", color.info());
+        } else {
+            let _ = writeln!(out, "{} Clean: no findings", color.ok());
+        }
+        write_draft_gating_hint(&mut out, &report.findings, color);
+        return out;
     }
 
     // Group findings by doc_id
@@ -228,7 +851,6 @@ fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
         groups.entry(key).or_default().push(f);
     }
 
-    let mut out = String::new();
     let mut collapsed = false;
 
     for (doc, findings) in &groups {
@@ -285,6 +907,8 @@ fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
         color.paint(Token::Count, &doc_count),
     );
 
+    write_draft_gating_hint(&mut out, &report.findings, color);
+
     if collapsed {
         let _ = writeln!(
             out,
@@ -293,26 +917,207 @@ fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
         );
     }
 
-    // Evidence summary (optional)
-    if let Some(ref ev) = report.evidence_summary {
-        let _ = writeln!(out);
-        for entry in &ev.records {
-            let targets = entry.targets.join(", ");
-            let prov = entry.provenance.join(", ");
-            let _ = writeln!(
-                out,
-                "  {} {} [{}] {} ({} via {})",
-                color.paint(Token::Hint, "▸"),
-                entry.test_name,
-                entry.evidence_kind,
-                targets,
-                entry.test_file,
-                prov,
-            );
-        }
+    out
+}
+
+/// Emit a hint when draft gating suppressed findings that would otherwise be errors or warnings.
+fn write_draft_gating_hint(out: &mut String, findings: &[Finding], color: ColorConfig) {
+    let suppressed = findings
+        .iter()
+        .filter(|f| {
+            f.effective_severity == ReportSeverity::Info
+                && f.raw_severity != ReportSeverity::Info
+                && f.raw_severity != ReportSeverity::Off
+        })
+        .count();
+    if suppressed > 0 {
+        let _ = writeln!(
+            out,
+            "{} {suppressed} finding(s) downgraded to info because their documents have status: draft.",
+            color.paint(Token::Hint, "hint:"),
+        );
+    }
+}
+
+fn write_example_summary(out: &mut String, summary: &ExampleExecutionSummary, color: ColorConfig) {
+    if summary.passed == 0 && summary.failed == 0 {
+        return;
     }
 
-    out
+    let _ = write!(
+        out,
+        "Examples: {} passed",
+        color.paint(Token::Count, &summary.passed.to_string()),
+    );
+    if summary.failed > 0 {
+        let _ = write!(
+            out,
+            ", {} failed",
+            color.paint(Token::Error, &summary.failed.to_string()),
+        );
+    }
+    let _ = writeln!(out);
+
+    if summary.failures.is_empty() {
+        let _ = writeln!(out);
+        return;
+    }
+
+    let _ = writeln!(out, "Failed examples:");
+    for failure in &summary.failures {
+        let example_ref = format!("{}::{}", failure.doc_id, failure.example_id);
+        let _ = writeln!(
+            out,
+            "  {} {} ({})",
+            color.err(),
+            color.paint(Token::DocId, &example_ref),
+            failure.runner,
+        );
+        for detail in &failure.details {
+            match detail {
+                ExampleFailureDetail::Match {
+                    check,
+                    expected,
+                    actual,
+                } => {
+                    let _ = writeln!(out, "      [{check}]");
+                    write_labelled_block(out, "      expected:", expected);
+                    write_labelled_block(out, "      actual:", actual);
+                }
+                ExampleFailureDetail::Message(message) => {
+                    let _ = writeln!(out, "      {message}");
+                }
+            }
+        }
+    }
+    let _ = writeln!(out);
+}
+
+fn render_progress_snapshot(
+    snapshot: &ExampleProgressSnapshot,
+    color: ColorConfig,
+    spinner_frame: usize,
+) -> Vec<String> {
+    let total = snapshot.entries.len();
+    let complete = snapshot.complete_count();
+    let mut lines = Vec::with_capacity(total + 1);
+    lines.push(format!(
+        "{} Executing {} {} ({complete}/{total} complete)",
+        color.info(),
+        total,
+        pluralize(total, "example"),
+    ));
+    lines.extend(
+        snapshot
+            .entries
+            .iter()
+            .map(|entry| render_progress_line(entry, color, spinner_frame)),
+    );
+    lines
+}
+
+fn render_progress_line(
+    entry: &ExampleProgressEntry,
+    color: ColorConfig,
+    spinner_frame: usize,
+) -> String {
+    let marker = progress_marker(entry.state, color, spinner_frame);
+    let status = color.paint(
+        progress_status_token(entry.state),
+        progress_status(entry.state),
+    );
+    format!(
+        "  {} {}::{} ({}) {status}",
+        marker, entry.doc_id, entry.example_id, entry.runner,
+    )
+}
+
+fn progress_marker(
+    state: ExampleProgressState,
+    color: ColorConfig,
+    spinner_frame: usize,
+) -> String {
+    let (token, text) = match state {
+        ExampleProgressState::Queued => (
+            Token::Hint,
+            if color.use_unicode() {
+                "[·]".to_string()
+            } else {
+                "[ ]".to_string()
+            },
+        ),
+        ExampleProgressState::Running => {
+            let frames = spinner_frames(color);
+            (
+                Token::Status,
+                format!("[{}]", frames[spinner_frame % frames.len()]),
+            )
+        }
+        ExampleProgressState::Passed => (
+            Token::StatusGood,
+            if color.use_unicode() {
+                "[✔]".to_string()
+            } else {
+                "[+]".to_string()
+            },
+        ),
+        ExampleProgressState::Failed => (
+            Token::StatusBad,
+            if color.use_unicode() {
+                "[✖]".to_string()
+            } else {
+                "[x]".to_string()
+            },
+        ),
+    };
+
+    color.paint(token, &text).to_string()
+}
+
+fn spinner_frames(color: ColorConfig) -> &'static [&'static str] {
+    if color.use_unicode() {
+        &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    } else {
+        &["-", "\\", "|", "/"]
+    }
+}
+
+fn progress_status(state: ExampleProgressState) -> &'static str {
+    match state {
+        ExampleProgressState::Queued => "queued",
+        ExampleProgressState::Running => "running",
+        ExampleProgressState::Passed => "passed",
+        ExampleProgressState::Failed => "failed",
+    }
+}
+
+fn progress_status_token(state: ExampleProgressState) -> Token {
+    match state {
+        ExampleProgressState::Queued => Token::Hint,
+        ExampleProgressState::Running => Token::Status,
+        ExampleProgressState::Passed => Token::StatusGood,
+        ExampleProgressState::Failed => Token::StatusBad,
+    }
+}
+
+fn write_labelled_block(out: &mut String, label: &str, value: &str) {
+    if !value.contains('\n') {
+        let _ = writeln!(out, "{label} {value}");
+        return;
+    }
+
+    let _ = writeln!(out, "{label}");
+    for line in value.lines() {
+        let _ = writeln!(out, "        {line}");
+    }
+}
+
+fn pluralize(count: usize, singular: &str) -> String {
+    if count == 1 {
+        singular.to_string()
+    } else {
+        format!("{singular}s")
+    }
 }
 
 /// Return the severity symbol for terminal output, styled with the CLI's tokens.
@@ -334,7 +1139,6 @@ mod tests {
     use super::*;
     use crate::format::ColorChoice;
     use supersigil_verify::Summary;
-    use supersigil_verify::test_helpers::sample_evidence_summary;
 
     fn color() -> ColorConfig {
         ColorConfig::resolve(ColorChoice::Always)
@@ -342,6 +1146,20 @@ mod tests {
 
     fn no_color() -> ColorConfig {
         ColorConfig::resolve(ColorChoice::Never)
+    }
+
+    fn progress_snapshot(states: &[(&str, ExampleProgressState)]) -> ExampleProgressSnapshot {
+        ExampleProgressSnapshot {
+            entries: states
+                .iter()
+                .map(|(example_id, state)| ExampleProgressEntry {
+                    doc_id: "examples/req".to_string(),
+                    example_id: (*example_id).to_string(),
+                    runner: "cargo-test".to_string(),
+                    state: *state,
+                })
+                .collect(),
+        }
     }
 
     #[test]
@@ -368,7 +1186,7 @@ mod tests {
         };
 
         // With color: Unicode symbols + ANSI
-        let out = format_terminal(&report, color());
+        let out = format_terminal(&report, None, color());
         assert!(out.contains("req/auth"), "should contain doc_id header");
         assert!(out.contains("global"), "should contain global header");
         assert!(out.contains("✖"), "should contain error symbol");
@@ -383,7 +1201,7 @@ mod tests {
         );
 
         // Without color: ASCII symbols, no Unicode
-        let out_plain = format_terminal(&report, no_color());
+        let out_plain = format_terminal(&report, None, no_color());
         assert!(
             out_plain.contains("[err]"),
             "no-color should use ASCII error, got: {out_plain}",
@@ -406,16 +1224,211 @@ mod tests {
             evidence_summary: None,
         };
 
-        let out = format_terminal(&report, color());
+        let out = format_terminal(&report, None, color());
         assert!(
             out.contains("✔") && out.contains("Clean"),
             "colored clean report should show Unicode, got: {out}",
         );
 
-        let out_plain = format_terminal(&report, no_color());
+        let out_plain = format_terminal(&report, None, no_color());
         assert!(
             out_plain.contains("[ok]") && out_plain.contains("Clean"),
             "plain clean report should show ASCII, got: {out_plain}",
+        );
+    }
+
+    #[test]
+    fn clean_report_with_examples_shows_example_summary() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary::from_findings(1, &[]),
+            evidence_summary: None,
+        };
+        let summary = ExampleExecutionSummary {
+            passed: 1,
+            failed: 0,
+            failures: Vec::new(),
+        };
+
+        let out = format_terminal(&report, Some(&summary), no_color());
+        assert!(out.contains("Examples: 1 passed"), "got:\n{out}");
+        assert!(out.contains("Clean"), "got:\n{out}");
+    }
+
+    #[test]
+    fn clean_report_with_failed_examples_shows_non_blocking_summary() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary::from_findings(1, &[]),
+            evidence_summary: None,
+        };
+        let summary = ExampleExecutionSummary {
+            passed: 0,
+            failed: 1,
+            failures: vec![ExampleFailure {
+                doc_id: "examples/req".to_string(),
+                example_id: "body-mismatch".to_string(),
+                runner: "sh".to_string(),
+                details: vec![ExampleFailureDetail::Message("boom".to_string())],
+            }],
+        };
+
+        let out = format_terminal(&report, Some(&summary), no_color());
+        assert!(out.contains("No blocking findings"), "got:\n{out}");
+        assert!(!out.contains("Clean: no findings"), "got:\n{out}");
+    }
+
+    #[test]
+    fn draft_gating_hint_shown_when_findings_suppressed() {
+        let mut finding = Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "criterion AC-1 not covered".to_string(),
+            None,
+        );
+        // Simulate draft gating: raw stays Error, effective downgraded to Info
+        finding.effective_severity = ReportSeverity::Info;
+
+        let report = VerificationReport {
+            summary: Summary::from_findings(1, &[finding.clone()]),
+            findings: vec![finding],
+            evidence_summary: None,
+        };
+
+        let out = format_terminal(&report, None, no_color());
+        assert!(
+            out.contains("downgraded to info"),
+            "should show draft gating hint, got:\n{out}"
+        );
+        assert!(
+            out.contains("status: draft"),
+            "hint should mention draft, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn draft_gating_hint_not_shown_when_no_suppression() {
+        let report = VerificationReport {
+            findings: vec![],
+            summary: Summary::from_findings(1, &[]),
+            evidence_summary: None,
+        };
+
+        let out = format_terminal(&report, None, no_color());
+        assert!(
+            !out.contains("downgraded"),
+            "should not show draft hint for clean report, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn terminal_lists_failed_examples_before_findings() {
+        let findings = vec![Finding::new(
+            RuleName::ExampleFailed,
+            Some("examples/req".to_string()),
+            "example 'cargo-fail' (runner: cargo-test) failed".to_string(),
+            None,
+        )];
+        let report = VerificationReport {
+            summary: Summary::from_findings(1, &findings),
+            findings,
+            evidence_summary: None,
+        };
+        let summary = ExampleExecutionSummary {
+            passed: 1,
+            failed: 1,
+            failures: vec![ExampleFailure {
+                doc_id: "examples/req".to_string(),
+                example_id: "cargo-fail".to_string(),
+                runner: "cargo-test".to_string(),
+                details: vec![ExampleFailureDetail::Match {
+                    check: "Status".to_string(),
+                    expected: "0".to_string(),
+                    actual: "101".to_string(),
+                }],
+            }],
+        };
+
+        let out = format_terminal(&report, Some(&summary), no_color());
+        assert!(out.contains("Examples: 1 passed, 1 failed"), "got:\n{out}");
+        assert!(out.contains("Failed examples:"), "got:\n{out}");
+        assert!(out.contains("examples/req::cargo-fail"), "got:\n{out}");
+        assert!(out.contains("[Status]"), "got:\n{out}");
+        assert!(out.contains("expected: 0"), "got:\n{out}");
+        assert!(out.contains("actual: 101"), "got:\n{out}");
+        assert!(out.contains("[example_failed]"), "got:\n{out}");
+    }
+
+    #[test]
+    fn live_spinner_omits_redundant_pass_only_example_summary() {
+        let clean = ExampleExecutionSummary {
+            passed: 2,
+            failed: 0,
+            failures: Vec::new(),
+        };
+        let failed = ExampleExecutionSummary {
+            passed: 1,
+            failed: 1,
+            failures: vec![ExampleFailure {
+                doc_id: "examples/req".to_string(),
+                example_id: "failing-example".to_string(),
+                runner: "sh".to_string(),
+                details: vec![ExampleFailureDetail::Message("boom".to_string())],
+            }],
+        };
+
+        assert!(!should_render_example_summary(
+            &clean,
+            ExampleProgressDisplay::LiveSpinner,
+        ));
+        assert!(should_render_example_summary(
+            &clean,
+            ExampleProgressDisplay::Stream,
+        ));
+        assert!(should_render_example_summary(
+            &failed,
+            ExampleProgressDisplay::LiveSpinner,
+        ));
+    }
+
+    #[test]
+    fn progress_snapshot_renders_spinner_frames_for_running_examples() {
+        let snapshot = progress_snapshot(&[
+            ("queued", ExampleProgressState::Queued),
+            ("running", ExampleProgressState::Running),
+            ("passed", ExampleProgressState::Passed),
+            ("failed", ExampleProgressState::Failed),
+        ]);
+
+        let frame_zero = render_progress_snapshot(&snapshot, no_color(), 0).join("\n");
+        let frame_one = render_progress_snapshot(&snapshot, no_color(), 1).join("\n");
+        assert!(
+            frame_zero.contains("Executing 4 examples (2/4 complete)"),
+            "got:\n{frame_zero}"
+        );
+        assert!(
+            frame_zero.contains("examples/req::queued (cargo-test) queued"),
+            "got:\n{frame_zero}",
+        );
+        assert!(
+            frame_zero.contains("examples/req::running (cargo-test) running"),
+            "got:\n{frame_zero}",
+        );
+        assert!(
+            frame_zero.contains("examples/req::passed (cargo-test) passed"),
+            "got:\n{frame_zero}",
+        );
+        assert!(
+            frame_zero.contains("examples/req::failed (cargo-test) failed"),
+            "got:\n{frame_zero}",
+        );
+        assert!(
+            !frame_zero.contains("[#####-----]"),
+            "running examples should render a spinner, not a static half bar:\n{frame_zero}",
+        );
+        assert_ne!(
+            frame_zero, frame_one,
+            "running spinner frames should change between ticks"
         );
     }
 
@@ -438,7 +1451,7 @@ mod tests {
             evidence_summary: None,
         };
 
-        let out = format_terminal(&report, no_color());
+        let out = format_terminal(&report, None, no_color());
         assert!(
             out.contains("[missing_verification_evidence] 10 findings"),
             "should show collapsed count, got:\n{out}",
@@ -484,7 +1497,7 @@ mod tests {
             evidence_summary: None,
         };
 
-        let out = format_terminal(&report, no_color());
+        let out = format_terminal(&report, None, no_color());
         assert!(out.contains("criterion `req-0`"), "got:\n{out}");
         assert!(out.contains("criterion `req-1`"), "got:\n{out}");
         assert!(out.contains("criterion `req-2`"), "got:\n{out}");
@@ -494,7 +1507,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_shows_evidence_summary() {
+    fn terminal_omits_evidence_summary_when_present() {
         let findings = vec![Finding::new(
             RuleName::MissingVerificationEvidence,
             Some("req/auth".to_string()),
@@ -505,17 +1518,17 @@ mod tests {
         let report = VerificationReport {
             findings,
             summary,
-            evidence_summary: Some(sample_evidence_summary()),
+            evidence_summary: Some(supersigil_verify::test_helpers::sample_evidence_summary()),
         };
 
-        let out = format_terminal(&report, no_color());
+        let out = format_terminal(&report, None, no_color());
         assert!(
-            out.contains("test_login_flow"),
-            "terminal output should include evidence test name when evidence_summary is present, got:\n{out}",
+            !out.contains("test_login_flow"),
+            "terminal output should omit evidence test names even when evidence_summary is present, got:\n{out}",
         );
         assert!(
-            out.contains("rust-attribute"),
-            "terminal output should include evidence kind, got:\n{out}",
+            !out.contains("rust-attribute"),
+            "terminal output should omit evidence kinds even when evidence_summary is present, got:\n{out}",
         );
     }
 
@@ -534,7 +1547,7 @@ mod tests {
             evidence_summary: None,
         };
 
-        let out = format_terminal(&report, no_color());
+        let out = format_terminal(&report, None, no_color());
         // Should not contain evidence-related sections
         assert!(
             !out.contains("Evidence"),

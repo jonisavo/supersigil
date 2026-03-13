@@ -49,7 +49,7 @@ proptest! {
 
 use supersigil_core::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
-    HooksConfig, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
+    ExamplesConfig, HooksConfig, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
 };
 
 /// Generator for a non-empty identifier string (safe for TOML keys).
@@ -203,6 +203,7 @@ fn arb_config() -> impl Strategy<Value = Config> {
                     ecosystem,
                     hooks,
                     test_results,
+                    examples: ExamplesConfig::default(),
                 }
             },
         )
@@ -275,8 +276,8 @@ proptest! {
         let new_user_names = user_defs.keys()
             .filter(|n| !default_names.contains(n.as_str()))
             .count();
-        prop_assert_eq!(merged.len(), 8 + new_user_names,
-            "merged count should be 8 defaults + new user components");
+        prop_assert_eq!(merged.len(), 10 + new_user_names,
+            "merged count should be 10 defaults + new user components");
     }
 }
 

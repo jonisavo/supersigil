@@ -19,6 +19,7 @@ pub enum PluginProvenance {
     VerifiedByTag { doc_id: String, tag: String },
     VerifiedByFileGlob { doc_id: String, paths: Vec<String> },
     RustAttribute { attribute_span: SourceLocation },
+    Example { doc_id: String, example_id: String },
 }
 
 // ---------------------------------------------------------------------------

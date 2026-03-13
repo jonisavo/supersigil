@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ln -s "$script_dir" fixture

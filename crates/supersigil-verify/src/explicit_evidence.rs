@@ -123,6 +123,11 @@ fn process_verified_by(
                 .iter()
                 .flat_map(|p| crate::expand_glob(p, project_root))
                 .collect();
+            let target = targets
+                .iter()
+                .next()
+                .expect("criterion evidence target set is never empty");
+            let file_glob_name = format!("<file-glob:{target}>");
 
             for file in matched_files {
                 records.push(VerificationEvidenceRecord {
@@ -130,7 +135,7 @@ fn process_verified_by(
                     targets: targets.clone(),
                     test: TestIdentity {
                         file: file.clone(),
-                        name: "<file-glob>".into(),
+                        name: file_glob_name.clone(),
                         kind: TestKind::Unknown,
                     },
                     source_location: SourceLocation {
@@ -311,8 +316,8 @@ mod tests {
         );
         let rec = &records[0];
 
-        // File-glob uses sentinel test name
-        assert_eq!(rec.test.name, "<file-glob>");
+        // File-glob identities stay stable per criterion target.
+        assert_eq!(rec.test.name, "<file-glob:req/auth#crit-1>");
         assert_eq!(rec.test.kind, TestKind::Unknown);
 
         // Evidence kind
@@ -327,6 +332,46 @@ mod tests {
             }
             other => panic!("expected VerifiedByFileGlob provenance, got {other:?}"),
         }
+    }
+
+    /// Reusing the same matched file across multiple criteria should not
+    /// collapse the authored evidence into one synthetic test identity.
+    #[test]
+    fn file_glob_evidence_names_are_distinct_per_target() {
+        let dir = TempDir::new().unwrap();
+        write_test_file(&dir, "tests/auth_test.rs", "fn test_auth() {}\n");
+
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![
+                    make_criterion_with_verified_by(
+                        "crit-1",
+                        make_verified_by_glob("tests/auth_test.rs", 11),
+                        10,
+                    ),
+                    make_criterion_with_verified_by(
+                        "crit-2",
+                        make_verified_by_glob("tests/auth_test.rs", 13),
+                        12,
+                    ),
+                ],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+
+        let test_files = crate::resolve_test_files(&config, dir.path());
+        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+
+        assert_eq!(records.len(), 2, "expected one record per criterion");
+        assert_eq!(records[0].test.name, "<file-glob:req/auth#crit-1>");
+        assert_eq!(records[1].test.name, "<file-glob:req/auth#crit-2>");
+        assert_ne!(
+            records[0].test, records[1].test,
+            "shared file-glob matches should remain distinct authored evidence",
+        );
     }
 
     // -----------------------------------------------------------------------

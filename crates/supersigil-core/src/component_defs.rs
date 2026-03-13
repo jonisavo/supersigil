@@ -12,11 +12,11 @@ pub struct ComponentDefs {
 }
 
 impl ComponentDefs {
-    /// Returns the 8 built-in default component definitions.
+    /// Returns the 10 built-in default component definitions.
     #[must_use]
     #[expect(
         clippy::too_many_lines,
-        reason = "declarative definition of all 8 built-in components"
+        reason = "declarative definition of all 10 built-in components"
     )]
     pub fn defaults() -> Self {
         /// Insert a component with a single required list attribute `refs`.
@@ -206,6 +206,123 @@ impl ComponentDefs {
             },
         );
 
+        // Example — id: required; runner: required; lang: optional;
+        //   verifies: optional, list; references: optional, list;
+        //   timeout: optional; env: optional, list; setup: optional
+        //   referenceable; verifiable
+        defs.insert(
+            "Example".into(),
+            ComponentDef {
+                attributes: HashMap::from([
+                    (
+                        "id".into(),
+                        AttributeDef {
+                            required: true,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "lang".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "runner".into(),
+                        AttributeDef {
+                            required: true,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "verifies".into(),
+                        AttributeDef {
+                            required: false,
+                            list: true,
+                        },
+                    ),
+                    (
+                        "references".into(),
+                        AttributeDef {
+                            required: false,
+                            list: true,
+                        },
+                    ),
+                    (
+                        "timeout".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "env".into(),
+                        AttributeDef {
+                            required: false,
+                            list: true,
+                        },
+                    ),
+                    (
+                        "setup".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                ]),
+                referenceable: true,
+                verifiable: false,
+                target_component: None,
+                description: Some("An executable code example with an expected output. The code block inside is extracted and run by the specified runner.".into()),
+                examples: vec![
+                    "<Example id=\"login-curl\" lang=\"bash\" runner=\"shell\" verifies=\"req/auth#login-success\">\n```bash\ncurl -X POST /api/login -d '{\"user\":\"admin\",\"pass\":\"secret\"}'\n```\n<Expected status=\"0\" format=\"json\">\n{\"token\": \"...\"}\n</Expected>\n</Example>".into(),
+                ],
+            },
+        );
+
+        // Expected — status: optional; format: optional; contains: optional
+        //   not referenceable; not verifiable
+        defs.insert(
+            "Expected".into(),
+            ComponentDef {
+                attributes: HashMap::from([
+                    (
+                        "status".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "format".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "contains".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                ]),
+                referenceable: false,
+                verifiable: false,
+                target_component: None,
+                description: Some(
+                    "Declares the expected output of an Example. Placed as a child of Example."
+                        .into(),
+                ),
+                examples: vec![
+                    "<Expected status=\"0\" format=\"json\">\n{\"token\": \"...\"}\n</Expected>"
+                        .into(),
+                ],
+            },
+        );
+
         Self { defs }
     }
 
@@ -287,5 +404,94 @@ impl ComponentDefs {
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&ComponentDef> {
         self.defs.get(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_contains_10_built_in_components() {
+        let defs = ComponentDefs::defaults();
+        assert_eq!(defs.len(), 10);
+    }
+
+    #[test]
+    fn example_component_is_registered_with_correct_attributes() {
+        let defs = ComponentDefs::defaults();
+        let example = defs.get("Example").expect("Example should be registered");
+
+        // Required attributes
+        assert!(example.attributes["id"].required);
+        assert!(!example.attributes["id"].list);
+        assert!(!example.attributes["lang"].required);
+        assert!(!example.attributes["lang"].list);
+        assert!(example.attributes["runner"].required);
+        assert!(!example.attributes["runner"].list);
+
+        // Optional attributes
+        assert!(!example.attributes["verifies"].required);
+        assert!(example.attributes["verifies"].list);
+        assert!(!example.attributes["references"].required);
+        assert!(example.attributes["references"].list);
+        assert!(!example.attributes["timeout"].required);
+        assert!(!example.attributes["timeout"].list);
+        assert!(!example.attributes["env"].required);
+        assert!(example.attributes["env"].list);
+        assert!(!example.attributes["setup"].required);
+        assert!(!example.attributes["setup"].list);
+
+        assert_eq!(example.attributes.len(), 8);
+    }
+
+    #[test]
+    fn example_component_is_referenceable_but_not_verifiable() {
+        let defs = ComponentDefs::defaults();
+        let example = defs.get("Example").unwrap();
+        assert!(example.referenceable);
+        assert!(
+            !example.verifiable,
+            "Example is an evidence source, not a verification target"
+        );
+    }
+
+    #[test]
+    fn expected_component_is_registered_with_correct_attributes() {
+        let defs = ComponentDefs::defaults();
+        let expected = defs.get("Expected").expect("Expected should be registered");
+
+        assert!(!expected.attributes["status"].required);
+        assert!(!expected.attributes["status"].list);
+        assert!(!expected.attributes["format"].required);
+        assert!(!expected.attributes["format"].list);
+        assert!(!expected.attributes["contains"].required);
+        assert!(!expected.attributes["contains"].list);
+
+        assert_eq!(expected.attributes.len(), 3);
+    }
+
+    #[test]
+    fn expected_component_is_not_referenceable_and_not_verifiable() {
+        let defs = ComponentDefs::defaults();
+        let expected = defs.get("Expected").unwrap();
+        assert!(!expected.referenceable);
+        assert!(!expected.verifiable);
+    }
+
+    #[test]
+    fn example_has_description_and_examples() {
+        let defs = ComponentDefs::defaults();
+        let example = defs.get("Example").unwrap();
+        assert!(example.description.is_some());
+        assert!(!example.examples.is_empty());
+    }
+
+    #[test]
+    fn expected_has_description_and_examples() {
+        let defs = ComponentDefs::defaults();
+        let expected = defs.get("Expected").unwrap();
+        assert!(expected.description.is_some());
+        assert!(!expected.examples.is_empty());
     }
 }

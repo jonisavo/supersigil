@@ -249,6 +249,7 @@ proptest! {
             attributes: HashMap::from([("id".to_owned(), task_id.clone())]),
             children: Vec::new(),
             body_text: Some("a task".to_owned()),
+            code_blocks: Vec::new(),
             position: SourcePosition {
                 byte_offset: 0,
                 line: 1,

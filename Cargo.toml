@@ -35,6 +35,8 @@ supersigil-rust = { path = "crates/supersigil-rust" }
 supersigil-rust-macros = { path = "crates/supersigil-rust-macros" }
 supersigil-parser = { path = "crates/supersigil-parser" }
 glob = "0.3.3"
+libc = "0.2"
+ureq = "3"
 proc-macro2 = { version = "1.0.106", features = ["span-locations"] }
 syn = { version = "2.0.117", features = ["full"] }
 

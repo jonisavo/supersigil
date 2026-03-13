@@ -588,6 +588,7 @@ proptest! {
             attributes: instance_attrs,
             children: Vec::new(),
             body_text: None,
+            code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
@@ -648,6 +649,7 @@ proptest! {
             attributes: std::collections::HashMap::new(),
             children: Vec::new(),
             body_text: None,
+            code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
@@ -679,6 +681,7 @@ proptest! {
             attributes: std::collections::HashMap::new(),
             children: Vec::new(),
             body_text: None,
+            code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
@@ -735,6 +738,7 @@ proptest! {
                 attributes: std::collections::HashMap::new(),
                 children: Vec::new(),
                 body_text: None,
+                code_blocks: Vec::new(),
                 position: SourcePosition { byte_offset: i * 100, line: i + 1, column: 1 },
             });
         }
@@ -746,6 +750,7 @@ proptest! {
                 attributes: std::collections::HashMap::new(),
                 children: Vec::new(),
                 body_text: None,
+                code_blocks: Vec::new(),
                 position: SourcePosition {
                     byte_offset: (unknown_names.len() + i) * 100,
                     line: unknown_names.len() + i + 1,

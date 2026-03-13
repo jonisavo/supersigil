@@ -935,6 +935,7 @@ mod lint_validation {
                 .collect(),
             children: Vec::new(),
             body_text: None,
+            code_blocks: Vec::new(),
             position: SourcePosition {
                 byte_offset: 0,
                 line: 1,
@@ -1443,5 +1444,250 @@ mod parse_file_integration {
             "expected MissingId, got: {:?}",
             errors[0]
         );
+    }
+}
+
+// ── Code block extraction ───────────────────────────────────────────────────
+
+mod code_block_extraction {
+    use super::*;
+    use common::extract;
+
+    #[test]
+    fn example_extracts_single_code_block() {
+        let body = r#"
+<Example id="hello" lang="sh" runner="sh">
+
+```sh
+echo hello
+```
+
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        let example = &components[0];
+        assert_eq!(example.name, "Example");
+        assert_eq!(example.code_blocks.len(), 1);
+        let block = &example.code_blocks[0];
+        assert_eq!(block.lang.as_deref(), Some("sh"));
+        assert_eq!(block.content, "echo hello");
+        assert!(block.content_offset > 0, "content_offset should be > 0");
+    }
+
+    #[test]
+    fn expected_extracts_code_block() {
+        let body = r#"
+<Example id="hello" lang="sh" runner="sh">
+
+```sh
+echo hello
+```
+
+<Expected status="0">
+
+```
+hello
+```
+
+</Expected>
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        let example = &components[0];
+        assert_eq!(example.name, "Example");
+
+        // Example itself has one code block
+        assert_eq!(
+            example.code_blocks.len(),
+            1,
+            "Example should have 1 code block"
+        );
+
+        // Expected child has one code block
+        assert_eq!(example.children.len(), 1);
+        let expected = &example.children[0];
+        assert_eq!(expected.name, "Expected");
+        assert_eq!(
+            expected.code_blocks.len(),
+            1,
+            "Expected should have 1 code block"
+        );
+        let block = &expected.code_blocks[0];
+        assert_eq!(block.lang, None);
+        assert_eq!(block.content, "hello");
+    }
+
+    #[test]
+    fn non_example_component_has_empty_code_blocks() {
+        let body = r#"
+<Criterion id="crit-1">Some criterion text</Criterion>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        let criterion = &components[0];
+        assert_eq!(criterion.name, "Criterion");
+        assert!(
+            criterion.code_blocks.is_empty(),
+            "non-Example/Expected component should have empty code_blocks"
+        );
+    }
+
+    #[test]
+    fn example_with_no_code_block() {
+        let body = r#"
+<Example id="hello" lang="sh" runner="sh">
+
+Some text but no code block.
+
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        let example = &components[0];
+        assert_eq!(example.name, "Example");
+        assert!(
+            example.code_blocks.is_empty(),
+            "Example with no fenced code block should have empty code_blocks"
+        );
+    }
+
+    #[test]
+    fn example_with_multiple_code_blocks() {
+        let body = r#"
+<Example id="multi" lang="sh" runner="sh">
+
+```sh
+echo first
+```
+
+```sh
+echo second
+```
+
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        let example = &components[0];
+        assert_eq!(example.name, "Example");
+        assert_eq!(
+            example.code_blocks.len(),
+            2,
+            "Example should extract both code blocks"
+        );
+        assert_eq!(example.code_blocks[0].content, "echo first");
+        assert_eq!(example.code_blocks[1].content, "echo second");
+    }
+
+    #[test]
+    fn code_block_with_language_tag() {
+        let body = r#"
+<Example id="rust-hello" lang="rust" runner="cargo-test">
+
+```rust
+fn main() { println!("hello"); }
+```
+
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        let example = &components[0];
+        assert_eq!(example.code_blocks.len(), 1);
+        let block = &example.code_blocks[0];
+        assert_eq!(block.lang.as_deref(), Some("rust"));
+        assert_eq!(block.content, "fn main() { println!(\"hello\"); }");
+    }
+
+    #[test]
+    fn code_block_offset_accounts_for_body_offset() {
+        let body = r#"
+<Example id="hello" lang="sh" runner="sh">
+
+```sh
+echo hello
+```
+
+</Example>
+"#;
+        let body_offset = 100; // simulate frontmatter
+        let (components, _) = extract(body, body_offset);
+        let example = &components[0];
+        assert_eq!(example.code_blocks.len(), 1);
+        let block = &example.code_blocks[0];
+        assert!(
+            block.content_offset >= body_offset,
+            "content_offset ({}) should include body_offset ({})",
+            block.content_offset,
+            body_offset
+        );
+    }
+
+    #[test]
+    fn code_block_content_offset_points_to_fence_in_source() {
+        // The content_offset should point to the opening fence line.
+        // With body_offset=0, the offset should match the fence position in the body.
+        let body = "<Example id=\"hello\" lang=\"sh\" runner=\"sh\">\n\n```sh\necho hello\n```\n\n</Example>\n";
+        let fence_pos = body.find("```sh").expect("fence should exist");
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        let block = &components[0].code_blocks[0];
+        assert_eq!(
+            block.content_offset, fence_pos,
+            "content_offset should point to start of opening fence"
+        );
+    }
+
+    #[test]
+    fn acceptance_criteria_with_code_has_empty_code_blocks() {
+        // Even if there happens to be code-like content in a non-Example/Expected
+        // component, code_blocks should be empty.
+        let body = r"
+<AcceptanceCriteria>
+
+Some text about criteria.
+
+</AcceptanceCriteria>
+";
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        assert_eq!(components.len(), 1);
+        assert!(components[0].code_blocks.is_empty());
+    }
+
+    #[test]
+    fn expected_with_format_and_code_block() {
+        let body = r#"
+<Example id="json-test" lang="sh" runner="sh">
+
+```sh
+echo '{"key": "value"}'
+```
+
+<Expected status="0" format="json">
+
+```json
+{"key": "value"}
+```
+
+</Expected>
+</Example>
+"#;
+        let (components, errors) = extract(body, 0);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+        let example = &components[0];
+        let expected = &example.children[0];
+        assert_eq!(expected.name, "Expected");
+        assert_eq!(expected.code_blocks.len(), 1);
+        let block = &expected.code_blocks[0];
+        assert_eq!(block.lang.as_deref(), Some("json"));
+        assert_eq!(block.content, "{\"key\": \"value\"}");
     }
 }

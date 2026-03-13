@@ -37,6 +37,18 @@ pub struct SourcePosition {
 }
 
 // ---------------------------------------------------------------------------
+// CodeBlock
+// ---------------------------------------------------------------------------
+
+/// A fenced code block extracted from component body content.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CodeBlock {
+    pub lang: Option<String>,
+    pub content: String,
+    pub content_offset: usize,
+}
+
+// ---------------------------------------------------------------------------
 // ExtractedComponent
 // ---------------------------------------------------------------------------
 
@@ -50,6 +62,8 @@ pub struct ExtractedComponent {
     /// Trimmed concatenation of non-component text nodes.
     /// `None` if self-closing or no text content.
     pub body_text: Option<String>,
+    /// Fenced code blocks extracted from the component body.
+    pub code_blocks: Vec<CodeBlock>,
     pub position: SourcePosition,
 }
 

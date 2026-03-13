@@ -18,11 +18,21 @@ pub fn preprocess(raw: &[u8], path: &Path) -> Result<String, ParseError> {
         source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
     })?;
 
+    Ok(normalize(text))
+}
+
+/// Strip BOM and normalize CRLF → LF in already-decoded text.
+///
+/// This is the shared normalization logic used by both the parser pipeline
+/// (via [`preprocess`]) and the snapshot rewriter (which reads files as
+/// `&str` and needs matching byte offsets).
+#[must_use]
+pub fn normalize(text: &str) -> String {
     let text = text.strip_prefix(BOM).unwrap_or(text);
 
     // Fast path: no \r means no CRLF normalization needed.
     if !text.as_bytes().contains(&b'\r') {
-        return Ok(text.to_owned());
+        return text.to_owned();
     }
 
     // Normalize CRLF → LF without creating new CRLF from bare \r + replacement \n.
@@ -44,5 +54,5 @@ pub fn preprocess(raw: &[u8], path: &Path) -> Result<String, ParseError> {
         }
     }
     out.push_str(&text[start..]);
-    Ok(out)
+    out
 }

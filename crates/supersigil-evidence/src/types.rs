@@ -216,6 +216,7 @@ pub enum EvidenceKind {
     Tag,
     FileGlob,
     RustAttribute,
+    Example,
 }
 
 impl EvidenceKind {
@@ -226,6 +227,7 @@ impl EvidenceKind {
             Self::FileGlob => "file-glob",
             Self::Tag => "tag",
             Self::RustAttribute => "rust-attribute",
+            Self::Example => "example",
         }
     }
 }

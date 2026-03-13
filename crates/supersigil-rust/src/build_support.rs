@@ -65,7 +65,8 @@ mod tests {
     use std::fs;
 
     use supersigil_core::{
-        DocumentsConfig, EcosystemConfig, HooksConfig, TestResultsConfig, VerifyConfig,
+        DocumentsConfig, EcosystemConfig, ExamplesConfig, HooksConfig, TestResultsConfig,
+        VerifyConfig,
     };
     use tempfile::tempdir;
 
@@ -84,6 +85,7 @@ mod tests {
             ecosystem: EcosystemConfig::default(),
             hooks: HooksConfig::default(),
             test_results: TestResultsConfig::default(),
+            examples: ExamplesConfig::default(),
         }
     }
 

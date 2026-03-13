@@ -39,6 +39,10 @@ pub(crate) const REFERENCES: &str = "References";
 pub(crate) const IMPLEMENTS: &str = "Implements";
 pub(crate) const DEPENDS_ON: &str = "DependsOn";
 pub(crate) const TRACKED_FILES: &str = "TrackedFiles";
+/// The well-known component name for example components.
+pub const EXAMPLE: &str = "Example";
+/// The well-known component name for expected components.
+pub const EXPECTED: &str = "Expected";
 
 // ---------------------------------------------------------------------------
 // ResolvedRef
