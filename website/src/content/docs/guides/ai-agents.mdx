@@ -184,7 +184,7 @@ Supersigil's verification model makes it difficult for agents to produce work th
 
 - **Broken references are hard errors.** If an agent writes `<Validates refs="auth/req/signup">` but `auth/req/signup` does not exist, `supersigil verify` fails immediately. There is no way to reference a spec that is not in the graph.
 
-- **Unknown components are hard errors.** If an agent invents `<Satisfies>` (not a real component), it is caught at lint time. The set of valid components is fixed.
+- **Only known components are extracted.** If an agent invents `<Satisfies>` (not a real component), it is silently ignored — it will not appear in the graph or be validated. The set of meaningful components is defined by the built-in and configured component definitions.
 
 - **Coverage tracking is objective.** The verification report shows exactly which criteria are covered and which are not. An agent cannot claim coverage that the graph does not confirm.
 
