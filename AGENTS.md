@@ -1,6 +1,7 @@
 # Guidelines
 
 - Follow Test Driven Development. Keep TDD in mind when creating implementation plans.
+- For feature development (i.e. implementation), use the feature-development and test-driven-development skills.
 - Use `cargo fmt` for formatting code
 - Use `cargo clippy` for linting.
 - Use `cargo nextest run` for testing.
@@ -9,6 +10,7 @@
 Run all three before finalizing work:
 
 ```shell
+cargo run -p supersigil-cli verify
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features
 cargo nextest run
