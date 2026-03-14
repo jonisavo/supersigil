@@ -12,8 +12,8 @@ name = "supersigil_cli"
 path = "src/lib.rs"
 
 [dependencies]
-anstyle = "1.0.13"
-clap = { version = "4.5.60", features = ["derive"] }
+anstyle = "1.0.14"
+clap = { version = "4.6.0", features = ["derive"] }
 serde.workspace = true
 serde_json.workspace = true
 yaml_serde.workspace = true
@@ -22,16 +22,16 @@ toml.workspace = true
 thiserror.workspace = true
 supersigil-core.workspace = true
 supersigil-evidence.workspace = true
-supersigil-parser = { path = "../supersigil-parser" }
-supersigil-import = { path = "../supersigil-import" }
+supersigil-parser.workspace = true
+supersigil-import.workspace = true
 supersigil-rust.workspace = true
-supersigil-verify = { path = "../supersigil-verify" }
+supersigil-verify.workspace = true
 include_dir.workspace = true
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
+assert_cmd = "2.2.0"
 predicates = "3.1.4"
-supersigil-verify = { path = "../supersigil-verify", features = ["test-helpers"] }
+supersigil-verify = { workspace = true, features = ["test-helpers"] }
 tempfile.workspace = true
 walkdir = "2.5.0"
 

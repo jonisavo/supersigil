@@ -22,21 +22,23 @@ categories = ["command-line-utilities", "development-tools"]
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
-yaml_serde = "0.10.3"
-toml = "1.0.3"
+yaml_serde = "0.10.4"
+toml = "1.0.6"
 regex = "1.12.3"
 markdown = "1.0.0"
 proptest = "1.10.0"
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 serde_json = "1.0.149"
 supersigil-core = { path = "crates/supersigil-core" }
 supersigil-evidence = { path = "crates/supersigil-evidence" }
 supersigil-rust = { path = "crates/supersigil-rust" }
 supersigil-rust-macros = { path = "crates/supersigil-rust-macros" }
 supersigil-parser = { path = "crates/supersigil-parser" }
+supersigil-import = { path = "crates/supersigil-import" }
+supersigil-verify = { path = "crates/supersigil-verify" }
 glob = "0.3.3"
 libc = "0.2"
-ureq = "3"
+ureq = "3.2.0"
 proc-macro2 = { version = "1.0.106", features = ["span-locations"] }
 syn = { version = "2.0.117", features = ["full"] }
 include_dir = "0.7.4"

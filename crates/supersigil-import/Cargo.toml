@@ -19,8 +19,8 @@ proptest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 insta = { version = "1.46.3", features = ["yaml"] }
-supersigil-core = { path = "../supersigil-core" }
-supersigil-parser = { path = "../supersigil-parser" }
+supersigil-core.workspace = true
+supersigil-parser.workspace = true
 
 [lints]
 workspace = true
