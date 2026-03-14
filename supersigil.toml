@@ -28,3 +28,9 @@ paths = [
   "crates/supersigil-rust/specs/**/*.mdx",
   "crates/supersigil-rust-macros/specs/**/*.mdx",
 ]
+
+[documents.types.documentation]
+description = "User-facing documentation pages"
+
+[projects.website]
+paths = ["website/src/content/docs/**/*.mdx"]
