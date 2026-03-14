@@ -1,9 +1,16 @@
 ---
 title: Components
 description: Reference for all built-in Supersigil components and document types.
+supersigil:
+  id: website/reference/components
+  type: documentation
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import { References, TrackedFiles } from '../../../components/supersigil';
+
+<References refs="parser-pipeline/req" />
+<TrackedFiles paths="crates/supersigil-core/src/component_defs.rs" />
 
 Components are MDX JSX elements that carry specification semantics. Supersigil has 10 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
 

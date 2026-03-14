@@ -1,9 +1,15 @@
 ---
 title: The Component Graph
 description: How documents and components form a verifiable directed graph.
+supersigil:
+  id: website/concepts/component-graph
+  type: documentation
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-core/src/graph.rs" />
 
 The component graph is the core data structure behind Supersigil. It is what makes specifications verifiable instead of just readable.
 

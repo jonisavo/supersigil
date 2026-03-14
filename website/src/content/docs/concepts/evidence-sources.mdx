@@ -1,9 +1,15 @@
 ---
 title: Evidence Sources
 description: How Supersigil turns criteria into covered, checkable evidence.
+supersigil:
+  id: website/concepts/evidence-sources
+  type: documentation
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-rust/src/**/*.rs" />
 
 Coverage in Supersigil is not a vague statement about “having tests.” A
 criterion is covered only when the graph can point to specific evidence for it.

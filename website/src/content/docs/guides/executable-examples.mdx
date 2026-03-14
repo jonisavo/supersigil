@@ -1,9 +1,15 @@
 ---
 title: Executable Examples
 description: Embed runnable code samples in your specs that execute as tests during verification.
+supersigil:
+  id: website/guides/executable-examples
+  type: documentation
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-verify/src/examples/*.rs" />
 
 Executable Examples turn code samples in your specs into tests. Instead of documentation snippets that silently rot, your examples run on every `supersigil verify` and fail when they no longer match reality.
 

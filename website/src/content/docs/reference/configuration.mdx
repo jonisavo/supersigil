@@ -1,9 +1,15 @@
 ---
 title: Configuration
 description: Reference for supersigil.toml configuration options.
+supersigil:
+  id: website/reference/configuration
+  type: documentation
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-core/src/config.rs" />
 
 Supersigil is configured through a `supersigil.toml` file at your project root. Run `supersigil init` to generate one.
 

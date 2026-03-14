@@ -1,9 +1,15 @@
 ---
 title: Verification
 description: How Supersigil checks your specification graph for completeness and correctness.
+supersigil:
+  id: website/concepts/verification
+  type: documentation
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-verify/src/**/*.rs" />
 
 Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and stale specs -- automatically, on every commit.
 
