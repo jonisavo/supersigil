@@ -385,6 +385,38 @@ fn parse_new() {
     if let supersigil_cli::Command::New(args) = cli.command {
         assert_eq!(args.doc_type, "requirements");
         assert_eq!(args.id, "auth");
+        assert!(args.project.is_none());
+    } else {
+        panic!("expected New");
+    }
+}
+
+#[test]
+fn parse_new_with_project() {
+    let cli = Cli::parse_from([
+        "supersigil",
+        "new",
+        "--project",
+        "cli",
+        "requirements",
+        "auth",
+    ]);
+    if let supersigil_cli::Command::New(args) = cli.command {
+        assert_eq!(args.doc_type, "requirements");
+        assert_eq!(args.id, "auth");
+        assert_eq!(args.project.as_deref(), Some("cli"));
+    } else {
+        panic!("expected New");
+    }
+}
+
+#[test]
+fn parse_new_with_short_project() {
+    let cli = Cli::parse_from(["supersigil", "new", "-p", "cli", "design", "auth"]);
+    if let supersigil_cli::Command::New(args) = cli.command {
+        assert_eq!(args.doc_type, "design");
+        assert_eq!(args.id, "auth");
+        assert_eq!(args.project.as_deref(), Some("cli"));
     } else {
         panic!("expected New");
     }

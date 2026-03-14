@@ -216,6 +216,9 @@ pub struct NewArgs {
     pub doc_type: String,
     /// Feature name (e.g., auth, cli)
     pub id: String,
+    /// Target project (multi-project mode)
+    #[arg(short, long)]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]

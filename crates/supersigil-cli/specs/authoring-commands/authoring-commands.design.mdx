@@ -17,10 +17,9 @@ title: "CLI Authoring Commands"
 - `init` creates the first `supersigil.toml`
 - `new` creates a starter spec document
 
-The important current property is that both commands still follow the original
-single-project root-spec convention. `init` scaffolds a top-level `paths`
-config, and `new` always writes into the root `specs/` tree rather than into a
-selected project-local spec root.
+`init` still follows the single-project root-spec convention. `new` supports
+both single-project mode (writes to `specs/`) and multi-project mode (writes
+to the project-local spec root determined by `--project`).
 
 ## Architecture
 
@@ -31,6 +30,7 @@ graph TD
     NEW["new"]
     LOADCFG["load_config(config_path)"]
     PROOT["project_root(config_path)"]
+    RESOLVE["resolve_spec_dir(config, project)"]
     TEMPLATE["generate_template"]
     FILES["create_new file writes"]
     OUT["stdout created path + stderr hint"]
@@ -39,7 +39,8 @@ graph TD
     RUNTIME --> NEW
     NEW --> LOADCFG
     NEW --> PROOT
-    NEW --> TEMPLATE
+    NEW --> RESOLVE
+    RESOLVE --> TEMPLATE
     INIT --> FILES
     TEMPLATE --> FILES
     FILES --> OUT
@@ -71,21 +72,28 @@ scaffold path.
 2. Load config from the resolved `supersigil.toml`.
 3. Determine whether the requested type is built-in or configured.
 4. If the type is unknown, warn on stderr but continue anyway.
-5. Derive the current `type_short`:
+5. Resolve the spec directory via `resolve_spec_dir(config, project)`:
+   - In single-project mode without `--project`: use `specs/`.
+   - In single-project mode with `--project`: error.
+   - In multi-project mode without `--project`: error.
+   - In multi-project mode with `--project`: derive the directory prefix from
+     the named project's first glob pattern using `glob_prefix`.
+   - If the named project does not exist in config: error listing available
+     project names.
+6. Derive the current `type_short`:
    - `requirements` -> `req`
    - everything else -> unchanged
-6. Derive the Generated_Doc_ID as `{feature}/{type_short}`.
-7. Derive the Generated_Doc_Path as `specs/{feature}/{feature}.{type_short}.mdx`.
-8. Resolve `project_root(config_path)` and probe for the sibling requirement
-   file `specs/{feature}/{feature}.req.mdx`.
-9. Generate the scaffold body.
-10. Create parent directories as needed and create the file with
+7. Derive the Generated_Doc_ID as `{feature}/{type_short}`.
+8. Derive the Generated_Doc_Path as
+   `{spec_dir}{feature}/{feature}.{type_short}.mdx`.
+9. Resolve `project_root(config_path)` and probe for the sibling requirement
+   file `{spec_dir}{feature}/{feature}.req.mdx`.
+10. Generate the scaffold body.
+11. Create parent directories as needed and create the file with
     `create_new(true)`.
-11. Print the created path to stdout and the lint hint to stderr.
+12. Print the created path to stdout and the lint hint to stderr.
 
-The current `new` input is therefore closer to a feature slug than to a full
-document ID. That is the implemented behavior even though the older root CLI
-spec described a more general `new <type> <id>` workflow.
+The `new` input is a feature slug rather than an arbitrary document ID.
 
 ## Template Model
 
@@ -134,20 +142,26 @@ fn type_short_name(doc_type: &str) -> &str {
     }
 }
 
+fn resolve_spec_dir(config: &Config, project: Option<&str>) -> Result<String, CliError>
+
 fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String
 ```
 
-`type_short_name` is what locks the current command to the root repository
-convention. There is no project-specific path policy or configurable path
-scheme yet.
+`resolve_spec_dir` determines the output directory by inspecting the config
+mode and `--project` flag. In multi-project mode it uses the core
+`glob_prefix` function to extract the static directory prefix from the
+selected project's first glob pattern.
 
 ## Testing Strategy
 
 - [cmd_new.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_new.rs)
   covers lint-clean requirements/tasks scaffolds, graph-safe design scaffolds,
-  and auto-filled `Implements` when the sibling requirement exists.
+  auto-filled `Implements` when the sibling requirement exists, multi-project
+  file placement, workspace project fallback to `specs/`, unknown project
+  errors, single-project mode rejection of `--project`, and sibling req
+  detection under project-local directories.
 - [clap_parse.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/clap_parse.rs)
-  covers the parse surface for `init` and `new`.
+  covers the parse surface for `init` and `new`, including `--project`/`-p`.
 
 ## Current Gaps
 
@@ -155,8 +169,6 @@ scheme yet.
   output and the existing-file failure path.
 - `init` still scaffolds a single-project config only. It does not know how to
   bootstrap `projects.*`.
-- `new` always writes into root `specs/...`, and its sibling requirement
-  detection only checks that root path.
 - `new` currently warns on unknown document types but still creates a
   frontmatter-only file. That behavior is observable, but it is not clearly
   intended.

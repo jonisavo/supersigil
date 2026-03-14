@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use supersigil_core::load_config;
+use supersigil_core::{glob_prefix, load_config};
 
 use crate::commands::{BUILTIN_DOC_TYPES, NewArgs};
 use crate::error::CliError;
@@ -38,9 +38,12 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
 
     let type_short = type_short_name(&args.doc_type);
 
-    // Convention: ID = {feature}/{type_short}, path = specs/{feature}/{feature}.{type_short}.mdx
+    // Determine the spec directory prefix based on project selection.
+    let spec_dir = resolve_spec_dir(&config, args.project.as_deref())?;
+
+    // Convention: ID = {feature}/{type_short}, path = {spec_dir}{feature}/{feature}.{type_short}.mdx
     let doc_id = format!("{}/{type_short}", args.id);
-    let output_path = format!("specs/{}/{}.{type_short}.mdx", args.id, args.id);
+    let output_path = format!("{spec_dir}{}/{}.{type_short}.mdx", args.id, args.id);
     let output = Path::new(&output_path);
 
     // Ensure parent dir exists
@@ -50,7 +53,7 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
 
     // Check if a requirements file exists for this feature (used by design template)
     let project_root = loader::project_root(config_path);
-    let req_path = project_root.join(format!("specs/{}/{}.req.mdx", args.id, args.id));
+    let req_path = project_root.join(format!("{}{}/{}.req.mdx", spec_dir, args.id, args.id));
     let req_exists = req_path.is_file();
 
     let content = generate_template(&args.doc_type, &doc_id, &args.id, req_exists);
@@ -78,6 +81,57 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
     format::hint(color, "Run `supersigil lint` to validate the new document.");
 
     Ok(())
+}
+
+/// Resolve the spec directory prefix for the new document.
+///
+/// - No `--project` in single-project mode: defaults to `specs/`.
+/// - No `--project` in multi-project mode: error (must specify).
+/// - `--project` in single-project mode: error.
+/// - `--project` with unknown name: error.
+/// - `--project` with known name: derives prefix from the project's first glob pattern.
+fn resolve_spec_dir(
+    config: &supersigil_core::Config,
+    project: Option<&str>,
+) -> Result<String, CliError> {
+    let is_multi_project = config.projects.is_some();
+
+    let Some(project_name) = project else {
+        if is_multi_project {
+            return Err(CliError::CommandFailed(
+                "--project is required in multi-project mode".to_owned(),
+            ));
+        }
+        return Ok("specs/".to_owned());
+    };
+
+    let projects = config.projects.as_ref().ok_or_else(|| {
+        CliError::CommandFailed(
+            "--project requires multi-project mode (use [projects] in supersigil.toml)".to_owned(),
+        )
+    })?;
+
+    let project_config = projects.get(project_name).ok_or_else(|| {
+        let available: Vec<&str> = projects.keys().map(String::as_str).collect();
+        CliError::CommandFailed(format!(
+            "unknown project '{}'. Available projects: {}",
+            project_name,
+            available.join(", ")
+        ))
+    })?;
+
+    // Derive the spec directory from the first glob pattern.
+    let prefix = project_config
+        .paths
+        .first()
+        .map_or_else(|| "specs/".to_owned(), |p| glob_prefix(p));
+
+    // Ensure prefix ends with a separator for path joining.
+    if prefix.is_empty() {
+        Ok("specs/".to_owned())
+    } else {
+        Ok(prefix)
+    }
 }
 
 /// Map full type name to short name used in file conventions.

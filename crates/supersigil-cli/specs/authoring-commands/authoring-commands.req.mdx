@@ -21,11 +21,14 @@ solved behavior.
   derive both the generated document ID and output path.
 - **Generated_Doc_ID**: The document ID synthesized by `new` from the
   Feature_Slug and the current type-shortening rules.
-- **Generated_Doc_Path**: The file path synthesized by `new` under the root
-  `specs/` tree.
+- **Generated_Doc_Path**: The file path synthesized by `new` under the
+  resolved spec directory.
+- **Spec_Dir**: The directory prefix where `new` places generated files.
+  In single-project mode this is always `specs/`. In multi-project mode it
+  is derived from the selected project's first glob pattern via `glob_prefix`.
 - **Existing_Feature_Requirement**: The sibling file
-  `specs/{feature}/{feature}.req.mdx` used by the design template to decide
-  whether it can emit a live `Implements` ref.
+  `{spec_dir}{feature}/{feature}.req.mdx` used by the design template to
+  decide whether it can emit a live `Implements` ref.
 
 ## Requirement 1: Repository Bootstrap
 
@@ -50,17 +53,18 @@ that I can start writing documents without hand-authoring the initial TOML.
   </Criterion>
 </AcceptanceCriteria>
 
-## Requirement 2: Root-Centric Document Scaffolding
+## Requirement 2: Document Scaffolding
 
-As a developer, I want `new` to create a starter document from the current
-repository convention, so that I can begin authoring from a valid scaffold.
+As a developer, I want `new` to create a starter document in the correct
+project-local spec directory, so that I can begin authoring from a valid
+scaffold without manually placing files.
 
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
-    THE current `new` command SHALL treat its second positional argument as a
+    THE `new` command SHALL treat its second positional argument as a
     Feature_Slug rather than as an arbitrary document ID. It SHALL derive the
     Generated_Doc_ID as `{feature}/{type_short}` and the Generated_Doc_Path as
-    `specs/{feature}/{feature}.{type_short}.mdx`, where `requirements`
+    `{spec_dir}{feature}/{feature}.{type_short}.mdx`, where `requirements`
     shortens to `req` and other document types keep their current name.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/new.rs" />
   </Criterion>
@@ -77,6 +81,26 @@ repository convention, so that I can begin authoring from a valid scaffold.
   <Criterion id="req-2-4">
     AFTER successful creation, `new` SHALL print the Generated_Doc_Path to
     stdout and a `supersigil lint` next-step hint to stderr.
+  </Criterion>
+  <Criterion id="req-2-5">
+    IN Multi_Project_Mode, `new` SHALL accept a `--project <name>` (short
+    `-p`) option that selects the target project. The Spec_Dir SHALL be
+    derived from the selected project's first glob pattern via `glob_prefix`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_new.rs" />
+  </Criterion>
+  <Criterion id="req-2-6">
+    IN Multi_Project_Mode, IF `--project` is omitted, `new` SHALL fail with
+    an error message indicating that `--project` is required.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_new.rs" />
+  </Criterion>
+  <Criterion id="req-2-7">
+    IN Single_Project_Mode, IF `--project` is supplied, `new` SHALL fail with
+    an error message indicating that `--project` requires multi-project mode.
+  </Criterion>
+  <Criterion id="req-2-8">
+    IF `--project` names a project not present in the config, `new` SHALL fail
+    with an error listing available project names.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_new.rs" />
   </Criterion>
 </AcceptanceCriteria>
 

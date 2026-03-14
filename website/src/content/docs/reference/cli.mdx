@@ -54,17 +54,24 @@ Scaffold a new spec document.
 supersigil new requirements auth
 supersigil new design auth
 supersigil new tasks auth
+supersigil new --project backend requirements auth
 ```
 
 The `type` argument is a document type (`requirements`, `design`, `tasks`, or any custom type defined in config). The `id` argument is the feature name used to derive the document ID and file path.
 
 Convention:
 - Document ID: `{id}/{type_short}` (e.g. `auth/req`, `auth/design`)
-- File path: `specs/{id}/{id}.{type_short}.mdx`
+- File path: `{spec_dir}{id}/{id}.{type_short}.mdx`
+
+In single-project mode, `{spec_dir}` is `specs/`. In multi-project mode, `{spec_dir}` is derived from the selected project's glob pattern (e.g. `backend/specs/` for a project with `paths = ["backend/specs/**/*.mdx"]`).
 
 The `requirements` type is shortened to `req` in IDs and filenames. All other types use their full name.
 
 The generated file includes a type-appropriate template with placeholder sections and components.
+
+| Flag | Description |
+|------|-------------|
+| `--project <name>`, `-p` | Target project (required in multi-project mode, invalid in single-project mode) |
 
 ## `supersigil lint`
 

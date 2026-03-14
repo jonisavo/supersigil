@@ -32,7 +32,10 @@ This tasks document tracks the bounded recovery pass for the CLI `init` and
   document types or fail fast instead.
 </Task>
 
-<Task id="task-5" status="ready">
-  Decide whether `new` should keep accepting a Feature_Slug or move to a real
-  document-ID and project-aware authoring model.
+<Task id="task-5" status="done" implements="authoring-commands/req#req-2-5, authoring-commands/req#req-2-6, authoring-commands/req#req-2-7, authoring-commands/req#req-2-8">
+  Add `--project` / `-p` flag to `new` for multi-project mode. `new` keeps the
+  Feature_Slug model but resolves the output directory from the selected
+  project's glob pattern. Omitting `--project` in multi-project mode is an
+  error; supplying it in single-project mode is an error; naming an unknown
+  project is an error with available names listed.
 </Task>
