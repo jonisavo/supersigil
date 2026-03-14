@@ -107,7 +107,7 @@ pub fn parse_file(
 
     // Stage 3: Extract components
     let mut errors = Vec::new();
-    let components = extract_components(&ast, body_offset, path, &mut errors);
+    let components = extract_components(&ast, body_offset, path, &mut errors, component_defs);
 
     // Stage 3: Lint-time validation
     validate_components(&components, component_defs, path, &mut errors);

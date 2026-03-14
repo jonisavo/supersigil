@@ -622,17 +622,17 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Feature: parser-and-config, Property 17: Unknown component names are detected
-// Validates: Requirements 25.1
+// Feature: parser-and-config, Property 17: Unknown component names produce
+// no errors (they are skipped during extraction)
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    // Property 17: Unknown PascalCase component names produce UnknownComponent
-    // errors. Lowercase names never produce errors.
+    // Property 17: Unknown PascalCase component names produce no errors.
+    // They are filtered out during extraction and validation ignores them.
     #[test]
-    fn unknown_pascal_case_names_detected(
+    fn unknown_pascal_case_names_produce_no_errors(
         name in "[A-Z][a-z]{3,10}",
     ) {
         use supersigil_core::SourcePosition;
@@ -656,20 +656,16 @@ proptest! {
         let mut errors = Vec::new();
         validate_components(&[component], &defs, &dummy_path(), &mut errors);
 
-        let unknown_errors: Vec<_> = errors.iter().filter(|e| {
-            matches!(e, ParseError::UnknownComponent { component, .. } if component == &name)
-        }).collect();
-
-        prop_assert_eq!(
-            unknown_errors.len(), 1,
-            "expected 1 UnknownComponent error for '{}', got {}: {:?}",
-            name, unknown_errors.len(), unknown_errors
+        prop_assert!(
+            errors.is_empty(),
+            "unknown component '{}' should produce no errors, got: {:?}",
+            name, errors
         );
     }
 
-    // Lowercase names never produce UnknownComponent errors
+    // Lowercase names never produce errors
     #[test]
-    fn lowercase_names_never_produce_unknown_errors(
+    fn lowercase_names_never_produce_errors(
         name in "[a-z][a-z]{1,10}",
     ) {
         use supersigil_core::SourcePosition;
@@ -688,14 +684,10 @@ proptest! {
         let mut errors = Vec::new();
         validate_components(&[component], &defs, &dummy_path(), &mut errors);
 
-        let unknown_errors: Vec<_> = errors.iter().filter(|e| {
-            matches!(e, ParseError::UnknownComponent { .. })
-        }).collect();
-
         prop_assert!(
-            unknown_errors.is_empty(),
-            "lowercase name '{}' should not produce UnknownComponent errors, got: {:?}",
-            name, unknown_errors
+            errors.is_empty(),
+            "lowercase name '{}' should not produce errors, got: {:?}",
+            name, errors
         );
     }
 }
@@ -711,37 +703,16 @@ proptest! {
 
     // Property 18: Files with multiple independent error conditions return all
     // errors, not just the first.
-    // We generate N unknown components + M components missing required attrs,
-    // and verify we get N + M errors.
+    // We generate M components missing required attrs and verify we get M errors.
     #[test]
     fn parser_collects_all_errors(
-        unknown_names in proptest::collection::vec("[A-Z][a-z]{3,8}", 1..=3),
-        missing_attr_count in 1u32..=3u32,
+        missing_attr_count in 1u32..=5u32,
     ) {
         use supersigil_core::SourcePosition;
 
         let defs = ComponentDefs::defaults();
 
-        // Deduplicate unknown names and filter out any that happen to be built-in
-        let mut seen = std::collections::HashSet::new();
-        let unknown_names: Vec<&str> = unknown_names.iter()
-            .map(String::as_str)
-            .filter(|n| !defs.is_known(n) && seen.insert(*n))
-            .collect();
-
         let mut components = Vec::new();
-
-        // Add unknown components
-        for (i, name) in unknown_names.iter().enumerate() {
-            components.push(ExtractedComponent {
-                name: name.to_string(),
-                attributes: std::collections::HashMap::new(),
-                children: Vec::new(),
-                body_text: None,
-                code_blocks: Vec::new(),
-                position: SourcePosition { byte_offset: i * 100, line: i + 1, column: 1 },
-            });
-        }
 
         // Add known components missing required attrs (Criterion missing `id`)
         for i in 0..missing_attr_count as usize {
@@ -752,41 +723,31 @@ proptest! {
                 body_text: None,
                 code_blocks: Vec::new(),
                 position: SourcePosition {
-                    byte_offset: (unknown_names.len() + i) * 100,
-                    line: unknown_names.len() + i + 1,
+                    byte_offset: i * 100,
+                    line: i + 1,
                     column: 1,
                 },
             });
         }
 
-        let expected_unknown = unknown_names.len();
         let expected_missing = missing_attr_count as usize;
-        let expected_total = expected_unknown + expected_missing;
 
         let mut errors = Vec::new();
         validate_components(&components, &defs, &dummy_path(), &mut errors);
 
-        let actual_unknown = errors.iter()
-            .filter(|e| matches!(e, ParseError::UnknownComponent { .. }))
-            .count();
         let actual_missing = errors.iter()
             .filter(|e| matches!(e, ParseError::MissingRequiredAttribute { .. }))
             .count();
 
-        prop_assert_eq!(
-            actual_unknown, expected_unknown,
-            "expected {} UnknownComponent errors, got {}",
-            expected_unknown, actual_unknown
-        );
         prop_assert_eq!(
             actual_missing, expected_missing,
             "expected {} MissingRequiredAttribute errors, got {}",
             expected_missing, actual_missing
         );
         prop_assert_eq!(
-            errors.len(), expected_total,
+            errors.len(), expected_missing,
             "expected {} total errors, got {}",
-            expected_total, errors.len()
+            expected_missing, errors.len()
         );
     }
 }

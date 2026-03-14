@@ -134,9 +134,11 @@ instead of raw MDX text.
 
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
-    THE Parser SHALL extract PascalCase JSX elements from both Flow_JSX and
-    Inline_JSX positions. Lowercase HTML or JSX elements SHALL NOT become
-    supersigil components, but their children SHALL still be traversed.
+    THE Parser SHALL extract only *known* PascalCase JSX elements (those
+    matching Component_Defs) from both Flow_JSX and Inline_JSX positions.
+    Unknown PascalCase elements and lowercase HTML/JSX elements SHALL NOT
+    become supersigil components, but their children SHALL still be traversed
+    so that known components nested inside unknown parents are extracted.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/extract.rs" />
   </Criterion>
   <Criterion id="req-5-2">
@@ -169,8 +171,10 @@ parse, so that obvious authoring mistakes are caught before graph building.
 
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
-    THE Parser SHALL validate extracted components against Component_Defs and
-    emit `ParseError::UnknownComponent` for unknown PascalCase component names.
+    THE Parser SHALL skip unknown PascalCase component names during extraction
+    rather than emitting errors. Only components matching Component_Defs are
+    extracted; all others are treated as transparent content wrappers whose
+    children are still traversed.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/property_tests.rs" />
   </Criterion>
   <Criterion id="req-6-2">

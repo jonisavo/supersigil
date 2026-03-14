@@ -41,15 +41,6 @@ pub enum ParseError {
         position: SourcePosition,
     },
     #[error(
-        "{path}:{}:{}: unknown component `<{component}>`",
-        position.line, position.column
-    )]
-    UnknownComponent {
-        path: PathBuf,
-        component: String,
-        position: SourcePosition,
-    },
-    #[error(
         "{path}:{}:{}: missing required attribute `{attribute}` on `<{component}>`",
         position.line, position.column
     )]

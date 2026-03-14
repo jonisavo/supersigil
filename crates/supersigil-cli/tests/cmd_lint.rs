@@ -90,13 +90,14 @@ fn lint_stdout_stderr_discipline() {
 fn lint_summary_counts_files_not_errors() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
+    // Two Criterion components missing required `id` → 2 errors, 1 file
     common::write_mdx(
         tmp.path(),
         "specs/bad.mdx",
         "bad/doc",
         None,
         None,
-        "<UnknownOne />\n<UnknownTwo />\n",
+        "<Criterion>text one</Criterion>\n\n<Criterion>text two</Criterion>\n",
     );
 
     cargo_bin_cmd!("supersigil")

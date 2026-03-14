@@ -409,18 +409,18 @@ mod component_extraction {
     use super::common::extract;
     use supersigil_core::ParseError;
 
-    // ── Req 8.1: PascalCase flow element extracted with name and attributes ──
+    // ── Req 8.1: Known PascalCase flow element extracted with name and attributes ──
 
     #[test]
     fn pascal_case_flow_element_extracted_with_name_and_attributes() {
-        let body = "<Validates refs=\"REQ-1, REQ-2\" />\n";
+        let body = "<References refs=\"REQ-1, REQ-2\" />\n";
         let (components, errors) = extract(body, 0);
 
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
         assert_eq!(components.len(), 1);
 
         let comp = &components[0];
-        assert_eq!(comp.name, "Validates");
+        assert_eq!(comp.name, "References");
         assert_eq!(
             comp.attributes.get("refs").map(String::as_str),
             Some("REQ-1, REQ-2")
@@ -451,23 +451,23 @@ mod component_extraction {
         assert!(components.is_empty(), "lowercase <p> should be ignored");
     }
 
-    // ── Inline JSX (MdxJsxTextElement) extracted when PascalCase ──
+    // ── Inline JSX (MdxJsxTextElement) extracted when known PascalCase ──
 
     #[test]
     fn inline_jsx_text_element_extracted() {
         // Inline JSX appears within a paragraph (not on its own block).
         // markdown-rs parses inline JSX as MdxJsxTextElement.
-        // PascalCase components are still extracted even when inline.
-        let body = "Some text with <Validates refs=\"REQ-1\" /> inline.\n";
+        // Known PascalCase components are still extracted even when inline.
+        let body = "Some text with <References refs=\"REQ-1\" /> inline.\n";
         let (components, errors) = extract(body, 0);
 
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
         assert_eq!(
             components.len(),
             1,
-            "PascalCase inline JSX should be extracted, got: {components:?}"
+            "known PascalCase inline JSX should be extracted, got: {components:?}"
         );
-        assert_eq!(components[0].name, "Validates");
+        assert_eq!(components[0].name, "References");
     }
 
     // ── Inline JSX inside a parent flow component IS extracted as child ──
@@ -544,17 +544,17 @@ mod component_extraction {
     #[test]
     fn lowercase_inline_jsx_does_not_swallow_nested_components() {
         // A lowercase inline wrapper like <span> should not swallow
-        // PascalCase components nested inside it.
-        let body = "Some text <span><Validates refs=\"REQ-1\" /></span> here.\n";
+        // known PascalCase components nested inside it.
+        let body = "Some text <span><References refs=\"REQ-1\" /></span> here.\n";
         let (components, errors) = extract(body, 0);
 
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
         assert_eq!(
             components.len(),
             1,
-            "Validates inside <span> should be extracted, got: {components:?}"
+            "References inside <span> should be extracted, got: {components:?}"
         );
-        assert_eq!(components[0].name, "Validates");
+        assert_eq!(components[0].name, "References");
     }
 
     // ── Lowercase inline HTML wrappers preserve body text ──
@@ -615,13 +615,13 @@ mod component_extraction {
 
     #[test]
     fn expression_attribute_produces_error_and_is_excluded() {
-        let body = "<Validates refs={someExpr} />\n";
+        let body = "<References refs={someExpr} />\n";
         let (components, errors) = extract(body, 0);
 
         // The component should still be extracted, but the expression attribute excluded
         assert_eq!(components.len(), 1);
         let comp = &components[0];
-        assert_eq!(comp.name, "Validates");
+        assert_eq!(comp.name, "References");
         assert!(
             !comp.attributes.contains_key("refs"),
             "expression attribute should be excluded from attributes"
@@ -636,7 +636,7 @@ mod component_extraction {
                     component,
                     attribute,
                     ..
-                } if component == "Validates" && attribute == "refs"
+                } if component == "References" && attribute == "refs"
             ),
             "expected ExpressionAttribute error, got: {:?}",
             errors[0]
@@ -680,7 +680,7 @@ mod component_extraction {
 
     #[test]
     fn self_closing_component_body_text_is_none() {
-        let body = "<Validates refs=\"REQ-1\" />\n";
+        let body = "<References refs=\"REQ-1\" />\n";
         let (components, errors) = extract(body, 0);
 
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
@@ -772,13 +772,13 @@ mod component_extraction {
 
     #[test]
     fn recursive_nesting_preserved() {
-        // Three levels: AcceptanceCriteria > Criterion > Validates
+        // Three levels: AcceptanceCriteria > Criterion > References
         let body = "\
 <AcceptanceCriteria>
 
 <Criterion id=\"c1\">
 
-<Validates refs=\"REQ-1\" />
+<References refs=\"REQ-1\" />
 
 </Criterion>
 
@@ -797,13 +797,13 @@ mod component_extraction {
         assert_eq!(criterion.name, "Criterion");
         assert_eq!(criterion.children.len(), 1);
 
-        let validates = &criterion.children[0];
-        assert_eq!(validates.name, "Validates");
+        let references = &criterion.children[0];
+        assert_eq!(references.name, "References");
         assert_eq!(
-            validates.attributes.get("refs").map(String::as_str),
+            references.attributes.get("refs").map(String::as_str),
             Some("REQ-1")
         );
-        assert!(validates.children.is_empty());
+        assert!(references.children.is_empty());
     }
 
     // ── Req 9.3: Component with no children has empty children list ──
@@ -825,7 +825,7 @@ mod component_extraction {
 
     #[test]
     fn source_position_offset_applied() {
-        let body = "<Validates refs=\"REQ-1\" />\n";
+        let body = "<References refs=\"REQ-1\" />\n";
         // Simulate front matter of 50 bytes
         let body_offset = 50;
         let (components, errors) = extract(body, body_offset);
@@ -845,7 +845,7 @@ mod component_extraction {
 
     #[test]
     fn source_position_without_offset_starts_at_zero() {
-        let body = "<Validates refs=\"REQ-1\" />\n";
+        let body = "<References refs=\"REQ-1\" />\n";
         let (components, errors) = extract(body, 0);
 
         assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
@@ -894,7 +894,7 @@ mod component_extraction {
 
     #[test]
     fn source_position_offset_for_second_component() {
-        let body = "<Validates refs=\"REQ-1\" />\n\n<Criterion id=\"c1\">\nText\n</Criterion>\n";
+        let body = "<References refs=\"REQ-1\" />\n\n<Criterion id=\"c1\">\nText\n</Criterion>\n";
         let body_offset = 100;
         let (components, errors) = extract(body, body_offset);
 
@@ -944,21 +944,21 @@ mod lint_validation {
         }
     }
 
-    // ── Req 25.1: Unknown PascalCase component → UnknownComponent error ──
+    // ── Unknown PascalCase component produces no errors ──
+    // Unknown components are now skipped during extraction, so validation
+    // never sees them.
 
     #[test]
-    fn unknown_pascal_case_component_produces_error() {
+    fn unknown_pascal_case_component_no_error() {
         let defs = ComponentDefs::defaults();
         let components = vec![make_component("FooBarBaz", &[])];
         let mut errors = Vec::new();
 
         validate_components(&components, &defs, &dummy_path(), &mut errors);
 
-        assert_eq!(errors.len(), 1, "expected 1 error, got: {errors:?}");
         assert!(
-            matches!(&errors[0], ParseError::UnknownComponent { component, .. } if component == "FooBarBaz"),
-            "expected UnknownComponent for FooBarBaz, got: {:?}",
-            errors[0]
+            errors.is_empty(),
+            "unknown components should produce no errors, got: {errors:?}"
         );
     }
 
@@ -976,12 +976,12 @@ mod lint_validation {
         assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
     }
 
-    // ── Req 25.1: Lowercase element name → no unknown component error ──
+    // ── Lowercase element name → no errors ──
 
     #[test]
-    fn lowercase_element_no_unknown_component_error() {
+    fn lowercase_element_no_errors() {
         let defs = ComponentDefs::defaults();
-        // Lowercase names should never produce UnknownComponent errors
+        // Lowercase names should never produce errors
         let components = vec![make_component("div", &[])];
         let mut errors = Vec::new();
 
@@ -1130,29 +1130,30 @@ mod lint_validation {
         );
     }
 
-    // ── Multiple errors: unknown + missing required on different components ──
+    // ── Multiple errors: unknown component skipped, missing required attr detected ──
 
     #[test]
     fn multiple_validation_errors_collected() {
         let defs = ComponentDefs::defaults();
         let components = vec![
-            make_component("UnknownThing", &[]),
-            make_component("Criterion", &[]), // missing required `id`
+            make_component("UnknownThing", &[]), // unknown, skipped by validate
+            make_component("Criterion", &[]),    // missing required `id`
         ];
         let mut errors = Vec::new();
 
         validate_components(&components, &defs, &dummy_path(), &mut errors);
 
-        assert_eq!(errors.len(), 2, "expected 2 errors, got: {errors:?}");
-        // One should be UnknownComponent, one should be MissingRequiredAttribute
-        let has_unknown = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::UnknownComponent { .. }));
-        let has_missing = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::MissingRequiredAttribute { .. }));
-        assert!(has_unknown, "expected UnknownComponent error");
-        assert!(has_missing, "expected MissingRequiredAttribute error");
+        // Only 1 error: MissingRequiredAttribute for Criterion (UnknownThing is skipped)
+        assert_eq!(errors.len(), 1, "expected 1 error, got: {errors:?}");
+        assert!(
+            matches!(
+                &errors[0],
+                ParseError::MissingRequiredAttribute { component, attribute, .. }
+                if component == "Criterion" && attribute == "id"
+            ),
+            "expected MissingRequiredAttribute for Criterion.id, got: {:?}",
+            errors[0]
+        );
     }
 
     // ── Nested children are also validated ──
@@ -1266,11 +1267,11 @@ mod parse_file_integration {
         );
     }
 
-    // ── Req 10.3: Error collection — multiple errors returned ──
+    // ── Req 10.3: Error collection — unknown component skipped, missing attr collected ──
 
     #[test]
     fn multiple_stage3_errors_all_collected() {
-        // File with an unknown component AND a known component missing required attr
+        // File with an unknown component (skipped) AND a known component missing required attr
         let content = "---\nsupersigil:\n  id: test\n---\n<UnknownWidget />\n\n<Criterion />\n";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1279,26 +1280,22 @@ mod parse_file_integration {
 
         assert!(result.is_err(), "expected errors, got: {result:?}");
         let errors = result.unwrap_err();
-        assert!(
-            errors.len() >= 2,
-            "expected at least 2 errors, got {}: {errors:?}",
+        // Only 1 error: MissingRequiredAttribute for Criterion (UnknownWidget is skipped)
+        assert_eq!(
+            errors.len(),
+            1,
+            "expected 1 error, got {}: {errors:?}",
             errors.len()
         );
 
-        let has_unknown = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::UnknownComponent { component, .. } if component == "UnknownWidget"));
-        let has_missing = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::MissingRequiredAttribute { component, attribute, .. } if component == "Criterion" && attribute == "id"));
-
         assert!(
-            has_unknown,
-            "expected UnknownComponent error for UnknownWidget"
-        );
-        assert!(
-            has_missing,
-            "expected MissingRequiredAttribute for Criterion.id"
+            matches!(
+                &errors[0],
+                ParseError::MissingRequiredAttribute { component, attribute, .. }
+                if component == "Criterion" && attribute == "id"
+            ),
+            "expected MissingRequiredAttribute for Criterion.id, got: {:?}",
+            errors[0]
         );
     }
 
@@ -1343,12 +1340,11 @@ mod parse_file_integration {
                 .any(|e| matches!(e, ParseError::MdxSyntaxError { .. })),
             "expected MdxSyntaxError, got: {errors:?}"
         );
-        // Should NOT have any stage 3 errors (unknown component, missing attr)
+        // Should NOT have any stage 3 errors (missing attr)
         assert!(
-            !errors.iter().any(|e| matches!(
-                e,
-                ParseError::UnknownComponent { .. } | ParseError::MissingRequiredAttribute { .. }
-            )),
+            !errors
+                .iter()
+                .any(|e| matches!(e, ParseError::MissingRequiredAttribute { .. })),
             "stage 3 errors should not appear when stage 2 fails"
         );
     }
@@ -1357,7 +1353,7 @@ mod parse_file_integration {
 
     #[test]
     fn stage3_expression_attr_and_validation_errors_collected() {
-        // Expression attribute + unknown component + missing required attr
+        // Expression attribute + unknown component (skipped) + missing required attrs
         let content = "---\nsupersigil:\n  id: test\n---\n<Criterion id={expr} />\n\n<UnknownComp />\n\n<References />\n";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1367,12 +1363,14 @@ mod parse_file_integration {
         assert!(result.is_err(), "expected errors, got: {result:?}");
         let errors = result.unwrap_err();
 
+        // 3 errors: ExpressionAttribute + MissingRequiredAttribute for Criterion.id
+        //           + MissingRequiredAttribute for References.refs
+        // (UnknownComp is skipped during extraction)
+        assert_eq!(errors.len(), 3, "expected 3 errors, got: {errors:?}");
+
         let has_expr = errors
             .iter()
             .any(|e| matches!(e, ParseError::ExpressionAttribute { .. }));
-        let has_unknown = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::UnknownComponent { .. }));
         let has_missing_criterion = errors.iter().any(|e| {
             matches!(
                 e,
@@ -1389,7 +1387,6 @@ mod parse_file_integration {
         });
 
         assert!(has_expr, "expected ExpressionAttribute error");
-        assert!(has_unknown, "expected UnknownComponent error");
         assert!(
             has_missing_criterion,
             "expected MissingRequiredAttribute for Criterion.id"
@@ -1444,6 +1441,140 @@ mod parse_file_integration {
             "expected MissingId, got: {:?}",
             errors[0]
         );
+    }
+
+    // ── Known-only extraction behavior ──
+
+    #[test]
+    fn unknown_pascal_case_skipped_during_extraction() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
+<Aside>This is a note</Aside>
+
+<Criterion id=\"c1\">
+Some criterion
+</Criterion>
+";
+        let f = write_temp_file(content);
+        let defs = ComponentDefs::defaults();
+
+        let result = parse_file(f.path(), &defs).unwrap();
+        match result {
+            ParseResult::Document(doc) => {
+                assert_eq!(doc.components.len(), 1, "only known components extracted");
+                assert_eq!(doc.components[0].name, "Criterion");
+                assert_eq!(
+                    doc.components[0].attributes.get("id").map(String::as_str),
+                    Some("c1")
+                );
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
+    }
+
+    #[test]
+    fn known_component_inside_unknown_parent_extracted() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
+<Tabs>
+<TabItem>
+
+<References refs=\"other/spec#c1\" />
+
+</TabItem>
+</Tabs>
+";
+        let f = write_temp_file(content);
+        let defs = ComponentDefs::defaults();
+
+        let result = parse_file(f.path(), &defs).unwrap();
+        match result {
+            ParseResult::Document(doc) => {
+                assert_eq!(
+                    doc.components.len(),
+                    1,
+                    "References should be extracted from inside unknown wrappers"
+                );
+                assert_eq!(doc.components[0].name, "References");
+                assert_eq!(
+                    doc.components[0].attributes.get("refs").map(String::as_str),
+                    Some("other/spec#c1")
+                );
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
+    }
+
+    #[test]
+    fn body_text_captured_from_unknown_wrapper() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
+<Criterion id=\"c1\">
+
+<Aside>important text</Aside>
+
+</Criterion>
+";
+        let f = write_temp_file(content);
+        let defs = ComponentDefs::defaults();
+
+        let result = parse_file(f.path(), &defs).unwrap();
+        match result {
+            ParseResult::Document(doc) => {
+                assert_eq!(doc.components.len(), 1);
+                let criterion = &doc.components[0];
+                assert_eq!(criterion.name, "Criterion");
+                let body = criterion.body_text.as_deref().unwrap_or("");
+                assert!(
+                    body.contains("important text"),
+                    "body_text should contain text from unknown <Aside> wrapper, got: {body:?}"
+                );
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
+    }
+
+    #[test]
+    fn mixed_known_unknown_components() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
+<Aside>A note</Aside>
+
+<TrackedFiles paths=\"src/**/*.rs\" />
+
+<Steps>
+step content
+</Steps>
+
+<References refs=\"other/spec\" />
+";
+        let f = write_temp_file(content);
+        let defs = ComponentDefs::defaults();
+
+        let result = parse_file(f.path(), &defs).unwrap();
+        match result {
+            ParseResult::Document(doc) => {
+                let names: Vec<&str> = doc.components.iter().map(|c| c.name.as_str()).collect();
+                assert_eq!(
+                    names,
+                    vec!["TrackedFiles", "References"],
+                    "only known components should be extracted, got: {names:?}"
+                );
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
     }
 }
 

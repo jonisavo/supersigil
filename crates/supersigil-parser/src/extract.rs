@@ -16,12 +16,13 @@ fn is_pascal_case(name: &str) -> bool {
 /// Collect body text from the direct children of an MDX JSX flow element.
 ///
 /// Concatenates all `Text` node values found among the children (recursing
-/// into non-component wrapper nodes like paragraphs), ignoring child
-/// components. Returns `None` if no text was found or the result is empty
-/// after trimming.
-fn collect_body_text(children: &[mdast::Node]) -> Option<String> {
+/// into non-component wrapper nodes like paragraphs), ignoring known child
+/// components. Unknown `PascalCase` elements (e.g., Starlight's `<Aside>`)
+/// are treated as transparent wrappers whose text belongs to the parent.
+/// Returns `None` if no text was found or the result is empty after trimming.
+fn collect_body_text(children: &[mdast::Node], defs: &ComponentDefs) -> Option<String> {
     let mut buf = String::new();
-    collect_text_recursive(&mut buf, children);
+    collect_text_recursive(&mut buf, children, defs);
     let trimmed = buf.trim();
     if trimmed.is_empty() {
         None
@@ -30,13 +31,13 @@ fn collect_body_text(children: &[mdast::Node]) -> Option<String> {
     }
 }
 
-/// Recursively collect text values, skipping child component nodes.
+/// Recursively collect text values, skipping known component nodes.
 ///
-/// Flow-level JSX elements are always child components. Inline JSX elements
-/// (`MdxJsxTextElement`) are child components only when `PascalCase`; lowercase
-/// inline elements (`<span>`, `<strong>`, etc.) are HTML formatting wrappers
-/// whose text content belongs to the parent's body.
-fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node]) {
+/// Known flow-level and inline JSX elements are child components and their
+/// text is excluded. Unknown `PascalCase` elements (framework components like
+/// `<Aside>`) and lowercase HTML elements are transparent wrappers whose
+/// text content belongs to the parent's body.
+fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node], defs: &ComponentDefs) {
     for node in nodes {
         match node {
             mdast::Node::Text(t) => buf.push_str(&t.value),
@@ -45,20 +46,25 @@ fn collect_text_recursive(buf: &mut String, nodes: &[mdast::Node]) {
                 buf.push_str(&c.value);
                 buf.push('`');
             }
-            // Skip flow-level JSX elements — they are child components.
-            mdast::Node::MdxJsxFlowElement(_) => {}
-            // Inline JSX: skip PascalCase (child components), recurse into
-            // lowercase (HTML formatting wrappers).
+            // Flow-level JSX: skip known components, recurse into unknown.
+            mdast::Node::MdxJsxFlowElement(el) => {
+                let is_known = el.name.as_ref().is_some_and(|n| defs.is_known(n));
+                if !is_known {
+                    collect_text_recursive(buf, &el.children, defs);
+                }
+            }
+            // Inline JSX: skip known components, recurse into unknown
+            // PascalCase and lowercase (HTML formatting wrappers).
             mdast::Node::MdxJsxTextElement(el) => {
-                let is_component = el.name.as_ref().is_some_and(|n| is_pascal_case(n));
-                if !is_component {
-                    collect_text_recursive(buf, &el.children);
+                let is_known = el.name.as_ref().is_some_and(|n| defs.is_known(n));
+                if !is_known {
+                    collect_text_recursive(buf, &el.children, defs);
                 }
             }
             // Recurse into wrapper nodes (paragraphs, etc.) to find text.
             other => {
                 if let Some(children) = other.children() {
-                    collect_text_recursive(buf, children);
+                    collect_text_recursive(buf, children, defs);
                 }
             }
         }
@@ -164,9 +170,10 @@ pub fn extract_components(
     body_offset: usize,
     path: &Path,
     errors: &mut Vec<ParseError>,
+    defs: &ComponentDefs,
 ) -> Vec<ExtractedComponent> {
     let mut components = Vec::new();
-    collect_components(node, body_offset, path, errors, &mut components);
+    collect_components(node, body_offset, path, errors, &mut components, defs);
     components
 }
 
@@ -178,9 +185,10 @@ fn collect_from_children(
     path: &Path,
     errors: &mut Vec<ParseError>,
     out: &mut Vec<ExtractedComponent>,
+    defs: &ComponentDefs,
 ) {
     for child in children {
-        collect_components(child, body_offset, path, errors, out);
+        collect_components(child, body_offset, path, errors, out, defs);
     }
 }
 
@@ -190,6 +198,7 @@ fn collect_components(
     path: &Path,
     errors: &mut Vec<ParseError>,
     out: &mut Vec<ExtractedComponent>,
+    defs: &ComponentDefs,
 ) {
     match node {
         mdast::Node::MdxJsxFlowElement(el) => {
@@ -202,9 +211,10 @@ fn collect_components(
                 path,
                 errors,
                 out,
+                defs,
             );
         }
-        // Inline JSX (MdxJsxTextElement) — extract PascalCase components.
+        // Inline JSX (MdxJsxTextElement) — extract known components.
         // This handles cases like <Criterion id="ac-1">text</Criterion>
         // appearing on a single line inside a parent component, which MDX
         // classifies as text-level rather than flow-level.
@@ -218,12 +228,13 @@ fn collect_components(
                 path,
                 errors,
                 out,
+                defs,
             );
         }
         // For all other nodes, recurse into children.
         other => {
             if let Some(node_children) = other.children() {
-                collect_from_children(node_children, body_offset, path, errors, out);
+                collect_from_children(node_children, body_offset, path, errors, out, defs);
             }
         }
     }
@@ -243,17 +254,25 @@ fn process_jsx_element(
     path: &Path,
     errors: &mut Vec<ParseError>,
     out: &mut Vec<ExtractedComponent>,
+    defs: &ComponentDefs,
 ) {
     let Some(name) = name else {
         // Fragment (<> </>) — recurse into children.
-        collect_from_children(children, body_offset, path, errors, out);
+        collect_from_children(children, body_offset, path, errors, out, defs);
         return;
     };
 
     if !is_pascal_case(name) {
         // Lowercase HTML element — recurse in case there are
         // supersigil components nested inside.
-        collect_from_children(children, body_offset, path, errors, out);
+        collect_from_children(children, body_offset, path, errors, out, defs);
+        return;
+    }
+
+    if !defs.is_known(name) {
+        // Unknown PascalCase element (e.g., Starlight's <Aside>) —
+        // treat as transparent wrapper, recurse into children.
+        collect_from_children(children, body_offset, path, errors, out, defs);
         return;
     }
 
@@ -273,9 +292,16 @@ fn process_jsx_element(
     let attrs = extract_attributes(attributes, name, path, &pos, errors);
 
     let mut child_components = Vec::new();
-    collect_from_children(children, body_offset, path, errors, &mut child_components);
+    collect_from_children(
+        children,
+        body_offset,
+        path,
+        errors,
+        &mut child_components,
+        defs,
+    );
 
-    let body_text = collect_body_text(children);
+    let body_text = collect_body_text(children, defs);
     let code_blocks = extract_code_blocks(children, body_offset, name);
 
     out.push(ExtractedComponent {
@@ -294,11 +320,10 @@ fn process_jsx_element(
 
 /// Validate extracted components against the known component definitions.
 ///
-/// Checks:
-/// 1. Unknown `PascalCase` component names → `UnknownComponent` error.
-/// 2. Missing required attributes → `MissingRequiredAttribute` error.
+/// Checks missing required attributes → `MissingRequiredAttribute` error.
 ///
-/// Lowercase element names are silently ignored (they are standard HTML).
+/// Only known components reach this point (unknown `PascalCase` elements are
+/// filtered out during extraction), so every component here has a definition.
 /// Recurses into children.
 pub fn validate_components(
     components: &[ExtractedComponent],
@@ -307,15 +332,7 @@ pub fn validate_components(
     errors: &mut Vec<ParseError>,
 ) {
     for comp in components {
-        // Skip lowercase names (standard HTML elements). When called via
-        // extract_components this is always true, but validate_components
-        // is a public API so we guard defensively.
-        if !is_pascal_case(&comp.name) {
-            continue;
-        }
-
         if let Some(def) = component_defs.get(&comp.name) {
-            // Check required attributes
             for (attr_name, attr_def) in &def.attributes {
                 if attr_def.required && !comp.attributes.contains_key(attr_name) {
                     errors.push(ParseError::MissingRequiredAttribute {
@@ -326,15 +343,7 @@ pub fn validate_components(
                     });
                 }
             }
-        } else {
-            errors.push(ParseError::UnknownComponent {
-                path: path.to_path_buf(),
-                component: comp.name.clone(),
-                position: comp.position,
-            });
         }
-
-        // Recurse into children
         validate_components(&comp.children, component_defs, path, errors);
     }
 }

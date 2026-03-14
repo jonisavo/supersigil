@@ -38,7 +38,7 @@ graph TD
 
     subgraph "Lint-time checks"
         L --> T{Component name known?}
-        T -- No --> U[Hard error: unknown_component]
+        T -- No --> U[Skip: treat as content, recurse children]
         T -- Yes --> V{Required attrs present?}
         V -- No --> W[Hard error: missing_required_attribute]
         V -- Yes --> X[Clean ParseResult::Document]

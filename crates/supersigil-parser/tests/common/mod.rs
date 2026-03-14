@@ -9,9 +9,10 @@ pub fn dummy_path() -> PathBuf {
 
 /// Parse MDX body and extract components using default component defs.
 pub fn extract(body: &str, body_offset: usize) -> (Vec<ExtractedComponent>, Vec<ParseError>) {
+    let defs = supersigil_core::ComponentDefs::defaults();
     let ast = parse_mdx_body(body, &dummy_path()).expect("MDX should parse");
     let mut errors = Vec::new();
-    let components = extract_components(&ast, body_offset, &dummy_path(), &mut errors);
+    let components = extract_components(&ast, body_offset, &dummy_path(), &mut errors, &defs);
     (components, errors)
 }
 
