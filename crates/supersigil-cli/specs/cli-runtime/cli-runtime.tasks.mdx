@@ -2,7 +2,7 @@
 supersigil:
   id: cli-runtime/tasks
   type: tasks
-  status: draft
+  status: in-progress
 title: "CLI Runtime Tasks"
 ---
 
@@ -16,7 +16,7 @@ the startup, dispatch, loader, and formatting runtime layer.
   tasks docs under `crates/supersigil-cli/specs/cli-runtime/`.
 </Task>
 
-<Task id="task-2" status="ready">
+<Task id="task-2" status="done">
   Add binary-level coverage for runtime exit semantics, especially the verify
   warnings-only path that should exit with code 2 rather than 1.
 </Task>
@@ -27,7 +27,7 @@ the startup, dispatch, loader, and formatting runtime layer.
   coverage is unit-level only.
 </Task>
 
-<Task id="task-4" status="ready">
+<Task id="task-4" status="done">
   Decide whether the runtime should keep Unicode coupled to the color decision
   or expose a separately testable display-mode concept. The current behavior is
   simple and intentional, but it is a policy choice rather than a necessity.

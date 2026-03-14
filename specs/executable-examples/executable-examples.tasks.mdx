@@ -2,7 +2,7 @@
 supersigil:
   id: executable-examples/tasks
   type: tasks
-  status: draft
+  status: done
 title: "Executable Examples Tasks"
 ---
 
@@ -14,7 +14,7 @@ and runner dispatch, then evidence integration and CLI orchestration.
 Each task is TDD: tests before implementation, with `cargo nextest run`
 green before moving on.
 
-<Task id="task-1" status="ready" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-1-3, executable-examples/req#req-1-5">
+<Task id="task-1" status="done" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-1-3, executable-examples/req#req-1-5">
   Add core types and component definitions. Register `Example` and
   `Expected` as built-in components in `component_defs.rs` with the
   attribute sets, referenceable/verifiable flags, and `references` edge
@@ -23,7 +23,7 @@ green before moving on.
   to `types.rs`. Add `EvidenceKind::Example` to `supersigil-evidence`.
 </Task>
 
-<Task id="task-2" status="ready" implements="executable-examples/req#req-6-1, executable-examples/req#req-6-2, executable-examples/req#req-6-3">
+<Task id="task-2" status="done" implements="executable-examples/req#req-6-1, executable-examples/req#req-6-2, executable-examples/req#req-6-3">
   Add the `[examples]` configuration model. Add `ExamplesConfig` and
   `RunnerConfig` to the config model in `supersigil-core`, with
   deserialization from `supersigil.toml`. Include `timeout`, `parallelism`,
@@ -31,7 +31,7 @@ green before moving on.
   `{lang}`, `{name}`) in runner command templates.
 </Task>
 
-<Task id="task-3" status="ready" depends="task-1" implements="executable-examples/req#req-1-8">
+<Task id="task-3" status="done" depends="task-1" implements="executable-examples/req#req-1-8">
   Amend the parser to extract code blocks. Extend the extractor in
   `supersigil-parser` to populate `code_blocks: Vec<CodeBlock>` on
   `ExtractedComponent` for `Example` and `Expected` components, including
@@ -39,14 +39,14 @@ green before moving on.
   get empty vectors.
 </Task>
 
-<Task id="task-4" status="ready" implements="executable-examples/req#req-4-1">
+<Task id="task-4" status="done" implements="executable-examples/req#req-4-1">
   Split `verify()` into composable parts. Extract `verify_structural()`
   (all rules except coverage and hooks) and `verify_coverage()` (coverage
   rules only) as public functions in `supersigil-verify`. Keep the
   existing `verify()` as a convenience that calls both plus hooks.
 </Task>
 
-<Task id="task-5" status="ready" depends="task-1, task-3, task-4" implements="executable-examples/req#req-1-2">
+<Task id="task-5" status="done" depends="task-1, task-3, task-4" implements="executable-examples/req#req-1-2">
   Add structural lint rules for Example and Expected. Add a rule that
   `Expected` must be a direct child of `Example` (analogous to
   `check_verified_by_placement`). Add code block cardinality validation:
@@ -54,7 +54,7 @@ green before moving on.
   Add `env` attribute format validation (each item must contain `=`).
 </Task>
 
-<Task id="task-6" status="ready" implements="executable-examples/req#req-1-6, executable-examples/req#req-1-7, executable-examples/req#req-3-1, executable-examples/req#req-3-2, executable-examples/req#req-3-3, executable-examples/req#req-3-5, executable-examples/req#req-3-6">
+<Task id="task-6" status="done" implements="executable-examples/req#req-1-6, executable-examples/req#req-1-7, executable-examples/req#req-3-1, executable-examples/req#req-3-2, executable-examples/req#req-3-3, executable-examples/req#req-3-5, executable-examples/req#req-3-6">
   Implement the output matching engine. Build the matcher in
   `supersigil-verify/src/examples/matcher.rs`: text (trimmed exact),
   JSON (deep compare with `<any-string>`, `<any-number>`, `<any-uuid>`,
@@ -63,7 +63,7 @@ green before moving on.
   property tests for JSON wildcard edge cases.
 </Task>
 
-<Task id="task-7" status="ready" depends="task-2" implements="executable-examples/req#req-2-1, executable-examples/req#req-2-2, executable-examples/req#req-2-3, executable-examples/req#req-2-4, executable-examples/req#req-2-5, executable-examples/req#req-2-6">
+<Task id="task-7" status="done" depends="task-2" implements="executable-examples/req#req-2-1, executable-examples/req#req-2-2, executable-examples/req#req-2-3, executable-examples/req#req-2-4, executable-examples/req#req-2-5, executable-examples/req#req-2-6">
   Implement runner dispatch and execution. Build runner resolution
   (config takes precedence over built-ins), placeholder interpolation,
   and the three built-in runners: `sh` (subprocess), `cargo-test`
@@ -73,7 +73,7 @@ green before moving on.
   real subprocess execution.
 </Task>
 
-<Task id="task-8" status="ready" depends="task-6, task-7" implements="executable-examples/req#req-1-4, executable-examples/req#req-4-2, executable-examples/req#req-4-3">
+<Task id="task-8" status="done" depends="task-6, task-7" implements="executable-examples/req#req-1-4, executable-examples/req#req-4-2, executable-examples/req#req-4-3">
   Integrate example execution with evidence production. Build the example
   executor that orchestrates runner dispatch and output matching. On
   pass with `verifies`, produce `VerificationEvidenceRecord` with
@@ -82,7 +82,7 @@ green before moving on.
   evidence into the `ArtifactGraph`.
 </Task>
 
-<Task id="task-9" status="ready" depends="task-4, task-8" implements="executable-examples/req#req-4-1, executable-examples/req#req-4-4, executable-examples/req#req-4-6, executable-examples/req#req-4-7">
+<Task id="task-9" status="done" depends="task-4, task-8" implements="executable-examples/req#req-4-1, executable-examples/req#req-4-4, executable-examples/req#req-4-6, executable-examples/req#req-4-7">
   Wire up the two-phase verify pipeline in the CLI. Orchestrate:
   `build_evidence()` → `verify_structural()` → structural-error gate →
   `execute_examples()` → `merge_example_evidence()` → `verify_coverage()`
@@ -92,7 +92,7 @@ green before moving on.
   and append-only progress output on non-TTY terminals.
 </Task>
 
-<Task id="task-10" status="ready" depends="task-3, task-6, task-9" implements="executable-examples/req#req-3-4, executable-examples/req#req-4-5">
+<Task id="task-10" status="done" depends="task-3, task-6, task-9" implements="executable-examples/req#req-3-4, executable-examples/req#req-4-5">
   Add `--skip-examples` and `--update-snapshots` CLI flags. Wire
   `--skip-examples` to bypass example execution in the two-phase
   pipeline. Implement the snapshot rewrite strategy for
@@ -100,20 +100,20 @@ green before moving on.
   `ExpectedSpec.body_span`, replace content, write back.
 </Task>
 
-<Task id="task-11" status="ready" depends="task-1, task-3" implements="executable-examples/req#req-5-1, executable-examples/req#req-5-2, executable-examples/req#req-5-3">
+<Task id="task-11" status="done" depends="task-1, task-3" implements="executable-examples/req#req-5-1, executable-examples/req#req-5-2, executable-examples/req#req-5-3">
   Add the `supersigil examples` discovery command. Walk the document
   graph for `Example` components, apply context scoping via
   `TrackedFiles` (same as `refs`), and format as terminal table or JSON.
 </Task>
 
-<Task id="task-12" status="ready" depends="task-9, task-10" implements="executable-examples/req#req-6-4">
+<Task id="task-12" status="done" depends="task-9, task-10" implements="executable-examples/req#req-6-4">
   Add concurrent example execution. Run independent examples in parallel
   up to `parallelism` limit. Ensure stable report ordering (sorted by
   document id then example id). Serialize snapshot rewrites to avoid
   concurrent writes to the same MDX file.
 </Task>
 
-<Task id="task-13" status="ready" depends="task-9, task-11" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-4-1, executable-examples/req#req-5-1, executable-examples/req#req-5-3">
+<Task id="task-13" status="done" depends="task-9, task-11" implements="executable-examples/req#req-1-1, executable-examples/req#req-1-2, executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-4-1, executable-examples/req#req-5-1, executable-examples/req#req-5-3">
   Add self-referential executable examples to supersigil specs. Use the
   `sh` and `cargo-test` runners to exercise the feature against fixture
   projects: verify that `supersigil lint` accepts Example/Expected

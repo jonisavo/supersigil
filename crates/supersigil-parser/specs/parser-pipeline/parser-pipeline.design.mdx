@@ -2,7 +2,7 @@
 supersigil:
   id: parser-pipeline/design
   type: design
-  status: draft
+  status: approved
 title: "Parser Pipeline"
 ---
 
