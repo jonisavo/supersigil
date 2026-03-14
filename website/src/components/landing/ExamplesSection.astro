@@ -1,0 +1,92 @@
+---
+// ExamplesSection — executable examples showcase
+---
+
+<section class="examples-showcase">
+  <div class="container">
+    <p class="section-label reveal">Executable Examples</p>
+    <h2 class="section-title reveal">Executable examples when prose needs proof.</h2>
+    <p class="section-sub reveal">
+      Executable examples are one evidence source inside the same verification
+      system. Use them for API flows, CLI sessions, and docs that need to stay exact.
+    </p>
+
+    <div class="examples-panels">
+      <!-- Spec file with embedded example -->
+      <div class="panel reveal" style="--reveal-delay: 0.1s">
+        <div class="panel-bar">
+          <div class="panel-dots"><span></span><span></span><span></span></div>
+          <span class="panel-title">tasks/req/create.mdx</span>
+        </div>
+        <div class="panel-body code-panel">
+          <pre><code><span class="c-gold">&lt;Example</span>
+  <span class="c-teal">id</span>=<span class="c-str">"create-past-date"</span>
+  <span class="c-teal">lang</span>=<span class="c-str">"http"</span>
+  <span class="c-teal">runner</span>=<span class="c-str">"http"</span>
+  <span class="c-teal">verifies</span>=<span class="c-str">"tasks/req/create#due-date"</span>
+<span class="c-gold">&gt;</span>
+
+<span class="c-muted">```http</span>
+<span class="c-teal">POST</span> <span class="c-text">/api/v1/tasks</span>
+<span class="c-gray">Content-Type: application/json</span>
+
+<span class="c-text">&#123;</span>
+  <span class="c-teal">"title"</span><span class="c-gray">:</span> <span class="c-str">"Buy milk"</span><span class="c-gray">,</span>
+  <span class="c-teal">"due_date"</span><span class="c-gray">:</span> <span class="c-str">"2020-01-01"</span>
+<span class="c-text">&#125;</span>
+<span class="c-muted">```</span>
+
+<span class="c-gold">&lt;Expected</span>
+  <span class="c-teal">status</span>=<span class="c-str">"400"</span>
+  <span class="c-teal">contains</span>=<span class="c-str">"due_date must be in the future"</span>
+<span class="c-gold">/&gt;</span>
+
+<span class="c-gold">&lt;/Example&gt;</span></code></pre>
+        </div>
+      </div>
+
+      <!-- Terminal output -->
+      <div class="panel reveal" style="--reveal-delay: 0.2s">
+        <div class="panel-bar">
+          <div class="panel-dots"><span></span><span></span><span></span></div>
+          <span class="panel-title">Terminal</span>
+        </div>
+        <div class="panel-body term-panel">
+          <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify</span>
+
+  <span class="c-green">&#10003;</span> create-task <span class="c-dots">··············</span> <span class="c-teal">http</span>  <span class="c-muted">52ms</span>
+  <span class="c-green">&#10003;</span> create-missing-title <span class="c-dots">·····</span> <span class="c-teal">http</span>  <span class="c-muted">38ms</span>
+  <span class="c-red">&#10007;</span> create-past-date <span class="c-dots">·········</span> <span class="c-teal">http</span>  <span class="c-muted">45ms</span>
+    <span class="c-red">│</span> <span class="c-red">Expected status 400, got 201</span>
+    <span class="c-red">│</span> <span class="c-muted">due_date validation not enforced</span>
+
+  <span class="c-muted">3 examples &middot;</span> <span class="c-green">2 passed</span> <span class="c-muted">&middot;</span> <span class="c-red">1 failed</span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="examples-cta reveal" style="--reveal-delay: 0.35s">
+      <a href="/supersigil/guides/executable-examples/" class="btn btn-ghost">
+        See how examples fit into verification
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .examples-showcase {
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .examples-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  .examples-cta {
+    margin-top: 2rem;
+    text-align: center;
+  }
+</style>

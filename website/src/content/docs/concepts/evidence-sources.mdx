@@ -1,0 +1,118 @@
+---
+title: Evidence Sources
+description: How Supersigil turns criteria into covered, checkable evidence.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Coverage in Supersigil is not a vague statement about “having tests.” A
+criterion is covered only when the graph can point to specific evidence for it.
+
+## The Evidence Model
+
+Every criterion starts as an uncovered verification target. It becomes covered
+when Supersigil can resolve at least one evidence source for that criterion.
+
+The built-in evidence paths are:
+
+| Source | Best for | Strength |
+|--------|----------|----------|
+| `<VerifiedBy strategy="tag">` | Existing test suites | Explicit mapping with very low setup cost |
+| `<VerifiedBy strategy="file-glob">` | Broad file-level coverage | Fastest way to connect criteria to known test locations |
+| `<Example verifies="...">` | API flows, CLI sessions, runnable docs | Documentation that doubles as evidence |
+| Ecosystem plugins | Language-aware integrations | Structured discovery from the code itself |
+
+## Tag-Based Evidence
+
+Tags are the default bridge from criteria to tests:
+
+```mdx
+<Criterion id="valid-creds">
+  WHEN a user submits valid credentials
+  THE SYSTEM SHALL issue a session token.
+  <VerifiedBy strategy="tag" tag="auth:valid-creds" />
+</Criterion>
+```
+
+Then in a test file:
+
+```rust
+// supersigil: auth:valid-creds
+
+#[test]
+fn login_with_valid_credentials_returns_token() {
+    // ...
+}
+```
+
+Tag mappings are explicit and portable. They work well when you want a
+criterion-level contract without changing the structure of your existing tests.
+
+## File-Glob Evidence
+
+File globs trade precision for speed:
+
+```mdx
+<VerifiedBy strategy="file-glob" paths="tests/auth/login_*.rs" />
+```
+
+This is useful when a criterion is verified by a small, stable set of files and
+you do not need per-test granularity.
+
+<Aside type="caution">
+  File globs show that matching files exist; they do not tell you which specific
+  test case inside those files satisfies the criterion.
+</Aside>
+
+## Executable Examples
+
+Examples are ideal when the proof should live in the documentation itself:
+
+````mdx
+<Example id="create-task" runner="http" verifies="tasks/req/create#due-date">
+
+```http
+POST /api/v1/tasks
+Content-Type: application/json
+
+{"title": "Buy milk"}
+```
+
+<Expected status="201" />
+
+</Example>
+````
+
+Passing examples count as evidence during `supersigil verify`, so the same
+system that checks structural integrity can also run and validate the workflow
+you are documenting.
+
+## Ecosystem Plugins
+
+Plugins let Supersigil discover evidence directly from a language or framework.
+Today the main built-in example is the Rust plugin:
+
+```rust
+#[verifies("auth/req#valid-creds")]
+#[test]
+fn login_with_valid_credentials_returns_token() {
+    // ...
+}
+```
+
+The plugin parses test code and emits evidence records automatically. This is
+stronger than comment tags when your stack can support richer, structured
+integration.
+
+## Choosing the Right Source
+
+- Start with **tags** when you want explicit criterion-to-test mapping quickly.
+- Use **file globs** when you only need coarse evidence and the test location is stable.
+- Use **executable examples** when the docs themselves should be runnable proof.
+- Use **plugins** when you want deeper language-aware discovery with less manual linking.
+
+## Related Reading
+
+- [Verification](/supersigil/concepts/verification/) — Rule severities, draft gating, and exit codes.
+- [Executable Examples](/supersigil/guides/executable-examples/) — Runner model and expected output matching.
+- [CLI Commands](/supersigil/reference/cli/) — `context`, `status`, `refs`, and `verify`.

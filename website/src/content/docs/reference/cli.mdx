@@ -1,0 +1,268 @@
+---
+title: CLI Commands
+description: Complete reference for all Supersigil CLI commands.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Global Options
+
+These options apply to all commands:
+
+| Flag | Description |
+|------|-------------|
+| `--color <when>` | Color output: `auto` (default), `always`, `never` |
+
+Individual commands add their own flags as documented below.
+
+## `supersigil init`
+
+Create a minimal `supersigil.toml` in the current directory.
+
+```bash
+supersigil init
+```
+
+Creates a config file with sensible defaults:
+
+```toml
+paths = ["specs/**/*.mdx"]
+```
+
+Does not overwrite an existing `supersigil.toml`.
+
+## `supersigil new <type> <id>`
+
+Scaffold a new spec document.
+
+```bash
+supersigil new requirements auth
+supersigil new design auth
+supersigil new tasks auth
+```
+
+The `type` argument is a document type (`requirements`, `design`, `tasks`, or any custom type defined in config). The `id` argument is the feature name used to derive the document ID and file path.
+
+Convention:
+- Document ID: `{id}/{type_short}` (e.g. `auth/req`, `auth/design`)
+- File path: `specs/{id}/{id}.{type_short}.mdx`
+
+The `requirements` type is shortened to `req` in IDs and filenames. All other types use their full name.
+
+The generated file includes a type-appropriate template with placeholder sections and components.
+
+## `supersigil lint`
+
+Run per-file structural checks. Fast, no graph needed.
+
+```bash
+supersigil lint
+```
+
+Lint checks a subset of rules that don't require the full document graph: valid front matter, known components, required attributes, string-only attributes.
+
+Suitable for pre-commit hooks and editor integration. Returns the number of errors found. Exit code 1 on any errors.
+
+<Aside type="tip">
+  Lint is fast because it never builds the cross-document graph. For full verification including reference resolution, coverage, and executable examples, use `supersigil verify`.
+</Aside>
+
+## `supersigil verify`
+
+Whole-graph verification. This is the CI command.
+
+```bash
+supersigil verify
+supersigil verify --since main --committed-only
+supersigil verify --project backend --format json
+supersigil verify --skip-examples
+```
+
+Runs in two phases:
+1. **Structural checks** -- all hard errors (broken refs, duplicate IDs, cycles) and configurable rules at their effective severity.
+2. **Executable examples** -- runs `<Example>` components and compares output against `<Expected>`.
+
+| Flag | Description |
+|------|-------------|
+| `--since <ref>` | Git ref for staleness checks |
+| `--committed-only` | Only consider committed changes |
+| `--merge-base` | Use merge-base for git diff |
+| `--skip-examples` | Skip executable example execution |
+| `--update-snapshots` | Update snapshot expectations with actual output |
+| `--project <name>` | Filter to a project (multi-project mode) |
+| `--format <fmt>` | Output format: `terminal` (default), `json`, `markdown` |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | All checks pass |
+| `1` | One or more errors found |
+| `2` | Warnings only (no errors) |
+
+## `supersigil ls`
+
+List all discovered documents.
+
+```bash
+supersigil ls
+supersigil ls --type requirements --status draft
+supersigil ls --project frontend --format json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--type <type>` | Filter by document type |
+| `--status <status>` | Filter by status |
+| `--project <name>` | Filter by project (multi-project mode) |
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil context <id>`
+
+Structured view of a document's relationships, criteria, and coverage.
+
+```bash
+supersigil context auth/req
+supersigil context auth/req --format json
+```
+
+Returns the document's metadata, criteria, coverage, implementing designs, tracked files, and dependency relationships.
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil status [id]`
+
+Coverage summary. Without an ID, shows project-wide totals. With an ID, shows detail for that document.
+
+```bash
+supersigil status
+supersigil status auth/req
+supersigil status --format json
+```
+
+Reports total criteria vs covered, broken down by document type and status.
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil plan [id|prefix]`
+
+Outstanding work: unverified criteria, pending tasks with topological ordering.
+
+```bash
+supersigil plan                    # All outstanding work
+supersigil plan auth               # Filter by prefix
+supersigil plan auth/tasks         # Specific document
+supersigil plan --verbose
+```
+
+Lists tasks in dependency order. Shows which criteria still need coverage and which tasks are blocked.
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show all criteria and full task details |
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil refs [prefix]`
+
+List criterion refs in canonical `doc-id#criterion-id` form.
+
+```bash
+supersigil refs                    # All refs
+supersigil refs auth               # Refs matching prefix
+supersigil refs --all
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Show all criterion refs (no context scoping) |
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil examples [prefix]`
+
+List executable examples with metadata.
+
+```bash
+supersigil examples
+supersigil examples auth
+supersigil examples --format json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+<Aside>
+  Examples are also executed as part of `supersigil verify` (unless `--skip-examples` is passed). The `examples` command lists metadata only; it does not run them.
+</Aside>
+
+## `supersigil affected`
+
+List documents affected by file changes since a git ref.
+
+```bash
+supersigil affected --since main
+supersigil affected --since HEAD~5 --committed-only
+supersigil affected --since main --merge-base
+```
+
+Uses `<TrackedFiles>` globs to determine which spec documents are affected by the changed files.
+
+| Flag | Description |
+|------|-------------|
+| `--since <ref>` | Git ref to diff against (required) |
+| `--committed-only` | Only consider committed changes |
+| `--merge-base` | Use merge-base for git diff |
+| `--format <fmt>` | Output format: `terminal` (default), `json` |
+
+## `supersigil graph`
+
+Output the document dependency graph.
+
+```bash
+supersigil graph                   # Mermaid format (default)
+supersigil graph --format dot      # Graphviz DOT format
+```
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Graph format: `mermaid` (default), `dot` |
+
+## `supersigil schema`
+
+Display component and document type schema. Shows all built-in and configured components with their attributes, plus document type definitions with valid statuses.
+
+```bash
+supersigil schema                  # YAML format (default)
+supersigil schema --format json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Schema format: `yaml` (default), `json` |
+
+## `supersigil import --from kiro`
+
+Import Kiro format specs into Supersigil MDX.
+
+```bash
+supersigil import --from kiro
+supersigil import --from kiro --dry-run
+supersigil import --from kiro --source-dir ./kiro-specs --output-dir ./specs --prefix myapp
+```
+
+| Flag | Description |
+|------|-------------|
+| `--from <format>` | Source format (currently only `kiro`) |
+| `--dry-run` | Preview import without writing files |
+| `--source-dir <path>` | Source directory (default: `.kiro/specs`) |
+| `--output-dir <path>` | Output directory (default: `specs`) |
+| `--prefix <prefix>` | Prefix for generated document IDs |
+| `--force` | Overwrite existing files |
+
+<Aside type="note">
+  Imported files may contain `TODO(supersigil-import)` comments where manual review is needed. Run `supersigil lint` after importing to validate the results.
+</Aside>

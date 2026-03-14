@@ -1,0 +1,188 @@
+---
+title: Working with AI Agents
+description: How AI coding agents use Supersigil for structured context and verification.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Supersigil gives AI coding agents something they usually lack: a structured, queryable contract that defines what to build, how to verify it, and what files are involved. Every command supports `--format json` for machine consumption.
+
+## The Problem
+
+AI coding agents are strong at implementation, but they struggle with three things:
+
+1. **Scope** -- Without a formal contract, agents hallucinate requirements or build more than asked.
+2. **Verification** -- Agents cannot verify their work against intent because intent is not formalized.
+3. **Context** -- Agents receive either too much context (entire codebases) or too little (a single prompt).
+
+Supersigil addresses all three by giving agents a queryable graph of specifications with verifiable edges.
+
+## How Agents Integrate
+
+The integration is CLI-based. Agents shell out to `supersigil` commands with `--format json` and parse the structured output. There is no SDK, no library API -- just a binary that returns JSON on stdout.
+
+```python
+import subprocess
+import json
+
+def supersigil(args: list[str]) -> dict:
+    result = subprocess.run(
+        ["supersigil"] + args + ["--format", "json"],
+        capture_output=True, text=True
+    )
+    return json.loads(result.stdout)
+```
+
+## Key Commands for Agents
+
+### `supersigil context <id> --format json`
+
+Returns everything an agent needs to understand a document and its relationships:
+
+```bash
+supersigil context auth/req/login --format json
+```
+
+The output includes:
+- **Document metadata** -- ID, type, status, frontmatter
+- **Criteria** -- Each criterion with its ID, body text, and which documents reference it
+- **Implemented by** -- Design documents that implement this requirement
+- **Referenced by** -- Other documents that reference this one
+- **Tasks** -- Linked tasks in dependency order, with status and implements info
+
+This is the primary context-loading command. An agent can read one JSON blob and know what to build, what files are involved, and what the acceptance criteria are.
+
+### `supersigil refs [prefix] --format json`
+
+Lists criterion refs for context-aware scoping:
+
+```bash
+supersigil refs auth/ --format json
+```
+
+```json
+[
+  {
+    "ref": "auth/req/login#valid-creds",
+    "doc_id": "auth/req/login",
+    "criterion_id": "valid-creds",
+    "body_text": "WHEN a user submits valid credentials..."
+  }
+]
+```
+
+Without a prefix, `refs` automatically scopes to the current working directory based on `TrackedFiles` globs. This means an agent working inside `src/auth/` sees only the criteria relevant to that code area.
+
+### `supersigil plan [prefix] --format json`
+
+Shows outstanding work -- uncovered criteria and pending tasks:
+
+```bash
+supersigil plan auth/ --format json
+```
+
+The output includes outstanding verification targets (criteria with no evidence), pending tasks (not yet done), and completed tasks. An agent can use this to decide what to work on next.
+
+### `supersigil status --format json`
+
+Shows a coverage summary for the project or a specific document:
+
+```bash
+supersigil status --format json
+supersigil status auth/req/login --format json
+```
+
+Project-wide status returns total documents, breakdown by type and status, and overall criterion coverage. Per-document status returns the document's criteria with their coverage state and tracked files.
+
+### `supersigil affected --since <ref> --format json`
+
+Shows specs that may be stale because their tracked files changed:
+
+```bash
+supersigil affected --since main --format json
+```
+
+An agent can run this before modifying code to understand which specs need review. After making changes, it can run it again to check whether its work introduced staleness.
+
+### `supersigil verify --format json`
+
+Runs full graph verification and returns structured results:
+
+```bash
+supersigil verify --format json
+```
+
+The output includes all findings (errors, warnings), coverage information, and example execution results. The exit code tells the agent whether verification passed (0), found errors (1), or found only warnings (2).
+
+## Agent Workflow
+
+Here is the typical loop an agent follows when implementing a feature:
+
+<Steps>
+
+1. **Receive a task** -- "Implement `auth/req/login`"
+
+2. **Load context**
+   ```bash
+   supersigil context auth/req/login --format json
+   ```
+   The agent now knows the criteria, tracked files, implementing designs, and linked tasks.
+
+3. **Understand the criteria** by reading the `criteria` array. Each entry has an `id` and `body_text` that describes the acceptance condition.
+
+4. **Read related documents** if the context shows implementing designs (e.g., `auth/design/oauth`), the agent can load their context too.
+
+5. **Implement the feature** against the tracked files.
+
+6. **Verify the work**
+   ```bash
+   supersigil verify --format json
+   ```
+   The agent checks for broken references, uncovered criteria, and failing examples.
+
+7. **Fix issues** -- If verify reports problems, the agent reads the findings and iterates.
+
+</Steps>
+
+## Hallucination Guards
+
+Supersigil's verification model makes it difficult for agents to produce work that only appears correct:
+
+- **Broken references are hard errors.** If an agent writes `<Validates refs="auth/req/signup">` but `auth/req/signup` does not exist, `supersigil verify` fails immediately. There is no way to reference a spec that is not in the graph.
+
+- **Unknown components are hard errors.** If an agent invents `<Satisfies>` (not a real component), it is caught at lint time. The set of valid components is fixed.
+
+- **Coverage tracking is objective.** The verification report shows exactly which criteria are covered and which are not. An agent cannot claim coverage that the graph does not confirm.
+
+These guards are especially valuable in automated pipelines where an agent's output goes directly to CI. The spec graph acts as a machine-checkable contract.
+
+<Aside type="tip">
+Add `supersigil verify --format json` as a verification step after any agent-generated code. The structured output lets the agent self-correct before submitting work for review.
+</Aside>
+
+## Scoping Work with `refs`
+
+The `refs` command supports automatic context scoping based on the current working directory. When an agent is operating inside a specific directory, `refs` (without `--all`) returns only the criteria whose documents have `TrackedFiles` globs matching that directory.
+
+This prevents context window bloat. Instead of loading every criterion in the project, the agent sees only what is relevant to the code it is touching.
+
+```bash
+# From inside src/auth/ -- only shows auth-related criteria
+supersigil refs --format json
+
+# Show everything regardless of cwd
+supersigil refs --all --format json
+
+# Filter by document ID prefix
+supersigil refs auth/ --format json
+```
+
+## Practical Tips
+
+**Start with `context`, not the raw spec files.** The `context` command resolves relationships and presents a unified view. Reading raw MDX files means the agent has to parse frontmatter and follow references manually.
+
+**Use `plan` to prioritize.** When an agent has multiple tasks, `plan` shows what is outstanding and what is already done. This prevents duplicate work.
+
+**Run `verify` frequently.** Verification is fast for structural checks. Running it after each significant change catches drift early. Use `--skip-examples` during rapid iteration if example execution is slow.
+
+**Parse exit codes.** `supersigil verify` exits 0 on success, 1 on errors, and 2 on warnings only. An agent can use the exit code for quick pass/fail without parsing JSON.

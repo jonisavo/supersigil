@@ -1,0 +1,525 @@
+---
+// Astrolabe — celestial cartography SVG backdrop
+---
+
+<div class="astrolabe" aria-hidden="true">
+  <!-- Static star field -->
+  <svg class="astro-stars" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <circle cx="95" cy="72" r="0.8" fill="#e8e4df" opacity="0.35"/>
+    <circle cx="210" cy="340" r="0.7" fill="#e8e4df" opacity="0.2"/>
+    <circle cx="340" cy="90" r="0.8" fill="#e8e4df" opacity="0.3"/>
+    <circle cx="478" cy="210" r="0.6" fill="#e8e4df" opacity="0.15"/>
+    <circle cx="580" cy="680" r="0.9" fill="#e8e4df" opacity="0.25"/>
+    <circle cx="720" cy="120" r="0.7" fill="#e8e4df" opacity="0.22"/>
+    <circle cx="850" cy="380" r="0.8" fill="#e8e4df" opacity="0.28"/>
+    <circle cx="960" cy="90" r="0.6" fill="#e8e4df" opacity="0.2"/>
+    <circle cx="1080" cy="290" r="0.9" fill="#e8e4df" opacity="0.3"/>
+    <circle cx="1140" cy="540" r="0.7" fill="#e8e4df" opacity="0.15"/>
+    <circle cx="150" cy="580" r="0.6" fill="#e8e4df" opacity="0.22"/>
+    <circle cx="390" cy="520" r="0.8" fill="#e8e4df" opacity="0.18"/>
+    <circle cx="680" cy="440" r="0.6" fill="#e8e4df" opacity="0.25"/>
+    <circle cx="1010" cy="620" r="0.7" fill="#e8e4df" opacity="0.2"/>
+    <circle cx="50" cy="420" r="0.5" fill="#e8e4df" opacity="0.15"/>
+    <circle cx="830" cy="60" r="0.6" fill="#e8e4df" opacity="0.18"/>
+    <circle cx="520" cy="45" r="0.7" fill="#e8e4df" opacity="0.22"/>
+    <circle cx="270" cy="740" r="0.6" fill="#e8e4df" opacity="0.15"/>
+    <circle cx="1100" cy="130" r="0.5" fill="#e8e4df" opacity="0.18"/>
+    <circle cx="640" cy="295" r="0.6" fill="#e8e4df" opacity="0.16"/>
+    <circle cx="420" cy="400" r="0.5" fill="#e8e4df" opacity="0.12"/>
+    <circle cx="780" cy="580" r="0.7" fill="#e8e4df" opacity="0.2"/>
+    <circle cx="160" cy="200" r="0.6" fill="#e8e4df" opacity="0.15"/>
+    <circle cx="1050" cy="450" r="0.5" fill="#e8e4df" opacity="0.18"/>
+    <circle cx="600" cy="150" r="0.5" fill="#e8e4df" opacity="0.14"/>
+    <circle cx="300" cy="450" r="0.6" fill="#e8e4df" opacity="0.16"/>
+    <circle cx="900" cy="520" r="0.5" fill="#e8e4df" opacity="0.12"/>
+    <circle cx="130" cy="350" r="0.4" fill="#e8e4df" opacity="0.1"/>
+    <circle cx="1000" cy="180" r="0.5" fill="#e8e4df" opacity="0.14"/>
+    <!-- Pulsing anchor stars (gold — spec nodes) -->
+    <circle cx="310" cy="260" r="1.5" fill="#c9a55c" opacity="0.4" class="star-pulse" style="--pd:0s"/>
+    <circle cx="820" cy="200" r="1.3" fill="#c9a55c" opacity="0.35" class="star-pulse" style="--pd:2.5s"/>
+    <circle cx="540" cy="560" r="1.4" fill="#c9a55c" opacity="0.3" class="star-pulse" style="--pd:5s"/>
+    <circle cx="180" cy="480" r="1.1" fill="#c9a55c" opacity="0.25" class="star-pulse" style="--pd:7.5s"/>
+    <circle cx="1020" cy="350" r="1.3" fill="#c9a55c" opacity="0.32" class="star-pulse" style="--pd:3.8s"/>
+    <circle cx="450" cy="150" r="1" fill="#c9a55c" opacity="0.22" class="star-pulse" style="--pd:1s"/>
+    <!-- Pulsing anchor stars (teal — test nodes) -->
+    <circle cx="680" cy="100" r="1" fill="#5a8f9f" opacity="0.28" class="star-pulse" style="--pd:6s"/>
+    <circle cx="440" cy="700" r="1.1" fill="#5a8f9f" opacity="0.22" class="star-pulse" style="--pd:1.5s"/>
+    <circle cx="900" cy="480" r="0.9" fill="#5a8f9f" opacity="0.2" class="star-pulse" style="--pd:4.2s"/>
+  </svg>
+
+  <!-- Cartographic detail layer -->
+  <svg class="astro-detail" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <!-- Secondary orbital system — upper-left -->
+    <g transform="translate(180,180)">
+      <circle r="70" fill="none" stroke="#e8e4df" stroke-width="0.3" opacity="0.07"/>
+      <circle r="45" fill="none" stroke="#e8e4df" stroke-width="0.25" opacity="0.05" stroke-dasharray="2 6"/>
+      <circle r="95" fill="none" stroke="#e8e4df" stroke-width="0.2" opacity="0.04"/>
+      <line x1="0" y1="-80" x2="0" y2="80" stroke="#e8e4df" stroke-width="0.2" opacity="0.04"/>
+      <line x1="-80" y1="0" x2="80" y2="0" stroke="#e8e4df" stroke-width="0.2" opacity="0.04"/>
+      <path d="M 0,-6 L 5.2,3 L -5.2,3 Z" fill="none" stroke="#c9a55c" stroke-width="0.4" opacity="0.1"/>
+      <circle r="2" fill="#c9a55c" opacity="0.12"/>
+      <g stroke="#e8e4df" stroke-width="0.3" opacity="0.08">
+        <line x1="0" y1="-67" x2="0" y2="-73"/>
+        <line x1="67" y1="0" x2="73" y2="0"/>
+        <line x1="0" y1="67" x2="0" y2="73"/>
+        <line x1="-67" y1="0" x2="-73" y2="0"/>
+      </g>
+    </g>
+
+    <!-- Secondary orbital system — lower-right -->
+    <g transform="translate(1020,620)">
+      <circle r="55" fill="none" stroke="#e8e4df" stroke-width="0.3" opacity="0.06"/>
+      <circle r="80" fill="none" stroke="#e8e4df" stroke-width="0.2" opacity="0.04" stroke-dasharray="1.5 8"/>
+      <line x1="-60" y1="-60" x2="60" y2="60" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <line x1="60" y1="-60" x2="-60" y2="60" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <rect x="-4" y="-4" width="8" height="8" fill="none" stroke="#5a8f9f" stroke-width="0.4" opacity="0.1"/>
+      <circle r="1.5" fill="#5a8f9f" opacity="0.1"/>
+    </g>
+
+    <!-- Secondary orbital system — right edge -->
+    <g transform="translate(1050,240)">
+      <circle r="40" fill="none" stroke="#e8e4df" stroke-width="0.25" opacity="0.055"/>
+      <circle r="60" fill="none" stroke="#e8e4df" stroke-width="0.2" opacity="0.04" stroke-dasharray="3 7"/>
+      <line x1="0" y1="-50" x2="0" y2="50" stroke="#e8e4df" stroke-width="0.15" opacity="0.03"/>
+      <path d="M 0,-5 L 3,0 L 0,5 L -3,0 Z" fill="none" stroke="#c9a55c" stroke-width="0.35" opacity="0.09"/>
+    </g>
+
+    <!-- Secondary orbital system — bottom-left -->
+    <g transform="translate(140,600)">
+      <circle r="50" fill="none" stroke="#e8e4df" stroke-width="0.25" opacity="0.05"/>
+      <circle r="30" fill="none" stroke="#e8e4df" stroke-width="0.3" opacity="0.06" stroke-dasharray="2 5"/>
+      <line x1="-40" y1="0" x2="40" y2="0" stroke="#e8e4df" stroke-width="0.15" opacity="0.035"/>
+      <line x1="0" y1="-40" x2="0" y2="40" stroke="#e8e4df" stroke-width="0.15" opacity="0.035"/>
+      <circle r="6" fill="none" stroke="#5a8f9f" stroke-width="0.35" opacity="0.08"/>
+      <circle r="1" fill="#5a8f9f" opacity="0.1"/>
+    </g>
+
+    <!-- Constellation lines -->
+    <g stroke="#e8e4df" stroke-width="0.25" opacity="0.05">
+      <line x1="340" y1="90" x2="478" y2="210"/>
+      <line x1="478" y1="210" x2="520" y2="45"/>
+      <line x1="520" y1="45" x2="720" y2="120"/>
+      <line x1="340" y1="90" x2="210" y2="180"/>
+      <line x1="850" y1="380" x2="780" y2="580"/>
+      <line x1="780" y1="580" x2="1010" y2="620"/>
+      <line x1="1010" y1="620" x2="1080" y2="290"/>
+      <line x1="1080" y1="290" x2="850" y2="380"/>
+      <line x1="150" y1="580" x2="390" y2="520"/>
+      <line x1="390" y1="520" x2="300" y2="450"/>
+      <line x1="300" y1="450" x2="150" y2="580"/>
+      <line x1="210" y1="340" x2="420" y2="400"/>
+      <line x1="640" y1="295" x2="850" y2="380"/>
+      <line x1="680" y1="440" x2="900" y2="480"/>
+    </g>
+
+    <!-- Constellation lines — gold (spec edges) -->
+    <g stroke="#c9a55c" stroke-width="0.3" opacity="0.06">
+      <line x1="310" y1="260" x2="450" y2="150"/>
+      <line x1="450" y1="150" x2="680" y2="100"/>
+      <line x1="820" y1="200" x2="1020" y2="350"/>
+      <line x1="180" y1="480" x2="310" y2="260"/>
+      <line x1="540" y1="560" x2="440" y2="700"/>
+    </g>
+
+    <!-- Survey grid lines -->
+    <g stroke="#e8e4df" stroke-width="0.15" opacity="0.025">
+      <line x1="0" y1="200" x2="1200" y2="200"/>
+      <line x1="0" y1="400" x2="1200" y2="400"/>
+      <line x1="0" y1="600" x2="1200" y2="600"/>
+      <line x1="300" y1="0" x2="300" y2="800"/>
+      <line x1="600" y1="0" x2="600" y2="800"/>
+      <line x1="900" y1="0" x2="900" y2="800"/>
+    </g>
+
+    <!-- Scattered glyphs -->
+    <g transform="translate(900,150)" stroke="#e8e4df" stroke-width="0.3" opacity="0.08">
+      <line x1="-6" y1="0" x2="6" y2="0"/>
+      <line x1="0" y1="-6" x2="0" y2="6"/>
+      <circle r="3" fill="none" stroke-width="0.25"/>
+    </g>
+    <g transform="translate(80,380)" stroke="#e8e4df" stroke-width="0.3" opacity="0.07">
+      <line x1="-5" y1="0" x2="5" y2="0"/>
+      <line x1="0" y1="-5" x2="0" y2="5"/>
+    </g>
+    <g transform="translate(650,680)">
+      <path d="M 0,-7 L 6,3.5 L -6,3.5 Z" fill="none" stroke="#c9a55c" stroke-width="0.3" opacity="0.07"/>
+    </g>
+    <g transform="translate(500,120)">
+      <circle r="5" fill="none" stroke="#e8e4df" stroke-width="0.25" opacity="0.06"/>
+      <circle r="1" fill="#e8e4df" opacity="0.08"/>
+    </g>
+    <g transform="translate(1120,400)">
+      <path d="M 0,-6 L 4,0 L 0,6 L -4,0 Z" fill="none" stroke="#c9a55c" stroke-width="0.3" opacity="0.07"/>
+    </g>
+    <!-- Arc notation marks -->
+    <path d="M 700,80 A 80,80 0 0,1 760,140" fill="none" stroke="#e8e4df" stroke-width="0.25" opacity="0.05"/>
+    <path d="M 200,500 A 60,60 0 0,0 260,540" fill="none" stroke="#c9a55c" stroke-width="0.25" opacity="0.05"/>
+    <path d="M 950,550 A 70,70 0 0,1 1010,500" fill="none" stroke="#5a8f9f" stroke-width="0.25" opacity="0.04"/>
+
+    <!-- Measurement annotation marks -->
+    <g stroke="#e8e4df" stroke-width="0.25" opacity="0.06">
+      <line x1="408" y1="148" x2="412" y2="155"/>
+      <line x1="596" y1="65" x2="600" y2="72"/>
+      <line x1="815" y1="475" x2="820" y2="482"/>
+      <line x1="270" y1="507" x2="274" y2="514"/>
+      <line x1="930" y1="340" x2="935" y2="347"/>
+      <line x1="365" y1="250" x2="370" y2="257"/>
+    </g>
+  </svg>
+
+  <!-- Layer 1: Outer — large rings & radial lines -->
+  <svg class="astro-layer astro-outer" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <g transform="translate(560,380)">
+      <circle r="350" fill="none" stroke="#e8e4df" stroke-width="0.4" opacity="0.1"/>
+      <circle class="ring-flow-a" r="310" fill="none" stroke="#e8e4df" stroke-width="0.5" opacity="0.08" stroke-dasharray="4 16"/>
+      <circle class="ring-flow-b" r="380" fill="none" stroke="#e8e4df" stroke-width="0.35" opacity="0.07" stroke-dasharray="2 20"/>
+      <circle r="420" fill="none" stroke="#e8e4df" stroke-width="0.3" opacity="0.06"/>
+      <line x1="0" y1="-440" x2="0" y2="440" stroke="#e8e4df" stroke-width="0.35" opacity="0.07"/>
+      <line x1="-440" y1="0" x2="440" y2="0" stroke="#e8e4df" stroke-width="0.35" opacity="0.07"/>
+      <line x1="-311" y1="-311" x2="311" y2="311" stroke="#e8e4df" stroke-width="0.25" opacity="0.05"/>
+      <line x1="311" y1="-311" x2="-311" y2="311" stroke="#e8e4df" stroke-width="0.25" opacity="0.05"/>
+      <line x1="-220" y1="-381" x2="220" y2="381" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <line x1="220" y1="-381" x2="-220" y2="381" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <line x1="-381" y1="-220" x2="381" y2="220" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <line x1="381" y1="-220" x2="-381" y2="220" stroke="#e8e4df" stroke-width="0.2" opacity="0.035"/>
+      <g stroke="#e8e4df" stroke-width="0.4" opacity="0.12">
+        <line x1="0" y1="-346" x2="0" y2="-354"/>
+        <line x1="90" y1="-336" x2="93" y2="-344"/>
+        <line x1="170" y1="-303" x2="175" y2="-310"/>
+        <line x1="244" y1="-244" x2="249" y2="-249"/>
+        <line x1="303" y1="-170" x2="310" y2="-175"/>
+        <line x1="336" y1="-90" x2="344" y2="-93"/>
+        <line x1="346" y1="0" x2="354" y2="0"/>
+        <line x1="336" y1="90" x2="344" y2="93"/>
+        <line x1="303" y1="170" x2="310" y2="175"/>
+        <line x1="244" y1="244" x2="249" y2="249"/>
+        <line x1="170" y1="303" x2="175" y2="310"/>
+        <line x1="90" y1="336" x2="93" y2="344"/>
+        <line x1="0" y1="346" x2="0" y2="354"/>
+        <line x1="-90" y1="336" x2="-93" y2="344"/>
+        <line x1="-170" y1="303" x2="-175" y2="310"/>
+        <line x1="-244" y1="244" x2="-249" y2="249"/>
+        <line x1="-303" y1="170" x2="-310" y2="175"/>
+        <line x1="-336" y1="90" x2="-344" y2="93"/>
+        <line x1="-346" y1="0" x2="-354" y2="0"/>
+        <line x1="-336" y1="-90" x2="-344" y2="-93"/>
+        <line x1="-303" y1="-170" x2="-310" y2="-175"/>
+        <line x1="-170" y1="-303" x2="-175" y2="-310"/>
+        <line x1="-90" y1="-336" x2="-93" y2="-344"/>
+      </g>
+      <circle r="2" fill="#c9a55c" opacity="0.4" class="traveler" style="--orbit-r: 350px; --orbit-dur: 220s; --orbit-start: 0deg"/>
+      <circle r="1.5" fill="#5a8f9f" opacity="0.3" class="traveler" style="--orbit-r: 420px; --orbit-dur: 260s; --orbit-start: 180deg"/>
+    </g>
+  </svg>
+
+  <!-- Layer 2: Middle — medium rings with flowing dashes -->
+  <svg class="astro-layer astro-middle" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <g transform="translate(560,380)">
+      <circle r="220" fill="none" stroke="#e8e4df" stroke-width="0.5" opacity="0.12"/>
+      <circle class="ring-flow-c" r="180" fill="none" stroke="#e8e4df" stroke-width="0.4" opacity="0.09" stroke-dasharray="6 10"/>
+      <circle class="ring-flow-a" r="260" fill="none" stroke="#e8e4df" stroke-width="0.35" opacity="0.08" stroke-dasharray="2 6 2 14"/>
+      <circle class="ring-flow-b" r="200" fill="none" stroke="#e8e4df" stroke-width="0.6" opacity="0.06" stroke-dasharray="1 8"/>
+      <g stroke="#e8e4df" stroke-width="0.4" opacity="0.14">
+        <line x1="0" y1="-216" x2="0" y2="-224"/>
+        <line x1="108" y1="-188" x2="112" y2="-194"/>
+        <line x1="188" y1="-108" x2="194" y2="-112"/>
+        <line x1="216" y1="0" x2="224" y2="0"/>
+        <line x1="188" y1="108" x2="194" y2="112"/>
+        <line x1="108" y1="188" x2="112" y2="194"/>
+        <line x1="0" y1="216" x2="0" y2="224"/>
+        <line x1="-108" y1="188" x2="-112" y2="194"/>
+        <line x1="-188" y1="108" x2="-194" y2="112"/>
+        <line x1="-216" y1="0" x2="-224" y2="0"/>
+        <line x1="-188" y1="-108" x2="-194" y2="-112"/>
+        <line x1="-108" y1="-188" x2="-112" y2="-194"/>
+      </g>
+      <g stroke="#c9a55c" stroke-width="0.5" opacity="0.16">
+        <line x1="-5" y1="-220" x2="5" y2="-220"/>
+        <line x1="0" y1="-225" x2="0" y2="-215"/>
+        <line x1="215" y1="-5" x2="225" y2="-5"/>
+        <line x1="215" y1="5" x2="225" y2="5"/>
+        <line x1="220" y1="-9" x2="220" y2="9"/>
+        <line x1="-160" y1="151" x2="-148" y2="151"/>
+        <line x1="-154" y1="145" x2="-154" y2="157"/>
+        <line x1="148" y1="-160" x2="160" y2="-160"/>
+        <line x1="154" y1="-166" x2="154" y2="-154"/>
+      </g>
+      <path d="M 150,-160 A 220,220 0 0,1 210,-70" fill="none" stroke="#c9a55c" stroke-width="0.4" opacity="0.12"/>
+      <path d="M -210,70 A 220,220 0 0,1 -150,160" fill="none" stroke="#c9a55c" stroke-width="0.4" opacity="0.1"/>
+      <path d="M -70,210 A 220,220 0 0,1 70,210" fill="none" stroke="#5a8f9f" stroke-width="0.3" opacity="0.08"/>
+      <circle r="1.8" fill="#c9a55c" opacity="0.45" class="traveler" style="--orbit-r: 220px; --orbit-dur: 180s; --orbit-start: 90deg"/>
+      <circle r="1.2" fill="#5a8f9f" opacity="0.3" class="traveler" style="--orbit-r: 260px; --orbit-dur: 200s; --orbit-start: 270deg"/>
+    </g>
+  </svg>
+
+  <!-- Layer 3: Inner — core rings, sigil marks -->
+  <svg class="astro-layer astro-inner" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <filter id="sigil-glow">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge>
+          <feMergeNode in="blur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+    <g transform="translate(560,380)">
+      <circle r="130" fill="none" stroke="#e8e4df" stroke-width="0.4" opacity="0.08"/>
+      <circle r="100" fill="none" stroke="#e8e4df" stroke-width="0.6" opacity="0.14"/>
+      <circle class="ring-flow-c" r="65" fill="none" stroke="#e8e4df" stroke-width="0.4" opacity="0.1" stroke-dasharray="4 8"/>
+      <circle r="35" fill="none" stroke="#c9a55c" stroke-width="0.5" opacity="0.12"/>
+      <line x1="0" y1="-18" x2="0" y2="18" stroke="#c9a55c" stroke-width="0.5" opacity="0.15"/>
+      <line x1="-18" y1="0" x2="18" y2="0" stroke="#c9a55c" stroke-width="0.5" opacity="0.15"/>
+      <path d="M 0,-10 L 6,0 L 0,10 L -6,0 Z" fill="none" stroke="#c9a55c" stroke-width="0.6" opacity="0.2" filter="url(#sigil-glow)"/>
+      <circle cx="0" cy="0" r="1.5" fill="#c9a55c" opacity="0.25" class="center-pulse"/>
+      <circle cx="0" cy="-100" r="2" fill="#c9a55c" opacity="0.25"/>
+      <circle cx="100" cy="0" r="2" fill="#c9a55c" opacity="0.2"/>
+      <circle cx="0" cy="100" r="2" fill="#c9a55c" opacity="0.25"/>
+      <circle cx="-100" cy="0" r="2" fill="#c9a55c" opacity="0.2"/>
+      <circle cx="70" cy="-70" r="1.3" fill="#5a8f9f" opacity="0.18"/>
+      <circle cx="70" cy="70" r="1.3" fill="#5a8f9f" opacity="0.18"/>
+      <circle cx="-70" cy="70" r="1.3" fill="#5a8f9f" opacity="0.18"/>
+      <circle cx="-70" cy="-70" r="1.3" fill="#5a8f9f" opacity="0.18"/>
+      <g stroke="#e8e4df" stroke-width="0.4" opacity="0.15">
+        <line x1="24" y1="-96" x2="26" y2="-103"/>
+        <line x1="48" y1="-86" x2="51" y2="-93"/>
+        <line x1="86" y1="-48" x2="93" y2="-51"/>
+        <line x1="96" y1="-24" x2="103" y2="-26"/>
+        <line x1="96" y1="24" x2="103" y2="26"/>
+        <line x1="86" y1="48" x2="93" y2="51"/>
+        <line x1="48" y1="86" x2="51" y2="93"/>
+        <line x1="24" y1="96" x2="26" y2="103"/>
+        <line x1="-24" y1="96" x2="-26" y2="103"/>
+        <line x1="-48" y1="86" x2="-51" y2="93"/>
+        <line x1="-86" y1="48" x2="-93" y2="51"/>
+        <line x1="-96" y1="24" x2="-103" y2="26"/>
+        <line x1="-96" y1="-24" x2="-103" y2="-26"/>
+        <line x1="-86" y1="-48" x2="-93" y2="-51"/>
+        <line x1="-48" y1="-86" x2="-51" y2="-93"/>
+        <line x1="-24" y1="-96" x2="-26" y2="-103"/>
+      </g>
+      <circle r="2.2" fill="#c9a55c" opacity="0.5" class="traveler" style="--orbit-r: 100px; --orbit-dur: 140s; --orbit-start: 45deg" filter="url(#sigil-glow)"/>
+    </g>
+  </svg>
+</div>
+
+<style>
+  .astrolabe {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .astro-stars {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .astro-detail {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Star pulse animation */
+  .star-pulse {
+    animation: pulse-star 4s ease-in-out infinite;
+    animation-delay: var(--pd, 0s);
+  }
+  @keyframes pulse-star {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Rotation layers */
+  .astro-layer {
+    position: absolute;
+    inset: -20%;
+    width: 140%;
+    height: 140%;
+  }
+  .astro-outer {
+    animation: astro-rotate 420s linear infinite;
+  }
+  .astro-middle {
+    animation: astro-rotate-reverse 340s linear infinite;
+  }
+  .astro-inner {
+    animation: astro-rotate 260s linear infinite;
+  }
+  @keyframes astro-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes astro-rotate-reverse {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+  }
+
+  /* Flowing dashes along rings */
+  .ring-flow-a {
+    animation: dash-flow-a 90s linear infinite;
+  }
+  .ring-flow-b {
+    animation: dash-flow-b 120s linear infinite;
+  }
+  .ring-flow-c {
+    animation: dash-flow-c 75s linear infinite;
+  }
+  @keyframes dash-flow-a {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -200; }
+  }
+  @keyframes dash-flow-b {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 300; }
+  }
+  @keyframes dash-flow-c {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -150; }
+  }
+
+  /* Orbiting traveler dots */
+  .traveler {
+    animation: orbit var(--orbit-dur, 40s) linear infinite;
+    offset-path: none;
+    transform-origin: 0 0;
+    transform: rotate(var(--orbit-start, 0deg)) translateX(var(--orbit-r, 100px));
+    animation-name: traveler-orbit;
+  }
+  @keyframes traveler-orbit {
+    from { transform: rotate(var(--orbit-start, 0deg)) translateX(var(--orbit-r, 100px)); }
+    to { transform: rotate(calc(var(--orbit-start, 0deg) + 360deg)) translateX(var(--orbit-r, 100px)); }
+  }
+
+  /* Center sigil pulse */
+  .center-pulse {
+    animation: center-breathe 6s ease-in-out infinite;
+  }
+  @keyframes center-breathe {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Reduce motion for accessibility */
+  @media (prefers-reduced-motion: reduce) {
+    .astro-outer, .astro-middle, .astro-inner,
+    .ring-flow-a, .ring-flow-b, .ring-flow-c,
+    .traveler, .star-pulse, .center-pulse {
+      animation: none;
+    }
+  }
+
+  /* ===== LIGHT THEME — CONSTELLATION SVG ===== */
+  :global([data-theme='light']) .astro-stars circle:not(.star-pulse) {
+    fill: #2a2520;
+    opacity: 0.22;
+  }
+  :global([data-theme='light']) .astro-stars circle.star-pulse[fill="#c9a55c"] {
+    fill: #6b5a2a;
+    opacity: 0.42;
+  }
+  :global([data-theme='light']) .astro-stars circle.star-pulse[fill="#5a8f9f"] {
+    fill: #3d7080;
+    opacity: 0.34;
+  }
+
+  /* Detail layer */
+  :global([data-theme='light']) .astro-detail circle,
+  :global([data-theme='light']) .astro-detail line {
+    stroke: #2a2520;
+    opacity: 0.07;
+  }
+  :global([data-theme='light']) .astro-detail circle[fill="#c9a55c"] {
+    fill: #6b5a2a;
+    opacity: 0.18;
+  }
+  :global([data-theme='light']) .astro-detail circle[fill="#5a8f9f"] {
+    fill: #3d7080;
+    opacity: 0.15;
+  }
+  :global([data-theme='light']) .astro-detail path[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.12;
+  }
+  :global([data-theme='light']) .astro-detail path[stroke="#5a8f9f"] {
+    stroke: #3d7080;
+    opacity: 0.1;
+  }
+  :global([data-theme='light']) .astro-detail path[stroke="#e8e4df"] {
+    stroke: #2a2520;
+    opacity: 0.08;
+  }
+  :global([data-theme='light']) .astro-detail rect[stroke="#5a8f9f"] {
+    stroke: #3d7080;
+    opacity: 0.14;
+  }
+  :global([data-theme='light']) .astro-detail circle[fill="#e8e4df"] {
+    fill: #2a2520;
+    opacity: 0.12;
+  }
+  :global([data-theme='light']) .astro-detail g[stroke="#e8e4df"] {
+    stroke: #3a3228;
+    opacity: 0.08;
+  }
+  :global([data-theme='light']) .astro-detail g[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.1;
+  }
+
+  /* Rotation layers */
+  :global([data-theme='light']) .astro-outer circle,
+  :global([data-theme='light']) .astro-outer line,
+  :global([data-theme='light']) .astro-middle circle,
+  :global([data-theme='light']) .astro-middle line,
+  :global([data-theme='light']) .astro-inner circle,
+  :global([data-theme='light']) .astro-inner line {
+    stroke: #2a2520;
+    opacity: 0.09;
+  }
+  :global([data-theme='light']) .astro-outer circle[fill="#c9a55c"],
+  :global([data-theme='light']) .astro-middle circle[fill="#c9a55c"],
+  :global([data-theme='light']) .astro-inner circle[fill="#c9a55c"] {
+    fill: #6b5a2a;
+    opacity: 0.34;
+  }
+  :global([data-theme='light']) .astro-outer circle[fill="#5a8f9f"],
+  :global([data-theme='light']) .astro-middle circle[fill="#5a8f9f"],
+  :global([data-theme='light']) .astro-inner circle[fill="#5a8f9f"] {
+    fill: #3d7080;
+    opacity: 0.24;
+  }
+  :global([data-theme='light']) .astro-middle g[stroke="#c9a55c"],
+  :global([data-theme='light']) .astro-inner line[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.18;
+  }
+  :global([data-theme='light']) .astro-middle path[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.16;
+  }
+  :global([data-theme='light']) .astro-middle path[stroke="#5a8f9f"] {
+    stroke: #3d7080;
+    opacity: 0.12;
+  }
+  :global([data-theme='light']) .astro-inner circle[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.16;
+  }
+  :global([data-theme='light']) .astro-inner path[stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.2;
+  }
+  :global([data-theme='light']) .astro-inner path[fill="none"][stroke="#c9a55c"] {
+    stroke: #6b5a2a;
+    opacity: 0.24;
+  }
+  :global([data-theme='light']) .astro-outer g[stroke="#e8e4df"],
+  :global([data-theme='light']) .astro-middle g[stroke="#e8e4df"],
+  :global([data-theme='light']) .astro-inner g[stroke="#e8e4df"] {
+    stroke: #2a2520;
+    opacity: 0.12;
+  }
+</style>

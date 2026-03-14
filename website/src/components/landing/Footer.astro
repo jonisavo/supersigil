@@ -1,0 +1,80 @@
+---
+// Footer — site footer
+---
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-left">
+      <span class="footer-mark">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <line x1="12" y1="12" x2="17" y2="7" stroke="currentColor" stroke-width="0.7"/>
+          <line x1="12" y1="12" x2="17" y2="17" stroke="currentColor" stroke-width="0.7"/>
+          <line x1="12" y1="12" x2="7" y2="17" stroke="currentColor" stroke-width="0.7"/>
+          <line x1="12" y1="12" x2="7" y2="7" stroke="currentColor" stroke-width="0.7"/>
+          <line x1="12" y1="12" x2="12" y2="2.5" stroke="currentColor" stroke-width="1"/>
+          <line x1="12" y1="12" x2="21.5" y2="12" stroke="currentColor" stroke-width="1"/>
+          <line x1="12" y1="12" x2="12" y2="21.5" stroke="currentColor" stroke-width="1"/>
+          <line x1="12" y1="12" x2="2.5" y2="12" stroke="currentColor" stroke-width="1"/>
+          <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="0.6"/>
+          <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
+          <circle cx="12" cy="2.5" r="1.4" fill="currentColor"/>
+          <circle cx="21.5" cy="12" r="1.4" fill="currentColor"/>
+          <circle cx="12" cy="21.5" r="1.4" fill="currentColor"/>
+          <circle cx="2.5" cy="12" r="1.4" fill="currentColor"/>
+          <circle cx="17" cy="7" r="1" fill="currentColor"/>
+          <circle cx="17" cy="17" r="1" fill="currentColor"/>
+          <circle cx="7" cy="17" r="1" fill="currentColor"/>
+          <circle cx="7" cy="7" r="1" fill="currentColor"/>
+        </svg>
+        supersigil
+      </span>
+      <span class="footer-copy">&copy; 2026 Supersigil contributors.</span>
+    </div>
+    <div class="footer-links">
+      <a href="/supersigil/getting-started/">Docs</a>
+      <a href="https://github.com/supersigil/supersigil" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/supersigil/supersigil/discussions" target="_blank" rel="noopener">Discussions</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding: 3rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .footer-mark {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .footer-mark svg {
+    display: inline-block;
+    color: var(--gold);
+    opacity: 0.5;
+  }
+  .footer-copy {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+  .footer-links {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+  .footer-links a:hover { color: var(--text-muted); }
+</style>

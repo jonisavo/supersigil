@@ -1,0 +1,140 @@
+---
+title: Quickstart
+description: Install Supersigil and get to your first meaningful verification result.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+This is the fastest path to Supersigil's core loop: write one enforceable
+criterion, run `verify`, and watch the tool tell you what is missing.
+
+## Install
+
+The only supported installation method today is via Cargo:
+
+```bash
+cargo install supersigil
+```
+
+This requires a working [Rust toolchain](https://rustup.rs/). The install compiles Supersigil from source and places the binary in your Cargo bin directory.
+
+Verify the installation:
+
+```bash
+supersigil --version
+```
+
+## Five-Minute Loop
+
+<Steps>
+
+1. **Initialize a project**
+
+   Navigate to the root of your repository and run:
+
+   ```bash
+   supersigil init
+   ```
+
+   This creates a `supersigil.toml` config file in the current directory:
+
+   ```toml title="supersigil.toml"
+   paths = ["specs/**/*.mdx"]
+   ```
+
+2. **Create a spec document**
+
+   Scaffold a requirements document:
+
+   ```bash
+   supersigil new requirements auth
+   ```
+
+   Then replace `specs/auth/auth.req.mdx` with one real criterion:
+
+   ```mdx title="specs/auth/auth.req.mdx"
+   ---
+   supersigil:
+     id: auth/req
+     type: requirements
+     status: approved
+   title: "Authentication"
+   ---
+
+   <AcceptanceCriteria>
+     <Criterion id="valid-creds">
+       WHEN a user submits valid credentials
+       THE SYSTEM SHALL issue a session token.
+       <VerifiedBy strategy="tag" tag="auth:valid-creds" />
+     </Criterion>
+   </AcceptanceCriteria>
+
+   <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
+   ```
+
+   This is deliberately set to `approved` so the next verification run is
+   meaningful. Supersigil now expects real evidence.
+
+3. **Verify the graph**
+
+   ```bash
+   supersigil verify
+   ```
+
+   You should see a failing result because the criterion has no matching evidence yet:
+
+   ```
+   auth/req
+     ✗ criterion "valid-creds" has no matching verification evidence
+   ```
+
+   This is the first payoff: the spec is now a contract, not just prose.
+
+4. **Add evidence and watch it go green**
+
+   Add a matching tag comment in a test file:
+
+   ```rust title="tests/auth/login_test.rs"
+   // supersigil: auth:valid-creds
+
+   #[test]
+   fn login_with_valid_credentials_returns_token() {
+       let result = login("alice", "correct-password");
+       assert!(result.token.is_some());
+   }
+   ```
+
+   Run verify again:
+
+   ```bash
+   supersigil verify
+   ```
+
+   ```text
+   ✓ Clean: no findings
+   ```
+
+</Steps>
+
+<Aside type="note">
+  `init` will refuse to run if `supersigil.toml` already exists in the current directory.
+</Aside>
+
+<Aside type="tip">
+  If you want to sketch structure before enforcement, keep documents in
+  `status: draft`. Configurable findings are downgraded to info until you move
+  them out of draft.
+</Aside>
+
+## What you just proved
+
+- Supersigil does not treat criteria as decorative text. It expects evidence.
+- Verification can fail for the right reason before code reaches CI.
+- One spec file is enough to start; you do not need a full process to get value.
+
+## Choose Your Next Path
+
+- [Deepen the authoring workflow](/supersigil/getting-started/first-spec/) — Add a design document, richer coverage, and graph exploration.
+- [Use it with AI agents](/supersigil/guides/ai-agents/) — Load scoped context and re-verify work through JSON output.
+- [Bring it into CI](/supersigil/guides/ci-verification/) — Add `verify`, `affected`, and drift checks to pull requests.
+- [Understand evidence sources](/supersigil/concepts/evidence-sources/) — Compare tags, file globs, executable examples, and ecosystem plugins.

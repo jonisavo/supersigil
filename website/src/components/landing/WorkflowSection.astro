@@ -1,0 +1,85 @@
+---
+// WorkflowSection — code panel + terminal panel
+---
+
+<section class="workflow">
+  <div class="container">
+    <p class="section-label reveal">How it works</p>
+    <h2 class="section-title reveal">Write the contract. Verify the change.</h2>
+    <p class="section-sub reveal">
+      Criteria, evidence, and tracked files become machine-checkable edges.
+      Supersigil shows where coverage comes from and when code changes put a
+      spec back in question.
+    </p>
+
+    <div class="workflow-panels">
+      <!-- Code editor panel -->
+      <div class="panel reveal" style="--reveal-delay: 0.1s">
+        <div class="panel-bar">
+          <div class="panel-dots"><span></span><span></span><span></span></div>
+          <span class="panel-title">auth/req/login.mdx</span>
+        </div>
+        <div class="panel-body code-panel">
+          <pre><code><span class="c-gray">---</span>
+<span class="c-teal">supersigil</span><span class="c-gray">:</span>
+  <span class="c-teal">id</span><span class="c-gray">:</span> <span class="c-text">auth/req/login</span>
+  <span class="c-teal">type</span><span class="c-gray">:</span> <span class="c-text">requirement</span>
+  <span class="c-teal">status</span><span class="c-gray">:</span> <span class="c-text">approved</span>
+<span class="c-gray">---</span>
+
+<span class="c-muted"># User Authentication</span>
+
+<span class="c-gold">&lt;AcceptanceCriteria&gt;</span>
+  <span class="c-gold">&lt;Criterion</span> <span class="c-teal">id</span>=<span class="c-str">"valid-creds"</span><span class="c-gold">&gt;</span>
+    WHEN a user submits valid credentials
+    THE SYSTEM SHALL issue a session token
+    within 200ms
+    <span class="c-gold">&lt;VerifiedBy</span> <span class="c-teal">strategy</span>=<span class="c-str">"tag"</span> <span class="c-teal">tag</span>=<span class="c-str">"auth:valid-creds"</span> <span class="c-gold">/&gt;</span>
+  <span class="c-gold">&lt;/Criterion&gt;</span>
+
+  <span class="c-gold">&lt;Criterion</span> <span class="c-teal">id</span>=<span class="c-str">"invalid-creds"</span><span class="c-gold">&gt;</span>
+    WHEN a user submits invalid credentials
+    THE SYSTEM SHALL return a 401 response
+    with a generic error message
+    <span class="c-gold">&lt;VerifiedBy</span> <span class="c-teal">strategy</span>=<span class="c-str">"tag"</span> <span class="c-teal">tag</span>=<span class="c-str">"auth:invalid-creds"</span> <span class="c-gold">/&gt;</span>
+  <span class="c-gold">&lt;/Criterion&gt;</span>
+<span class="c-gold">&lt;/AcceptanceCriteria&gt;</span>
+
+<span class="c-gold">&lt;TrackedFiles</span> <span class="c-teal">paths</span>=<span class="c-str">"src/auth/**/*.rs, tests/auth/**/*.rs"</span> <span class="c-gold">/&gt;</span></code></pre>
+        </div>
+      </div>
+
+      <!-- Terminal panel -->
+      <div class="panel reveal" style="--reveal-delay: 0.2s">
+        <div class="panel-bar">
+          <div class="panel-dots"><span></span><span></span><span></span></div>
+          <span class="panel-title">Terminal</span>
+        </div>
+        <div class="panel-body term-panel">
+          <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify --since main</span>
+
+  <span class="c-green">&#10003;</span> auth/req/login#valid-creds <span class="c-dots">··</span> <span class="c-teal">auth:valid-creds</span> <span class="c-muted">-&gt; tests/auth/login_test.rs</span>
+  <span class="c-green">&#10003;</span> auth/req/login#invalid-creds <span class="c-dots">·</span> <span class="c-teal">auth:invalid-creds</span> <span class="c-muted">-&gt; tests/auth/login_failure_test.rs</span>
+  <span class="c-green">&#10003;</span> auth/design/oauth <span class="c-dots">··········</span> <span class="c-green">implements auth/req/login</span>
+  <span class="c-gold">&#9888;</span> auth/req/login <span class="c-dots">·············</span> <span class="c-gold">tracked file changed: src/auth/session.rs</span>
+
+  <span class="c-muted">2 criteria covered &middot; 1 design linked &middot;</span> <span class="c-text">1 stale spec</span>
+  <span class="c-gold">1 warning</span> <span class="c-muted">&middot;</span> <span class="c-green">0 errors</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .workflow {
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .workflow-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+</style>

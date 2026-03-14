@@ -1,0 +1,230 @@
+---
+title: Verification
+description: How Supersigil checks your specification graph for completeness and correctness.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and stale specs -- automatically, on every commit.
+
+## Two Modes
+
+| Mode | Command | Scope | Speed | Use Case |
+|------|---------|-------|-------|----------|
+| **Lint** | `supersigil lint` | Per-file structural checks | Fast | Editor integration, pre-commit hooks |
+| **Verify** | `supersigil verify` | Whole-graph analysis | Thorough | CI pipelines, full validation |
+
+**Lint** checks individual files for structural correctness: valid front matter, known components, required attributes, no expression attributes. It does not build the cross-document graph, so it runs fast on single files.
+
+**Verify** builds the full document graph and checks everything: cross-document references, coverage, test mappings, staleness, cycles, and executable examples. This is the CI command.
+
+## Hard Errors
+
+These are structural integrity failures detected during parsing and graph construction. They are always fatal and cannot be suppressed, overridden, or draft-gated:
+
+| Error | Description |
+|-------|-------------|
+| `broken_ref` | Referenced document or fragment does not exist |
+| `duplicate_id` | Two or more documents share the same ID, or duplicate component IDs within a document |
+| `missing_required_attribute` | Component missing a required attribute (e.g., `<Criterion>` without `id`) |
+| `expression_attribute` | JSX `{...}` syntax used instead of a string literal |
+| `unknown_component` | PascalCase component name not in the built-in or configured set |
+| `dependency_cycle` | Circular dependency in `<Task>` chains or `<DependsOn>` chains |
+
+<Aside type="caution">
+  Hard errors prevent the graph from being constructed at all. A broken reference means the graph is inconsistent. A duplicate ID means the graph is ambiguous. These are never acceptable, even in draft documents.
+</Aside>
+
+## Configurable Rules
+
+These rules have built-in default severities that can be overridden in `supersigil.toml`:
+
+| Rule | Default | Description |
+|------|---------|-------------|
+| `missing_verification_evidence` | error | Criterion has no verification evidence (no VerifiedBy, no plugin evidence, no executable example) |
+| `missing_test_files` | error | `<VerifiedBy strategy="file-glob">` paths resolve to no files |
+| `invalid_verified_by_placement` | error | `<VerifiedBy>` placed outside a `<Criterion>` |
+| `invalid_expected_placement` | error | `<Expected>` placed outside an `<Example>` |
+| `invalid_code_block_cardinality` | error | `<Example>` contains zero or multiple code blocks |
+| `invalid_env_format` | error | `<Example>` env attribute has invalid `KEY=VALUE` format |
+| `example_failed` | error | Executable example produced unexpected output |
+| `zero_tag_matches` | warning | `<VerifiedBy strategy="tag">` tag found no matching tests |
+| `status_inconsistency` | warning | Document status conflicts with observed state |
+| `missing_required_component` | warning | Document type requires a component that is missing |
+| `stale_tracked_files` | warning | Tracked files changed since the specified git ref |
+| `empty_tracked_glob` | warning | `<TrackedFiles>` glob matches no files |
+| `orphan_test_tag` | warning | Test file has a `supersigil:` tag not referenced by any spec |
+| `invalid_id_pattern` | warning | Document ID does not match the configured `id_pattern` regex |
+| `plugin_discovery_failure` | warning | Ecosystem plugin discovery failed |
+| `plugin_discovery_warning` | warning | Ecosystem plugin discovery produced a warning |
+| `isolated_document` | off | Document has no edges to or from any other document |
+
+## Severity Levels
+
+Rules produce findings at four severity levels:
+
+| Level | Meaning | Effect |
+|-------|---------|--------|
+| **error** | Fails verification | Non-zero exit code (1) |
+| **warning** | Reported but does not fail | Exit code 2 when warnings are the worst severity |
+| **info** | Informational | No effect on exit code |
+| **off** | Suppressed entirely | Finding not emitted |
+
+## Configuring Rules
+
+Override rule severity in `supersigil.toml` under the `[verify.rules]` section:
+
+```toml title="supersigil.toml"
+[verify.rules]
+missing_verification_evidence = "warning"   # default: error
+isolated_document = "warning"               # default: off
+zero_tag_matches = "error"                  # default: warning
+```
+
+You can also set a global strictness level that applies to all rules not explicitly overridden:
+
+```toml title="supersigil.toml"
+[verify]
+strictness = "error"   # Promotes all warnings to errors
+```
+
+### Severity Precedence
+
+When multiple settings apply, this 4-level precedence chain resolves the effective severity:
+
+1. **Draft gating** (highest) -- `status: draft` suppresses configurable rules to `info`
+2. **Per-rule override** -- Explicit rule setting in `[verify.rules]`
+3. **Global strictness** -- The `[verify] strictness` setting
+4. **Built-in default** (lowest) -- The hardcoded default for each rule
+
+## Draft Gating
+
+Documents with `status: draft` get relaxed verification. All configurable rules are suppressed to `info` level -- they are still computed but they do not fail the build.
+
+```mdx
+---
+supersigil:
+  id: payments/req/refunds
+  type: requirements
+  status: draft
+---
+```
+
+<Aside type="caution">
+  Hard errors are **never** suppressed by draft gating. A broken reference is a broken reference, draft or not. Only configurable rules are affected.
+</Aside>
+
+When you change `status` from `draft` to any other value, the full rule set applies. This allows iterative authoring without CI friction.
+
+## Evidence Sources
+
+Supersigil recognizes three sources of verification evidence for criteria:
+
+1. **Explicit `<VerifiedBy>` mappings** -- Tag-based or file-glob-based test mappings authored directly in specs.
+2. **Rust `#[verifies(...)]` attribute** -- The Rust ecosystem plugin discovers `#[verifies("doc#criterion")]` attributes in test code and produces evidence records automatically.
+3. **Executable examples** -- `<Example verifies="...">` components whose code blocks are run during `supersigil verify`. Passing examples count as evidence.
+
+All three sources are merged into a unified artifact graph before coverage is evaluated. A criterion is covered if it has at least one evidence record from any source.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Clean -- no errors, no warnings |
+| 1 | Errors found |
+| 2 | Warnings only (no errors) |
+
+## Output Formats
+
+`supersigil verify` supports three output formats:
+
+```bash
+# Colored terminal output (default)
+supersigil verify --format terminal
+
+# Machine-readable JSON
+supersigil verify --format json
+
+# Markdown table (useful for CI comments)
+supersigil verify --format markdown
+```
+
+The JSON format includes the full findings list, summary counts, and optional evidence summary. It is the format received by post-verify hooks.
+
+## Post-Verify Hooks
+
+External scripts can receive the verification report and produce additional findings. Configure hooks in `supersigil.toml`:
+
+```toml title="supersigil.toml"
+[hooks]
+post_verify = ["python scripts/check_naming.py"]
+timeout_seconds = 30
+```
+
+Hooks receive the interim verification report as JSON on stdin. They return findings on stdout as a JSON array of `[level, message]` pairs:
+
+```json
+[["warning", "document auth/req/login uses non-standard naming"], ["error", "missing security review tag"]]
+```
+
+Hook findings are merged into the final report. Non-zero exit codes and timeouts produce `hook_failure` error findings.
+
+## Staleness Detection
+
+When tracked files change, `supersigil verify --since <ref>` flags the associated specs as stale:
+
+```bash
+supersigil verify --since main
+```
+
+For a standalone staleness check without full verification, use the `affected` command:
+
+```bash
+supersigil affected --since main
+```
+
+```
+auth/req/login (specs/auth/req/login.mdx)
+  glob: src/auth/**/*.rs
+  changed: src/auth/handler.rs
+
+1 document affected
+```
+
+Additional flags control the git diff behavior:
+
+| Flag | Effect |
+|------|--------|
+| `--committed-only` | Only consider committed changes (ignore staged/unstaged) |
+| `--merge-base` | Use merge-base for the diff (useful for PR branches) |
+
+## CI Integration
+
+<Tabs>
+  <TabItem label="GitHub Actions">
+    ```yaml title=".github/workflows/specs.yml"
+    name: Spec Verification
+    on: [push, pull_request]
+
+    jobs:
+      verify:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - name: Install Supersigil
+            run: cargo install supersigil
+          - run: supersigil verify --since main --merge-base
+    ```
+  </TabItem>
+  <TabItem label="Generic CI">
+    ```bash
+    # Any CI system
+    supersigil verify
+    # Exit code: 0 = clean, 1 = errors, 2 = warnings only
+    ```
+  </TabItem>
+</Tabs>
+
+:::tip
+Combine `supersigil verify --since main --merge-base` with `--committed-only` in CI to check only the changes in the current branch, using the merge-base to determine which files changed.
+:::

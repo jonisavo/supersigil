@@ -1,0 +1,179 @@
+---
+// CtaSection — CTA with constellation backdrop
+---
+
+<section class="cta-section">
+  <div class="cta-astrolabe" aria-hidden="true">
+    <svg class="cta-stars" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+      <circle cx="80" cy="60" r="0.8" fill="#e8e4df" opacity="0.4"/>
+      <circle cx="220" cy="280" r="0.7" fill="#e8e4df" opacity="0.3"/>
+      <circle cx="350" cy="80" r="0.9" fill="#e8e4df" opacity="0.5"/>
+      <circle cx="500" cy="180" r="0.6" fill="#e8e4df" opacity="0.25"/>
+      <circle cx="650" cy="500" r="0.8" fill="#e8e4df" opacity="0.35"/>
+      <circle cx="780" cy="100" r="0.7" fill="#e8e4df" opacity="0.4"/>
+      <circle cx="920" cy="350" r="0.8" fill="#e8e4df" opacity="0.45"/>
+      <circle cx="1050" cy="80" r="0.6" fill="#e8e4df" opacity="0.3"/>
+      <circle cx="1130" cy="420" r="0.7" fill="#e8e4df" opacity="0.35"/>
+      <circle cx="160" cy="450" r="0.6" fill="#e8e4df" opacity="0.25"/>
+      <circle cx="450" cy="400" r="0.7" fill="#e8e4df" opacity="0.3"/>
+      <circle cx="850" cy="520" r="0.6" fill="#e8e4df" opacity="0.25"/>
+      <circle cx="1000" cy="200" r="0.7" fill="#e8e4df" opacity="0.32"/>
+      <circle cx="300" cy="320" r="0.6" fill="#e8e4df" opacity="0.22"/>
+      <circle cx="700" cy="250" r="0.6" fill="#e8e4df" opacity="0.28"/>
+      <!-- Gold accent stars -->
+      <circle cx="400" cy="220" r="1.3" fill="#c9a55c" opacity="0.5" class="star-pulse" style="--pd:1s"/>
+      <circle cx="900" cy="160" r="1.1" fill="#c9a55c" opacity="0.4" class="star-pulse" style="--pd:4s"/>
+      <circle cx="200" cy="380" r="1.2" fill="#c9a55c" opacity="0.35" class="star-pulse" style="--pd:7s"/>
+      <!-- Teal accent stars -->
+      <circle cx="750" cy="420" r="1" fill="#5a8f9f" opacity="0.35" class="star-pulse" style="--pd:2.5s"/>
+      <circle cx="550" cy="100" r="0.9" fill="#5a8f9f" opacity="0.3" class="star-pulse" style="--pd:5.5s"/>
+    </svg>
+    <!-- Central orbital rings -->
+    <svg class="cta-rings astro-layer" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+      <g transform="translate(600,300)">
+        <circle r="200" fill="none" stroke="#e8e4df" stroke-width="0.4" opacity="0.14"/>
+        <circle class="ring-flow-a" r="160" fill="none" stroke="#e8e4df" stroke-width="0.5" opacity="0.1" stroke-dasharray="3 12"/>
+        <circle r="240" fill="none" stroke="#e8e4df" stroke-width="0.35" opacity="0.1"/>
+        <circle class="ring-flow-b" r="120" fill="none" stroke="#e8e4df" stroke-width="0.45" opacity="0.12" stroke-dasharray="2 8"/>
+        <line x1="0" y1="-260" x2="0" y2="260" stroke="#e8e4df" stroke-width="0.3" opacity="0.08"/>
+        <line x1="-260" y1="0" x2="260" y2="0" stroke="#e8e4df" stroke-width="0.3" opacity="0.08"/>
+        <circle r="20" fill="none" stroke="#c9a55c" stroke-width="0.5" opacity="0.18"/>
+        <path d="M 0,-6 L 3.5,0 L 0,6 L -3.5,0 Z" fill="none" stroke="#c9a55c" stroke-width="0.6" opacity="0.25"/>
+        <circle r="1" fill="#c9a55c" opacity="0.3" class="center-pulse"/>
+        <g stroke="#e8e4df" stroke-width="0.4" opacity="0.16">
+          <line x1="0" y1="-196" x2="0" y2="-204"/>
+          <line x1="196" y1="0" x2="204" y2="0"/>
+          <line x1="0" y1="196" x2="0" y2="204"/>
+          <line x1="-196" y1="0" x2="-204" y2="0"/>
+          <line x1="139" y1="-139" x2="143" y2="-143"/>
+          <line x1="139" y1="139" x2="143" y2="143"/>
+          <line x1="-139" y1="139" x2="-143" y2="143"/>
+          <line x1="-139" y1="-139" x2="-143" y2="-143"/>
+        </g>
+        <circle r="1.8" fill="#c9a55c" opacity="0.5" class="traveler" style="--orbit-r: 200px; --orbit-dur: 180s; --orbit-start: 30deg"/>
+      </g>
+    </svg>
+  </div>
+  <div class="container">
+    <div class="cta-inner reveal">
+      <h2>Let's build verifiable software.</h2>
+      <p>See the first verification loop in a few minutes, then branch into agents, CI, or deeper authoring.</p>
+      <div class="cta-install">
+        <code><span class="c-muted">$</span> cargo install supersigil</code>
+      </div>
+      <a href="/supersigil/getting-started/" class="btn btn-primary btn-lg">
+        Open the quickstart
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .cta-section {
+    position: relative;
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 46%, rgba(201, 165, 92, 0.026) 0%, rgba(201, 165, 92, 0.01) 24%, transparent 48%),
+      radial-gradient(circle at 50% 58%, rgba(90, 143, 159, 0.022) 0%, transparent 52%);
+  }
+  .cta-astrolabe {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .cta-astrolabe::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at center, rgba(8, 8, 12, 0) 0%, rgba(8, 8, 12, 0.04) 36%, rgba(8, 8, 12, 0.18) 62%, rgba(8, 8, 12, 0.56) 100%);
+    z-index: 1;
+  }
+  .cta-stars {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    opacity: 0.88;
+  }
+  .cta-rings {
+    position: absolute;
+    inset: -10%;
+    width: 120%;
+    height: 120%;
+    animation: astro-rotate-reverse 400s linear infinite;
+    z-index: 0;
+    opacity: 0.82;
+  }
+  .cta-inner {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .cta-inner h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    line-height: 1.15;
+    margin-bottom: 1rem;
+  }
+  .cta-inner > p {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    margin-bottom: 2rem;
+  }
+  .cta-install {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+  .cta-install code {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    padding: 0.55rem 1.25rem;
+    border-radius: 8px;
+  }
+
+  @keyframes astro-rotate-reverse {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+  }
+
+  /* Reduce motion */
+  @media (prefers-reduced-motion: reduce) {
+    .cta-rings {
+      animation: none;
+    }
+  }
+
+  /* Light theme overrides */
+  :global([data-theme='light']) .cta-section {
+    background:
+      radial-gradient(circle at 50% 46%, rgba(138, 108, 47, 0.032) 0%, rgba(138, 108, 47, 0.012) 24%, transparent 48%),
+      radial-gradient(circle at 50% 58%, rgba(61, 112, 128, 0.026) 0%, transparent 52%),
+      #ede8df;
+  }
+  :global([data-theme='light']) .cta-astrolabe::after {
+    background:
+      radial-gradient(circle at center, rgba(237, 232, 223, 0) 0%, rgba(237, 232, 223, 0.04) 36%, rgba(237, 232, 223, 0.16) 62%, rgba(237, 232, 223, 0.46) 100%);
+  }
+  :global([data-theme='light']) .cta-stars circle:not(.star-pulse) { fill: #2a2520; }
+  :global([data-theme='light']) .cta-stars circle.star-pulse[fill="#c9a55c"] { fill: #6b5a2a; }
+  :global([data-theme='light']) .cta-stars circle.star-pulse[fill="#5a8f9f"] { fill: #3d7080; }
+  :global([data-theme='light']) .cta-rings circle,
+  :global([data-theme='light']) .cta-rings line {
+    stroke: #2a2520;
+  }
+  :global([data-theme='light']) .cta-rings circle[stroke="#c9a55c"] { stroke: #6b5a2a; }
+  :global([data-theme='light']) .cta-rings path[stroke="#c9a55c"] { stroke: #6b5a2a; }
+  :global([data-theme='light']) .cta-rings circle[fill="#c9a55c"] { fill: #6b5a2a; }
+</style>

@@ -1,0 +1,193 @@
+/*
+ * Supersigil — Starlight Theme Override
+ * "Obsidian Glow" aesthetic: dark, refined, warm gold accents
+ */
+
+/* ===== DARK THEME (default) ===== */
+:root[data-theme='dark'],
+:root {
+  /* Backgrounds */
+  --sl-color-bg: #0b0b11;
+  --sl-color-bg-nav: rgba(11, 11, 17, 0.88);
+  --sl-color-bg-sidebar: #0e0e15;
+  --sl-color-bg-inline-code: rgba(201, 165, 92, 0.07);
+
+  /* Accents — warm gold */
+  --sl-color-accent-low: rgba(201, 165, 92, 0.12);
+  --sl-color-accent: #c9a55c;
+  --sl-color-accent-high: #e0c889;
+
+  /* Text */
+  --sl-color-text: #e0dcd7;
+  --sl-color-text-accent: #c9a55c;
+
+  /* Borders & hairlines */
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.06);
+  --sl-color-hairline: rgba(255, 255, 255, 0.08);
+  --sl-color-hairline-shade: rgba(255, 255, 255, 0.04);
+
+  /* Typography */
+  --sl-font: 'Outfit', system-ui, -apple-system, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --__sl-font-size-base: clamp(0.9rem, 0.82rem + 0.217vw, 1rem);
+
+  /* Content width */
+  --sl-content-width: 48rem;
+}
+
+/* ===== LIGHT THEME ===== */
+:root[data-theme='light'] {
+  --sl-color-bg: #faf9f7;
+  --sl-color-bg-nav: rgba(250, 249, 247, 0.9);
+  --sl-color-bg-sidebar: #f5f3f0;
+  --sl-color-bg-inline-code: rgba(42, 37, 32, 0.06);
+
+  --sl-color-accent-low: rgba(160, 120, 50, 0.1);
+  --sl-color-accent: #8a6c2f;
+  --sl-color-accent-high: #5c4820;
+
+  --sl-color-text: #2a2520;
+  --sl-color-text-accent: #8a6c2f;
+
+  --sl-color-hairline-light: rgba(0, 0, 0, 0.06);
+  --sl-color-hairline: rgba(0, 0, 0, 0.1);
+  --sl-color-hairline-shade: rgba(0, 0, 0, 0.04);
+}
+
+/* ===== HEADINGS — Crimson Pro ===== */
+:root {
+  --sl-font-heading: 'Crimson Pro', Georgia, 'Times New Roman', serif;
+}
+
+h1, h2, h3, h4, h5, h6,
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4 {
+  font-family: var(--sl-font-heading);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.sl-markdown-content h1 {
+  font-weight: 400;
+  font-size: 2.2rem;
+}
+
+.sl-markdown-content h2 {
+  font-size: 1.5rem;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* ===== INLINE CODE ===== */
+.sl-markdown-content :not(pre) > code {
+  color: var(--sl-color-text-accent);
+  font-size: 0.88em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+/* ===== CODE BLOCKS ===== */
+.expressive-code {
+  --ec-codeBrdRad: 10px !important;
+}
+
+:root[data-theme='dark'] .expressive-code,
+:root:not([data-theme='light']) .expressive-code {
+  --ec-codeBg: #111118 !important;
+  --ec-codeBrdCol: rgba(255, 255, 255, 0.06) !important;
+  --ec-frm-edActTabBg: #111118 !important;
+  --ec-frm-edTabBarBg: #0d0d14 !important;
+}
+
+:root[data-theme='light'] .expressive-code {
+  --ec-codeBg: #f5f3f0 !important;
+  --ec-codeBrdCol: rgba(0, 0, 0, 0.08) !important;
+  --ec-frm-edActTabBg: #f5f3f0 !important;
+  --ec-frm-edTabBarBg: #eceae6 !important;
+}
+
+/* ===== SIDEBAR ===== */
+nav.sidebar {
+  border-right: 1px solid var(--sl-color-hairline-light);
+}
+
+.sidebar-content a[aria-current='page'],
+sidebar-content a[aria-current='page']:hover {
+  color: #0e0e14;
+  font-weight: 600;
+}
+
+:root[data-theme='light'] .sidebar-content a[aria-current='page'],
+:root[data-theme='light'] .sidebar-content a[aria-current='page']:hover {
+  color: #faf9f7;
+}
+
+/* ===== CONTENT LINKS ===== */
+.sl-markdown-content a {
+  color: var(--sl-color-accent);
+  text-decoration-color: var(--sl-color-accent-low);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+
+.sl-markdown-content a:hover {
+  text-decoration-color: var(--sl-color-accent);
+}
+
+/* ===== TABLES ===== */
+.sl-markdown-content table {
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.sl-markdown-content th {
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--sl-color-accent);
+}
+
+.sl-markdown-content td,
+.sl-markdown-content th {
+  border-color: var(--sl-color-hairline-light);
+  padding: 0.65rem 1rem;
+}
+
+/* ===== NAV BAR — blur backdrop ===== */
+header.header {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ===== ASIDE / CALLOUTS ===== */
+.starlight-aside {
+  border-radius: 10px;
+  border-left-width: 3px;
+}
+
+/* ===== CARD GRID — single column to prevent overflow ===== */
+.card-grid {
+  grid-template-columns: 1fr !important;
+}
+
+/* ===== SMOOTH SCROLL ===== */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ===== SUBTLE BODY GRAIN (dark mode only) ===== */
+:root[data-theme='dark'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px;
+}

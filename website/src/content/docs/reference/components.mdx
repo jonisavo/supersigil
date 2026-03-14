@@ -1,0 +1,247 @@
+---
+title: Components
+description: Reference for all built-in Supersigil components and document types.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Components are MDX JSX elements that carry specification semantics. Supersigil has 10 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
+
+<Aside type="caution">
+  All component attributes must be **plain string literals**. JSX expression attributes (e.g. `refs={variable}`) are a hard lint error. Use comma-separated strings for multi-value attributes: `refs="doc-a#crit-1, doc-b#crit-2"`.
+</Aside>
+
+## `<AcceptanceCriteria>`
+
+Groups one or more `<Criterion>` components. Used for visual and semantic grouping.
+
+```mdx
+<AcceptanceCriteria>
+  <Criterion id="valid-input">...</Criterion>
+  <Criterion id="invalid-input">...</Criterion>
+</AcceptanceCriteria>
+```
+
+**Attributes:** None.
+
+Not referenceable.
+
+## `<Criterion>`
+
+A single verifiable criterion. This is the only "verifiable" component -- the target of coverage tracking.
+
+```mdx
+<Criterion id="valid-creds">
+  WHEN a user submits valid credentials
+  THE SYSTEM SHALL issue a session token within 200ms
+</Criterion>
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `id` | yes | no | Unique identifier within the document. Referenced as `doc-id#criterion-id` |
+
+Referenceable. The `missing_verification_evidence` rule checks that every criterion has verification evidence pointing to it.
+
+## `<References>`
+
+Informational traceability links. Creates edges in the graph for documentation purposes but has no verification semantics -- it does not satisfy coverage.
+
+```mdx
+<References refs="auth/req/login#valid-creds, auth/req/login#invalid-creds" />
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `refs` | yes | yes | Comma-separated document or criterion IDs |
+
+Not referenceable.
+
+## `<VerifiedBy>`
+
+Specifies how a criterion is verified: by tag-based test matching or by file glob patterns.
+
+```mdx
+<VerifiedBy strategy="tag" tag="test_login_success" />
+<VerifiedBy strategy="file-glob" paths="tests/auth/test_session.rs" />
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `strategy` | yes | no | `"tag"` or `"file-glob"` |
+| `tag` | if strategy=tag | no | Tag to search for in test files |
+| `paths` | if strategy=file-glob | yes | File patterns matching test files |
+
+**Strategies:**
+
+- **`tag`** -- Searches test files for the comment `// supersigil: {tag}` (or `# supersigil: {tag}` for Python/shell). The format is fixed.
+- **`file-glob`** -- Matches test files by path glob. Simpler but less precise.
+
+Not referenceable.
+
+## `<Implements>`
+
+Declares that the containing document implements criteria from another document. Typically used by design documents pointing at requirements.
+
+```mdx
+<Implements refs="auth/req/login#valid-creds" />
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `refs` | yes | yes | Comma-separated document or criterion IDs being implemented |
+
+Not referenceable.
+
+## `<DependsOn>`
+
+Declares document-level dependencies. Used for dependency tracking and cycle detection.
+
+```mdx
+<DependsOn refs="auth/design/session-mgmt, auth/req/login" />
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `refs` | yes | yes | Comma-separated document IDs this document depends on |
+
+Not referenceable.
+
+## `<Task>`
+
+A trackable work item. Tasks live in documents with `type: tasks`.
+
+```mdx
+<Task id="define-model" status="done" implements="auth/req/login#valid-creds">
+  Define the user authentication data model.
+</Task>
+
+<Task id="add-validation" status="in-progress" depends="define-model">
+  Add input validation for the login endpoint.
+</Task>
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `id` | yes | no | Unique identifier within the document |
+| `status` | no | no | Task status (e.g. `draft`, `ready`, `in-progress`, `done`) |
+| `implements` | no | yes | Criteria this task implements (`doc-id#criterion-id`) |
+| `depends` | no | yes | Task IDs this task depends on (within the same document) |
+
+Referenceable. Tasks form a dependency sub-graph within a document. `depends` edges are checked for cycles, and `supersigil plan` uses topological sort to determine implementation order.
+
+## `<TrackedFiles>`
+
+Declares which source files this specification cares about. Used by `supersigil affected` for staleness detection.
+
+```mdx
+<TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `paths` | yes | yes | File glob patterns to track |
+
+Not referenceable.
+
+<Aside type="note">
+  `<TrackedFiles>` is a routing signal, not a correctness assertion. It flags the spec for review when matched files change -- it does not verify that those files implement the spec.
+</Aside>
+
+## `<Example>`
+
+An executable code example. The code block inside is extracted and run by the specified runner. When `verifies` is set, the example counts toward spec coverage.
+
+````mdx
+<Example
+  id="login-success"
+  runner="bash"
+  lang="bash"
+  verifies="auth/req/login#valid-creds"
+  env="BASE_URL=http://localhost:3000"
+  timeout="10"
+>
+
+```bash
+curl -s -X POST "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{"user":"admin","pass":"secret"}'
+```
+
+<Expected status="0" format="json">
+
+```json
+{"token": "<any-string>"}
+```
+
+</Expected>
+
+</Example>
+````
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `id` | yes | no | Unique identifier within the document |
+| `runner` | yes | no | Execution strategy (configured in `[examples.runners]` or built-in) |
+| `lang` | no | no | Language of the code block (`bash`, `rust`, `typescript`, etc.) |
+| `verifies` | no | yes | Criteria this example verifies. Creates coverage edges. |
+| `references` | no | yes | Criteria this example references (informational, no coverage). |
+| `timeout` | no | no | Max execution time in seconds (default: 30) |
+| `env` | no | yes | Environment variables: `"KEY=value, KEY2=value2"` |
+| `setup` | no | no | Path to a setup script run before the example |
+
+Referenceable. See [Executable Examples](/guides/executable-examples/) for the full guide.
+
+## `<Expected>`
+
+Declares the expected output of an `<Example>`. Must be a direct child of `<Example>`. When the example runs, its actual output is compared against this expectation.
+
+````mdx
+<Expected status="0" format="json" contains="token">
+
+```json
+{"token": "<any-string>", "expires_in": "<any-number>"}
+```
+
+</Expected>
+````
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `status` | no | no | Expected exit code or HTTP status code |
+| `format` | no | no | Output format for comparison: `json`, `text`, `regex`, `snapshot` |
+| `contains` | no | no | Substring the output must contain |
+
+**Matching modes:**
+
+| Format | Behavior |
+|--------|----------|
+| `json` | Deep JSON comparison. Supports wildcards: `<any-string>`, `<any-number>`, `<any-iso8601>`, `<any-uuid>` for non-deterministic fields. |
+| `text` | Exact text match (trailing whitespace trimmed). |
+| `regex` | Output must match the provided regex pattern. |
+| `snapshot` | Snapshot testing. Saves output on first run, compares on subsequent runs. Update with `supersigil verify --update-snapshots`. |
+
+Not referenceable.
+
+## Document Types
+
+Documents declare their type and status in YAML front matter:
+
+```yaml
+---
+supersigil:
+  id: auth/req/login
+  type: requirements
+  status: draft
+---
+```
+
+### Built-in Types
+
+| Type | Valid Statuses |
+|------|---------------|
+| `requirements` | `draft`, `review`, `approved`, `implemented` |
+| `design` | `draft`, `review`, `approved` |
+| `tasks` | `draft`, `ready`, `in-progress`, `done` |
+
+Custom document types can be defined in `supersigil.toml`. See [Configuration](/reference/configuration/) for details.

@@ -1,0 +1,81 @@
+---
+import Nav from '../components/landing/Nav.astro';
+import Hero from '../components/landing/Hero.astro';
+import ProblemSection from '../components/landing/ProblemSection.astro';
+import WorkflowSection from '../components/landing/WorkflowSection.astro';
+import ExamplesSection from '../components/landing/ExamplesSection.astro';
+import FeaturesSection from '../components/landing/FeaturesSection.astro';
+import AudienceSection from '../components/landing/AudienceSection.astro';
+import CtaSection from '../components/landing/CtaSection.astro';
+import Footer from '../components/landing/Footer.astro';
+import '../styles/landing-tokens.css';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Supersigil turns repo-native MDX specs into a verifiable contract layer with coverage, drift detection, and agent-ready context." />
+  <meta name="theme-color" content="#08080c" />
+  <script is:inline>
+    (function() {
+      var theme = localStorage.getItem('starlight-theme');
+      if (!theme) {
+        theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      document.documentElement.dataset.theme = theme;
+      if (theme === 'light') {
+        document.querySelector('meta[name="theme-color"]').content = '#ede8df';
+      }
+    })();
+  </script>
+  <meta property="og:title" content="Supersigil: Specifications that verify themselves" />
+  <meta property="og:description" content="Repo-native MDX specs with traceable evidence, drift detection, and JSON context for agents." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://supersigil.dev" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <title>Supersigil — Spec-driven development with AI agents</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <!-- Grain texture overlay -->
+  <div class="grain" aria-hidden="true"></div>
+
+  <Nav />
+
+  <main>
+    <Hero />
+    <ProblemSection />
+    <WorkflowSection />
+    <ExamplesSection />
+    <FeaturesSection />
+    <AudienceSection />
+    <CtaSection />
+  </main>
+
+  <Footer />
+</body>
+</html>
+
+<script>
+  // Enable JS-dependent styles
+  document.body.classList.add('js-ready');
+
+  // Scroll reveal (crosses all sections — stays here)
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    },
+    { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+  );
+  document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+</script>

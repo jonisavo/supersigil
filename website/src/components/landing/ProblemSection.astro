@@ -1,0 +1,96 @@
+---
+// ProblemSection — "the problem" 3-card grid
+---
+
+<section class="problem">
+  <div class="container">
+    <p class="section-label reveal">Why Teams Adopt It</p>
+    <h2 class="section-title reveal">
+      Software change needs a<br/>contract layer.
+    </h2>
+    <div class="problem-grid">
+      <div class="problem-card reveal" style="--reveal-delay: 0s">
+        <div class="problem-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <path d="M14 2v6h6"/>
+            <line x1="9" y1="15" x2="15" y2="15" opacity="0.5"/>
+            <line x1="4" y1="12" x2="20" y2="12" stroke="#c9a55c" stroke-dasharray="2 3" opacity="0.6"/>
+          </svg>
+        </div>
+        <h3>Specs drift outside the repo</h3>
+        <p>Requirements in wikis and tickets stop being enforceable the moment code moves. If the spec is not versioned and checked with the code, drift becomes invisible.</p>
+      </div>
+      <div class="problem-card reveal" style="--reveal-delay: 0.1s">
+        <div class="problem-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+            <path d="M8 18l-2 2" stroke="#c9a55c" opacity="0.6"/>
+          </svg>
+        </div>
+        <h3>Coverage without criteria is guesswork</h3>
+        <p>Green tests do not tell you which requirement they prove. Teams need requirement-level evidence, not just a pass/fail test suite.</p>
+      </div>
+      <div class="problem-card reveal" style="--reveal-delay: 0.2s">
+        <div class="problem-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M7 8h4M7 12h8M7 16h6" opacity="0.5"/>
+            <circle cx="17" cy="17" r="3" stroke="#c9a55c" opacity="0.6"/>
+            <path d="M17 15.5v3M15.5 17h3" stroke="#c9a55c" opacity="0.6"/>
+          </svg>
+        </div>
+        <h3>Agents need machine-readable contracts</h3>
+        <p>AI coding workflows move quickly, but prompts are not a control plane. Agents need structured scope, explicit criteria, and a way to check what changed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .problem {
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .problem-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  .problem-card {
+    padding: 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .problem-card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+  }
+  .problem-icon {
+    margin-bottom: 1.25rem;
+    color: var(--text-muted);
+  }
+  .problem-icon svg { display: inline-block; }
+  .problem-card h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.2rem;
+    margin-bottom: 0.75rem;
+  }
+  .problem-card p {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.65;
+  }
+
+  /* Light theme overrides */
+  :global([data-theme='light']) .problem-icon svg line[stroke="#c9a55c"],
+  :global([data-theme='light']) .problem-icon svg path[stroke="#c9a55c"],
+  :global([data-theme='light']) .problem-icon svg circle[stroke="#c9a55c"] {
+    stroke: #8a6c2f;
+  }
+</style>

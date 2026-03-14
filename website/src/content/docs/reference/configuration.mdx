@@ -1,0 +1,229 @@
+---
+title: Configuration
+description: Reference for supersigil.toml configuration options.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Supersigil is configured through a `supersigil.toml` file at your project root. Run `supersigil init` to generate one.
+
+## Single-Project Mode
+
+The minimal configuration requires only a `paths` array:
+
+```toml title="supersigil.toml"
+paths = ["specs/**/*.mdx"]
+tests = ["tests/**/*.rs", "src/**/*.rs"]
+```
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `paths` | string[] | yes | Glob patterns for spec documents |
+| `tests` | string[] | no | Glob patterns for test files (used by `<VerifiedBy>` tag and file-glob strategies) |
+
+## Multi-Project Mode
+
+For monorepos with multiple projects, use the `[projects]` table instead of top-level `paths`/`tests`:
+
+```toml title="supersigil.toml"
+[projects.frontend]
+paths = ["frontend/specs/**/*.mdx"]
+tests = ["frontend/tests/**/*.rs"]
+
+[projects.backend]
+paths = ["backend/specs/**/*.mdx"]
+tests = ["backend/src/**/*.rs"]
+isolated = true
+```
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `paths` | string[] | yes | Glob patterns for this project's spec documents |
+| `tests` | string[] | no | Glob patterns for this project's test files |
+| `isolated` | bool | no | When `true`, cross-project references produce errors (default: `false`) |
+
+<Aside type="caution">
+  `paths`/`tests` and `[projects]` are mutually exclusive. Using both is a config error.
+</Aside>
+
+Use `--project <name>` with commands like `supersigil verify` and `supersigil ls` to target a specific project.
+
+## ID Pattern
+
+Optional regex to validate document IDs:
+
+```toml title="supersigil.toml"
+id_pattern = "^[a-z][a-z0-9-]*/[a-z]+/[a-z][a-z0-9-]*$"
+```
+
+IDs that don't match produce an `invalid_id_pattern` diagnostic (configurable severity).
+
+## Verification Rules
+
+Override the severity of configurable rules in the `[verify.rules]` table. Values: `"error"`, `"warning"`, `"off"`.
+
+```toml title="supersigil.toml"
+[verify.rules]
+missing_verification_evidence = "error"    # default
+missing_test_files = "error"               # default
+zero_tag_matches = "warning"               # default
+status_inconsistency = "warning"           # default
+stale_tracked_files = "warning"            # default
+missing_required_component = "warning"     # default
+empty_tracked_glob = "warning"             # default
+orphan_test_tag = "warning"                # default
+invalid_id_pattern = "warning"             # default
+isolated_document = "off"                  # default
+invalid_verified_by_placement = "warning"  # default
+invalid_expected_placement = "warning"     # default
+invalid_code_block_cardinality = "warning" # default
+invalid_env_format = "warning"             # default
+example_failed = "error"                   # default
+plugin_discovery_failure = "error"         # default
+plugin_discovery_warning = "warning"       # default
+```
+
+<Aside type="note">
+  Hard errors (`broken_ref`, `duplicate_id`, `dependency_cycle`, `expression_attribute`, `unknown_component`, `missing_required_attribute`) cannot be suppressed or reconfigured.
+</Aside>
+
+## Document Types
+
+Define or customize document types with valid statuses and required components:
+
+```toml title="supersigil.toml"
+[documents.types.requirements]
+status = ["draft", "review", "approved", "implemented"]
+
+[documents.types.design]
+status = ["draft", "review", "approved"]
+
+[documents.types.tasks]
+status = ["draft", "ready", "in-progress", "done"]
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `status` | string[] | Allowed status values for this type |
+| `required_components` | string[] | Components that must be present (produces `missing_required_component` diagnostic) |
+| `description` | string | Human-readable description (shown in `supersigil schema` output) |
+
+The three built-in types (`requirements`, `design`, `tasks`) are always available even without explicit configuration. User-defined entries extend or override them.
+
+## Custom Components
+
+Define custom components beyond the 10 built-ins:
+
+```toml title="supersigil.toml"
+[components.SecurityReview]
+referenceable = false
+verifiable = false
+
+[components.SecurityReview.attributes]
+reviewer = { required = true, list = false }
+findings = { required = false, list = true }
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `referenceable` | bool | Whether the component has an `id` that can be referenced |
+| `verifiable` | bool | Whether it is a coverage target (must also be `referenceable` with a required `id`) |
+| `attributes.<name>.required` | bool | Whether the attribute must be present |
+| `attributes.<name>.list` | bool | Whether the attribute accepts comma-separated values |
+
+Custom components participate in lint checking (known component names, required attributes) but do not create graph edges unless configured via hooks.
+
+## Ecosystem Plugins
+
+Declare ecosystem plugins. Currently only `rust` is supported:
+
+```toml title="supersigil.toml"
+[ecosystem]
+plugins = ["rust"]
+
+[ecosystem.rust]
+validation = "dev"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `plugins` | string[] | `["rust"]` | Active plugins |
+| `rust.validation` | `"off"` \| `"dev"` \| `"all"` | `"dev"` | Which Cargo manifests to validate |
+| `rust.project_scope` | array of `{manifest_dir_prefix, project}` | `[]` | Map manifest directories to projects in multi-project mode |
+
+## Executable Examples
+
+Configure the example execution engine:
+
+```toml title="supersigil.toml"
+[examples]
+timeout = 30
+parallelism = 1
+
+[examples.runners.node]
+command = "node {file}"
+
+[examples.runners.deno]
+command = "deno run {file}"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `timeout` | integer | `30` | Global timeout for all examples (seconds) |
+| `parallelism` | integer | `1` | Number of examples to run concurrently |
+| `runners.<name>.command` | string | -- | Shell command template. Placeholders: `{file}`, `{dir}`, `{lang}`, `{name}` |
+
+## Hooks
+
+External commands that run after verification or lint:
+
+```toml title="supersigil.toml"
+[hooks]
+post_verify = ["my-custom-check", "another-script"]
+post_lint = ["quick-check"]
+timeout_seconds = 30
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `post_verify` | string[] | `[]` | Commands run after `supersigil verify` |
+| `post_lint` | string[] | `[]` | Commands run after `supersigil lint` |
+| `export` | string[] | `[]` | Export hook commands |
+| `timeout_seconds` | integer | `30` | Max execution time per hook |
+
+## Full Example
+
+```toml title="supersigil.toml"
+paths = ["specs/**/*.mdx"]
+tests = ["tests/**/*.rs", "src/**/*.rs"]
+id_pattern = "^[a-z][a-z0-9-]*/[a-z]+/[a-z][a-z0-9-]*$"
+
+[verify.rules]
+isolated_document = "warning"
+zero_tag_matches = "off"
+
+[documents.types.requirements]
+status = ["draft", "review", "approved", "implemented"]
+
+[documents.types.design]
+status = ["draft", "review", "approved"]
+
+[documents.types.tasks]
+status = ["draft", "ready", "in-progress", "done"]
+
+[ecosystem]
+plugins = ["rust"]
+
+[ecosystem.rust]
+validation = "dev"
+
+[examples]
+timeout = 30
+parallelism = 1
+
+[examples.runners.node]
+command = "node {file}"
+
+[hooks]
+post_verify = ["python scripts/check_naming.py"]
+```

@@ -1,0 +1,111 @@
+---
+title: CI Verification
+description: Bring Supersigil into pull requests with verification, drift checks, and tracked files.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Supersigil is most valuable when the same contract that guides local work is
+also enforced in CI. The goal is straightforward: catch broken references,
+missing evidence, and spec drift before a change lands.
+
+## The CI Workflow
+
+<Steps>
+
+1. **Run fast checks locally**
+
+   ```bash
+   supersigil lint
+   supersigil verify
+   ```
+
+   `lint` is the quick structural pass. `verify` is the graph-level check that
+   enforces coverage, evidence, and tracked-file rules.
+
+2. **Use tracked files for drift detection**
+
+   Add tracked file globs to the specs that should be reconsidered when code changes:
+
+   ```mdx
+   <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
+   ```
+
+   Now Supersigil can tell you when a pull request touched code that a spec
+   claims to care about.
+
+3. **Check only the current branch's changes in CI**
+
+   ```bash
+   supersigil verify --since main --merge-base --committed-only
+   ```
+
+   This asks Supersigil to compare the branch against the merge-base with `main`
+   and report specs whose tracked files changed.
+
+4. **Use `affected` for triage when you do not need full verification**
+
+   ```bash
+   supersigil affected --since main --merge-base --committed-only
+   ```
+
+   This is useful in review tooling, dashboards, or scripts that want to know
+   which specs need attention before deciding what to do next.
+
+</Steps>
+
+## What CI Should Enforce
+
+- **Broken references** should always fail the build.
+- **Missing verification evidence** should fail once a document leaves `draft`.
+- **Tracked-file drift** should at least warn, and often fail in stricter repos.
+- **Warnings-only runs** should still be visible because they indicate contract debt.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Clean run |
+| `1` | Errors found |
+| `2` | Warnings only |
+
+This makes it easy to gate merges or post review comments conditionally.
+
+## Example: GitHub Actions
+
+```yaml title=".github/workflows/specs.yml"
+name: Spec Verification
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Supersigil
+        run: cargo install supersigil
+      - name: Verify Spec Graph
+        run: supersigil verify --since main --merge-base --committed-only
+```
+
+## Practical Policy
+
+- Keep active work in `draft` while the structure is still moving.
+- Move a spec out of `draft` once missing evidence should block the branch.
+- Use `affected` when you want lightweight routing.
+- Use `verify --since ...` when you want actual CI enforcement.
+
+<Aside type="tip">
+  If your team uses AI coding agents in pull requests, have the agent run
+  `supersigil verify --format json` before it hands work back for review. The
+  contract becomes self-checking for both humans and automation.
+</Aside>
+
+## Related Reading
+
+- [Verification](/supersigil/concepts/verification/) — Rule severities and draft gating.
+- [Working with AI Agents](/supersigil/guides/ai-agents/) — JSON-first automation workflow.
+- [Evidence Sources](/supersigil/concepts/evidence-sources/) — How criteria become covered.

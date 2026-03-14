@@ -1,0 +1,165 @@
+---
+// FeaturesSection — bento grid of 5 feature cards
+---
+
+<section class="features">
+  <div class="container">
+    <p class="section-label reveal">Core Strengths</p>
+    <h2 class="section-title reveal">The contract layer between intent,<br/>code, and delivery.</h2>
+
+    <div class="bento">
+      <div class="bento-card bento-graph reveal" style="--reveal-delay: 0s">
+        <div class="bento-label">Verifiable Graph</div>
+        <h3>One graph for requirements, designs, tasks, and evidence.</h3>
+        <p>Every document becomes a typed node with computed reverse links. Query any slice with <code>supersigil context</code>, inspect coverage, and export the structure as Mermaid or Graphviz DOT.</p>
+        <div class="bento-visual graph-mini" aria-hidden="true">
+          <svg viewBox="0 0 240 120">
+            <g stroke="#c9a55c" stroke-width="0.6" opacity="0.3">
+              <line x1="120" y1="30" x2="60" y2="60"/>
+              <line x1="120" y1="30" x2="180" y2="60"/>
+              <line x1="60" y1="60" x2="40" y2="95"/>
+              <line x1="60" y1="60" x2="90" y2="95"/>
+              <line x1="180" y1="60" x2="160" y2="95"/>
+              <line x1="180" y1="60" x2="210" y2="95"/>
+            </g>
+            <circle cx="120" cy="30" r="4" fill="#c9a55c" opacity="0.8"/>
+            <circle cx="60" cy="60" r="3" fill="#5a8f9f" opacity="0.7"/>
+            <circle cx="180" cy="60" r="3" fill="#5a8f9f" opacity="0.7"/>
+            <circle cx="40" cy="95" r="2.5" fill="#555" opacity="0.5"/>
+            <circle cx="90" cy="95" r="2.5" fill="#555" opacity="0.5"/>
+            <circle cx="160" cy="95" r="2.5" fill="#555" opacity="0.5"/>
+            <circle cx="210" cy="95" r="2.5" fill="#555" opacity="0.5"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="bento-card bento-ai reveal" style="--reveal-delay: 0.08s">
+        <div class="bento-label">Agent-Ready Context</div>
+        <h3>Structured scope for coding agents.</h3>
+        <p>Core commands emit <code>--format json</code>. Agents can load one document, inspect linked criteria, plan missing work, and re-verify against the same contract.</p>
+        <div class="bento-snippet" aria-hidden="true">
+          <code><span class="c-muted">$</span> supersigil context auth/req --format json</code>
+        </div>
+      </div>
+
+      <div class="bento-card bento-verify reveal" style="--reveal-delay: 0.16s">
+        <div class="bento-label">CI Guardrails</div>
+        <h3>Catch broken refs, missing evidence, and stale specs before release.</h3>
+        <p><code>supersigil verify</code> checks the graph, while tracked files flag specs that need review after code changes. Draft gating keeps iteration light until you are ready to enforce.</p>
+        <div class="bento-snippet" aria-hidden="true">
+          <code><span class="c-red">&#10007;</span> auth/req#valid-creds <span class="c-muted">— no matching evidence</span></code>
+        </div>
+      </div>
+
+      <div class="bento-card bento-examples reveal" style="--reveal-delay: 0.12s">
+        <div class="bento-label">Executable Examples</div>
+        <h3>Use runnable docs when a static snippet is not enough.</h3>
+        <p>Embed shell, HTTP, Rust, or custom-runner examples directly in spec docs. Passing examples can count as evidence inside the same verification pass.</p>
+        <div class="bento-snippet" aria-hidden="true">
+          <code><span class="c-gold">&lt;Example</span> <span class="c-teal">runner</span>=<span class="c-str">"http"</span> <span class="c-teal">verifies</span>=<span class="c-str">"…#due-date"</span><span class="c-gold">&gt;</span></code>
+        </div>
+      </div>
+
+      <div class="bento-card bento-rust reveal" style="--reveal-delay: 0.2s">
+        <div class="bento-label">Pluggable Evidence</div>
+        <h3>Start simple, then add richer discovery where your stack supports it.</h3>
+        <p>Use tags or file globs by default. Add ecosystem integrations such as Rust <code>#[verifies(...)]</code> discovery when you want test evidence to flow into the graph automatically.</p>
+        <div class="bento-snippet" aria-hidden="true">
+          <code><span class="c-muted">// supersigil:</span> <span class="c-teal">auth:valid-creds</span></code>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .features {
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto;
+    gap: 1.25rem;
+    margin-top: 3rem;
+    grid-template-areas:
+      "graph ai     verify"
+      "graph examples rust";
+  }
+  .bento-graph    { grid-area: graph; }
+  .bento-ai       { grid-area: ai; }
+  .bento-verify   { grid-area: verify; }
+  .bento-examples { grid-area: examples; }
+  .bento-rust     { grid-area: rust; }
+
+  .bento-card {
+    padding: 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.3s, background 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .bento-card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+  }
+  .bento-label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 0.75rem;
+  }
+  .bento-card h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.15rem;
+    line-height: 1.35;
+    margin-bottom: 0.6rem;
+  }
+  .bento-card p {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+  .bento-snippet {
+    margin-top: 1rem;
+    padding: 0.6rem 0.8rem;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .bento-snippet .c-muted { color: var(--text-dim); }
+  .bento-snippet .c-gold { color: var(--gold); }
+  .bento-snippet .c-teal { color: #5a8f9f; }
+  .bento-snippet .c-str { color: #a8c97a; }
+  .bento-snippet .c-red { color: #d45b5b; }
+  :global([data-theme='light']) .bento-snippet {
+    background: rgba(0, 0, 0, 0.04);
+  }
+  .bento-visual {
+    margin-top: 1.5rem;
+  }
+  .graph-mini svg {
+    width: 100%;
+    max-width: 240px;
+    opacity: 0.7;
+  }
+
+  /* Light theme overrides */
+  :global([data-theme='light']) .graph-mini line[stroke="#c9a55c"] { stroke: #8a6c2f; }
+  :global([data-theme='light']) .graph-mini circle[fill="#c9a55c"] { fill: #8a6c2f; }
+  :global([data-theme='light']) .graph-mini circle[fill="#5a8f9f"] { fill: #3d7080; }
+  :global([data-theme='light']) .graph-mini circle[fill="#555"] { fill: #9a9590; }
+</style>

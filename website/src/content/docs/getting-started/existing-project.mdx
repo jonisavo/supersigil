@@ -1,0 +1,130 @@
+---
+title: Adding Supersigil to an Existing Project
+description: Adopt Supersigil incrementally in a codebase that already has code and tests.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+The [Quickstart](/supersigil/getting-started/) walks through a greenfield setup. This guide covers the more common case: you have working code, existing tests, and want to start connecting them to verifiable specs without disrupting what already works.
+
+## Strategy
+
+Start small. Pick one module you understand well, write a single requirements spec for it, and wire up the evidence you already have. Once that loop feels natural, expand to more modules.
+
+<Steps>
+
+1. **Initialize Supersigil**
+
+   From your repository root:
+
+   ```bash
+   supersigil init
+   ```
+
+   This creates `supersigil.toml`. The default `paths` glob (`specs/**/*.mdx`) is a good starting point — specs live in their own directory, separate from source code.
+
+2. **Pick one module and write a requirements spec**
+
+   Choose a module that already has tests — authentication, billing, a CLI command, whatever you know best. Scaffold a requirements doc:
+
+   ```bash
+   supersigil new requirements auth
+   ```
+
+   Edit the generated file to describe the behavior that already exists. Start with `status: draft` so verification stays relaxed while you iterate:
+
+   ```mdx title="specs/auth/auth.req.mdx"
+   ---
+   supersigil:
+     id: auth/req
+     type: requirements
+     status: draft
+   title: "Authentication"
+   ---
+
+   <AcceptanceCriteria>
+     <Criterion id="valid-creds">
+       WHEN a user submits valid credentials
+       THE SYSTEM SHALL issue a session token.
+       <VerifiedBy strategy="tag" tag="auth:valid-creds" />
+     </Criterion>
+
+     <Criterion id="invalid-creds">
+       WHEN a user submits invalid credentials
+       THE SYSTEM SHALL return a 401 response.
+       <VerifiedBy strategy="tag" tag="auth:invalid-creds" />
+     </Criterion>
+   </AcceptanceCriteria>
+
+   <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
+   ```
+
+   Write criteria for behavior that is already implemented and tested. You are documenting reality, not specifying new work.
+
+3. **Tag your existing tests**
+
+   Add tag comments to the tests that prove each criterion:
+
+   ```rust title="tests/auth/login_test.rs"
+   // supersigil: auth:valid-creds
+
+   #[test]
+   fn login_returns_session_token() {
+       // your existing test
+   }
+   ```
+
+   ```rust title="tests/auth/login_failure_test.rs"
+   // supersigil: auth:invalid-creds
+
+   #[test]
+   fn login_rejects_bad_password() {
+       // your existing test
+   }
+   ```
+
+   Tags are lightweight — a comment is all it takes. No test code changes, no new dependencies.
+
+4. **Run verify and confirm it passes**
+
+   ```bash
+   supersigil verify
+   ```
+
+   Since the spec is in `draft`, configurable findings (like uncovered criteria) are downgraded. But broken refs and structural errors still surface. Fix any that appear.
+
+5. **Promote to approved when ready**
+
+   Once you are confident in the evidence mapping, change the status:
+
+   ```yaml
+   status: approved
+   ```
+
+   Run `verify` again. Now Supersigil enforces coverage — any criterion without evidence becomes a warning or error (depending on your config).
+
+</Steps>
+
+## Expanding gradually
+
+Once the first module works:
+
+- **Add more modules one at a time.** Each spec is independent. There is no requirement to cover the whole codebase at once.
+- **Use `TrackedFiles` early.** Even before criteria have full evidence, tracked files give you drift detection — you will know when code changes and a spec might need review.
+- **Use `supersigil status`** to see coverage across all specs at a glance.
+- **Keep new specs in `draft`** until evidence is wired up. This prevents verify from blocking CI on work-in-progress specs.
+
+<Aside type="tip">
+  If you use the Rust ecosystem plugin, you can skip manual tags entirely and use `#[verifies("auth/req#valid-creds")]` attributes on your tests instead. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for details.
+</Aside>
+
+## CI integration
+
+Once you have a few specs with solid evidence, add verification to CI. A simple approach:
+
+```yaml title=".github/workflows/specs.yml"
+- name: Verify specs
+  run: supersigil verify
+```
+
+Use `supersigil verify --since main` in pull request checks to scope verification to changed specs. See the [CI Verification guide](/supersigil/guides/ci-verification/) for the full setup.

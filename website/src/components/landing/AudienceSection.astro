@@ -1,0 +1,100 @@
+---
+// AudienceSection — 3 audience cards
+---
+
+<section class="audience">
+  <div class="container">
+    <p class="section-label reveal">Who It's For</p>
+    <h2 class="section-title reveal">Built for engineering teams<br/>shipping with AI assistance.</h2>
+
+    <div class="audience-grid">
+      <div class="audience-card reveal" style="--reveal-delay: 0s">
+        <div class="audience-icon">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+            <path d="M16 3.13a4 4 0 010 7.75"/>
+          </svg>
+        </div>
+        <h3>Engineering Teams</h3>
+        <p>Keep requirements, design intent, and verification in the repo. Teams get one contract layer that survives pull requests, code review, and CI instead of drifting across tools.</p>
+      </div>
+      <div class="audience-card reveal" style="--reveal-delay: 0.1s">
+        <div class="audience-icon">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+            <path d="M7 8l3 3-3 3" opacity="0.8"/>
+            <line x1="13" y1="14" x2="17" y2="14" opacity="0.5"/>
+          </svg>
+        </div>
+        <h3>AI Coding Workflows</h3>
+        <p>Give agents precise scope, linked criteria, and machine-readable status. They can load the contract, make a change, and run the same verification loop your team trusts.</p>
+      </div>
+      <div class="audience-card reveal" style="--reveal-delay: 0.2s">
+        <div class="audience-icon">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <h3>Solo Maintainers</h3>
+        <p>Start with one spec file and one verification loop. Supersigil scales up without changing the basic workflow: write an MDX contract, link evidence, and run <code>verify</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .audience {
+    padding: 8rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .audience-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  .audience-card {
+    padding: 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .audience-card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+  }
+  .audience-icon {
+    color: var(--text-dim);
+    margin-bottom: 1.25rem;
+  }
+  .audience-icon svg { display: inline-block; }
+  .audience-card h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.2rem;
+    margin-bottom: 0.75rem;
+  }
+  .audience-card p {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.65;
+  }
+  .audience-card code {
+    font-size: 0.85em;
+    color: var(--gold);
+    background: rgba(201, 165, 92, 0.08);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+  }
+
+  /* Light theme overrides */
+  :global([data-theme='light']) .audience-card code {
+    background: rgba(138, 108, 47, 0.1);
+  }
+</style>
