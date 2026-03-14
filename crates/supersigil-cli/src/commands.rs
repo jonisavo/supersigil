@@ -66,7 +66,7 @@ pub struct LsArgs {
     #[arg(long)]
     pub status: Option<String>,
     /// Filter by project (multi-project mode)
-    #[arg(long)]
+    #[arg(short, long)]
     pub project: Option<String>,
     /// Output format
     #[arg(long, default_value = "terminal")]
@@ -149,7 +149,7 @@ pub enum VerifyFormat {
 )]
 pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
-    #[arg(long)]
+    #[arg(short, long)]
     pub project: Option<String>,
     /// Git ref for staleness checks
     #[arg(long)]

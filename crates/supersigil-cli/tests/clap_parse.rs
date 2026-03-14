@@ -42,6 +42,16 @@ fn parse_ls_with_filters() {
 }
 
 #[test]
+fn parse_ls_with_short_project() {
+    let cli = Cli::parse_from(["supersigil", "ls", "-p", "frontend"]);
+    if let supersigil_cli::Command::Ls(args) = cli.command {
+        assert_eq!(args.project.as_deref(), Some("frontend"));
+    } else {
+        panic!("expected Ls");
+    }
+}
+
+#[test]
 fn parse_schema_default_format() {
     let cli = Cli::parse_from(["supersigil", "schema"]);
     if let supersigil_cli::Command::Schema(args) = cli.command {
@@ -223,6 +233,16 @@ fn parse_verify_with_all_flags() {
         assert!(args.committed_only);
         assert!(args.merge_base);
         assert!(matches!(args.format, supersigil_cli::VerifyFormat::Json));
+    } else {
+        panic!("expected Verify");
+    }
+}
+
+#[test]
+fn parse_verify_with_short_project() {
+    let cli = Cli::parse_from(["supersigil", "verify", "-p", "core"]);
+    if let supersigil_cli::Command::Verify(args) = cli.command {
+        assert_eq!(args.project.as_deref(), Some("core"));
     } else {
         panic!("expected Verify");
     }
