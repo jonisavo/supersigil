@@ -12,8 +12,8 @@ pub use component_defs::ComponentDefs;
 pub use config::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
     ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, ProjectConfig, RunnerConfig,
-    RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity, TestResultsConfig,
-    VerifyConfig, load_config,
+    RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity, SkillsConfig,
+    TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};

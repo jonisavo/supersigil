@@ -4,11 +4,13 @@ pub mod error;
 pub mod format;
 pub mod loader;
 pub mod plugins;
+pub mod prompt;
+pub mod skills;
 
 pub use commands::{
     AffectedArgs, Command, ContextArgs, ExamplesArgs, GraphArgs, GraphFormat, ImportArgs,
-    ImportSource, LsArgs, NewArgs, PlanArgs, RefsArgs, SchemaArgs, SchemaFormat, StatusArgs,
-    VerifyArgs, VerifyFormat,
+    ImportSource, InitArgs, LsArgs, NewArgs, PlanArgs, RefsArgs, SchemaArgs, SchemaFormat,
+    SkillsArgs, SkillsCommand, SkillsInstallArgs, StatusArgs, VerifyArgs, VerifyFormat,
 };
 pub use discover::discover_spec_files;
 pub use format::{ColorChoice, ColorConfig, ExitStatus, OutputFormat};

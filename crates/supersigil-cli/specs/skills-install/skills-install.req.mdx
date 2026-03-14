@@ -1,0 +1,136 @@
+---
+supersigil:
+  id: skills-install/req
+  type: requirements
+  status: draft
+title: "Skills Installation"
+---
+
+## Introduction
+
+Supersigil ships agent-facing skills — markdown guides that teach AI agents how
+to work with supersigil's spec-driven development workflow. Today, users must
+manually copy these files into their project. This feature embeds the skills in
+the binary and provides interactive and non-interactive paths to install them
+during `init` or on demand via `supersigil skills install`.
+
+Scope: embedding, writing, and overwriting the four supersigil skills. Out of
+scope: third-party skill registries, version tracking, selective skill
+installation, and skill removal.
+
+## Definitions
+
+- **Embedded_Skills**: The four supersigil-specific agent skills compiled into
+  the binary: `feature-development`, `feature-specification`,
+  `retroactive-specification`, and `spec-driven-development`. Each skill is a
+  directory containing a `SKILL.md` entry point and optional companion files
+  (e.g., `references/`, `agents/`).
+- **Skills_Dir**: The directory where skills are written. Defaults to
+  `.agents/skills/`. Configurable via `supersigil.toml` key `skills.path` or
+  CLI flags.
+- **Default_Skills_Path**: `.agents/skills/`.
+
+## Requirement 1: Skills Embedding
+
+As a user installing supersigil, I want the agent skills compiled into the
+binary, so that I can install them without network access or a separate
+download step.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    The binary SHALL include the full file tree of each Embedded_Skill
+    (SKILL.md, references, agents YAML) at compile time.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Interactive Init with Skills Prompt
+
+As a new user running `supersigil init` in a terminal, I want to be prompted
+about skills installation, so that I can get agent support set up as part of
+the normal bootstrap flow.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    AFTER creating `supersigil.toml`, `init` SHALL prompt
+    "Install agent skills? [Y/n]" on stderr. The default answer SHALL be Yes
+    (empty input accepts yes).
+  </Criterion>
+  <Criterion id="req-2-2">
+    IF the user answers yes, `init` SHALL prompt "Skills directory" on stderr,
+    showing Default_Skills_Path as the default in brackets. Empty input SHALL
+    accept the default.
+  </Criterion>
+  <Criterion id="req-2-3">
+    IF the user provides a non-default path, `init` SHALL add
+    `skills.path = "<path>"` to the created `supersigil.toml`.
+  </Criterion>
+  <Criterion id="req-2-4">
+    IF the user answers no to the skills prompt, `init` SHALL NOT install
+    skills and SHALL NOT write a `skills.path` key.
+  </Criterion>
+  <Criterion id="req-2-5">
+    The existing behavior of `init` (create `supersigil.toml`, fail if exists,
+    print success and hint) SHALL be preserved.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Init Non-Interactive Behavior
+
+As a CI pipeline or AI agent running `supersigil init`, I want deterministic
+skills installation without prompts, so that automated workflows can bootstrap
+a project reliably.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    The `-y` flag SHALL accept all defaults without prompting (install skills
+    to Default_Skills_Path).
+  </Criterion>
+  <Criterion id="req-3-2">
+    The `--skills` flag SHALL install skills without prompting for the skills
+    question. IF no `--skills-path` is given and stdin is a TTY and `-y` is not
+    set, the path prompt SHALL still appear. OTHERWISE use Default_Skills_Path.
+  </Criterion>
+  <Criterion id="req-3-3">
+    The `--no-skills` flag SHALL skip skills installation without prompting.
+  </Criterion>
+  <Criterion id="req-3-4">
+    The `--skills-path <dir>` flag SHALL imply `--skills` and set Skills_Dir
+    to `<dir>` without prompting.
+  </Criterion>
+  <Criterion id="req-3-5">
+    IF stdin is not a TTY, `init` SHALL behave as if `-y` was given.
+  </Criterion>
+  <Criterion id="req-3-6">
+    `--skills` and `--no-skills` SHALL be mutually exclusive. The CLI SHALL
+    reject both given together.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Skills Install Command
+
+As a user who has already initialized a project, I want a standalone command to
+install or update skills, so that I can get the latest embedded skills after
+upgrading supersigil.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    `supersigil skills install` SHALL write the Embedded_Skills to Skills_Dir,
+    creating directories as needed.
+  </Criterion>
+  <Criterion id="req-4-2">
+    IF skills already exist at the target path, `skills install` SHALL
+    overwrite them with the embedded version.
+  </Criterion>
+  <Criterion id="req-4-3">
+    `skills install` SHALL resolve Skills_Dir in this order: `--path` flag,
+    then `skills.path` in `supersigil.toml`, then Default_Skills_Path.
+  </Criterion>
+  <Criterion id="req-4-4">
+    `skills install` SHALL NOT require `supersigil.toml` to exist. If absent,
+    it uses Default_Skills_Path (unless `--path` overrides).
+  </Criterion>
+  <Criterion id="req-4-5">
+    AFTER writing, `skills install` SHALL print the count and destination path
+    of installed skills.
+  </Criterion>
+</AcceptanceCriteria>

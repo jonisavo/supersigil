@@ -10,6 +10,7 @@ pub mod new;
 pub mod plan;
 pub mod refs;
 pub mod schema;
+pub mod skills;
 pub mod status;
 pub mod verify;
 
@@ -45,13 +46,15 @@ pub enum Command {
     /// Visualize the document dependency graph
     Graph(GraphArgs),
     /// Create a new supersigil.toml config
-    Init,
+    Init(InitArgs),
     /// Scaffold a new spec document
     New(NewArgs),
     /// List criterion refs in the project
     Refs(RefsArgs),
     /// List executable examples in the spec
     Examples(ExamplesArgs),
+    /// Manage agent skills
+    Skills(SkillsArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -234,6 +237,41 @@ pub struct ExamplesArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct InitArgs {
+    /// Accept all defaults without prompting
+    #[arg(short = 'y')]
+    pub yes: bool,
+    /// Install agent skills (default in non-interactive mode)
+    #[arg(long, conflicts_with = "no_skills")]
+    pub skills: bool,
+    /// Skip skills installation
+    #[arg(long, conflicts_with = "skills")]
+    pub no_skills: bool,
+    /// Directory for skills installation (implies --skills)
+    #[arg(long, conflicts_with = "no_skills")]
+    pub skills_path: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SkillsArgs {
+    #[command(subcommand)]
+    pub command: SkillsCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillsCommand {
+    /// Install or update embedded agent skills
+    Install(SkillsInstallArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SkillsInstallArgs {
+    /// Target directory for skills
+    #[arg(long)]
+    pub path: Option<PathBuf>,
 }
 
 fn parse_import_prefix(raw: &str) -> Result<String, String> {

@@ -33,6 +33,40 @@ def supersigil(args: list[str]) -> dict:
     return json.loads(result.stdout)
 ```
 
+## Agent Skills
+
+Supersigil ships four agent skills — structured guides that teach coding agents how to use the spec-driven workflow. Skills are installed to your project during `supersigil init` (or via `supersigil skills install`) and live in `.agents/skills/` by default.
+
+The four skills are:
+
+- **`feature-specification`** — How to author requirements, properties, design, and tasks documents using Supersigil's component grammar and the lint/verify feedback loop.
+- **`feature-development`** — How to implement against existing specs using `plan`, `verify`, and test tagging.
+- **`spec-driven-development`** — The full end-to-end workflow from idea to verified implementation. Composes the specification and development skills.
+- **`retroactive-specification`** — How to reverse-engineer specs from existing code for brownfield projects.
+
+Each skill is a self-contained directory with a `SKILL.md` entry point and optional reference files. Agents that support skill loading (Claude Code, Gemini CLI, etc.) can read these directly.
+
+### Installing and Updating Skills
+
+Skills are embedded in the Supersigil binary and written to disk during initialization:
+
+```bash
+# During project setup (interactive or with -y for defaults)
+supersigil init
+
+# Update skills after upgrading Supersigil
+supersigil skills install
+
+# Install to a custom directory
+supersigil skills install --path .cursor/skills
+```
+
+Skills are overwritten on each install, so they always match the version of Supersigil you have installed. If you customize a skill, the customization will be replaced on the next `skills install`.
+
+<Aside type="tip">
+  Commit the installed skills to your repository. This ensures every team member and CI environment has the same skill versions, and agents can read them without running `supersigil skills install` first.
+</Aside>
+
 ## Key Commands for Agents
 
 ### `supersigil context <id> --format json`

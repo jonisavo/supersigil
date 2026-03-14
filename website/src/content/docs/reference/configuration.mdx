@@ -191,6 +191,21 @@ timeout_seconds = 30
 | `export` | string[] | `[]` | Export hook commands |
 | `timeout_seconds` | integer | `30` | Max execution time per hook |
 
+## Skills
+
+Configure the path for installed agent skills:
+
+```toml title="supersigil.toml"
+[skills]
+path = "custom/skills/path"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `path` | string | `.agents/skills/` | Directory where `supersigil init` and `supersigil skills install` write agent skills |
+
+This section is only needed when using a non-default skills path. When omitted, skills are installed to `.agents/skills/`.
+
 ## Full Example
 
 ```toml title="supersigil.toml"
@@ -226,4 +241,7 @@ command = "node {file}"
 
 [hooks]
 post_verify = ["python scripts/check_naming.py"]
+
+[skills]
+path = ".agents/skills"
 ```

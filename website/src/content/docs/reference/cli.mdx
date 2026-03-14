@@ -17,16 +17,31 @@ Individual commands add their own flags as documented below.
 
 ## `supersigil init`
 
-Create a minimal `supersigil.toml` in the current directory.
+Create a `supersigil.toml` config and optionally install agent skills.
 
 ```bash
 supersigil init
+supersigil init -y
+supersigil init --no-skills
+supersigil init --skills-path .agents/skills
 ```
 
-Creates a config file with sensible defaults:
+In a terminal, `init` prompts whether to install agent skills (default: yes) and where to put them (default: `.agents/skills/`). In non-interactive environments (piped stdin, CI, or `-y`), it installs skills to the default path automatically.
+
+| Flag | Description |
+|------|-------------|
+| `-y` | Accept all defaults without prompting |
+| `--skills` | Install skills (skip the yes/no prompt, still prompts for path in TTY) |
+| `--no-skills` | Skip skills installation entirely |
+| `--skills-path <dir>` | Install skills to a custom directory (implies `--skills`) |
+
+When a non-default skills path is used, `init` adds a `[skills]` section to the generated config:
 
 ```toml
 paths = ["specs/**/*.mdx"]
+
+[skills]
+path = "custom/skills"
 ```
 
 Does not overwrite an existing `supersigil.toml`.
@@ -266,3 +281,22 @@ supersigil import --from kiro --source-dir ./kiro-specs --output-dir ./specs --p
 <Aside type="note">
   Imported files may contain `TODO(supersigil-import)` comments where manual review is needed. Run `supersigil lint` after importing to validate the results.
 </Aside>
+
+## `supersigil skills install`
+
+Install or update the embedded agent skills.
+
+```bash
+supersigil skills install
+supersigil skills install --path custom/skills
+```
+
+Writes the four bundled agent skills to disk: `feature-specification`, `feature-development`, `retroactive-specification`, and `spec-driven-development`. If skills already exist at the target path, they are overwritten with the version embedded in the current binary.
+
+Use this after upgrading Supersigil to get the latest skill versions.
+
+| Flag | Description |
+|------|-------------|
+| `--path <dir>` | Target directory (default: `.agents/skills/`, or `skills.path` from `supersigil.toml`) |
+
+Path resolution order: `--path` flag, then `skills.path` from `supersigil.toml`, then `.agents/skills/`. Does not require `supersigil.toml` to exist.

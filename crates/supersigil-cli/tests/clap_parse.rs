@@ -302,7 +302,81 @@ fn parse_graph_dot() {
 #[test]
 fn parse_init() {
     let cli = Cli::parse_from(["supersigil", "init"]);
-    assert!(matches!(cli.command, supersigil_cli::Command::Init));
+    assert!(matches!(cli.command, supersigil_cli::Command::Init(_)));
+}
+
+#[test]
+fn parse_init_yes() {
+    let cli = Cli::parse_from(["supersigil", "init", "-y"]);
+    if let supersigil_cli::Command::Init(args) = cli.command {
+        assert!(args.yes);
+        assert!(!args.skills);
+        assert!(!args.no_skills);
+        assert!(args.skills_path.is_none());
+    } else {
+        panic!("expected Init");
+    }
+}
+
+#[test]
+fn parse_init_skills_flags() {
+    let cli = Cli::parse_from(["supersigil", "init", "--skills"]);
+    if let supersigil_cli::Command::Init(args) = cli.command {
+        assert!(args.skills);
+        assert!(!args.no_skills);
+    } else {
+        panic!("expected Init");
+    }
+}
+
+#[test]
+fn parse_init_no_skills_flag() {
+    let cli = Cli::parse_from(["supersigil", "init", "--no-skills"]);
+    if let supersigil_cli::Command::Init(args) = cli.command {
+        assert!(!args.skills);
+        assert!(args.no_skills);
+    } else {
+        panic!("expected Init");
+    }
+}
+
+#[test]
+fn parse_init_skills_path() {
+    let cli = Cli::parse_from(["supersigil", "init", "--skills-path", "custom/dir"]);
+    if let supersigil_cli::Command::Init(args) = cli.command {
+        assert_eq!(args.skills_path, Some(PathBuf::from("custom/dir")));
+    } else {
+        panic!("expected Init");
+    }
+}
+
+#[test]
+fn parse_init_skills_and_no_skills_conflict() {
+    Cli::try_parse_from(["supersigil", "init", "--skills", "--no-skills"]).unwrap_err();
+}
+
+#[test]
+fn parse_skills_install() {
+    let cli = Cli::parse_from(["supersigil", "skills", "install"]);
+    if let supersigil_cli::Command::Skills(args) = cli.command {
+        assert!(matches!(
+            args.command,
+            supersigil_cli::SkillsCommand::Install(_)
+        ));
+    } else {
+        panic!("expected Skills");
+    }
+}
+
+#[test]
+fn parse_skills_install_with_path() {
+    let cli = Cli::parse_from(["supersigil", "skills", "install", "--path", "my/skills"]);
+    if let supersigil_cli::Command::Skills(args) = cli.command {
+        let supersigil_cli::SkillsCommand::Install(install_args) = args.command;
+        assert_eq!(install_args.path, Some(PathBuf::from("my/skills")));
+    } else {
+        panic!("expected Skills");
+    }
 }
 
 #[test]

@@ -49,7 +49,8 @@ proptest! {
 
 use supersigil_core::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
-    ExamplesConfig, HooksConfig, ProjectConfig, Severity, TestResultsConfig, VerifyConfig,
+    ExamplesConfig, HooksConfig, ProjectConfig, Severity, SkillsConfig, TestResultsConfig,
+    VerifyConfig,
 };
 
 /// Generator for a non-empty identifier string (safe for TOML keys).
@@ -204,6 +205,7 @@ fn arb_config() -> impl Strategy<Value = Config> {
                     hooks,
                     test_results,
                     examples: ExamplesConfig::default(),
+                    skills: SkillsConfig::default(),
                 }
             },
         )

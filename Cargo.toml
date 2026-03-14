@@ -39,6 +39,7 @@ libc = "0.2"
 ureq = "3"
 proc-macro2 = { version = "1.0.106", features = ["span-locations"] }
 syn = { version = "2.0.117", features = ["full"] }
+include_dir = "0.7.4"
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"

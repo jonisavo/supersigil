@@ -225,6 +225,19 @@ impl Default for ExamplesConfig {
 }
 
 // ---------------------------------------------------------------------------
+// SkillsConfig
+// ---------------------------------------------------------------------------
+
+/// Agent skills configuration.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkillsConfig {
+    /// Custom path for installed skills (default: `.agents/skills/`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // HooksConfig
 // ---------------------------------------------------------------------------
 
@@ -331,6 +344,9 @@ pub struct Config {
     /// Executable examples configuration.
     #[serde(default)]
     pub examples: ExamplesConfig,
+    /// Agent skills configuration.
+    #[serde(default)]
+    pub skills: SkillsConfig,
 }
 
 // ---------------------------------------------------------------------------
@@ -471,5 +487,29 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
         Ok(config)
     } else {
         Err(errors)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skills_path_deserializes() {
+        let toml = r#"
+paths = ["specs/**/*.mdx"]
+
+[skills]
+path = "custom/skills"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.skills.path.as_deref(), Some("custom/skills"));
+    }
+
+    #[test]
+    fn absent_skills_section_deserializes_to_none() {
+        let toml = r#"paths = ["specs/**/*.mdx"]"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.skills.path.is_none());
     }
 }

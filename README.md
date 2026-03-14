@@ -58,7 +58,8 @@ supersigil schema              # Component and type definitions
 supersigil graph               # Document dependency graph (Mermaid/Graphviz)
 supersigil refs                # List criterion refs
 supersigil new <type> <id>     # Scaffold a new spec document
-supersigil init                # Create supersigil.toml
+supersigil init                # Create supersigil.toml and install agent skills
+supersigil skills install      # Install or update agent skills
 supersigil import --from kiro  # Import from Kiro format
 supersigil examples            # List executable examples
 ```

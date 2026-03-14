@@ -36,11 +36,13 @@ supersigil --version
    supersigil init
    ```
 
-   This creates a `supersigil.toml` config file in the current directory:
+   This creates a `supersigil.toml` config and installs four agent skills to `.agents/skills/`. The skills teach AI coding agents how to work with Supersigil's spec-driven workflow.
 
    ```toml title="supersigil.toml"
    paths = ["specs/**/*.mdx"]
    ```
+
+   Use `--no-skills` to skip skills installation, or `-y` to accept all defaults without prompting.
 
 2. **Create a spec document**
 
