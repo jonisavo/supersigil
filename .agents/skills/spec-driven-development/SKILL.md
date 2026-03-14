@@ -54,6 +54,8 @@ Do not author requirements or design from guessed intent when the planning round
 
 6. Run the implementation phase second.
    Use the `feature-development` workflow to select the next criterion or task chain, implement it, add verification evidence, and keep task states current.
+   Promote document statuses as tasks complete: tasks doc to `done`, design to `approved`, requirements to `implemented`.
+   The `status_inconsistency` verify rule will catch any missed promotions.
 
 7. Close with the graph, not just the code.
    Summarize the planning brief when one was used, plus `supersigil status`, `supersigil plan`, and `supersigil verify` for the scoped feature.

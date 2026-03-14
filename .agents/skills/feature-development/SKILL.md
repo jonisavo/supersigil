@@ -56,15 +56,21 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
    Use `strategy="file-glob"` when file existence is the best available evidence.
    Do not leave empty `tag`, `paths`, or `refs` placeholders behind.
 
-7. Run `supersigil verify` before claiming the slice is complete.
+7. Promote document statuses when warranted.
+   After marking a task `done`, check whether all tasks in the tasks doc are now done.
+   If so, set the tasks doc to `status: done`, the sibling design doc to `status: approved`, and the sibling requirements doc to `status: implemented`.
+   If some tasks are done but others remain, set the tasks doc to `status: in-progress`.
+   Run `supersigil verify` to confirm — the `status_inconsistency` rule will warn about any missed promotions.
+
+8. Run `supersigil verify` before claiming the slice is complete.
    Treat error-level findings as blockers for the scoped feature.
    If the user explicitly defers a finding, keep the affected docs in `status: draft` or otherwise avoid overstating completion.
 
-8. Use `supersigil status` and `supersigil affected` to summarize the result.
+9. Use `supersigil status` and `supersigil affected` to summarize the result.
    `status` is the default close-out summary.
    `affected --since <ref>` is for cases where changed tracked files may have invalidated nearby docs.
 
-9. End with a concrete handoff.
+10. End with a concrete handoff.
    Summarize what criterion or task chain was completed, which tests now back it, the latest `verify` result, and what `plan` still shows for the feature.
 
 ## Authoring Rules
