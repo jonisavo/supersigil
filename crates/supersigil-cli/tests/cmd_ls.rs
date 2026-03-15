@@ -127,3 +127,44 @@ paths = ["specs/**/*.mdx"]
         .success()
         .stdout(predicate::str::contains("workspace/doc"));
 }
+
+/// `graph` writes syntax to stdout only; summary and hint go to stderr.
+#[verifies("inventory-queries/req#req-3-3")]
+#[test]
+fn graph_writes_syntax_to_stdout_and_summary_to_stderr() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["graph"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Default format is mermaid — stdout should contain mermaid graph syntax.
+    assert!(
+        stdout.contains("graph TD"),
+        "stdout should contain mermaid syntax, got: {stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Summary (node/edge counts) and hint go to stderr.
+    assert!(
+        stderr.contains("Graph:"),
+        "stderr should contain the summary line, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("hint:"),
+        "stderr should contain the pipe-to-file hint, got: {stderr}"
+    );
+
+    // Ensure summary text is NOT on stdout.
+    assert!(
+        !stdout.contains("Graph:"),
+        "stdout should not contain summary text"
+    );
+}

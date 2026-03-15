@@ -87,6 +87,7 @@ co-located with the criteria they verify.
     other documents can reference specific examples. `Example` SHALL NOT
     be marked verifiable — it is an evidence source, not a verification
     target.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/component_defs.rs" />
   </Criterion>
 
   <Criterion id="req-1-4">
@@ -107,6 +108,7 @@ co-located with the criteria they verify.
     IF `Expected` is absent from an `Example`, THEN verification SHALL
     treat exit code 0 as pass and non-zero as fail, with no output
     matching.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/runner.rs" />
   </Criterion>
 
   <Criterion id="req-1-7">
@@ -115,6 +117,7 @@ co-located with the criteria they verify.
     be conjunctive: all specified checks must pass for the example to
     pass. An `Expected` with only attributes and no body SHALL be valid,
     applying only the attribute-based checks.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/matcher.rs" />
   </Criterion>
 
   <Criterion id="req-1-8">
@@ -123,6 +126,7 @@ co-located with the criteria they verify.
     `Expected` with `format="snapshot"`, the parser SHALL also preserve
     byte spans sufficient to rewrite the code block content in the
     source MDX file.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/executor.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -145,6 +149,7 @@ supersigil needing to understand them.
     THE runner SHALL be resolved from built-in runner definitions or
     from `[examples.runners]` in `supersigil.toml`, with user-defined
     runners taking precedence over built-ins of the same name.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/runner.rs" />
   </Criterion>
 
   <Criterion id="req-2-3">
@@ -158,11 +163,13 @@ supersigil needing to understand them.
     WHEN `timeout` is set on an `Example` (or falls back to the global
     `[examples].timeout` default), the executor SHALL enforce the
     timeout and report the example as failed with a timeout diagnostic.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/executor.rs" />
   </Criterion>
 
   <Criterion id="req-2-5">
     WHEN `env` is set on an `Example`, the executor SHALL make those
     key-value pairs available to the runner.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/runner.rs" />
   </Criterion>
 
   <Criterion id="req-2-6">
@@ -189,6 +196,7 @@ my specs prove themselves.
   <Criterion id="req-3-2">
     WHEN `format="text"` on `Expected`, the matcher SHALL compare
     trimmed stdout against the trimmed expected text exactly.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/matcher.rs" />
   </Criterion>
 
   <Criterion id="req-3-3">
@@ -201,17 +209,20 @@ my specs prove themselves.
     stdout against the inline expected text, and `--update-snapshots`
     on `supersigil verify` SHALL rewrite the `Expected` code block
     content in the source MDX file to the actual output.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/verify.rs" />
   </Criterion>
 
   <Criterion id="req-3-5">
     WHEN `status` is set on `Expected`, the matcher SHALL compare the
     runner exit code (or HTTP status code for the `http` runner) against
     the expected status, and SHALL fail the example if they differ.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/matcher.rs" />
   </Criterion>
 
   <Criterion id="req-3-6">
     WHEN `contains` is set on `Expected`, the matcher SHALL check that
     stdout contains the specified substring.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/matcher.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -262,6 +273,7 @@ as structural verification.
     the interim report JSON on stdin and their emitted findings SHALL be
     merged to produce the final report, preserving the existing hook
     contract from `verification-engine/req` (req-7-3).
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/verify.rs" />
   </Criterion>
 
   <Criterion id="req-4-7">
@@ -301,6 +313,7 @@ examples exist and what they verify.
     examples in documents related to the current working directory via
     `TrackedFiles`, following the same context-scoping logic as
     `supersigil refs`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/examples.rs" />
   </Criterion>
 
   <Criterion id="req-5-3">
@@ -319,12 +332,14 @@ my project's tooling.
   <Criterion id="req-6-1">
     THE config model SHALL expose `[examples]` with optional `timeout`
     (default 30s) and `parallelism` (default 1) settings.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/config.rs" />
   </Criterion>
 
   <Criterion id="req-6-2">
     THE config model SHALL expose `[examples.runners.<name>]` with a
     `command` template string, allowing user-defined runners that
     override or extend the built-in set.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/runner.rs" />
   </Criterion>
 
   <Criterion id="req-6-3">
@@ -332,6 +347,7 @@ my project's tooling.
     and `{name}` placeholders interpolated by the executor. `{lang}`
     SHALL use the explicit `lang` attribute when present and the
     derived code-block language otherwise.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/runner.rs" />
   </Criterion>
 
   <Criterion id="req-6-4">
@@ -340,6 +356,7 @@ my project's tooling.
     (sorted by document id then example id) regardless of execution
     order. Snapshot rewrites SHALL be serialized to avoid concurrent
     writes to the same MDX file.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/executor.rs" />
   </Criterion>
 </AcceptanceCriteria>
 

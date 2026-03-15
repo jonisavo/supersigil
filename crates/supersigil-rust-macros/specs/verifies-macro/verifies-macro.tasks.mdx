@@ -32,19 +32,19 @@ This tasks document tracks the retroactive-specification pass for the
   not only to `supersigil.toml` changes.
 </Task>
 
-<Task id="task-5" status="pending" implements="verifies-macro/req#req-2-3">
+<Task id="task-5" status="done" implements="verifies-macro/req#req-2-3">
   Add a trybuild test for the case where `SUPERSIGIL_PROJECT_ROOT` is set to
   a path that does not contain `supersigil.toml`. Assert the macro produces a
   compile-time error indicating the config file was not found.
 </Task>
 
-<Task id="task-6" status="pending" implements="verifies-macro/req#req-2-4">
+<Task id="task-6" status="done" implements="verifies-macro/req#req-2-4">
   Add tests for `ecosystem.rust.validation` policy variants (`off`, `dev`,
   `all`). Assert that the macro respects each policy: `off` skips validation,
   `dev` validates only in dev-dependencies, and `all` validates unconditionally.
 </Task>
 
-<Task id="task-7" status="pending" implements="verifies-macro/req#req-3-3">
+<Task id="task-7" status="done" implements="verifies-macro/req#req-3-3">
   Add a trybuild test for the failure path when config loading, parsing, or
   graph construction fails while validation is active. Assert the macro
   produces a compile-time diagnostic rather than silently passing.

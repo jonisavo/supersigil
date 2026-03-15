@@ -350,3 +350,74 @@ fn plan_json_stdout_clean_despite_plugin_warning() {
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert!(json.get("outstanding_targets").is_some());
 }
+
+/// Terminal plan prints "No outstanding work." when there are no targets, tasks, or completed tasks.
+/// When completed tasks exist, a completed-task summary is appended.
+#[verifies("work-queries/req#req-4-3")]
+#[test]
+fn plan_no_work_message_and_completed_summary() {
+    // Case 1: No criteria, no tasks at all -> "No outstanding work."
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        Some("draft"),
+        "# Test\n",
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["plan"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No outstanding work."));
+
+    // Case 2: A done task exists -> completed-task summary is appended.
+    let tmp2 = TempDir::new().unwrap();
+    common::setup_project(tmp2.path());
+    common::write_mdx(
+        tmp2.path(),
+        "specs/req.mdx",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">
+    Some criterion.
+  </Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_mdx(
+        tmp2.path(),
+        "specs/tasks.mdx",
+        "test/tasks",
+        Some("tasks"),
+        None,
+        r#"# Tasks
+
+<Task id="task-1" status="done" implements="test/req#c1">
+  Completed task.
+</Task>
+"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["plan", "test"])
+        .current_dir(tmp2.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should have completed summary (the done task is present).
+    assert!(
+        stdout.contains("task-1"),
+        "stdout should mention the completed task, got: {stdout}"
+    );
+}

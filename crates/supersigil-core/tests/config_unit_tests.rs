@@ -1226,3 +1226,37 @@ command = "python3 {file} --dir {dir} --lang {lang} --name {name}"
         "python3 {file} --dir {dir} --lang {lang} --name {name}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Ecosystem.rust with validation and project_scope (ecosystem-plugins/req#req-1-4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_deserialization_with_validation_and_project_scope() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[ecosystem.rust]
+validation = "dev"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "crates/api"
+project = "backend"
+
+[[ecosystem.rust.project_scope]]
+manifest_dir_prefix = "crates/web"
+project = "frontend"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+
+    let rust = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust.validation, RustValidationPolicy::Dev);
+    assert_eq!(rust.project_scope.len(), 2);
+    assert_eq!(rust.project_scope[0].manifest_dir_prefix, "crates/api");
+    assert_eq!(rust.project_scope[0].project, "backend");
+    assert_eq!(rust.project_scope[1].manifest_dir_prefix, "crates/web");
+    assert_eq!(rust.project_scope[1].project, "frontend");
+}

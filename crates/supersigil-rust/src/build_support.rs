@@ -7,7 +7,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{Config, RustValidationInputResolutionError, resolve_project_validation_inputs};
+use supersigil_core::{
+    Config, RustValidationInputResolutionError, resolve_project_validation_inputs,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

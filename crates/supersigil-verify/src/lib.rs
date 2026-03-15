@@ -525,6 +525,109 @@ mod verify_tests {
     }
 
     #[test]
+    fn verify_multi_project_collects_test_files_from_all_projects() {
+        // Two projects with different test glob patterns. Verification should
+        // discover test files from BOTH projects, not just one.
+        let dir = TempDir::new().unwrap();
+
+        // Project "alpha" tests live under alpha_tests/
+        std::fs::create_dir_all(dir.path().join("alpha_tests")).unwrap();
+        std::fs::write(
+            dir.path().join("alpha_tests/login_test.rs"),
+            "// supersigil: req:auth\n",
+        )
+        .unwrap();
+
+        // Project "beta" tests live under beta_tests/
+        std::fs::create_dir_all(dir.path().join("beta_tests")).unwrap();
+        std::fs::write(
+            dir.path().join("beta_tests/payment_test.rs"),
+            "// supersigil: req:pay\n",
+        )
+        .unwrap();
+
+        let docs = vec![
+            make_doc(
+                "req/auth",
+                vec![make_acceptance_criteria(
+                    vec![make_criterion_with_verified_by(
+                        "req-1",
+                        make_verified_by_tag("req:auth", 11),
+                        10,
+                    )],
+                    9,
+                )],
+            ),
+            make_doc(
+                "req/pay",
+                vec![make_acceptance_criteria(
+                    vec![make_criterion_with_verified_by(
+                        "pay-1",
+                        make_verified_by_tag("req:pay", 21),
+                        20,
+                    )],
+                    19,
+                )],
+            ),
+        ];
+        let mut config = test_config();
+        config.paths = None;
+        config.tests = None;
+        config.projects = Some(std::collections::HashMap::from([
+            (
+                "alpha".into(),
+                supersigil_core::ProjectConfig {
+                    paths: vec!["specs/**/*.mdx".into()],
+                    tests: vec!["alpha_tests/**/*.rs".into()],
+                    isolated: false,
+                },
+            ),
+            (
+                "beta".into(),
+                supersigil_core::ProjectConfig {
+                    paths: vec!["specs/**/*.mdx".into()],
+                    tests: vec!["beta_tests/**/*.rs".into()],
+                    isolated: false,
+                },
+            ),
+        ]));
+
+        let graph = build_test_graph_with_config(docs, &config);
+
+        // Verify that resolve_test_files finds files from BOTH projects
+        let test_files = resolve_test_files(&config, dir.path());
+        assert!(
+            test_files
+                .iter()
+                .any(|p| p.to_string_lossy().contains("alpha_tests")),
+            "should discover test files from project alpha, got: {test_files:?}",
+        );
+        assert!(
+            test_files
+                .iter()
+                .any(|p| p.to_string_lossy().contains("beta_tests")),
+            "should discover test files from project beta, got: {test_files:?}",
+        );
+
+        // Build artifact graph and run full verify
+        let explicit =
+            explicit_evidence::extract_explicit_evidence(&graph, &test_files, dir.path());
+        let ag = artifact_graph::build_artifact_graph(&graph, explicit, vec![]);
+        let options = VerifyOptions::default();
+        let report = verify(&graph, &config, dir.path(), &options, &ag).unwrap();
+
+        // Neither document should have zero_tag_matches since both tags are found
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::ZeroTagMatches),
+            "multi-project with two projects should resolve tags from both; got findings: {:?}",
+            report.findings,
+        );
+    }
+
+    #[test]
     fn verify_summary_counts_are_correct() {
         // Create a scenario with multiple finding types:
         // two uncovered criteria produce error-level findings.

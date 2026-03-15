@@ -153,3 +153,39 @@ fn import_diagnostics_use_display_format_not_debug() {
         .stderr(predicate::str::contains("warning:"))
         .stderr(predicate::str::contains("Warning {").not());
 }
+
+/// Write mode prints a `supersigil lint` next-step hint on stderr.
+#[verifies("kiro-import/req#req-4-3")]
+#[test]
+fn import_write_mode_prints_lint_hint() {
+    let project = TempDir::new().unwrap();
+    let specs_dir = project.path().join(".kiro/specs");
+    write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
+
+    // Create a supersigil.toml so the hint says "supersigil lint" (not "supersigil init").
+    fs::write(
+        project.path().join("supersigil.toml"),
+        "paths = [\"specs/**/*.mdx\"]\n",
+    )
+    .unwrap();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--output-dir",
+            project.path().join("specs").to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("lint"),
+        "stderr should contain a lint hint after write mode, got: {stderr}"
+    );
+}

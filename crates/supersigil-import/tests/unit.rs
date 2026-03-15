@@ -1056,3 +1056,109 @@ The importer should produce unique filenames.
         assert_eq!(actual_paths, expected_paths);
     }
 }
+
+mod feature_title_precedence {
+    use super::*;
+    use supersigil_rust::verifies;
+
+    /// Helper: run `plan_kiro_import` on a single feature and return the title
+    /// used in the first emitted document's front matter.
+    fn extract_title(
+        specs_dir: &std::path::Path,
+        output_dir: &std::path::Path,
+        feature: &str,
+    ) -> String {
+        let config = config_for(specs_dir, output_dir);
+        let plan = plan_kiro_import(&config).unwrap();
+        assert!(
+            !plan.documents.is_empty(),
+            "expected at least one document for feature '{feature}'"
+        );
+        // Parse the title from the YAML front matter of the first document.
+        let content = &plan.documents[0].content;
+        let rest = content.strip_prefix("---\n").expect("front matter start");
+        let end = rest.find("\n---\n").expect("front matter end");
+        let fm = &rest[..end];
+        fm.lines()
+            .find_map(|line| {
+                line.strip_prefix("title: ")
+                    .map(|v| v.trim_matches('"').to_string())
+            })
+            .expect("title in front matter")
+    }
+
+    #[verifies("kiro-import/req#req-2-4")]
+    #[test]
+    fn requirements_title_takes_highest_precedence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        write_kiro_spec(
+            &specs_dir,
+            "prec-req",
+            Some(
+                "# Requirements Document: Req Title\n\n### Requirement 1: A\n\n#### Acceptance Criteria\n\n1. THE System SHALL exist.\n",
+            ),
+            Some("# Design Document: Design Title\n\n## Overview\n\nSome design.\n"),
+            Some("# Implementation Plan: Tasks Title\n\n## Tasks\n\n- [x] 1. Do it\n"),
+        );
+
+        let title = extract_title(&specs_dir, &tmp.path().join("out"), "prec-req");
+        assert_eq!(title, "Req Title");
+    }
+
+    #[verifies("kiro-import/req#req-2-4")]
+    #[test]
+    fn design_title_used_when_requirements_has_no_title() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        write_kiro_spec(
+            &specs_dir,
+            "prec-design",
+            Some(
+                "# Requirements Document\n\nSome intro.\n\n### Requirement 1: A\n\n#### Acceptance Criteria\n\n1. THE System SHALL exist.\n",
+            ),
+            Some("# Design Document: Design Title\n\n## Overview\n\nSome design.\n"),
+            Some("# Implementation Plan: Tasks Title\n\n## Tasks\n\n- [x] 1. Do it\n"),
+        );
+
+        let title = extract_title(&specs_dir, &tmp.path().join("out"), "prec-design");
+        assert_eq!(title, "Design Title");
+    }
+
+    #[verifies("kiro-import/req#req-2-4")]
+    #[test]
+    fn tasks_title_used_when_requirements_and_design_have_no_title() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        write_kiro_spec(
+            &specs_dir,
+            "prec-tasks",
+            None,
+            None,
+            Some("# Implementation Plan: Tasks Title\n\n## Tasks\n\n- [x] 1. Do it\n"),
+        );
+
+        let title = extract_title(&specs_dir, &tmp.path().join("out"), "prec-tasks");
+        assert_eq!(title, "Tasks Title");
+    }
+
+    #[verifies("kiro-import/req#req-2-4")]
+    #[test]
+    fn directory_name_used_when_no_parsed_titles() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs_dir = tmp.path().join("specs");
+        // requirements.md with no title suffix, no design, no tasks
+        write_kiro_spec(
+            &specs_dir,
+            "fallback-dir-name",
+            Some(
+                "# Requirements Document\n\nSome intro.\n\n### Requirement 1: A\n\n#### Acceptance Criteria\n\n1. THE System SHALL exist.\n",
+            ),
+            None,
+            None,
+        );
+
+        let title = extract_title(&specs_dir, &tmp.path().join("out"), "fallback-dir-name");
+        assert_eq!(title, "fallback-dir-name");
+    }
+}

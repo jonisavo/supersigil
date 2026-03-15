@@ -164,6 +164,7 @@ time without losing the shared workspace model.
   <Criterion id="req-3-3">
     IN Multi_Project_Mode, verification SHALL collect test files from all
     configured project test globs before rule execution.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     WHEN a Project_Filter is supplied to verification, findings SHALL be

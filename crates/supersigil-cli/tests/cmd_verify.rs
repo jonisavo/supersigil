@@ -612,6 +612,129 @@ fn verify_terminal_reports_failed_examples_after_summary() {
     );
 }
 
+#[verifies("executable-examples/req#req-4-4")]
+#[test]
+fn verify_skips_examples_when_structural_errors_exist() {
+    let tmp = TempDir::new().unwrap();
+    // Set up a project with examples AND a structural error:
+    // a <VerifiedBy> at document root (outside a Criterion) triggers
+    // InvalidVerifiedByPlacement, which is an Error-severity structural finding.
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/mixed.mdx",
+        "mixed/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<VerifiedBy strategy="file-glob" paths="specs/mixed.mdx" />
+
+<AcceptanceCriteria>
+  <Criterion id="crit-1">
+    Has evidence
+    <VerifiedBy strategy="file-glob" paths="specs/mixed.mdx" />
+  </Criterion>
+</AcceptanceCriteria>
+
+<Example
+  id="should-not-run"
+  lang="sh"
+  runner="sh"
+  verifies="mixed/req#crit-1"
+>
+
+```sh
+echo "this should be skipped"
+```
+
+<Expected status="0" contains="skipped" />
+</Example>"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    // Should fail due to structural errors
+    assert_ne!(output.status.code(), Some(0));
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings should be an array");
+
+    // Should have the structural error
+    assert!(
+        findings
+            .iter()
+            .any(|f| f["rule"] == "invalid_verified_by_placement"),
+        "expected a structural error finding, got: {report}",
+    );
+
+    // Should contain a finding noting that examples were skipped
+    assert!(
+        findings.iter().any(|f| {
+            f["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("example execution skipped"))
+        }),
+        "expected an info finding noting examples were skipped, got: {report}",
+    );
+}
+
+#[verifies("executable-examples/req#req-4-5")]
+#[test]
+fn verify_skip_examples_flag_prevents_example_execution() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "--skip-examples"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings should be an array");
+
+    // Should contain a finding noting that examples were skipped via flag
+    assert!(
+        findings.iter().any(|f| {
+            f["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("--skip-examples"))
+        }),
+        "expected an info finding noting examples were skipped via --skip-examples, got: {report}",
+    );
+}
+
+#[verifies("executable-examples/req#req-4-5")]
+#[test]
+fn verify_update_snapshots_flag_is_accepted() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "--update-snapshots"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(
+        report["summary"]["error_count"], 0,
+        "verify with --update-snapshots should succeed on a clean fixture, got: {report}",
+    );
+}
+
 #[verifies("executable-examples/req#req-4-8")]
 #[test]
 fn verify_terminal_non_blocking_failed_examples_stay_readable() {

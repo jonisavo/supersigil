@@ -1,0 +1,7 @@
+error: SUPERSIGIL_PROJECT_ROOT is set to "$DIR/tests/fixtures/no-config-project" but no supersigil.toml was found at that path
+ --> tests/fixtures/fail/missing_config_at_project_root.rs:5:1
+  |
+5 | #[verifies("any/doc#any-criterion")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `verifies` (in Nightly builds, run with -Z macro-backtrace for more info)

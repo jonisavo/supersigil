@@ -469,6 +469,76 @@ mod tests {
         .unwrap();
     }
 
+    fn config_with_policy(
+        policy: supersigil_core::RustValidationPolicy,
+    ) -> supersigil_core::Config {
+        supersigil_core::Config {
+            ecosystem: supersigil_core::EcosystemConfig {
+                rust: Some(supersigil_core::RustEcosystemConfig {
+                    validation: policy,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn should_validate_off_skips() {
+        let config = config_with_policy(supersigil_core::RustValidationPolicy::Off);
+        assert!(!should_validate(&config), "policy=off must skip validation");
+    }
+
+    #[test]
+    fn should_validate_all_always_validates() {
+        let config = config_with_policy(supersigil_core::RustValidationPolicy::All);
+        assert!(
+            should_validate(&config),
+            "policy=all must validate unconditionally"
+        );
+    }
+
+    #[test]
+    fn should_validate_dev_validates_in_debug() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe { std::env::set_var("PROFILE", "debug") };
+        let config = config_with_policy(supersigil_core::RustValidationPolicy::Dev);
+        assert!(
+            should_validate(&config),
+            "policy=dev must validate when PROFILE=debug"
+        );
+    }
+
+    #[test]
+    fn should_validate_dev_skips_in_release() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe { std::env::set_var("PROFILE", "release") };
+        let config = config_with_policy(supersigil_core::RustValidationPolicy::Dev);
+        assert!(
+            !should_validate(&config),
+            "policy=dev must skip validation when PROFILE=release"
+        );
+    }
+
+    #[test]
+    fn should_validate_default_is_dev() {
+        // When no rust config is provided, the default policy is Dev.
+        let config = supersigil_core::Config::default();
+        // SAFETY: nextest runs each test in its own process.
+        unsafe { std::env::set_var("PROFILE", "debug") };
+        assert!(
+            should_validate(&config),
+            "default policy (dev) must validate in debug"
+        );
+        // SAFETY: nextest runs each test in its own process.
+        unsafe { std::env::set_var("PROFILE", "release") };
+        assert!(
+            !should_validate(&config),
+            "default policy (dev) must skip validation in release"
+        );
+    }
+
     #[test]
     fn validate_refs_rebuilds_graph_when_spec_file_changes() {
         let tmp = TempDir::new().unwrap();

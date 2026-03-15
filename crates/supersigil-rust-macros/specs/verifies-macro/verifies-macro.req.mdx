@@ -75,11 +75,13 @@ predictable.
     IF `SUPERSIGIL_PROJECT_ROOT` is set to a path that does not contain
     `supersigil.toml`, THEN the macro SHALL emit a compile-time error instead
     of silently skipping validation.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/tests/fixtures/fail/missing_config_at_project_root.rs" />
   </Criterion>
   <Criterion id="req-2-4">
     THE macro SHALL load `ecosystem.rust.validation` and SHALL skip graph
     validation when the policy is `off`, SHALL validate in non-release builds
     for the default `dev` policy, and SHALL validate in all builds for `all`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust-macros/src/lib.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -103,6 +105,7 @@ specification graph, so that stale refs are caught during compilation.
     WHEN config loading, spec parsing, or graph construction fails while
     validation is active, THE macro SHALL emit compile-time diagnostics instead
     of silently skipping validation.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/tests/fixtures/fail/malformed_spec_parse_error.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     THE macro SHALL cache the built graph within the compiler process and

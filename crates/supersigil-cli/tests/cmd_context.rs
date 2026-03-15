@@ -74,3 +74,33 @@ fn context_unknown_id_exits_one() {
         .failure()
         .stderr(predicate::str::contains("not found"));
 }
+
+/// Context JSON output does NOT expose a separate illustrations collection.
+#[verifies("work-queries/req#req-2-3")]
+#[test]
+fn context_json_has_no_illustrations_key() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/req.mdx",
+        "test/doc",
+        Some("requirements"),
+        Some("draft"),
+        "# Test\n",
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["context", "test/doc", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert!(
+        json.get("illustrations").is_none(),
+        "context JSON should NOT contain an 'illustrations' key, got: {json}"
+    );
+}
