@@ -21,7 +21,8 @@ goal: |
   3. Run `supersigil context` again for the correct document using `--format json`.
   4. Write `notes/recovery.md` with:
      - the recovered document ID
-     - one exact criterion ref from that document
+     - one exact criterion ref in `document-id#criterion-id` format
+       (e.g., `auth/req/login#valid-creds`)
 
   Keep the note short and factual.
 

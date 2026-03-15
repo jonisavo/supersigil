@@ -15,7 +15,8 @@ goal: |
 
   Requirements:
   1. Initialize the project with `supersigil init`.
-  2. Create one requirements document for the `auth` feature.
+  2. Use `supersigil new requirements auth` to scaffold the requirements document.
+     This creates the document at the canonical path `specs/auth/auth.req.mdx`.
   3. Run `supersigil lint` and leave the workspace in a lint-clean state.
 
   Do not create extra spec documents that are not needed for this task.

@@ -41,6 +41,8 @@ pub struct ContextOutput {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TargetContext {
     pub id: String,
+    /// Canonical target reference in `document-id#criterion-id` format.
+    pub target_ref: String,
     pub body_text: Option<String>,
     /// Documents that reference this criterion, with their status.
     pub referenced_by: Vec<DocRef>,
@@ -226,6 +228,7 @@ fn extract_criteria(
 
             result.push(TargetContext {
                 id: crit_id.clone(),
+                target_ref: format!("{doc_id}#{crit_id}"),
                 body_text: comp.body_text.clone(),
                 referenced_by,
             });

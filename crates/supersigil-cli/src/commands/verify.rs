@@ -308,11 +308,11 @@ pub fn run(
 
     // Run post-verify hooks
     if !config.hooks.post_verify.is_empty() {
-        let interim = VerificationReport {
-            findings: all_findings.clone(),
-            summary: supersigil_verify::Summary::from_findings(doc_count, &all_findings),
-            evidence_summary: None,
-        };
+        let interim = VerificationReport::new(
+            all_findings.clone(),
+            supersigil_verify::Summary::from_findings(doc_count, &all_findings),
+            None,
+        );
         let interim_json = serde_json::to_string(&interim).unwrap_or_default();
         let hook_findings = supersigil_verify::hooks::run_hooks(
             &config.hooks.post_verify,
@@ -332,12 +332,7 @@ pub fn run(
     let evidence_summary = (!final_artifact_graph.evidence.is_empty())
         .then(|| supersigil_verify::EvidenceSummary::from_artifact_graph(&final_artifact_graph));
 
-    let report = VerificationReport {
-        findings: all_findings,
-        summary,
-        evidence_summary,
-    };
-
+    let report = VerificationReport::new(all_findings, summary, evidence_summary);
     let status = report.result_status();
 
     let stdout = io::stdout();
@@ -1239,11 +1234,7 @@ mod tests {
             ),
         ];
         let summary = Summary::from_findings(2, &findings);
-        let report = VerificationReport {
-            findings,
-            summary,
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(findings, summary, None);
 
         // With color: Unicode symbols + ANSI
         let out = format_terminal(&report, None, color());
@@ -1278,11 +1269,7 @@ mod tests {
 
     #[test]
     fn clean_report() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary::from_findings(3, &[]),
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
 
         let out = format_terminal(&report, None, color());
         assert!(
@@ -1299,11 +1286,7 @@ mod tests {
 
     #[test]
     fn clean_report_with_examples_shows_example_summary() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary::from_findings(1, &[]),
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
         let summary = ExampleExecutionSummary {
             passed: 1,
             failed: 0,
@@ -1317,11 +1300,7 @@ mod tests {
 
     #[test]
     fn clean_report_with_failed_examples_shows_non_blocking_summary() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary::from_findings(1, &[]),
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
         let summary = ExampleExecutionSummary {
             passed: 0,
             failed: 1,
@@ -1350,11 +1329,11 @@ mod tests {
         // Simulate draft gating: raw stays Error, effective downgraded to Info
         finding.effective_severity = ReportSeverity::Info;
 
-        let report = VerificationReport {
-            summary: Summary::from_findings(1, &[finding.clone()]),
-            findings: vec![finding],
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(
+            vec![finding.clone()],
+            Summary::from_findings(1, &[finding]),
+            None,
+        );
 
         let out = format_terminal(&report, None, no_color());
         assert!(
@@ -1369,11 +1348,7 @@ mod tests {
 
     #[test]
     fn draft_gating_hint_not_shown_when_no_suppression() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary::from_findings(1, &[]),
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
 
         let out = format_terminal(&report, None, no_color());
         assert!(
@@ -1390,11 +1365,8 @@ mod tests {
             "example 'cargo-fail' (runner: cargo-test) failed".to_string(),
             None,
         )];
-        let report = VerificationReport {
-            summary: Summary::from_findings(1, &findings),
-            findings,
-            evidence_summary: None,
-        };
+        let summary_counts = Summary::from_findings(1, &findings);
+        let report = VerificationReport::new(findings, summary_counts, None);
         let summary = ExampleExecutionSummary {
             passed: 1,
             failed: 1,
@@ -1507,11 +1479,7 @@ mod tests {
             })
             .collect();
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport {
-            findings,
-            summary,
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(findings, summary, None);
 
         let out = format_terminal(&report, None, no_color());
         assert!(
@@ -1553,11 +1521,7 @@ mod tests {
             })
             .collect();
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport {
-            findings,
-            summary,
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(findings, summary, None);
 
         let out = format_terminal(&report, None, no_color());
         assert!(out.contains("criterion `req-0`"), "got:\n{out}");
@@ -1577,11 +1541,11 @@ mod tests {
             None,
         )];
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport {
+        let report = VerificationReport::new(
             findings,
             summary,
-            evidence_summary: Some(supersigil_verify::test_helpers::sample_evidence_summary()),
-        };
+            Some(supersigil_verify::test_helpers::sample_evidence_summary()),
+        );
 
         let out = format_terminal(&report, None, no_color());
         assert!(
@@ -1603,11 +1567,7 @@ mod tests {
             None,
         )];
         let summary = Summary::from_findings(1, &findings);
-        let report = VerificationReport {
-            findings,
-            summary,
-            evidence_summary: None,
-        };
+        let report = VerificationReport::new(findings, summary, None);
 
         let out = format_terminal(&report, None, no_color());
         // Should not contain evidence-related sections

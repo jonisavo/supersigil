@@ -379,6 +379,7 @@ impl EvidenceSummary {
 /// Complete output of a verification run.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerificationReport {
+    pub overall_status: ResultStatus,
     pub findings: Vec<Finding>,
     pub summary: Summary,
     /// Optional evidence summary from `ArtifactGraph` enrichment.
@@ -387,16 +388,32 @@ pub struct VerificationReport {
 }
 
 impl VerificationReport {
-    /// Derives the overall result status from the summary counts.
+    /// Creates a report, computing `overall_status` from the summary counts.
     #[must_use]
-    pub fn result_status(&self) -> ResultStatus {
-        if self.summary.error_count > 0 {
+    pub fn new(
+        findings: Vec<Finding>,
+        summary: Summary,
+        evidence_summary: Option<EvidenceSummary>,
+    ) -> Self {
+        let overall_status = if summary.error_count > 0 {
             ResultStatus::HasErrors
-        } else if self.summary.warning_count > 0 {
+        } else if summary.warning_count > 0 {
             ResultStatus::WarningsOnly
         } else {
             ResultStatus::Clean
+        };
+        Self {
+            overall_status,
+            findings,
+            summary,
+            evidence_summary,
         }
+    }
+
+    /// Returns the overall result status.
+    #[must_use]
+    pub fn result_status(&self) -> ResultStatus {
+        self.overall_status
     }
 }
 
@@ -561,8 +578,8 @@ mod tests {
 
     #[test]
     fn verification_report_includes_position_when_present() {
-        let report = VerificationReport {
-            findings: vec![Finding {
+        let report = VerificationReport::new(
+            vec![Finding {
                 rule: RuleName::InvalidIdPattern,
                 doc_id: None,
                 message: "bad pattern".to_string(),
@@ -575,14 +592,14 @@ mod tests {
                 }),
                 details: None,
             }],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 1,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let json = serde_json::to_string(&report).expect("serialization should succeed");
         assert!(json.contains("\"position\""), "position should be present");
@@ -610,16 +627,16 @@ mod tests {
             (0, 4, 1, ResultStatus::WarningsOnly),
         ];
         for (errors, warnings, infos, expected) in cases {
-            let report = VerificationReport {
-                findings: vec![],
-                summary: Summary {
+            let report = VerificationReport::new(
+                vec![],
+                Summary {
                     total_documents: 3,
                     error_count: errors,
                     warning_count: warnings,
                     info_count: infos,
                 },
-                evidence_summary: None,
-            };
+                None,
+            );
             assert_eq!(
                 report.result_status(),
                 expected,
@@ -634,8 +651,8 @@ mod tests {
 
     #[test]
     fn json_format_roundtrips() {
-        let report = VerificationReport {
-            findings: vec![Finding {
+        let report = VerificationReport::new(
+            vec![Finding {
                 rule: RuleName::MissingTestFiles,
                 doc_id: Some("prop/auth".to_string()),
                 message: "no test files found".to_string(),
@@ -644,14 +661,14 @@ mod tests {
                 position: None,
                 details: None,
             }],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 1,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let json = format_json(&report);
         let parsed: serde_json::Value =
@@ -667,8 +684,8 @@ mod tests {
 
     #[test]
     fn markdown_format_has_table() {
-        let report = VerificationReport {
-            findings: vec![
+        let report = VerificationReport::new(
+            vec![
                 Finding {
                     rule: RuleName::MissingVerificationEvidence,
                     doc_id: Some("req/auth".to_string()),
@@ -688,14 +705,14 @@ mod tests {
                     details: None,
                 },
             ],
-            summary: Summary {
+            Summary {
                 total_documents: 2,
                 error_count: 1,
                 warning_count: 1,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let out = format_markdown(&report);
         assert!(out.contains("# Verification Report"), "should have header",);
@@ -714,16 +731,16 @@ mod tests {
 
     #[test]
     fn markdown_format_clean_report() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
+        let report = VerificationReport::new(
+            vec![],
+            Summary {
                 total_documents: 3,
                 error_count: 0,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let out = format_markdown(&report);
         assert!(
@@ -740,16 +757,16 @@ mod tests {
 
     #[test]
     fn evidence_summary_serializes_in_json() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
+        let report = VerificationReport::new(
+            vec![],
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: Some(sample_evidence_summary()),
-        };
+            Some(sample_evidence_summary()),
+        );
 
         let json = format_json(&report);
         let parsed: serde_json::Value =
@@ -776,16 +793,16 @@ mod tests {
 
     #[test]
     fn evidence_summary_absent_when_none() {
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
+        let report = VerificationReport::new(
+            vec![],
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let json = format_json(&report);
         assert!(
@@ -800,8 +817,8 @@ mod tests {
 
     #[test]
     fn markdown_includes_evidence_section() {
-        let report = VerificationReport {
-            findings: vec![Finding {
+        let report = VerificationReport::new(
+            vec![Finding {
                 rule: RuleName::MissingVerificationEvidence,
                 doc_id: Some("req/auth".to_string()),
                 message: "criterion req-1 not covered".to_string(),
@@ -810,14 +827,14 @@ mod tests {
                 position: None,
                 details: None,
             }],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 1,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: Some(sample_evidence_summary()),
-        };
+            Some(sample_evidence_summary()),
+        );
 
         let out = format_markdown(&report);
         assert!(
@@ -844,8 +861,8 @@ mod tests {
 
     #[test]
     fn markdown_no_evidence_section_when_absent() {
-        let report = VerificationReport {
-            findings: vec![Finding {
+        let report = VerificationReport::new(
+            vec![Finding {
                 rule: RuleName::MissingVerificationEvidence,
                 doc_id: Some("req/auth".to_string()),
                 message: "criterion req-1 not covered".to_string(),
@@ -854,14 +871,14 @@ mod tests {
                 position: None,
                 details: None,
             }],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 1,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let out = format_markdown(&report);
         assert!(
@@ -881,16 +898,16 @@ mod tests {
         assert_eq!(evidence.coverage.len(), 1);
         assert_eq!(evidence.coverage[0].test_count, 2);
 
-        let report = VerificationReport {
-            findings: vec![],
-            summary: Summary {
+        let report = VerificationReport::new(
+            vec![],
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 0,
                 info_count: 0,
             },
-            evidence_summary: Some(evidence),
-        };
+            Some(evidence),
+        );
 
         let json = format_json(&report);
         let parsed: serde_json::Value =
@@ -921,8 +938,8 @@ mod tests {
 
     #[test]
     fn finding_details_serialize_only_when_present() {
-        let with_details = VerificationReport {
-            findings: vec![
+        let with_details = VerificationReport::new(
+            vec![
                 Finding::new(
                     RuleName::PluginDiscoveryFailure,
                     None,
@@ -937,14 +954,14 @@ mod tests {
                     ..FindingDetails::default()
                 }),
             ],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 1,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let with_json = format_json(&with_details);
         let with_parsed: serde_json::Value =
@@ -959,21 +976,21 @@ mod tests {
             "auth/req/login#happy-path-login"
         );
 
-        let without_details = VerificationReport {
-            findings: vec![Finding::new(
+        let without_details = VerificationReport::new(
+            vec![Finding::new(
                 RuleName::PluginDiscoveryFailure,
                 None,
                 "plugin failed".to_string(),
                 None,
             )],
-            summary: Summary {
+            Summary {
                 total_documents: 1,
                 error_count: 0,
                 warning_count: 1,
                 info_count: 0,
             },
-            evidence_summary: None,
-        };
+            None,
+        );
 
         let without_json = format_json(&without_details);
         assert!(

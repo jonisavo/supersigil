@@ -202,16 +202,30 @@ function recoverStdoutStderr(command: SupersigilCommandRecord): { stdout: string
   }
 
   const leadingJson = extractLeadingJsonValue(command.stdout);
-  if (leadingJson === undefined) {
-    return { stdout: command.stdout, stderr: command.stderr };
+  if (leadingJson !== undefined) {
+    // JSON output followed by hint/error text on stderr (merged by adapter)
+    const trimmed = command.stdout.trimStart();
+    const trailing = trimmed.slice(leadingJson.length).trimStart();
+    return {
+      stdout: leadingJson,
+      stderr: trailing,
+    };
   }
 
-  const trimmed = command.stdout.trimStart();
-  const trailing = trimmed.slice(leadingJson.length).trimStart();
-  return {
-    stdout: leadingJson,
-    stderr: trailing,
-  };
+  // When there's no JSON at all and the command failed, the merged output is
+  // likely pure stderr (error messages, hints).  Detect this by checking for
+  // the CLI's diagnostic prefixes and a non-zero exit code.
+  if (command.exitCode !== 0) {
+    const lines = command.stdout.trimStart().split("\n");
+    const looksLikeStderr = lines.every(
+      (l) => l.trim() === "" || /^(error:|hint:|warning:)/.test(l.trim()),
+    );
+    if (looksLikeStderr) {
+      return { stdout: "", stderr: command.stdout };
+    }
+  }
+
+  return { stdout: command.stdout, stderr: command.stderr };
 }
 
 async function captureRecordedVerifyArtifacts(

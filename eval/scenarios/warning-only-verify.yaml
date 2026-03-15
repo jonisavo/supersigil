@@ -17,11 +17,13 @@ goal: |
 
   Requirements:
   1. Run `supersigil verify --format json`.
+     Note: `supersigil verify` exits with code 2 when only warnings are present
+     (no errors). This is expected for this fixture.
   2. Write `notes/verify-summary.md` with:
      - the document ID with the warning
      - the rule name
      - the finding severity
-     - the summary counts as `0 errors` and `1 warning`
+     - the summary counts using the exact phrases `0 errors` and `1 warning`
   3. Do not add verification evidence or create test files.
 
 template:

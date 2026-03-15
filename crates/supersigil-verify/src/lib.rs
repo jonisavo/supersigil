@@ -200,11 +200,11 @@ pub fn verify(
 
     // Run post-verify hooks (if any)
     if !config.hooks.post_verify.is_empty() {
-        let interim = VerificationReport {
-            findings: findings.clone(),
-            summary: Summary::from_findings(doc_ids.len(), &findings),
-            evidence_summary: None,
-        };
+        let interim = VerificationReport::new(
+            findings.clone(),
+            Summary::from_findings(doc_ids.len(), &findings),
+            None,
+        );
         let interim_json = serde_json::to_string(&interim).unwrap_or_default();
         findings.extend(hooks::run_hooks(
             &config.hooks.post_verify,
@@ -219,11 +219,7 @@ pub fn verify(
     // Build summary
     let summary = Summary::from_findings(doc_ids.len(), &findings);
 
-    Ok(VerificationReport {
-        findings,
-        summary,
-        evidence_summary: None,
-    })
+    Ok(VerificationReport::new(findings, summary, None))
 }
 
 fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {

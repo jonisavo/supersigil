@@ -43,6 +43,7 @@ fn context_output_serializes_to_json() {
         },
         criteria: vec![TargetContext {
             id: "c1".into(),
+            target_ref: "test/doc#c1".into(),
             body_text: Some("criterion text".into()),
             referenced_by: vec![DocRef {
                 doc_id: "prop/1".into(),
@@ -61,6 +62,7 @@ fn context_output_serializes_to_json() {
         json["criteria"],
         json!([{
             "id": "c1",
+            "target_ref": "test/doc#c1",
             "body_text": "criterion text",
             "referenced_by": [{ "doc_id": "prop/1", "status": "verified" }],
         }])

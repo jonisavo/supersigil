@@ -84,7 +84,32 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
             || !graph.implements(doc_id).is_empty()
             || !graph.depends_on(doc_id).is_empty();
 
-        if !has_outgoing && !has_incoming {
+        // Check task-level implements (outgoing: this doc's tasks implement
+        // criteria in another document)
+        let has_task_level_refs = graph.task_order(doc_id).is_some_and(|order| {
+            order.iter().any(|task_id| {
+                graph
+                    .task_implements(doc_id, task_id)
+                    .is_some_and(|impls| impls.iter().any(|(target_doc, _)| target_doc != doc_id))
+            })
+        });
+
+        // Check incoming task-level implements (other docs' tasks implement
+        // criteria in this document)
+        let has_incoming_task_refs = graph.documents().any(|(other_id, _)| {
+            other_id != doc_id
+                && graph.task_order(other_id).is_some_and(|order| {
+                    order.iter().any(|task_id| {
+                        graph
+                            .task_implements(other_id, task_id)
+                            .is_some_and(|impls| {
+                                impls.iter().any(|(target_doc, _)| target_doc == doc_id)
+                            })
+                    })
+                })
+        });
+
+        if !has_outgoing && !has_incoming && !has_task_level_refs && !has_incoming_task_refs {
             findings.push(Finding::new(
                 RuleName::IsolatedDocument,
                 Some(doc_id.to_owned()),
