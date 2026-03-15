@@ -63,12 +63,26 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
     plugins::warn_plugin_findings(&plugin_findings, &color);
 
     match &args.id {
-        None => run_project_wide(&args.format, &graph, &artifact_graph, color),
-        Some(id) => run_per_document(id, &args.format, &graph, &artifact_graph, color),
+        None => run_project_wide(None, &args.format, &graph, &artifact_graph, color),
+        Some(id) => {
+            // Exact match → per-document detail view.
+            if graph.document(id).is_some() {
+                return run_per_document(id, &args.format, &graph, &artifact_graph, color);
+            }
+            // Prefix match → aggregated project-style summary for matching docs.
+            let has_prefix_match = graph
+                .documents()
+                .any(|(doc_id, _)| doc_id.starts_with(id.as_str()));
+            if has_prefix_match {
+                return run_project_wide(Some(id), &args.format, &graph, &artifact_graph, color);
+            }
+            Err(supersigil_core::QueryError::NoMatchingDocuments { query: id.clone() }.into())
+        }
     }
 }
 
 fn run_project_wide(
+    prefix: Option<&str>,
     fmt: &OutputFormat,
     graph: &supersigil_core::DocumentGraph,
     artifact_graph: &ArtifactGraph<'_>,
@@ -83,7 +97,10 @@ fn run_project_wide(
     let mut targets_covered = 0;
     let mut targets_example_pending = 0;
 
-    for (id, doc) in graph.documents() {
+    for (id, doc) in graph
+        .documents()
+        .filter(|(id, _)| prefix.is_none_or(|p| id.starts_with(p)))
+    {
         total += 1;
         let t = doc
             .frontmatter
@@ -122,17 +139,25 @@ fn run_project_wide(
 
     match fmt {
         OutputFormat::Json => write_json(&status)?,
-        OutputFormat::Terminal => write_project_terminal(&status, color)?,
+        OutputFormat::Terminal => write_project_terminal(&status, prefix, color)?,
     }
 
     Ok(())
 }
 
-fn write_project_terminal(status: &ProjectStatus, color: ColorConfig) -> Result<(), CliError> {
+fn write_project_terminal(
+    status: &ProjectStatus,
+    prefix: Option<&str>,
+    color: ColorConfig,
+) -> Result<(), CliError> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let c = color;
-    writeln!(out, "{}", c.paint(Token::Header, "## Project Status"))?;
+    let heading = match prefix {
+        Some(p) => format!("## Status: {p}*"),
+        None => "## Project Status".to_owned(),
+    };
+    writeln!(out, "{}", c.paint(Token::Header, &heading))?;
     writeln!(
         out,
         "{} {}",

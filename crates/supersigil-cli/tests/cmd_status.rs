@@ -309,6 +309,106 @@ fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
     assert!(json.get("targets_total").is_some());
 }
 
+/// When the ID argument doesn't match any document exactly but matches
+/// multiple documents by prefix, `status` should aggregate them into a
+/// project-style summary scoped to the matching documents.
+#[verifies("verification-engine/req#req-7-4")]
+#[test]
+fn status_prefix_aggregates_matching_documents() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/feat/req.mdx",
+        "feat/req",
+        Some("requirements"),
+        Some("approved"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    First\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+    common::write_mdx(
+        tmp.path(),
+        "specs/feat/design.mdx",
+        "feat/design",
+        Some("design"),
+        Some("draft"),
+        "<AcceptanceCriteria>\n  <Criterion id=\"dc-1\">\n    Second\n  </Criterion>\n</AcceptanceCriteria>",
+    );
+    // Unrelated document that should NOT appear in the prefix output.
+    common::write_mdx(
+        tmp.path(),
+        "specs/other.mdx",
+        "other/req",
+        Some("requirements"),
+        Some("draft"),
+        "",
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "feat", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    // Only the two feat/* documents should be included.
+    assert_eq!(json["total_documents"], 2);
+    assert_eq!(json["targets_total"], 2);
+}
+
+/// Prefix status in terminal mode should display which prefix was used.
+#[verifies("verification-engine/req#req-7-4")]
+#[test]
+fn status_prefix_terminal_shows_prefix_header() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/feat/req.mdx",
+        "feat/req",
+        Some("requirements"),
+        Some("approved"),
+        "",
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["status", "feat"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feat"));
+}
+
+/// When the ID argument matches nothing — neither exact nor prefix — the
+/// command should fail with a useful error message.
+#[verifies("verification-engine/req#req-7-4")]
+#[test]
+fn status_no_match_fails_with_error() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("draft"),
+        "",
+    );
+
+    cargo_bin_cmd!("supersigil")
+        .args(["status", "nonexistent"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no documents match"));
+}
+
 /// Criteria covered only by `<Example verifies="...">` should count toward
 /// coverage in `status`, with a hint that examples have not been executed.
 #[verifies("executable-examples/req#req-5-1")]

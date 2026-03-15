@@ -275,4 +275,13 @@ are inspectable without reimplementing the pipeline.
     output truncated to 64 KiB.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/hooks.rs, crates/supersigil-verify/src/report.rs" />
   </Criterion>
+  <Criterion id="req-7-4">
+    THE `status` command SHALL interpret its ID argument using the same
+    disambiguation as `plan`: an exact document ID SHALL produce per-document
+    detail, a non-exact string matching at least one document ID by prefix
+    SHALL produce an aggregated project-style summary scoped to matching
+    documents, and a string matching nothing SHALL fail with a
+    `NoMatchingDocuments` error.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/status.rs" />
+  </Criterion>
 </AcceptanceCriteria>
