@@ -1,41 +1,33 @@
-use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::emit::emit_front_matter;
 use crate::parse::design::{DesignBlock, ParsedDesign};
-
-/// Key for mapping a `ValidatesLine` to resolved refs by structural position.
-pub type ValidatesKey = (usize, usize);
+use crate::refs::{self, RequirementIndex};
 
 /// Emit a design MDX document from parsed Kiro design.
 ///
-/// `req_doc_id` is `Some(...)` when the same feature has a `requirements.md`,
-/// enabling the `<Implements>` component. When `None`, an ambiguity marker is
-/// emitted instead.
+/// When `req_index` is provided, Validates lines are resolved inline against
+/// the requirement index. When absent, an ambiguity marker is emitted instead
+/// of the `<Implements>` component.
 ///
-/// `resolved_validates` maps `(section_index, block_index)` pairs to resolved
-/// criterion ref strings (produced by `resolve_refs`). `ambiguity_markers` are
-/// pre-computed markers from the resolution phase.
-///
-/// Returns `(mdx_content, ambiguity_count)`.
+/// Returns `(mdx_content, ambiguity_count, validates_resolved)`.
 #[must_use]
-#[allow(clippy::implicit_hasher, reason = "public API always uses std HashMap")]
 pub fn emit_design_mdx(
     parsed: &ParsedDesign,
     doc_id: &str,
-    req_doc_id: Option<&str>,
-    resolved_validates: &HashMap<ValidatesKey, Vec<String>>,
+    req_index: Option<&RequirementIndex<'_>>,
+    req_doc_id: &str,
     feature_title: &str,
-    ambiguity_markers: &[String],
-) -> (String, usize) {
+) -> (String, usize, usize) {
     let mut out = String::new();
-    let mut ambiguity_count = ambiguity_markers.len();
+    let mut ambiguity_count = 0;
+    let mut validates_resolved = 0;
 
     emit_front_matter(&mut out, doc_id, "design", feature_title);
 
     // <Implements> or ambiguity marker
-    if let Some(req_id) = req_doc_id {
-        let _ = writeln!(out, "<Implements refs=\"{req_id}\" />");
+    if req_index.is_some() {
+        let _ = writeln!(out, "<Implements refs=\"{req_doc_id}\" />");
         out.push('\n');
     } else {
         let marker = "<!-- TODO(supersigil-import): No requirements document found for this \
@@ -46,7 +38,7 @@ pub fn emit_design_mdx(
     }
 
     // Emit sections
-    for (section_idx, section) in parsed.sections.iter().enumerate() {
+    for section in &parsed.sections {
         // Section heading (skip for synthetic preamble sections at level 0)
         if section.level > 0 {
             let hashes = "#".repeat(section.level as usize);
@@ -54,7 +46,7 @@ pub fn emit_design_mdx(
             out.push('\n');
         }
 
-        for (block_idx, block) in section.content.iter().enumerate() {
+        for block in &section.content {
             match block {
                 DesignBlock::Prose(text) => {
                     // Count any ambiguity markers embedded in prose (e.g., from
@@ -70,33 +62,40 @@ pub fn emit_design_mdx(
                     let _ = writeln!(out, "```");
                     out.push('\n');
                 }
-                DesignBlock::MermaidBlock(content) => {
-                    let _ = writeln!(out, "```mermaid");
-                    let _ = writeln!(out, "{content}");
-                    let _ = writeln!(out, "```");
-                    out.push('\n');
-                }
                 DesignBlock::ValidatesLine { raw, refs, markers } => {
-                    let resolved = resolved_validates.get(&(section_idx, block_idx));
+                    // Resolve refs inline against requirement index
+                    let resolved = if let Some(index) = req_index
+                        && !refs.is_empty()
+                    {
+                        let (resolved, res_markers) = refs::resolve_refs(refs, index, req_doc_id);
+                        validates_resolved += resolved.len();
+                        for marker in res_markers {
+                            let _ = writeln!(out, "{marker}");
+                            ambiguity_count += 1;
+                        }
+                        resolved
+                    } else {
+                        Vec::new()
+                    };
 
-                    if let Some(resolved_refs) = resolved.filter(|r| !r.is_empty()) {
-                        let refs_str = resolved_refs.join(", ");
+                    if !resolved.is_empty() {
+                        let refs_str = resolved.join(", ");
                         let _ = writeln!(out, "<References refs=\"{refs_str}\" />");
                         out.push('\n');
                     } else if refs.is_empty() && markers.is_empty() {
-                        // No refs at all — preserve raw line as prose with marker
+                        // No refs at all — preserve raw line as prose
                         out.push_str(raw);
                         out.push_str("\n\n");
                     }
 
-                    // Emit any parse-time ambiguity markers from this validates line
+                    // Emit parse-time ambiguity markers from this validates line
                     for marker in markers {
                         let _ = writeln!(out, "{marker}");
                         ambiguity_count += 1;
                     }
 
-                    // Emit resolution-phase ambiguity markers if refs couldn't resolve
-                    if resolved.is_none() && !refs.is_empty() {
+                    // Emit resolution-phase marker if refs couldn't resolve
+                    if resolved.is_empty() && !refs.is_empty() {
                         let marker = format!(
                             "<!-- TODO(supersigil-import): Could not resolve Validates \
                              references in '{raw}' -->"
@@ -109,10 +108,5 @@ pub fn emit_design_mdx(
         }
     }
 
-    // Append any pre-computed ambiguity markers from the resolution phase
-    for marker in ambiguity_markers {
-        let _ = writeln!(out, "{marker}");
-    }
-
-    (out, ambiguity_count)
+    (out, ambiguity_count, validates_resolved)
 }

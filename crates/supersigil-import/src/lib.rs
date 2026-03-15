@@ -5,7 +5,6 @@ pub mod parse;
 pub mod refs;
 pub mod write;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -208,10 +207,6 @@ struct FeatureContext<'a> {
     output_dir: &'a std::path::Path,
 }
 
-fn output_filename(feature: &str, type_hint: &str) -> String {
-    format!("{feature}.{type_hint}.mdx")
-}
-
 /// Accumulator for building an `ImportPlan` across multiple features.
 struct PlanAccumulator {
     documents: Vec<PlannedDocument>,
@@ -220,12 +215,32 @@ struct PlanAccumulator {
     diagnostics: Vec<Diagnostic>,
 }
 
+impl PlanAccumulator {
+    fn push_document(
+        &mut self,
+        ctx: &FeatureContext<'_>,
+        type_hint: &str,
+        doc_id: &str,
+        content: String,
+        ambiguity: usize,
+    ) {
+        self.total_ambiguity += ambiguity;
+        self.documents.push(PlannedDocument {
+            output_path: ctx
+                .output_dir
+                .join(ctx.feature)
+                .join(format!("{}.{type_hint}.mdx", ctx.feature)),
+            document_id: doc_id.to_string(),
+            content,
+        });
+    }
+}
+
 fn emit_requirements(
     reqs: &parse::requirements::ParsedRequirements,
     ctx: &FeatureContext<'_>,
     acc: &mut PlanAccumulator,
 ) {
-    // Requirement 2.5: emit diagnostic warning when no parseable sections found
     if reqs.requirements.is_empty() {
         acc.diagnostics.push(Diagnostic::Warning {
             message: format!(
@@ -237,21 +252,12 @@ fn emit_requirements(
 
     let (content, amb) =
         emit::requirements::emit_requirements_mdx(reqs, ctx.req_doc_id, ctx.feature_title);
-    acc.total_ambiguity += amb;
     acc.summary.criteria_converted += reqs
         .requirements
         .iter()
         .map(|r| r.criteria.len())
         .sum::<usize>();
-
-    acc.documents.push(PlannedDocument {
-        output_path: ctx
-            .output_dir
-            .join(ctx.feature)
-            .join(output_filename(ctx.feature, "req")),
-        document_id: ctx.req_doc_id.to_string(),
-        content,
-    });
+    acc.push_document(ctx, "req", ctx.req_doc_id, content, amb);
 }
 
 fn emit_design(
@@ -261,49 +267,15 @@ fn emit_design(
     ctx: &FeatureContext<'_>,
     acc: &mut PlanAccumulator,
 ) {
-    let mut resolved_validates: HashMap<emit::design::ValidatesKey, Vec<String>> = HashMap::new();
-    let mut design_markers: Vec<String> = Vec::new();
-
-    if let Some(index) = req_index {
-        for (section_idx, section) in design.sections.iter().enumerate() {
-            for (block_idx, block) in section.content.iter().enumerate() {
-                if let parse::design::DesignBlock::ValidatesLine { refs, .. } = block
-                    && !refs.is_empty()
-                {
-                    let (resolved, markers) = refs::resolve_refs(refs, index, ctx.req_doc_id);
-                    if !resolved.is_empty() {
-                        acc.summary.validates_resolved += resolved.len();
-                        resolved_validates
-                            .entry((section_idx, block_idx))
-                            .or_default()
-                            .extend(resolved);
-                    }
-                    design_markers.extend(markers);
-                }
-            }
-        }
-    }
-
-    let req_id_ref = req_index.is_some().then_some(ctx.req_doc_id);
-
-    let (content, amb) = emit::design::emit_design_mdx(
+    let (content, amb, validates_resolved) = emit::design::emit_design_mdx(
         design,
         design_doc_id,
-        req_id_ref,
-        &resolved_validates,
+        req_index,
+        ctx.req_doc_id,
         ctx.feature_title,
-        &design_markers,
     );
-    acc.total_ambiguity += amb;
-
-    acc.documents.push(PlannedDocument {
-        output_path: ctx
-            .output_dir
-            .join(ctx.feature)
-            .join(output_filename(ctx.feature, "design")),
-        document_id: design_doc_id.to_string(),
-        content,
-    });
+    acc.summary.validates_resolved += validates_resolved;
+    acc.push_document(ctx, "design", design_doc_id, content, amb);
 }
 
 fn emit_tasks(
@@ -313,83 +285,18 @@ fn emit_tasks(
     ctx: &FeatureContext<'_>,
     acc: &mut PlanAccumulator,
 ) {
-    let mut resolved_implements: HashMap<String, Vec<String>> = HashMap::new();
-    let mut task_markers: Vec<String> = Vec::new();
-
-    if let Some(index) = req_index {
-        // Use a flat positional index as key to avoid collisions when
-        // multiple tasks/sub-tasks share the same number.
-        let mut pos: usize = 0;
-        for task in &tasks.tasks {
-            resolve_task_refs(
-                &task.requirement_refs,
-                &pos.to_string(),
-                index,
-                ctx.req_doc_id,
-                &mut resolved_implements,
-                &mut task_markers,
-                &mut acc.summary,
-            );
-            pos += 1;
-
-            for sub in &task.sub_tasks {
-                resolve_task_refs(
-                    &sub.requirement_refs,
-                    &pos.to_string(),
-                    index,
-                    ctx.req_doc_id,
-                    &mut resolved_implements,
-                    &mut task_markers,
-                    &mut acc.summary,
-                );
-                pos += 1;
-            }
-        }
-    }
-
     for task in &tasks.tasks {
         acc.summary.tasks_converted += 1 + task.sub_tasks.len();
     }
-
-    let (content, amb) = emit::tasks::emit_tasks_mdx(
+    let (content, amb, validates_resolved) = emit::tasks::emit_tasks_mdx(
         tasks,
         tasks_doc_id,
-        &resolved_implements,
+        req_index,
+        ctx.req_doc_id,
         ctx.feature_title,
-        &task_markers,
     );
-    acc.total_ambiguity += amb;
-
-    acc.documents.push(PlannedDocument {
-        output_path: ctx
-            .output_dir
-            .join(ctx.feature)
-            .join(output_filename(ctx.feature, "tasks")),
-        document_id: tasks_doc_id.to_string(),
-        content,
-    });
-}
-
-/// Resolve requirement refs for a single task/sub-task and accumulate results.
-fn resolve_task_refs(
-    task_refs: &parse::tasks::TaskRefs,
-    task_id: &str,
-    index: &refs::RequirementIndex<'_>,
-    req_doc_id: &str,
-    resolved_implements: &mut HashMap<String, Vec<String>>,
-    markers: &mut Vec<String>,
-    summary: &mut ImportSummary,
-) {
-    if let parse::tasks::TaskRefs::Refs(raw_refs) = task_refs
-        && !raw_refs.is_empty()
-    {
-        let (resolved, ref_markers) = refs::resolve_refs(raw_refs, index, req_doc_id);
-        if !resolved.is_empty() {
-            summary.validates_resolved += resolved.len();
-            resolved_implements.insert(task_id.to_string(), resolved);
-        }
-        markers.extend(ref_markers);
-    }
+    acc.summary.validates_resolved += validates_resolved;
+    acc.push_document(ctx, "tasks", tasks_doc_id, content, amb);
 }
 
 #[cfg(test)]

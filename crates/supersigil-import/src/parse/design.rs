@@ -26,7 +26,6 @@ pub enum DesignBlock {
         language: Option<String>,
         content: String,
     },
-    MermaidBlock(String),
     ValidatesLine {
         raw: String,
         refs: Vec<RawRef>,
@@ -159,13 +158,9 @@ pub fn parse_design(content: &str) -> ParsedDesign {
 
 /// Build a `DesignBlock` for a completed code block.
 fn build_code_block(lang: Option<&str>, lines: &[String]) -> DesignBlock {
-    let content = lines.join("\n");
-    match lang {
-        Some("mermaid") => DesignBlock::MermaidBlock(content),
-        _ => DesignBlock::CodeBlock {
-            language: lang.map(String::from),
-            content,
-        },
+    DesignBlock::CodeBlock {
+        language: lang.map(String::from),
+        content: lines.join("\n"),
     }
 }
 
@@ -319,11 +314,14 @@ graph TD
         assert_eq!(result.sections.len(), 1);
         assert_eq!(result.sections[0].content.len(), 1);
         match &result.sections[0].content[0] {
-            DesignBlock::MermaidBlock(content) => {
+            DesignBlock::CodeBlock {
+                language: Some(lang),
+                content,
+            } if lang == "mermaid" => {
                 assert!(content.contains("graph TD"));
                 assert!(content.contains("A --> B"));
             }
-            other => panic!("expected MermaidBlock, got {other:?}"),
+            other => panic!("expected CodeBlock(mermaid), got {other:?}"),
         }
     }
 
@@ -409,12 +407,15 @@ graph LR
         let result = parse_design(input);
         assert_eq!(result.sections.len(), 1);
         let blocks = &result.sections[0].content;
-        // Should have: Prose, CodeBlock, Prose, MermaidBlock, ValidatesLine
+        // Should have: Prose, CodeBlock, Prose, CodeBlock(mermaid), ValidatesLine
         assert_eq!(blocks.len(), 5);
         assert!(matches!(blocks[0], DesignBlock::Prose(_)));
         assert!(matches!(blocks[1], DesignBlock::CodeBlock { .. }));
         assert!(matches!(blocks[2], DesignBlock::Prose(_)));
-        assert!(matches!(blocks[3], DesignBlock::MermaidBlock(_)));
+        assert!(matches!(
+            &blocks[3],
+            DesignBlock::CodeBlock { language: Some(l), .. } if l == "mermaid"
+        ));
         assert!(matches!(blocks[4], DesignBlock::ValidatesLine { .. }));
     }
 

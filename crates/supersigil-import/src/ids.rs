@@ -6,15 +6,11 @@ use std::collections::HashMap;
 /// Without prefix: `{type_hint}/{feature_name}`.
 #[must_use]
 pub fn make_document_id(id_prefix: Option<&str>, type_hint: &str, feature_name: &str) -> String {
-    match id_prefix {
-        Some(prefix) => {
-            let stripped = prefix.trim_end_matches('/');
-            if stripped.is_empty() {
-                format!("{type_hint}/{feature_name}")
-            } else {
-                format!("{stripped}/{type_hint}/{feature_name}")
-            }
-        }
+    let prefix = id_prefix
+        .map(|p| p.trim_end_matches('/'))
+        .filter(|s| !s.is_empty());
+    match prefix {
+        Some(p) => format!("{p}/{type_hint}/{feature_name}"),
         None => format!("{type_hint}/{feature_name}"),
     }
 }

@@ -120,9 +120,9 @@ mod real_world_design {
         let content = read_spec_file("document-graph", "design.md");
         let parsed = parse_design(&content);
         let has_mermaid = parsed.sections.iter().any(|s| {
-            s.content
-                .iter()
-                .any(|b| matches!(b, DesignBlock::MermaidBlock(_)))
+            s.content.iter().any(
+                |b| matches!(b, DesignBlock::CodeBlock { language: Some(l), .. } if l == "mermaid"),
+            )
         });
         assert!(
             has_mermaid,

@@ -4,11 +4,12 @@ use generators::{
     arb_code_block, arb_mermaid_block, arb_parsed_design, arb_parsed_requirements, arb_parsed_tasks,
 };
 use proptest::prelude::*;
-use std::collections::HashMap;
 use supersigil_import::emit::design::emit_design_mdx;
 use supersigil_import::emit::requirements::emit_requirements_mdx;
 use supersigil_import::emit::tasks::emit_tasks_mdx;
 use supersigil_import::ids::{deduplicate_ids, make_criterion_id, make_task_id};
+use supersigil_import::parse::requirements::ParsedRequirements;
+use supersigil_import::refs::RequirementIndex;
 use supersigil_rust::verifies;
 
 // Feature: kiro-import, Property 12: Prose and code block round-trip fidelity
@@ -243,16 +244,15 @@ proptest! {
         let doc_id = "design/test-feature";
         let req_doc_id = "req/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let resolved = HashMap::new();
-        let markers: Vec<String> = vec![];
+        let empty_reqs = ParsedRequirements { title: None, introduction: String::new(), glossary: None, requirements: vec![] };
+        let req_index = RequirementIndex::new(&empty_reqs);
 
-        let (mdx, _) = emit_design_mdx(
+        let (mdx, _, _) = emit_design_mdx(
             &parsed,
             doc_id,
-            Some(req_doc_id),
-            &resolved,
+            Some(&req_index),
+            req_doc_id,
             title,
-            &markers,
         );
 
         // Must contain <Implements> with the req doc id
@@ -275,16 +275,13 @@ proptest! {
     ) {
         let doc_id = "design/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let resolved = HashMap::new();
-        let markers: Vec<String> = vec![];
 
-        let (mdx, ambiguity_count) = emit_design_mdx(
+        let (mdx, ambiguity_count, _) = emit_design_mdx(
             &parsed,
             doc_id,
             None,
-            &resolved,
+            "",
             title,
-            &markers,
         );
 
         // Must NOT contain <Implements> component (the tag, not just the word in a comment)
@@ -347,10 +344,7 @@ proptest! {
     ) {
         let doc_id = "tasks/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let resolved: HashMap<String, Vec<String>> = HashMap::new();
-        let markers: Vec<String> = vec![];
-
-        let (mdx, _) = emit_tasks_mdx(&parsed, doc_id, &resolved, title, &markers);
+        let (mdx, _, _) = emit_tasks_mdx(&parsed, doc_id, None, "", title);
 
         let deduped = build_deduped_task_ids(&parsed);
 
@@ -436,10 +430,7 @@ proptest! {
     ) {
         let doc_id = "tasks/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let resolved: HashMap<String, Vec<String>> = HashMap::new();
-        let markers: Vec<String> = vec![];
-
-        let (mdx, _) = emit_tasks_mdx(&parsed, doc_id, &resolved, title, &markers);
+        let (mdx, _, _) = emit_tasks_mdx(&parsed, doc_id, None, "", title);
 
         let deduped = build_deduped_task_ids(&parsed);
 

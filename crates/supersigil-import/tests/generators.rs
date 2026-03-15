@@ -278,7 +278,7 @@ fn arb_design_block() -> BoxedStrategy<DesignBlock> {
             let content = lines[1..lines.len()-1].join("\n");
             DesignBlock::CodeBlock { language: lang, content }
         }),
-        1 => Just(DesignBlock::MermaidBlock("graph TD\n    A --> B".to_string())),
+        1 => Just(DesignBlock::CodeBlock { language: Some("mermaid".to_string()), content: "graph TD\n    A --> B".to_string() }),
     ]
     .boxed()
 }

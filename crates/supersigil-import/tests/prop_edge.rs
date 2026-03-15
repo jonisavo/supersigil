@@ -1,6 +1,5 @@
 mod generators;
 
-use std::collections::HashMap;
 use std::fmt::Write;
 
 use proptest::prelude::*;
@@ -161,16 +160,13 @@ proptest! {
         );
 
         // When emitted as MDX, the ambiguity marker should appear in the output
-        let resolved = HashMap::new();
-        let markers: Vec<String> = vec![];
         let title = parsed.title.as_deref().unwrap_or("Edge Test");
-        let (mdx, ambiguity_count) = emit_design_mdx(
+        let (mdx, ambiguity_count, _) = emit_design_mdx(
             &parsed,
             "design/edge-test",
             None,
-            &resolved,
+            "",
             title,
-            &markers,
         );
 
         // The MDX should contain the ambiguity marker about the non-requirement target
@@ -231,15 +227,13 @@ proptest! {
         }
 
         // When emitted as MDX, optional tasks should produce ambiguity markers
-        let resolved: HashMap<String, Vec<String>> = HashMap::new();
-        let markers: Vec<String> = vec![];
         let title = parsed.title.as_deref().unwrap_or("Optional Test");
-        let (mdx, ambiguity_count) = emit_tasks_mdx(
+        let (mdx, ambiguity_count, _) = emit_tasks_mdx(
             &parsed,
             "tasks/optional-test",
-            &resolved,
+            None,
+            "",
             title,
-            &markers,
         );
 
         let optional_count = expected_tasks.iter().filter(|(_, _, opt)| *opt).count();

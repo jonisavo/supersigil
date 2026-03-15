@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::emit::emit_front_matter;
 use crate::ids::{deduplicate_ids, make_task_id};
 use crate::parse::tasks::{ParsedSubTask, ParsedTasks, TaskRefs, TaskStatus};
+use crate::refs::{self, RequirementIndex};
 
 /// Build the attribute string for a `<Task>` opening tag.
 fn task_attrs(
@@ -68,24 +68,82 @@ fn emit_task_body(
     }
 }
 
+/// Resolve requirement refs for a task into an implements attribute value.
+///
+/// Returns `(implements_string, ambiguity_markers, validates_resolved_count)`.
+fn resolve_task_implements(
+    task_refs: &TaskRefs,
+    task_id: &str,
+    req_index: Option<&RequirementIndex<'_>>,
+    req_doc_id: &str,
+) -> (Option<String>, Vec<String>, usize) {
+    let raw_refs = match task_refs {
+        TaskRefs::Refs(r) if !r.is_empty() => r,
+        _ => return (None, Vec::new(), 0),
+    };
+
+    let Some(index) = req_index else {
+        let refs_str = format_raw_refs(raw_refs);
+        let marker = format!(
+            "<!-- TODO(supersigil-import): Could not resolve implements references \
+             '{refs_str}' for task {task_id} -->"
+        );
+        return (None, vec![marker], 0);
+    };
+
+    let (resolved, mut markers) = refs::resolve_refs(raw_refs, index, req_doc_id);
+    let resolved_count = resolved.len();
+
+    if resolved_count < raw_refs.len() {
+        let refs_str = format_raw_refs(raw_refs);
+        let marker = if resolved_count == 0 {
+            format!(
+                "<!-- TODO(supersigil-import): Could not resolve implements references \
+                 '{refs_str}' for task {task_id} -->"
+            )
+        } else {
+            format!(
+                "<!-- TODO(supersigil-import): Only {resolved_count} of {} implements \
+                 references resolved for task {task_id} (from '{refs_str}') -->",
+                raw_refs.len()
+            )
+        };
+        markers.push(marker);
+    }
+
+    let implements = if resolved.is_empty() {
+        None
+    } else {
+        Some(resolved.join(", "))
+    };
+
+    (implements, markers, resolved_count)
+}
+
+fn format_raw_refs(refs: &[crate::parse::RawRef]) -> String {
+    refs.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Emit a tasks MDX document from parsed Kiro tasks.
 ///
-/// `resolved_implements` maps raw task IDs (e.g., `"task-1"`, `"task-1-2"`) to
-/// resolved criterion ref strings. `ambiguity_markers` are pre-computed markers
-/// from the resolution phase.
+/// When `req_index` is provided, task requirement refs are resolved inline
+/// against the index. When absent, unresolvable-ref markers are emitted.
 ///
-/// Returns `(mdx_content, ambiguity_count)`.
+/// Returns `(mdx_content, ambiguity_count, validates_resolved)`.
 #[must_use]
-#[allow(clippy::implicit_hasher, reason = "public API always uses std HashMap")]
 pub fn emit_tasks_mdx(
     parsed: &ParsedTasks,
     doc_id: &str,
-    resolved_implements: &HashMap<String, Vec<String>>,
+    req_index: Option<&RequirementIndex<'_>>,
+    req_doc_id: &str,
     feature_title: &str,
-    ambiguity_markers: &[String],
-) -> (String, usize) {
+) -> (String, usize, usize) {
     let mut out = String::new();
-    let mut ambiguity_count = ambiguity_markers.len();
+    let mut ambiguity_count = 0;
+    let mut validates_resolved = 0;
     let mut task_markers: Vec<String> = Vec::new();
 
     emit_front_matter(&mut out, doc_id, "tasks", feature_title);
@@ -99,7 +157,7 @@ pub fn emit_tasks_mdx(
         }
     }
 
-    // Collect all raw task IDs in order for deduplication (Req 9.3, 9.4)
+    // Collect all raw task IDs in order for deduplication
     let mut raw_ids: Vec<String> = Vec::new();
     for task in &parsed.tasks {
         raw_ids.push(make_task_id(&task.number, None));
@@ -110,18 +168,19 @@ pub fn emit_tasks_mdx(
     let (deduped_ids, dedup_markers) = deduplicate_ids(&raw_ids);
     ambiguity_count += dedup_markers.len();
 
-    // Task components — use positional index for implements lookup to avoid
-    // collisions when multiple tasks share the same number.
+    // Task components
     let mut id_cursor = 0;
     let mut prev_top_id: Option<&str> = None;
 
     for task in &parsed.tasks {
         let task_id = &deduped_ids[id_cursor];
-        let pos_key = id_cursor.to_string();
         id_cursor += 1;
 
-        // Look up implements using positional index (collision-safe key)
-        let implements = resolved_implements.get(&pos_key).map(|r| r.join(", "));
+        let (implements, impl_markers, resolved_count) =
+            resolve_task_implements(&task.requirement_refs, task_id, req_index, req_doc_id);
+        validates_resolved += resolved_count;
+        ambiguity_count += impl_markers.len();
+        task_markers.extend(impl_markers);
 
         let attrs = task_attrs(task_id, &task.status, prev_top_id, implements.as_deref());
         let _ = writeln!(out, "<Task {attrs}>");
@@ -140,24 +199,16 @@ pub fn emit_tasks_mdx(
             &mut task_markers,
         );
 
-        // Emit unresolvable ref markers for this task
-        emit_unresolved_markers(
-            &task.requirement_refs,
-            task_id,
-            &pos_key,
-            resolved_implements,
-            &mut ambiguity_count,
-            &mut task_markers,
-        );
-
         // Sub-tasks
-        emit_sub_tasks_deduped(
+        emit_sub_tasks(
             &mut out,
             &task.sub_tasks,
             &deduped_ids,
             &mut id_cursor,
-            resolved_implements,
+            req_index,
+            req_doc_id,
             &mut ambiguity_count,
+            &mut validates_resolved,
             &mut task_markers,
         );
 
@@ -176,11 +227,6 @@ pub fn emit_tasks_mdx(
         }
     }
 
-    // Append pre-computed ambiguity markers from resolution phase
-    for marker in ambiguity_markers {
-        let _ = writeln!(out, "{marker}");
-    }
-
     for marker in &task_markers {
         let _ = writeln!(out, "{marker}");
     }
@@ -190,26 +236,35 @@ pub fn emit_tasks_mdx(
         let _ = writeln!(out, "{marker}");
     }
 
-    (out, ambiguity_count)
+    (out, ambiguity_count, validates_resolved)
 }
 
-fn emit_sub_tasks_deduped(
+#[allow(
+    clippy::too_many_arguments,
+    reason = "internal helper, params are all distinct concerns"
+)]
+fn emit_sub_tasks(
     out: &mut String,
     sub_tasks: &[ParsedSubTask],
     deduped_ids: &[String],
     id_cursor: &mut usize,
-    resolved_implements: &HashMap<String, Vec<String>>,
+    req_index: Option<&RequirementIndex<'_>>,
+    req_doc_id: &str,
     ambiguity_count: &mut usize,
+    validates_resolved: &mut usize,
     task_markers: &mut Vec<String>,
 ) {
     let mut prev_sub_id: Option<&str> = None;
 
     for sub in sub_tasks {
         let sub_id = &deduped_ids[*id_cursor];
-        let pos_key = id_cursor.to_string();
         *id_cursor += 1;
 
-        let implements = resolved_implements.get(&pos_key).map(|r| r.join(", "));
+        let (implements, impl_markers, resolved_count) =
+            resolve_task_implements(&sub.requirement_refs, sub_id, req_index, req_doc_id);
+        *validates_resolved += resolved_count;
+        *ambiguity_count += impl_markers.len();
+        task_markers.extend(impl_markers);
 
         out.push('\n');
         let attrs = task_attrs(sub_id, &sub.status, prev_sub_id, implements.as_deref());
@@ -229,65 +284,8 @@ fn emit_sub_tasks_deduped(
             task_markers,
         );
 
-        emit_unresolved_markers(
-            &sub.requirement_refs,
-            sub_id,
-            &pos_key,
-            resolved_implements,
-            ambiguity_count,
-            task_markers,
-        );
-
         let _ = writeln!(out, "  </Task>");
 
         prev_sub_id = Some(sub_id);
     }
-}
-
-/// Emit ambiguity markers for task refs that couldn't be resolved.
-///
-/// `task_id` is the (possibly deduped) ID used in the output.
-/// `raw_task_id` is the original ID used as key in `resolved_implements`.
-fn emit_unresolved_markers(
-    refs: &TaskRefs,
-    task_id: &str,
-    raw_task_id: &str,
-    resolved_implements: &HashMap<String, Vec<String>>,
-    ambiguity_count: &mut usize,
-    task_markers: &mut Vec<String>,
-) {
-    let raw_refs = match refs {
-        TaskRefs::Refs(r) if !r.is_empty() => r,
-        _ => return,
-    };
-
-    let resolved_count = resolved_implements.get(raw_task_id).map_or(0, Vec::len);
-
-    if resolved_count >= raw_refs.len() {
-        // All refs resolved — nothing to report
-        return;
-    }
-
-    let refs_str: String = raw_refs
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let marker = if resolved_count == 0 {
-        format!(
-            "<!-- TODO(supersigil-import): Could not resolve implements references \
-             '{refs_str}' for task {task_id} -->"
-        )
-    } else {
-        // Partial resolution — some resolved, some didn't. We can't know exactly
-        // which resolved without re-doing resolution, so note the count discrepancy.
-        format!(
-            "<!-- TODO(supersigil-import): Only {resolved_count} of {} implements \
-             references resolved for task {task_id} (from '{refs_str}') -->",
-            raw_refs.len()
-        )
-    };
-    task_markers.push(marker);
-    *ambiguity_count += 1;
 }

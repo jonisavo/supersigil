@@ -4,7 +4,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parse::RawRef;
-use crate::parse::requirements::ParsedRequirements;
+use crate::parse::requirements::{ParsedRequirement, ParsedRequirements};
 
 static REF_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\w+)\.(\w+)$").expect("valid regex"));
@@ -120,8 +120,6 @@ fn try_parse_range(token: &str, markers: &mut Vec<String>) -> Option<Vec<RawRef>
         }
     }
 }
-
-use crate::parse::requirements::ParsedRequirement;
 
 /// Pre-built index of requirements by number for efficient repeated lookups.
 #[derive(Debug)]
