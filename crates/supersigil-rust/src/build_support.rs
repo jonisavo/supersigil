@@ -63,13 +63,8 @@ pub fn emit_rerun_if_changed<W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::fs;
 
-    use supersigil_core::{
-        DocumentsConfig, EcosystemConfig, ExamplesConfig, HooksConfig, SkillsConfig,
-        TestResultsConfig, VerifyConfig,
-    };
     use tempfile::tempdir;
 
     use super::*;
@@ -78,17 +73,7 @@ mod tests {
     fn minimal_config() -> Config {
         Config {
             paths: Some(vec!["specs/**/*.mdx".to_string()]),
-            tests: None,
-            projects: None,
-            id_pattern: None,
-            documents: DocumentsConfig::default(),
-            components: HashMap::new(),
-            verify: VerifyConfig::default(),
-            ecosystem: EcosystemConfig::default(),
-            hooks: HooksConfig::default(),
-            test_results: TestResultsConfig::default(),
-            examples: ExamplesConfig::default(),
-            skills: SkillsConfig::default(),
+            ..Config::default()
         }
     }
 

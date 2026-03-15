@@ -151,6 +151,15 @@ fn should_validate(config: &supersigil_core::Config) -> bool {
 /// success, or `Err` with an error message.
 type GraphErrors = Vec<(Option<String>, String)>;
 
+fn graph_error(context: &str, errors: &[impl std::fmt::Display]) -> GraphErrors {
+    let detail = errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    vec![(None, format!("supersigil: {context}: {detail}"))]
+}
+
 fn get_or_build_graph(
     project_root: &Path,
 ) -> Result<Option<Rc<supersigil_core::DocumentGraph>>, GraphErrors> {
@@ -158,15 +167,10 @@ fn get_or_build_graph(
     let config = match supersigil_core::load_config(&config_path) {
         Ok(c) => c,
         Err(errs) => {
-            let detail: Vec<String> = errs.iter().map(std::string::ToString::to_string).collect();
-            return Err(vec![(
-                None,
-                format!(
-                    "supersigil: failed to load config at \"{}\": {}",
-                    config_path.display(),
-                    detail.join("; ")
-                ),
-            )]);
+            return Err(graph_error(
+                &format!("failed to load config at \"{}\"", config_path.display()),
+                &errs,
+            ));
         }
     };
 
@@ -198,16 +202,7 @@ fn get_or_build_graph(
         supersigil_core::ComponentDefs::defaults(),
         config.components.clone(),
     )
-    .map_err(|errs| {
-        let msgs: Vec<String> = errs.iter().map(ToString::to_string).collect();
-        vec![(
-            None,
-            format!(
-                "supersigil: invalid component definitions: {}",
-                msgs.join("; ")
-            ),
-        )]
-    })?;
+    .map_err(|errs| graph_error("invalid component definitions", &errs))?;
 
     let mut documents = Vec::new();
     let mut parse_errors: Vec<String> = Vec::new();
@@ -216,34 +211,22 @@ fn get_or_build_graph(
             Ok(supersigil_core::ParseResult::Document(doc)) => documents.push(doc),
             Ok(supersigil_core::ParseResult::NotSupersigil(_)) => {}
             Err(errs) => {
-                let detail: Vec<String> =
-                    errs.iter().map(std::string::ToString::to_string).collect();
-                parse_errors.push(format!("{}: {}", file.display(), detail.join("; ")));
+                let detail = errs
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                parse_errors.push(format!("{}: {detail}", file.display()));
             }
         }
     }
     if !parse_errors.is_empty() {
-        return Err(vec![(
-            None,
-            format!(
-                "supersigil: failed to parse spec files: {}",
-                parse_errors.join("; ")
-            ),
-        )]);
+        return Err(graph_error("failed to parse spec files", &parse_errors));
     }
 
     let graph = match supersigil_core::build_graph(documents, &config) {
         Ok(g) => g,
-        Err(errs) => {
-            let detail: Vec<String> = errs.iter().map(std::string::ToString::to_string).collect();
-            return Err(vec![(
-                None,
-                format!(
-                    "supersigil: failed to build document graph: {}",
-                    detail.join("; ")
-                ),
-            )]);
-        }
+        Err(errs) => return Err(graph_error("failed to build document graph", &errs)),
     };
 
     // Store in cache.
@@ -356,39 +339,26 @@ pub fn verifies(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut ref_strings: Vec<String> = Vec::new();
     let mut ref_spans: Vec<proc_macro2::Span> = Vec::new();
     for expr in &args.refs {
-        match expr {
-            Expr::Lit(expr_lit) => match &expr_lit.lit {
-                Lit::Str(s) => {
-                    let ref_string = s.value();
-                    if let Err(err) = validate_ref_shape(&ref_string, s.span()) {
-                        return err.to_compile_error().into();
-                    }
+        let Expr::Lit(syn::ExprLit {
+            lit: Lit::Str(s), ..
+        }) = expr
+        else {
+            let err = syn::Error::new_spanned(
+                expr,
+                format!(
+                    "expected a string literal criterion reference, found `{}`",
+                    quote!(#expr)
+                ),
+            );
+            return err.to_compile_error().into();
+        };
 
-                    ref_strings.push(ref_string);
-                    ref_spans.push(s.span());
-                }
-                other => {
-                    let err = syn::Error::new_spanned(
-                        other,
-                        format!(
-                            "expected a string literal criterion reference, found `{}`",
-                            quote!(#other)
-                        ),
-                    );
-                    return err.to_compile_error().into();
-                }
-            },
-            other => {
-                let err = syn::Error::new_spanned(
-                    other,
-                    format!(
-                        "expected a string literal criterion reference, found `{}`",
-                        quote!(#other)
-                    ),
-                );
-                return err.to_compile_error().into();
-            }
+        let ref_string = s.value();
+        if let Err(err) = validate_ref_shape(&ref_string, s.span()) {
+            return err.to_compile_error().into();
         }
+        ref_strings.push(ref_string);
+        ref_spans.push(s.span());
     }
 
     // The annotated item must be a function.

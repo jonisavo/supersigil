@@ -494,43 +494,42 @@ fn extract_verifies_targets(
                 && path.segments[1].ident == "verifies");
         if is_verifies {
             let span = attr.span();
+
+            let syn::Meta::List(meta_list) = &attr.meta else {
+                return Err(VerifiesParseError {
+                    message: "`#[verifies(...)]` requires at least one string literal ref"
+                        .to_string(),
+                    span,
+                });
+            };
+
+            let lit_strs: syn::punctuated::Punctuated<syn::LitStr, syn::token::Comma> = meta_list
+                .parse_args_with(syn::punctuated::Punctuated::parse_terminated)
+                .map_err(|_parse_err| VerifiesParseError {
+                    message: "`#[verifies(...)]` expects string literal refs".to_string(),
+                    span,
+                })?;
+
+            if lit_strs.is_empty() {
+                return Err(VerifiesParseError {
+                    message: "`#[verifies(...)]` requires at least one string literal ref"
+                        .to_string(),
+                    span,
+                });
+            }
+
             let mut targets = BTreeSet::new();
-            let mut saw_string_literal = false;
-
-            // Parse the attribute arguments: verifies("ref1", "ref2", ...)
-            if let syn::Meta::List(meta_list) = &attr.meta {
-                let tokens = &meta_list.tokens;
-                for token in tokens.clone() {
-                    if let TokenTree::Literal(lit) = token {
-                        let raw = lit.to_string();
-                        if !raw.starts_with('"') || !raw.ends_with('"') {
-                            return Err(VerifiesParseError {
-                                message: "`#[verifies(...)]` expects string literal refs"
-                                    .to_string(),
-                                span,
-                            });
-                        }
-
-                        let value = raw.trim_matches('"');
-                        saw_string_literal = true;
-                        let Some(verifiable_ref) = VerifiableRef::parse(value) else {
-                            return Err(invalid_verifies_ref(span, value));
-                        };
-                        targets.insert(verifiable_ref);
-                    }
-                }
+            for lit_str in &lit_strs {
+                let value = lit_str.value();
+                let Some(verifiable_ref) = VerifiableRef::parse(&value) else {
+                    return Err(invalid_verifies_ref(span, &value));
+                };
+                targets.insert(verifiable_ref);
             }
 
-            if saw_string_literal {
-                let targets = VerificationTargets::new(targets)
-                    .expect("at least one valid criterion ref should yield a non-empty target set");
-                return Ok(Some((targets, span)));
-            }
-
-            return Err(VerifiesParseError {
-                message: "`#[verifies(...)]` requires at least one string literal ref".to_string(),
-                span,
-            });
+            let targets = VerificationTargets::new(targets)
+                .expect("at least one valid criterion ref should yield a non-empty target set");
+            return Ok(Some((targets, span)));
         }
     }
     Ok(None)
