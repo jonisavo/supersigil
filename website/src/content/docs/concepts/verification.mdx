@@ -62,6 +62,8 @@ These rules have built-in default severities that can be overridden in `supersig
 | `invalid_id_pattern` | warning | Document ID does not match the configured `id_pattern` regex |
 | `plugin_discovery_failure` | warning | Ecosystem plugin discovery failed |
 | `plugin_discovery_warning` | warning | Ecosystem plugin discovery produced a warning |
+| `sequential_id_order` | warning | Sequentially-numbered component IDs appear out of numeric order in the source |
+| `sequential_id_gap` | warning | A numbered component ID sequence has missing entries (e.g. `task-1`, `task-3` with no `task-2`) |
 | `isolated_document` | off | Document has no edges to or from any other document |
 
 ## Severity Levels

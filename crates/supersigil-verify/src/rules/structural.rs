@@ -336,6 +336,337 @@ fn walk_for_env_format(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Sequential ID parsing
+// ---------------------------------------------------------------------------
+
+/// Numeric key extracted from a sequential ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum NumericKey {
+    One(u32),
+    Two(u32, u32),
+}
+
+/// A parsed sequential ID: prefix + numeric key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SequentialId<'a> {
+    pub prefix: &'a str,
+    pub key: NumericKey,
+}
+
+/// Parse a component ID into a `SequentialId` if it matches the pattern
+/// `prefix-N` or `prefix-N-M`, where prefix is one or more non-numeric
+/// dash-separated segments and N, M are unsigned integers.
+///
+/// Returns `None` for non-sequential IDs.
+pub(crate) fn parse_sequential_id(id: &str) -> Option<SequentialId<'_>> {
+    let segments: Vec<&str> = id.split('-').collect();
+
+    // Find the first numeric segment.
+    let first_numeric = segments
+        .iter()
+        .position(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())?;
+
+    // Must have at least one non-numeric prefix segment.
+    if first_numeric == 0 {
+        return None;
+    }
+
+    // Collect consecutive numeric segments after the prefix.
+    let numeric_segments: Vec<&str> = segments[first_numeric..]
+        .iter()
+        .take_while(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
+        .copied()
+        .collect();
+
+    // Only support 1 or 2 numeric segments.
+    if numeric_segments.len() > 2 {
+        return None;
+    }
+
+    // All segments after the prefix must be numeric (no trailing suffix).
+    if first_numeric + numeric_segments.len() != segments.len() {
+        return None;
+    }
+
+    let prefix_end = segments[..first_numeric]
+        .iter()
+        .map(|s| s.len())
+        .sum::<usize>()
+        + first_numeric
+        - 1; // account for dashes between prefix segments
+    let prefix = &id[..prefix_end];
+
+    let n: u32 = numeric_segments[0].parse().ok()?;
+    let key = if numeric_segments.len() == 2 {
+        let m: u32 = numeric_segments[1].parse().ok()?;
+        NumericKey::Two(n, m)
+    } else {
+        NumericKey::One(n)
+    };
+
+    Some(SequentialId { prefix, key })
+}
+
+// ---------------------------------------------------------------------------
+// check_sequential_id_order
+// ---------------------------------------------------------------------------
+
+/// Check that sequentially-numbered components appear in ascending numeric
+/// order by declaration position within each document.
+pub fn check_sequential_id_order(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        check_sequential_order_at_level(doc_id, &doc.components, &mut findings);
+    }
+    findings
+}
+
+fn check_sequential_order_at_level(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    findings: &mut Vec<Finding>,
+) {
+    // Group sequential IDs by (prefix, arity), preserving declaration order.
+    // One-level and two-level IDs in the same prefix are ordered independently.
+    let mut last_key: std::collections::HashMap<(&str, u8), (NumericKey, &str)> =
+        std::collections::HashMap::new();
+
+    for comp in components {
+        if is_referenceable(&comp.name)
+            && let Some(id) = comp.attributes.get("id")
+            && let Some(parsed) = parse_sequential_id(id)
+        {
+            let arity = match parsed.key {
+                NumericKey::One(_) => 1,
+                NumericKey::Two(_, _) => 2,
+            };
+            let group = (parsed.prefix, arity);
+            if let Some((prev_key, prev_id)) = last_key.get(&group)
+                && parsed.key <= *prev_key
+            {
+                findings.push(Finding::new(
+                    RuleName::SequentialIdOrder,
+                    Some(doc_id.to_owned()),
+                    format!("`{id}` is declared after `{prev_id}` in document `{doc_id}`"),
+                    Some(comp.position),
+                ));
+            }
+            last_key.insert(group, (parsed.key, id));
+        }
+        // Always recurse into children (AcceptanceCriteria wraps Criterion).
+        check_sequential_order_at_level(doc_id, &comp.children, findings);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// check_sequential_id_gap
+// ---------------------------------------------------------------------------
+
+/// Check that sequentially-numbered components form contiguous sequences
+/// within each prefix group.
+pub fn check_sequential_id_gap(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        check_sequential_gap_at_level(doc_id, &doc.components, &mut findings);
+    }
+    findings
+}
+
+fn check_sequential_gap_at_level(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    findings: &mut Vec<Finding>,
+) {
+    // Collect sequential IDs grouped by prefix.
+    let mut by_prefix: std::collections::HashMap<&str, Vec<NumericKey>> =
+        std::collections::HashMap::new();
+
+    collect_sequential_keys(components, &mut by_prefix);
+
+    for (prefix, keys) in &by_prefix {
+        check_contiguity(doc_id, prefix, keys, findings);
+    }
+}
+
+fn collect_sequential_keys<'a>(
+    components: &'a [supersigil_core::ExtractedComponent],
+    by_prefix: &mut std::collections::HashMap<&'a str, Vec<NumericKey>>,
+) {
+    for comp in components {
+        if is_referenceable(&comp.name)
+            && let Some(id) = comp.attributes.get("id")
+            && let Some(parsed) = parse_sequential_id(id)
+        {
+            by_prefix.entry(parsed.prefix).or_default().push(parsed.key);
+        }
+        // Always recurse into children.
+        collect_sequential_keys(&comp.children, by_prefix);
+    }
+}
+
+fn check_contiguity(doc_id: &str, prefix: &str, keys: &[NumericKey], findings: &mut Vec<Finding>) {
+    if keys.is_empty() {
+        return;
+    }
+
+    // Determine if we're dealing with single-level or two-level keys.
+    let has_two_level = keys.iter().any(|k| matches!(k, NumericKey::Two(_, _)));
+    let has_one_level = keys.iter().any(|k| matches!(k, NumericKey::One(_)));
+
+    if has_two_level && !has_one_level {
+        // Two-level: check first-level N contiguity, then per-N M contiguity.
+        let mut by_n: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+        for key in keys {
+            if let NumericKey::Two(n, m) = key {
+                by_n.entry(*n).or_default().push(*m);
+            }
+        }
+
+        // Check N contiguity.
+        let n_values: Vec<u32> = by_n.keys().copied().collect();
+        check_single_level_contiguity(doc_id, prefix, &n_values, true, findings);
+
+        // Check M contiguity within each N.
+        for (n, m_values) in &by_n {
+            check_two_level_m_contiguity(doc_id, prefix, *n, m_values, findings);
+        }
+    } else if !has_two_level && has_one_level {
+        // Single-level: check N contiguity.
+        let n_values: Vec<u32> = keys
+            .iter()
+            .filter_map(|k| match k {
+                NumericKey::One(n) => Some(*n),
+                NumericKey::Two(_, _) => None,
+            })
+            .collect();
+        check_single_level_contiguity(doc_id, prefix, &n_values, false, findings);
+    }
+    // Mixed one-level and two-level in same prefix group: skip (unusual).
+}
+
+fn check_single_level_contiguity(
+    doc_id: &str,
+    prefix: &str,
+    values: &[u32],
+    is_outer_level: bool,
+    findings: &mut Vec<Finding>,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let mut sorted: Vec<u32> = values.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+
+    let max = *sorted.last().unwrap();
+    for expected in 1..=max {
+        if sorted.binary_search(&expected).is_err() {
+            let missing_id = if is_outer_level {
+                // For outer-level gaps, we just say the N-group is missing.
+                format!("{prefix}-{expected}-*")
+            } else {
+                format!("{prefix}-{expected}")
+            };
+
+            // Determine context.
+            let msg = if expected == 1 {
+                // Leading gap: reference the first present ID.
+                let first_present = if is_outer_level {
+                    format!("{prefix}-{}-*", sorted[0])
+                } else {
+                    format!("{prefix}-{}", sorted[0])
+                };
+                format!(
+                    "gap in sequence: `{missing_id}` is missing (sequence starts at `{first_present}` in document `{doc_id}`)"
+                )
+            } else {
+                // Mid/trailing gap: reference predecessor and successor if available.
+                let pred = expected - 1;
+                let pred_id = if is_outer_level {
+                    format!("{prefix}-{pred}-*")
+                } else {
+                    format!("{prefix}-{pred}")
+                };
+                if let Some(&succ) = sorted.iter().find(|&&v| v > expected) {
+                    let succ_id = if is_outer_level {
+                        format!("{prefix}-{succ}-*")
+                    } else {
+                        format!("{prefix}-{succ}")
+                    };
+                    format!(
+                        "gap in sequence: `{missing_id}` is missing (between `{pred_id}` and `{succ_id}` in document `{doc_id}`)"
+                    )
+                } else {
+                    format!(
+                        "gap in sequence: `{missing_id}` is missing (after `{pred_id}` in document `{doc_id}`)"
+                    )
+                }
+            };
+            findings.push(Finding::new(
+                RuleName::SequentialIdGap,
+                Some(doc_id.to_owned()),
+                msg,
+                None,
+            ));
+        }
+    }
+}
+
+fn check_two_level_m_contiguity(
+    doc_id: &str,
+    prefix: &str,
+    n: u32,
+    m_values: &[u32],
+    findings: &mut Vec<Finding>,
+) {
+    if m_values.is_empty() {
+        return;
+    }
+    let mut sorted: Vec<u32> = m_values.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+
+    let max = *sorted.last().unwrap();
+    for expected in 1..=max {
+        if sorted.binary_search(&expected).is_err() {
+            let missing_id = format!("{prefix}-{n}-{expected}");
+
+            let msg = if expected == 1 {
+                let first_present = format!("{prefix}-{n}-{}", sorted[0]);
+                format!(
+                    "gap in sequence: `{missing_id}` is missing (sequence starts at `{first_present}` in document `{doc_id}`)"
+                )
+            } else {
+                let pred = expected - 1;
+                let pred_id = format!("{prefix}-{n}-{pred}");
+                if let Some(&succ) = sorted.iter().find(|&&v| v > expected) {
+                    let succ_id = format!("{prefix}-{n}-{succ}");
+                    format!(
+                        "gap in sequence: `{missing_id}` is missing (between `{pred_id}` and `{succ_id}` in document `{doc_id}`)"
+                    )
+                } else {
+                    format!(
+                        "gap in sequence: `{missing_id}` is missing (after `{pred_id}` in document `{doc_id}`)"
+                    )
+                }
+            };
+            findings.push(Finding::new(
+                RuleName::SequentialIdGap,
+                Some(doc_id.to_owned()),
+                msg,
+                None,
+            ));
+        }
+    }
+}
+
+fn is_referenceable(name: &str) -> bool {
+    name == "Criterion" || name == "Task"
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -933,5 +1264,365 @@ mod tests {
         let doc_refs: Vec<&_> = docs.iter().collect();
         let findings = check_env_format(&doc_refs);
         assert_eq!(findings.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_sequential_id
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_single_level_id() {
+        let parsed = parse_sequential_id("task-3").unwrap();
+        assert_eq!(parsed.prefix, "task");
+        assert_eq!(parsed.key, NumericKey::One(3));
+    }
+
+    #[test]
+    fn parse_two_level_id() {
+        let parsed = parse_sequential_id("req-1-2").unwrap();
+        assert_eq!(parsed.prefix, "req");
+        assert_eq!(parsed.key, NumericKey::Two(1, 2));
+    }
+
+    #[test]
+    fn parse_multi_segment_prefix() {
+        let parsed = parse_sequential_id("my-prefix-1-2").unwrap();
+        assert_eq!(parsed.prefix, "my-prefix");
+        assert_eq!(parsed.key, NumericKey::Two(1, 2));
+    }
+
+    #[test]
+    fn non_sequential_semantic_id() {
+        assert!(parse_sequential_id("login-success").is_none());
+    }
+
+    #[test]
+    fn non_sequential_suffix_id() {
+        assert!(parse_sequential_id("req-1-2-foo").is_none());
+    }
+
+    #[test]
+    fn non_sequential_three_numeric_segments() {
+        assert!(parse_sequential_id("req-1-2-3").is_none());
+    }
+
+    #[test]
+    fn non_sequential_no_prefix() {
+        assert!(parse_sequential_id("123").is_none());
+    }
+
+    #[test]
+    fn non_sequential_single_segment() {
+        assert!(parse_sequential_id("foo").is_none());
+    }
+
+    #[test]
+    fn non_sequential_empty_string() {
+        assert!(parse_sequential_id("").is_none());
+    }
+
+    #[test]
+    fn numeric_key_ordering() {
+        assert!(NumericKey::One(1) < NumericKey::One(2));
+        assert!(NumericKey::Two(1, 1) < NumericKey::Two(1, 2));
+        assert!(NumericKey::Two(1, 2) < NumericKey::Two(2, 1));
+    }
+
+    // -----------------------------------------------------------------------
+    // check_sequential_id_order
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn order_correct_criteria_no_findings() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![
+                    make_criterion("req-1-1", 10),
+                    make_criterion("req-1-2", 20),
+                    make_criterion("req-2-1", 30),
+                ],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "correctly ordered IDs should produce no findings, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn order_swapped_pair_emits_finding() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1-2", 10), make_criterion("req-1-1", 20)],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::SequentialIdOrder);
+        assert!(
+            findings[0].message.contains("req-1-1"),
+            "finding should name the out-of-order ID, got: {}",
+            findings[0].message
+        );
+        assert!(
+            findings[0].message.contains("req-1-2"),
+            "finding should name the predecessor, got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn order_multiple_prefix_groups_independent() {
+        // req-* in order, task-* out of order
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![
+                make_criterion("req-1", 10),
+                make_criterion("req-2", 20),
+                make_task("task-2", 30),
+                make_task("task-1", 40),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert_eq!(
+            findings.len(),
+            1,
+            "only task group should have findings, got: {findings:?}"
+        );
+        assert!(findings[0].message.contains("task-1"));
+    }
+
+    #[test]
+    fn order_non_sequential_ids_skipped() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![
+                make_criterion("login-success", 10),
+                make_criterion("login-failure", 20),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "non-sequential IDs should be skipped, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn order_mixed_sequential_and_non_sequential() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![
+                    make_criterion("req-1", 10),
+                    make_criterion("login-check", 15),
+                    make_criterion("req-2", 20),
+                ],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "non-sequential IDs should not interfere, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn order_mixed_arity_no_false_positive() {
+        // task-1 (One), task-1-1 (Two), task-2 (One) should not flag task-2
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![
+                make_task("task-1", 10),
+                make_task("task-1-1", 15),
+                make_task("task-2", 20),
+                make_task("task-4-1", 25),
+                make_task("task-4-2", 30),
+                make_task("task-5", 35),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "mixed arity should not cause false positives, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn order_tasks_correct_no_findings() {
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![
+                make_task("task-1", 10),
+                make_task("task-2", 20),
+                make_task("task-3", 30),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_order(&doc_refs);
+        assert!(findings.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // check_sequential_id_gap
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn gap_contiguous_sequence_no_findings() {
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![
+                make_task("task-1", 10),
+                make_task("task-2", 20),
+                make_task("task-3", 30),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "contiguous sequence should produce no findings, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn gap_missing_middle_element() {
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![make_task("task-1", 10), make_task("task-3", 30)],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::SequentialIdGap);
+        assert!(
+            findings[0].message.contains("task-2"),
+            "should name the missing ID, got: {}",
+            findings[0].message
+        );
+        assert!(
+            findings[0].message.contains("task-1"),
+            "should reference predecessor, got: {}",
+            findings[0].message
+        );
+        assert!(
+            findings[0].message.contains("task-3"),
+            "should reference successor, got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn gap_missing_first_element_leading_gap() {
+        let docs = [make_doc(
+            "feature/tasks",
+            vec![make_task("task-2", 10), make_task("task-3", 20)],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].message.contains("task-1"),
+            "should name the missing ID, got: {}",
+            findings[0].message
+        );
+        assert!(
+            findings[0].message.contains("starts at"),
+            "leading gap should say 'starts at', got: {}",
+            findings[0].message
+        );
+        assert!(
+            findings[0].message.contains("task-2"),
+            "should reference the first present ID, got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn gap_two_level_m_contiguity() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1-1", 10), make_criterion("req-1-3", 30)],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].message.contains("req-1-2"),
+            "should name the missing M-level ID, got: {}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn gap_two_level_n_contiguity() {
+        // Has req-1-1 and req-3-1, missing the entire req-2 group
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1-1", 10), make_criterion("req-3-1", 30)],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert!(
+            findings.iter().any(|f| f.message.contains("req-2-*")),
+            "should detect missing N-level group, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn gap_non_sequential_ids_skipped() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![
+                make_criterion("login-success", 10),
+                make_criterion("login-failure", 20),
+            ],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "non-sequential IDs should be skipped, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn gap_two_level_contiguous_no_findings() {
+        let docs = [make_doc(
+            "feature/req",
+            vec![make_acceptance_criteria(
+                vec![
+                    make_criterion("req-1-1", 10),
+                    make_criterion("req-1-2", 20),
+                    make_criterion("req-2-1", 30),
+                    make_criterion("req-2-2", 40),
+                ],
+                9,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_sequential_id_gap(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "contiguous two-level sequence should produce no findings, got: {findings:?}"
+        );
     }
 }

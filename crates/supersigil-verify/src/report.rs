@@ -36,7 +36,7 @@ impl From<Severity> for ReportSeverity {
 
 /// Identifies a specific verification rule.
 ///
-/// The 13 built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
+/// The built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
 /// `HookOutput` and `HookFailure` are synthetic rules emitted by hook
 /// execution rather than config-driven checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -61,10 +61,12 @@ pub enum RuleName {
     PluginDiscoveryFailure,
     PluginDiscoveryWarning,
     ExampleFailed,
+    SequentialIdOrder,
+    SequentialIdGap,
 }
 
 impl RuleName {
-    /// The 17 built-in rules (excludes hook-related synthetic rules).
+    /// The built-in rules (excludes hook-related synthetic rules).
     pub const ALL: &[Self] = &[
         Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
@@ -83,6 +85,8 @@ impl RuleName {
         Self::ExampleFailed,
         Self::PluginDiscoveryFailure,
         Self::PluginDiscoveryWarning,
+        Self::SequentialIdOrder,
+        Self::SequentialIdGap,
     ];
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
@@ -107,6 +111,8 @@ impl RuleName {
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
             Self::PluginDiscoveryWarning => "plugin_discovery_warning",
             Self::ExampleFailed => "example_failed",
+            Self::SequentialIdOrder => "sequential_id_order",
+            Self::SequentialIdGap => "sequential_id_gap",
         }
     }
 
@@ -135,7 +141,9 @@ impl RuleName {
             | Self::MissingRequiredComponent
             | Self::HookOutput
             | Self::PluginDiscoveryFailure
-            | Self::PluginDiscoveryWarning => ReportSeverity::Warning,
+            | Self::PluginDiscoveryWarning
+            | Self::SequentialIdOrder
+            | Self::SequentialIdGap => ReportSeverity::Warning,
         }
     }
 }
@@ -495,7 +503,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 17);
+        assert_eq!(RuleName::ALL.len(), 19);
     }
 
     // -----------------------------------------------------------------------
@@ -524,6 +532,8 @@ mod tests {
             (RuleName::HookOutput, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryFailure, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryWarning, ReportSeverity::Warning),
+            (RuleName::SequentialIdOrder, ReportSeverity::Warning),
+            (RuleName::SequentialIdGap, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

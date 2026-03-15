@@ -155,6 +155,17 @@ pub fn make_criterion_with_verified_by(
     }
 }
 
+pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Task".into(),
+        attributes: HashMap::from([("id".into(), id.into())]),
+        children: vec![],
+        body_text: Some(format!("task {id}")),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
 pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
         name: "TrackedFiles".into(),

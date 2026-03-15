@@ -382,6 +382,8 @@ pub const KNOWN_RULES: &[&str] = &[
     "example_failed",
     "plugin_discovery_failure",
     "plugin_discovery_warning",
+    "sequential_id_order",
+    "sequential_id_gap",
 ];
 
 // ---------------------------------------------------------------------------

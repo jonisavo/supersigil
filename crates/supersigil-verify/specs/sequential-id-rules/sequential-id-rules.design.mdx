@@ -1,0 +1,156 @@
+---
+supersigil:
+  id: sequential-id-rules/design
+  type: design
+  status: approved
+title: "Sequential ID Rules"
+---
+
+<Implements refs="sequential-id-rules/req" />
+<DependsOn refs="verification-engine/design" />
+<TrackedFiles paths="crates/supersigil-verify/src/rules/structural.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-verify/src/lib.rs, crates/supersigil-core/src/config.rs" />
+
+## Overview
+
+Two new verify rules — `SequentialIdOrder` and `SequentialIdGap` — detect
+declaration-order violations and contiguity gaps in components whose IDs
+follow a numeric sequence pattern. Both rules are per-document, operate on
+the parsed `SpecDocument` list without needing the `DocumentGraph` or
+`ArtifactGraph`, and plug into the existing structural rule group in
+`verify_structural()`.
+
+## Architecture
+
+The implementation touches four files across two crates:
+
+```
+supersigil-core/src/config.rs       ← add rule names to KNOWN_RULES
+supersigil-verify/src/report.rs     ← add RuleName variants + default severity
+supersigil-verify/src/rules/structural.rs ← rule logic + ID parsing
+supersigil-verify/src/lib.rs        ← wire rules into verify_structural()
+```
+
+No new modules or crates are needed. The rules follow the same pattern as
+`check_verified_by_placement` and `check_code_block_cardinality`: a public
+function that accepts `&[&SpecDocument]` and returns `Vec<Finding>`.
+
+## ID Parsing
+
+A helper function `parse_sequential_id` classifies component IDs:
+
+```rust
+struct SequentialId<'a> {
+    prefix: &'a str,
+    key: NumericKey,
+}
+
+enum NumericKey {
+    One(u32),
+    Two(u32, u32),
+}
+```
+
+Parsing algorithm:
+1. Split the ID on `-`.
+2. Scan left to right. The prefix consists of all leading non-numeric segments.
+3. If no numeric segments are found (e.g. `login-success`), or if the prefix
+   is empty (e.g. `123`), return `None` (non-sequential).
+4. Collect consecutive numeric segments into the key tuple. Only 1 or 2
+   numeric segments are supported; if 3 or more consecutive numeric segments
+   are present (e.g. `req-1-2-3`), return `None` (non-sequential).
+5. If any non-numeric segment follows a numeric segment, return `None`
+   (suffix IDs like `req-1-2-foo` are not sequential in v1).
+
+The prefix is reconstructed by joining the prefix segments with `-`. For
+`req-1-2`, the prefix is `"req"` and the key is `Two(1, 2)`. For `task-3`,
+the prefix is `"task"` and the key is `One(3)`.
+
+`NumericKey` implements `Ord` with lexicographic tuple comparison:
+`One(n)` compares as `(n,)` and `Two(n, m)` compares as `(n, m)`. Mixed
+arity within one prefix group uses the natural ordering where `One(1)` <
+`Two(1, 1)`.
+
+## Rule: `SequentialIdOrder`
+
+For each document, collect all referenceable components (`Criterion`, `Task`)
+at each nesting level. Group them by prefix. Within each prefix group, walk
+the components in declaration order and verify that each Numeric_Key is
+strictly greater than the previous one.
+
+When a violation is found, emit a finding with the out-of-order component's
+position and a message identifying which component it should follow.
+
+Example message:
+> `task-3` is declared before `task-2` in document `feature/tasks`
+
+## Rule: `SequentialIdGap`
+
+For each prefix group (same grouping as the order rule), collect all
+Numeric_Keys and check contiguity:
+
+- For single-level keys (`One(n)`): collect all `n` values, sort them, and
+  verify they form `1..=max`.
+- For two-level keys (`Two(n, m)`): group by `n`, then within each group,
+  collect all `m` values, sort them, and verify they form `1..=max`. Also
+  check that the first-level `n` values themselves form `1..=max`.
+
+When a gap is found, emit a finding per missing ID. The finding message names
+the missing ID and available context: both neighbors when the gap is in the
+middle, or only the first present ID when the gap is at the start of the
+sequence (no predecessor exists).
+
+Example messages:
+> gap in sequence: `req-1-3` is missing (between `req-1-2` and `req-1-4` in document `feature/req`)
+
+> gap in sequence: `task-1` is missing (sequence starts at `task-2` in document `feature/tasks`)
+
+## Integration
+
+Both rules are called from `verify_structural()` in `lib.rs` alongside the
+other structural checks. They accept `&[&SpecDocument]` and return
+`Vec<Finding>`. No changes to the verify pipeline, severity resolution,
+project filtering, or draft gating are needed — existing infrastructure
+handles all of that automatically.
+
+Registration:
+- Add `"sequential_id_order"` and `"sequential_id_gap"` to `KNOWN_RULES` in
+  `supersigil-core/src/config.rs`.
+- Add `SequentialIdOrder` and `SequentialIdGap` variants to `RuleName` in
+  `supersigil-verify/src/report.rs`, with `config_key()` returning the
+  snake_case names and `default_severity()` returning `Warning`.
+- Add both variants to `RuleName::ALL`.
+- Update the test that asserts `RuleName::ALL.len() == 17` to `19`.
+
+## Testing Strategy
+
+Unit tests in `rules/structural.rs` covering:
+
+- **ID parsing**: sequential IDs (`req-1-1`, `task-3`), non-sequential IDs
+  (`login-success`, `req-1-2-foo`), edge cases (single segment `foo`,
+  numeric-only `123`, empty string).
+- **Order rule**: correct order produces no findings, swapped pair produces
+  finding, multiple prefix groups checked independently, non-sequential IDs
+  skipped.
+- **Gap rule**: contiguous sequence produces no findings, missing middle
+  element produces finding, missing first element produces finding,
+  two-level gap detection, first-level gap detection, non-sequential IDs
+  skipped.
+- **Integration**: existing `config_keys_match_known_rules` test in
+  `report.rs` will automatically verify the new variants are registered
+  correctly.
+
+## Alternatives Considered
+
+**Lint-level rules (per-file parse errors):** Rejected because the rules
+benefit from configurable severity overrides, which only the verify system
+provides. The lint command stays focused on parse errors.
+
+**Dependency-aware ordering:** Rejected for v1. Checking that task
+declaration order matches the dependency graph is a separate concern that
+could conflict with numeric ordering when dependencies go against numeric
+order. Could be added as a third rule later.
+
+**Suffix support (`req-1-2-foo`):** Rejected for v1. Parsing ambiguity
+(where does the numeric part end?) adds complexity without clear demand.
+Non-matching IDs are silently skipped, so adding suffix support later is
+backwards-compatible.

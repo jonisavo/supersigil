@@ -129,6 +129,8 @@ pub fn verify_structural(
     findings.extend(rules::structural::check_expected_placement(&docs));
     findings.extend(rules::structural::check_code_block_cardinality(&docs));
     findings.extend(rules::structural::check_env_format(&docs));
+    findings.extend(rules::structural::check_sequential_id_order(&docs));
+    findings.extend(rules::structural::check_sequential_id_gap(&docs));
 
     // Status
     findings.extend(rules::status::check(graph));
@@ -690,6 +692,95 @@ mod verify_tests {
             findings
                 .iter()
                 .any(|f| f.rule == RuleName::MissingVerificationEvidence)
+        );
+    }
+
+    #[test]
+    fn verify_sequential_id_order_finding_in_full_pipeline() {
+        let docs = vec![make_doc(
+            "feature/tasks",
+            vec![make_task("task-2", 10), make_task("task-1", 20)],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::SequentialIdOrder),
+            "full pipeline should include SequentialIdOrder findings, got: {:?}",
+            report.findings,
+        );
+    }
+
+    #[test]
+    fn verify_sequential_id_gap_finding_in_full_pipeline() {
+        let docs = vec![make_doc(
+            "feature/tasks",
+            vec![make_task("task-1", 10), make_task("task-3", 30)],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::SequentialIdGap),
+            "full pipeline should include SequentialIdGap findings, got: {:?}",
+            report.findings,
+        );
+    }
+
+    #[test]
+    fn verify_sequential_rules_draft_gating() {
+        let docs = vec![make_doc_with_status(
+            "feature/tasks",
+            "draft",
+            vec![make_task("task-2", 10), make_task("task-1", 20)],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        for finding in &report.findings {
+            if finding.rule == RuleName::SequentialIdOrder {
+                assert_eq!(
+                    finding.effective_severity,
+                    ReportSeverity::Info,
+                    "draft doc sequential findings should be Info",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn verify_sequential_rules_severity_override() {
+        let docs = vec![make_doc(
+            "feature/tasks",
+            vec![make_task("task-2", 10), make_task("task-1", 20)],
+        )];
+        let graph = build_test_graph(docs);
+        let mut config = test_config();
+        config
+            .verify
+            .rules
+            .insert("sequential_id_order".into(), supersigil_core::Severity::Off);
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::SequentialIdOrder),
+            "Off-severity sequential findings should be filtered out",
         );
     }
 }

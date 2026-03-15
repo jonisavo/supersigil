@@ -17,20 +17,20 @@ This tasks document tracks the bounded recovery pass for the CLI `init` and
   `crates/supersigil-cli/specs/authoring-commands/`.
 </Task>
 
-<Task id="task-3" status="done">
+<Task id="task-2" status="done">
   Decide how `init` should scaffold multi-project workspaces.
   Decision: no change needed. `init` is a bootstrap command; users start
   single-project and migrate to multi-project as the workspace grows.
 </Task>
 
-<Task id="task-4" status="done" implements="authoring-commands/req#req-2-2">
+<Task id="task-3" status="done" implements="authoring-commands/req#req-2-2">
   Decide whether `new` should keep warning-and-continue behavior for unknown
   document types or fail fast instead.
   Decision: fail fast. Unknown types are almost always typos; custom types work
   via `[documents.types]` and are not affected.
 </Task>
 
-<Task id="task-5" status="done" implements="authoring-commands/req#req-2-5, authoring-commands/req#req-2-6, authoring-commands/req#req-2-7, authoring-commands/req#req-2-8">
+<Task id="task-4" status="done" implements="authoring-commands/req#req-2-5, authoring-commands/req#req-2-6, authoring-commands/req#req-2-7, authoring-commands/req#req-2-8">
   Add `--project` / `-p` flag to `new` for multi-project mode. `new` keeps the
   Feature_Slug model but resolves the output directory from the selected
   project's glob pattern. Omitting `--project` in multi-project mode is an
@@ -38,20 +38,20 @@ This tasks document tracks the bounded recovery pass for the CLI `init` and
   project is an error with available names listed.
 </Task>
 
-<Task id="task-6" status="done" implements="authoring-commands/req#req-2-2">
+<Task id="task-5" status="done" implements="authoring-commands/req#req-2-2">
   Add a test that `new` accepts a configured custom document type. Set up a
   fixture `supersigil.toml` with a custom type in `[documents.types]`, invoke
   `new` with that type, and assert the command succeeds and creates the
   expected file.
 </Task>
 
-<Task id="task-7" status="done" implements="authoring-commands/req#req-2-4">
+<Task id="task-6" status="done" implements="authoring-commands/req#req-2-4">
   Add a test asserting the stdout/stderr output discipline of `new`. After
   successful creation, verify that the path to the created file appears on
   stdout and that the lint hint appears on stderr.
 </Task>
 
-<Task id="task-8" status="done" implements="authoring-commands/req#req-3-4">
+<Task id="task-7" status="done" implements="authoring-commands/req#req-3-4">
   Add a test verifying that generated scaffolds contain type-appropriate
   placeholder sections. Create documents of different types (e.g. `req`,
   `design`, `tasks`) and assert that each scaffold includes the placeholder
