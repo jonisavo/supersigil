@@ -119,8 +119,13 @@ pub fn run(
     config_path: &Path,
     color: ColorConfig,
 ) -> Result<ExitStatus, CliError> {
-    let (config, graph) = loader::load_graph(config_path)?;
+    let (mut config, graph) = loader::load_graph(config_path)?;
     let project_root = loader::project_root(config_path);
+
+    // CLI -j/--parallelism overrides config file value.
+    if let Some(p) = args.parallelism {
+        config.examples.parallelism = p.max(1);
+    }
 
     let options = VerifyOptions {
         project: args.project.clone(),

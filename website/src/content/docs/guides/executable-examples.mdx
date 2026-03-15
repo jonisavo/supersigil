@@ -175,7 +175,7 @@ When `supersigil verify` runs:
 
 2. **If structural errors exist, examples are skipped.** There is no point running examples against a broken spec graph. Coverage is evaluated against whatever evidence exists without examples.
 
-3. **If no structural errors, examples execute.** Examples run concurrently (configurable parallelism, default 1). Each example gets a fresh temp directory, optional setup script, runner execution, and output matching.
+3. **If no structural errors, examples execute.** Examples run concurrently up to the configured parallelism (default: half of available CPU threads). Each example gets a fresh temp directory, optional setup script, runner execution, and output matching.
 
 4. **Passing examples with `verifies` produce evidence.** This evidence is merged into the artifact graph.
 
@@ -192,7 +192,7 @@ When `supersigil verify` runs:
 # Default timeout for all examples in seconds (default: 30)
 timeout = 30
 
-# Maximum concurrent example executions (default: 1)
+# Maximum concurrent example executions (default: half of CPU threads, min 1)
 parallelism = 4
 
 # Custom runners
@@ -222,6 +222,12 @@ supersigil verify --skip-examples
 **Update snapshots:**
 ```bash
 supersigil verify --update-snapshots
+```
+
+**Override parallelism:**
+```bash
+supersigil verify -j 1              # Force sequential
+supersigil verify --parallelism 8   # Run 8 examples concurrently
 ```
 
 ## Walkthrough

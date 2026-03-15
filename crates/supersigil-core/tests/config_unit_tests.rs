@@ -1148,15 +1148,27 @@ fn rust_ecosystem_config_default_values() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// 1. Default values: timeout=30, parallelism=1, empty runners
+// 1. Default values: timeout=30, parallelism=available/2 (min 1), empty runners
 // ---------------------------------------------------------------------------
 
 #[test]
 fn examples_config_defaults() {
     let config = ExamplesConfig::default();
     assert_eq!(config.timeout, 30);
-    assert_eq!(config.parallelism, 1);
+
+    let expected_parallelism = std::thread::available_parallelism()
+        .map(|n| n.get() / 2)
+        .unwrap_or(1)
+        .max(1);
+    assert_eq!(config.parallelism, expected_parallelism);
     assert!(config.runners.is_empty());
+}
+
+#[test]
+fn examples_config_default_parallelism_at_least_one() {
+    // Regardless of CPU count, parallelism must be >= 1.
+    let config = ExamplesConfig::default();
+    assert!(config.parallelism >= 1);
 }
 
 // ---------------------------------------------------------------------------

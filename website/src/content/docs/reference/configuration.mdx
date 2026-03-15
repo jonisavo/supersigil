@@ -164,7 +164,7 @@ Configure the example execution engine:
 ```toml title="supersigil.toml"
 [examples]
 timeout = 30
-parallelism = 1
+parallelism = 4
 
 [examples.runners.node]
 command = "node {file}"
@@ -176,7 +176,7 @@ command = "deno run {file}"
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `timeout` | integer | `30` | Global timeout for all examples (seconds) |
-| `parallelism` | integer | `1` | Number of examples to run concurrently |
+| `parallelism` | integer | half of CPU threads (min 1) | Number of examples to run concurrently. Overridden by `supersigil verify -j <N>`. |
 | `runners.<name>.command` | string | -- | Shell command template. Placeholders: `{file}`, `{dir}`, `{lang}`, `{name}` |
 
 ## Hooks
@@ -240,7 +240,7 @@ validation = "dev"
 
 [examples]
 timeout = 30
-parallelism = 1
+parallelism = 4
 
 [examples.runners.node]
 command = "node {file}"

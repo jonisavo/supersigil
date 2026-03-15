@@ -199,7 +199,10 @@ fn default_example_timeout() -> u64 {
 }
 
 fn default_parallelism() -> usize {
-    1
+    std::thread::available_parallelism()
+        .map(|n| n.get() / 2)
+        .unwrap_or(1)
+        .max(1)
 }
 
 /// Configuration for executable examples.

@@ -169,6 +169,9 @@ pub struct VerifyArgs {
     /// Update snapshot expectations with actual output
     #[arg(long)]
     pub update_snapshots: bool,
+    /// Number of examples to run concurrently (overrides config)
+    #[arg(short = 'j', long)]
+    pub parallelism: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]

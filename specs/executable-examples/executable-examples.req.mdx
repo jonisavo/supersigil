@@ -332,7 +332,8 @@ my project's tooling.
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
     THE config model SHALL expose `[examples]` with optional `timeout`
-    (default 30s) and `parallelism` (default 1) settings.
+    (default 30s) and `parallelism` (default: half of available CPU
+    threads, minimum 1) settings.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/config.rs" />
   </Criterion>
 
@@ -358,6 +359,15 @@ my project's tooling.
     order. Snapshot rewrites SHALL be serialized to avoid concurrent
     writes to the same MDX file.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/examples/executor.rs" />
+  </Criterion>
+
+  <Criterion id="req-6-5">
+    THE `supersigil verify` command SHALL accept `-j, --parallelism <N>`
+    to override the configured example parallelism for that invocation.
+    The precedence SHALL be: CLI flag > `supersigil.toml` config >
+    default. WHEN the flag is omitted, the config or default value
+    SHALL apply.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands.rs, crates/supersigil-cli/src/commands/verify.rs" />
   </Criterion>
 </AcceptanceCriteria>
 

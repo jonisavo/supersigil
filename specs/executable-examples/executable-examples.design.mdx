@@ -109,7 +109,7 @@ graph TD
 | `supersigil-parser` | Amend extractor to preserve fenced code block content and byte offsets for `Example` and `Expected` components. |
 | `supersigil-verify` | New `examples` module: executor, runner dispatch, output matcher. New `RuleName` variants for example failures. `verify_structural()` and `verify_coverage()` split. Code block cardinality lint rules. |
 | `supersigil-evidence` | New `EvidenceKind::Example` variant. |
-| `supersigil-cli` | Two-phase verify orchestration including hook invocation. `examples` discovery command. `--skip-examples` and `--update-snapshots` flags on `verify`. |
+| `supersigil-cli` | Two-phase verify orchestration including hook invocation. `examples` discovery command. `--skip-examples`, `--update-snapshots`, and `-j, --parallelism` flags on `verify`. |
 
 ## Two-Phase Verify Pipeline
 
@@ -637,7 +637,8 @@ are serialized (req-6-4) to avoid concurrent writes.
 pub struct ExamplesConfig {
     /// Default timeout for all examples (seconds). Default: 30.
     pub timeout: Option<u64>,
-    /// Maximum concurrent example executions. Default: 1.
+    /// Maximum concurrent example executions.
+    /// Default: available_parallelism() / 2, minimum 1.
     pub parallelism: Option<usize>,
     /// Custom runner definitions.
     #[serde(default)]
@@ -650,6 +651,23 @@ pub struct RunnerConfig {
     pub command: String,
 }
 ```
+
+### Parallelism Precedence
+
+The effective parallelism for example execution is resolved as:
+
+1. **CLI flag** (`-j, --parallelism <N>` on `supersigil verify`) — highest priority.
+2. **Config file** (`[examples].parallelism` in `supersigil.toml`).
+3. **Default** — `std::thread::available_parallelism() / 2`, minimum 1.
+
+The CLI applies the override by mutating `config.examples.parallelism`
+before passing it to the executor, so the executor sees a single
+resolved value and the precedence logic stays in the CLI layer.
+
+The default uses half the available CPU threads because example runners
+like `cargo-test` spawn their own subprocesses, so full CPU saturation
+at the supersigil level would over-subscribe the system. The minimum
+of 1 ensures sequential execution on single-core systems.
 
 ```toml
 # Example supersigil.toml

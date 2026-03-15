@@ -921,3 +921,93 @@ fn verify_project_filter_reports_only_selected_project_findings() {
         "unfiltered verify should include findings from 'uncovered' project: {report}",
     );
 }
+
+// ---------------------------------------------------------------------------
+// -j / --parallelism flag
+// ---------------------------------------------------------------------------
+
+#[verifies("executable-examples/req#req-6-5")]
+#[test]
+fn verify_parallelism_flag_short_accepted() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "-j", "2"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify -j 2 should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[verifies("executable-examples/req#req-6-5")]
+#[test]
+fn verify_parallelism_flag_long_accepted() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "--parallelism", "1"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify --parallelism 1 should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[verifies("executable-examples/req#req-6-5")]
+#[test]
+fn verify_parallelism_flag_overrides_config() {
+    let tmp = TempDir::new().unwrap();
+    write_config(
+        tmp.path(),
+        r#"paths = ["specs/**/*.mdx"]
+[examples]
+parallelism = 8
+"#,
+    );
+    common::write_mdx(
+        tmp.path(),
+        "specs/demo.mdx",
+        "demo/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="d-1">demo</Criterion>
+</AcceptanceCriteria>
+
+<Example id="par-test" lang="sh" runner="sh" verifies="demo/req#d-1">
+
+```sh
+echo ok
+```
+
+<Expected status="0" contains="ok" />
+</Example>"#,
+    );
+
+    // -j 1 forces sequential even though config says 8
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "-j", "1"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify -j 1 overriding config parallelism=8 should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
