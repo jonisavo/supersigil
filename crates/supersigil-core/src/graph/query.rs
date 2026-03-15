@@ -98,6 +98,10 @@ pub struct PlanOutput {
     pub pending_tasks: Vec<TaskInfo>,
     /// Completed tasks with the criteria they implement.
     pub completed_tasks: Vec<TaskInfo>,
+    /// Pending tasks with no unfinished dependencies (task IDs).
+    pub actionable_tasks: Vec<String>,
+    /// Pending tasks blocked by unfinished dependencies (task IDs).
+    pub blocked_tasks: Vec<String>,
 }
 
 /// A verification target that has no verification evidence.
@@ -363,11 +367,44 @@ pub(super) fn build_plan(
     let outstanding_targets =
         collect_outstanding_targets(graph, &target_doc_ids, &done_implemented);
 
+    let (actionable_tasks, blocked_tasks) = partition_tasks(&pending_tasks, &completed_tasks);
+
     Ok(PlanOutput {
         outstanding_targets,
         pending_tasks,
         completed_tasks,
+        actionable_tasks,
+        blocked_tasks,
     })
+}
+
+/// Partition pending tasks into actionable and blocked.
+///
+/// A task is "actionable" if all its `depends_on` entries are either completed
+/// or not in the pending set. Otherwise it is "blocked".
+fn partition_tasks(
+    pending_tasks: &[TaskInfo],
+    completed_tasks: &[TaskInfo],
+) -> (Vec<String>, Vec<String>) {
+    let completed_ids: HashSet<&str> = completed_tasks.iter().map(|t| t.task_id.as_str()).collect();
+    let pending_ids: HashSet<&str> = pending_tasks.iter().map(|t| t.task_id.as_str()).collect();
+
+    let mut actionable = Vec::new();
+    let mut blocked = Vec::new();
+
+    for task in pending_tasks {
+        let is_actionable = task
+            .depends_on
+            .iter()
+            .all(|dep| completed_ids.contains(dep.as_str()) || !pending_ids.contains(dep.as_str()));
+        if is_actionable {
+            actionable.push(task.task_id.clone());
+        } else {
+            blocked.push(task.task_id.clone());
+        }
+    }
+
+    (actionable, blocked)
 }
 
 /// Build the set of `(doc_id, target_id)` pairs covered by completed tasks.

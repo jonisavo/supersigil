@@ -60,6 +60,7 @@ fn for_each_criterion(
                     message = format!("{message}; did you mean `{doc_id}#{criterion_id}`?");
                 }
 
+                let target_ref = format!("{doc_id}#{criterion_id}");
                 findings.push(
                     Finding::new(
                         RuleName::MissingVerificationEvidence,
@@ -68,7 +69,12 @@ fn for_each_criterion(
                         Some(component.position),
                     )
                     .with_details(FindingDetails {
-                        target_ref: Some(format!("{doc_id}#{criterion_id}")),
+                        suggestion: Some(format!(
+                            "Run `supersigil refs` to list targets. \
+                             Fix: add a `<VerifiedBy>` component to this criterion, \
+                             or use a language plugin (e.g. `#[verifies(\"{target_ref}\")]` for Rust)."
+                        )),
+                        target_ref: Some(target_ref),
                         ..FindingDetails::default()
                     }),
                 );
