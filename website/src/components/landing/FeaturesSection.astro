@@ -14,7 +14,7 @@
         <p>Every document becomes a typed node with computed reverse links. Query any slice with <code>supersigil context</code>, inspect coverage, and export the structure as Mermaid or Graphviz DOT.</p>
         <div class="bento-visual graph-mini" aria-hidden="true">
           <svg viewBox="0 0 240 120">
-            <g stroke="#c9a55c" stroke-width="0.6" opacity="0.3">
+            <g class="graph-edges" stroke-width="1">
               <line x1="120" y1="30" x2="60" y2="60"/>
               <line x1="120" y1="30" x2="180" y2="60"/>
               <line x1="60" y1="60" x2="40" y2="95"/>
@@ -22,13 +22,13 @@
               <line x1="180" y1="60" x2="160" y2="95"/>
               <line x1="180" y1="60" x2="210" y2="95"/>
             </g>
-            <circle cx="120" cy="30" r="4" fill="#c9a55c" opacity="0.8"/>
-            <circle cx="60" cy="60" r="3" fill="#5a8f9f" opacity="0.7"/>
-            <circle cx="180" cy="60" r="3" fill="#5a8f9f" opacity="0.7"/>
-            <circle cx="40" cy="95" r="2.5" fill="#555" opacity="0.5"/>
-            <circle cx="90" cy="95" r="2.5" fill="#555" opacity="0.5"/>
-            <circle cx="160" cy="95" r="2.5" fill="#555" opacity="0.5"/>
-            <circle cx="210" cy="95" r="2.5" fill="#555" opacity="0.5"/>
+            <circle class="graph-root" cx="120" cy="30" r="4.5"/>
+            <circle class="graph-mid" cx="60" cy="60" r="3.5"/>
+            <circle class="graph-mid" cx="180" cy="60" r="3.5"/>
+            <circle class="graph-leaf" cx="40" cy="95" r="3"/>
+            <circle class="graph-leaf" cx="90" cy="95" r="3"/>
+            <circle class="graph-leaf" cx="160" cy="95" r="3"/>
+            <circle class="graph-leaf" cx="210" cy="95" r="3"/>
           </svg>
         </div>
       </div>
@@ -56,7 +56,7 @@
         <h3>Use runnable docs when a static snippet is not enough.</h3>
         <p>Embed shell, HTTP, Rust, or custom-runner examples directly in spec docs. Passing examples can count as evidence inside the same verification pass.</p>
         <div class="bento-snippet" aria-hidden="true">
-          <code><span class="c-gold">&lt;Example</span> <span class="c-teal">runner</span>=<span class="c-str">"http"</span> <span class="c-teal">verifies</span>=<span class="c-str">"…#due-date"</span><span class="c-gold">&gt;</span></code>
+          <code><span class="c-gold">&lt;Example</span> <span class="c-teal">runner</span>=<span class="c-str">"http"</span> <span class="c-teal">verifies</span>=<span class="c-str">"tasks/req/create#due-date"</span><span class="c-gold">&gt;</span></code>
         </div>
       </div>
 
@@ -137,8 +137,8 @@
     font-size: 0.76rem;
     line-height: 1.5;
     color: var(--text-muted);
-    overflow-x: auto;
-    white-space: nowrap;
+    overflow: hidden;
+    word-break: break-word;
   }
   .bento-snippet .c-muted { color: var(--text-dim); }
   .bento-snippet .c-gold { color: var(--gold); }
@@ -154,12 +154,9 @@
   .graph-mini svg {
     width: 100%;
     max-width: 240px;
-    opacity: 0.7;
   }
-
-  /* Light theme overrides */
-  :global([data-theme='light']) .graph-mini line[stroke="#c9a55c"] { stroke: #8a6c2f; }
-  :global([data-theme='light']) .graph-mini circle[fill="#c9a55c"] { fill: #8a6c2f; }
-  :global([data-theme='light']) .graph-mini circle[fill="#5a8f9f"] { fill: #3d7080; }
-  :global([data-theme='light']) .graph-mini circle[fill="#555"] { fill: #9a9590; }
+  .graph-edges { stroke: var(--gold); opacity: 0.45; }
+  .graph-root  { fill: var(--gold); }
+  .graph-mid   { fill: var(--teal); }
+  .graph-leaf  { fill: var(--text-muted); }
 </style>

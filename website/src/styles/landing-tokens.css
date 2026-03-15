@@ -250,13 +250,14 @@ body.js-ready .reveal.visible {
 }
 .panel-body {
   padding: 1.25rem 1.5rem;
-  overflow-x: auto;
 }
 .panel-body pre {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .panel-body code {
   font-size: inherit;
