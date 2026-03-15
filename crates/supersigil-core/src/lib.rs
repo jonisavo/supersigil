@@ -4,6 +4,8 @@ mod component_defs;
 mod config;
 mod error;
 mod graph;
+mod locate;
+mod refs;
 mod rust_scope;
 mod rust_validation_inputs;
 mod types;
@@ -16,6 +18,8 @@ pub use config::{
     TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
+pub use locate::find_config;
+pub use refs::{is_valid_criterion_ref, split_criterion_ref};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};
 pub use rust_validation_inputs::{
     RustValidationInputResolutionError, RustValidationInputs, resolve_project_validation_inputs,

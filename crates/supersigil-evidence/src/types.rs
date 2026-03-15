@@ -48,14 +48,11 @@ pub struct VerifiableRef {
 impl VerifiableRef {
     /// Parse a verifiable reference string like `"req/auth#crit-1"`.
     ///
-    /// Returns `None` unless the string contains a `#` separator with
-    /// non-empty document and target fragments on both sides.
+    /// Returns `None` unless the string matches the `document-id#criterion-id`
+    /// form with non-empty fragments and no extra `#` characters.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        let (doc_id, target_id) = s.split_once('#')?;
-        if doc_id.is_empty() || target_id.is_empty() {
-            return None;
-        }
+        let (doc_id, target_id) = supersigil_core::split_criterion_ref(s)?;
         Some(Self {
             doc_id: doc_id.to_string(),
             target_id: target_id.to_string(),

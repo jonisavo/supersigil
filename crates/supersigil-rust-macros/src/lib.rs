@@ -60,20 +60,6 @@ impl Parse for VerifiesArgs {
 // Graph validation
 // ---------------------------------------------------------------------------
 
-/// Walk up from `start` looking for `supersigil.toml`.
-fn find_config(start: &Path) -> Option<PathBuf> {
-    let mut current = start.to_path_buf();
-    loop {
-        let candidate = current.join("supersigil.toml");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
-}
-
 fn fingerprint_inputs(paths: &[PathBuf]) -> Vec<InputFingerprintEntry> {
     paths
         .iter()
@@ -121,7 +107,10 @@ fn resolve_project_root() -> Result<Option<PathBuf>, String> {
     let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
         return Ok(None);
     };
-    Ok(find_config(Path::new(&manifest_dir)).and_then(|p| p.parent().map(Path::to_path_buf)))
+    Ok(supersigil_core::find_config(Path::new(&manifest_dir))
+        .ok()
+        .flatten()
+        .and_then(|p| p.parent().map(Path::to_path_buf)))
 }
 
 /// Check whether graph validation should run given the loaded config.
@@ -160,9 +149,38 @@ fn graph_error(context: &str, errors: &[impl std::fmt::Display]) -> GraphErrors 
     vec![(None, format!("supersigil: {context}: {detail}"))]
 }
 
+/// Quick cache check: re-stat the previously fingerprinted files without
+/// re-reading the config or re-expanding globs. Within a single compilation
+/// the file set is stable, so this avoids redundant work on every
+/// `#[verifies]` invocation after the first.
+fn check_cached_graph() -> Option<Rc<supersigil_core::DocumentGraph>> {
+    GRAPH_CACHE.with(|cache| {
+        let borrow = cache.borrow();
+        let cached = borrow.as_ref()?;
+        let still_valid = cached.input_fingerprint.iter().all(|entry| {
+            match std::fs::metadata(&entry.path) {
+                Ok(meta) => {
+                    meta.modified().unwrap_or(SystemTime::UNIX_EPOCH) == entry.modified
+                        && meta.len() == entry.len
+                }
+                // File disappeared — only matches if it was already missing when cached.
+                Err(_) => entry.modified == SystemTime::UNIX_EPOCH && entry.len == 0,
+            }
+        });
+        still_valid.then(|| Rc::clone(&cached.graph))
+    })
+}
+
 fn get_or_build_graph(
     project_root: &Path,
 ) -> Result<Option<Rc<supersigil_core::DocumentGraph>>, GraphErrors> {
+    // Fast path: validate the existing cache with only N stat calls,
+    // skipping config parsing, glob expansion, and fingerprint allocation.
+    if let Some(graph) = check_cached_graph() {
+        return Ok(Some(graph));
+    }
+
+    // Slow path: full config parse + glob expansion + graph build.
     let config_path = project_root.join("supersigil.toml");
     let config = match supersigil_core::load_config(&config_path) {
         Ok(c) => c,
@@ -181,22 +199,6 @@ fn get_or_build_graph(
     let inputs = supersigil_core::resolve_workspace_validation_inputs(&config, project_root)
         .map_err(|err| vec![(None, format!("supersigil: {err}"))])?;
     let current_fingerprint = fingerprint_inputs(&inputs.all_paths());
-
-    // Check the thread-local cache after resolving the full validation inputs.
-    let cached: Option<Result<Rc<supersigil_core::DocumentGraph>, GraphErrors>> =
-        GRAPH_CACHE.with(|cache| {
-            let borrow = cache.borrow();
-            if let Some(ref cached) = *borrow
-                && cached.input_fingerprint == current_fingerprint
-            {
-                return Some(Ok(Rc::clone(&cached.graph)));
-            }
-            None
-        });
-
-    if let Some(result) = cached {
-        return result.map(Some);
-    }
 
     let component_defs = supersigil_core::ComponentDefs::merge(
         supersigil_core::ComponentDefs::defaults(),
@@ -274,16 +276,7 @@ fn validate_refs(refs: &[String], project_root: &Path) -> Vec<(Option<String>, S
 }
 
 fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()> {
-    let Some((doc_id, criterion_id)) = ref_str.split_once('#') else {
-        return Err(syn::Error::new(
-            span,
-            format!(
-                "invalid criterion reference \"{ref_str}\": expected `document-id#criterion-id`"
-            ),
-        ));
-    };
-
-    if doc_id.is_empty() || criterion_id.is_empty() || criterion_id.contains('#') {
+    if !supersigil_core::is_valid_criterion_ref(ref_str) {
         return Err(syn::Error::new(
             span,
             format!(
@@ -291,7 +284,6 @@ fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()>
             ),
         ));
     }
-
     Ok(())
 }
 

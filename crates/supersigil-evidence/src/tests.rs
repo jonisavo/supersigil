@@ -59,6 +59,14 @@ fn verifiable_ref_parse_empty_document() {
     assert!(VerifiableRef::parse("#crit-1").is_none());
 }
 
+#[test]
+fn verifiable_ref_parse_multi_hash_rejected() {
+    assert!(
+        VerifiableRef::parse("doc#a#b").is_none(),
+        "refs with multiple '#' characters should be rejected"
+    );
+}
+
 // ===========================================================================
 // TestIdentity
 // ===========================================================================

@@ -1,4 +1,3 @@
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -36,22 +35,9 @@ pub(crate) struct ParseAllStats {
 /// Returns `CliError::ConfigNotFound` if no `supersigil.toml` is found
 /// in `start_dir` or any ancestor directory.
 pub fn find_config(start_dir: &Path) -> Result<PathBuf, CliError> {
-    let mut current = start_dir.to_path_buf();
-    loop {
-        let candidate = current.join("supersigil.toml");
-        match std::fs::metadata(&candidate) {
-            Ok(metadata) if metadata.is_file() => return Ok(candidate),
-            Ok(_) => {}
-            Err(err) if err.kind() == ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        }
-
-        if !current.pop() {
-            return Err(CliError::ConfigNotFound {
-                start_dir: start_dir.to_path_buf(),
-            });
-        }
-    }
+    supersigil_core::find_config(start_dir)?.ok_or_else(|| CliError::ConfigNotFound {
+        start_dir: start_dir.to_path_buf(),
+    })
 }
 
 /// Discover and parse all spec files. Returns config, successfully parsed
