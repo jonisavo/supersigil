@@ -319,7 +319,9 @@ impl EvidenceSummary {
             .iter()
             .map(|rec| {
                 let test_kind = rec.test.kind.as_str().to_string();
-                let evidence_kind = rec.evidence_kind.as_str().to_string();
+                let evidence_kind = rec
+                    .kind()
+                    .map_or_else(|| "unknown".to_string(), |k| k.as_str().to_string());
                 let targets: Vec<String> = rec
                     .targets
                     .iter()

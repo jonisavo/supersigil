@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use crate::types::{SourceLocation, TestIdentity, VerifiableRef};
+use crate::types::{EvidenceKind, SourceLocation, TestIdentity, VerifiableRef};
 
 // ---------------------------------------------------------------------------
 // PluginProvenance
@@ -20,6 +20,19 @@ pub enum PluginProvenance {
     VerifiedByFileGlob { doc_id: String, paths: Vec<String> },
     RustAttribute { attribute_span: SourceLocation },
     Example { doc_id: String, example_id: String },
+}
+
+impl PluginProvenance {
+    /// Map the provenance variant to its corresponding evidence classification.
+    #[must_use]
+    pub fn kind(&self) -> EvidenceKind {
+        match self {
+            Self::VerifiedByTag { .. } => EvidenceKind::Tag,
+            Self::VerifiedByFileGlob { .. } => EvidenceKind::FileGlob,
+            Self::RustAttribute { .. } => EvidenceKind::RustAttribute,
+            Self::Example { .. } => EvidenceKind::Example,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

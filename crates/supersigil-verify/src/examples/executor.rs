@@ -11,8 +11,8 @@ use std::path::Path;
 
 use supersigil_core::{DocumentGraph, EXAMPLE, EXPECTED, ExamplesConfig};
 use supersigil_evidence::{
-    EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+    EvidenceId, PluginProvenance, SourceLocation, TestIdentity, TestKind, VerifiableRef,
+    VerificationEvidenceRecord, VerificationTargets,
 };
 
 use super::runner;
@@ -335,7 +335,7 @@ pub fn results_to_evidence(results: &[ExampleResult]) -> Vec<VerificationEvidenc
         let spec = &result.spec;
 
         let record = VerificationEvidenceRecord {
-            id: EvidenceId(idx),
+            id: EvidenceId::new(idx),
             targets,
             test: TestIdentity {
                 file: spec.source_path.clone(),
@@ -347,7 +347,6 @@ pub fn results_to_evidence(results: &[ExampleResult]) -> Vec<VerificationEvidenc
                 line: spec.position.line,
                 column: spec.position.column,
             },
-            evidence_kind: EvidenceKind::Example,
             provenance: vec![PluginProvenance::Example {
                 doc_id: spec.doc_id.clone(),
                 example_id: spec.example_id.clone(),
@@ -476,6 +475,7 @@ mod tests {
     use std::time::Duration;
 
     use supersigil_core::{CodeBlock, ExtractedComponent, Frontmatter, SpecDocument};
+    use supersigil_evidence::EvidenceKind;
 
     use super::*;
     use crate::examples::types::{MatchCheck, MatchFailure};
@@ -773,7 +773,7 @@ mod tests {
 
         assert_eq!(evidence.len(), 1);
         let rec = &evidence[0];
-        assert_eq!(rec.evidence_kind, EvidenceKind::Example);
+        assert_eq!(rec.kind(), Some(EvidenceKind::Example));
         assert_eq!(rec.test.name, "my-example");
         assert_eq!(rec.test.file, PathBuf::from("specs/test.mdx"));
         assert_eq!(rec.test.kind, TestKind::Unknown);

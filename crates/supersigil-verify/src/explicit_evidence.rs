@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use supersigil_core::{CRITERION, DocumentGraph, VERIFIED_BY, split_list_attribute};
 use supersigil_evidence::{
-    EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+    EvidenceId, PluginProvenance, SourceLocation, TestIdentity, TestKind, VerifiableRef,
+    VerificationEvidenceRecord, VerificationTargets,
 };
 
 use crate::scan::{TagMatch, scan_all_tags};
@@ -88,7 +88,7 @@ fn process_verified_by(
 
             for m in matches {
                 records.push(VerificationEvidenceRecord {
-                    id: EvidenceId(*next_id),
+                    id: EvidenceId::new(*next_id),
                     targets: targets.clone(),
                     test: TestIdentity {
                         file: m.file.clone(),
@@ -100,7 +100,6 @@ fn process_verified_by(
                         line: m.line,
                         column: 1,
                     },
-                    evidence_kind: EvidenceKind::Tag,
                     provenance: vec![PluginProvenance::VerifiedByTag {
                         doc_id: doc_id.to_owned(),
                         tag: tag.clone(),
@@ -131,7 +130,7 @@ fn process_verified_by(
 
             for file in matched_files {
                 records.push(VerificationEvidenceRecord {
-                    id: EvidenceId(*next_id),
+                    id: EvidenceId::new(*next_id),
                     targets: targets.clone(),
                     test: TestIdentity {
                         file: file.clone(),
@@ -143,7 +142,6 @@ fn process_verified_by(
                         line: 1,
                         column: 1,
                     },
-                    evidence_kind: EvidenceKind::FileGlob,
                     provenance: vec![PluginProvenance::VerifiedByFileGlob {
                         doc_id: doc_id.to_owned(),
                         paths: vec![paths_attr.clone()],
@@ -209,6 +207,7 @@ fn collect_criterion_evidence(
 
 #[cfg(test)]
 mod tests {
+    use supersigil_evidence::EvidenceKind;
     use tempfile::TempDir;
 
     use super::*;
@@ -264,7 +263,7 @@ mod tests {
         assert_eq!(rec.targets, expected_targets);
 
         // Evidence kind
-        assert_eq!(rec.evidence_kind, EvidenceKind::Tag);
+        assert_eq!(rec.kind(), Some(EvidenceKind::Tag));
 
         // Test kind is Unknown (tag scanning doesn't infer test kind)
         assert_eq!(rec.test.kind, TestKind::Unknown);
@@ -321,7 +320,7 @@ mod tests {
         assert_eq!(rec.test.kind, TestKind::Unknown);
 
         // Evidence kind
-        assert_eq!(rec.evidence_kind, EvidenceKind::FileGlob);
+        assert_eq!(rec.kind(), Some(EvidenceKind::FileGlob));
 
         // Provenance
         assert_eq!(rec.provenance.len(), 1);
@@ -421,7 +420,7 @@ mod tests {
         // Find the tag-sourced record
         let tag_rec = records
             .iter()
-            .find(|r| r.evidence_kind == EvidenceKind::Tag)
+            .find(|r| r.kind() == Some(EvidenceKind::Tag))
             .expect("should have a Tag evidence record");
         assert_eq!(
             tag_rec.provenance[0],
@@ -434,7 +433,7 @@ mod tests {
         // Find the glob-sourced record
         let glob_rec = records
             .iter()
-            .find(|r| r.evidence_kind == EvidenceKind::FileGlob)
+            .find(|r| r.kind() == Some(EvidenceKind::FileGlob))
             .expect("should have a FileGlob evidence record");
         match &glob_rec.provenance[0] {
             PluginProvenance::VerifiedByFileGlob { doc_id, .. } => {
@@ -501,7 +500,7 @@ mod tests {
         }]);
         for rec in &records {
             assert_eq!(rec.targets, expected_targets);
-            assert_eq!(rec.evidence_kind, EvidenceKind::Tag);
+            assert_eq!(rec.kind(), Some(EvidenceKind::Tag));
         }
 
         // Each should reference a distinct file
@@ -604,7 +603,7 @@ mod tests {
             target_id: "login-success".into(),
         }]);
         assert_eq!(rec.targets, expected_targets);
-        assert_eq!(rec.evidence_kind, EvidenceKind::Tag);
+        assert_eq!(rec.kind(), Some(EvidenceKind::Tag));
     }
 
     /// Contextual `VerifiedBy` with file-glob strategy targets parent criterion.
@@ -632,7 +631,7 @@ mod tests {
 
         assert_eq!(records.len(), 1);
         let rec = &records[0];
-        assert_eq!(rec.evidence_kind, EvidenceKind::FileGlob);
+        assert_eq!(rec.kind(), Some(EvidenceKind::FileGlob));
         assert!(rec.targets.iter().any(|c| c.target_id == "login-success"));
     }
 
@@ -683,13 +682,13 @@ mod tests {
             .iter()
             .find(|r| r.targets.iter().any(|c| c.target_id == "login"))
             .expect("should have login evidence");
-        assert_eq!(login_rec.evidence_kind, EvidenceKind::Tag);
+        assert_eq!(login_rec.kind(), Some(EvidenceKind::Tag));
 
         let session_rec = records
             .iter()
             .find(|r| r.targets.iter().any(|c| c.target_id == "session"))
             .expect("should have session evidence");
-        assert_eq!(session_rec.evidence_kind, EvidenceKind::Tag);
+        assert_eq!(session_rec.kind(), Some(EvidenceKind::Tag));
     }
 
     // -----------------------------------------------------------------------

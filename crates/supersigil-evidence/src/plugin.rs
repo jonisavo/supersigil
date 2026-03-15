@@ -1,5 +1,6 @@
 //! `EcosystemPlugin` trait and plugin discovery error/diagnostic surfaces.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use supersigil_core::DocumentGraph;
@@ -121,8 +122,12 @@ pub trait EcosystemPlugin {
     /// unchanged. Plugins can override this hook to add or replace files based
     /// on the project context before `discover` runs.
     #[must_use]
-    fn plan_discovery_inputs(&self, test_files: &[PathBuf], _scope: &ProjectScope) -> Vec<PathBuf> {
-        test_files.to_vec()
+    fn plan_discovery_inputs<'a>(
+        &self,
+        test_files: &'a [PathBuf],
+        _scope: &ProjectScope,
+    ) -> Cow<'a, [PathBuf]> {
+        Cow::Borrowed(test_files)
     }
 
     /// Discover evidence records from the given source files.

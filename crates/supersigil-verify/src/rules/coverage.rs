@@ -192,8 +192,8 @@ mod tests {
         use std::path::PathBuf;
 
         use supersigil_evidence::{
-            EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-            VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+            EvidenceId, PluginProvenance, SourceLocation, TestIdentity, TestKind, VerifiableRef,
+            VerificationEvidenceRecord, VerificationTargets,
         };
 
         let docs = vec![make_doc(
@@ -208,7 +208,7 @@ mod tests {
             &graph,
             vec![],
             vec![VerificationEvidenceRecord {
-                id: EvidenceId(0),
+                id: EvidenceId::new(0),
                 targets: VerificationTargets::single(VerifiableRef {
                     doc_id: "req/auth".into(),
                     target_id: "req-1".into(),
@@ -223,7 +223,6 @@ mod tests {
                     line: 3,
                     column: 1,
                 },
-                evidence_kind: EvidenceKind::RustAttribute,
                 provenance: vec![PluginProvenance::RustAttribute {
                     attribute_span: SourceLocation {
                         file: PathBuf::from("tests/auth_test.rs"),
@@ -255,12 +254,12 @@ mod tests {
         use std::path::PathBuf;
 
         use supersigil_evidence::{
-            EvidenceId, EvidenceKind, PluginProvenance, SourceLocation, TestIdentity, TestKind,
-            VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+            EvidenceId, PluginProvenance, SourceLocation, TestIdentity, TestKind, VerifiableRef,
+            VerificationEvidenceRecord, VerificationTargets,
         };
 
         VerificationEvidenceRecord {
-            id: EvidenceId(0),
+            id: EvidenceId::new(0),
             targets: VerificationTargets::single(VerifiableRef {
                 doc_id: doc_id.into(),
                 target_id: target_id.into(),
@@ -275,7 +274,6 @@ mod tests {
                 line: 1,
                 column: 1,
             },
-            evidence_kind: EvidenceKind::RustAttribute,
             provenance: vec![PluginProvenance::RustAttribute {
                 attribute_span: SourceLocation {
                     file: PathBuf::from("tests/test.rs"),

@@ -3,6 +3,7 @@
 //! These tests validate semantic behavior of public types, trait contracts,
 //! and collection integration for the shared evidence layer.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -241,7 +242,7 @@ fn verification_evidence_record_construction() {
     });
 
     let record = VerificationEvidenceRecord {
-        id: EvidenceId(0),
+        id: EvidenceId::new(0),
         targets: VerificationTargets::new(targets.clone()).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/auth.rs"),
@@ -253,7 +254,6 @@ fn verification_evidence_record_construction() {
             line: 10,
             column: 1,
         },
-        evidence_kind: EvidenceKind::Tag,
         provenance: vec![PluginProvenance::VerifiedByTag {
             doc_id: "prop/auth".into(),
             tag: "prop:auth".into(),
@@ -261,10 +261,10 @@ fn verification_evidence_record_construction() {
         metadata: BTreeMap::new(),
     };
 
-    assert_eq!(record.id, EvidenceId(0));
+    assert_eq!(record.id, EvidenceId::new(0));
     assert_eq!(record.targets, targets);
     assert_eq!(record.test.name, "test_login");
-    assert_eq!(record.evidence_kind, EvidenceKind::Tag);
+    assert_eq!(record.kind(), Some(EvidenceKind::Tag));
     assert_eq!(record.provenance.len(), 1);
     assert!(record.metadata.is_empty());
 }
@@ -282,7 +282,7 @@ fn verification_evidence_record_multiple_criteria() {
     });
 
     let record = VerificationEvidenceRecord {
-        id: EvidenceId(1),
+        id: EvidenceId::new(1),
         targets: VerificationTargets::new(targets.clone()).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/auth.rs"),
@@ -294,7 +294,6 @@ fn verification_evidence_record_multiple_criteria() {
             line: 20,
             column: 1,
         },
-        evidence_kind: EvidenceKind::RustAttribute,
         provenance: vec![PluginProvenance::RustAttribute {
             attribute_span: SourceLocation {
                 file: PathBuf::from("tests/auth.rs"),
@@ -320,7 +319,7 @@ fn verification_evidence_record_with_metadata() {
     });
 
     let record = VerificationEvidenceRecord {
-        id: EvidenceId(2),
+        id: EvidenceId::new(2),
         targets: VerificationTargets::new(targets).expect("record target set"),
         test: TestIdentity {
             file: PathBuf::from("tests/snapshots.rs"),
@@ -332,7 +331,6 @@ fn verification_evidence_record_with_metadata() {
             line: 5,
             column: 1,
         },
-        evidence_kind: EvidenceKind::RustAttribute,
         provenance: vec![],
         metadata,
     };
@@ -463,7 +461,7 @@ impl EcosystemPlugin for MockPlugin {
             .iter()
             .enumerate()
             .map(|(i, file)| VerificationEvidenceRecord {
-                id: EvidenceId(i),
+                id: EvidenceId::new(i),
                 targets: VerificationTargets::single(VerifiableRef {
                     doc_id: format!("req/mock-{i}"),
                     target_id: "crit-1".into(),
@@ -478,7 +476,7 @@ impl EcosystemPlugin for MockPlugin {
                     line: 1,
                     column: 1,
                 },
-                evidence_kind: EvidenceKind::Tag,
+
                 provenance: vec![],
                 metadata: BTreeMap::new(),
             })
@@ -516,10 +514,14 @@ impl EcosystemPlugin for PlanningPlugin {
         "planning"
     }
 
-    fn plan_discovery_inputs(&self, test_files: &[PathBuf], scope: &ProjectScope) -> Vec<PathBuf> {
+    fn plan_discovery_inputs<'a>(
+        &self,
+        test_files: &'a [PathBuf],
+        scope: &ProjectScope,
+    ) -> Cow<'a, [PathBuf]> {
         let mut planned_files = test_files.to_vec();
         planned_files.push(scope.project_root.join("shared/support.rs"));
-        planned_files
+        Cow::Owned(planned_files)
     }
 
     fn discover(
@@ -549,16 +551,16 @@ fn ecosystem_plugin_default_plan_discovery_inputs_returns_test_files() {
 
     let planned_files = plugin.plan_discovery_inputs(&test_files, &sample_scope());
 
-    assert_eq!(planned_files, test_files);
+    assert_eq!(&*planned_files, test_files);
 }
 
 #[test]
 fn ecosystem_plugin_trait_object() {
     let plugin: Box<dyn EcosystemPlugin> = Box::new(MockPlugin);
     assert_eq!(plugin.name(), "mock");
-    let planned_files =
-        plugin.plan_discovery_inputs(&[PathBuf::from("tests/auth.rs")], &sample_scope());
-    assert_eq!(planned_files, vec![PathBuf::from("tests/auth.rs")]);
+    let input = [PathBuf::from("tests/auth.rs")];
+    let planned_files = plugin.plan_discovery_inputs(&input, &sample_scope());
+    assert_eq!(&*planned_files, input);
 
     let failing: Box<dyn EcosystemPlugin> = Box::new(FailingPlugin);
     assert_eq!(failing.name(), "failing");
@@ -567,12 +569,12 @@ fn ecosystem_plugin_trait_object() {
 #[test]
 fn ecosystem_plugin_trait_object_dispatches_plan_discovery_inputs_override() {
     let plugin: Box<dyn EcosystemPlugin> = Box::new(PlanningPlugin);
-    let planned_files =
-        plugin.plan_discovery_inputs(&[PathBuf::from("tests/auth.rs")], &sample_scope());
+    let input = [PathBuf::from("tests/auth.rs")];
+    let planned_files = plugin.plan_discovery_inputs(&input, &sample_scope());
 
     assert_eq!(
-        planned_files,
-        vec![
+        &*planned_files,
+        [
             PathBuf::from("tests/auth.rs"),
             PathBuf::from("/workspace/demo/shared/support.rs"),
         ],

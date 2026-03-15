@@ -238,6 +238,7 @@ pub fn warn_plugin_findings(
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::collections::{BTreeMap, HashMap};
 
     use supersigil_core::EcosystemConfig;
@@ -516,7 +517,7 @@ mod tests {
         {
             Ok(supersigil_evidence::PluginDiscoveryResult {
                 evidence: vec![VerificationEvidenceRecord {
-                    id: supersigil_evidence::EvidenceId(0),
+                    id: supersigil_evidence::EvidenceId::new(0),
                     targets: supersigil_evidence::VerificationTargets::single(
                         supersigil_evidence::VerifiableRef {
                             doc_id: "req/mock".into(),
@@ -533,8 +534,10 @@ mod tests {
                         line: 1,
                         column: 1,
                     },
-                    evidence_kind: supersigil_evidence::EvidenceKind::Tag,
-                    provenance: vec![],
+                    provenance: vec![supersigil_evidence::PluginProvenance::VerifiedByTag {
+                        doc_id: "req/mock".into(),
+                        tag: "warning".into(),
+                    }],
                     metadata: BTreeMap::new(),
                 }],
                 diagnostics: vec![supersigil_evidence::PluginDiagnostic::warning(
@@ -596,14 +599,14 @@ mod tests {
                 "planning"
             }
 
-            fn plan_discovery_inputs(
+            fn plan_discovery_inputs<'a>(
                 &self,
-                test_files: &[PathBuf],
+                test_files: &'a [PathBuf],
                 scope: &ProjectScope,
-            ) -> Vec<PathBuf> {
+            ) -> Cow<'a, [PathBuf]> {
                 let mut files = test_files.to_vec();
                 files.push(scope.project_root.join("src/generated.rs"));
-                files
+                Cow::Owned(files)
             }
 
             fn discover(
@@ -620,7 +623,7 @@ mod tests {
                     .clone();
                 Ok(supersigil_evidence::PluginDiscoveryResult {
                     evidence: vec![VerificationEvidenceRecord {
-                        id: supersigil_evidence::EvidenceId(0),
+                        id: supersigil_evidence::EvidenceId::new(0),
                         targets: supersigil_evidence::VerificationTargets::single(
                             supersigil_evidence::VerifiableRef {
                                 doc_id: "req/mock".into(),
@@ -637,8 +640,10 @@ mod tests {
                             line: 1,
                             column: 1,
                         },
-                        evidence_kind: supersigil_evidence::EvidenceKind::Tag,
-                        provenance: vec![],
+                        provenance: vec![supersigil_evidence::PluginProvenance::VerifiedByTag {
+                            doc_id: "req/mock".into(),
+                            tag: "planned".into(),
+                        }],
                         metadata: BTreeMap::new(),
                     }],
                     diagnostics: Vec::new(),

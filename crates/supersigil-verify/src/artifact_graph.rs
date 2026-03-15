@@ -176,7 +176,7 @@ pub fn build_artifact_graph(
 
     // 4. Re-assign sequential EvidenceIds starting from 0.
     for (i, record) in merged_evidence.iter_mut().enumerate() {
-        record.id = EvidenceId(i);
+        record.id = EvidenceId::new(i);
     }
 
     // 5. Build secondary indexes.
@@ -266,11 +266,10 @@ mod tests {
         id: usize,
         test: TestIdentity,
         criteria: BTreeSet<VerifiableRef>,
-        kind: EvidenceKind,
         provenance: Vec<PluginProvenance>,
     ) -> VerificationEvidenceRecord {
         VerificationEvidenceRecord {
-            id: EvidenceId(id),
+            id: EvidenceId::new(id),
             targets: VerificationTargets::new(criteria).expect("test evidence target set"),
             test: test.clone(),
             source_location: SourceLocation {
@@ -278,7 +277,6 @@ mod tests {
                 line: 1,
                 column: 1,
             },
-            evidence_kind: kind,
             provenance,
             metadata: BTreeMap::new(),
         }
@@ -318,7 +316,6 @@ mod tests {
             0,
             shared_test.clone(),
             shared_criteria.clone(),
-            EvidenceKind::Tag,
             vec![PluginProvenance::VerifiedByTag {
                 doc_id: "prop/auth".into(),
                 tag: "prop:auth".into(),
@@ -329,7 +326,6 @@ mod tests {
             1,
             shared_test,
             shared_criteria,
-            EvidenceKind::RustAttribute,
             vec![PluginProvenance::RustAttribute {
                 attribute_span: SourceLocation {
                     file: PathBuf::from("tests/auth_test.rs"),
@@ -393,7 +389,6 @@ mod tests {
             0,
             shared_test.clone(),
             shared_criteria.clone(),
-            EvidenceKind::Tag,
             vec![tag_prov.clone()],
         )];
 
@@ -401,7 +396,6 @@ mod tests {
             1,
             shared_test,
             shared_criteria,
-            EvidenceKind::RustAttribute,
             vec![attr_prov.clone()],
         )];
 
@@ -453,7 +447,6 @@ mod tests {
             0,
             shared_test.clone(),
             criteria_a,
-            EvidenceKind::Tag,
             vec![PluginProvenance::VerifiedByTag {
                 doc_id: "prop/auth".into(),
                 tag: "prop:auth".into(),
@@ -464,7 +457,6 @@ mod tests {
             1,
             shared_test,
             criteria_b,
-            EvidenceKind::RustAttribute,
             vec![PluginProvenance::RustAttribute {
                 attribute_span: SourceLocation {
                     file: PathBuf::from("tests/auth_test.rs"),
@@ -526,7 +518,6 @@ mod tests {
             0,
             test_id("tests/auth_test.rs", "test_login"),
             criteria(&[("req/auth", "crit-1")]),
-            EvidenceKind::Tag,
             vec![PluginProvenance::VerifiedByTag {
                 doc_id: "prop/auth".into(),
                 tag: "prop:auth".into(),
@@ -545,7 +536,7 @@ mod tests {
             "explicit evidence should be present even with empty plugin evidence, got {}",
             ag.evidence.len(),
         );
-        assert_eq!(ag.evidence[0].evidence_kind, EvidenceKind::Tag);
+        assert_eq!(ag.evidence[0].kind(), Some(EvidenceKind::Tag));
     }
 
     // -----------------------------------------------------------------------
@@ -573,7 +564,6 @@ mod tests {
                 0,
                 test_a,
                 criteria(&[("req/auth", "crit-1")]),
-                EvidenceKind::Tag,
                 vec![PluginProvenance::VerifiedByTag {
                     doc_id: "prop/a".into(),
                     tag: "prop:a".into(),
@@ -583,7 +573,6 @@ mod tests {
                 1,
                 test_b,
                 criteria(&[("req/auth", "crit-1"), ("req/auth", "crit-2")]),
-                EvidenceKind::Tag,
                 vec![PluginProvenance::VerifiedByTag {
                     doc_id: "prop/b".into(),
                     tag: "prop:b".into(),
@@ -637,7 +626,6 @@ mod tests {
                 0,
                 test_a.clone(),
                 criteria(&[("req/auth", "crit-1")]),
-                EvidenceKind::Tag,
                 vec![PluginProvenance::VerifiedByTag {
                     doc_id: "prop/a".into(),
                     tag: "prop:a".into(),
@@ -647,7 +635,6 @@ mod tests {
                 1,
                 test_b.clone(),
                 criteria(&[("req/auth", "crit-1")]),
-                EvidenceKind::Tag,
                 vec![PluginProvenance::VerifiedByTag {
                     doc_id: "prop/b".into(),
                     tag: "prop:b".into(),
@@ -740,7 +727,6 @@ mod tests {
             0,
             test_explicit,
             shared_criteria.clone(),
-            EvidenceKind::Tag,
             vec![PluginProvenance::VerifiedByTag {
                 doc_id: "prop/auth".into(),
                 tag: "prop:auth".into(),
@@ -751,7 +737,6 @@ mod tests {
             1,
             test_plugin,
             shared_criteria,
-            EvidenceKind::RustAttribute,
             vec![PluginProvenance::RustAttribute {
                 attribute_span: SourceLocation {
                     file: PathBuf::from("tests/attr_test.rs"),

@@ -3,6 +3,7 @@
 //! Walks Rust source files, parses them with `syn`, and extracts
 //! `verifies` attribute invocations to produce raw evidence records.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -11,9 +12,9 @@ use syn::spanned::Spanned;
 
 use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
-    EcosystemPlugin, EvidenceId, EvidenceKind, PluginDiagnostic, PluginDiscoveryResult,
-    PluginError, PluginErrorDetails, PluginProvenance, ProjectScope, SourceLocation, TestIdentity,
-    TestKind, VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+    EcosystemPlugin, EvidenceId, PluginDiagnostic, PluginDiscoveryResult, PluginError,
+    PluginErrorDetails, PluginProvenance, ProjectScope, SourceLocation, TestIdentity, TestKind,
+    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
 };
 
 const PLUGIN_NAME: &str = "rust";
@@ -29,7 +30,10 @@ const RUST_DISCOVERY_DIRS: [&str; 4] = ["tests", "src", "benches", "examples"];
 // Discovery input planning
 // ---------------------------------------------------------------------------
 
-fn plan_rust_discovery_inputs(test_files: &[PathBuf], project_root: &Path) -> Vec<PathBuf> {
+fn plan_rust_discovery_inputs<'a>(
+    test_files: &'a [PathBuf],
+    project_root: &Path,
+) -> Cow<'a, [PathBuf]> {
     let mut files: BTreeSet<PathBuf> = test_files.iter().cloned().collect();
 
     let roots =
@@ -40,7 +44,7 @@ fn plan_rust_discovery_inputs(test_files: &[PathBuf], project_root: &Path) -> Ve
         }
     }
 
-    files.into_iter().collect()
+    Cow::Owned(files.into_iter().collect())
 }
 
 fn glob_rs_files(dir: &Path, files: &mut BTreeSet<PathBuf>) {
@@ -115,7 +119,11 @@ impl EcosystemPlugin for RustPlugin {
         PLUGIN_NAME
     }
 
-    fn plan_discovery_inputs(&self, test_files: &[PathBuf], scope: &ProjectScope) -> Vec<PathBuf> {
+    fn plan_discovery_inputs<'a>(
+        &self,
+        test_files: &'a [PathBuf],
+        scope: &ProjectScope,
+    ) -> Cow<'a, [PathBuf]> {
         plan_rust_discovery_inputs(test_files, &scope.project_root)
     }
 
@@ -198,7 +206,7 @@ impl DiscoveryAccumulator {
     }
 
     fn alloc_id(&mut self) -> EvidenceId {
-        let id = EvidenceId(self.next_id);
+        let id = EvidenceId::new(self.next_id);
         self.next_id += 1;
         id
     }
@@ -343,7 +351,6 @@ fn build_record(
             kind: test_kind,
         },
         source_location: source_location.clone(),
-        evidence_kind: EvidenceKind::RustAttribute,
         provenance: vec![PluginProvenance::RustAttribute {
             attribute_span: source_location,
         }],
@@ -671,6 +678,7 @@ fn extract_fn_name_from_macro_tokens(tokens: &proc_macro2::TokenStream) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supersigil_evidence::EvidenceKind;
 
     /// Return the path to a fixture file under `tests/fixtures/discover/`.
     fn fixture(name: &str) -> PathBuf {
@@ -703,7 +711,7 @@ mod tests {
         assert_eq!(record.targets, expected_targets);
 
         // Evidence kind (req-6-1)
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
 
         // Source location (req-6-3): the `#[verifies(...)]` attribute is on line 3
         assert_eq!(record.source_location.file, fixture("unit_test.rs"));
@@ -735,7 +743,7 @@ mod tests {
             target_id: "crit-1".to_string(),
         }]);
         assert_eq!(record.targets, expected_targets);
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
         assert_eq!(record.source_location.line, 3);
     }
 
@@ -773,7 +781,7 @@ mod tests {
             target_id: "crit-1".to_string(),
         }]);
         assert_eq!(record.targets, expected_targets);
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
         assert_eq!(record.source_location.line, 3);
 
         assert_eq!(
@@ -802,7 +810,7 @@ mod tests {
             target_id: "crit-1".to_string(),
         }]);
         assert_eq!(record.targets, expected_targets);
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
         assert_eq!(record.source_location.line, 3);
 
         assert_eq!(
@@ -844,7 +852,7 @@ mod tests {
             },
         ]);
         assert_eq!(record.targets, expected_targets);
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
     }
 
     // -----------------------------------------------------------------------
@@ -901,7 +909,7 @@ mod tests {
             target_id: "crit-1".to_string(),
         }]);
         assert_eq!(record.targets, expected_targets);
-        assert_eq!(record.evidence_kind, EvidenceKind::RustAttribute);
+        assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
         assert_eq!(record.source_location.line, 1);
     }
 

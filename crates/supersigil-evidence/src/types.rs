@@ -4,7 +4,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::ops::Deref;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -17,7 +16,15 @@ use crate::provenance::PluginProvenance;
 
 /// Opaque identifier for a single evidence record within an `ArtifactGraph`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct EvidenceId(pub usize);
+pub struct EvidenceId(usize);
+
+impl EvidenceId {
+    /// Create a new evidence identifier.
+    #[must_use]
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SourceLocation
@@ -118,14 +125,6 @@ impl VerificationTargets {
     #[must_use]
     pub fn into_set(self) -> BTreeSet<VerifiableRef> {
         self.0
-    }
-}
-
-impl Deref for VerificationTargets {
-    type Target = BTreeSet<VerifiableRef>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -240,9 +239,16 @@ pub struct VerificationEvidenceRecord {
     pub targets: VerificationTargets,
     pub test: TestIdentity,
     pub source_location: SourceLocation,
-    pub evidence_kind: EvidenceKind,
     pub provenance: Vec<PluginProvenance>,
     pub metadata: BTreeMap<String, String>,
+}
+
+impl VerificationEvidenceRecord {
+    /// Derive the evidence kind from the first provenance entry.
+    #[must_use]
+    pub fn kind(&self) -> Option<EvidenceKind> {
+        self.provenance.first().map(PluginProvenance::kind)
+    }
 }
 
 // ---------------------------------------------------------------------------
