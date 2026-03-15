@@ -204,7 +204,8 @@ command = "python -m pytest {file} -v"
 
 **List examples:**
 ```bash
-supersigil examples                  # All examples
+supersigil examples                  # Scoped to cwd via TrackedFiles
+supersigil examples --all            # All examples (no scoping)
 supersigil examples auth/            # Filter by document ID prefix
 supersigil examples --format json    # Machine-readable output
 ```

@@ -117,6 +117,7 @@ Runs in two phases:
 | `--merge-base` | Use merge-base for git diff |
 | `--skip-examples` | Skip executable example execution |
 | `--update-snapshots` | Update snapshot expectations with actual output |
+| `-j, --parallelism <N>` | Number of examples to run concurrently (overrides config) |
 | `--project <name>`, `-p` | Filter to a project (multi-project mode) |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `markdown` |
 
@@ -214,13 +215,15 @@ supersigil refs --all
 List executable examples with metadata.
 
 ```bash
-supersigil examples
-supersigil examples auth
+supersigil examples                  # Scoped to cwd via TrackedFiles
+supersigil examples --all            # All examples (no scoping)
+supersigil examples auth             # Filter by document ID prefix
 supersigil examples --format json
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--all` | Show all examples (no context scoping) |
 | `--format <fmt>` | Output format: `terminal` (default), `json` |
 
 <Aside>
