@@ -76,17 +76,19 @@ pub fn verify_structural(
     config: &Config,
     project_root: &Path,
     options: &VerifyOptions,
-    _artifact_graph: &ArtifactGraph<'_>,
 ) -> Result<Vec<Finding>, VerifyError> {
     let doc_ids = collect_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
     let test_files = resolve_test_files(config, project_root);
 
+    // Single-pass tag scan (shared by check_tags and check_orphan_tags)
+    let all_tag_matches = scan::scan_all_tags(&test_files);
+
     let mut findings = Vec::new();
 
     // Test mapping
     findings.extend(rules::tests_rule::check_file_globs(&docs, project_root));
-    findings.extend(rules::tests_rule::check_tags(&docs, &test_files));
+    findings.extend(rules::tests_rule::check_tags(&docs, &all_tag_matches));
 
     // Tracked files
     findings.extend(rules::tracked::check_empty_globs(graph, project_root));
@@ -104,7 +106,10 @@ pub fn verify_structural(
     findings.extend(rules::structural::check_required_components(graph, config));
     findings.extend(rules::structural::check_id_pattern(graph, config));
     findings.extend(rules::structural::check_isolated(graph));
-    findings.extend(rules::structural::check_orphan_tags(&docs, &test_files));
+    findings.extend(rules::structural::check_orphan_tags(
+        &docs,
+        &all_tag_matches,
+    ));
     let component_defs = match supersigil_core::ComponentDefs::merge(
         supersigil_core::ComponentDefs::defaults(),
         config.components.clone(),
@@ -135,13 +140,7 @@ pub fn verify_structural(
     // Status
     findings.extend(rules::status::check(graph));
 
-    // Filter to project scope
-    if options.project.is_some() {
-        findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
-    }
-
-    // Attach owning spec paths for doc-backed findings
-    attach_doc_paths(&mut findings, graph);
+    scope_and_annotate(&mut findings, graph, &doc_ids, options.project.is_some());
 
     Ok(findings)
 }
@@ -177,14 +176,15 @@ pub fn verify(
     let doc_ids = collect_doc_ids(graph, options);
 
     // Run structural rules and coverage rules
-    let mut findings = verify_structural(graph, config, project_root, options, artifact_graph)?;
+    let mut findings = verify_structural(graph, config, project_root, options)?;
     let mut coverage_findings = verify_coverage(graph, artifact_graph);
 
-    // Filter coverage findings to project scope and attach doc paths
-    if options.project.is_some() {
-        coverage_findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
-    }
-    attach_doc_paths(&mut coverage_findings, graph);
+    scope_and_annotate(
+        &mut coverage_findings,
+        graph,
+        &doc_ids,
+        options.project.is_some(),
+    );
 
     findings.extend(coverage_findings);
 
@@ -220,6 +220,19 @@ pub fn verify(
     let summary = Summary::from_findings(doc_ids.len(), &findings);
 
     Ok(VerificationReport::new(findings, summary, None))
+}
+
+/// Filter findings to project scope (if enabled) and attach owning spec paths.
+fn scope_and_annotate(
+    findings: &mut Vec<Finding>,
+    graph: &DocumentGraph,
+    doc_ids: &[String],
+    project_filter: bool,
+) {
+    if project_filter {
+        findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
+    }
+    attach_doc_paths(findings, graph);
 }
 
 fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
@@ -662,9 +675,7 @@ mod verify_tests {
         let graph = build_test_graph(docs);
         let config = test_config();
         let options = VerifyOptions::default();
-        let ag = ArtifactGraph::empty(&graph);
-        let findings =
-            verify_structural(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        let findings = verify_structural(&graph, &config, Path::new("/tmp"), &options).unwrap();
         assert!(
             !findings
                 .iter()

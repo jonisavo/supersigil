@@ -11,15 +11,7 @@ pub fn check_empty_globs(graph: &DocumentGraph, project_root: &Path) -> Vec<Find
 
     for (doc_id, globs) in graph.all_tracked_files() {
         for glob_pattern in globs {
-            let full_pattern = project_root
-                .join(glob_pattern)
-                .to_string_lossy()
-                .to_string();
-            let match_count = glob::glob(&full_pattern)
-                .map(|paths| paths.filter_map(Result::ok).count())
-                .unwrap_or(0);
-
-            if match_count == 0 {
+            if crate::expand_glob(glob_pattern, project_root).is_empty() {
                 findings.push(Finding::new(
                     RuleName::EmptyTrackedGlob,
                     Some(doc_id.to_owned()),

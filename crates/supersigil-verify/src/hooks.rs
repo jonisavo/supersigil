@@ -114,11 +114,18 @@ fn run_single_hook(cmd: &str, report_json: &str, timeout_seconds: u64) -> Vec<Fi
 
 /// Send SIGKILL to a process by PID. Best-effort; errors are ignored.
 fn kill_process(pid: u32) {
-    let _ = Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    #[cfg(unix)]
+    {
+        // SAFETY: sending a signal to a known process. If the process has
+        // already exited, the signal is harmlessly ignored (ESRCH).
+        unsafe {
+            libc::kill(pid.cast_signed(), libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+    }
 }
 
 /// Process completed hook output into findings.

@@ -1,11 +1,10 @@
-use std::path::PathBuf;
-
 use supersigil_core::{
     ComponentDefs, Config, DocumentGraph, EXAMPLE, EXPECTED, SpecDocument, VERIFIED_BY,
 };
 
 use crate::report::{Finding, RuleName};
 use crate::rules::{find_components, has_component};
+use crate::scan::TagMatch;
 
 // ---------------------------------------------------------------------------
 // check_required_components
@@ -125,26 +124,26 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
 // check_orphan_tags
 // ---------------------------------------------------------------------------
 
-/// Scan test files for supersigil tags not declared in any `VerifiedBy` component.
-pub fn check_orphan_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<Finding> {
-    let all_matches = crate::scan::scan_all_tags(test_files);
-
+/// Check pre-scanned tag matches for tags not declared in any `VerifiedBy` component.
+///
+/// `tag_matches` should be pre-computed via [`crate::scan::scan_all_tags`].
+pub fn check_orphan_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Vec<Finding> {
     // Collect declared tags from VerifiedBy components
-    let mut declared_tags = std::collections::HashSet::new();
+    let mut declared_tags: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for doc in docs {
         for vb in find_components(&doc.components, VERIFIED_BY) {
             if vb.attributes.get("strategy").map(String::as_str) == Some("tag")
                 && let Some(tag) = vb.attributes.get("tag")
             {
-                declared_tags.insert(tag.clone());
+                declared_tags.insert(tag.as_str());
             }
         }
     }
 
     let mut findings = Vec::new();
-    let mut seen_orphans = std::collections::HashSet::new();
-    for m in &all_matches {
-        if !declared_tags.contains(&m.tag) && seen_orphans.insert(m.tag.clone()) {
+    let mut seen_orphans: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for m in tag_matches {
+        if !declared_tags.contains(m.tag.as_str()) && seen_orphans.insert(m.tag.as_str()) {
             findings.push(Finding::new(
                 RuleName::OrphanTestTag,
                 None,
@@ -572,11 +571,15 @@ fn check_contiguity(doc_id: &str, prefix: &str, keys: &[NumericKey], findings: &
     // Mixed one-level and two-level in same prefix group: skip (unusual).
 }
 
-fn check_single_level_contiguity(
+/// Shared gap-detection logic for sequential ID contiguity checking.
+///
+/// Sorts and deduplicates `values`, then checks that every integer from 1 to
+/// max is present. For each missing value, calls `format_id` to produce the
+/// human-readable ID string for the gap message.
+fn check_level_contiguity(
     doc_id: &str,
-    prefix: &str,
     values: &[u32],
-    is_outer_level: bool,
+    format_id: impl Fn(u32) -> String,
     findings: &mut Vec<Finding>,
 ) {
     if values.is_empty() {
@@ -589,38 +592,17 @@ fn check_single_level_contiguity(
     let max = *sorted.last().unwrap();
     for expected in 1..=max {
         if sorted.binary_search(&expected).is_err() {
-            let missing_id = if is_outer_level {
-                // For outer-level gaps, we just say the N-group is missing.
-                format!("{prefix}-{expected}-*")
-            } else {
-                format!("{prefix}-{expected}")
-            };
+            let missing_id = format_id(expected);
 
-            // Determine context.
             let msg = if expected == 1 {
-                // Leading gap: reference the first present ID.
-                let first_present = if is_outer_level {
-                    format!("{prefix}-{}-*", sorted[0])
-                } else {
-                    format!("{prefix}-{}", sorted[0])
-                };
+                let first_present = format_id(sorted[0]);
                 format!(
                     "gap in sequence: `{missing_id}` is missing (sequence starts at `{first_present}` in document `{doc_id}`)"
                 )
             } else {
-                // Mid/trailing gap: reference predecessor and successor if available.
-                let pred = expected - 1;
-                let pred_id = if is_outer_level {
-                    format!("{prefix}-{pred}-*")
-                } else {
-                    format!("{prefix}-{pred}")
-                };
+                let pred_id = format_id(expected - 1);
                 if let Some(&succ) = sorted.iter().find(|&&v| v > expected) {
-                    let succ_id = if is_outer_level {
-                        format!("{prefix}-{succ}-*")
-                    } else {
-                        format!("{prefix}-{succ}")
-                    };
+                    let succ_id = format_id(succ);
                     format!(
                         "gap in sequence: `{missing_id}` is missing (between `{pred_id}` and `{succ_id}` in document `{doc_id}`)"
                     )
@@ -640,6 +622,27 @@ fn check_single_level_contiguity(
     }
 }
 
+fn check_single_level_contiguity(
+    doc_id: &str,
+    prefix: &str,
+    values: &[u32],
+    is_outer_level: bool,
+    findings: &mut Vec<Finding>,
+) {
+    check_level_contiguity(
+        doc_id,
+        values,
+        |v| {
+            if is_outer_level {
+                format!("{prefix}-{v}-*")
+            } else {
+                format!("{prefix}-{v}")
+            }
+        },
+        findings,
+    );
+}
+
 fn check_two_level_m_contiguity(
     doc_id: &str,
     prefix: &str,
@@ -647,45 +650,7 @@ fn check_two_level_m_contiguity(
     m_values: &[u32],
     findings: &mut Vec<Finding>,
 ) {
-    if m_values.is_empty() {
-        return;
-    }
-    let mut sorted: Vec<u32> = m_values.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-
-    let max = *sorted.last().unwrap();
-    for expected in 1..=max {
-        if sorted.binary_search(&expected).is_err() {
-            let missing_id = format!("{prefix}-{n}-{expected}");
-
-            let msg = if expected == 1 {
-                let first_present = format!("{prefix}-{n}-{}", sorted[0]);
-                format!(
-                    "gap in sequence: `{missing_id}` is missing (sequence starts at `{first_present}` in document `{doc_id}`)"
-                )
-            } else {
-                let pred = expected - 1;
-                let pred_id = format!("{prefix}-{n}-{pred}");
-                if let Some(&succ) = sorted.iter().find(|&&v| v > expected) {
-                    let succ_id = format!("{prefix}-{n}-{succ}");
-                    format!(
-                        "gap in sequence: `{missing_id}` is missing (between `{pred_id}` and `{succ_id}` in document `{doc_id}`)"
-                    )
-                } else {
-                    format!(
-                        "gap in sequence: `{missing_id}` is missing (after `{pred_id}` in document `{doc_id}`)"
-                    )
-                }
-            };
-            findings.push(Finding::new(
-                RuleName::SequentialIdGap,
-                Some(doc_id.to_owned()),
-                msg,
-                None,
-            ));
-        }
-    }
+    check_level_contiguity(doc_id, m_values, |m| format!("{prefix}-{n}-{m}"), findings);
 }
 
 fn is_referenceable(name: &str) -> bool {
@@ -847,8 +812,9 @@ mod tests {
             vec![make_verified_by_tag("prop:real-tag", 5)],
         )];
         let test_files = vec![dir.path().join("test.rs")];
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
         let doc_refs: Vec<&_> = docs.iter().collect();
-        let findings = check_orphan_tags(&doc_refs, &test_files);
+        let findings = check_orphan_tags(&doc_refs, &tag_matches);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule, RuleName::OrphanTestTag);
         assert!(findings[0].message.contains("prop:orphaned-tag"));
@@ -863,8 +829,9 @@ mod tests {
             vec![make_verified_by_tag("prop:real-tag", 5)],
         )];
         let test_files = vec![dir.path().join("test.rs")];
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
         let doc_refs: Vec<&_> = docs.iter().collect();
-        let findings = check_orphan_tags(&doc_refs, &test_files);
+        let findings = check_orphan_tags(&doc_refs, &tag_matches);
         assert!(findings.is_empty());
     }
 

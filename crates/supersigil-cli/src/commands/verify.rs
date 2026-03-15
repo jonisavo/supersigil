@@ -150,13 +150,8 @@ pub fn run(
     let (artifact_graph, mut plugin_findings) =
         plugins::build_evidence(&config, &graph, project_root, options.project.as_deref());
 
-    let mut structural_findings = supersigil_verify::verify_structural(
-        &graph,
-        &config,
-        project_root,
-        &options,
-        &artifact_graph,
-    )?;
+    let mut structural_findings =
+        supersigil_verify::verify_structural(&graph, &config, project_root, &options)?;
 
     resolve_finding_severities(&mut structural_findings, &graph, &config);
 

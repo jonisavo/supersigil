@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use supersigil_core::{SpecDocument, split_list_attribute};
 
 use crate::report::{Finding, RuleName};
 use crate::rules::find_criterion_nested_verified_by;
-use crate::scan::scan_for_tag;
+use crate::scan::TagMatch;
 
 // ---------------------------------------------------------------------------
 // check_file_globs
@@ -44,12 +44,7 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
             };
 
             for path in &paths {
-                let pattern = project_root.join(path).to_string_lossy().to_string();
-                let matches = glob::glob(&pattern)
-                    .map(|entries| entries.filter_map(Result::ok).count())
-                    .unwrap_or(0);
-
-                if matches == 0 {
+                if crate::expand_glob(path, project_root).is_empty() {
                     findings.push(Finding::new(
                         RuleName::MissingTestFiles,
                         Some(doc_id.clone()),
@@ -70,12 +65,18 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
 // check_tags
 // ---------------------------------------------------------------------------
 
-/// For each `VerifiedBy` with `strategy="tag"`, use the scanner to find
-/// matches. Emit `ZeroTagMatches` for zero matches.
+/// For each `VerifiedBy` with `strategy="tag"`, check the pre-scanned tag
+/// matches for a hit. Emit `ZeroTagMatches` for zero matches.
+///
+/// `tag_matches` should be pre-computed via [`crate::scan::scan_all_tags`] to
+/// avoid redundant per-tag file scanning.
 ///
 /// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
 /// placement is caught by `check_verified_by_placement` in `structural.rs`.
-pub fn check_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<Finding> {
+pub fn check_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Vec<Finding> {
+    let known_tags: std::collections::HashSet<&str> =
+        tag_matches.iter().map(|m| m.tag.as_str()).collect();
+
     let mut findings = Vec::new();
 
     for doc in docs {
@@ -98,8 +99,7 @@ pub fn check_tags(docs: &[&SpecDocument], test_files: &[PathBuf]) -> Vec<Finding
                 continue;
             };
 
-            let matches = scan_for_tag(tag, test_files);
-            if matches.is_empty() {
+            if !known_tags.contains(tag.as_str()) {
                 findings.push(Finding::new(
                     RuleName::ZeroTagMatches,
                     Some(doc_id.clone()),
@@ -208,8 +208,9 @@ mod tests {
             )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
         let doc_refs: Vec<&_> = docs.iter().collect();
-        let findings = check_tags(&doc_refs, &test_files);
+        let findings = check_tags(&doc_refs, &tag_matches);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule, RuleName::ZeroTagMatches);
     }
@@ -235,8 +236,9 @@ mod tests {
             )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
         let doc_refs: Vec<&_> = docs.iter().collect();
-        let findings = check_tags(&doc_refs, &test_files);
+        let findings = check_tags(&doc_refs, &tag_matches);
         assert!(findings.is_empty());
     }
 
@@ -285,8 +287,9 @@ mod tests {
             )],
         )];
         let test_files = vec![dir.path().join("tests/test.rs")];
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
         let doc_refs: Vec<&_> = docs.iter().collect();
-        let findings = check_tags(&doc_refs, &test_files);
+        let findings = check_tags(&doc_refs, &tag_matches);
         assert!(findings.is_empty());
     }
 }
