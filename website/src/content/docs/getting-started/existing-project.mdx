@@ -49,13 +49,11 @@ Start small. Pick one module you understand well, write a single requirements sp
      <Criterion id="valid-creds">
        WHEN a user submits valid credentials
        THE SYSTEM SHALL issue a session token.
-       <VerifiedBy strategy="tag" tag="auth:valid-creds" />
      </Criterion>
 
      <Criterion id="invalid-creds">
        WHEN a user submits invalid credentials
        THE SYSTEM SHALL return a 401 response.
-       <VerifiedBy strategy="tag" tag="auth:invalid-creds" />
      </Criterion>
    </AcceptanceCriteria>
 
@@ -64,13 +62,14 @@ Start small. Pick one module you understand well, write a single requirements sp
 
    Write criteria for behavior that is already implemented and tested. You are documenting reality, not specifying new work.
 
-3. **Tag your existing tests**
+3. **Annotate your existing tests**
 
-   Add tag comments to the tests that prove each criterion:
+   Add `#[verifies]` annotations to the tests that prove each criterion (the Rust ecosystem plugin is enabled by default):
 
    ```rust title="tests/auth/login_test.rs"
-   // supersigil: auth:valid-creds
+   use supersigil_rust::verifies;
 
+   #[verifies("auth/req#valid-creds")]
    #[test]
    fn login_returns_session_token() {
        // your existing test
@@ -78,15 +77,16 @@ Start small. Pick one module you understand well, write a single requirements sp
    ```
 
    ```rust title="tests/auth/login_failure_test.rs"
-   // supersigil: auth:invalid-creds
+   use supersigil_rust::verifies;
 
+   #[verifies("auth/req#invalid-creds")]
    #[test]
    fn login_rejects_bad_password() {
        // your existing test
    }
    ```
 
-   Tags are lightweight — a comment is all it takes. No test code changes, no new dependencies.
+   The annotation is a no-op at runtime — it just marks the test as evidence. Add `supersigil-rust` as a dev-dependency to your crate.
 
 4. **Run verify and confirm it passes**
 
@@ -118,7 +118,7 @@ Once the first module works:
 - **Keep new specs in `draft`** until evidence is wired up. This prevents verify from blocking CI on work-in-progress specs.
 
 <Aside type="tip">
-  If you use the Rust ecosystem plugin, you can skip manual tags entirely and use `#[verifies("auth/req#valid-creds")]` attributes on your tests instead. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for details.
+  For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in your criteria and add `// supersigil: auth:valid-creds` comments in test files instead. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for all options.
 </Aside>
 
 ## CI integration

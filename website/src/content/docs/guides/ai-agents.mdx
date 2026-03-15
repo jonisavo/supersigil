@@ -24,17 +24,18 @@ Supersigil addresses all three by giving agents a queryable graph of specificati
 
 The integration is CLI-based. Agents shell out to `supersigil` commands with `--format json` and parse the structured output. There is no SDK, no library API -- just a binary that returns JSON on stdout.
 
-```python
-import subprocess
-import json
+```bash
+# Load context for a document as JSON
+supersigil context auth/req --format json
 
-def supersigil(args: list[str]) -> dict:
-    result = subprocess.run(
-        ["supersigil"] + args + ["--format", "json"],
-        capture_output=True, text=True
-    )
-    return json.loads(result.stdout)
+# Extract just the criterion IDs with jq
+supersigil context auth/req --format json | jq '.criteria[].id'
+
+# Check verification status
+supersigil verify --format json | jq '.summary'
 ```
+
+Any agent that can run shell commands and read JSON can integrate with Supersigil. The agent skills (installed via `supersigil init`) teach agents the full workflow.
 
 ## Agent Skills
 

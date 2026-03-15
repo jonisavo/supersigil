@@ -59,13 +59,11 @@ on success and rejects invalid credentials.
   <Criterion id="valid-creds">
     WHEN a user submits valid credentials
     THE SYSTEM SHALL issue a session token.
-    <VerifiedBy strategy="tag" tag="auth:valid-creds" />
   </Criterion>
 
   <Criterion id="invalid-creds">
     WHEN a user submits invalid credentials
     THE SYSTEM SHALL return a 401 error.
-    <VerifiedBy strategy="tag" tag="auth:invalid-creds" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -77,7 +75,7 @@ A few things to note about the structure:
 - **Front matter** uses the `supersigil:` key with `id`, `type`, and `status`. The built-in document types are `requirements`, `design`, and `tasks`.
 - **`<AcceptanceCriteria>`** groups one or more `<Criterion>` components. It has no attributes of its own.
 - **`<Criterion>`** defines a single verifiable criterion with a unique `id`. Other documents and tools reference criteria using the fragment syntax `doc-id#criterion-id` (e.g. `auth/req#valid-creds`).
-- **`<VerifiedBy>`** is nested inside a `<Criterion>` to declare how that criterion is verified. The `strategy="tag"` approach searches test files for a `// supersigil: <tag>` comment. The `strategy="file-glob"` approach matches test files by path pattern.
+- **`<VerifiedBy>`** can be nested inside a `<Criterion>` to declare explicit evidence using `strategy="tag"` (comment tags) or `strategy="file-glob"` (path patterns). For Rust projects, the ecosystem plugin discovers `#[verifies("doc#criterion")]` annotations automatically, so `<VerifiedBy>` is often unnecessary.
 - **`<TrackedFiles>`** declares source file globs that this spec cares about. When those files change, `supersigil verify --since <ref>` flags the spec as stale.
 
 <Aside type="note">
@@ -109,13 +107,14 @@ hint: 2 finding(s) downgraded to info because their documents have status: draft
 
 The 2 suppressed findings are `missing_verification_evidence` for each criterion -- no tests match the declared tags yet. Once you move the status out of `draft`, these become real errors.
 
-## Step 4: Tag your tests
+## Step 4: Annotate your tests
 
-In your test files, add a tag comment so Supersigil can discover them. The tag must match the `tag` attribute in the corresponding `<VerifiedBy>` component.
+Add `#[verifies]` annotations to the tests that prove each criterion. The Rust ecosystem plugin (enabled by default) discovers these automatically.
 
 ```rust title="tests/auth/login_test.rs"
-// supersigil: auth:valid-creds
+use supersigil_rust::verifies;
 
+#[verifies("auth/req#valid-creds")]
 #[test]
 fn login_with_valid_credentials_returns_token() {
     let result = login("alice", "correct-password");
@@ -124,8 +123,9 @@ fn login_with_valid_credentials_returns_token() {
 ```
 
 ```rust title="tests/auth/login_failure_test.rs"
-// supersigil: auth:invalid-creds
+use supersigil_rust::verifies;
 
+#[verifies("auth/req#invalid-creds")]
 #[test]
 fn login_with_wrong_password_returns_401() {
     let result = login("alice", "wrong-password");
@@ -133,13 +133,12 @@ fn login_with_wrong_password_returns_401() {
 }
 ```
 
-The comment format is `// supersigil: <tag>` (also recognized with `#`, `///`, `--`, and `/* */` comment styles for other languages).
+Add `supersigil-rust` as a dev-dependency to your crate. The annotation is a no-op at runtime.
 
 <Aside type="tip">
-  For Rust projects, there is also an ecosystem plugin that uses the
-  `#[verifies("doc-id#criterion-id")]` attribute macro on test functions.
-  This provides structured evidence without tag comments. See the
-  [Evidence Sources](/supersigil/concepts/evidence-sources/) page for details.
+  For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in
+  your criteria and add `// supersigil: auth:valid-creds` comments in test files instead.
+  See the [Evidence Sources](/supersigil/concepts/evidence-sources/) page for all options.
 </Aside>
 
 ## Step 5: Create a design document

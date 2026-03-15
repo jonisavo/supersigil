@@ -15,8 +15,7 @@ Executable Examples turn code samples in your specs into tests. Instead of docum
 
 ```mermaid
 graph LR
-  P["Property"] -- "Validates" --> C["Criterion"]
-  C -- "VerifiedBy" --> T["Test"]
+  C["Criterion"] -- "VerifiedBy" --> T["Test"]
   E["Example"] -- "Execution" --> R["Pass / Fail"]
   R -- "Coverage evidence" --> C
 ```

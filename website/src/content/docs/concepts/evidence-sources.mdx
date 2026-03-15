@@ -23,14 +23,33 @@ The built-in evidence paths are:
 
 | Source | Best for | Strength |
 |--------|----------|----------|
-| `<VerifiedBy strategy="tag">` | Existing test suites | Explicit mapping with very low setup cost |
+| Ecosystem plugins | Rust projects (and future language integrations) | Structured discovery from the code itself |
+| `<VerifiedBy strategy="tag">` | Existing test suites in any language | Explicit mapping with very low setup cost |
 | `<VerifiedBy strategy="file-glob">` | Broad file-level coverage | Fastest way to connect criteria to known test locations |
 | `<Example verifies="...">` | API flows, CLI sessions, runnable docs | Documentation that doubles as evidence |
-| Ecosystem plugins | Language-aware integrations | Structured discovery from the code itself |
+
+## Ecosystem Plugins
+
+Plugins let Supersigil discover evidence directly from the code itself. The
+Rust plugin is enabled by default and discovers `#[verifies]` annotations:
+
+```rust
+use supersigil_rust::verifies;
+
+#[verifies("auth/req#valid-creds")]
+#[test]
+fn login_with_valid_credentials_returns_token() {
+    // ...
+}
+```
+
+The plugin parses test code and emits evidence records automatically. No
+`<VerifiedBy>` component is needed in the spec — the annotation on the test
+is sufficient.
 
 ## Tag-Based Evidence
 
-Tags are the default bridge from criteria to tests:
+For non-Rust projects, tags are a portable bridge from criteria to tests:
 
 ```mdx
 <Criterion id="valid-creds">
@@ -51,8 +70,8 @@ fn login_with_valid_credentials_returns_token() {
 }
 ```
 
-Tag mappings are explicit and portable. They work well when you want a
-criterion-level contract without changing the structure of your existing tests.
+Tag comments are recognized with `//`, `#`, `///`, `--`, and `/* */` comment
+styles, so they work across languages.
 
 ## File-Glob Evidence
 
@@ -93,29 +112,12 @@ Passing examples count as evidence during `supersigil verify`, so the same
 system that checks structural integrity can also run and validate the workflow
 you are documenting.
 
-## Ecosystem Plugins
-
-Plugins let Supersigil discover evidence directly from a language or framework.
-Today the main built-in example is the Rust plugin:
-
-```rust
-#[verifies("auth/req#valid-creds")]
-#[test]
-fn login_with_valid_credentials_returns_token() {
-    // ...
-}
-```
-
-The plugin parses test code and emits evidence records automatically. This is
-stronger than comment tags when your stack can support richer, structured
-integration.
-
 ## Choosing the Right Source
 
-- Start with **tags** when you want explicit criterion-to-test mapping quickly.
+- Use **plugins** for Rust projects — structured discovery with no manual linking.
+- Use **tags** for non-Rust projects that want explicit criterion-to-test mapping.
 - Use **file globs** when you only need coarse evidence and the test location is stable.
 - Use **executable examples** when the docs themselves should be runnable proof.
-- Use **plugins** when you want deeper language-aware discovery with less manual linking.
 
 ## Related Reading
 

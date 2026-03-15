@@ -70,7 +70,6 @@ supersigil --version
      <Criterion id="valid-creds">
        WHEN a user submits valid credentials
        THE SYSTEM SHALL issue a session token.
-       <VerifiedBy strategy="tag" tag="auth:valid-creds" />
      </Criterion>
    </AcceptanceCriteria>
 
@@ -97,11 +96,12 @@ supersigil --version
 
 4. **Add evidence and watch it go green**
 
-   Add a matching tag comment in a test file:
+   Add a `#[verifies]` annotation to a test (the Rust ecosystem plugin is enabled by default):
 
    ```rust title="tests/auth/login_test.rs"
-   // supersigil: auth:valid-creds
+   use supersigil_rust::verifies;
 
+   #[verifies("auth/req#valid-creds")]
    #[test]
    fn login_with_valid_credentials_returns_token() {
        let result = login("alice", "correct-password");
