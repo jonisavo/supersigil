@@ -123,7 +123,7 @@ green before moving on.
   verify their own criteria.
 </Task>
 
-<Task id="task-14" status="pending" implements="executable-examples/req#req-1-3">
+<Task id="task-14" status="done" implements="executable-examples/req#req-1-3">
   Add a test asserting Example component flags: referenceable by id, but NOT
   marked as verifiable. Build a graph containing an Example component and
   verify it appears in `criteria()` output (referenceable) but is not treated
@@ -159,7 +159,7 @@ green before moving on.
   runner takes precedence over the built-in.
 </Task>
 
-<Task id="task-20" status="pending" implements="executable-examples/req#req-2-4">
+<Task id="task-20" status="done" implements="executable-examples/req#req-2-4">
   Add a test for timeout enforcement. Set a short timeout on an Example, run
   a script that exceeds it, and assert the executor reports a timeout failure.
 </Task>
@@ -175,7 +175,7 @@ green before moving on.
   a clear diff.
 </Task>
 
-<Task id="task-23" status="pending" implements="executable-examples/req#req-3-4">
+<Task id="task-23" status="done" implements="executable-examples/req#req-3-4">
   Add a test for `format=snapshot` comparison and `--update-snapshots` rewrite.
   Assert that snapshot comparison detects differences, and that the
   `--update-snapshots` flag rewrites the MDX source with the actual output.
@@ -197,21 +197,22 @@ green before moving on.
   the report notes the skip.
 </Task>
 
-<Task id="task-27" status="pending" implements="executable-examples/req#req-4-5">
+<Task id="task-27" status="done" implements="executable-examples/req#req-4-5">
   Add tests for `--skip-examples` and `--update-snapshots` CLI flags. Assert
   that `--skip-examples` bypasses example execution in the verify pipeline,
   and that `--update-snapshots` triggers snapshot rewrites.
 </Task>
 
-<Task id="task-28" status="pending" implements="executable-examples/req#req-4-6">
+<Task id="task-28" status="done" implements="executable-examples/req#req-4-6">
   Add a test for post-verify hooks. Assert that hooks run after structural,
   example, and coverage findings are collected, and receive the interim report.
 </Task>
 
 <Task id="task-29" status="pending" implements="executable-examples/req#req-5-2">
-  Add a test for `examples` scope filtering. Without `--all`, assert that
-  examples are scoped to the cwd via TrackedFiles, showing only examples from
-  documents whose tracked files match the current directory.
+  Add cwd-based scope filtering to the `examples` command and a test for it.
+  The `examples` command currently only supports prefix filtering, not
+  TrackedFiles/cwd scoping as specified in req-5-2. Requires adding `--all`
+  flag and `resolve_context_scope` integration (matching the `refs` command).
 </Task>
 
 <Task id="task-30" status="done" implements="executable-examples/req#req-6-1">

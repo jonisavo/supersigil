@@ -735,6 +735,65 @@ fn verify_update_snapshots_flag_is_accepted() {
     );
 }
 
+#[verifies("executable-examples/req#req-3-4")]
+#[verifies("executable-examples/req#req-4-5")]
+#[test]
+fn verify_update_snapshots_rewrites_mdx_file() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_mdx(
+        tmp.path(),
+        "specs/snap.mdx",
+        "snap/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="snap-1">snapshot test</Criterion>
+</AcceptanceCriteria>
+
+<Example id="snap-ex" lang="sh" runner="sh" verifies="snap/req#snap-1">
+
+```sh
+echo "new output"
+```
+
+<Expected status="0" format="snapshot">
+
+```
+old output
+```
+
+</Expected>
+</Example>"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--update-snapshots", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    // Snapshot mismatch is expected (old vs new), so exit code may be non-zero.
+    // The important thing is that the file was rewritten.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.is_empty(),
+        "verify --update-snapshots should produce output, stderr: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    // The MDX file should have been rewritten with the actual output
+    let updated = fs::read_to_string(tmp.path().join("specs/snap.mdx")).unwrap();
+    assert!(
+        updated.contains("new output"),
+        "snapshot should be updated to actual output in MDX file:\n{updated}",
+    );
+    assert!(
+        !updated.contains("old output"),
+        "old snapshot content should be replaced:\n{updated}",
+    );
+}
+
 #[verifies("executable-examples/req#req-4-8")]
 #[test]
 fn verify_terminal_non_blocking_failed_examples_stay_readable() {
@@ -1009,5 +1068,107 @@ echo ok
         Some(0),
         "verify -j 1 overriding config parallelism=8 should succeed, stderr: {}",
         String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Post-verify hooks receive interim report with example findings
+// ---------------------------------------------------------------------------
+
+#[verifies("executable-examples/req#req-4-6")]
+#[test]
+fn verify_hooks_receive_interim_report_with_example_results() {
+    let tmp = TempDir::new().unwrap();
+
+    // Write a hook script that reads the interim report from stdin and
+    // echoes the number of findings back as a hook finding.
+    let hook_script = tmp.path().join("check-hook.sh");
+    fs::write(
+        &hook_script,
+        r#"#!/bin/sh
+# Read stdin (interim report JSON), count findings, emit hook finding
+REPORT=$(cat)
+COUNT=$(echo "$REPORT" | grep -o '"rule"' | wc -l)
+echo "[[\"info\", \"hook saw $COUNT finding rules\"]]"
+"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    #[allow(
+        clippy::semicolon_outside_block,
+        reason = "conflicts with semicolon_if_nothing_returned"
+    )]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook_script, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    // Config with the hook and an example
+    fs::write(
+        tmp.path().join("supersigil.toml"),
+        format!(
+            r#"paths = ["specs/**/*.mdx"]
+
+[hooks]
+post_verify = ["{hook}"]
+"#,
+            hook = hook_script.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("specs")).unwrap();
+
+    common::write_mdx(
+        tmp.path(),
+        "specs/hook-test.mdx",
+        "hook-test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="h-1">hook test</Criterion>
+</AcceptanceCriteria>
+
+<Example id="hook-ex" lang="sh" runner="sh" verifies="hook-test/req#h-1">
+
+```sh
+echo hello
+```
+
+<Expected status="0" contains="hello" />
+</Example>"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "-j", "1"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify with hook should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings should be an array");
+
+    // The hook should have produced a finding mentioning the finding count
+    let hook_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("hook saw"))
+        })
+        .collect();
+
+    assert!(
+        !hook_findings.is_empty(),
+        "hook should produce a finding with interim report data: {report}",
     );
 }

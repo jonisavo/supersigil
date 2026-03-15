@@ -87,6 +87,10 @@ fn for_each_criterion(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use supersigil_core::ExtractedComponent;
+
     use super::*;
     use crate::test_helpers::*;
 
@@ -126,6 +130,39 @@ mod tests {
         let findings = check(&graph, &ag);
         assert_eq!(findings.len(), 1, "References should not satisfy coverage");
         assert_eq!(findings[0].rule, RuleName::MissingVerificationEvidence);
+    }
+
+    #[test]
+    fn example_component_does_not_satisfy_coverage() {
+        // An Example component is referenceable but NOT verifiable,
+        // so its presence alongside an uncovered Criterion must not
+        // accidentally satisfy coverage.
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![
+                make_acceptance_criteria(vec![make_criterion("req-1", 10)], 9),
+                ExtractedComponent {
+                    name: "Example".into(),
+                    attributes: HashMap::from([
+                        ("id".into(), "ex-1".into()),
+                        ("runner".into(), "sh".into()),
+                    ]),
+                    children: vec![],
+                    body_text: None,
+                    code_blocks: vec![],
+                    position: pos(20),
+                },
+            ],
+        )];
+        let graph = build_test_graph(docs);
+        let ag = ArtifactGraph::empty(&graph);
+        let findings = check(&graph, &ag);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Example should NOT satisfy coverage for req-1: {findings:?}",
+        );
+        assert!(findings[0].message.contains("req-1"));
     }
 
     #[test]
