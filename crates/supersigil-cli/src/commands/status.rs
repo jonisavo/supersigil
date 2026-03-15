@@ -211,7 +211,7 @@ fn write_project_terminal(
         format::hint(
             color,
             &format!(
-                "{} criteria covered only by examples (not yet executed). \
+                "{} criteria covered only by examples (not executed here). \
                  Run `supersigil verify` to confirm.",
                 status.targets_example_pending,
             ),
