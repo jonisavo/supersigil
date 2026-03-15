@@ -184,12 +184,21 @@ fn run_subprocess_with_timeout(
     env: &[(String, String)],
     timeout: Duration,
 ) -> Result<RunnerOutput, RunError> {
-    let child = std::process::Command::new("sh")
-        .args(["-c", command])
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", command])
         .current_dir(dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+
+    // Create a new process group so timeout kills reach all descendants.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0)
+    };
+
+    let child = cmd
         .spawn()
         .map_err(|e| RunError::Other(format!("failed to spawn: {e}")))?;
 
@@ -231,14 +240,16 @@ fn run_with_timeout(
     })
 }
 
-/// Kill a process by PID. On Unix, sends SIGKILL.
+/// Kill a process group by PID. On Unix, sends SIGKILL to the negated PID
+/// (the process group). This kills the process and all its descendants.
 fn kill_process(pid: u32) {
     #[cfg(unix)]
     {
-        // SAFETY: sending a signal to a known PID. If the process has already
-        // exited, the signal is harmlessly ignored (ESRCH).
+        // SAFETY: sending a signal to a known process group. Negate the PID
+        // to target the group. If the group has already exited, the signal is
+        // harmlessly ignored (ESRCH).
         unsafe {
-            libc::kill(pid.cast_signed(), libc::SIGKILL);
+            libc::kill(-(pid.cast_signed()), libc::SIGKILL);
         }
     }
     #[cfg(not(unix))]
@@ -746,6 +757,24 @@ mod tests {
         let spec = make_spec("echo hello", "sh", "sh");
         let result = run_example(&spec, Path::new("/tmp"), &ExamplesConfig::default());
         assert!(result.duration.as_nanos() > 0);
+    }
+
+    #[test]
+    fn sh_runner_enforces_timeout() {
+        let mut spec = make_spec("sleep 10", "sh", "sh");
+        spec.timeout = 1; // 1-second timeout for a 10-second sleep
+        let result = run_example(&spec, Path::new("/tmp"), &ExamplesConfig::default());
+        assert!(
+            matches!(result.outcome, ExampleOutcome::Timeout),
+            "example exceeding timeout should produce Timeout, got {:?}",
+            result.outcome,
+        );
+        // Duration should be close to the timeout, not the full sleep
+        assert!(
+            result.duration.as_secs() < 5,
+            "should not have waited for full sleep: {:?}",
+            result.duration,
+        );
     }
 
     #[test]
