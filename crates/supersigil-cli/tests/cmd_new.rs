@@ -275,6 +275,30 @@ status = ["draft", "approved"]
     );
 }
 
+/// Unknown document type causes `new` to fail fast with an error listing known types.
+#[verifies("authoring-commands/req#req-2-2")]
+#[test]
+fn new_rejects_unknown_doc_type() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "bogustype", "my-feature"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "unknown document type 'bogustype'",
+        ))
+        .stderr(predicates::str::contains("requirements"));
+
+    // No file should have been created.
+    assert!(
+        !tmp.path().join("specs/my-feature").exists(),
+        "no file should be created for unknown document type"
+    );
+}
+
 /// After successful creation, `new` prints path to stdout and lint hint to stderr.
 #[verifies("authoring-commands/req#req-2-4")]
 #[test]

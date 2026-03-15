@@ -2,7 +2,7 @@
 supersigil:
   id: work-queries/design
   type: design
-  status: approved
+  status: implemented
 title: "CLI Work Queries"
 ---
 
@@ -143,12 +143,8 @@ The important current boundary is that `PlanQuery`, `ContextOutput`, and
   contains unit coverage for `PlanQuery::parse` and the task-blocking partition
   logic that the CLI reuses for default `plan` output.
 
-## Current Gaps
+## Design Notes
 
-- `context` does not yet have CLI-level tests for every conditional section,
-  especially `implemented_by`, `referenced_by`, and linked-task rendering.
-- The evidence-aware filtering step for `plan` currently lives in CLI glue
-  instead of the lower-level query model. That is a design choice, not a proven
-  stable boundary.
-- There is no end-to-end CLI test yet for the fully clean `plan` case that
-  should print `No outstanding work.`
+- The evidence-aware filtering step for `plan` lives in CLI glue rather than
+  the lower-level query model. This is the intended boundary: `supersigil-core`
+  stays evidence-unaware, the CLI assembles evidence and filters plan output.

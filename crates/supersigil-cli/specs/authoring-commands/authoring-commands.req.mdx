@@ -2,7 +2,7 @@
 supersigil:
   id: authoring-commands/req
   type: requirements
-  status: approved
+  status: implemented
 title: "CLI Authoring Commands"
 ---
 
@@ -71,7 +71,8 @@ scaffold without manually placing files.
   <Criterion id="req-2-2">
     THE `new` command SHALL load config and treat built-in document types plus
     configured custom document types as the known authoring types for the
-    current workspace.
+    current workspace. An unrecognized document type SHALL cause the command
+    to fail with an error listing the known types, without creating any file.
   </Criterion>
   <Criterion id="req-2-3">
     THE `new` command SHALL create missing parent directories for the

@@ -2,7 +2,7 @@
 supersigil:
   id: verification-engine/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "Verification Engine Tasks"
 ---
 
@@ -18,11 +18,11 @@ current debt in the ArtifactGraph-era verification surface.
   retire the stale root-level verification docs.
 </Task>
 
-<Task id="task-2" status="ready">
-  Decide whether `status_inconsistency` remains a real rule. Either implement
-  the intended status checks and add coverage for them, or remove the rule from
-  the public rule registry so config and docs no longer imply behavior that the
-  pipeline does not perform today.
+<Task id="task-2" status="done">
+  Decide whether `status_inconsistency` remains a real rule.
+  Decision: keep. The rule is fully implemented with three checks (tasks-doc
+  internal drift, sibling design drift, sibling requirements drift) and has
+  comprehensive test coverage.
 </Task>
 
 <Task id="task-3" status="done">
@@ -31,9 +31,9 @@ current debt in the ArtifactGraph-era verification surface.
   exercised outside the crate unit tests.
 </Task>
 
-<Task id="task-4" status="ready">
+<Task id="task-4" status="done">
   Decide whether plugin failure and evidence-conflict findings should stay in
-  CLI glue or move into a shared verification-library boundary. The current
-  split works, but it makes the public verification contract harder to describe
-  and test.
+  CLI glue or move into a shared verification-library boundary.
+  Decision: keep in CLI glue. The CLI is the only consumer and the verify
+  library intentionally stays evidence-unaware.
 </Task>

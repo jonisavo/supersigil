@@ -2,7 +2,7 @@
 supersigil:
   id: inventory-queries/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "CLI Inventory Queries Tasks"
 ---
 
@@ -22,9 +22,10 @@ This tasks document tracks the bounded recovery pass for the CLI `ls`,
   output, and the stderr-only summary and hint behavior.
 </Task>
 
-<Task id="task-4" status="ready">
-  Decide whether `graph` should stay workspace-wide only or grow a project
-  filter aligned with `ls` and `verify` in multi-project mode.
+<Task id="task-4" status="done">
+  Decide whether `graph` should grow a `--project` filter.
+  Decision: no. Graph visualizes workspace topology including cross-project
+  edges; filtering by project would hide the relationships it exists to show.
 </Task>
 
 <Task id="task-5" status="done" implements="inventory-queries/req#req-3-3">

@@ -2,7 +2,7 @@
 supersigil:
   id: kiro-import/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "Kiro Import Tasks"
 ---
 
@@ -17,14 +17,18 @@ current Kiro import domain.
   the stale root `specs/kiro-import/*` set.
 </Task>
 
-<Task id="task-2" status="ready">
+<Task id="task-2" status="done">
   Decide how `supersigil import` should target a named project in a
-  multi-project workspace instead of always requiring an explicit output root.
+  multi-project workspace.
+  Decision: no change needed. `--output-dir` is explicit and sufficient;
+  auto-resolving from project globs is fragile with multi-glob projects.
 </Task>
 
-<Task id="task-3" status="ready">
+<Task id="task-3" status="done">
   Decide whether document IDs and `id_prefix` should stay manual or be derived
   automatically from the selected project and repository conventions.
+  Decision: keep manual. `--prefix` handles the use case; auto-derivation
+  would require guessing conventions and creates harder cleanup on mistakes.
 </Task>
 
 <Task id="task-4" status="done">
@@ -37,9 +41,12 @@ current Kiro import domain.
   acceptable steady-state behavior or should become transactional.
 </Task>
 
-<Task id="task-6" status="ready">
+<Task id="task-6" status="done">
   Decide whether future non-Kiro importers should live in this same domain or
   whether the `import` project should be split into source-specific domains.
+  Decision: keep unified. No second importer exists; if one appears, it
+  naturally becomes a new module in `supersigil-import` with its own discovery
+  logic. No pre-factoring needed.
 </Task>
 
 <Task id="task-7" status="done" implements="kiro-import/req#req-2-4">

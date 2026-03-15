@@ -2,7 +2,7 @@
 supersigil:
   id: authoring-commands/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "CLI Authoring Commands Tasks"
 ---
 
@@ -17,14 +17,17 @@ This tasks document tracks the bounded recovery pass for the CLI `init` and
   `crates/supersigil-cli/specs/authoring-commands/`.
 </Task>
 
-<Task id="task-3" status="ready">
-  Decide how `init` should scaffold multi-project workspaces now that this repo
-  uses `projects.*` rather than a single top-level `paths` entry.
+<Task id="task-3" status="done">
+  Decide how `init` should scaffold multi-project workspaces.
+  Decision: no change needed. `init` is a bootstrap command; users start
+  single-project and migrate to multi-project as the workspace grows.
 </Task>
 
-<Task id="task-4" status="ready">
+<Task id="task-4" status="done" implements="authoring-commands/req#req-2-2">
   Decide whether `new` should keep warning-and-continue behavior for unknown
   document types or fail fast instead.
+  Decision: fail fast. Unknown types are almost always typos; custom types work
+  via `[documents.types]` and are not affected.
 </Task>
 
 <Task id="task-5" status="done" implements="authoring-commands/req#req-2-5, authoring-commands/req#req-2-6, authoring-commands/req#req-2-7, authoring-commands/req#req-2-8">

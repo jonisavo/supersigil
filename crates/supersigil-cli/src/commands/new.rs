@@ -28,12 +28,11 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
             .copied()
             .chain(custom_types)
             .collect();
-        eprintln!(
-            "{} unknown document type '{}'. Known types: {}",
-            color.paint(Token::Warning, "warning:"),
+        return Err(CliError::CommandFailed(format!(
+            "unknown document type '{}'. Known types: {}",
             args.doc_type,
             all_types.join(", ")
-        );
+        )));
     }
 
     let type_short = type_short_name(&args.doc_type);

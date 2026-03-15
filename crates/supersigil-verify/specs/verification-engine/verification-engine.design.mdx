@@ -2,7 +2,7 @@
 supersigil:
   id: verification-engine/design
   type: design
-  status: approved
+  status: implemented
 title: "Verification Engine"
 ---
 
@@ -199,12 +199,14 @@ to a ref.
   `commands/verify.rs`, and `commands/status.rs`
   cover the CLI glue that assembles evidence and renders the enriched outputs.
 
-## Current Gaps
+## Design Notes
 
-- `status_inconsistency` still exists as a configurable rule name, but the
-  current built-in status rule is effectively a stub.
-- Plugin failure and conflict findings are appended in CLI glue after the
-  library run rather than being emitted from the verify crate itself.
+- `status_inconsistency` is a fully implemented configurable rule that checks
+  tasks-doc internal drift, sibling design-doc drift, and sibling
+  requirements-doc drift.
+- Plugin failure and evidence-conflict findings are assembled in CLI glue after
+  the library run. This is intentional: the verify library stays
+  evidence-unaware, and the CLI is the only consumer.
 - Project filtering happens after shared test-file resolution and rule
   execution, so project-scoped verify runs still inspect evidence assembled
   from the whole workspace.
