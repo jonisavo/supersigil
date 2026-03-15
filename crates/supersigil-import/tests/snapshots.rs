@@ -17,7 +17,7 @@ use supersigil_import::plan_kiro_import;
 /// import pipeline, returning the plan. This isolates each test from other
 /// features that live in the same `.kiro/specs/` directory.
 fn plan_single_real_feature(feature_name: &str) -> supersigil_import::ImportPlan {
-    let real_specs = workspace_root().join(".kiro").join("specs");
+    let real_specs = workspace_root().join("tests/fixtures/.kiro/specs");
     let real_feature = real_specs.join(feature_name);
 
     let tmp = tempfile::tempdir().unwrap();

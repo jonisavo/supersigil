@@ -7,7 +7,7 @@ use supersigil_parser::parse_file;
 use tempfile::TempDir;
 
 fn plan_real_specs_to_temp() -> (TempDir, ImportPlan) {
-    let specs_dir = workspace_root().join(".kiro").join("specs");
+    let specs_dir = workspace_root().join("tests/fixtures/.kiro/specs");
     let tmp = tempfile::tempdir().expect("create temp dir");
     let output_dir = tmp.path().join("out");
 

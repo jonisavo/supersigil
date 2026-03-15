@@ -18,8 +18,7 @@ use supersigil_import::{ImportError, PlannedDocument, plan_kiro_import};
 /// Read a real Kiro spec file from the workspace.
 fn read_spec_file(feature: &str, filename: &str) -> String {
     let path = workspace_root()
-        .join(".kiro")
-        .join("specs")
+        .join("tests/fixtures/.kiro/specs")
         .join(feature)
         .join(filename);
     std::fs::read_to_string(&path)
