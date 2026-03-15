@@ -129,6 +129,18 @@ pub fn run(
         use_merge_base: args.merge_base,
     };
 
+    // Collect document IDs for project filtering. When a project filter is
+    // supplied, only findings whose doc_id belongs to the selected project
+    // (or is None) are reported. The full workspace graph remains available
+    // for non-isolated resolution.
+    let doc_ids: Option<Vec<String>> = options.project.as_ref().map(|project| {
+        graph
+            .documents()
+            .filter(|(id, _)| graph.doc_project(id) == Some(project.as_str()))
+            .map(|(id, _)| id.to_owned())
+            .collect()
+    });
+
     // -- Phase 1: Plugin evidence + structural checks --
     let (artifact_graph, mut plugin_findings) =
         plugins::build_evidence(&config, &graph, project_root, options.project.as_deref());
@@ -266,15 +278,20 @@ pub fn run(
         }
     }
 
+    // Filter findings to the selected project scope (req-3-4).
+    // Structural findings are already filtered by verify_structural().
+    if let Some(ref ids) = doc_ids {
+        let retain_in_project = |f: &Finding| f.doc_id.as_ref().is_none_or(|id| ids.contains(id));
+        coverage_findings.retain(retain_in_project);
+        plugin_findings.retain(retain_in_project);
+        conflict_findings.retain(retain_in_project);
+        example_findings.retain(retain_in_project);
+    }
+
     // Count documents for summary
-    let doc_count = if let Some(project) = &options.project {
-        graph
-            .documents()
-            .filter(|(id, _)| graph.doc_project(id) == Some(project.as_str()))
-            .count()
-    } else {
-        graph.documents().count()
-    };
+    let doc_count = doc_ids
+        .as_ref()
+        .map_or_else(|| graph.documents().count(), Vec::len);
 
     // Assemble all findings
     let mut all_findings: Vec<Finding> = Vec::new();
