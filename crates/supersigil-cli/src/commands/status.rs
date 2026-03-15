@@ -61,7 +61,7 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
     let project_root = loader::project_root(config_path);
     let (artifact_graph, plugin_findings) =
         plugins::build_evidence(&config, &graph, project_root, None);
-    plugins::warn_plugin_findings(&plugin_findings, &color);
+    plugins::warn_plugin_findings(&plugin_findings, color);
 
     match &args.id {
         None => run_project_wide(None, &args.format, &graph, &artifact_graph, color),
@@ -94,9 +94,7 @@ fn run_project_wide(
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0;
-    let mut targets_total = 0;
-    let mut targets_covered = 0;
-    let mut targets_example_pending = 0;
+    let mut targets = TargetCounts::default();
 
     for (id, doc) in graph
         .documents()
@@ -123,9 +121,7 @@ fn run_project_wide(
             &doc.components,
             artifact_graph,
             &example_refs,
-            &mut targets_total,
-            &mut targets_covered,
-            &mut targets_example_pending,
+            &mut targets,
         );
     }
 
@@ -133,9 +129,9 @@ fn run_project_wide(
         total_documents: total,
         by_type,
         by_status,
-        targets_total,
-        targets_covered,
-        targets_example_pending,
+        targets_total: targets.total,
+        targets_covered: targets.covered,
+        targets_example_pending: targets.example_pending,
     };
 
     match fmt {
@@ -319,35 +315,32 @@ fn run_per_document(
     Ok(())
 }
 
+#[derive(Default)]
+struct TargetCounts {
+    total: usize,
+    covered: usize,
+    example_pending: usize,
+}
+
 fn count_targets_recursive(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
     example_refs: &HashSet<String>,
-    total: &mut usize,
-    covered: &mut usize,
-    example_pending: &mut usize,
+    counts: &mut TargetCounts,
 ) {
     for comp in components {
         if comp.name == CRITERION {
-            *total += 1;
+            counts.total += 1;
             if let Some(crit_id) = comp.attributes.get("id") {
                 if artifact_graph.has_evidence(doc_id, crit_id) {
-                    *covered += 1;
+                    counts.covered += 1;
                 } else if example_refs.contains(&format!("{doc_id}#{crit_id}")) {
-                    *example_pending += 1;
+                    counts.example_pending += 1;
                 }
             }
         }
-        count_targets_recursive(
-            doc_id,
-            &comp.children,
-            artifact_graph,
-            example_refs,
-            total,
-            covered,
-            example_pending,
-        );
+        count_targets_recursive(doc_id, &comp.children, artifact_graph, example_refs, counts);
     }
 }
 

@@ -176,14 +176,13 @@ fn format_plugin_location(
     line: Option<usize>,
     column: Option<usize>,
 ) -> Option<String> {
+    use std::fmt::Write;
     let path = path?;
     let mut location = path.display().to_string();
     if let Some(line) = line {
-        location.push(':');
-        location.push_str(&line.to_string());
+        let _ = write!(location, ":{line}");
         if let Some(column) = column {
-            location.push(':');
-            location.push_str(&column.to_string());
+            let _ = write!(location, ":{column}");
         }
     }
     Some(location)
@@ -225,7 +224,7 @@ pub fn build_evidence<'g>(
 /// plugin diagnostics remain visible even though they are non-fatal.
 pub fn warn_plugin_findings(
     findings: &[supersigil_verify::Finding],
-    color: &crate::format::ColorConfig,
+    color: crate::format::ColorConfig,
 ) {
     for f in findings {
         eprintln!("{} {}", color.warn(), f.message);

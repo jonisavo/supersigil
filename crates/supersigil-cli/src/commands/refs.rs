@@ -7,7 +7,7 @@ use supersigil_core::CRITERION;
 
 use crate::commands::RefsArgs;
 use crate::error::CliError;
-use crate::format::{self, ColorConfig, OutputFormat, Token, write_json};
+use crate::format::{COL_GAP, ColorConfig, OutputFormat, Token, write_json};
 use crate::loader;
 use crate::scope;
 
@@ -65,30 +65,11 @@ pub fn run(args: &RefsArgs, config_path: &Path, color: ColorConfig) -> Result<()
         .collect();
 
     // Context scoping: when no prefix and --all is not set, filter by cwd.
-    if args.prefix.is_none() && !args.all {
-        match scope::resolve_context_scope(&graph, project_root, &cwd) {
-            Some(scope) => {
-                let doc_ids: Vec<&str> = {
-                    let mut v: Vec<&str> = scope.iter().map(String::as_str).collect();
-                    v.sort_unstable();
-                    v
-                };
-                format::hint(
-                    color,
-                    &format!(
-                        "showing refs scoped to: {}. Use --all to show everything.",
-                        doc_ids.join(", "),
-                    ),
-                );
-                entries = filter_by_scope(entries, &scope);
-            }
-            None => {
-                format::hint(
-                    color,
-                    "no TrackedFiles match the current directory; showing all refs.",
-                );
-            }
-        }
+    if args.prefix.is_none()
+        && !args.all
+        && let Some(scope) = scope::apply_context_scope(&graph, project_root, &cwd, "refs", color)
+    {
+        entries = filter_by_scope(entries, &scope);
     }
 
     entries = filter_by_prefix(entries, args.prefix.as_ref());
@@ -116,8 +97,6 @@ fn truncate_body(text: &str, max_len: usize) -> String {
         format!("{}...", &text[..boundary])
     }
 }
-
-const COL_GAP: &str = "  ";
 
 fn write_terminal_table(
     out: &mut impl Write,
@@ -161,7 +140,6 @@ fn write_terminal_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::ColorChoice;
     use supersigil_rust::verifies;
 
     fn entry(
@@ -179,7 +157,7 @@ mod tests {
     }
 
     fn no_color() -> ColorConfig {
-        ColorConfig::resolve(ColorChoice::Never)
+        ColorConfig::no_color()
     }
 
     #[verifies("ref-discovery/req#req-2-1")]

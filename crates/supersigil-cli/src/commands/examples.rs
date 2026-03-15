@@ -8,7 +8,7 @@ use supersigil_verify::examples::types::ExampleSpec;
 
 use crate::commands::ExamplesArgs;
 use crate::error::CliError;
-use crate::format::{self, ColorConfig, OutputFormat, Token, write_json};
+use crate::format::{COL_GAP, ColorConfig, OutputFormat, Token, write_cell, write_json};
 use crate::loader;
 use crate::scope;
 
@@ -62,23 +62,6 @@ fn collect_entries(
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-
-const COL_GAP: &str = "  ";
-
-fn write_cell(
-    out: &mut impl Write,
-    color: ColorConfig,
-    token: Token,
-    text: &str,
-    width: usize,
-) -> io::Result<()> {
-    write!(out, "{}", color.paint(token, text))?;
-    let pad = width.saturating_sub(text.len());
-    for _ in 0..pad {
-        write!(out, " ")?;
-    }
-    Ok(())
-}
 
 fn write_terminal_table(
     out: &mut impl Write,
@@ -172,30 +155,12 @@ pub fn run(args: &ExamplesArgs, config_path: &Path, color: ColorConfig) -> Resul
     let mut entries = collect_entries(&graph, &config.examples, args.prefix.as_deref());
 
     // Context scoping: when no prefix and --all is not set, filter by cwd.
-    if args.prefix.is_none() && !args.all {
-        match scope::resolve_context_scope(&graph, project_root, &cwd) {
-            Some(scope) => {
-                let doc_ids: Vec<&str> = {
-                    let mut v: Vec<&str> = scope.iter().map(String::as_str).collect();
-                    v.sort_unstable();
-                    v
-                };
-                format::hint(
-                    color,
-                    &format!(
-                        "showing examples scoped to: {}. Use --all to show everything.",
-                        doc_ids.join(", "),
-                    ),
-                );
-                entries.retain(|e| scope.contains(&e.doc_id));
-            }
-            None => {
-                format::hint(
-                    color,
-                    "no TrackedFiles match the current directory; showing all examples.",
-                );
-            }
-        }
+    if args.prefix.is_none()
+        && !args.all
+        && let Some(scope) =
+            scope::apply_context_scope(&graph, project_root, &cwd, "examples", color)
+    {
+        entries.retain(|e| scope.contains(&e.doc_id));
     }
 
     entries.sort_by(|a, b| {
@@ -225,13 +190,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::format::ColorChoice;
     use supersigil_core::SourcePosition;
     use supersigil_evidence::VerifiableRef;
     use supersigil_verify::examples::types::ExpectedSpec;
 
     fn no_color() -> ColorConfig {
-        ColorConfig::resolve(ColorChoice::Never)
+        ColorConfig::no_color()
     }
 
     fn make_entry(

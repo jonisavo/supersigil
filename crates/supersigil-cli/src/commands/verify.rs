@@ -31,8 +31,13 @@ const COLLAPSE_PREVIEW: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ExampleExecutionSummary {
     passed: usize,
-    failed: usize,
     failures: Vec<ExampleFailure>,
+}
+
+impl ExampleExecutionSummary {
+    fn failed(&self) -> usize {
+        self.failures.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -582,7 +587,7 @@ fn should_render_example_summary(
     display: ExampleProgressDisplay,
 ) -> bool {
     match display {
-        ExampleProgressDisplay::LiveSpinner => summary.failed > 0,
+        ExampleProgressDisplay::LiveSpinner => summary.failed() > 0,
         ExampleProgressDisplay::Stream => true,
     }
 }
@@ -654,11 +659,7 @@ impl ExampleExecutionSummary {
             }
         }
 
-        Self {
-            passed,
-            failed: failures.len(),
-            failures,
-        }
+        Self { passed, failures }
     }
 }
 
@@ -884,7 +885,7 @@ fn format_terminal(
     }
 
     if report.result_status() == ResultStatus::Clean {
-        if example_summary.is_some_and(|summary| summary.failed > 0) {
+        if example_summary.is_some_and(|summary| summary.failed() > 0) {
             let _ = writeln!(out, "{} No blocking findings", color.info());
         } else {
             let _ = writeln!(out, "{} Clean: no findings", color.ok());
@@ -989,7 +990,7 @@ fn write_draft_gating_hint(out: &mut String, findings: &[Finding], color: ColorC
 }
 
 fn write_example_summary(out: &mut String, summary: &ExampleExecutionSummary, color: ColorConfig) {
-    if summary.passed == 0 && summary.failed == 0 {
+    if summary.passed == 0 && summary.failed() == 0 {
         return;
     }
 
@@ -998,11 +999,11 @@ fn write_example_summary(out: &mut String, summary: &ExampleExecutionSummary, co
         "Examples: {} passed",
         color.paint(Token::Count, &summary.passed.to_string()),
     );
-    if summary.failed > 0 {
+    if summary.failed() > 0 {
         let _ = write!(
             out,
             ", {} failed",
-            color.paint(Token::Error, &summary.failed.to_string()),
+            color.paint(Token::Error, &summary.failed().to_string()),
         );
     }
     let _ = writeln!(out);
@@ -1086,41 +1087,25 @@ fn progress_marker(
     color: ColorConfig,
     spinner_frame: usize,
 ) -> String {
-    let (token, text) = match state {
-        ExampleProgressState::Queued => (
-            Token::Hint,
-            if color.use_unicode() {
-                "[·]".to_string()
-            } else {
-                "[ ]".to_string()
-            },
-        ),
+    match state {
+        ExampleProgressState::Queued => {
+            let text = if color.use_unicode() { "[·]" } else { "[ ]" };
+            color.paint(Token::Hint, text).to_string()
+        }
         ExampleProgressState::Running => {
             let frames = spinner_frames(color);
-            (
-                Token::Status,
-                format!("[{}]", frames[spinner_frame % frames.len()]),
-            )
+            let text = format!("[{}]", frames[spinner_frame % frames.len()]);
+            color.paint(Token::Status, &text).to_string()
         }
-        ExampleProgressState::Passed => (
-            Token::StatusGood,
-            if color.use_unicode() {
-                "[✔]".to_string()
-            } else {
-                "[+]".to_string()
-            },
-        ),
-        ExampleProgressState::Failed => (
-            Token::StatusBad,
-            if color.use_unicode() {
-                "[✖]".to_string()
-            } else {
-                "[x]".to_string()
-            },
-        ),
-    };
-
-    color.paint(token, &text).to_string()
+        ExampleProgressState::Passed => {
+            let text = if color.use_unicode() { "[✔]" } else { "[+]" };
+            color.paint(Token::StatusGood, text).to_string()
+        }
+        ExampleProgressState::Failed => {
+            let text = if color.use_unicode() { "[✖]" } else { "[x]" };
+            color.paint(Token::StatusBad, text).to_string()
+        }
+    }
 }
 
 fn spinner_frames(color: ColorConfig) -> &'static [&'static str] {
@@ -1195,7 +1180,7 @@ mod tests {
     }
 
     fn no_color() -> ColorConfig {
-        ColorConfig::resolve(ColorChoice::Never)
+        ColorConfig::no_color()
     }
 
     fn progress_snapshot(states: &[(&str, ExampleProgressState)]) -> ExampleProgressSnapshot {
@@ -1284,7 +1269,6 @@ mod tests {
         let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
         let summary = ExampleExecutionSummary {
             passed: 1,
-            failed: 0,
             failures: Vec::new(),
         };
 
@@ -1298,7 +1282,6 @@ mod tests {
         let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
         let summary = ExampleExecutionSummary {
             passed: 0,
-            failed: 1,
             failures: vec![ExampleFailure {
                 doc_id: "examples/req".to_string(),
                 example_id: "body-mismatch".to_string(),
@@ -1364,7 +1347,6 @@ mod tests {
         let report = VerificationReport::new(findings, summary_counts, None);
         let summary = ExampleExecutionSummary {
             passed: 1,
-            failed: 1,
             failures: vec![ExampleFailure {
                 doc_id: "examples/req".to_string(),
                 example_id: "cargo-fail".to_string(),
@@ -1391,12 +1373,10 @@ mod tests {
     fn live_spinner_omits_redundant_pass_only_example_summary() {
         let clean = ExampleExecutionSummary {
             passed: 2,
-            failed: 0,
             failures: Vec::new(),
         };
         let failed = ExampleExecutionSummary {
             passed: 1,
-            failed: 1,
             failures: vec![ExampleFailure {
                 doc_id: "examples/req".to_string(),
                 example_id: "failing-example".to_string(),

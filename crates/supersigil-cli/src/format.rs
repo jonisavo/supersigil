@@ -92,6 +92,12 @@ pub struct ColorConfig {
 }
 
 impl ColorConfig {
+    /// Create a `ColorConfig` with color and unicode disabled. Useful for tests.
+    #[cfg(test)]
+    pub(crate) fn no_color() -> Self {
+        Self::resolve(ColorChoice::Never)
+    }
+
     /// Resolve the final color configuration.
     ///
     /// Priority: `--color` flag > `FORCE_COLOR` > `NO_COLOR` > TTY detection.
@@ -582,6 +588,30 @@ impl<'a> GraphRenderer<'a> {
     }
 }
 
+/// Column gap used between table columns in terminal output.
+pub const COL_GAP: &str = "  ";
+
+/// Write a colored, padded table cell. Paints `text` with `token`, then pads
+/// with trailing spaces to reach `width`.
+///
+/// # Errors
+///
+/// Returns an I/O error if writing fails.
+pub fn write_cell(
+    out: &mut impl Write,
+    color: ColorConfig,
+    token: Token,
+    text: &str,
+    width: usize,
+) -> io::Result<()> {
+    write!(out, "{}", color.paint(token, text))?;
+    let pad = width.saturating_sub(text.len());
+    for _ in 0..pad {
+        write!(out, " ")?;
+    }
+    Ok(())
+}
+
 fn write_joined(out: &mut impl Write, values: &[String]) -> io::Result<()> {
     let mut iter = values.iter();
     if let Some(first) = iter.next() {
@@ -597,6 +627,10 @@ fn write_joined(out: &mut impl Write, values: &[String]) -> io::Result<()> {
 mod tests {
     use super::*;
     use supersigil_rust::verifies;
+
+    fn no_color() -> ColorConfig {
+        ColorConfig::no_color()
+    }
 
     fn task(doc_id: &str, task_id: &str) -> TaskInfo {
         TaskInfo {
@@ -629,10 +663,6 @@ mod tests {
             implements: vec![],
             depends_on: depends_on.iter().map(ToString::to_string).collect(),
         }
-    }
-
-    fn no_color() -> ColorConfig {
-        ColorConfig::resolve(ColorChoice::Never)
     }
 
     #[test]

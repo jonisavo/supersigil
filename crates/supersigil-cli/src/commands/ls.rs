@@ -5,7 +5,9 @@ use serde::Serialize;
 
 use crate::commands::LsArgs;
 use crate::error::CliError;
-use crate::format::{ColorConfig, OutputFormat, Token, status_token, write_json};
+use crate::format::{
+    COL_GAP, ColorConfig, OutputFormat, Token, status_token, write_cell, write_json,
+};
 use crate::loader;
 
 #[derive(Serialize)]
@@ -71,24 +73,6 @@ pub fn run(args: &LsArgs, config_path: &Path, color: ColorConfig) -> Result<(), 
 }
 
 const HEADERS: [&str; 4] = ["ID", "Type", "Status", "Path"];
-const COL_GAP: &str = "  ";
-
-/// Write a colored, padded cell. Pads text to `width` first, then paints.
-fn write_cell(
-    out: &mut impl Write,
-    color: ColorConfig,
-    token: Token,
-    text: &str,
-    width: usize,
-) -> io::Result<()> {
-    // Paint the text, then pad with trailing spaces (outside the style).
-    write!(out, "{}", color.paint(token, text))?;
-    let pad = width.saturating_sub(text.len());
-    for _ in 0..pad {
-        write!(out, " ")?;
-    }
-    Ok(())
-}
 
 fn write_table(
     out: &mut impl Write,

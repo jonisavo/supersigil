@@ -17,13 +17,12 @@ pub fn run(args: &GraphArgs, config_path: &Path, color: ColorConfig) -> Result<(
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let mut edge_count = 0usize;
     let node_count = graph.documents().count();
 
-    match args.format {
-        GraphFormat::Mermaid => write_mermaid(&mut out, &graph, &mut edge_count)?,
-        GraphFormat::Dot => write_dot(&mut out, &graph, &mut edge_count)?,
-    }
+    let edge_count = match args.format {
+        GraphFormat::Mermaid => write_mermaid(&mut out, &graph)?,
+        GraphFormat::Dot => write_dot(&mut out, &graph)?,
+    };
 
     // Summary on stderr so it doesn't pollute piped graph output.
     eprintln!(
@@ -50,8 +49,7 @@ fn node_label(id: &str, doc: &supersigil_core::SpecDocument) -> String {
 fn write_mermaid(
     out: &mut impl Write,
     graph: &supersigil_core::DocumentGraph,
-    edge_count: &mut usize,
-) -> io::Result<()> {
+) -> io::Result<usize> {
     writeln!(out, "graph TD")?;
 
     for (id, doc) in graph.documents() {
@@ -60,8 +58,9 @@ fn write_mermaid(
         writeln!(out, "    {safe_id}[\"{label}\"]")?;
     }
 
+    let mut edge_count = 0;
     for_each_edge(graph, |from, label, to| {
-        *edge_count += 1;
+        edge_count += 1;
         writeln!(
             out,
             "    {} -->|{label}| {}",
@@ -70,14 +69,10 @@ fn write_mermaid(
         )
     })?;
 
-    Ok(())
+    Ok(edge_count)
 }
 
-fn write_dot(
-    out: &mut impl Write,
-    graph: &supersigil_core::DocumentGraph,
-    edge_count: &mut usize,
-) -> io::Result<()> {
+fn write_dot(out: &mut impl Write, graph: &supersigil_core::DocumentGraph) -> io::Result<usize> {
     writeln!(out, "digraph specs {{")?;
     writeln!(out, "    rankdir=TB;")?;
 
@@ -86,13 +81,14 @@ fn write_dot(
         writeln!(out, "    \"{id}\" [label=\"{label}\"];")?;
     }
 
+    let mut edge_count = 0;
     for_each_edge(graph, |from, label, to| {
-        *edge_count += 1;
+        edge_count += 1;
         writeln!(out, "    \"{from}\" -> \"{to}\" [label=\"{label}\"];")
     })?;
 
     writeln!(out, "}}")?;
-    Ok(())
+    Ok(edge_count)
 }
 
 /// Iterate all edges in the graph, calling `emit(from_id, edge_label, to_doc_id)`

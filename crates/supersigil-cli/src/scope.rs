@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use supersigil_core::{DocumentGraph, ExtractedComponent, glob_prefix};
+use supersigil_core::{DocumentGraph, EXAMPLE, ExtractedComponent, glob_prefix};
 
 /// Check whether `cwd` falls within the non-wildcard prefix of `glob_str`.
 ///
@@ -70,6 +70,39 @@ pub fn resolve_context_scope(
     Some(matched_doc_ids)
 }
 
+/// Apply context-aware scoping: when no explicit prefix is provided and `--all`
+/// is not set, filter to documents matching the current working directory.
+///
+/// Emits a hint on stderr describing the scoping action.  Returns `true` if a
+/// scope was applied (caller should retain matching entries), `false` if all
+/// entries should be shown.
+pub fn apply_context_scope(
+    graph: &DocumentGraph,
+    project_root: &std::path::Path,
+    cwd: &std::path::Path,
+    noun: &str,
+    color: crate::format::ColorConfig,
+) -> Option<HashSet<String>> {
+    if let Some(scope) = resolve_context_scope(graph, project_root, cwd) {
+        let mut doc_ids: Vec<&str> = scope.iter().map(String::as_str).collect();
+        doc_ids.sort_unstable();
+        crate::format::hint(
+            color,
+            &format!(
+                "showing {noun} scoped to: {}. Use --all to show everything.",
+                doc_ids.join(", "),
+            ),
+        );
+        Some(scope)
+    } else {
+        crate::format::hint(
+            color,
+            &format!("no TrackedFiles match the current directory; showing all {noun}."),
+        );
+        None
+    }
+}
+
 /// Collect all criterion refs declared in `<Example verifies="...">` attributes
 /// across all documents, without executing the examples.
 #[must_use]
@@ -83,7 +116,7 @@ pub fn collect_example_verifies_refs(graph: &DocumentGraph) -> HashSet<String> {
 
 fn collect_example_refs_recursive(components: &[ExtractedComponent], refs: &mut HashSet<String>) {
     for comp in components {
-        if comp.name == "Example"
+        if comp.name == EXAMPLE
             && let Some(verifies) = comp.attributes.get("verifies")
         {
             for r in verifies.split(',') {

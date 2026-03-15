@@ -38,7 +38,7 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
     // evidence in the ArtifactGraph are no longer outstanding.
     let (artifact_graph, plugin_findings) =
         plugins::build_evidence(&config, &graph, project_root, None);
-    plugins::warn_plugin_findings(&plugin_findings, &color);
+    plugins::warn_plugin_findings(&plugin_findings, color);
     plan.outstanding_targets
         .retain(|c| !artifact_graph.has_evidence(&c.doc_id, &c.target_id));
     let plan = plan;
@@ -120,7 +120,7 @@ fn write_terminal(
         write_tasks(out, &plan.pending_tasks, color)?;
     }
 
-    // 5. Completed summary.
+    // 4. Completed summary.
     if !plan.completed_tasks.is_empty() {
         writeln!(out)?;
         write_completed_summary(out, &plan.completed_tasks, color)?;
