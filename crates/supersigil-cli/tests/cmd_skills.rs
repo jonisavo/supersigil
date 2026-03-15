@@ -1,8 +1,14 @@
 use std::fs;
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
+#[verifies(
+    "skills-install/req#req-4-1",
+    "skills-install/req#req-4-3",
+    "skills-install/req#req-4-4"
+)]
 #[test]
 fn skills_install_without_toml_uses_default_path() {
     let tmp = TempDir::new().unwrap();
@@ -34,6 +40,7 @@ fn skills_install_without_toml_uses_default_path() {
     );
 }
 
+#[verifies("skills-install/req#req-4-1")]
 #[test]
 fn skills_install_with_path_flag() {
     let tmp = TempDir::new().unwrap();
@@ -51,6 +58,7 @@ fn skills_install_with_path_flag() {
     assert!(!tmp.path().join(".agents/skills").exists());
 }
 
+#[verifies("skills-install/req#req-4-3")]
 #[test]
 fn skills_install_reads_path_from_toml() {
     let tmp = TempDir::new().unwrap();
@@ -73,6 +81,7 @@ fn skills_install_reads_path_from_toml() {
     );
 }
 
+#[verifies("skills-install/req#req-4-3")]
 #[test]
 fn skills_install_path_flag_overrides_toml() {
     let tmp = TempDir::new().unwrap();
@@ -96,6 +105,7 @@ fn skills_install_path_flag_overrides_toml() {
     assert!(!tmp.path().join("from/toml").exists());
 }
 
+#[verifies("skills-install/req#req-4-5")]
 #[test]
 fn skills_install_prints_count() {
     let tmp = TempDir::new().unwrap();
@@ -113,6 +123,7 @@ fn skills_install_prints_count() {
     );
 }
 
+#[verifies("skills-install/req#req-4-2")]
 #[test]
 fn skills_install_overwrites_existing() {
     let tmp = TempDir::new().unwrap();

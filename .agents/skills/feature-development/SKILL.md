@@ -68,7 +68,8 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
 
 9. Use `supersigil status` and `supersigil affected` to summarize the result.
    `status` is the default close-out summary.
-   `affected --since <ref>` is for cases where changed tracked files may have invalidated nearby docs.
+   `affected --since <ref>` is for cases where changed tracked files may have invalidated nearby docs. `--since HEAD` is for cases where the user has not yet committed.
+   For each affected doc, check whether they should be updated.
 
 10. End with a concrete handoff.
    Summarize what criterion or task chain was completed, which tests now back it, the latest `verify` result, and what `plan` still shows for the feature.

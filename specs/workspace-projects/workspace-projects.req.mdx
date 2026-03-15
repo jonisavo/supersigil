@@ -69,15 +69,24 @@ the same toolchain.
     Top-level `paths` and top-level `tests` SHALL be mutually exclusive with
     `projects`. IF they are mixed, THEN config loading SHALL report validation
     errors for the conflicting keys.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
+    />
   </Criterion>
   <Criterion id="req-1-4">
     THE Workspace_Config SHALL require at least one discovery mode. IF neither
     top-level `paths` nor `projects` is present, THEN config loading SHALL
     report an error.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
+    />
   </Criterion>
   <Criterion id="req-1-5">
     Shared_Workspace_Config SHALL remain top-level in both modes and SHALL NOT
     move under individual Project_Config entries.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -106,10 +115,18 @@ without fragmenting the graph.
     WHEN a source document belongs to an Isolated_Project, refs from that
     document into a different project SHALL fail as broken references even if
     the target document exists elsewhere in the workspace.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs"
+    />
   </Criterion>
   <Criterion id="req-2-4">
     WHEN both source and target documents belong to the same Isolated_Project,
     same-project refs SHALL continue to resolve successfully.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs"
+    />
   </Criterion>
   <Criterion id="req-2-5">
     Task `implements` refs SHALL obey the same cross-project isolation rules as
@@ -173,14 +190,17 @@ incrementally without forcing a crate-per-crate partition.
   <Criterion id="req-4-1">
     THIS repository SHALL keep overarching and cross-cutting specs under the
     root `specs/` tree as the `workspace` project.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
   </Criterion>
   <Criterion id="req-4-2">
     THE initial repository project map SHALL include at least `workspace`,
     `foundation`, `cli`, `verify`, `import`, and `ecosystem`.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
   </Criterion>
   <Criterion id="req-4-3">
     A repository project MAY own more than one crate-local spec root when the
     behavior it captures spans multiple crates more naturally than a strict
     crate-by-crate split.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
   </Criterion>
 </AcceptanceCriteria>

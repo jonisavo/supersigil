@@ -1,7 +1,13 @@
 //! E2E test: verify executable examples work against a fixture project.
 
 use std::path::Path;
+use supersigil_rust::verifies;
 
+#[verifies(
+    "executable-examples/req#req-1-4",
+    "executable-examples/req#req-2-1",
+    "executable-examples/req#req-3-1"
+)]
 #[test]
 fn fixture_project_examples_pass() {
     let fixture_root =

@@ -5,6 +5,7 @@ use common::{config_for, write_kiro_spec};
 use generators::{arb_feature_name, arb_id_prefix, arb_kiro_requirements_md, arb_kiro_tasks_md};
 use proptest::prelude::*;
 use supersigil_import::plan_kiro_import;
+use supersigil_rust::verifies;
 
 /// Count occurrences of the ambiguity marker prefix in a string.
 fn count_ambiguity_markers(content: &str) -> usize {
@@ -21,6 +22,7 @@ fn count_ambiguity_markers(content: &str) -> usize {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
 
+    #[verifies("kiro-import/req#req-3-5")]
     #[test]
     fn prop_18_ambiguity_marker_count_consistency(
         (_parsed_reqs, req_md) in arb_kiro_requirements_md(),

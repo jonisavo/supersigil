@@ -122,3 +122,118 @@ green before moving on.
   these examples in the `executable-examples/req` spec where they can
   verify their own criteria.
 </Task>
+
+<Task id="task-14" status="pending" implements="executable-examples/req#req-1-3">
+  Add a test asserting Example component flags: referenceable by id, but NOT
+  marked as verifiable. Build a graph containing an Example component and
+  verify it appears in `criteria()` output (referenceable) but is not treated
+  as a verification target by the coverage rule.
+</Task>
+
+<Task id="task-15" status="pending" implements="executable-examples/req#req-1-5">
+  Add a test for the `references` attribute on Example. When `references` is
+  set, assert that the graph creates informational references edges only (not
+  verification edges), and that these edges do not count as coverage evidence.
+</Task>
+
+<Task id="task-16" status="pending" implements="executable-examples/req#req-1-6">
+  Add a test for Example without an Expected child. When Expected is absent,
+  assert that verification treats exit code 0 as pass and non-zero as fail.
+</Task>
+
+<Task id="task-17" status="pending" implements="executable-examples/req#req-1-7">
+  Add a test for the Expected format default. When `format` is omitted from
+  Expected, assert it defaults to `text`. Also test that `status`, `contains`,
+  and `body` checks are conjunctive (all must pass).
+</Task>
+
+<Task id="task-18" status="pending" implements="executable-examples/req#req-1-8">
+  Add a parser test for fenced code block extraction. Assert that the parser
+  extracts code block content from Example and Expected components, and for
+  snapshot format, preserves byte spans.
+</Task>
+
+<Task id="task-19" status="pending" implements="executable-examples/req#req-2-2">
+  Add a test for runner override precedence. Define a custom runner in
+  `[examples.runners]` that shadows a built-in, and assert the user-defined
+  runner takes precedence over the built-in.
+</Task>
+
+<Task id="task-20" status="pending" implements="executable-examples/req#req-2-4">
+  Add a test for timeout enforcement. Set a short timeout on an Example, run
+  a script that exceeds it, and assert the executor reports a timeout failure.
+</Task>
+
+<Task id="task-21" status="pending" implements="executable-examples/req#req-2-5">
+  Add a test for env variable injection. Set `env` on an Example, run a script
+  that reads the env vars, and assert the runner passes them correctly.
+</Task>
+
+<Task id="task-22" status="pending" implements="executable-examples/req#req-3-2">
+  Add a focused test for `format=text` comparison. Assert that trimmed stdout
+  is compared exactly against trimmed expected content, and mismatches produce
+  a clear diff.
+</Task>
+
+<Task id="task-23" status="pending" implements="executable-examples/req#req-3-4">
+  Add a test for `format=snapshot` comparison and `--update-snapshots` rewrite.
+  Assert that snapshot comparison detects differences, and that the
+  `--update-snapshots` flag rewrites the MDX source with the actual output.
+</Task>
+
+<Task id="task-24" status="pending" implements="executable-examples/req#req-3-5">
+  Add a test for `status` check on Expected. Set an expected exit code and
+  assert that a status mismatch produces a finding.
+</Task>
+
+<Task id="task-25" status="pending" implements="executable-examples/req#req-3-6">
+  Add a focused test for the `contains` check on Expected. Assert that stdout
+  containing the expected substring passes, and stdout missing it fails.
+</Task>
+
+<Task id="task-26" status="pending" implements="executable-examples/req#req-4-4">
+  Add a test for the skip-on-structural-errors gate. When the document has
+  structural errors, assert that example execution is skipped entirely and
+  the report notes the skip.
+</Task>
+
+<Task id="task-27" status="pending" implements="executable-examples/req#req-4-5">
+  Add tests for `--skip-examples` and `--update-snapshots` CLI flags. Assert
+  that `--skip-examples` bypasses example execution in the verify pipeline,
+  and that `--update-snapshots` triggers snapshot rewrites.
+</Task>
+
+<Task id="task-28" status="pending" implements="executable-examples/req#req-4-6">
+  Add a test for post-verify hooks. Assert that hooks run after structural,
+  example, and coverage findings are collected, and receive the interim report.
+</Task>
+
+<Task id="task-29" status="pending" implements="executable-examples/req#req-5-2">
+  Add a test for `examples` scope filtering. Without `--all`, assert that
+  examples are scoped to the cwd via TrackedFiles, showing only examples from
+  documents whose tracked files match the current directory.
+</Task>
+
+<Task id="task-30" status="pending" implements="executable-examples/req#req-6-1">
+  Add a test for `[examples]` config fields. Assert that `timeout` and
+  `parallelism` deserialize correctly from `supersigil.toml` and that
+  defaults apply when the section is absent.
+</Task>
+
+<Task id="task-31" status="pending" implements="executable-examples/req#req-6-2">
+  Add a test for `[examples.runners.<name>]` config. Assert that runner
+  entries with `command` templates deserialize correctly and are available
+  for runner resolution.
+</Task>
+
+<Task id="task-32" status="pending" implements="executable-examples/req#req-6-3">
+  Add a test for runner command template placeholders. Assert that `{file}`,
+  `{dir}`, `{lang}`, and `{name}` placeholders are interpolated correctly
+  when building the runner command.
+</Task>
+
+<Task id="task-33" status="pending" implements="executable-examples/req#req-6-4">
+  Add a test for concurrent example execution. Assert that independent
+  examples run concurrently up to the `parallelism` limit and that report
+  ordering remains stable (sorted by document id then example id).
+</Task>

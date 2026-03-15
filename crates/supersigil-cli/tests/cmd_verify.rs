@@ -4,6 +4,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 fn write_config(root: &Path, content: &str) {
@@ -235,6 +236,7 @@ expected-output
     );
 }
 
+#[verifies("ecosystem-plugins/req#req-3-3", "cli-runtime/req#req-4-3")]
 #[test]
 fn verify_terminal_surfaces_plugin_failure_as_report_finding() {
     let tmp = TempDir::new().unwrap();
@@ -259,6 +261,12 @@ fn verify_terminal_surfaces_plugin_failure_as_report_finding() {
     );
 }
 
+#[verifies(
+    "ecosystem-plugins/req#req-2-3",
+    "ecosystem-plugins/req#req-2-4",
+    "ecosystem-plugins/req#req-3-1",
+    "ecosystem-plugins/req#req-3-2"
+)]
 #[test]
 fn verify_json_surfaces_partial_plugin_warning_and_preserves_evidence() {
     let tmp = TempDir::new().unwrap();
@@ -311,6 +319,7 @@ fn verify_json_surfaces_partial_plugin_warning_and_preserves_evidence() {
     );
 }
 
+#[verifies("cli-runtime/req#req-3-4", "cli-runtime/req#req-1-4")]
 #[test]
 fn verify_missing_evidence_prints_concrete_remediation_hints() {
     let tmp = TempDir::new().unwrap();
@@ -400,6 +409,7 @@ fn verify_json_shared_file_glob_evidence_does_not_surface_conflicts() {
     );
 }
 
+#[verifies("ecosystem-plugins/req#req-1-2")]
 #[test]
 fn verify_with_plugins_disabled_keeps_explicit_evidence_and_stays_clean() {
     let tmp = TempDir::new().unwrap();
@@ -480,6 +490,7 @@ plugin_discovery_warning = "off"
     );
 }
 
+#[verifies("ecosystem-plugins/req#req-1-3")]
 #[test]
 fn verify_unknown_plugin_config_fails_before_plugin_assembly() {
     let tmp = TempDir::new().unwrap();
@@ -501,6 +512,7 @@ plugins = ["python"]
         .stderr(predicate::str::contains("python"));
 }
 
+#[verifies("executable-examples/req#req-4-2")]
 #[test]
 fn verify_terminal_reports_example_pass_counts_on_clean_run() {
     let tmp = TempDir::new().unwrap();
@@ -547,6 +559,7 @@ fn verify_terminal_reports_example_pass_counts_on_clean_run() {
     );
 }
 
+#[verifies("executable-examples/req#req-4-3")]
 #[test]
 fn verify_terminal_reports_failed_examples_after_summary() {
     let tmp = TempDir::new().unwrap();
@@ -599,6 +612,7 @@ fn verify_terminal_reports_failed_examples_after_summary() {
     );
 }
 
+#[verifies("executable-examples/req#req-4-8")]
 #[test]
 fn verify_terminal_non_blocking_failed_examples_stay_readable() {
     let tmp = TempDir::new().unwrap();

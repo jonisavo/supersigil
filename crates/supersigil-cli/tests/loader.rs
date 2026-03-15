@@ -2,6 +2,7 @@ mod common;
 
 use std::fs;
 
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 fn write_invalid_spec(dir: &std::path::Path, subpath: &str) {
@@ -12,6 +13,7 @@ fn write_invalid_spec(dir: &std::path::Path, subpath: &str) {
     fs::write(&full, "---\nsupersigil:\n  id: broken\n").unwrap();
 }
 
+#[verifies("cli-runtime/req#req-2-3")]
 #[test]
 fn parse_all_returns_documents_and_errors() {
     let tmp = TempDir::new().unwrap();
@@ -28,6 +30,7 @@ fn parse_all_returns_documents_and_errors() {
     assert!(!errors.is_empty());
 }
 
+#[verifies("cli-runtime/req#req-2-4")]
 #[test]
 fn load_graph_succeeds_with_valid_specs() {
     let tmp = TempDir::new().unwrap();
@@ -42,6 +45,7 @@ fn load_graph_succeeds_with_valid_specs() {
     assert!(graph.document("doc/b").is_some());
 }
 
+#[verifies("cli-runtime/req#req-2-4")]
 #[test]
 fn load_graph_fails_on_parse_errors() {
     let tmp = TempDir::new().unwrap();
@@ -54,6 +58,7 @@ fn load_graph_fails_on_parse_errors() {
     result.unwrap_err();
 }
 
+#[verifies("cli-runtime/req#req-1-3")]
 #[test]
 fn find_config_searches_upward() {
     let tmp = TempDir::new().unwrap();

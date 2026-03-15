@@ -1138,6 +1138,7 @@ fn severity_symbol(severity: ReportSeverity, color: ColorConfig) -> format::Pain
 mod tests {
     use super::*;
     use crate::format::ColorChoice;
+    use supersigil_rust::verifies;
     use supersigil_verify::Summary;
 
     fn color() -> ColorConfig {
@@ -1278,6 +1279,7 @@ mod tests {
         assert!(!out.contains("Clean: no findings"), "got:\n{out}");
     }
 
+    #[verifies("executable-examples/req#req-4-8")]
     #[test]
     fn draft_gating_hint_shown_when_findings_suppressed() {
         let mut finding = Finding::new(
@@ -1391,6 +1393,7 @@ mod tests {
         ));
     }
 
+    #[verifies("executable-examples/req#req-4-7")]
     #[test]
     fn progress_snapshot_renders_spinner_frames_for_running_examples() {
         let snapshot = progress_snapshot(&[

@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 #[test]
@@ -33,6 +34,7 @@ fn context_shows_document_info() {
         .stdout(predicate::str::contains("valid-creds"));
 }
 
+#[verifies("work-queries/req#req-2-2")]
 #[test]
 fn context_json_format() {
     let tmp = TempDir::new().unwrap();
@@ -58,6 +60,7 @@ fn context_json_format() {
     assert!(json.get("document").is_some());
 }
 
+#[verifies("work-queries/req#req-1-3")]
 #[test]
 fn context_unknown_id_exits_one() {
     let tmp = TempDir::new().unwrap();

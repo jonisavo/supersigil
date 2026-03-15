@@ -1,8 +1,14 @@
 use std::fs;
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
+#[verifies(
+    "authoring-commands/req#req-1-3",
+    "skills-install/req#req-3-5",
+    "skills-install/req#req-2-5"
+)]
 #[test]
 fn init_non_tty_creates_config_and_skills() {
     let tmp = TempDir::new().unwrap();
@@ -35,6 +41,7 @@ fn init_non_tty_creates_config_and_skills() {
     );
 }
 
+#[verifies("skills-install/req#req-2-4", "skills-install/req#req-3-3")]
 #[test]
 fn init_no_skills_creates_config_only() {
     let tmp = TempDir::new().unwrap();
@@ -48,6 +55,7 @@ fn init_no_skills_creates_config_only() {
     assert!(!tmp.path().join(".agents/skills").exists());
 }
 
+#[verifies("skills-install/req#req-2-3", "skills-install/req#req-3-4")]
 #[test]
 fn init_skills_path_writes_to_custom_dir_and_updates_toml() {
     let tmp = TempDir::new().unwrap();
@@ -71,6 +79,7 @@ fn init_skills_path_writes_to_custom_dir_and_updates_toml() {
     );
 }
 
+#[verifies("skills-install/req#req-3-2")]
 #[test]
 fn init_skills_flag_without_path_uses_default() {
     let tmp = TempDir::new().unwrap();
@@ -93,6 +102,7 @@ fn init_skills_flag_without_path_uses_default() {
     );
 }
 
+#[verifies("skills-install/req#req-3-1")]
 #[test]
 fn init_yes_flag_creates_config_and_skills() {
     let tmp = TempDir::new().unwrap();
@@ -110,6 +120,7 @@ fn init_yes_flag_creates_config_and_skills() {
     );
 }
 
+#[verifies("skills-install/req#req-3-6")]
 #[test]
 fn init_skills_and_no_skills_conflict() {
     let tmp = TempDir::new().unwrap();
@@ -137,6 +148,7 @@ fn init_prints_skill_count() {
     );
 }
 
+#[verifies("skills-install/req#req-3-6")]
 #[test]
 fn init_skills_path_and_no_skills_conflict() {
     let tmp = TempDir::new().unwrap();
@@ -147,6 +159,7 @@ fn init_skills_path_and_no_skills_conflict() {
         .failure();
 }
 
+#[verifies("authoring-commands/req#req-1-2")]
 #[test]
 fn init_fails_if_config_exists() {
     let tmp = TempDir::new().unwrap();

@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 use supersigil_cli::Cli;
+use supersigil_rust::verifies;
 
 #[test]
 fn parse_lint() {
@@ -51,6 +52,7 @@ fn parse_ls_with_short_project() {
     }
 }
 
+#[verifies("inventory-queries/req#req-2-2")]
 #[test]
 fn parse_schema_default_format() {
     let cli = Cli::parse_from(["supersigil", "schema"]);
@@ -299,6 +301,7 @@ fn parse_affected() {
     }
 }
 
+#[verifies("inventory-queries/req#req-3-2")]
 #[test]
 fn parse_graph_default() {
     let cli = Cli::parse_from(["supersigil", "graph"]);
@@ -309,6 +312,7 @@ fn parse_graph_default() {
     }
 }
 
+#[verifies("inventory-queries/req#req-3-2")]
 #[test]
 fn parse_graph_dot() {
     let cli = Cli::parse_from(["supersigil", "graph", "--format", "dot"]);
@@ -370,6 +374,7 @@ fn parse_init_skills_path() {
     }
 }
 
+#[verifies("skills-install/req#req-3-6")]
 #[test]
 fn parse_init_skills_and_no_skills_conflict() {
     Cli::try_parse_from(["supersigil", "init", "--skills", "--no-skills"]).unwrap_err();
@@ -446,6 +451,7 @@ fn parse_new_with_short_project() {
 // refs command
 // -----------------------------------------------------------------------
 
+#[verifies("ref-discovery/req#req-2-3")]
 #[test]
 fn parse_refs_defaults() {
     let cli = Cli::parse_from(["supersigil", "refs"]);
@@ -460,6 +466,7 @@ fn parse_refs_defaults() {
     }
 }
 
+#[verifies("ref-discovery/req#req-3-3")]
 #[test]
 fn parse_refs_all_flag() {
     let cli = Cli::parse_from(["supersigil", "refs", "--all"]);
@@ -470,6 +477,7 @@ fn parse_refs_all_flag() {
     }
 }
 
+#[verifies("ref-discovery/req#req-2-3")]
 #[test]
 fn parse_refs_json_format() {
     let cli = Cli::parse_from(["supersigil", "refs", "--format", "json"]);
@@ -491,6 +499,7 @@ fn parse_refs_all_with_json() {
     }
 }
 
+#[verifies("ref-discovery/req#req-2-2")]
 #[test]
 fn parse_refs_with_prefix() {
     let cli = Cli::parse_from(["supersigil", "refs", "auth/"]);

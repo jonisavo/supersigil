@@ -637,7 +637,9 @@ mod edge_optional_task_marker {
 
 mod edge_discovery {
     use super::*;
+    use supersigil_rust::verifies;
 
+    #[verifies("kiro-import/req#req-1-3")]
     #[test]
     fn nonexistent_specs_dir_returns_error() {
         let result = discover_kiro_specs(&PathBuf::from("/nonexistent/path/specs"));
@@ -661,6 +663,7 @@ mod edge_discovery {
         assert!(diagnostics.is_empty());
     }
 
+    #[verifies("kiro-import/req#req-1-2")]
     #[test]
     fn dir_with_no_recognized_files_emits_skipped_diagnostic() {
         let tmp = tempfile::tempdir().unwrap();
@@ -988,7 +991,9 @@ mod fix_discovery_directory_as_file {
 
 mod output_filenames {
     use super::*;
+    use supersigil_rust::verifies;
 
+    #[verifies("kiro-import/req#req-2-2")]
     #[test]
     fn plan_uses_feature_prefixed_output_filenames() {
         let tmp = tempfile::tempdir().unwrap();

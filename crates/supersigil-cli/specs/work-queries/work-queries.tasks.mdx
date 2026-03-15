@@ -32,3 +32,17 @@ This tasks document tracks the bounded recovery pass for the CLI `context` and
   Add an end-to-end CLI test for the fully clean `plan` case that should print
   `No outstanding work.` after evidence filtering.
 </Task>
+
+<Task id="task-5" status="pending" implements="work-queries/req#req-2-3">
+  Add a test for the negative constraint on the `context` query model. Assert
+  that the context output exposes verification targets, task links, and refs,
+  but does NOT expose illustrations (i.e. informational References edges are
+  excluded from the verification-relevant context view).
+</Task>
+
+<Task id="task-6" status="pending" implements="work-queries/req#req-4-3">
+  Add a test for the completed-task summary and empty message in terminal
+  `plan` output. When completed tasks exist, assert that the plan appends a
+  completed-task summary section. When there is no outstanding work at all,
+  assert that the plan prints "No outstanding work."
+</Task>

@@ -41,3 +41,15 @@ current Kiro import domain.
   Decide whether future non-Kiro importers should live in this same domain or
   whether the `import` project should be split into source-specific domains.
 </Task>
+
+<Task id="task-7" status="pending" implements="kiro-import/req#req-2-4">
+  Add a test for Feature_Title precedence fallback. Assert that the importer
+  chooses one Feature_Title per feature following the documented precedence
+  order, and falls back correctly when higher-precedence sources are absent.
+</Task>
+
+<Task id="task-8" status="pending" implements="kiro-import/req#req-4-3">
+  Add a test for write-mode CLI output. When write mode succeeds, assert that
+  the CLI prints the written file list, a summary, and a next-step hint to
+  the expected output streams.
+</Task>

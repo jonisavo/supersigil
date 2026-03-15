@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 #[test]
@@ -52,6 +53,7 @@ fn ls_filter_by_status() {
         .stdout(predicate::str::contains("doc/b").not());
 }
 
+#[verifies("inventory-queries/req#req-1-4")]
 #[test]
 fn ls_json_format() {
     let tmp = TempDir::new().unwrap();
@@ -70,6 +72,7 @@ fn ls_json_format() {
     assert!(json.is_array());
 }
 
+#[verifies("inventory-queries/req#req-1-3")]
 #[test]
 fn ls_empty_result_exits_zero() {
     let tmp = TempDir::new().unwrap();
@@ -96,6 +99,7 @@ fn list_alias_works() {
         .stdout(predicate::str::contains("doc/a"));
 }
 
+#[verifies("workspace-projects/req#req-2-1")]
 #[test]
 fn ls_filter_by_project_in_multi_project_mode() {
     let tmp = TempDir::new().unwrap();

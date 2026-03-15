@@ -29,6 +29,18 @@ paths = [
   "crates/supersigil-rust-macros/specs/**/*.mdx",
 ]
 
+[ecosystem.rust]
+validation = "dev"
+project_scope = [
+  { manifest_dir_prefix = "crates/supersigil-cli", project = "cli" },
+  { manifest_dir_prefix = "crates/supersigil-core", project = "foundation" },
+  { manifest_dir_prefix = "crates/supersigil-parser", project = "foundation" },
+  { manifest_dir_prefix = "crates/supersigil-verify", project = "verify" },
+  { manifest_dir_prefix = "crates/supersigil-import", project = "import" },
+  { manifest_dir_prefix = "crates/supersigil-evidence", project = "ecosystem" },
+  { manifest_dir_prefix = "crates/supersigil-rust", project = "ecosystem" },
+]
+
 [documents.types.documentation]
 description = "User-facing documentation pages"
 

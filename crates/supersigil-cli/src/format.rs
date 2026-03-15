@@ -596,6 +596,7 @@ fn write_joined(out: &mut impl Write, values: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supersigil_rust::verifies;
 
     fn task(doc_id: &str, task_id: &str) -> TaskInfo {
         TaskInfo {
@@ -718,6 +719,7 @@ mod tests {
 
     // ColorConfig tests
 
+    #[verifies("cli-runtime/req#req-3-2")]
     #[test]
     fn color_config_always() {
         let cc = ColorConfig::resolve(ColorChoice::Always);
@@ -725,6 +727,7 @@ mod tests {
         assert!(cc.use_unicode());
     }
 
+    #[verifies("cli-runtime/req#req-3-2")]
     #[test]
     fn color_config_never() {
         let cc = ColorConfig::resolve(ColorChoice::Never);
@@ -732,6 +735,7 @@ mod tests {
         assert!(!cc.use_unicode());
     }
 
+    #[verifies("cli-runtime/req#req-3-2", "cli-runtime/req#req-3-3")]
     #[test]
     fn color_config_symbols_unicode() {
         let cc = ColorConfig::resolve(ColorChoice::Always);
@@ -745,6 +749,7 @@ mod tests {
         assert!(info.contains("\u{2139}"), "info: {info}");
     }
 
+    #[verifies("cli-runtime/req#req-3-2", "cli-runtime/req#req-3-3")]
     #[test]
     fn color_config_symbols_ascii() {
         let cc = ColorConfig::resolve(ColorChoice::Never);
@@ -754,6 +759,7 @@ mod tests {
         assert_eq!(cc.info().to_string(), "[info]");
     }
 
+    #[verifies("cli-runtime/req#req-3-3")]
     #[test]
     fn paint_colored_wraps_ansi() {
         let cc = ColorConfig::resolve(ColorChoice::Always);
@@ -764,6 +770,7 @@ mod tests {
         assert!(s.contains("\x1b["), "no ANSI escape: {s}");
     }
 
+    #[verifies("cli-runtime/req#req-3-3")]
     #[test]
     fn paint_no_color_is_plain() {
         let cc = ColorConfig::resolve(ColorChoice::Never);

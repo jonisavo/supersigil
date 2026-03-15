@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 #[test]
@@ -38,6 +39,7 @@ status = ["draft", "approved"]
     assert_eq!(json["document_types"]["requirement"]["status"][0], "draft");
 }
 
+#[verifies("inventory-queries/req#req-2-2")]
 #[test]
 fn schema_yaml_format_outputs_valid_yaml() {
     let tmp = TempDir::new().unwrap();
@@ -75,6 +77,7 @@ fn schema_contains_builtin_components() {
         .stdout(predicate::str::contains("\"VerifiedBy\""));
 }
 
+#[verifies("inventory-queries/req#req-2-2")]
 #[test]
 fn schema_includes_builtin_document_types_for_minimal_config() {
     let tmp = TempDir::new().unwrap();
@@ -152,6 +155,7 @@ list = true
     assert!(task["attributes"].get("owner").is_some());
 }
 
+#[verifies("inventory-queries/req#req-2-2")]
 #[test]
 fn schema_includes_configured_document_types() {
     let tmp = TempDir::new().unwrap();
@@ -190,6 +194,7 @@ status = ["draft"]
     assert_eq!(json["document_types"]["design"]["status"][0], "draft");
 }
 
+#[verifies("inventory-queries/req#req-2-4")]
 #[test]
 fn schema_omits_default_empty_fields() {
     let tmp = TempDir::new().unwrap();
@@ -219,6 +224,7 @@ fn schema_omits_default_empty_fields() {
     assert!(criterion_id.get("list").is_none());
 }
 
+#[verifies("inventory-queries/req#req-2-3")]
 #[test]
 fn schema_builtin_components_have_descriptions() {
     let tmp = TempDir::new().unwrap();
@@ -250,6 +256,7 @@ fn schema_builtin_components_have_descriptions() {
     }
 }
 
+#[verifies("inventory-queries/req#req-2-3")]
 #[test]
 fn schema_builtin_components_have_examples() {
     let tmp = TempDir::new().unwrap();
@@ -334,6 +341,7 @@ required = true
     assert!(custom.get("examples").is_none());
 }
 
+#[verifies("cli-runtime/req#req-4-4")]
 #[test]
 fn schema_missing_config_exits_one() {
     let tmp = TempDir::new().unwrap();

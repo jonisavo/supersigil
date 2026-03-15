@@ -241,6 +241,7 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use supersigil_core::EcosystemConfig;
+    use supersigil_rust::verifies;
 
     use super::*;
 
@@ -259,6 +260,7 @@ mod tests {
     // 1. Rust plugin assembled when enabled
     // -------------------------------------------------------------------
 
+    #[verifies("ecosystem-plugins/req#req-1-1", "ecosystem-plugins/req#req-2-1")]
     #[test]
     fn rust_plugin_assembled_when_enabled() {
         let mut config = base_config();
@@ -317,6 +319,7 @@ mod tests {
     // 4. Multiple plugins assembled preserves order
     // -------------------------------------------------------------------
 
+    #[verifies("ecosystem-plugins/req#req-2-1")]
     #[test]
     fn multiple_plugins_assembled_in_order() {
         let mut config = base_config();
@@ -459,6 +462,7 @@ mod tests {
         }
     }
 
+    #[verifies("ecosystem-plugins/req#req-3-3")]
     #[test]
     fn plugin_failure_produces_finding() {
         let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
@@ -540,6 +544,7 @@ mod tests {
         }
     }
 
+    #[verifies("ecosystem-plugins/req#req-2-4", "ecosystem-plugins/req#req-3-3")]
     #[test]
     fn plugin_diagnostics_become_findings_without_dropping_evidence() {
         let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
@@ -580,6 +585,7 @@ mod tests {
     // 5c. Plugin-owned discovery-input planning feeds discover()
     // -------------------------------------------------------------------
 
+    #[verifies("ecosystem-plugins/req#req-2-2")]
     #[test]
     fn collect_plugin_evidence_uses_plugin_owned_discovery_inputs() {
         #[derive(Debug)]
@@ -758,6 +764,7 @@ mod tests {
         (dir, config, graph)
     }
 
+    #[verifies("ecosystem-plugins/req#req-2-3")]
     #[test]
     fn end_to_end_plugin_assembly_and_artifact_graph() {
         use supersigil_verify::artifact_graph::build_artifact_graph;

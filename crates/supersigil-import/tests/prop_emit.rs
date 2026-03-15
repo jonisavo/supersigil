@@ -9,6 +9,7 @@ use supersigil_import::emit::design::emit_design_mdx;
 use supersigil_import::emit::requirements::emit_requirements_mdx;
 use supersigil_import::emit::tasks::emit_tasks_mdx;
 use supersigil_import::ids::{deduplicate_ids, make_criterion_id, make_task_id};
+use supersigil_rust::verifies;
 
 // Feature: kiro-import, Property 12: Prose and code block round-trip fidelity
 //
@@ -110,6 +111,7 @@ proptest! {
 //
 // Validates: Requirements 4.1, 7.1, 12.1, 21.1, 21.2, 21.3
 proptest! {
+    #[verifies("kiro-import/req#req-2-3")]
     #[test]
     fn prop_13_front_matter_round_trip(
         parsed in arb_parsed_requirements(),
@@ -165,6 +167,7 @@ proptest! {
 //
 // Validates: Requirements 4.3, 4.4
 proptest! {
+    #[verifies("kiro-import/req#req-3-1")]
     #[test]
     fn prop_14_acceptance_criteria_structure(
         parsed in arb_parsed_requirements(),
@@ -426,6 +429,7 @@ proptest! {
 //
 // Validates: Requirements 12.2, 12.3
 proptest! {
+    #[verifies("kiro-import/req#req-2-3")]
     #[test]
     fn prop_17_task_component_structure(
         parsed in arb_parsed_tasks(),

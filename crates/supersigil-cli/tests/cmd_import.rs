@@ -3,6 +3,7 @@ use std::path::Path;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 const PARSEABLE_REQUIREMENTS: &str = r"# Requirements Document: Login
@@ -19,6 +20,7 @@ fn write_feature_requirements(specs_dir: &Path, feature: &str, body: &str) {
     fs::write(feature_dir.join("requirements.md"), body).unwrap();
 }
 
+#[verifies("kiro-import/req#req-4-2")]
 #[test]
 fn import_dry_run_succeeds_with_tempdir_fixture() {
     let project = TempDir::new().unwrap();

@@ -45,6 +45,7 @@ model, so that invalid workspace shapes fail deterministically.
     IF the TOML is malformed, or contains unknown keys at any configured level,
     THEN THE Config_Loader SHALL return config errors rather than ignoring the
     invalid input.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     THE Config_Loader SHALL accept either Single_Project_Mode or
@@ -52,16 +53,19 @@ model, so that invalid workspace shapes fail deterministically.
     combined with `projects`, THEN loading SHALL report mutual-exclusivity
     errors. IF neither discovery mode is configured, THEN loading SHALL report
     a missing-required error.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-1-4">
     IN Single_Project_Mode, top-level `tests` SHALL default to an empty list
     when omitted. IN Multi_Project_Mode, each Project_Config SHALL require
     `paths`, SHALL default `tests` to an empty list, and SHALL default
     `isolated` to `false`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-1-5">
     A minimal config containing only `paths = [\"specs/**/*.mdx\"]` SHALL load
     successfully with defaults for the remaining optional sections.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -81,6 +85,7 @@ configuration model.
     THE config model SHALL deserialize user-defined component definitions with
     attribute schemas, `referenceable`, `verifiable`, `target_component`,
     `description`, and `examples`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-2-3">
     WHEN callers request the Component_Defs_Runtime_View, built-in components
@@ -92,6 +97,7 @@ configuration model.
     THE Component_Defs_Runtime_View SHALL reject component definitions marked
     `verifiable = true` unless they are also referenceable and require an `id`
     attribute.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/component_defs_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-2-5">
     THE shared `split_list_attribute` utility SHALL split on commas, trim each
@@ -112,25 +118,30 @@ toolchain.
     THE Config_Loader SHALL parse `[verify]` strictness plus per-rule severity
     overrides. IF a configured rule name is unknown, THEN loading SHALL report
     `ConfigError::UnknownRule`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-2">
     THE ecosystem config SHALL default to `plugins = [\"rust\"]`. Explicit
     `plugins = []` SHALL disable all plugins, and unknown plugin names SHALL be
     rejected during config loading.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-3">
     Rust_Plugin_Config SHALL support `validation = \"off\" | \"dev\" | \"all\"`
     plus zero or more `project_scope` entries mapping manifest directory
     prefixes to supersigil project names.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     THE hook config SHALL parse ordered command lists for `post_verify`,
     `post_lint`, and `export`, and SHALL default `timeout_seconds` to `30`
     when omitted.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-5">
     THE `test_results` config SHALL store configured formats and paths and
     SHALL default both lists to empty when omitted.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -144,10 +155,12 @@ round-tripping, so that generated config and serialized outputs remain stable.
     WHEN `id_pattern` is configured, THE Config_Loader SHALL validate that the
     pattern compiles as a regular expression. IF it does not compile, THEN
     loading SHALL report `ConfigError::InvalidIdPattern`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-4-2">
     `Config` and its nested types SHALL remain serializable and deserializable
     such that valid config values round-trip through TOML without semantic
     loss.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>

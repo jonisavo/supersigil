@@ -64,8 +64,10 @@ fn write_dir_recursive(target: &Path, dir: &Dir<'_>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supersigil_rust::verifies;
     use tempfile::TempDir;
 
+    #[verifies("skills-install/req#req-1-1")]
     #[test]
     fn write_skills_creates_expected_structure() {
         let tmp = TempDir::new().unwrap();
@@ -79,6 +81,7 @@ mod tests {
         assert!(dir.join("spec-driven-development/SKILL.md").exists());
     }
 
+    #[verifies("skills-install/req#req-1-1")]
     #[test]
     fn write_skills_includes_companion_files() {
         let tmp = TempDir::new().unwrap();

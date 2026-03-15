@@ -39,3 +39,23 @@ This tasks document tracks the bounded recovery pass for the CLI `init` and
   error; supplying it in single-project mode is an error; naming an unknown
   project is an error with available names listed.
 </Task>
+
+<Task id="task-6" status="pending" implements="authoring-commands/req#req-2-2">
+  Add a test that `new` accepts a configured custom document type. Set up a
+  fixture `supersigil.toml` with a custom type in `[documents.types]`, invoke
+  `new` with that type, and assert the command succeeds and creates the
+  expected file.
+</Task>
+
+<Task id="task-7" status="pending" implements="authoring-commands/req#req-2-4">
+  Add a test asserting the stdout/stderr output discipline of `new`. After
+  successful creation, verify that the path to the created file appears on
+  stdout and that the lint hint appears on stderr.
+</Task>
+
+<Task id="task-8" status="pending" implements="authoring-commands/req#req-3-4">
+  Add a test verifying that generated scaffolds contain type-appropriate
+  placeholder sections. Create documents of different types (e.g. `req`,
+  `design`, `tasks`) and assert that each scaffold includes the placeholder
+  sections appropriate for its document type.
+</Task>

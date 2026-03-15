@@ -95,3 +95,45 @@ repository-wide reshuffle.
   `ls --project` and `verify --project` behavior against true multi-project
   fixtures.
 </Task>
+
+<Task id="task-8" status="pending" implements="workspace-projects/req#req-1-5">
+  Add a test verifying that Shared_Workspace_Config remains top-level in both
+  modes. Assert that sections like `id_pattern`, `[documents]`, `[components]`,
+  `[verify]`, `[ecosystem]`, and `[hooks]` are parsed from the top level in
+  both single-project and multi-project configs, and that placing them inside a
+  `[projects.*]` entry is rejected.
+</Task>
+
+<Task id="task-9" status="pending" implements="workspace-projects/req#req-3-3">
+  Add a test verifying that multi-project verification collects test files from
+  all configured project test globs. Set up a multi-project fixture with
+  distinct test globs per project and assert that verification discovers test
+  files from every project before rule execution.
+</Task>
+
+<Task id="task-10" status="pending" implements="workspace-projects/req#req-3-4">
+  Add a test for project-filtered verification. When a `--project` filter is
+  supplied, assert that findings are reported only for documents in the selected
+  project, while the workspace graph remains available for cross-project
+  reference resolution.
+</Task>
+
+<Task id="task-11" status="pending" implements="workspace-projects/req#req-4-1">
+  Add a test or structural assertion that this repository keeps overarching
+  specs under the root `specs/` tree as the `workspace` project. This can be
+  a verify pass confirming the workspace project discovers root-level specs.
+</Task>
+
+<Task id="task-12" status="pending" implements="workspace-projects/req#req-4-2">
+  Add a test or structural assertion that the initial repository project map
+  includes at least `workspace`, `foundation`, `cli`, `verify`, `import`, and
+  `ecosystem`. This can be validated by loading the repository's own
+  `supersigil.toml` and checking the project names.
+</Task>
+
+<Task id="task-13" status="pending" implements="workspace-projects/req#req-4-3">
+  Add a test or structural assertion that a repository project may own more
+  than one crate-local spec root. Verify that projects with multiple path
+  globs spanning different crate directories are accepted and discover
+  documents from all specified roots.
+</Task>

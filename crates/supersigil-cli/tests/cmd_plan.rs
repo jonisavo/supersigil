@@ -3,8 +3,10 @@ mod common;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
+#[verifies("work-queries/req#req-1-2")]
 #[test]
 fn plan_all_shows_outstanding_targets() {
     let tmp = TempDir::new().unwrap();
@@ -33,6 +35,7 @@ fn plan_all_shows_outstanding_targets() {
         .stdout(predicate::str::contains("valid-creds"));
 }
 
+#[verifies("work-queries/req#req-1-2")]
 #[test]
 fn plan_exact_id() {
     let tmp = TempDir::new().unwrap();
@@ -54,6 +57,7 @@ fn plan_exact_id() {
         .stdout(predicate::str::contains("c1"));
 }
 
+#[verifies("work-queries/req#req-1-2")]
 #[test]
 fn plan_prefix_match() {
     let tmp = TempDir::new().unwrap();
@@ -84,6 +88,7 @@ fn plan_prefix_match() {
         .stdout(predicate::str::contains("c2").not());
 }
 
+#[verifies("work-queries/req#req-1-2", "work-queries/req#req-1-3")]
 #[test]
 fn plan_no_match_exits_one() {
     let tmp = TempDir::new().unwrap();
@@ -97,6 +102,7 @@ fn plan_no_match_exits_one() {
         .failure();
 }
 
+#[verifies("work-queries/req#req-4-1")]
 #[test]
 fn plan_shows_dependency_graph() {
     let tmp = TempDir::new().unwrap();
@@ -145,6 +151,7 @@ fn plan_shows_dependency_graph() {
         .stdout(predicate::str::contains("→"));
 }
 
+#[verifies("work-queries/req#req-4-1")]
 #[test]
 fn plan_default_shows_actionable_work() {
     let tmp = TempDir::new().unwrap();
@@ -196,6 +203,7 @@ fn plan_default_shows_actionable_work() {
         .stdout(predicate::str::contains("1 more targets blocked"));
 }
 
+#[verifies("work-queries/req#req-4-2")]
 #[test]
 fn plan_verbose_shows_all_targets_and_task_list() {
     let tmp = TempDir::new().unwrap();
@@ -248,6 +256,7 @@ fn plan_verbose_shows_all_targets_and_task_list() {
         .stdout(predicate::str::contains("implements:"));
 }
 
+#[verifies("work-queries/req#req-3-2")]
 #[test]
 fn plan_json_format() {
     let tmp = TempDir::new().unwrap();
@@ -303,6 +312,7 @@ fn plan_plugin_failure_warning_on_stderr() {
 
 /// With --format json, stdout must be valid JSON even when plugin warnings
 /// are emitted on stderr.
+#[verifies("cli-runtime/req#req-3-4")]
 #[test]
 fn plan_json_stdout_clean_despite_plugin_warning() {
     let tmp = TempDir::new().unwrap();

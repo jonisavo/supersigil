@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 #[test]
@@ -54,6 +55,7 @@ fn lint_empty_project_exits_zero() {
         .success();
 }
 
+#[verifies("cli-runtime/req#req-4-2")]
 #[test]
 fn lint_no_config_exits_one_with_stderr() {
     let tmp = TempDir::new().unwrap();

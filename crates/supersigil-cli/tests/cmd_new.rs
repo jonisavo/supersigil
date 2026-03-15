@@ -3,6 +3,7 @@ mod common;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 fn setup_multi_project(dir: &std::path::Path) {
@@ -22,6 +23,7 @@ paths = ["crates/my-cli/specs/**/*.mdx"]
 }
 
 /// task-7-2: Generated requirements template must pass lint.
+#[verifies("authoring-commands/req#req-2-3", "authoring-commands/req#req-3-1")]
 #[test]
 fn new_requirements_passes_lint() {
     let tmp = TempDir::new().unwrap();
@@ -43,6 +45,7 @@ fn new_requirements_passes_lint() {
 }
 
 /// task-7-2: Generated tasks template must pass lint.
+#[verifies("authoring-commands/req#req-3-1")]
 #[test]
 fn new_tasks_passes_lint() {
     let tmp = TempDir::new().unwrap();
@@ -82,6 +85,7 @@ fn new_design_does_not_break_graph() {
 }
 
 /// Design template with existing req fills in Implements ref.
+#[verifies("authoring-commands/req#req-3-3")]
 #[test]
 fn new_design_with_existing_req_fills_implements() {
     let tmp = TempDir::new().unwrap();
@@ -180,6 +184,7 @@ fn new_with_unknown_project_errors() {
 }
 
 /// --project in single-project mode errors.
+#[verifies("authoring-commands/req#req-2-7")]
 #[test]
 fn new_with_project_in_single_project_mode_errors() {
     let tmp = TempDir::new().unwrap();

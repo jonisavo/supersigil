@@ -52,11 +52,19 @@ rules can discover refs without re-walking the component tree.
     THE `DocumentGraph` SHALL expose a method that iterates all referenceable
     components in the component index, yielding the owning document ID,
     fragment ID, and component metadata for each entry.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/unit.rs"
+    />
   </Criterion>
   <Criterion id="req-1-2">
     THE `DocumentGraph` SHALL expose a Fragment_Lookup method that, given a bare
     fragment ID string, returns all `(doc_id, component)` pairs whose fragment
     matches, by scanning the existing component index.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/unit.rs"
+    />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -131,9 +139,17 @@ so that I can fix the annotation without manual research.
     from that record yields one or more matching Criterion_Refs, THEN the
     `missing_verification_evidence` finding message SHALL include a "did you
     mean" suggestion listing the matching full refs.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-verify/src/rules/coverage.rs"
+    />
   </Criterion>
   <Criterion id="req-4-2">
     WHEN Fragment_Lookup yields zero matches for the unresolved value, THEN the
     finding message SHALL remain unchanged from the current behaviour.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-verify/src/rules/coverage.rs"
+    />
   </Criterion>
 </AcceptanceCriteria>

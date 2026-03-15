@@ -198,6 +198,7 @@ fn write_table(
 mod tests {
     use super::*;
     use crate::format::ColorChoice;
+    use supersigil_rust::verifies;
 
     fn entry(id: &str, doc_type: &str, status: &str, path: &str) -> DocEntry {
         DocEntry {
@@ -208,6 +209,7 @@ mod tests {
         }
     }
 
+    #[verifies("inventory-queries/req#req-1-2")]
     #[test]
     fn table_has_aligned_columns() {
         let entries = vec![
@@ -283,6 +285,7 @@ mod tests {
         );
     }
 
+    #[verifies("inventory-queries/req#req-1-3")]
     #[test]
     fn table_empty_shows_message() {
         let color = ColorConfig::resolve(ColorChoice::Never);
@@ -292,6 +295,7 @@ mod tests {
         assert!(output.contains("No documents found"), "got:\n{output}");
     }
 
+    #[verifies("inventory-queries/req#req-1-2")]
     #[test]
     fn table_shows_count() {
         let entries = vec![

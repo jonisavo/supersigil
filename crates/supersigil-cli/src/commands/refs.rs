@@ -224,6 +224,7 @@ fn write_terminal_table(
 mod tests {
     use super::*;
     use crate::format::ColorChoice;
+    use supersigil_rust::verifies;
 
     fn entry(
         ref_string: &str,
@@ -243,6 +244,7 @@ mod tests {
         ColorConfig::resolve(ColorChoice::Never)
     }
 
+    #[verifies("ref-discovery/req#req-2-1")]
     #[test]
     fn terminal_table_shows_refs_sorted() {
         let entries = vec![
@@ -303,6 +305,7 @@ mod tests {
         );
     }
 
+    #[verifies("ref-discovery/req#req-2-4")]
     #[test]
     fn terminal_table_truncates_long_body() {
         let long_body = "A".repeat(100);
@@ -341,6 +344,7 @@ mod tests {
         assert!(output.contains("No criterion refs found"), "got: {output}");
     }
 
+    #[verifies("ref-discovery/req#req-2-1", "ref-discovery/req#req-2-5")]
     #[test]
     fn json_output_has_correct_fields() {
         let entries = vec![entry(
@@ -362,6 +366,7 @@ mod tests {
         );
     }
 
+    #[verifies("ref-discovery/req#req-2-5")]
     #[test]
     fn json_output_null_body_text() {
         let entries = vec![entry("doc#a", "doc", "a", None)];
@@ -414,6 +419,7 @@ mod tests {
         assert_eq!(result, "line one line two");
     }
 
+    #[verifies("ref-discovery/req#req-2-2")]
     #[test]
     fn filter_entries_by_prefix() {
         let entries = vec![
@@ -554,6 +560,7 @@ mod tests {
         make_tracked_files,
     };
 
+    #[verifies("ref-discovery/req#req-3-1")]
     #[test]
     fn resolve_scope_cwd_inside_tracked_area() {
         let docs = vec![
@@ -584,6 +591,7 @@ mod tests {
         assert!(!scope.contains("design/billing"), "scope: {scope:?}");
     }
 
+    #[verifies("ref-discovery/req#req-3-2")]
     #[test]
     fn resolve_scope_cwd_outside_all_tracked_areas_returns_none() {
         let docs = vec![make_doc(
@@ -644,6 +652,7 @@ mod tests {
         assert_eq!(scope.len(), 2, "both docs share the same tracked area");
     }
 
+    #[verifies("ref-discovery/req#req-3-1")]
     #[test]
     fn resolve_scope_follows_implements_to_include_req_docs() {
         // design/auth has TrackedFiles and Implements refs="req/auth".

@@ -75,6 +75,7 @@ pub fn input_with_default(
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use supersigil_rust::verifies;
 
     #[test]
     fn confirm_empty_input_returns_default_yes() {
@@ -141,6 +142,7 @@ mod tests {
         assert!(output.is_empty());
     }
 
+    #[verifies("skills-install/req#req-2-1")]
     #[test]
     fn confirm_writes_prompt_with_yes_default() {
         let mut input = Cursor::new(b"y\n");
@@ -196,6 +198,7 @@ mod tests {
         assert!(output.is_empty());
     }
 
+    #[verifies("skills-install/req#req-2-2")]
     #[test]
     fn input_with_default_shows_default_in_brackets() {
         let mut input = Cursor::new(b"\n");

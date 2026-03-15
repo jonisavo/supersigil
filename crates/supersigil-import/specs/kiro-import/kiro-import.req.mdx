@@ -88,6 +88,7 @@ that the generated output is easy to trace and re-run.
     THE emitted front matter SHALL use `supersigil.status: draft` for every
     generated document and SHALL use the current document-type values
     `requirements`, `design`, and `tasks`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_emit.rs" />
   </Criterion>
   <Criterion id="req-2-4">
     THE importer SHALL choose one Feature_Title per feature in precedence order
@@ -115,6 +116,7 @@ without hiding unresolved cases.
     Kiro source by emitting one `<AcceptanceCriteria>` block per requirement
     section with generated criterion IDs shaped as
     `req-{requirement_number}-{criterion_index}`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_emit.rs" />
   </Criterion>
   <Criterion id="req-3-2">
     Design emission SHALL emit `<Implements refs="{req_doc_id}" />` only when
@@ -127,6 +129,7 @@ without hiding unresolved cases.
     `Requirements` or `Validates` metadata only against criterion IDs in the
     same feature's imported requirements document. Resolved refs SHALL become
     `<References>` components or task `implements` attributes.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_resolve.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     IF duplicate criterion IDs, duplicate task IDs, optional-task markers,
@@ -139,6 +142,7 @@ without hiding unresolved cases.
     THE reported `ambiguity_count` in an Import_Plan or Import_Result SHALL
     equal the total number of emitted Ambiguity_Markers across the generated
     documents.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -177,6 +181,7 @@ conflict behavior, so that reruns and partial failures are understandable.
   <Criterion id="req-5-1">
     THE write phase SHALL create missing parent directories for planned output
     paths and SHALL write documents sequentially in plan order.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_write.rs" />
   </Criterion>
   <Criterion id="req-5-2">
     IF `force` is false and a target file already exists, THEN the write phase
@@ -186,6 +191,7 @@ conflict behavior, so that reruns and partial failures are understandable.
   </Criterion>
   <Criterion id="req-5-3">
     IF `force` is true, THEN the write phase SHALL overwrite existing files.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_write.rs" />
   </Criterion>
   <Criterion id="req-5-4">
     THE current write phase SHALL be best-effort and non-transactional: if a

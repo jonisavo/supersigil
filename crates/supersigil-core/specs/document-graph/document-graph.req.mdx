@@ -47,11 +47,13 @@ constant-time lookups.
     `(document_id, fragment)`, including nested components. IF the same
     fragment appears more than once within a document, THEN graph construction
     SHALL report `GraphError::DuplicateComponentId`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_component_index.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     IN Multi_Project_Mode, THE Graph_Builder SHALL assign Project_Membership to
     each indexed document based on the configured project path prefixes. IN
     Single_Project_Mode, documents SHALL have no project assignment.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -74,18 +76,21 @@ graphs.
     target component name SHALL match that constraint. If the document,
     fragment, or expected component type does not match, THEN graph
     construction SHALL report `GraphError::BrokenRef`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs" />
   </Criterion>
   <Criterion id="req-2-3">
     Task `implements` refs SHALL be resolved separately from generic `refs`.
     Each `implements` ref SHALL include a fragment and SHALL target a
     Verifiable_Target. IF it does not, THEN graph construction SHALL report
     `GraphError::BrokenRef`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_task_implements.rs" />
   </Criterion>
   <Criterion id="req-2-4">
     WHEN a source document belongs to a non-isolated project, ref resolution
     SHALL use the workspace-wide document graph. WHEN a source document belongs
     to an isolated project, refs into a different project SHALL fail as broken
     refs while same-project refs continue to resolve.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -106,12 +111,14 @@ graph-build time, so that query output can present work in deterministic order.
     THE Graph_Builder SHALL detect cycles in task dependencies and in
     document-level `DependsOn` edges, including self-cycles, and SHALL report
     them as hard graph errors.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_cycle.rs" />
   </Criterion>
   <Criterion id="req-3-3">
     WHEN no cycle errors are present, THE Graph_Builder SHALL compute
     deterministic topological orderings for tasks and documents. Task ordering
     SHALL break ties by declaration order; document ordering SHALL break ties
     alphabetically by document ID.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_topo.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -132,11 +139,13 @@ need to rescan component trees.
   <Criterion id="req-4-2">
     Duplicate ref strings inside one attribute SHALL contribute only once to the
     reverse mappings.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_reverse.rs" />
   </Criterion>
   <Criterion id="req-4-3">
     THE Graph_Builder SHALL aggregate `TrackedFiles` `paths` values by owning
     document, expose lookup by document ID, and expose iteration across all
     tracked-file entries.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_tracked_files.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -159,20 +168,24 @@ terminal output.
     `plan` SHALL support exact-document, prefix, and all-documents queries.
     Query parsing SHALL prefer an exact document match, then a prefix match,
     and otherwise report no matching documents.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_plan.rs" />
   </Criterion>
   <Criterion id="req-5-3">
     `plan` SHALL report `outstanding_targets` for verifiable criteria in the
     target document set that are not implemented by a completed task.
     `References` links SHALL remain informational at this layer and SHALL NOT
     suppress outstanding targets.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_plan.rs" />
   </Criterion>
   <Criterion id="req-5-4">
     `plan` SHALL return linked pending and completed tasks in topological
     order, preserving each task's resolved `implements` data.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_plan.rs" />
   </Criterion>
   <Criterion id="req-5-5">
     `ContextOutput` and `PlanOutput` SHALL remain structured serializable types
     rather than preformatted strings.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/serialize_roundtrip.rs" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -194,5 +207,6 @@ time.
     collected errors instead of a partial graph. Derived indexes such as topo
     orders, reverse mappings, and tracked files SHALL be computed only for a
     clean graph.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_error_aggregation.rs" />
   </Criterion>
 </AcceptanceCriteria>

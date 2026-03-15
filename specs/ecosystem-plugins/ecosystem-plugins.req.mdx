@@ -116,18 +116,19 @@ format.
   <Criterion id="req-4-1">
     THE language-agnostic `DocumentGraph` and core config model SHALL remain
     usable without taking a compile-time dependency on Rust parsing or proc-
-    macro code.
+    macro code, so that core tooling stays ecosystem-agnostic.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/Cargo.toml" />
   </Criterion>
   <Criterion id="req-4-2">
-    THE current ecosystem implementation SHALL remain split between a shared
-    evidence-contract crate, a Rust runtime crate, and a Rust proc-macro
-    crate, with root-level specs only for cross-cutting orchestration.
+    Evidence collection and proc-macro validation SHALL be in separate crates
+    from `supersigil-core` so that the core model remains ecosystem-agnostic
+    and the proc macro's heavy `syn` dependency is isolated from runtime code.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/Cargo.toml" />
   </Criterion>
   <Criterion id="req-4-3">
-    THE ecosystem layer SHALL leave room for future built-in ecosystems to
-    adopt the same shared evidence contract without changing the MDX document
-    format, and the crate-local ecosystem specs SHALL split into one shared
-    contract project plus one project per ecosystem family once multiple
-    built-in ecosystems exist.
+    THE evidence contract crate SHALL NOT import Rust-specific parsing types,
+    so that future ecosystem plugins can implement the same trait surface
+    without depending on the Rust toolchain.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/Cargo.toml" />
   </Criterion>
 </AcceptanceCriteria>

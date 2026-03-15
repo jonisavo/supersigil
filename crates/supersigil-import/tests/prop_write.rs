@@ -5,6 +5,7 @@ use proptest::prelude::*;
 use std::path::PathBuf;
 use supersigil_import::write::write_files;
 use supersigil_import::{ImportError, PlannedDocument};
+use supersigil_rust::verifies;
 
 /// Generate a small list of `PlannedDocument`s with realistic output paths.
 fn arb_planned_documents(base_dir: PathBuf) -> impl Strategy<Value = Vec<PlannedDocument>> {
@@ -47,6 +48,7 @@ fn arb_planned_documents(base_dir: PathBuf) -> impl Strategy<Value = Vec<Planned
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
 
+    #[verifies("kiro-import/req#req-5-1")]
     #[test]
     fn prop_20_write_creates_missing_directories(
         docs in arb_planned_documents(PathBuf::from("PLACEHOLDER")),
@@ -112,6 +114,7 @@ proptest! {
         }
     }
 
+    #[verifies("kiro-import/req#req-5-3")]
     #[test]
     fn prop_20_write_overwrites_with_force(
         docs in arb_planned_documents(PathBuf::from("PLACEHOLDER")),

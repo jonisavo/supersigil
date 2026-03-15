@@ -7,6 +7,7 @@ use supersigil_import::parse::requirements::{
     ParsedCriterion, ParsedRequirement, ParsedRequirements,
 };
 use supersigil_import::refs::{RequirementIndex, resolve_refs};
+use supersigil_rust::verifies;
 
 /// Build a `ParsedRequirements` that contains exactly the given refs as
 /// requirement sections with matching criteria.
@@ -50,6 +51,7 @@ fn requirements_containing(refs: &[RawRef]) -> ParsedRequirements {
 // Validates: Requirements 6.1, 6.2, 6.3, 7.4, 7.5
 proptest! {
     /// All resolvable refs produce correct criterion ref strings.
+    #[verifies("kiro-import/req#req-3-3")]
     #[test]
     fn prop_resolvable_refs_produce_correct_strings(
         refs in generators::arb_raw_ref_list(),
