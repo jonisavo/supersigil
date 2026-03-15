@@ -4,7 +4,10 @@ run = "cargo fmt --all"
 
 [tasks.lint]
 description = "Lint the workspace."
-run = "cargo clippy --workspace --all-targets"
+run = [
+    "cargo clippy --workspace --all-targets",
+    "cargo run -p supersigil-cli lint"
+]
 
 [tasks.fix]
 description = "Apply fixes in the workspace."
@@ -19,7 +22,10 @@ run = "cargo build --workspace --release"
 
 [tasks.test]
 description = "Run workspace tests."
-run = "cargo nextest run"
+run = [
+    "cargo nextest run",
+    "cargo run -p supersigil-cli verify"
+]
 
 [tasks.qa]
 description = "Run all tooling to ensure the repository is squeaky clean."
