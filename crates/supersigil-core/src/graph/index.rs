@@ -161,16 +161,15 @@ fn component_name(component: std::path::Component<'_>) -> Option<&OsStr> {
 /// `id` attribute and indexes as `(doc_id, component_id) → (doc_id, component)`.
 ///
 /// Detects duplicate component IDs within the same document.
-#[expect(clippy::type_complexity, reason = "return type is clear in context")]
 pub(super) fn build_component_index(
     doc_index: &HashMap<String, SpecDocument>,
     component_defs: &ComponentDefs,
 ) -> (
-    HashMap<(String, String), (String, ExtractedComponent)>,
+    HashMap<(String, String), ExtractedComponent>,
     Vec<GraphError>,
 ) {
     let mut errors = Vec::new();
-    let mut index: HashMap<(String, String), (String, ExtractedComponent)> = HashMap::new();
+    let mut index: HashMap<(String, String), ExtractedComponent> = HashMap::new();
     // Track positions per (doc_id, component_id) for duplicate detection.
     let mut position_tracker: HashMap<(String, String), Vec<SourcePosition>> = HashMap::new();
 
@@ -203,7 +202,7 @@ fn index_components_recursive(
     doc_id: &str,
     components: &[ExtractedComponent],
     component_defs: &ComponentDefs,
-    index: &mut HashMap<(String, String), (String, ExtractedComponent)>,
+    index: &mut HashMap<(String, String), ExtractedComponent>,
     position_tracker: &mut HashMap<(String, String), Vec<SourcePosition>>,
 ) {
     for component in components {
@@ -218,9 +217,7 @@ fn index_components_recursive(
                 .or_default()
                 .push(component.position);
             // Keep the first occurrence.
-            index
-                .entry(key)
-                .or_insert_with(|| (doc_id.to_owned(), component.clone()));
+            index.entry(key).or_insert_with(|| component.clone());
         }
 
         // Recurse into children (e.g., Criterion inside AcceptanceCriteria).

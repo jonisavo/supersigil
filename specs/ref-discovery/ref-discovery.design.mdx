@@ -61,42 +61,21 @@ graph TD
 
 ## Layer 1: Graph Primitives
 
-Two new methods on `DocumentGraph`, both operating over the existing
-`component_index: HashMap<(String, String), (String, ExtractedComponent)>`.
-No new indexes are needed.
+Two methods on `DocumentGraph`, both operating over the existing
+`component_index`. No new indexes are needed.
 
 ```rust
-/// Iterate all referenceable components.
-/// Yields (doc_id, fragment_id, &ExtractedComponent).
-pub fn criteria(&self) -> impl Iterator<Item = (&str, &str, &ExtractedComponent)> {
-    self.component_index.iter().map(|((doc_id, frag), (_, comp))| {
-        (doc_id.as_str(), frag.as_str(), comp)
-    })
-}
-
-/// Find all components whose fragment ID matches, across all documents.
-pub fn criteria_by_fragment(&self, fragment: &str) -> Vec<(&str, &ExtractedComponent)> {
-    self.component_index
-        .iter()
-        .filter_map(|((doc_id, frag), (_, comp))| {
-            (frag == fragment).then_some((doc_id.as_str(), comp))
-        })
-        .collect()
-}
+pub fn criteria(&self) -> impl Iterator<Item = (&str, &str, &ExtractedComponent)>;
+pub fn criteria_by_fragment(&self, fragment: &str) -> Vec<(&str, &ExtractedComponent)>;
+pub fn implements_targets(&self, doc_id: &str) -> Vec<&str>;
 ```
 
-A third method provides the forward direction of `Implements` relationships,
-needed by Context_Scope expansion to follow links from design docs to their
-requirement docs:
-
-```rust
-/// Get all documents that `doc_id` implements (forward direction).
-pub fn implements_targets(&self, doc_id: &str) -> Vec<&str>
-```
-
-This scans the existing `implements_reverse` mapping rather than adding a new
-index, since the mapping is small and the method is called only during scope
-resolution.
+`criteria` iterates all referenceable components, yielding `(doc_id,
+fragment_id, component)` triples. `criteria_by_fragment` does a linear scan
+filtering by fragment ID. `implements_targets` provides the forward direction
+of `Implements` relationships by scanning the existing `implements_reverse`
+mapping — needed by Context_Scope expansion to follow links from design docs
+to their requirement docs.
 
 The `criteria` and `criteria_by_fragment` methods are deliberately named for
 discoverability even though the component index contains all referenceable

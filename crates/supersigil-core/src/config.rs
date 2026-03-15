@@ -2,6 +2,10 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
+
+static PLACEHOLDER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\{(\w+)\}").expect("valid regex"));
 
 use serde::{Deserialize, Serialize};
 
@@ -475,9 +479,8 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
 
     // Runner placeholder validation
     let valid_placeholders = ["{file}", "{dir}", "{lang}", "{name}"];
-    let placeholder_re = regex::Regex::new(r"\{(\w+)\}").expect("valid regex");
     for (name, runner) in &config.examples.runners {
-        for cap in placeholder_re.captures_iter(&runner.command) {
+        for cap in PLACEHOLDER_RE.captures_iter(&runner.command) {
             let placeholder = cap.get(0).expect("group 0 always exists").as_str();
             if !valid_placeholders.contains(&placeholder) {
                 errors.push(ConfigError::InvalidRunnerPlaceholder {

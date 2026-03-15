@@ -51,7 +51,7 @@ graph TD
 ```rust
 pub struct DocumentGraph {
     doc_index: HashMap<String, SpecDocument>,
-    component_index: HashMap<(String, String), (String, ExtractedComponent)>,
+    component_index: HashMap<(String, String), ExtractedComponent>,
     resolved_refs: HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
     references_reverse: HashMap<(String, Option<String>), BTreeSet<String>>,
     implements_reverse: HashMap<String, BTreeSet<String>>,

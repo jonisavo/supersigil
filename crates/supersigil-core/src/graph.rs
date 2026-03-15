@@ -69,8 +69,8 @@ pub struct DocumentGraph {
     /// Document ID → `SpecDocument`.
     doc_index: HashMap<String, SpecDocument>,
 
-    /// `(document_id, fragment)` → `(owning_doc_id, ExtractedComponent)`.
-    component_index: HashMap<(String, String), (String, ExtractedComponent)>,
+    /// `(document_id, fragment)` → `ExtractedComponent`.
+    component_index: HashMap<(String, String), ExtractedComponent>,
 
     /// Resolved refs keyed by source component path.
     /// Key: `(source_doc_id, component_path)` where `component_path` is a
@@ -138,7 +138,6 @@ impl DocumentGraph {
     pub fn component(&self, doc_id: &str, fragment: &str) -> Option<&ExtractedComponent> {
         self.component_index
             .get(&(doc_id.to_owned(), fragment.to_owned()))
-            .map(|(_, comp)| comp)
     }
 
     // -- Criteria accessors (ref-discovery) ----------------------------------
@@ -148,7 +147,7 @@ impl DocumentGraph {
     pub fn criteria(&self) -> impl Iterator<Item = (&str, &str, &ExtractedComponent)> {
         self.component_index
             .iter()
-            .map(|((doc_id, frag), (_, comp))| (doc_id.as_str(), frag.as_str(), comp))
+            .map(|((doc_id, frag), comp)| (doc_id.as_str(), frag.as_str(), comp))
     }
 
     /// Find all components whose fragment ID matches, across all documents.
@@ -156,7 +155,7 @@ impl DocumentGraph {
     pub fn criteria_by_fragment(&self, fragment: &str) -> Vec<(&str, &ExtractedComponent)> {
         self.component_index
             .iter()
-            .filter_map(|((doc_id, frag), (_, comp))| {
+            .filter_map(|((doc_id, frag), comp)| {
                 (frag == fragment).then_some((doc_id.as_str(), comp))
             })
             .collect()
@@ -305,25 +304,18 @@ pub fn build_graph(
     let (component_index, comp_errors) = index::build_component_index(&doc_index, &component_defs);
     errors.extend(comp_errors);
 
-    // Stage 3: Ref resolution
+    // Stage 3–4: Ref resolution and task implements resolution
     let project_isolation = build_project_isolation(config);
-    let (resolved_refs, ref_errors) = resolve::resolve_refs(
-        &doc_index,
-        &component_index,
-        &component_defs,
-        &doc_project,
-        &project_isolation,
-    );
+    let resolve_ctx = resolve::ResolveContext {
+        doc_index: &doc_index,
+        component_index: &component_index,
+        component_defs: &component_defs,
+        doc_project: &doc_project,
+        project_isolation: &project_isolation,
+    };
+    let (resolved_refs, ref_errors) = resolve::resolve_refs(&resolve_ctx);
     errors.extend(ref_errors);
-
-    // Stage 4: Task implements resolution
-    let (task_implements, impl_errors) = resolve::resolve_task_implements(
-        &doc_index,
-        &component_index,
-        &component_defs,
-        &doc_project,
-        &project_isolation,
-    );
+    let (task_implements, impl_errors) = resolve::resolve_task_implements(&resolve_ctx);
     errors.extend(impl_errors);
 
     // Stage 5: Task dependency cycle detection

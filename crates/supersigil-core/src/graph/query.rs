@@ -247,41 +247,10 @@ fn extract_criteria(
 /// tasks whose `implements` refs point to criteria in this document) and
 /// collect those tasks in topological order.
 fn collect_linked_tasks(graph: &DocumentGraph, target_doc_id: &str) -> Vec<TaskInfo> {
-    let mut tasks = Vec::new();
-
-    // Scan all documents for Task components that implement criteria in the
-    // target document. We use task_implements to check linkage.
-    for (doc_id, doc) in graph.documents() {
-        // Get the topo order for this document (if it has tasks).
-        let Some(topo_order) = graph.task_order(doc_id) else {
-            continue;
-        };
-
-        // Check if any task in this document implements a criterion in the
-        // target document.
-        let linked_task_ids: Vec<&str> = topo_order
-            .iter()
-            .filter(|task_id| {
-                graph
-                    .task_implements(doc_id, task_id)
-                    .is_some_and(|impls| impls.iter().any(|(tid, _)| tid == target_doc_id))
-            })
-            .map(String::as_str)
-            .collect();
-
-        if linked_task_ids.is_empty() {
-            continue;
-        }
-
-        // Collect task details in topo order.
-        for task_id in linked_task_ids {
-            if let Some(task_comp) = find_task_component(&doc.components, task_id) {
-                tasks.push(build_task_info(graph, doc_id, task_id, task_comp));
-            }
-        }
-    }
-
-    tasks
+    let target_set = HashSet::from([target_doc_id.to_owned()]);
+    let (mut pending, mut completed) = collect_tasks_for_targets(graph, &target_set);
+    pending.append(&mut completed);
+    pending
 }
 
 /// Build a `TaskInfo` from a task component and its graph metadata.
@@ -479,17 +448,23 @@ fn collect_plan_tasks(
     graph: &DocumentGraph,
     target_doc_ids: &HashSet<String>,
 ) -> (Vec<TaskInfo>, Vec<TaskInfo>) {
+    collect_tasks_for_targets(graph, target_doc_ids)
+}
+
+/// Shared task collection: find all tasks documents linked to the target docs,
+/// filter tasks by `implements`, and split into pending/completed by status.
+fn collect_tasks_for_targets(
+    graph: &DocumentGraph,
+    target_doc_ids: &HashSet<String>,
+) -> (Vec<TaskInfo>, Vec<TaskInfo>) {
     let mut pending = Vec::new();
     let mut completed = Vec::new();
 
-    // Find all tasks documents that have tasks implementing criteria in any
-    // of the target documents.
     for (tasks_doc_id, tasks_doc) in graph.documents() {
         let Some(topo_order) = graph.task_order(tasks_doc_id) else {
             continue;
         };
 
-        // Collect task IDs that implement criteria in any target doc.
         let linked_task_ids: Vec<&str> = topo_order
             .iter()
             .filter(|task_id| {

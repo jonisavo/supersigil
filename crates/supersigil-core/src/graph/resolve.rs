@@ -30,12 +30,12 @@ fn parse_ref(raw: &str) -> (String, Option<String>) {
 ///
 /// Bundles the immutable indexes and project metadata that every resolution
 /// function needs, avoiding parameter sprawl.
-struct ResolveContext<'a> {
-    doc_index: &'a HashMap<String, SpecDocument>,
-    component_index: &'a HashMap<(String, String), (String, ExtractedComponent)>,
-    component_defs: &'a ComponentDefs,
-    doc_project: &'a HashMap<String, Option<String>>,
-    project_isolation: &'a HashMap<String, bool>,
+pub(super) struct ResolveContext<'a> {
+    pub(super) doc_index: &'a HashMap<String, SpecDocument>,
+    pub(super) component_index: &'a HashMap<(String, String), ExtractedComponent>,
+    pub(super) component_defs: &'a ComponentDefs,
+    pub(super) doc_project: &'a HashMap<String, Option<String>>,
+    pub(super) project_isolation: &'a HashMap<String, bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ fn validate_ref(
     // Fragment existence and component type check.
     if let Some(ref frag) = fragment {
         let key = (target_doc_id.clone(), frag.clone());
-        if let Some((_, comp)) = ctx.component_index.get(&key) {
+        if let Some(comp) = ctx.component_index.get(&key) {
             match fragment_check {
                 FragmentCheck::None => {}
                 FragmentCheck::ExactComponent(expected) => {
@@ -191,32 +191,20 @@ fn validate_ref(
 /// Returns the resolved refs map and any `BrokenRef` errors.
 #[expect(clippy::type_complexity, reason = "return type is clear in context")]
 pub(super) fn resolve_refs(
-    doc_index: &HashMap<String, SpecDocument>,
-    component_index: &HashMap<(String, String), (String, ExtractedComponent)>,
-    component_defs: &ComponentDefs,
-    doc_project: &HashMap<String, Option<String>>,
-    project_isolation: &HashMap<String, bool>,
+    ctx: &ResolveContext<'_>,
 ) -> (
     HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
     Vec<GraphError>,
 ) {
-    let ctx = ResolveContext {
-        doc_index,
-        component_index,
-        component_defs,
-        doc_project,
-        project_isolation,
-    };
     let mut errors = Vec::new();
     let mut resolved_refs: HashMap<(String, Vec<usize>), Vec<ResolvedRef>> = HashMap::new();
 
-    for (doc_id, doc) in doc_index {
+    for (doc_id, doc) in ctx.doc_index {
         resolve_components_recursive(
-            &ctx,
+            ctx,
             doc_id,
             &doc.components,
             &[],
-            component_defs,
             &mut resolved_refs,
             &mut errors,
         );
@@ -231,7 +219,6 @@ fn resolve_components_recursive(
     doc_id: &str,
     components: &[ExtractedComponent],
     parent_path: &[usize],
-    component_defs: &ComponentDefs,
     resolved_refs: &mut HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
     errors: &mut Vec<GraphError>,
 ) {
@@ -240,7 +227,7 @@ fn resolve_components_recursive(
         component_path.push(idx);
 
         // Check if this component type has a `refs` attribute defined.
-        if let Some(def) = component_defs.get(&component.name)
+        if let Some(def) = ctx.component_defs.get(&component.name)
             && let Some(refs_value) = component.attributes.get("refs")
         {
             let fragment_check = match def.target_component.as_deref() {
@@ -287,7 +274,6 @@ fn resolve_components_recursive(
                 doc_id,
                 &component.children,
                 &component_path,
-                component_defs,
                 resolved_refs,
                 errors,
             );
@@ -378,28 +364,17 @@ fn is_cross_project_violation(
 /// Returns the resolved mappings and any errors.
 #[expect(clippy::type_complexity, reason = "return type is clear in context")]
 pub(super) fn resolve_task_implements(
-    doc_index: &HashMap<String, SpecDocument>,
-    component_index: &HashMap<(String, String), (String, ExtractedComponent)>,
-    component_defs: &ComponentDefs,
-    doc_project: &HashMap<String, Option<String>>,
-    project_isolation: &HashMap<String, bool>,
+    ctx: &ResolveContext<'_>,
 ) -> (
     HashMap<(String, String), Vec<(String, String)>>,
     Vec<GraphError>,
 ) {
-    let ctx = ResolveContext {
-        doc_index,
-        component_index,
-        component_defs,
-        doc_project,
-        project_isolation,
-    };
     let mut errors = Vec::new();
     let mut task_implements: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
 
-    for (doc_id, doc) in doc_index {
+    for (doc_id, doc) in ctx.doc_index {
         resolve_task_implements_recursive(
-            &ctx,
+            ctx,
             doc_id,
             &doc.components,
             &mut task_implements,
