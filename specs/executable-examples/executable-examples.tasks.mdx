@@ -2,7 +2,7 @@
 supersigil:
   id: executable-examples/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "Executable Examples Tasks"
 ---
 
@@ -208,11 +208,12 @@ green before moving on.
   example, and coverage findings are collected, and receive the interim report.
 </Task>
 
-<Task id="task-29" status="pending" implements="executable-examples/req#req-5-2">
-  Add cwd-based scope filtering to the `examples` command and a test for it.
-  The `examples` command currently only supports prefix filtering, not
-  TrackedFiles/cwd scoping as specified in req-5-2. Requires adding `--all`
-  flag and `resolve_context_scope` integration (matching the `refs` command).
+<Task id="task-29" status="done" implements="executable-examples/req#req-5-2">
+  Add cwd-based scope filtering to the `examples` command. Extract shared
+  `resolve_context_scope` and `cwd_matches_glob` from `refs.rs` into a new
+  `scope` module. Add `--all` flag to `ExamplesArgs`. When no prefix and
+  `--all` is absent, filter examples to documents whose `TrackedFiles`
+  match the current working directory.
 </Task>
 
 <Task id="task-30" status="done" implements="executable-examples/req#req-6-1">

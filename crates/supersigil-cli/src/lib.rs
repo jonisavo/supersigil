@@ -5,6 +5,7 @@ pub mod format;
 pub mod loader;
 pub mod plugins;
 pub mod prompt;
+pub mod scope;
 pub mod skills;
 
 pub use commands::{

@@ -240,6 +240,9 @@ pub struct RefsArgs {
 pub struct ExamplesArgs {
     /// Filter by document ID prefix
     pub prefix: Option<String>,
+    /// Show all examples (no context scoping)
+    #[arg(long)]
+    pub all: bool,
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,

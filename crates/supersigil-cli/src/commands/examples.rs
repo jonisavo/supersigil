@@ -8,8 +8,9 @@ use supersigil_verify::examples::types::ExampleSpec;
 
 use crate::commands::ExamplesArgs;
 use crate::error::CliError;
-use crate::format::{ColorConfig, OutputFormat, Token, write_json};
+use crate::format::{self, ColorConfig, OutputFormat, Token, write_json};
 use crate::loader;
+use crate::scope;
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -165,8 +166,38 @@ fn write_terminal_table(
 /// Returns `CliError` if the graph cannot be loaded or output fails.
 pub fn run(args: &ExamplesArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
     let (config, graph) = loader::load_graph(config_path)?;
+    let project_root = loader::project_root(config_path);
+    let cwd = std::env::current_dir().map_err(CliError::Io)?;
 
     let mut entries = collect_entries(&graph, &config.examples, args.prefix.as_deref());
+
+    // Context scoping: when no prefix and --all is not set, filter by cwd.
+    if args.prefix.is_none() && !args.all {
+        match scope::resolve_context_scope(&graph, project_root, &cwd) {
+            Some(scope) => {
+                let doc_ids: Vec<&str> = {
+                    let mut v: Vec<&str> = scope.iter().map(String::as_str).collect();
+                    v.sort_unstable();
+                    v
+                };
+                format::hint(
+                    color,
+                    &format!(
+                        "showing examples scoped to: {}. Use --all to show everything.",
+                        doc_ids.join(", "),
+                    ),
+                );
+                entries.retain(|e| scope.contains(&e.doc_id));
+            }
+            None => {
+                format::hint(
+                    color,
+                    "no TrackedFiles match the current directory; showing all examples.",
+                );
+            }
+        }
+    }
+
     entries.sort_by(|a, b| {
         a.doc_id
             .cmp(&b.doc_id)

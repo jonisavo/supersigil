@@ -3,12 +3,13 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
-use supersigil_core::{CRITERION, DocumentGraph, glob_prefix};
+use supersigil_core::CRITERION;
 
 use crate::commands::RefsArgs;
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, write_json};
 use crate::loader;
+use crate::scope;
 
 /// Maximum body text length shown in terminal mode.
 const MAX_BODY_LEN: usize = 72;
@@ -31,69 +32,6 @@ fn filter_by_prefix(
         entries.retain(|e| e.doc_id.starts_with(prefix.as_str()));
     }
     entries
-}
-
-/// Check whether `cwd` falls within the non-wildcard prefix of `glob_str`.
-///
-/// The prefix is the longest directory path that contains no glob meta
-/// characters (`*`, `?`, `[`). If `cwd` (relative to `project_root`)
-/// starts with that prefix, the glob is considered relevant.
-fn cwd_matches_glob(cwd: &Path, project_root: &Path, glob_str: &str) -> bool {
-    let Ok(relative_cwd) = cwd.strip_prefix(project_root) else {
-        return false;
-    };
-
-    let prefix = glob_prefix(glob_str);
-    if prefix.is_empty() {
-        // Glob like `**/*.rs`: the prefix is the project root itself.
-        // Any cwd inside the project matches.
-        return true;
-    }
-
-    let prefix_path = Path::new(&prefix);
-    // cwd is inside (or equal to) the prefix directory
-    relative_cwd.starts_with(prefix_path)
-}
-
-/// Determine which document IDs are relevant based on cwd and `TrackedFiles` globs.
-///
-/// Returns `Some(set)` when at least one document's `TrackedFiles` globs match
-/// the current working directory, or `None` when no documents match (caller
-/// should fall back to showing everything).
-///
-/// After matching `TrackedFiles`, the scope is expanded by following `<Implements>`
-/// relationships from matched documents. This ensures that when a design doc
-/// has `TrackedFiles` but the criteria live on its requirement doc, the criteria
-/// are still included in the scoped output.
-fn resolve_context_scope(
-    graph: &DocumentGraph,
-    project_root: &Path,
-    cwd: &Path,
-) -> Option<HashSet<String>> {
-    let mut matched_doc_ids = HashSet::new();
-
-    for (doc_id, globs) in graph.all_tracked_files() {
-        for glob_pattern in globs {
-            if cwd_matches_glob(cwd, project_root, glob_pattern) {
-                matched_doc_ids.insert(doc_id.to_owned());
-                break;
-            }
-        }
-    }
-
-    if matched_doc_ids.is_empty() {
-        return None;
-    }
-
-    // Expand scope: for each matched doc, also include documents it implements.
-    let expansion: Vec<String> = matched_doc_ids
-        .iter()
-        .flat_map(|doc_id| graph.implements_targets(doc_id))
-        .map(str::to_owned)
-        .collect();
-    matched_doc_ids.extend(expansion);
-
-    Some(matched_doc_ids)
 }
 
 /// Filter entries to only those whose `doc_id` is in the allowed set.
@@ -128,7 +66,7 @@ pub fn run(args: &RefsArgs, config_path: &Path, color: ColorConfig) -> Result<()
 
     // Context scoping: when no prefix and --all is not set, filter by cwd.
     if args.prefix.is_none() && !args.all {
-        match resolve_context_scope(&graph, project_root, &cwd) {
+        match scope::resolve_context_scope(&graph, project_root, &cwd) {
             Some(scope) => {
                 let doc_ids: Vec<&str> = {
                     let mut v: Vec<&str> = scope.iter().map(String::as_str).collect();
@@ -474,22 +412,22 @@ mod tests {
     #[test]
     fn glob_prefix_extracts_directory_prefix() {
         // Note: glob_prefix includes trailing `/`
-        assert_eq!(glob_prefix("src/auth/**/*.rs"), "src/auth/");
+        assert_eq!(supersigil_core::glob_prefix("src/auth/**/*.rs"), "src/auth/");
     }
 
     #[test]
     fn glob_prefix_wildcard_at_root() {
-        assert_eq!(glob_prefix("**/*.rs"), "");
+        assert_eq!(supersigil_core::glob_prefix("**/*.rs"), "");
     }
 
     #[test]
     fn glob_prefix_no_wildcards_takes_parent() {
-        assert_eq!(glob_prefix("src/lib.rs"), "src/");
+        assert_eq!(supersigil_core::glob_prefix("src/lib.rs"), "src/");
     }
 
     #[test]
     fn glob_prefix_nested_path_with_glob() {
-        assert_eq!(glob_prefix("crates/core/src/**/*.rs"), "crates/core/src/");
+        assert_eq!(supersigil_core::glob_prefix("crates/core/src/**/*.rs"), "crates/core/src/");
     }
 
     // -----------------------------------------------------------------------
@@ -500,37 +438,45 @@ mod tests {
     fn cwd_matches_glob_cwd_equals_stem() {
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth");
-        assert!(cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     #[test]
     fn cwd_matches_glob_cwd_inside_stem() {
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth/handlers");
-        assert!(cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     #[test]
     fn cwd_matches_glob_cwd_above_stem_does_not_match() {
         let root = Path::new("/project");
         let cwd = Path::new("/project/src");
-        assert!(!cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(!scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     #[test]
     fn cwd_matches_glob_cwd_at_project_root_does_not_match() {
         let root = Path::new("/project");
         let cwd = Path::new("/project");
-        assert!(!cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(!scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     #[test]
     fn cwd_matches_glob_wildcard_at_root_matches_any_cwd() {
         let root = Path::new("/project");
         // Glob `**/*.rs` has empty stem → any cwd inside project matches.
-        assert!(cwd_matches_glob(Path::new("/project"), root, "**/*.rs"));
-        assert!(cwd_matches_glob(Path::new("/project/src"), root, "**/*.rs"));
-        assert!(cwd_matches_glob(
+        assert!(scope::cwd_matches_glob(
+            Path::new("/project"),
+            root,
+            "**/*.rs"
+        ));
+        assert!(scope::cwd_matches_glob(
+            Path::new("/project/src"),
+            root,
+            "**/*.rs"
+        ));
+        assert!(scope::cwd_matches_glob(
             Path::new("/project/src/auth"),
             root,
             "**/*.rs"
@@ -541,14 +487,14 @@ mod tests {
     fn cwd_matches_glob_cwd_outside_project_does_not_match() {
         let root = Path::new("/project");
         let cwd = Path::new("/other/place");
-        assert!(!cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(!scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     #[test]
     fn cwd_matches_glob_sibling_directory_does_not_match() {
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/billing");
-        assert!(!cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
+        assert!(!scope::cwd_matches_glob(cwd, root, "src/auth/**/*.rs"));
     }
 
     // -----------------------------------------------------------------------
@@ -583,7 +529,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth");
-        let scope = resolve_context_scope(&graph, root, cwd);
+        let scope = scope::resolve_context_scope(&graph, root, cwd);
 
         assert!(scope.is_some(), "should match design/auth");
         let scope = scope.unwrap();
@@ -605,7 +551,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/tests");
-        let scope = resolve_context_scope(&graph, root, cwd);
+        let scope = scope::resolve_context_scope(&graph, root, cwd);
 
         assert!(scope.is_none(), "no documents should match");
     }
@@ -618,7 +564,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth");
-        let scope = resolve_context_scope(&graph, root, cwd);
+        let scope = scope::resolve_context_scope(&graph, root, cwd);
 
         assert!(scope.is_none(), "no tracked files means no match");
     }
@@ -645,7 +591,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/shared");
-        let scope = resolve_context_scope(&graph, root, cwd);
+        let scope = scope::resolve_context_scope(&graph, root, cwd);
 
         assert!(scope.is_some());
         let scope = scope.unwrap();
@@ -679,7 +625,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth");
-        let scope = resolve_context_scope(&graph, root, cwd);
+        let scope = scope::resolve_context_scope(&graph, root, cwd);
 
         assert!(scope.is_some(), "should match design/auth's TrackedFiles");
         let scope = scope.unwrap();
@@ -722,7 +668,7 @@ mod tests {
 
         let root = Path::new("/project");
         let cwd = Path::new("/project/src/auth");
-        let scope = resolve_context_scope(&graph, root, cwd).unwrap();
+        let scope = scope::resolve_context_scope(&graph, root, cwd).unwrap();
 
         assert!(scope.contains("req/auth"), "scope: {scope:?}");
         assert!(

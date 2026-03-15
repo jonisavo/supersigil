@@ -1,6 +1,11 @@
+mod common;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::PathBuf;
+use supersigil_rust::verifies;
+use tempfile::TempDir;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -48,5 +53,99 @@ fn examples_command_lists_self_referential_examples_from_workspace_specs() {
             .count()
             >= 2,
         "expected at least two cargo-test dogfooding examples, got: {entries:#?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Context scoping via TrackedFiles
+// ---------------------------------------------------------------------------
+
+#[verifies("executable-examples/req#req-5-2")]
+#[test]
+fn examples_scoped_to_cwd_via_tracked_files() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    // Two docs, each with TrackedFiles pointing to different directories
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<TrackedFiles paths="src/auth/**" />
+<AcceptanceCriteria>
+  <Criterion id="a-1">auth</Criterion>
+</AcceptanceCriteria>
+
+<Example id="auth-ex" lang="sh" runner="sh">
+
+```sh
+echo auth
+```
+
+</Example>"#,
+    );
+
+    common::write_mdx(
+        tmp.path(),
+        "specs/billing.mdx",
+        "billing/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<TrackedFiles paths="src/billing/**" />
+<AcceptanceCriteria>
+  <Criterion id="b-1">billing</Criterion>
+</AcceptanceCriteria>
+
+<Example id="billing-ex" lang="sh" runner="sh">
+
+```sh
+echo billing
+```
+
+</Example>"#,
+    );
+
+    // Create the tracked directories
+    fs::create_dir_all(tmp.path().join("src/auth")).unwrap();
+    fs::create_dir_all(tmp.path().join("src/billing")).unwrap();
+
+    // From src/auth → should only see auth-ex
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["examples", "--format", "json"])
+        .current_dir(tmp.path().join("src/auth"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).expect("valid JSON");
+    let ids: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| e["example_id"].as_str())
+        .collect();
+    assert!(ids.contains(&"auth-ex"), "should contain auth-ex: {ids:?}");
+    assert!(
+        !ids.contains(&"billing-ex"),
+        "should NOT contain billing-ex: {ids:?}"
+    );
+
+    // With --all → should see both
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["examples", "--format", "json", "--all"])
+        .current_dir(tmp.path().join("src/auth"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).expect("valid JSON");
+    let ids: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| e["example_id"].as_str())
+        .collect();
+    assert!(ids.contains(&"auth-ex"), "should contain auth-ex: {ids:?}");
+    assert!(
+        ids.contains(&"billing-ex"),
+        "--all should include billing-ex: {ids:?}"
     );
 }
