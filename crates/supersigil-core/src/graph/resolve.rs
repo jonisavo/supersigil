@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::error::GraphError;
-use super::{ResolvedRef, TASK};
+use super::{EXAMPLE, ResolvedRef, TASK};
 
 // ---------------------------------------------------------------------------
 // Ref parsing
@@ -253,6 +253,25 @@ fn resolve_components_recursive(
                 refs_value,
                 component.position,
                 fragment_check,
+                errors,
+            );
+
+            if !resolved.is_empty() {
+                resolved_refs.insert((doc_id.to_owned(), component_path.clone()), resolved);
+            }
+        }
+
+        // Example components may have a `references` attribute that creates
+        // informational reference edges (same semantics as <References refs="...">).
+        if component.name == EXAMPLE
+            && let Some(refs_value) = component.attributes.get("references")
+        {
+            let resolved = resolve_single_refs_attribute(
+                ctx,
+                doc_id,
+                refs_value,
+                component.position,
+                FragmentCheck::None,
                 errors,
             );
 

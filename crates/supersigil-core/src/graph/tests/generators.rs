@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use proptest::prelude::*;
 
-use crate::graph::{ACCEPTANCE_CRITERIA, CRITERION, DEPENDS_ON, TASK, TRACKED_FILES};
+use crate::graph::{ACCEPTANCE_CRITERIA, CRITERION, DEPENDS_ON, EXAMPLE, TASK, TRACKED_FILES};
 use crate::{Config, ExtractedComponent, Frontmatter, ProjectConfig, SourcePosition, SpecDocument};
 
 // ---------------------------------------------------------------------------
@@ -366,6 +366,34 @@ pub fn dag_to_task_components(
             make_task(node, None, None, depends.as_deref(), i + 1)
         })
         .collect()
+}
+
+/// Build an `Example` component with optional `references` and `verifies` attributes.
+pub fn make_example(
+    id: &str,
+    runner: &str,
+    references: Option<&str>,
+    verifies: Option<&str>,
+    line: usize,
+) -> ExtractedComponent {
+    let mut attributes = HashMap::from([
+        ("id".to_owned(), id.to_owned()),
+        ("runner".to_owned(), runner.to_owned()),
+    ]);
+    if let Some(r) = references {
+        attributes.insert("references".to_owned(), r.to_owned());
+    }
+    if let Some(v) = verifies {
+        attributes.insert("verifies".to_owned(), v.to_owned());
+    }
+    ExtractedComponent {
+        name: EXAMPLE.to_owned(),
+        attributes,
+        children: Vec::new(),
+        body_text: Some(format!("example {id}")),
+        code_blocks: Vec::new(),
+        position: pos(line),
+    }
 }
 
 /// Convert DAG nodes to documents with `DependsOn` components using a dependency map.
