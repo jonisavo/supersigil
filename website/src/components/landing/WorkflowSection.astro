@@ -56,15 +56,14 @@
           <span class="panel-title">Terminal</span>
         </div>
         <div class="panel-body term-panel">
-          <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify --since main</span>
+          <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify</span>
 
-  <span class="c-green">&#10003;</span> auth/req/login#valid-creds <span class="c-dots">··</span> <span class="c-teal">auth:valid-creds</span> <span class="c-muted">-&gt; tests/auth/login_test.rs</span>
-  <span class="c-green">&#10003;</span> auth/req/login#invalid-creds <span class="c-dots">·</span> <span class="c-teal">auth:invalid-creds</span> <span class="c-muted">-&gt; tests/auth/login_failure_test.rs</span>
-  <span class="c-green">&#10003;</span> auth/design/oauth <span class="c-dots">··········</span> <span class="c-green">implements auth/req/login</span>
-  <span class="c-gold">&#9888;</span> auth/req/login <span class="c-dots">·············</span> <span class="c-gold">tracked file changed: src/auth/session.rs</span>
+<span class="c-teal">auth/req/login</span>
+  <span class="c-red"><b>&#10006;</b></span> <span class="c-muted">[missing_verification_evidence]</span> Criterion "session-expiry": no matching evidence
+  <span class="c-gold"><b>&#9888;</b></span> <span class="c-muted">[tracked_file_changed]</span> tracked file changed: src/auth/session.rs
 
-  <span class="c-muted">2 criteria covered &middot; 1 design linked &middot;</span> <span class="c-text">1 stale spec</span>
-  <span class="c-gold">1 warning</span> <span class="c-muted">&middot;</span> <span class="c-green">0 errors</span></code></pre>
+<span class="c-red"><b>1</b></span> error(s), <span class="c-gold"><b>1</b></span> warning(s), 0 info(s) across <b>3</b> documents
+<span class="c-muted">hint:</span> <span class="c-muted">Run `supersigil refs` to list canonical criterion refs you can copy into evidence.</span></code></pre>
         </div>
       </div>
     </div>

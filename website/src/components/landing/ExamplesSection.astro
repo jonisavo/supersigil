@@ -54,13 +54,16 @@
         <div class="panel-body term-panel">
           <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify</span>
 
-  <span class="c-green">&#10003;</span> create-task <span class="c-dots">··············</span> <span class="c-teal">http</span>  <span class="c-muted">52ms</span>
-  <span class="c-green">&#10003;</span> create-missing-title <span class="c-dots">·····</span> <span class="c-teal">http</span>  <span class="c-muted">38ms</span>
-  <span class="c-red">&#10007;</span> create-past-date <span class="c-dots">·········</span> <span class="c-teal">http</span>  <span class="c-muted">45ms</span>
-    <span class="c-red">│</span> <span class="c-red">Expected status 400, got 201</span>
-    <span class="c-red">│</span> <span class="c-muted">due_date validation not enforced</span>
-
-  <span class="c-muted">3 examples &middot;</span> <span class="c-green">2 passed</span> <span class="c-muted">&middot;</span> <span class="c-red">1 failed</span></code></pre>
+<b>&#8505;</b> Executing 3 examples:
+  <span class="c-green"><b>&#10004;</b></span> tasks/req/create::create-task (http) <span class="c-green">passed</span>
+  <span class="c-green"><b>&#10004;</b></span> tasks/req/create::create-missing-title (http) <span class="c-green">passed</span>
+  <span class="c-red"><b>&#10006;</b></span> tasks/req/create::create-past-date (http) <span class="c-red">failed</span>
+Examples: <b>2</b> passed, <span class="c-red"><b>1</b></span> failed
+Failed examples:
+  <span class="c-red"><b>&#10006;</b></span> <span class="c-teal">tasks/req/create::create-past-date</span> (http)
+      [Status]
+      expected: 400
+      actual: 201</code></pre>
         </div>
       </div>
     </div>

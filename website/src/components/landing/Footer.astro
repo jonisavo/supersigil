@@ -28,7 +28,7 @@
         </svg>
         supersigil
       </span>
-      <span class="footer-copy">&copy; 2026 Supersigil contributors.</span>
+      <span class="footer-copy">A <a href="https://savolainen.io" target="_blank" rel="noopener">Joni Savolainen</a> sidequest.</span>
     </div>
     <div class="footer-links">
       <a href="/supersigil/getting-started/">Docs</a>
@@ -70,11 +70,19 @@
     font-size: 0.78rem;
     color: var(--text-dim);
   }
+  .footer-copy a {
+    color: var(--text-muted);
+    transition: color 0.2s ease;
+  }
   .footer-links {
     display: flex;
     gap: 1.5rem;
     font-size: 0.82rem;
-    color: var(--text-dim);
+    color: var(--text-muted);
   }
-  .footer-links a:hover { color: var(--text-muted); }
+  .footer-links a {
+    transition: color 0.2s ease;
+  }
+  .footer-copy a:hover { color: var(--text); }
+  .footer-links a:hover { color: var(--text); }
 </style>
