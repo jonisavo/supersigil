@@ -154,6 +154,24 @@ fn extract_code_blocks(
     blocks
 }
 
+// ---------------------------------------------------------------------------
+// Extraction context
+// ---------------------------------------------------------------------------
+
+/// Mutable context threaded through the recursive component extraction pipeline.
+///
+/// Groups the parameters that are invariant across a single component extraction.
+struct ExtractionCtx<'a> {
+    body_offset: usize,
+    path: &'a Path,
+    errors: &'a mut Vec<ParseError>,
+    defs: &'a ComponentDefs,
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
 /// Walk the AST and extract `PascalCase` `MdxJsxFlowElement` nodes as
 /// [`ExtractedComponent`] values.
 ///
@@ -172,33 +190,37 @@ pub fn extract_components(
     errors: &mut Vec<ParseError>,
     defs: &ComponentDefs,
 ) -> Vec<ExtractedComponent> {
+    let mut ctx = ExtractionCtx {
+        body_offset,
+        path,
+        errors,
+        defs,
+    };
     let mut components = Vec::new();
-    collect_components(node, body_offset, path, errors, &mut components, defs);
+    collect_components(node, &mut ctx, &mut components);
     components
 }
+
+// ---------------------------------------------------------------------------
+// Recursive helpers
+// ---------------------------------------------------------------------------
 
 /// Recursively collect components from `children` into `out`, avoiding
 /// intermediate `Vec` allocations.
 fn collect_from_children(
     children: &[mdast::Node],
-    body_offset: usize,
-    path: &Path,
-    errors: &mut Vec<ParseError>,
+    ctx: &mut ExtractionCtx<'_>,
     out: &mut Vec<ExtractedComponent>,
-    defs: &ComponentDefs,
 ) {
     for child in children {
-        collect_components(child, body_offset, path, errors, out, defs);
+        collect_components(child, ctx, out);
     }
 }
 
 fn collect_components(
     node: &mdast::Node,
-    body_offset: usize,
-    path: &Path,
-    errors: &mut Vec<ParseError>,
+    ctx: &mut ExtractionCtx<'_>,
     out: &mut Vec<ExtractedComponent>,
-    defs: &ComponentDefs,
 ) {
     match node {
         mdast::Node::MdxJsxFlowElement(el) => {
@@ -207,11 +229,8 @@ fn collect_components(
                 &el.children,
                 &el.attributes,
                 el.position.as_ref(),
-                body_offset,
-                path,
-                errors,
+                ctx,
                 out,
-                defs,
             );
         }
         // Inline JSX (MdxJsxTextElement) — extract known components.
@@ -224,85 +243,68 @@ fn collect_components(
                 &el.children,
                 &el.attributes,
                 el.position.as_ref(),
-                body_offset,
-                path,
-                errors,
+                ctx,
                 out,
-                defs,
             );
         }
         // For all other nodes, recurse into children.
         other => {
             if let Some(node_children) = other.children() {
-                collect_from_children(node_children, body_offset, path, errors, out, defs);
+                collect_from_children(node_children, ctx, out);
             }
         }
     }
 }
 
 /// Shared logic for processing both `MdxJsxFlowElement` and `MdxJsxTextElement`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "factored out of two match arms to eliminate duplication"
-)]
 fn process_jsx_element(
     name: Option<&str>,
     children: &[mdast::Node],
     attributes: &[mdast::AttributeContent],
     position: Option<&unist::Position>,
-    body_offset: usize,
-    path: &Path,
-    errors: &mut Vec<ParseError>,
+    ctx: &mut ExtractionCtx<'_>,
     out: &mut Vec<ExtractedComponent>,
-    defs: &ComponentDefs,
 ) {
     let Some(name) = name else {
         // Fragment (<> </>) — recurse into children.
-        collect_from_children(children, body_offset, path, errors, out, defs);
+        collect_from_children(children, ctx, out);
         return;
     };
 
     if !is_pascal_case(name) {
         // Lowercase HTML element — recurse in case there are
         // supersigil components nested inside.
-        collect_from_children(children, body_offset, path, errors, out, defs);
+        collect_from_children(children, ctx, out);
         return;
     }
 
-    if !defs.is_known(name) {
+    if !ctx.defs.is_known(name) {
         // Unknown PascalCase element (e.g., Starlight's <Aside>) —
         // treat as transparent wrapper, recurse into children.
-        collect_from_children(children, body_offset, path, errors, out, defs);
+        collect_from_children(children, ctx, out);
         return;
     }
 
     let pos = position.map_or(
         SourcePosition {
-            byte_offset: body_offset,
+            byte_offset: ctx.body_offset,
             line: 1,
             column: 1,
         },
         |p| SourcePosition {
-            byte_offset: p.start.offset + body_offset,
+            byte_offset: p.start.offset + ctx.body_offset,
             line: p.start.line,
             column: p.start.column,
         },
     );
 
-    let attrs = extract_attributes(attributes, name, path, &pos, errors);
+    let attrs = extract_attributes(attributes, name, ctx.path, &pos, ctx.errors);
 
     let mut child_components = Vec::new();
-    collect_from_children(
-        children,
-        body_offset,
-        path,
-        errors,
-        &mut child_components,
-        defs,
-    );
+    collect_from_children(children, ctx, &mut child_components);
 
-    let body_text = collect_body_text(children, defs);
-    let code_blocks = extract_code_blocks(children, body_offset, name);
+    let body_text = collect_body_text(children, ctx.defs);
+    let code_blocks = extract_code_blocks(children, ctx.body_offset, name);
 
     out.push(ExtractedComponent {
         name: name.to_owned(),
