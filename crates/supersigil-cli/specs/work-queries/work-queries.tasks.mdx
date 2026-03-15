@@ -17,20 +17,10 @@ This tasks document tracks the bounded recovery pass for the CLI `context` and
   `crates/supersigil-cli/specs/work-queries/`.
 </Task>
 
-<Task id="task-2" status="ready">
-  Add richer CLI coverage for `context` terminal sections, especially
-  `implemented_by`, `referenced_by`, and linked-task rendering.
-</Task>
-
 <Task id="task-3" status="ready">
   Decide whether ArtifactGraph evidence suppression for `plan` should remain in
   `supersigil-cli` or move down into the lower-level query model so non-CLI
   consumers see the same filtered notion of outstanding work.
-</Task>
-
-<Task id="task-4" status="ready">
-  Add an end-to-end CLI test for the fully clean `plan` case that should print
-  `No outstanding work.` after evidence filtering.
 </Task>
 
 <Task id="task-5" status="done" implements="work-queries/req#req-2-3">

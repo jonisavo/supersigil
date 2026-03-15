@@ -128,6 +128,45 @@ paths = ["specs/**/*.mdx"]
         .stdout(predicate::str::contains("workspace/doc"));
 }
 
+/// `graph --format dot` writes DOT syntax to stdout; summary goes to stderr.
+#[verifies("inventory-queries/req#req-3-2")]
+#[test]
+fn graph_dot_format_writes_dot_syntax_to_stdout() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["graph", "--format", "dot"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("digraph specs {"),
+        "stdout should contain DOT digraph declaration, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("rankdir=TB;"),
+        "stdout should contain DOT layout directive, got: {stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Graph:"),
+        "stderr should contain the summary line, got: {stderr}"
+    );
+
+    // DOT syntax keywords should NOT appear on stderr.
+    assert!(
+        !stderr.contains("digraph"),
+        "stderr should not contain DOT syntax"
+    );
+}
+
 /// `graph` writes syntax to stdout only; summary and hint go to stderr.
 #[verifies("inventory-queries/req#req-3-3")]
 #[test]

@@ -154,6 +154,80 @@ fn import_diagnostics_use_display_format_not_debug() {
         .stderr(predicate::str::contains("Warning {").not());
 }
 
+/// Writing to an existing file without `--force` fails with a conflict error.
+#[verifies("kiro-import/req#req-3-5")]
+#[test]
+fn import_write_conflict_without_force_fails() {
+    let project = TempDir::new().unwrap();
+    let specs_dir = project.path().join(".kiro/specs");
+    write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
+    let out_dir = project.path().join("out");
+
+    // First import succeeds — creates the files.
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    // Second import without --force should fail because files exist.
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+}
+
+/// Writing to an existing file with `--force` succeeds by overwriting.
+#[verifies("kiro-import/req#req-3-5")]
+#[test]
+fn import_write_conflict_with_force_overwrites() {
+    let project = TempDir::new().unwrap();
+    let specs_dir = project.path().join(".kiro/specs");
+    write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
+    let out_dir = project.path().join("out");
+
+    // First import.
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    // Second import with --force should succeed.
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--force",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+}
+
 /// Write mode prints a `supersigil lint` next-step hint on stderr.
 #[verifies("kiro-import/req#req-4-3")]
 #[test]
