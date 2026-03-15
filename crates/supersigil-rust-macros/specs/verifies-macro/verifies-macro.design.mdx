@@ -26,7 +26,7 @@ graph TD
     PARSE["argument parsing + function check"]
     ROOT["resolve_project_root"]
     CFG["load config + validation policy"]
-    SCOPE["resolve multi-project globs"]
+    SCOPE["resolve workspace spec globs"]
     GRAPH["discover specs + parse + build graph"]
     VALID["validate refs"]
     EMIT["emit original function unchanged"]
@@ -85,43 +85,37 @@ The policy is only consulted after config load succeeds.
 When validation is active, the macro:
 
 1. loads `supersigil.toml`
-2. resolves either single-project globs or multi-project project globs
+2. resolves spec globs from all configured projects (or top-level `paths`)
 3. discovers spec files
 4. parses them with merged component definitions
 5. builds a `DocumentGraph`
 6. validates each ref against a criterion in that graph
 
-The built graph is cached in a thread-local `Rc<DocumentGraph>` keyed by the
-shared Rust validation input set:
+The built graph is cached in a thread-local `Rc<DocumentGraph>` keyed by:
 
 - the absolute `supersigil.toml` path
-- the active spec files for the current Rust manifest scope
+- all workspace spec files
 - file metadata used to detect freshness for those inputs
 
-## Multi-Project Resolution
+## Workspace-Wide Validation
 
-The proc macro now relies on the shared Rust project-resolution helper in
-`supersigil-core` instead of carrying its own copy of the algorithm.
+The proc macro builds a graph from ALL workspace specs regardless of which
+project the current crate belongs to. This allows a test in one crate to
+`#[verifies]` criteria from any project's specs.
 
-The current algorithm is:
-
-- if `ecosystem.rust.project_scope` is configured, use longest-prefix
-  `manifest_dir_prefix` matching against `CARGO_MANIFEST_DIR` relative to the
-  project root
-- reject explicit scope mappings that point at projects not defined in
-  `[projects]`
-- otherwise infer candidate projects by checking whether any project name
-  appears in the relative manifest path
-- error on zero or multiple candidates
+In multi-project mode, `resolve_workspace_validation_inputs` collects spec
+globs from every `[projects.*]` entry. In single-project mode, it uses the
+top-level `paths`. The macro does not use `ecosystem.rust.project_scope` or
+`CARGO_MANIFEST_DIR` for validation scoping — those remain available for
+build-support freshness tracking (`resolve_project_validation_inputs`) and
+runtime plugin scope resolution.
 
 ## Testing Strategy
 
-- `crates/supersigil-core/src/rust_scope.rs`
-  covers the shared multi-project resolution helper used by both the proc
-  macro and the runtime Rust scope adapter.
 - `crates/supersigil-core/src/rust_validation_inputs.rs`
-  covers the shared validation-input resolution helper consumed by the proc
-  macro and build-support freshness helpers.
+  covers both the workspace-wide resolution helper used by the proc macro
+  and the project-scoped resolution helper used by build-support freshness
+  tracking.
 - `crates/supersigil-rust/tests/trybuild.rs`
   covers the macro's compile-pass and compile-fail surface.
 - `crates/supersigil-rust/tests/fixtures/pass/*.rs`

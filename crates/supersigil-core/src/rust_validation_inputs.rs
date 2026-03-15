@@ -65,19 +65,43 @@ impl RustValidationInputResolutionError {
 ///
 /// Returns [`RustValidationInputResolutionError`] when the config has no spec
 /// path source or when active-project resolution fails in multi-project mode.
-pub fn resolve_rust_validation_inputs(
+pub fn resolve_project_validation_inputs(
     config: &Config,
     manifest_dir: &Path,
     project_root: &Path,
 ) -> Result<RustValidationInputs, RustValidationInputResolutionError> {
-    let globs = resolve_validation_globs(config, manifest_dir, project_root)?;
+    let globs = resolve_scoped_globs(config, manifest_dir, project_root)?;
     Ok(RustValidationInputs {
         config_path: project_root.join("supersigil.toml"),
         spec_files: discover_spec_files(&globs, project_root),
     })
 }
 
-fn resolve_validation_globs(
+/// Resolve validation inputs covering ALL projects in the workspace.
+///
+/// Unlike [`resolve_project_validation_inputs`], this function does not scope to
+/// a single project. It collects spec globs from every project entry (or from
+/// `paths` in single-project mode) so the resulting graph contains all
+/// workspace criteria. This is used by the proc macro for compile-time
+/// validation, where a test in one crate may `#[verifies]` criteria owned by
+/// a different project.
+///
+/// # Errors
+///
+/// Returns [`RustValidationInputResolutionError::MissingPathsAndProjects`]
+/// when the config has neither `paths` nor `projects`.
+pub fn resolve_workspace_validation_inputs(
+    config: &Config,
+    project_root: &Path,
+) -> Result<RustValidationInputs, RustValidationInputResolutionError> {
+    let globs = all_spec_globs(config)?;
+    Ok(RustValidationInputs {
+        config_path: project_root.join("supersigil.toml"),
+        spec_files: discover_spec_files(&globs, project_root),
+    })
+}
+
+fn resolve_scoped_globs(
     config: &Config,
     manifest_dir: &Path,
     project_root: &Path,
@@ -97,6 +121,21 @@ fn resolve_validation_globs(
         .expect("resolved project must exist in config")
         .paths
         .clone())
+}
+
+fn all_spec_globs(config: &Config) -> Result<Vec<String>, RustValidationInputResolutionError> {
+    if let Some(paths) = &config.paths {
+        return Ok(paths.clone());
+    }
+
+    let Some(projects) = config.projects.as_ref() else {
+        return Err(RustValidationInputResolutionError::MissingPathsAndProjects);
+    };
+
+    Ok(projects
+        .values()
+        .flat_map(|p| p.paths.iter().cloned())
+        .collect())
 }
 
 fn discover_spec_files(globs: &[String], project_root: &Path) -> Vec<PathBuf> {
@@ -121,7 +160,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::resolve_rust_validation_inputs;
+    use super::{resolve_project_validation_inputs, resolve_workspace_validation_inputs};
     use crate::{Config, EcosystemConfig, ProjectConfig, RustEcosystemConfig, RustProjectScope};
 
     fn touch(path: &Path) {
@@ -131,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_rust_validation_inputs_includes_single_project_specs_and_config() {
+    fn resolve_project_validation_inputs_includes_single_project_specs_and_config() {
         let temp = tempdir().expect("create temp dir");
         let root = temp.path();
         touch(&root.join("supersigil.toml"));
@@ -145,7 +184,7 @@ mod tests {
         };
         let manifest_dir = root.join("crates/app");
 
-        let inputs = resolve_rust_validation_inputs(&config, &manifest_dir, root).unwrap();
+        let inputs = resolve_project_validation_inputs(&config, &manifest_dir, root).unwrap();
 
         assert_eq!(
             BTreeSet::from([inputs.config_path])
@@ -161,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_rust_validation_inputs_limits_multi_project_inputs_to_active_project() {
+    fn resolve_project_validation_inputs_limits_multi_project_inputs_to_active_project() {
         let temp = tempdir().expect("create temp dir");
         let root = temp.path();
         touch(&root.join("supersigil.toml"));
@@ -202,7 +241,7 @@ mod tests {
         };
         let manifest_dir = root.join("crates/frontend-app");
 
-        let inputs = resolve_rust_validation_inputs(&config, &manifest_dir, root).unwrap();
+        let inputs = resolve_project_validation_inputs(&config, &manifest_dir, root).unwrap();
 
         assert_eq!(
             BTreeSet::from([inputs.config_path])
@@ -213,6 +252,71 @@ mod tests {
                 root.join("supersigil.toml"),
                 root.join("frontend/specs/ui/button.mdx"),
             ]),
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_validation_inputs_includes_all_projects() {
+        let temp = tempdir().expect("create temp dir");
+        let root = temp.path();
+        touch(&root.join("supersigil.toml"));
+        touch(&root.join("frontend/specs/ui/button.mdx"));
+        touch(&root.join("backend/specs/api/orders.mdx"));
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            "frontend".to_string(),
+            ProjectConfig {
+                paths: vec!["frontend/specs/**/*.mdx".to_string()],
+                tests: Vec::new(),
+                isolated: false,
+            },
+        );
+        projects.insert(
+            "backend".to_string(),
+            ProjectConfig {
+                paths: vec!["backend/specs/**/*.mdx".to_string()],
+                tests: Vec::new(),
+                isolated: false,
+            },
+        );
+
+        let config = Config {
+            projects: Some(projects),
+            ecosystem: EcosystemConfig {
+                rust: Some(RustEcosystemConfig {
+                    project_scope: vec![RustProjectScope {
+                        manifest_dir_prefix: "crates/frontend-app".to_string(),
+                        project: "frontend".to_string(),
+                    }],
+                    ..RustEcosystemConfig::default()
+                }),
+                ..EcosystemConfig::default()
+            },
+            ..Config::default()
+        };
+
+        // Scoped resolution returns only frontend specs.
+        let scoped =
+            resolve_project_validation_inputs(&config, &root.join("crates/frontend-app"), root)
+                .unwrap();
+        assert!(
+            !scoped
+                .spec_files
+                .contains(&root.join("backend/specs/api/orders.mdx")),
+            "scoped inputs must NOT include backend specs"
+        );
+
+        // Workspace resolution returns specs from ALL projects.
+        let workspace = resolve_workspace_validation_inputs(&config, root).unwrap();
+        let all_files: BTreeSet<_> = workspace.spec_files.into_iter().collect();
+        assert!(
+            all_files.contains(&root.join("frontend/specs/ui/button.mdx")),
+            "workspace inputs must include frontend specs"
+        );
+        assert!(
+            all_files.contains(&root.join("backend/specs/api/orders.mdx")),
+            "workspace inputs must include backend specs"
         );
     }
 }

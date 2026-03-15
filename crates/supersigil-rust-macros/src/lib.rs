@@ -174,11 +174,8 @@ fn get_or_build_graph(
         return Ok(None);
     }
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .map_or_else(|_| project_root.to_path_buf(), PathBuf::from);
-    let inputs =
-        supersigil_core::resolve_rust_validation_inputs(&config, &manifest_dir, project_root)
-            .map_err(|err| vec![(None, format_validation_input_error(&err))])?;
+    let inputs = supersigil_core::resolve_workspace_validation_inputs(&config, project_root)
+        .map_err(|err| vec![(None, format!("supersigil: {err}"))])?;
     let current_fingerprint = fingerprint_inputs(&inputs.all_paths());
 
     // Check the thread-local cache after resolving the full validation inputs.
@@ -313,21 +310,6 @@ fn validate_ref_shape(ref_str: &str, span: proc_macro2::Span) -> syn::Result<()>
     }
 
     Ok(())
-}
-
-fn format_validation_input_error(
-    error: &supersigil_core::RustValidationInputResolutionError,
-) -> String {
-    let guidance = if let Some(inner) = error.project_resolution()
-        && matches!(
-            inner,
-            supersigil_core::RustProjectResolutionError::AmbiguousProject { .. }
-        ) {
-        "; configure [ecosystem.rust.project_scope] to resolve this"
-    } else {
-        ""
-    };
-    format!("supersigil: {error}{guidance}")
 }
 
 // ---------------------------------------------------------------------------

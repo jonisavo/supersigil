@@ -7,7 +7,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{Config, RustValidationInputResolutionError, resolve_rust_validation_inputs};
+use supersigil_core::{Config, RustValidationInputResolutionError, resolve_project_validation_inputs};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -36,7 +36,7 @@ pub fn validation_input_paths(
     project_root: &Path,
     manifest_dir: &Path,
 ) -> Result<Vec<PathBuf>, RustValidationInputResolutionError> {
-    Ok(resolve_rust_validation_inputs(config, manifest_dir, project_root)?.all_paths())
+    Ok(resolve_project_validation_inputs(config, manifest_dir, project_root)?.all_paths())
 }
 
 /// Emit `cargo:rerun-if-changed=` lines for all validation inputs.

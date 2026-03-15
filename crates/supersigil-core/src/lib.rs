@@ -18,7 +18,8 @@ pub use config::{
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};
 pub use rust_validation_inputs::{
-    RustValidationInputResolutionError, RustValidationInputs, resolve_rust_validation_inputs,
+    RustValidationInputResolutionError, RustValidationInputs, resolve_project_validation_inputs,
+    resolve_workspace_validation_inputs,
 };
 pub use types::{
     CodeBlock, ExtractedComponent, Frontmatter, ParseResult, SourcePosition, SpecDocument,
