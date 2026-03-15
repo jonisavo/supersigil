@@ -412,7 +412,10 @@ mod tests {
     #[test]
     fn glob_prefix_extracts_directory_prefix() {
         // Note: glob_prefix includes trailing `/`
-        assert_eq!(supersigil_core::glob_prefix("src/auth/**/*.rs"), "src/auth/");
+        assert_eq!(
+            supersigil_core::glob_prefix("src/auth/**/*.rs"),
+            "src/auth/"
+        );
     }
 
     #[test]
@@ -427,7 +430,10 @@ mod tests {
 
     #[test]
     fn glob_prefix_nested_path_with_glob() {
-        assert_eq!(supersigil_core::glob_prefix("crates/core/src/**/*.rs"), "crates/core/src/");
+        assert_eq!(
+            supersigil_core::glob_prefix("crates/core/src/**/*.rs"),
+            "crates/core/src/"
+        );
     }
 
     // -----------------------------------------------------------------------

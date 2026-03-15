@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
-use supersigil_core::{CRITERION, EXAMPLE, VERIFIED_BY};
+use supersigil_core::{CRITERION, VERIFIED_BY};
 use supersigil_verify::artifact_graph::ArtifactGraph;
 
 use crate::commands::StatusArgs;
@@ -11,6 +11,7 @@ use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, status_token, write_json};
 use crate::loader;
 use crate::plugins;
+use crate::scope;
 
 #[derive(Debug, Serialize)]
 struct ProjectStatus {
@@ -88,7 +89,7 @@ fn run_project_wide(
     artifact_graph: &ArtifactGraph<'_>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
-    let example_refs = collect_example_verifies_refs(graph);
+    let example_refs = scope::collect_example_verifies_refs(graph);
 
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
@@ -347,35 +348,6 @@ fn count_targets_recursive(
             covered,
             example_pending,
         );
-    }
-}
-
-/// Collect all criterion refs declared in `<Example verifies="...">` attributes
-/// across all documents, without executing the examples.
-fn collect_example_verifies_refs(graph: &supersigil_core::DocumentGraph) -> HashSet<String> {
-    let mut refs = HashSet::new();
-    for (_, doc) in graph.documents() {
-        collect_example_refs_recursive(&doc.components, &mut refs);
-    }
-    refs
-}
-
-fn collect_example_refs_recursive(
-    components: &[supersigil_core::ExtractedComponent],
-    refs: &mut HashSet<String>,
-) {
-    for comp in components {
-        if comp.name == EXAMPLE
-            && let Some(verifies) = comp.attributes.get("verifies")
-        {
-            for r in verifies.split(',') {
-                let trimmed = r.trim();
-                if !trimmed.is_empty() {
-                    refs.insert(trimmed.to_string());
-                }
-            }
-        }
-        collect_example_refs_recursive(&comp.children, refs);
     }
 }
 

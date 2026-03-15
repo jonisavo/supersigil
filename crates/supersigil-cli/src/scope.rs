@@ -1,9 +1,10 @@
-//! Context-aware scoping via `TrackedFiles` globs and the current working directory.
+//! Context-aware scoping via `TrackedFiles` globs and the current working directory,
+//! and shared graph-walking utilities used by multiple commands.
 
 use std::collections::HashSet;
 use std::path::Path;
 
-use supersigil_core::{DocumentGraph, glob_prefix};
+use supersigil_core::{DocumentGraph, ExtractedComponent, glob_prefix};
 
 /// Check whether `cwd` falls within the non-wildcard prefix of `glob_str`.
 ///
@@ -67,4 +68,31 @@ pub fn resolve_context_scope(
     matched_doc_ids.extend(expansion);
 
     Some(matched_doc_ids)
+}
+
+/// Collect all criterion refs declared in `<Example verifies="...">` attributes
+/// across all documents, without executing the examples.
+#[must_use]
+pub fn collect_example_verifies_refs(graph: &DocumentGraph) -> HashSet<String> {
+    let mut refs = HashSet::new();
+    for (_, doc) in graph.documents() {
+        collect_example_refs_recursive(&doc.components, &mut refs);
+    }
+    refs
+}
+
+fn collect_example_refs_recursive(components: &[ExtractedComponent], refs: &mut HashSet<String>) {
+    for comp in components {
+        if comp.name == "Example"
+            && let Some(verifies) = comp.attributes.get("verifies")
+        {
+            for r in verifies.split(',') {
+                let trimmed = r.trim();
+                if !trimmed.is_empty() {
+                    refs.insert(trimmed.to_string());
+                }
+            }
+        }
+        collect_example_refs_recursive(&comp.children, refs);
+    }
 }

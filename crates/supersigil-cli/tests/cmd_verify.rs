@@ -735,6 +735,31 @@ fn verify_update_snapshots_flag_is_accepted() {
     );
 }
 
+#[test]
+fn verify_skip_examples_hints_about_example_pending_criteria() {
+    let tmp = TempDir::new().unwrap();
+    setup_clean_example_fixture(tmp.path());
+
+    // Run with --skip-examples on terminal format so we can see hints on stderr
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--skip-examples"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{stdout}{stderr}");
+
+    // The fixture has an Example with verifies targeting examples-1, so when
+    // examples are skipped, the hint should mention that criteria would be
+    // covered by running examples.
+    assert!(
+        combined.contains("covered by examples") || combined.contains("example-pending"),
+        "should hint about criteria that would be covered by examples:\n{combined}",
+    );
+}
+
 #[verifies("executable-examples/req#req-3-4")]
 #[verifies("executable-examples/req#req-4-5")]
 #[test]

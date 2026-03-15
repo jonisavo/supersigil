@@ -380,6 +380,18 @@ pub fn run(
                         format::hint(color, &hint);
                     }
                 }
+                if examples_skipped {
+                    let n = count_example_pending_criteria(&report, &graph);
+                    if n > 0 {
+                        format::hint(
+                            color,
+                            &format!(
+                                "{n} uncovered criteria would be covered by examples. \
+                                 Run `supersigil verify` (without --skip-examples) to confirm."
+                            ),
+                        );
+                    }
+                }
             }
             Ok(ExitStatus::VerifyFailed)
         }
@@ -839,6 +851,31 @@ fn authored_evidence_hint(config: &Config) -> String {
         }
         _ => unreachable!("only the first two examples are used"),
     }
+}
+
+/// Count how many `MissingVerificationEvidence` findings target criteria that
+/// have `<Example verifies="...">` refs — i.e., criteria that would be covered
+/// if examples had been executed.
+fn count_example_pending_criteria(
+    report: &VerificationReport,
+    graph: &supersigil_core::DocumentGraph,
+) -> usize {
+    let example_refs = crate::scope::collect_example_verifies_refs(graph);
+    if example_refs.is_empty() {
+        return 0;
+    }
+
+    report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.rule == RuleName::MissingVerificationEvidence
+                && f.details
+                    .as_ref()
+                    .and_then(|d| d.target_ref.as_deref())
+                    .is_some_and(|r| example_refs.contains(r))
+        })
+        .count()
 }
 
 /// Format a verification report for terminal output using the CLI's styling.
