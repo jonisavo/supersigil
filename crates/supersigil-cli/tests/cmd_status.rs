@@ -3,6 +3,7 @@ mod common;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs;
+use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 /// task-7-1: Criterion nested inside `AcceptanceCriteria` must be counted.
@@ -306,4 +307,68 @@ fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert!(json.get("targets_total").is_some());
+}
+
+/// Criteria covered only by `<Example verifies="...">` should count toward
+/// coverage in `status`, with a hint that examples have not been executed.
+#[verifies("executable-examples/req#req-5-1")]
+#[test]
+fn status_counts_example_pending_coverage() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    // A spec with two criteria: one covered by VerifiedBy, one only by Example verifies.
+    common::write_mdx(
+        tmp.path(),
+        "specs/auth.mdx",
+        "auth/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="ac-1">
+    Covered by file-glob.
+    <VerifiedBy strategy="file-glob" paths="tests/auth_test.rs" />
+  </Criterion>
+  <Criterion id="ac-2">
+    Only covered by an example.
+  </Criterion>
+</AcceptanceCriteria>
+
+<Example id="login-test" runner="sh" verifies="auth/req#ac-2">
+
+```sh
+echo "ok"
+```
+
+<Expected status="0" />
+</Example>"#,
+    );
+
+    // Create the test file so file-glob evidence resolves for ac-1.
+    fs::create_dir_all(tmp.path().join("tests")).unwrap();
+    fs::write(tmp.path().join("tests/auth_test.rs"), "fn main() {}").unwrap();
+
+    // JSON output should show targets_covered=1 (file-glob)
+    // plus targets_example_pending=1 (example verifies).
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["status", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["targets_total"], 2);
+    assert_eq!(json["targets_covered"], 1);
+    assert_eq!(json["targets_example_pending"], 1);
+
+    // Terminal output should show 2/2 (100%) and the example hint.
+    cargo_bin_cmd!("supersigil")
+        .args(["status"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2/2 (100%)"))
+        .stderr(predicate::str::contains("covered only by examples"));
 }

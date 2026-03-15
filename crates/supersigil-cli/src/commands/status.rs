@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
-use supersigil_core::{CRITERION, VERIFIED_BY};
+use supersigil_core::{CRITERION, EXAMPLE, VERIFIED_BY};
 use supersigil_verify::artifact_graph::ArtifactGraph;
 
 use crate::commands::StatusArgs;
@@ -19,6 +19,16 @@ struct ProjectStatus {
     by_status: BTreeMap<String, usize>,
     targets_total: usize,
     targets_covered: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    targets_example_pending: usize,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde skip_serializing_if requires &T"
+)]
+const fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Serialize)]
@@ -64,11 +74,14 @@ fn run_project_wide(
     artifact_graph: &ArtifactGraph<'_>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
+    let example_refs = collect_example_verifies_refs(graph);
+
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0;
     let mut targets_total = 0;
     let mut targets_covered = 0;
+    let mut targets_example_pending = 0;
 
     for (id, doc) in graph.documents() {
         total += 1;
@@ -91,8 +104,10 @@ fn run_project_wide(
             id,
             &doc.components,
             artifact_graph,
+            &example_refs,
             &mut targets_total,
             &mut targets_covered,
+            &mut targets_example_pending,
         );
     }
 
@@ -102,6 +117,7 @@ fn run_project_wide(
         by_status,
         targets_total,
         targets_covered,
+        targets_example_pending,
     };
 
     match fmt {
@@ -150,24 +166,39 @@ fn write_project_terminal(status: &ProjectStatus, color: ColorConfig) -> Result<
         reason = "target counts are small enough for f64"
     )]
     let pct = if status.targets_total > 0 {
-        status.targets_covered as f64 / status.targets_total as f64 * 100.0
+        (status.targets_covered + status.targets_example_pending) as f64
+            / status.targets_total as f64
+            * 100.0
     } else {
         100.0
     };
+    let display_covered = status.targets_covered + status.targets_example_pending;
     writeln!(
         out,
         "{} {}/{} ({pct:.0}%)",
         c.paint(Token::Label, "Verification coverage:"),
-        c.paint(Token::Count, &status.targets_covered.to_string()),
+        c.paint(Token::Count, &display_covered.to_string()),
         c.paint(Token::Count, &status.targets_total.to_string()),
     )?;
 
-    if status.targets_covered < status.targets_total {
+    if status.targets_example_pending > 0 {
+        format::hint(
+            color,
+            &format!(
+                "{} criteria covered only by examples (not yet executed). \
+                 Run `supersigil verify` to confirm.",
+                status.targets_example_pending,
+            ),
+        );
+    }
+
+    let uncovered = status.targets_total.saturating_sub(display_covered);
+    if uncovered > 0 {
         format::hint(
             color,
             "Some verification targets are uncovered. Run `supersigil verify` to see details.",
         );
-    } else {
+    } else if status.targets_example_pending == 0 {
         format::hint(
             color,
             "All verification targets covered. Run `supersigil verify` for full verification.",
@@ -266,19 +297,60 @@ fn count_targets_recursive(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
+    example_refs: &HashSet<String>,
     total: &mut usize,
     covered: &mut usize,
+    example_pending: &mut usize,
 ) {
     for comp in components {
         if comp.name == CRITERION {
             *total += 1;
-            if let Some(crit_id) = comp.attributes.get("id")
-                && artifact_graph.has_evidence(doc_id, crit_id)
-            {
-                *covered += 1;
+            if let Some(crit_id) = comp.attributes.get("id") {
+                if artifact_graph.has_evidence(doc_id, crit_id) {
+                    *covered += 1;
+                } else if example_refs.contains(&format!("{doc_id}#{crit_id}")) {
+                    *example_pending += 1;
+                }
             }
         }
-        count_targets_recursive(doc_id, &comp.children, artifact_graph, total, covered);
+        count_targets_recursive(
+            doc_id,
+            &comp.children,
+            artifact_graph,
+            example_refs,
+            total,
+            covered,
+            example_pending,
+        );
+    }
+}
+
+/// Collect all criterion refs declared in `<Example verifies="...">` attributes
+/// across all documents, without executing the examples.
+fn collect_example_verifies_refs(graph: &supersigil_core::DocumentGraph) -> HashSet<String> {
+    let mut refs = HashSet::new();
+    for (_, doc) in graph.documents() {
+        collect_example_refs_recursive(&doc.components, &mut refs);
+    }
+    refs
+}
+
+fn collect_example_refs_recursive(
+    components: &[supersigil_core::ExtractedComponent],
+    refs: &mut HashSet<String>,
+) {
+    for comp in components {
+        if comp.name == EXAMPLE
+            && let Some(verifies) = comp.attributes.get("verifies")
+        {
+            for r in verifies.split(',') {
+                let trimmed = r.trim();
+                if !trimmed.is_empty() {
+                    refs.insert(trimmed.to_string());
+                }
+            }
+        }
+        collect_example_refs_recursive(&comp.children, refs);
     }
 }
 

@@ -33,14 +33,14 @@ the startup, dispatch, loader, and formatting runtime layer.
   simple and intentional, but it is a policy choice rather than a necessity.
 </Task>
 
-<Task id="task-5" status="pending" implements="cli-runtime/req#req-2-2">
+<Task id="task-5" status="done" implements="cli-runtime/req#req-2-2">
   Add a test asserting that the project root is the parent directory of the
   resolved config path. Set up a fixture with `supersigil.toml` at a known
   location, invoke the CLI, and verify the loader treats the parent of
   `supersigil.toml` as the project root for path resolution.
 </Task>
 
-<Task id="task-6" status="pending" implements="cli-runtime/req#req-2-5">
+<Task id="task-6" status="done" implements="cli-runtime/req#req-2-5">
   Add a test verifying that the loader normalizes paths to project-root-relative
   before graph construction. Use a fixture where spec files are discovered via
   glob, and assert that the resulting document paths in the graph are relative
