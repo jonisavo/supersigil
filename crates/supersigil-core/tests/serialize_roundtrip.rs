@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use serde_json::json;
 use supersigil_core::{
-    ContextOutput, DocRef, OutstandingTarget, PlanOutput, SpecDocument, TargetContext, TaskInfo,
+    AlternativeContext, ContextOutput, DecisionContext, DocRef, LinkedDecision, OutstandingTarget,
+    PlanOutput, SpecDocument, TargetContext, TaskInfo,
 };
 
 #[test]
@@ -50,6 +51,21 @@ fn context_output_serializes_to_json() {
                 status: Some("verified".into()),
             }],
         }],
+        decisions: vec![DecisionContext {
+            id: "d1".into(),
+            body_text: Some("use approach A".into()),
+            rationale_text: Some("faster".into()),
+            alternatives: vec![AlternativeContext {
+                id: "alt1".into(),
+                status: "rejected".into(),
+                body_text: Some("approach B".into()),
+            }],
+        }],
+        linked_decisions: vec![LinkedDecision {
+            source_doc_id: "adr/1".into(),
+            decision_id: "d-ext".into(),
+            body_text: Some("external decision".into()),
+        }],
         implemented_by: vec![],
         referenced_by: vec![],
         tasks: vec![],
@@ -67,9 +83,53 @@ fn context_output_serializes_to_json() {
             "referenced_by": [{ "doc_id": "prop/1", "status": "verified" }],
         }])
     );
+    assert_eq!(
+        json["decisions"],
+        json!([{
+            "id": "d1",
+            "body_text": "use approach A",
+            "rationale_text": "faster",
+            "alternatives": [{ "id": "alt1", "status": "rejected", "body_text": "approach B" }],
+        }])
+    );
+    assert_eq!(
+        json["linked_decisions"],
+        json!([{
+            "source_doc_id": "adr/1",
+            "decision_id": "d-ext",
+            "body_text": "external decision",
+        }])
+    );
     assert_eq!(json["implemented_by"], json!([]));
     assert_eq!(json["referenced_by"], json!([]));
     assert_eq!(json["tasks"], json!([]));
+}
+
+#[test]
+fn decision_context_json_roundtrip() {
+    let decision = DecisionContext {
+        id: "d1".into(),
+        body_text: Some("pick REST".into()),
+        rationale_text: Some("simpler".into()),
+        alternatives: vec![
+            AlternativeContext {
+                id: "alt-grpc".into(),
+                status: "rejected".into(),
+                body_text: Some("use gRPC".into()),
+            },
+            AlternativeContext {
+                id: "alt-graphql".into(),
+                status: "deferred".into(),
+                body_text: None,
+            },
+        ],
+    };
+
+    let json_str = serde_json::to_string(&decision).expect("serialize DecisionContext");
+    let roundtripped: DecisionContext =
+        serde_json::from_str(&json_str).expect("deserialize DecisionContext");
+
+    assert_eq!(roundtripped, decision);
 }
 
 #[test]

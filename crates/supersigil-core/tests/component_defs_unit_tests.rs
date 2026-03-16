@@ -1,6 +1,7 @@
 // Unit tests for ComponentDefs: defaults, merge, is_known, get
 // Task 4.1: TDD — tests written before implementation
 // Requirements: 7.1, 7.3, 14.4, 14.5
+// Task 1 (Decision Components): Decision, Rationale, Alternative added
 
 use std::collections::HashMap;
 
@@ -15,10 +16,10 @@ fn attr(required: bool, list: bool) -> AttributeDef {
 }
 
 // ---------------------------------------------------------------------------
-// ComponentDefs::defaults() — 10 built-in components (Req 7.3, 14.4)
+// ComponentDefs::defaults() — 13 built-in components (Req 7.3, 14.4)
 // ---------------------------------------------------------------------------
 
-const BUILTIN_NAMES: [&str; 10] = [
+const BUILTIN_NAMES: [&str; 13] = [
     "AcceptanceCriteria",
     "Criterion",
     "References",
@@ -29,12 +30,15 @@ const BUILTIN_NAMES: [&str; 10] = [
     "DependsOn",
     "Example",
     "Expected",
+    "Decision",
+    "Rationale",
+    "Alternative",
 ];
 
 #[test]
-fn defaults_returns_exactly_ten_components() {
+fn defaults_returns_exactly_thirteen_components() {
     let defs = ComponentDefs::defaults();
-    assert_eq!(defs.len(), 10);
+    assert_eq!(defs.len(), 13);
     for name in &BUILTIN_NAMES {
         assert!(defs.is_known(name), "missing built-in: {name}");
     }
@@ -163,6 +167,50 @@ fn list_typed_implements_and_depends_on_task() {
 }
 
 // ---------------------------------------------------------------------------
+// Decision Components (Task 1: Decision, Rationale, Alternative)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decision_is_referenceable_not_verifiable_with_required_id() {
+    let defs = ComponentDefs::defaults();
+    let d = defs.get("Decision").expect("Decision should be registered");
+    assert_eq!(d.attributes.len(), 1);
+    assert_eq!(d.attributes["id"], attr(true, false));
+    assert!(d.referenceable, "Decision should be referenceable");
+    assert!(!d.verifiable, "Decision should not be verifiable");
+    assert_eq!(d.target_component, None);
+}
+
+#[test]
+fn rationale_is_not_referenceable_not_verifiable_with_no_required_attrs() {
+    let defs = ComponentDefs::defaults();
+    let r = defs
+        .get("Rationale")
+        .expect("Rationale should be registered");
+    assert!(
+        r.attributes.is_empty(),
+        "Rationale should have no required attributes"
+    );
+    assert!(!r.referenceable, "Rationale should not be referenceable");
+    assert!(!r.verifiable, "Rationale should not be verifiable");
+    assert_eq!(r.target_component, None);
+}
+
+#[test]
+fn alternative_is_referenceable_not_verifiable_with_required_id_and_status() {
+    let defs = ComponentDefs::defaults();
+    let a = defs
+        .get("Alternative")
+        .expect("Alternative should be registered");
+    assert_eq!(a.attributes.len(), 2);
+    assert_eq!(a.attributes["id"], attr(true, false));
+    assert_eq!(a.attributes["status"], attr(true, false));
+    assert!(a.referenceable, "Alternative should be referenceable");
+    assert!(!a.verifiable, "Alternative should not be verifiable");
+    assert_eq!(a.target_component, None);
+}
+
+// ---------------------------------------------------------------------------
 // ComponentDefs::is_known() and get()
 // ---------------------------------------------------------------------------
 
@@ -259,9 +307,9 @@ fn merge_unmentioned_builtins_preserved() {
     );
 
     let merged = ComponentDefs::merge(defaults, user).unwrap();
-    // All 10 built-ins should still be present (Criterion overridden + 9 unchanged)
+    // All 13 built-ins should still be present (Criterion overridden + 12 unchanged)
     // plus no new ones since we only overrode
-    assert_eq!(merged.len(), 10);
+    assert_eq!(merged.len(), 13);
     for name in &BUILTIN_NAMES {
         assert!(merged.is_known(name), "built-in {name} should be preserved");
     }
@@ -295,7 +343,7 @@ fn merge_override_plus_new_component() {
     );
 
     let merged = ComponentDefs::merge(defaults, user).unwrap();
-    assert_eq!(merged.len(), 11); // 10 built-in + 1 new
+    assert_eq!(merged.len(), 14); // 13 built-in + 1 new
     assert!(merged.is_known("NewComp"));
     assert!(merged.is_known("Criterion"));
     // Criterion should be the overridden version
@@ -306,7 +354,7 @@ fn merge_override_plus_new_component() {
 fn merge_empty_user_defs_preserves_all_defaults() {
     let defaults = ComponentDefs::defaults();
     let merged = ComponentDefs::merge(defaults, HashMap::new()).unwrap();
-    assert_eq!(merged.len(), 10);
+    assert_eq!(merged.len(), 13);
     // Verify a sample built-in is intact
     let criterion = merged.get("Criterion").unwrap();
     assert!(criterion.referenceable);

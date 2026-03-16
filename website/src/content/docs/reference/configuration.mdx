@@ -89,6 +89,13 @@ plugin_discovery_failure = "error"         # default
 plugin_discovery_warning = "warning"       # default
 sequential_id_order = "warning"           # default
 sequential_id_gap = "warning"             # default
+incomplete_decision = "warning"           # default
+orphan_decision = "warning"               # default
+missing_decision_coverage = "off"         # default
+invalid_rationale_placement = "warning"   # default
+invalid_alternative_placement = "warning" # default
+duplicate_rationale = "warning"           # default
+invalid_alternative_status = "warning"    # default
 ```
 
 <Aside type="note">
@@ -120,7 +127,7 @@ The three built-in types (`requirements`, `design`, `tasks`) are always availabl
 
 ## Custom Components
 
-Define custom components beyond the 10 built-ins:
+Define custom components beyond the 13 built-ins:
 
 ```toml title="supersigil.toml"
 [components.SecurityReview]

@@ -278,8 +278,8 @@ proptest! {
         let new_user_names = user_defs.keys()
             .filter(|n| !default_names.contains(n.as_str()))
             .count();
-        prop_assert_eq!(merged.len(), 10 + new_user_names,
-            "merged count should be 10 defaults + new user components");
+        prop_assert_eq!(merged.len(), 13 + new_user_names,
+            "merged count should be 13 defaults + new user components");
     }
 }
 

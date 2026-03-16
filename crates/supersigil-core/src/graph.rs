@@ -21,8 +21,8 @@ use std::fmt;
 pub use error::GraphError;
 pub use index::glob_prefix;
 pub use query::{
-    ContextOutput, DocRef, OutstandingTarget, PlanOutput, PlanQuery, QueryError, TargetContext,
-    TaskInfo,
+    AlternativeContext, ContextOutput, DecisionContext, DocRef, LinkedDecision, OutstandingTarget,
+    PlanOutput, PlanQuery, QueryError, TargetContext, TaskInfo, decision_references_target,
 };
 
 use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
@@ -35,14 +35,23 @@ pub const CRITERION: &str = "Criterion";
 pub const VERIFIED_BY: &str = "VerifiedBy";
 #[cfg(test)]
 pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
-pub(crate) const REFERENCES: &str = "References";
+/// The well-known component name for references components.
+pub const REFERENCES: &str = "References";
 pub(crate) const IMPLEMENTS: &str = "Implements";
-pub(crate) const DEPENDS_ON: &str = "DependsOn";
-pub(crate) const TRACKED_FILES: &str = "TrackedFiles";
+/// The well-known component name for depends-on components.
+pub const DEPENDS_ON: &str = "DependsOn";
+/// The well-known component name for tracked-files components.
+pub const TRACKED_FILES: &str = "TrackedFiles";
 /// The well-known component name for example components.
 pub const EXAMPLE: &str = "Example";
 /// The well-known component name for expected components.
 pub const EXPECTED: &str = "Expected";
+/// The well-known component name for decision components.
+pub const DECISION: &str = "Decision";
+/// The well-known component name for rationale components.
+pub const RATIONALE: &str = "Rationale";
+/// The well-known component name for alternative components.
+pub const ALTERNATIVE: &str = "Alternative";
 
 // ---------------------------------------------------------------------------
 // ResolvedRef
@@ -363,8 +372,9 @@ pub fn build_graph(
 
 /// Collect document-level `DependsOn` edges as `(source, target)` pairs.
 ///
-/// Iterates each document's top-level components, finds `DependsOn` components,
-/// looks up their resolved refs, and yields `(source_doc_id, target_doc_id)` pairs.
+/// Iterates each document's components recursively, finds `DependsOn`
+/// components at any nesting depth, looks up their resolved refs, and
+/// yields `(source_doc_id, target_doc_id)` pairs.
 ///
 /// Used by both cycle detection (stage 6) and topological sort (stage 7b).
 pub(crate) fn collect_doc_dependency_edges<'a>(
@@ -372,19 +382,49 @@ pub(crate) fn collect_doc_dependency_edges<'a>(
     resolved_refs: &'a HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
 ) -> impl Iterator<Item = (&'a str, &'a str)> {
     doc_index.iter().flat_map(move |(doc_id, doc)| {
-        doc.components
-            .iter()
-            .enumerate()
-            .filter(|(_, comp)| comp.name == DEPENDS_ON)
-            .flat_map(move |(idx, _)| {
-                let key = (doc_id.clone(), vec![idx]);
-                resolved_refs
-                    .get(&key)
-                    .into_iter()
-                    .flat_map(|refs| refs.iter())
-                    .map(move |rr| (doc_id.as_str(), rr.target_doc_id.as_str()))
-            })
+        let mut edges: Vec<(&str, &str)> = Vec::new();
+        collect_depends_on_edges_recursive(
+            doc_id.as_str(),
+            &doc.components,
+            &[],
+            resolved_refs,
+            &mut edges,
+        );
+        edges.into_iter()
     })
+}
+
+/// Recursively walk components collecting `DependsOn` edges at any depth.
+fn collect_depends_on_edges_recursive<'a>(
+    doc_id: &'a str,
+    components: &'a [ExtractedComponent],
+    parent_path: &[usize],
+    resolved_refs: &'a HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
+    edges: &mut Vec<(&'a str, &'a str)>,
+) {
+    for (idx, comp) in components.iter().enumerate() {
+        let mut component_path = parent_path.to_vec();
+        component_path.push(idx);
+
+        if comp.name == DEPENDS_ON {
+            let key = (doc_id.to_owned(), component_path.clone());
+            if let Some(refs) = resolved_refs.get(&key) {
+                for rr in refs {
+                    edges.push((doc_id, rr.target_doc_id.as_str()));
+                }
+            }
+        }
+
+        if !comp.children.is_empty() {
+            collect_depends_on_edges_recursive(
+                doc_id,
+                &comp.children,
+                &component_path,
+                resolved_refs,
+                edges,
+            );
+        }
+    }
 }
 
 /// Build a map of project name → isolated flag from config.

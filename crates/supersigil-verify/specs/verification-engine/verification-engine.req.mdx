@@ -246,6 +246,15 @@ so that stale docs and affected review scope are visible after code changes.
     relative to the project root, matched globs, and matched changed files.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/affected.rs, crates/supersigil-cli/src/commands/affected.rs" />
   </Criterion>
+  <Criterion id="req-6-4">
+    AFTER computing the directly affected document set, THE `affected` query
+    SHALL extend the result with one hop of transitive staleness: for each
+    directly affected document, documents that reference it (via the
+    `references_reverse` index) SHALL be included as transitively affected.
+    Transitive entries SHALL be distinguishable from direct entries in the
+    output.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/affected.rs, crates/supersigil-cli/src/commands/affected.rs" />
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 7: Status Summaries and Report Output

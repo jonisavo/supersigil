@@ -239,6 +239,42 @@ As a [role], I want [capability], so that [benefit].
 </Task>
 "#
         ),
+        "adr" => {
+            let references_line = if req_exists {
+                format!(r#"<References refs="{feature}/req" />"#)
+            } else {
+                r#"{/* <References refs="" /> */}"#.to_owned()
+            };
+            format!(
+                r#"{frontmatter}
+{references_line}
+
+## Context
+
+{{/* What is the situation that motivates this decision? What forces are at play? */}}
+
+## Decision
+
+{{/* What decision was made? State it clearly and directly. */}}
+
+<Decision id="decision-1">
+  {{/* One-line summary of the decision. */}}
+
+  <Rationale>
+    {{/* Why was this decision made? What tradeoffs were accepted? */}}
+  </Rationale>
+
+  {{/* <Alternative id="alt-1" status="rejected">
+    Describe the alternative and why it was not chosen.
+  </Alternative> */}}
+</Decision>
+
+## Consequences
+
+{{/* What are the expected outcomes, positive and negative, of this decision? */}}
+"#
+            )
+        }
         _ => format!("{frontmatter}\n"),
     }
 }

@@ -18,6 +18,7 @@ pub enum Token {
     Status,
     StatusGood,
     StatusBad,
+    StatusSuperseded,
     Count,
     Path,
     Success,
@@ -35,7 +36,9 @@ impl Token {
             Token::Status => Style::new().fg_color(Some(AnsiColor::Yellow.into())),
             Token::StatusGood => Style::new().fg_color(Some(AnsiColor::Green.into())),
             Token::StatusBad => Style::new().fg_color(Some(AnsiColor::Red.into())),
-            Token::Path | Token::Hint => Style::new().effects(Effects::DIMMED),
+            Token::StatusSuperseded | Token::Path | Token::Hint => {
+                Style::new().effects(Effects::DIMMED)
+            }
             Token::Success => Style::new()
                 .fg_color(Some(AnsiColor::Green.into()))
                 .effects(Effects::BOLD),
@@ -274,7 +277,8 @@ pub fn write_tasks(out: &mut impl Write, tasks: &[TaskInfo], color: ColorConfig)
 #[must_use]
 pub fn status_token(status: &str) -> Token {
     match status {
-        "done" | "implemented" | "approved" | "verified" => Token::StatusGood,
+        "done" | "implemented" | "approved" | "accepted" | "verified" => Token::StatusGood,
+        "superseded" => Token::StatusSuperseded,
         _ => Token::Status,
     }
 }

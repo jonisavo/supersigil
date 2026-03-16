@@ -388,6 +388,13 @@ pub const KNOWN_RULES: &[&str] = &[
     "plugin_discovery_warning",
     "sequential_id_order",
     "sequential_id_gap",
+    "invalid_rationale_placement",
+    "invalid_alternative_placement",
+    "duplicate_rationale",
+    "invalid_alternative_status",
+    "incomplete_decision",
+    "orphan_decision",
+    "missing_decision_coverage",
 ];
 
 // ---------------------------------------------------------------------------

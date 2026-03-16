@@ -327,6 +327,122 @@ fn new_prints_path_to_stdout_and_lint_hint_to_stderr() {
     );
 }
 
+/// `supersigil new adr` creates a file with type: adr and status: draft.
+#[verifies("decision-components/req#req-4-2")]
+#[test]
+fn new_adr_produces_correct_frontmatter() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "adr", "auth"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    assert!(
+        content.contains("type: adr"),
+        "frontmatter should contain type: adr, got:\n{content}"
+    );
+    assert!(
+        content.contains("status: draft"),
+        "frontmatter should contain status: draft, got:\n{content}"
+    );
+    assert!(
+        content.contains("id: auth/adr"),
+        "frontmatter should contain id: auth/adr, got:\n{content}"
+    );
+}
+
+/// `supersigil new adr` produces a lint-clean document.
+#[verifies("decision-components/req#req-4-3")]
+#[test]
+fn new_adr_passes_lint() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "adr", "auth"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    cargo_bin_cmd!("supersigil")
+        .args(["lint"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+}
+
+/// When a requirements doc exists, the ADR scaffold includes a References link.
+#[test]
+fn new_adr_with_existing_req_includes_references() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    // Create a requirements doc first
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "requirements", "auth"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    // Now create an ADR doc — should detect the req file
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "adr", "auth"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    assert!(
+        content.contains(r#"<References refs="auth/req" />"#),
+        "adr should include References link to req, got:\n{content}"
+    );
+
+    // Graph must load successfully
+    cargo_bin_cmd!("supersigil")
+        .args(["ls"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+}
+
+/// When no requirements doc exists, the ADR scaffold has a commented-out References placeholder.
+#[test]
+fn new_adr_without_req_has_commented_references() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "adr", "auth"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    // Should not have an active References component
+    assert!(
+        !content.contains(r#"<References refs="auth/req" />"#),
+        "adr without req should not have active References, got:\n{content}"
+    );
+}
+
+/// `adr` is recognized as a built-in document type (not rejected as unknown).
+#[test]
+fn new_adr_is_recognized_as_builtin_type() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    cargo_bin_cmd!("supersigil")
+        .args(["new", "adr", "my-feature"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("unknown document type").not());
+}
+
 /// Scaffolds include type-appropriate placeholder sections.
 #[verifies("authoring-commands/req#req-3-4")]
 #[test]

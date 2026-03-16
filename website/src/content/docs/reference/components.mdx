@@ -12,7 +12,7 @@ import { References, TrackedFiles } from '../../../components/supersigil';
 <References refs="parser-pipeline/req" />
 <TrackedFiles paths="crates/supersigil-core/src/component_defs.rs" />
 
-Components are MDX JSX elements that carry specification semantics. Supersigil has 10 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
+Components are MDX JSX elements that carry specification semantics. Supersigil has 13 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
 
 <Aside type="caution">
   All component attributes must be **plain string literals**. JSX expression attributes (e.g. `refs={variable}`) are a hard lint error. Use comma-separated strings for multi-value attributes: `refs="doc-a#crit-1, doc-b#crit-2"`.
@@ -230,6 +230,61 @@ Declares the expected output of an `<Example>`. Must be a direct child of `<Exam
 
 Not referenceable.
 
+## `<Decision>`
+
+A recorded architectural choice. Typically used in ADR documents. Can contain `<Rationale>`, `<Alternative>`, `<References>`, `<TrackedFiles>`, and `<DependsOn>` as children.
+
+```mdx
+<Decision id="unidirectional-refs">
+  References always point from concrete to abstract.
+
+  <Rationale>
+    Bidirectional references create synchronization burden.
+  </Rationale>
+
+  <Alternative id="bidirectional" status="rejected">
+    Maintain forward and reverse refs in both documents.
+  </Alternative>
+</Decision>
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `id` | yes | no | Unique identifier within the document |
+
+Referenceable.
+
+## `<Rationale>`
+
+Justification for a Decision. Must be a direct child of `<Decision>`. At most one per Decision.
+
+```mdx
+<Rationale>
+  Bidirectional references create synchronization burden.
+</Rationale>
+```
+
+**Attributes:** None. Body text is the content.
+
+Not referenceable.
+
+## `<Alternative>`
+
+A considered option for a Decision. Must be a direct child of `<Decision>`. Each alternative records a choice that was not taken (or was deferred/superseded).
+
+```mdx
+<Alternative id="bidirectional" status="rejected">
+  Maintain forward and reverse refs in both documents.
+</Alternative>
+```
+
+| Attribute | Required | List | Description |
+|-----------|----------|------|-------------|
+| `id` | yes | no | Unique identifier within the document |
+| `status` | yes | no | `rejected`, `deferred`, or `superseded` |
+
+Referenceable.
+
 ## Document Types
 
 Documents declare their type and status in YAML front matter:
@@ -250,5 +305,6 @@ supersigil:
 | `requirements` | `draft`, `review`, `approved`, `implemented` |
 | `design` | `draft`, `review`, `approved` |
 | `tasks` | `draft`, `ready`, `in-progress`, `done` |
+| `adr` | `draft`, `review`, `accepted`, `superseded` |
 
 Custom document types can be defined in `supersigil.toml`. See [Configuration](/reference/configuration/) for details.

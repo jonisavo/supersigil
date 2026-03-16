@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::{CRITERION, DocumentGraph, TASK};
+use super::{ALTERNATIVE, CRITERION, DECISION, DocumentGraph, RATIONALE, REFERENCES, TASK};
 use crate::{ExtractedComponent, split_list_attribute};
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,10 @@ pub struct ContextOutput {
     pub document: crate::SpecDocument,
     /// Verification targets (criteria) with their reference status.
     pub criteria: Vec<TargetContext>,
+    /// Decisions with rationale and alternatives.
+    pub decisions: Vec<DecisionContext>,
+    /// Decisions from other documents whose nested References target this document.
+    pub linked_decisions: Vec<LinkedDecision>,
     /// Documents that implement this document.
     pub implemented_by: Vec<DocRef>,
     /// Documents that reference this document (document-level).
@@ -53,6 +57,31 @@ pub struct TargetContext {
 pub struct DocRef {
     pub doc_id: String,
     pub status: Option<String>,
+}
+
+/// A decision with its rationale and alternatives, extracted from the component tree.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DecisionContext {
+    pub id: String,
+    pub body_text: Option<String>,
+    pub rationale_text: Option<String>,
+    pub alternatives: Vec<AlternativeContext>,
+}
+
+/// An alternative within a decision.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AlternativeContext {
+    pub id: String,
+    pub status: String,
+    pub body_text: Option<String>,
+}
+
+/// A decision from another document that references the current document.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinkedDecision {
+    pub source_doc_id: String,
+    pub decision_id: String,
+    pub body_text: Option<String>,
 }
 
 /// Serialize `None` as `"pending"` so JSON consumers see an explicit status.
@@ -179,6 +208,9 @@ pub(super) fn build_context(graph: &DocumentGraph, id: &str) -> Result<ContextOu
     // AcceptanceCriteria children).
     let criteria = extract_criteria(graph, id, &document.components);
 
+    // Extract decisions from the document's components.
+    let decisions = extract_decisions(&document.components);
+
     // Implementing documents.
     let implemented_by = graph
         .implements(id)
@@ -192,7 +224,11 @@ pub(super) fn build_context(graph: &DocumentGraph, id: &str) -> Result<ContextOu
         .collect();
 
     // Document-level references.
-    let referenced_by = graph.references(id, None).iter().cloned().collect();
+    let referenced_by: Vec<String> = graph.references(id, None).iter().cloned().collect();
+
+    // Linked decisions: scan referencing docs for Decision components whose
+    // nested References target the current document.
+    let linked_decisions = extract_linked_decisions(graph, id, &referenced_by);
 
     // Linked tasks: find all tasks documents that have tasks implementing
     // criteria in this document, then collect those tasks in topo order.
@@ -201,6 +237,8 @@ pub(super) fn build_context(graph: &DocumentGraph, id: &str) -> Result<ContextOu
     Ok(ContextOutput {
         document,
         criteria,
+        decisions,
+        linked_decisions,
         implemented_by,
         referenced_by,
         tasks,
@@ -241,6 +279,122 @@ fn extract_criteria(
         result.extend(extract_criteria(graph, doc_id, &comp.children));
     }
     result
+}
+
+/// Recursively extract `Decision` components from a component tree,
+/// building `DecisionContext` with rationale and alternatives from children.
+fn extract_decisions(components: &[ExtractedComponent]) -> Vec<DecisionContext> {
+    let mut result = Vec::new();
+    for comp in components {
+        if comp.name == DECISION
+            && let Some(decision_id) = comp.attributes.get("id")
+        {
+            // Find the first Rationale child.
+            let rationale_text = comp
+                .children
+                .iter()
+                .find(|c| c.name == RATIONALE)
+                .and_then(|c| c.body_text.clone());
+
+            // Collect Alternative children.
+            let alternatives = comp
+                .children
+                .iter()
+                .filter(|c| c.name == ALTERNATIVE)
+                .filter_map(|c| {
+                    let alt_id = c.attributes.get("id")?;
+                    let status = c.attributes.get("status").cloned().unwrap_or_default();
+                    Some(AlternativeContext {
+                        id: alt_id.clone(),
+                        status,
+                        body_text: c.body_text.clone(),
+                    })
+                })
+                .collect();
+
+            result.push(DecisionContext {
+                id: decision_id.clone(),
+                body_text: comp.body_text.clone(),
+                rationale_text,
+                alternatives,
+            });
+        }
+        // Recurse into children to find nested decisions.
+        result.extend(extract_decisions(&comp.children));
+    }
+    result
+}
+
+/// Extract linked decisions: for each document that references the target doc,
+/// walk its component tree looking for Decision components that have a nested
+/// References child whose `refs` attribute contains the target doc ID.
+fn extract_linked_decisions(
+    graph: &DocumentGraph,
+    target_doc_id: &str,
+    referenced_by: &[String],
+) -> Vec<LinkedDecision> {
+    let mut result = Vec::new();
+    for source_doc_id in referenced_by {
+        let Some(source_doc) = graph.document(source_doc_id) else {
+            continue;
+        };
+        collect_linked_decisions_recursive(
+            target_doc_id,
+            source_doc_id,
+            &source_doc.components,
+            &mut result,
+        );
+    }
+    result
+}
+
+/// Recursively walk a component tree, finding Decision components whose children
+/// include a References component with `refs` targeting `target_doc_id`.
+fn collect_linked_decisions_recursive(
+    target_doc_id: &str,
+    source_doc_id: &str,
+    components: &[ExtractedComponent],
+    result: &mut Vec<LinkedDecision>,
+) {
+    for comp in components {
+        if comp.name == DECISION
+            && let Some(decision_id) = comp.attributes.get("id")
+            && decision_references_target(&comp.children, target_doc_id)
+        {
+            result.push(LinkedDecision {
+                source_doc_id: source_doc_id.to_owned(),
+                decision_id: decision_id.clone(),
+                body_text: comp.body_text.clone(),
+            });
+        }
+        // Recurse into children to find nested decisions.
+        collect_linked_decisions_recursive(target_doc_id, source_doc_id, &comp.children, result);
+    }
+}
+
+/// Check whether any child component of a Decision is a References component
+/// whose `refs` attribute contains the target document ID.
+///
+/// `children` should be the direct children of a `Decision` component.
+/// Returns `true` if any `References` child has a `refs` attribute entry
+/// whose document part (before the optional `#fragment`) equals `target_doc_id`.
+#[must_use]
+pub fn decision_references_target(children: &[ExtractedComponent], target_doc_id: &str) -> bool {
+    for child in children {
+        if child.name == REFERENCES
+            && let Some(refs_attr) = child.attributes.get("refs")
+            && let Ok(items) = split_list_attribute(refs_attr)
+        {
+            for item in items {
+                // Strip any fragment (e.g. "doc-id#fragment" -> "doc-id").
+                let doc_part = item.split('#').next().unwrap_or(item);
+                if doc_part == target_doc_id {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Find all tasks documents linked to the target document (i.e., containing

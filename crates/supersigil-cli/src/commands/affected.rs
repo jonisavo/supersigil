@@ -50,13 +50,47 @@ pub fn run(args: &AffectedArgs, config_path: &Path, color: ColorConfig) -> Resul
                         c.paint(Token::DocId, &doc.id),
                         c.paint(Token::Path, &path_str),
                     )?;
-                    for glob in &doc.matched_globs {
-                        writeln!(out, "  glob: {}", c.paint(Token::Hint, glob))?;
+
+                    if let Some(via) = &doc.transitive_from {
+                        writeln!(
+                            out,
+                            "  transitively affected via {}",
+                            c.paint(Token::DocId, via),
+                        )?;
+                    } else {
+                        for glob in &doc.matched_globs {
+                            writeln!(out, "  glob: {}", c.paint(Token::Hint, glob))?;
+                        }
+                        for file in &doc.changed_files {
+                            let file_str = file.display().to_string();
+                            writeln!(out, "  changed: {}", c.paint(Token::Path, &file_str))?;
+                        }
                     }
-                    for file in &doc.changed_files {
-                        let file_str = file.display().to_string();
-                        writeln!(out, "  changed: {}", c.paint(Token::Path, &file_str))?;
-                    }
+                }
+
+                // Summary line with direct/transitive breakdown.
+                let total = affected.len();
+                let transitive_count = affected
+                    .iter()
+                    .filter(|d| d.transitive_from.is_some())
+                    .count();
+                let direct_count = total - transitive_count;
+
+                writeln!(out)?;
+                if transitive_count > 0 {
+                    writeln!(
+                        out,
+                        "{} documents affected ({} direct, {} transitive)",
+                        c.paint(Token::Count, &total.to_string()),
+                        direct_count,
+                        transitive_count,
+                    )?;
+                } else {
+                    writeln!(
+                        out,
+                        "{} documents affected",
+                        c.paint(Token::Count, &total.to_string()),
+                    )?;
                 }
             }
         }

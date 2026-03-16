@@ -64,6 +64,13 @@ These rules have built-in default severities that can be overridden in `supersig
 | `plugin_discovery_warning` | warning | Ecosystem plugin discovery produced a warning |
 | `sequential_id_order` | warning | Sequentially-numbered component IDs appear out of numeric order in the source |
 | `sequential_id_gap` | warning | A numbered component ID sequence has missing entries (e.g. `task-1`, `task-3` with no `task-2`) |
+| `incomplete_decision` | warning | `<Decision>` has no `<Rationale>` child |
+| `orphan_decision` | warning | `<Decision>` has no outward refs and is not referenced |
+| `missing_decision_coverage` | off | Design document has no `<Decision>` referencing it |
+| `invalid_rationale_placement` | warning | `<Rationale>` placed outside a `<Decision>` |
+| `invalid_alternative_placement` | warning | `<Alternative>` placed outside a `<Decision>` |
+| `duplicate_rationale` | warning | `<Decision>` has more than one `<Rationale>` child |
+| `invalid_alternative_status` | warning | `<Alternative>` status is not `rejected`, `deferred`, or `superseded` |
 | `isolated_document` | off | Document has no edges to or from any other document |
 
 ## Severity Levels

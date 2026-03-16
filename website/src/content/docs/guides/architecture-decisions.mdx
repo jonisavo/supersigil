@@ -1,0 +1,194 @@
+---
+title: Architecture Decisions
+description: Record architectural rationale as structured, verifiable components in your specification graph.
+supersigil:
+  id: website/guides/architecture-decisions
+  type: documentation
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import { TrackedFiles } from '../../../components/supersigil';
+
+<TrackedFiles paths="crates/supersigil-core/src/component_defs.rs, crates/supersigil-verify/src/rules/decision.rs" />
+
+Specifications capture *what* the system does (criteria), *how* it is built (designs), and *whether it works* (evidence). But they often miss *why* the system is shaped the way it is. When architectural rationale lives in wikis, chat threads, or people's heads, it disconnects from the specs it explains and drifts silently as the system evolves.
+
+Supersigil solves this with three components — `<Decision>`, `<Rationale>`, and `<Alternative>` — that make the "why" a first-class citizen of the specification graph. Decisions are referenceable, queryable via `supersigil context`, and checkable by verification rules.
+
+## The Components
+
+### `<Decision>`
+
+A recorded architectural choice. Referenceable by ID, so other documents can link to it.
+
+````mdx
+<Decision id="unidirectional-refs">
+  References always point from concrete to abstract.
+  Designs point at requirements, not the reverse.
+
+  <Rationale>
+    Bidirectional references create a synchronization burden.
+    Adding a new design doc should never require editing the
+    requirement it implements.
+  </Rationale>
+
+  <Alternative id="bidirectional" status="rejected">
+    Maintain forward and reverse refs in both documents.
+    Rejected because synchronization cost is not proportional
+    to the benefit.
+  </Alternative>
+
+  <Alternative id="derived-both" status="deferred">
+    Store forward refs only, compute reverse at query time.
+    Deferred — this is close to what Supersigil already does
+    internally, but not yet exposed as an authoring option.
+  </Alternative>
+
+  <References refs="document-graph/req" />
+</Decision>
+````
+
+### `<Rationale>`
+
+The justification for a decision. Must be a direct child of `<Decision>`. At most one per decision — if the rationale has multiple facets, they belong in a single cohesive argument.
+
+No attributes. The body text is the content.
+
+### `<Alternative>`
+
+A considered option that was not chosen. Must be a direct child of `<Decision>`. Zero or more per decision. Referenceable by ID, so other decisions can cross-link to rejected alternatives.
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `id` | yes | Unique identifier within the document |
+| `status` | yes | `rejected`, `deferred`, or `superseded` |
+
+## Where to Put Decisions
+
+Decisions can live in any document type. Two common patterns:
+
+**Dedicated ADR documents** — for cross-cutting decisions that span multiple features or affect the project's architecture. Scaffold one with:
+
+```bash
+supersigil new adr auth
+```
+
+This creates a document with `type: adr` and a Decision component placeholder.
+
+**Inline in design docs** — for feature-specific decisions that are best understood alongside the design they explain. A design doc can contain both `<Implements>` and `<Decision>` components.
+
+<Aside type="tip">
+  Use dedicated ADR documents for decisions that affect multiple features or that future contributors will need to find without knowing which feature they relate to. Use inline decisions for choices that only matter in the context of a single design.
+</Aside>
+
+## Linking Decisions to Specs
+
+Decisions become most useful when they are connected to the specs they explain. Use nested `<References>` inside a Decision to link it to specific criteria or documents:
+
+```mdx
+<Decision id="graduated-verification">
+  Verification rules default to different severities to
+  allow incremental adoption.
+
+  <References refs="verification-engine/req#req-5-1, verification-engine/req#req-5-3" />
+
+  <Rationale>
+    Teams adopt rationale tracking at different speeds. Forcing
+    full decision coverage from day one creates friction that
+    discourages adoption.
+  </Rationale>
+</Decision>
+```
+
+When you run `supersigil context` on a document that is referenced by a Decision, the output includes a **Linked decisions** section:
+
+```
+# requirements: auth/req
+Status: implemented
+
+## Linked decisions (from other documents):
+- arch/adr#unidirectional-refs: References always point from concrete to abstract.
+
+## Verification targets:
+...
+```
+
+This gives agents and developers the architectural context behind the criteria they are working with.
+
+## Staleness Detection
+
+Decisions can track the source files that embody them using nested `<TrackedFiles>`:
+
+```mdx
+<Decision id="single-binary">
+  Supersigil is distributed as a single binary.
+
+  <TrackedFiles paths="Cargo.toml, crates/*/Cargo.toml" />
+
+  <Rationale>
+    Single-binary distribution eliminates dependency management
+    for users and simplifies CI setup.
+  </Rationale>
+</Decision>
+```
+
+When those files change, `supersigil affected` flags the decision's document — prompting a review of whether the rationale still holds.
+
+Decisions also benefit from transitive staleness: if a Decision references a document via `<References>`, and that document's tracked files change, the Decision's document is flagged as transitively affected.
+
+## Verification Rules
+
+Supersigil includes verification rules that nudge teams toward complete, connected decisions. All are configurable — override their severity in `supersigil.toml`.
+
+### Enabled by Default (warning)
+
+**`incomplete_decision`** — A `<Decision>` has no `<Rationale>` child. A decision without a rationale is just an assertion.
+
+**`orphan_decision`** — A `<Decision>` has no outward connections (no `<References>`, `<TrackedFiles>`, or `<DependsOn>` children) and is not referenced by any other component. An orphan decision is disconnected from the graph.
+
+**`invalid_rationale_placement`** — A `<Rationale>` placed outside a `<Decision>`.
+
+**`invalid_alternative_placement`** — An `<Alternative>` placed outside a `<Decision>`.
+
+**`duplicate_rationale`** — A `<Decision>` has more than one `<Rationale>` child.
+
+**`invalid_alternative_status`** — An `<Alternative>` has a `status` value that is not `rejected`, `deferred`, or `superseded`.
+
+### Opt-in (off by default)
+
+**`missing_decision_coverage`** — A design document has no `<Decision>` referencing it, either from another document or embedded within the design itself. Enable this when your team has adopted decision tracking and wants to ensure every design has recorded rationale:
+
+```toml title="supersigil.toml"
+[verify.rules]
+missing_decision_coverage = "warning"
+```
+
+## The ADR Document Type
+
+The `adr` type provides a conventional home for Architecture Decision Records. It supports four statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `draft` | Decision is being discussed |
+| `review` | Decision is proposed and awaiting feedback |
+| `accepted` | Decision is in effect |
+| `superseded` | Decision has been replaced by a newer one |
+
+When a decision is superseded, use `<References>` to link to the replacement, creating an audit trail:
+
+```mdx
+---
+supersigil:
+  id: arch/adr-old-auth
+  type: adr
+  status: superseded
+---
+
+<References refs="arch/adr-new-auth" />
+```
+
+## Related Reading
+
+- [Components Reference](/supersigil/reference/components/) — Full attribute tables for Decision, Rationale, and Alternative.
+- [Verification](/supersigil/concepts/verification/) — Rule severities, draft gating, and configuration.
+- [The Component Graph](/supersigil/concepts/component-graph/) — How decisions participate in the specification graph.

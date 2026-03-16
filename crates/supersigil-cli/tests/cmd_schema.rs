@@ -77,7 +77,7 @@ fn schema_contains_builtin_components() {
         .stdout(predicate::str::contains("\"VerifiedBy\""));
 }
 
-#[verifies("inventory-queries/req#req-2-2")]
+#[verifies("inventory-queries/req#req-2-2", "decision-components/req#req-4-1")]
 #[test]
 fn schema_includes_builtin_document_types_for_minimal_config() {
     let tmp = TempDir::new().unwrap();
@@ -108,6 +108,10 @@ fn schema_includes_builtin_document_types_for_minimal_config() {
     assert_eq!(
         json["document_types"]["tasks"]["status"],
         serde_json::json!(["draft", "ready", "in-progress", "done"])
+    );
+    assert_eq!(
+        json["document_types"]["adr"]["status"],
+        serde_json::json!(["draft", "review", "accepted", "superseded"])
     );
 }
 

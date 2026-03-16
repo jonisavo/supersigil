@@ -39,6 +39,12 @@
   streamlined CI setup. Structured output formats for GitHub
   annotations and GitLab code quality reports.
 
+- **Show info findings in terminal**: `supersigil verify --show-info`
+  to include info-level findings (draft-gated downgrades) in terminal
+  output. Currently info findings are suppressed in terminal mode but
+  hinted at in the summary, which is confusing. The flag would render
+  them dimmed or with an `[info]` prefix.
+
 - **Lint auto-fix**: `supersigil lint --fix` to automatically
   correct simple structural issues (missing attributes, ID
   formatting).

@@ -166,6 +166,65 @@ pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
     }
 }
 
+pub fn make_decision(children: Vec<ExtractedComponent>, line: usize) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Decision".into(),
+        attributes: HashMap::new(),
+        children,
+        body_text: Some("a decision".into()),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
+pub fn make_decision_with_id(
+    id: &str,
+    children: Vec<ExtractedComponent>,
+    line: usize,
+) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Decision".into(),
+        attributes: HashMap::from([("id".into(), id.into())]),
+        children,
+        body_text: Some(format!("decision {id}")),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
+pub fn make_rationale(line: usize) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Rationale".into(),
+        attributes: HashMap::new(),
+        children: vec![],
+        body_text: Some("the rationale".into()),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
+pub fn make_alternative(id: &str, line: usize) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Alternative".into(),
+        attributes: HashMap::from([("id".into(), id.into())]),
+        children: vec![],
+        body_text: Some(format!("alternative {id}")),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
+pub fn make_alternative_with_status(id: &str, status: &str, line: usize) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Alternative".into(),
+        attributes: HashMap::from([("id".into(), id.into()), ("status".into(), status.into())]),
+        children: vec![],
+        body_text: Some(format!("alternative {id}")),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
 pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
         name: "TrackedFiles".into(),

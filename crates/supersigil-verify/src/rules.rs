@@ -1,6 +1,7 @@
 use supersigil_core::{CRITERION, ExtractedComponent, VERIFIED_BY};
 
 pub mod coverage;
+pub mod decision;
 pub mod status;
 pub mod structural;
 pub mod tests_rule;

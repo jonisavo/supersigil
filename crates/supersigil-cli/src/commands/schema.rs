@@ -66,7 +66,7 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
 
     debug_assert_eq!(
         BUILTIN_DOC_TYPES,
-        &["requirements", "design", "tasks"],
+        &["requirements", "design", "tasks", "adr"],
         "update descriptions below when BUILTIN_DOC_TYPES changes"
     );
 
@@ -90,6 +90,13 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
             doc_type(
                 "A plan of work items (Task components) that implement criteria from requirements or designs.",
                 &["draft", "ready", "in-progress", "done"],
+            ),
+        ),
+        (
+            "adr".to_string(),
+            doc_type(
+                "An Architectural Decision Record capturing a significant design decision, its rationale, and alternatives considered.",
+                &["draft", "review", "accepted", "superseded"],
             ),
         ),
     ]

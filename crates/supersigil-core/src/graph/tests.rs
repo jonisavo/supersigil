@@ -13,6 +13,10 @@ mod prop_topo;
 mod prop_tracked_files;
 
 mod prop_context;
+mod prop_context_decisions;
+mod prop_context_linked_decisions;
 mod prop_plan;
+
+mod prop_decision_integration;
 
 mod unit;

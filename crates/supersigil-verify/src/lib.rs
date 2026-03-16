@@ -132,10 +132,19 @@ pub fn verify_structural(
         &component_defs,
     ));
     findings.extend(rules::structural::check_expected_placement(&docs));
+    findings.extend(rules::structural::check_rationale_placement(&docs));
+    findings.extend(rules::structural::check_alternative_placement(&docs));
+    findings.extend(rules::structural::check_duplicate_rationale(&docs));
+    findings.extend(rules::structural::check_alternative_status(&docs));
     findings.extend(rules::structural::check_code_block_cardinality(&docs));
     findings.extend(rules::structural::check_env_format(&docs));
     findings.extend(rules::structural::check_sequential_id_order(&docs));
     findings.extend(rules::structural::check_sequential_id_gap(&docs));
+
+    // Decision
+    findings.extend(rules::decision::check_incomplete(&docs));
+    findings.extend(rules::decision::check_orphan(&docs, graph));
+    findings.extend(rules::decision::check_coverage(&docs, graph));
 
     // Status
     findings.extend(rules::status::check(graph));
@@ -762,6 +771,69 @@ mod verify_tests {
                     finding.effective_severity,
                     ReportSeverity::Info,
                     "draft doc sequential findings should be Info",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn verify_rationale_placement_in_full_pipeline() {
+        let docs = vec![make_doc("adr/logging", vec![make_rationale(5)])];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::InvalidRationalePlacement),
+            "full pipeline should include InvalidRationalePlacement findings, got: {:?}",
+            report.findings,
+        );
+    }
+
+    #[test]
+    fn verify_alternative_placement_in_full_pipeline() {
+        let docs = vec![make_doc("adr/logging", vec![make_alternative("alt-1", 5)])];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.rule == RuleName::InvalidAlternativePlacement),
+            "full pipeline should include InvalidAlternativePlacement findings, got: {:?}",
+            report.findings,
+        );
+    }
+
+    #[test]
+    fn verify_placement_rules_draft_gating() {
+        let docs = vec![make_doc_with_status(
+            "adr/logging",
+            "draft",
+            vec![make_rationale(5), make_alternative("alt-1", 6)],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let ag = ArtifactGraph::empty(&graph);
+        let report = verify(&graph, &config, Path::new("/tmp"), &options, &ag).unwrap();
+        for finding in &report.findings {
+            if finding.rule == RuleName::InvalidRationalePlacement
+                || finding.rule == RuleName::InvalidAlternativePlacement
+            {
+                assert_eq!(
+                    finding.effective_severity,
+                    ReportSeverity::Info,
+                    "draft doc placement findings should be Info, got {:?} for {:?}",
+                    finding.effective_severity,
+                    finding.rule,
                 );
             }
         }

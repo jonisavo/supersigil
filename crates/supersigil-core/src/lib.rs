@@ -31,7 +31,9 @@ pub use types::{
 
 // Graph module re-exports
 pub use graph::{
-    CRITERION, ContextOutput, DocRef, DocumentGraph, EXAMPLE, EXPECTED, GraphError,
-    OutstandingTarget, PlanOutput, PlanQuery, QueryError, ResolvedRef, TargetContext, TaskInfo,
-    VERIFIED_BY, build_graph, glob_prefix,
+    ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION, DEPENDS_ON,
+    DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, GraphError, LinkedDecision,
+    OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE, REFERENCES, ResolvedRef,
+    TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY, build_graph, decision_references_target,
+    glob_prefix,
 };

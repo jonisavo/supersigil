@@ -12,11 +12,11 @@ pub struct ComponentDefs {
 }
 
 impl ComponentDefs {
-    /// Returns the 10 built-in default component definitions.
+    /// Returns the 13 built-in default component definitions.
     #[must_use]
     #[expect(
         clippy::too_many_lines,
-        reason = "declarative definition of all 10 built-in components"
+        reason = "declarative definition of all 13 built-in components"
     )]
     pub fn defaults() -> Self {
         /// Insert a component with a single required list attribute `refs`.
@@ -323,6 +323,66 @@ impl ComponentDefs {
             },
         );
 
+        // Decision — id: required; referenceable; not verifiable
+        defs.insert(
+            "Decision".into(),
+            ComponentDef {
+                attributes: HashMap::from([(
+                    "id".into(),
+                    AttributeDef {
+                        required: true,
+                        list: false,
+                    },
+                )]),
+                referenceable: true,
+                verifiable: false,
+                target_component: None,
+                description: Some("An architectural or design decision with a unique ID. Referenceable so that Rationale and Alternative components can be associated with it.".into()),
+                examples: vec!["<Decision id=\"use-postgres\">\nUse PostgreSQL as the primary data store.\n</Decision>".into()],
+            },
+        );
+
+        // Rationale — no required attributes; not referenceable; not verifiable
+        defs.insert(
+            "Rationale".into(),
+            ComponentDef {
+                attributes: HashMap::new(),
+                referenceable: false,
+                verifiable: false,
+                target_component: None,
+                description: Some("The reasoning behind a decision. Placed as a child of a Decision component.".into()),
+                examples: vec!["<Rationale>\nPostgreSQL has strong ACID guarantees and wide ecosystem support.\n</Rationale>".into()],
+            },
+        );
+
+        // Alternative — id: required; status: required; referenceable; not verifiable
+        defs.insert(
+            "Alternative".into(),
+            ComponentDef {
+                attributes: HashMap::from([
+                    (
+                        "id".into(),
+                        AttributeDef {
+                            required: true,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "status".into(),
+                        AttributeDef {
+                            required: true,
+                            list: false,
+                        },
+                    ),
+                ]),
+                referenceable: true,
+                verifiable: false,
+                target_component: None,
+                description: Some("An alternative option considered for a decision, with a required status (e.g. rejected, considered). Referenceable by ID.".into()),
+                examples: vec!["<Alternative id=\"use-mysql\" status=\"rejected\">\nMySQL was considered but lacks some PostgreSQL extensions we rely on.\n</Alternative>".into()],
+            },
+        );
+
         Self { defs }
     }
 
@@ -412,9 +472,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_contains_10_built_in_components() {
+    fn defaults_contains_13_built_in_components() {
         let defs = ComponentDefs::defaults();
-        assert_eq!(defs.len(), 10);
+        assert_eq!(defs.len(), 13);
     }
 
     #[test]

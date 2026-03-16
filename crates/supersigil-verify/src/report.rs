@@ -63,6 +63,13 @@ pub enum RuleName {
     ExampleFailed,
     SequentialIdOrder,
     SequentialIdGap,
+    InvalidRationalePlacement,
+    InvalidAlternativePlacement,
+    DuplicateRationale,
+    InvalidAlternativeStatus,
+    IncompleteDecision,
+    OrphanDecision,
+    MissingDecisionCoverage,
 }
 
 impl RuleName {
@@ -87,6 +94,13 @@ impl RuleName {
         Self::PluginDiscoveryWarning,
         Self::SequentialIdOrder,
         Self::SequentialIdGap,
+        Self::InvalidRationalePlacement,
+        Self::InvalidAlternativePlacement,
+        Self::DuplicateRationale,
+        Self::InvalidAlternativeStatus,
+        Self::IncompleteDecision,
+        Self::OrphanDecision,
+        Self::MissingDecisionCoverage,
     ];
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
@@ -113,6 +127,13 @@ impl RuleName {
             Self::ExampleFailed => "example_failed",
             Self::SequentialIdOrder => "sequential_id_order",
             Self::SequentialIdGap => "sequential_id_gap",
+            Self::InvalidRationalePlacement => "invalid_rationale_placement",
+            Self::InvalidAlternativePlacement => "invalid_alternative_placement",
+            Self::DuplicateRationale => "duplicate_rationale",
+            Self::InvalidAlternativeStatus => "invalid_alternative_status",
+            Self::IncompleteDecision => "incomplete_decision",
+            Self::OrphanDecision => "orphan_decision",
+            Self::MissingDecisionCoverage => "missing_decision_coverage",
         }
     }
 
@@ -130,7 +151,7 @@ impl RuleName {
             | Self::InvalidEnvFormat
             | Self::ExampleFailed => ReportSeverity::Error,
 
-            Self::IsolatedDocument => ReportSeverity::Off,
+            Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
 
             Self::ZeroTagMatches
             | Self::StaleTrackedFiles
@@ -143,7 +164,13 @@ impl RuleName {
             | Self::PluginDiscoveryFailure
             | Self::PluginDiscoveryWarning
             | Self::SequentialIdOrder
-            | Self::SequentialIdGap => ReportSeverity::Warning,
+            | Self::SequentialIdGap
+            | Self::InvalidRationalePlacement
+            | Self::InvalidAlternativePlacement
+            | Self::DuplicateRationale
+            | Self::InvalidAlternativeStatus
+            | Self::IncompleteDecision
+            | Self::OrphanDecision => ReportSeverity::Warning,
         }
     }
 }
@@ -522,7 +549,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 19);
+        assert_eq!(RuleName::ALL.len(), 26);
     }
 
     // -----------------------------------------------------------------------
@@ -553,6 +580,16 @@ mod tests {
             (RuleName::PluginDiscoveryWarning, ReportSeverity::Warning),
             (RuleName::SequentialIdOrder, ReportSeverity::Warning),
             (RuleName::SequentialIdGap, ReportSeverity::Warning),
+            (RuleName::InvalidRationalePlacement, ReportSeverity::Warning),
+            (
+                RuleName::InvalidAlternativePlacement,
+                ReportSeverity::Warning,
+            ),
+            (RuleName::DuplicateRationale, ReportSeverity::Warning),
+            (RuleName::InvalidAlternativeStatus, ReportSeverity::Warning),
+            (RuleName::IncompleteDecision, ReportSeverity::Warning),
+            (RuleName::OrphanDecision, ReportSeverity::Warning),
+            (RuleName::MissingDecisionCoverage, ReportSeverity::Off),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

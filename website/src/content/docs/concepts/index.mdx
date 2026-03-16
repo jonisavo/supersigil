@@ -50,7 +50,7 @@ Your Markdown content goes here.
 
 ## Components
 
-Components are MDX JSX elements that carry specification semantics. Supersigil ships with 10 built-in components:
+Components are MDX JSX elements that carry specification semantics. Supersigil ships with 13 built-in components:
 
 | Component | Purpose |
 |-----------|---------|
@@ -64,6 +64,9 @@ Components are MDX JSX elements that carry specification semantics. Supersigil s
 | `<Task>` | A trackable work item with status, implements, and depends edges |
 | `<Example>` | An executable code sample with expected output |
 | `<Expected>` | Declares expected output of an Example (child of Example) |
+| `<Decision>` | A recorded architectural choice with rationale and alternatives |
+| `<Rationale>` | Justification for a Decision |
+| `<Alternative>` | A considered option for a Decision that was not chosen or was deferred |
 
 Each component is a typed node in the specification graph. References between components form edges that Supersigil traverses and verifies.
 

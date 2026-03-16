@@ -1,5 +1,6 @@
 use supersigil_core::{
-    ComponentDefs, Config, DocumentGraph, EXAMPLE, EXPECTED, SpecDocument, VERIFIED_BY,
+    ALTERNATIVE, ComponentDefs, Config, DECISION, DocumentGraph, EXAMPLE, EXPECTED, RATIONALE,
+    SpecDocument, VERIFIED_BY,
 };
 
 use crate::report::{Finding, RuleName};
@@ -220,48 +221,166 @@ fn walk_for_verified_by(
 }
 
 // ---------------------------------------------------------------------------
-// check_expected_placement
+// check_{expected,rationale,alternative}_placement  (shared implementation)
 // ---------------------------------------------------------------------------
+
+/// Generic placement check: every occurrence of `child_name` must be a direct
+/// child of `valid_parent`. Violations are reported under the given `rule`.
+fn check_child_placement(
+    docs: &[&SpecDocument],
+    child_name: &str,
+    valid_parent: &str,
+    rule: RuleName,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        walk_for_child_placement(
+            doc_id,
+            &doc.components,
+            None,
+            child_name,
+            valid_parent,
+            rule,
+            &mut findings,
+        );
+    }
+    findings
+}
+
+fn walk_for_child_placement(
+    doc_id: &str,
+    components: &[supersigil_core::ExtractedComponent],
+    parent_name: Option<&str>,
+    child_name: &str,
+    valid_parent: &str,
+    rule: RuleName,
+    findings: &mut Vec<Finding>,
+) {
+    for comp in components {
+        if comp.name == child_name && parent_name != Some(valid_parent) {
+            let context = match parent_name {
+                Some(name) => format!("under `{name}`"),
+                None => "at document root".into(),
+            };
+            findings.push(Finding::new(
+                rule,
+                Some(doc_id.to_owned()),
+                format!(
+                    "{child_name} in `{doc_id}` is placed {context}; \
+                     it must be a direct child of {valid_parent}"
+                ),
+                Some(comp.position),
+            ));
+        }
+        walk_for_child_placement(
+            doc_id,
+            &comp.children,
+            Some(&comp.name),
+            child_name,
+            valid_parent,
+            rule,
+            findings,
+        );
+    }
+}
 
 /// Check that every `Expected` component is a direct child of an `Example`
 /// component. `Expected` at document root or under any other component is a
 /// structural error.
 pub fn check_expected_placement(docs: &[&SpecDocument]) -> Vec<Finding> {
+    check_child_placement(docs, EXPECTED, EXAMPLE, RuleName::InvalidExpectedPlacement)
+}
+
+/// Check that every `Rationale` component is a direct child of a `Decision`
+/// component. `Rationale` at document root or under any other component is a
+/// structural warning.
+pub fn check_rationale_placement(docs: &[&SpecDocument]) -> Vec<Finding> {
+    check_child_placement(
+        docs,
+        RATIONALE,
+        DECISION,
+        RuleName::InvalidRationalePlacement,
+    )
+}
+
+/// Check that every `Alternative` component is a direct child of a `Decision`
+/// component. `Alternative` at document root or under any other component is a
+/// structural warning.
+pub fn check_alternative_placement(docs: &[&SpecDocument]) -> Vec<Finding> {
+    check_child_placement(
+        docs,
+        ALTERNATIVE,
+        DECISION,
+        RuleName::InvalidAlternativePlacement,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// check_alternative_status
+// ---------------------------------------------------------------------------
+
+const RECOGNIZED_ALTERNATIVE_STATUSES: &[&str] = &["rejected", "deferred", "superseded"];
+
+/// Check that every `Alternative` component's `status` attribute (if present)
+/// is one of the recognized values: `rejected`, `deferred`, `superseded`.
+pub fn check_alternative_status(docs: &[&SpecDocument]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for doc in docs {
         let doc_id = &doc.frontmatter.id;
-        walk_for_expected_placement(doc_id, &doc.components, None, &mut findings);
+        for decision in crate::rules::find_components(&doc.components, DECISION) {
+            for child in &decision.children {
+                if child.name == ALTERNATIVE
+                    && let Some(status) = child.attributes.get("status")
+                    && !RECOGNIZED_ALTERNATIVE_STATUSES.contains(&status.as_str())
+                {
+                    findings.push(Finding::new(
+                        RuleName::InvalidAlternativeStatus,
+                        Some(doc_id.to_owned()),
+                        format!(
+                            "Alternative in `{doc_id}` has unrecognized status `{status}`; \
+                             expected one of: {}",
+                            RECOGNIZED_ALTERNATIVE_STATUSES.join(", ")
+                        ),
+                        Some(child.position),
+                    ));
+                }
+            }
+        }
     }
     findings
 }
 
-fn walk_for_expected_placement(
-    doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
-    parent_name: Option<&str>,
-    findings: &mut Vec<Finding>,
-) {
-    for comp in components {
-        if comp.name == EXPECTED {
-            let parent_is_example = parent_name == Some(EXAMPLE);
-            if !parent_is_example {
-                let context = match parent_name {
-                    Some(name) => format!("under `{name}`"),
-                    None => "at document root".into(),
-                };
+// ---------------------------------------------------------------------------
+// check_duplicate_rationale
+// ---------------------------------------------------------------------------
+
+/// Check that each `Decision` component has at most one `Rationale` child.
+/// Emits a finding on each excess `Rationale` (the 2nd and beyond).
+pub fn check_duplicate_rationale(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = &doc.frontmatter.id;
+        for decision in crate::rules::find_components(&doc.components, DECISION) {
+            let rationale_children: Vec<_> = decision
+                .children
+                .iter()
+                .filter(|c| c.name == RATIONALE)
+                .collect();
+            for excess in rationale_children.iter().skip(1) {
                 findings.push(Finding::new(
-                    RuleName::InvalidExpectedPlacement,
+                    RuleName::DuplicateRationale,
                     Some(doc_id.to_owned()),
                     format!(
-                        "Expected in `{doc_id}` is placed {context}; \
-                         it must be a direct child of Example"
+                        "Decision in `{doc_id}` has a duplicate Rationale child; \
+                         only one Rationale per Decision is expected"
                     ),
-                    Some(comp.position),
+                    Some(excess.position),
                 ));
             }
         }
-        walk_for_expected_placement(doc_id, &comp.children, Some(&comp.name), findings);
     }
+    findings
 }
 
 // ---------------------------------------------------------------------------
@@ -666,6 +785,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::*;
     use supersigil_core::DocumentTypeDef;
+    use supersigil_rust::verifies;
     use tempfile::TempDir;
 
     // -----------------------------------------------------------------------
@@ -1616,5 +1736,310 @@ mod tests {
             findings.is_empty(),
             "contiguous two-level sequence should produce no findings, got: {findings:?}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_rationale_placement
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rationale_inside_decision_is_valid() {
+        let decision = make_decision(vec![make_rationale(11)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_rationale_placement(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Rationale inside Decision should be valid, got: {findings:?}",
+        );
+    }
+
+    #[verifies("decision-components/req#req-2-2")]
+    #[test]
+    fn rationale_at_document_root_emits_finding() {
+        let docs = [make_doc("adr/logging", vec![make_rationale(5)])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_rationale_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidRationalePlacement);
+        assert!(
+            findings[0].message.contains("document root"),
+            "message should mention document root, got: {}",
+            findings[0].message,
+        );
+    }
+
+    #[test]
+    fn rationale_inside_non_decision_component_emits_finding() {
+        // Rationale nested inside Criterion (not Decision)
+        let criterion = supersigil_core::ExtractedComponent {
+            name: "Criterion".into(),
+            attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
+            children: vec![make_rationale(11)],
+            body_text: Some("criterion req-1".into()),
+            code_blocks: vec![],
+            position: pos(10),
+        };
+        let docs = [make_doc("adr/logging", vec![criterion])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_rationale_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidRationalePlacement);
+        assert!(
+            findings[0].message.contains("Criterion"),
+            "message should mention parent name, got: {}",
+            findings[0].message,
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_alternative_placement
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn alternative_inside_decision_is_valid() {
+        let decision = make_decision(vec![make_alternative("alt-1", 11)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_placement(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Alternative inside Decision should be valid, got: {findings:?}",
+        );
+    }
+
+    #[verifies("decision-components/req#req-3-4")]
+    #[test]
+    fn alternative_at_document_root_emits_finding() {
+        let docs = [make_doc("adr/logging", vec![make_alternative("alt-1", 5)])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidAlternativePlacement);
+        assert!(
+            findings[0].message.contains("document root"),
+            "message should mention document root, got: {}",
+            findings[0].message,
+        );
+    }
+
+    #[test]
+    fn alternative_inside_non_decision_component_emits_finding() {
+        // Alternative nested inside Criterion (not Decision)
+        let criterion = supersigil_core::ExtractedComponent {
+            name: "Criterion".into(),
+            attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
+            children: vec![make_alternative("alt-1", 11)],
+            body_text: Some("criterion req-1".into()),
+            code_blocks: vec![],
+            position: pos(10),
+        };
+        let docs = [make_doc("adr/logging", vec![criterion])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_placement(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidAlternativePlacement);
+        assert!(
+            findings[0].message.contains("Criterion"),
+            "message should mention parent name, got: {}",
+            findings[0].message,
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_duplicate_rationale
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn decision_with_zero_rationale_no_finding() {
+        let decision = make_decision(vec![], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_duplicate_rationale(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Decision with zero Rationale children should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn decision_with_one_rationale_no_finding() {
+        let decision = make_decision(vec![make_rationale(11)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_duplicate_rationale(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Decision with one Rationale child should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[verifies("decision-components/req#req-2-3")]
+    #[test]
+    fn decision_with_two_rationale_emits_finding_on_second() {
+        let decision = make_decision(vec![make_rationale(11), make_rationale(12)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_duplicate_rationale(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::DuplicateRationale);
+        // Finding should be on the second Rationale (line 12)
+        assert_eq!(
+            findings[0].position.as_ref().map(|p| p.line),
+            Some(12),
+            "finding should point to the second Rationale",
+        );
+        assert!(
+            findings[0].message.contains("duplicate"),
+            "message should mention duplicate, got: {}",
+            findings[0].message,
+        );
+    }
+
+    #[test]
+    fn duplicate_rationale_draft_gating() {
+        let decision = make_decision(vec![make_rationale(11), make_rationale(12)], 10);
+        let docs = vec![make_doc_with_status("adr/logging", "draft", vec![decision])];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = crate::VerifyOptions::default();
+        let ag = crate::artifact_graph::ArtifactGraph::empty(&graph);
+        let report =
+            crate::verify(&graph, &config, std::path::Path::new("/tmp"), &options, &ag).unwrap();
+        for finding in &report.findings {
+            if finding.rule == RuleName::DuplicateRationale {
+                assert_eq!(
+                    finding.effective_severity,
+                    crate::report::ReportSeverity::Info,
+                    "draft doc duplicate rationale findings should be Info, got {:?}",
+                    finding.effective_severity,
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // check_alternative_status
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn alternative_with_status_rejected_no_finding() {
+        let decision = make_decision(
+            vec![make_alternative_with_status("alt-1", "rejected", 11)],
+            10,
+        );
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Alternative with status='rejected' should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn alternative_with_status_deferred_no_finding() {
+        let decision = make_decision(
+            vec![make_alternative_with_status("alt-1", "deferred", 11)],
+            10,
+        );
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Alternative with status='deferred' should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn alternative_with_status_superseded_no_finding() {
+        let decision = make_decision(
+            vec![make_alternative_with_status("alt-1", "superseded", 11)],
+            10,
+        );
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Alternative with status='superseded' should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[verifies("decision-components/req#req-3-2")]
+    #[test]
+    fn alternative_with_status_accepted_emits_finding() {
+        let decision = make_decision(
+            vec![make_alternative_with_status("alt-1", "accepted", 11)],
+            10,
+        );
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidAlternativeStatus);
+        assert!(
+            findings[0].message.contains("accepted"),
+            "message should mention the invalid status, got: {}",
+            findings[0].message,
+        );
+    }
+
+    #[test]
+    fn alternative_with_empty_status_emits_finding() {
+        let decision = make_decision(vec![make_alternative_with_status("alt-1", "", 11)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::InvalidAlternativeStatus);
+    }
+
+    #[test]
+    fn alternative_without_status_attribute_no_finding() {
+        // Alternative without any status attribute should not fire this rule
+        let decision = make_decision(vec![make_alternative("alt-1", 11)], 10);
+        let docs = [make_doc("adr/logging", vec![decision])];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_alternative_status(&doc_refs);
+        assert!(
+            findings.is_empty(),
+            "Alternative without status attribute should produce no findings, got: {findings:?}",
+        );
+    }
+
+    #[verifies("decision-components/req#req-3-3")]
+    #[test]
+    fn alternative_status_default_severity_is_warning() {
+        assert_eq!(
+            RuleName::InvalidAlternativeStatus.default_severity(),
+            crate::report::ReportSeverity::Warning,
+        );
+    }
+
+    #[test]
+    fn alternative_status_draft_gating() {
+        let decision = make_decision(
+            vec![make_alternative_with_status("alt-1", "accepted", 11)],
+            10,
+        );
+        let docs = vec![make_doc_with_status("adr/logging", "draft", vec![decision])];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let options = crate::VerifyOptions::default();
+        let ag = crate::artifact_graph::ArtifactGraph::empty(&graph);
+        let report =
+            crate::verify(&graph, &config, std::path::Path::new("/tmp"), &options, &ag).unwrap();
+        for finding in &report.findings {
+            if finding.rule == RuleName::InvalidAlternativeStatus {
+                assert_eq!(
+                    finding.effective_severity,
+                    crate::report::ReportSeverity::Info,
+                    "draft doc alternative status findings should be Info, got {:?}",
+                    finding.effective_severity,
+                );
+            }
+        }
     }
 }
