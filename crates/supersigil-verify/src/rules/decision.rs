@@ -50,6 +50,11 @@ pub fn check_orphan(docs: &[&SpecDocument], graph: &DocumentGraph) -> Vec<Findin
     for doc in docs {
         let doc_id = &doc.frontmatter.id;
         for decision in super::find_components(&doc.components, DECISION) {
+            // Decisions marked standalone are intentionally unconnected
+            if decision.attributes.contains_key("standalone") {
+                continue;
+            }
+
             let has_outward = decision
                 .children
                 .iter()
@@ -344,6 +349,27 @@ mod tests {
         assert_eq!(findings[0].rule, RuleName::OrphanDecision);
         assert_eq!(findings[0].doc_id.as_deref(), Some("adr/logging"));
         assert!(findings[0].message.contains("orphan"));
+    }
+
+    #[verifies("decision-components/req#req-1-5")]
+    #[test]
+    fn standalone_decision_no_orphan_finding() {
+        let docs = vec![make_doc(
+            "adr/technology",
+            vec![make_decision_standalone(
+                "rust-single-binary",
+                "Project-level technology choice with no corresponding requirement",
+                vec![make_rationale(11)],
+                10,
+            )],
+        )];
+        let graph = build_test_graph(docs.clone());
+        let refs: Vec<&SpecDocument> = docs.iter().collect();
+        let findings = check_orphan(&refs, &graph);
+        assert!(
+            findings.is_empty(),
+            "Decision with standalone attribute should not be orphan, got: {findings:?}"
+        );
     }
 
     #[test]

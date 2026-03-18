@@ -34,6 +34,7 @@ The implementation touches four crates:
 defs.insert("Decision".into(), ComponentDef {
     attributes: HashMap::from([
         ("id".into(), AttributeDef { required: true, list: false }),
+        ("standalone".into(), AttributeDef { required: false, list: false }),
     ]),
     referenceable: true,
     verifiable: false,
@@ -47,6 +48,9 @@ defs.insert("Decision".into(), ComponentDef {
   at `(doc_id, decision_id)` and can be targeted with fragment syntax
   (`doc-id#decision-id`).
 - Not verifiable — decisions are traceability nodes, not coverage targets.
+- Optional `standalone` attribute: a non-empty reason string declaring that
+  the decision is intentionally unconnected. When present, the
+  `orphan_decision` rule skips this decision.
 - Children: supports nested `References`, `TrackedFiles`, `DependsOn`,
   `Rationale`, and `Alternative`. The parser already extracts nested
   components recursively, so no parser changes are needed for nesting.
@@ -315,9 +319,10 @@ pub fn check_orphan(
     graph: &DocumentGraph,
 ) -> Vec<Finding> {
     // For each Decision in each doc:
-    //   1. Check children for References, TrackedFiles, DependsOn
-    //   2. Check graph references_reverse for (doc_id, Some(decision_id))
-    //   3. If both empty, emit finding
+    //   1. If Decision has a `standalone` attribute, skip it
+    //   2. Check children for References, TrackedFiles, DependsOn
+    //   3. Check graph references_reverse for (doc_id, Some(decision_id))
+    //   4. If both empty, emit finding
 }
 ```
 

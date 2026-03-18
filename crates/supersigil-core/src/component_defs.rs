@@ -327,18 +327,30 @@ impl ComponentDefs {
         defs.insert(
             "Decision".into(),
             ComponentDef {
-                attributes: HashMap::from([(
-                    "id".into(),
-                    AttributeDef {
-                        required: true,
-                        list: false,
-                    },
-                )]),
+                attributes: HashMap::from([
+                    (
+                        "id".into(),
+                        AttributeDef {
+                            required: true,
+                            list: false,
+                        },
+                    ),
+                    (
+                        "standalone".into(),
+                        AttributeDef {
+                            required: false,
+                            list: false,
+                        },
+                    ),
+                ]),
                 referenceable: true,
                 verifiable: false,
                 target_component: None,
-                description: Some("An architectural or design decision with a unique ID. Referenceable so that Rationale and Alternative components can be associated with it.".into()),
-                examples: vec!["<Decision id=\"use-postgres\">\nUse PostgreSQL as the primary data store.\n</Decision>".into()],
+                description: Some("An architectural or design decision with a unique ID. Referenceable so that Rationale and Alternative components can be associated with it. Optional standalone attribute declares the decision is intentionally unconnected.".into()),
+                examples: vec![
+                    "<Decision id=\"use-postgres\">\nUse PostgreSQL as the primary data store.\n\n<References refs=\"infra/req#req-1-1\" />\n\n<Rationale>\nMature ecosystem, strong JSONB support, team expertise.\n</Rationale>\n</Decision>".into(),
+                    "<Decision id=\"rust-toolchain\" standalone=\"Project-level technology choice with no corresponding requirement\">\nUse Rust for single-binary distribution.\n\n<Rationale>\nNo runtime dependencies simplifies CI and installation.\n</Rationale>\n</Decision>".into(),
+                ],
             },
         );
 

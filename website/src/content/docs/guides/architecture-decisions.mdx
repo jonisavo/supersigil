@@ -144,7 +144,13 @@ Supersigil includes verification rules that nudge teams toward complete, connect
 
 **`incomplete_decision`** — A `<Decision>` has no `<Rationale>` child. A decision without a rationale is just an assertion.
 
-**`orphan_decision`** — A `<Decision>` has no outward connections (no `<References>`, `<TrackedFiles>`, or `<DependsOn>` children) and is not referenced by any other component. An orphan decision is disconnected from the graph.
+**`orphan_decision`** — A `<Decision>` has no outward connections (no `<References>`, `<TrackedFiles>`, or `<DependsOn>` children) and is not referenced by any other component. An orphan decision is disconnected from the graph. Use the `standalone` attribute to exempt intentionally unconnected decisions:
+
+```mdx
+<Decision id="rust-toolchain" standalone="Project-level technology choice with no corresponding requirement">
+  Use Rust for single-binary distribution.
+</Decision>
+```
 
 **`invalid_rationale_placement`** — A `<Rationale>` placed outside a `<Decision>`.
 

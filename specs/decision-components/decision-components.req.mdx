@@ -74,6 +74,11 @@ disconnected prose.
     referenceable components.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_decision_integration.rs" />
   </Criterion>
+  <Criterion id="req-1-5">
+    `Decision` SHALL support an optional `standalone` attribute whose value
+    is a non-empty reason string. When present, it declares that the decision
+    is intentionally unconnected to other components in the graph.
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 2: Rationale Component
@@ -173,7 +178,8 @@ coverage, so that rationale does not silently go missing as the project grows.
     `orphan_decision` (default severity: `warning`) that fires when a
     `Decision` component has no outward references (no `References`,
     `TrackedFiles`, or `DependsOn` children) AND is not referenced by any
-    other component in the graph.
+    other component in the graph. A `Decision` with a `standalone` attribute
+    SHALL be exempt from this rule.
   </Criterion>
   <Criterion id="req-5-3">
     THE verification engine SHALL include a configurable rule

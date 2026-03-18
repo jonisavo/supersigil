@@ -174,8 +174,9 @@ fn list_typed_implements_and_depends_on_task() {
 fn decision_is_referenceable_not_verifiable_with_required_id() {
     let defs = ComponentDefs::defaults();
     let d = defs.get("Decision").expect("Decision should be registered");
-    assert_eq!(d.attributes.len(), 1);
+    assert_eq!(d.attributes.len(), 2);
     assert_eq!(d.attributes["id"], attr(true, false));
+    assert_eq!(d.attributes["standalone"], attr(false, false));
     assert!(d.referenceable, "Decision should be referenceable");
     assert!(!d.verifiable, "Decision should not be verifiable");
     assert_eq!(d.target_component, None);

@@ -192,6 +192,25 @@ pub fn make_decision_with_id(
     }
 }
 
+pub fn make_decision_standalone(
+    id: &str,
+    reason: &str,
+    children: Vec<ExtractedComponent>,
+    line: usize,
+) -> ExtractedComponent {
+    ExtractedComponent {
+        name: "Decision".into(),
+        attributes: HashMap::from([
+            ("id".into(), id.into()),
+            ("standalone".into(), reason.into()),
+        ]),
+        children,
+        body_text: Some(format!("decision {id}")),
+        code_blocks: vec![],
+        position: pos(line),
+    }
+}
+
 pub fn make_rationale(line: usize) -> ExtractedComponent {
     ExtractedComponent {
         name: "Rationale".into(),
