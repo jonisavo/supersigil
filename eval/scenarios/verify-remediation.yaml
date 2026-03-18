@@ -26,6 +26,7 @@ template:
   type: local
   path: ../templates/verify-remediation
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates whether the agent can use structured verification

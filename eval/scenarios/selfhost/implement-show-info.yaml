@@ -1,0 +1,68 @@
+version: 1
+name: selfhost-implement-show-info
+description: |
+  Implement the "show info findings in terminal" feature in the supersigil
+  codebase itself. Tests whether an agent can use supersigil to discover tasks,
+  navigate a real Rust codebase, implement a feature, and reach verify clean.
+
+plugins:
+  - git
+  - ../../plugin.ts
+
+goal: |
+  You are working on the supersigil codebase. Use supersigil commands to
+  discover the outstanding tasks for the "show info findings" feature, navigate
+  the codebase to understand the verify output pipeline, implement the feature,
+  write tests with `#[verifies(...)]` annotations, and reach a clean
+  `supersigil verify`.
+
+  Start by running `supersigil status` to see the project, then
+  `supersigil plan show-info` to see the available tasks.
+
+template:
+  type: git
+  repo: git@git.savolainen.io:joni/supersigil.git
+  ref: d816d0a820f060e08208bb02b71cd889bc8c8adb
+timeout: 1800000
+source_path: ../../
+reviewer_timeout: 900000
+
+setup_commands:
+  - "cp -r {{scenario_dir}}/../../fixtures/selfhost/show-info-tasks/show-info crates/supersigil-verify/specs/show-info"
+  - "cp {{scenario_dir}}/../../fixtures/selfhost/show-info-tasks/AGENTS.md AGENTS.md"
+  - "ln -sf AGENTS.md CLAUDE.md"
+
+reviewer_context: |
+  This scenario tests the full supersigil agent loop on a real Rust codebase.
+  The agent must navigate supersigil's own verify output pipeline (terminal
+  renderer, finding severity levels, CLI flag handling) to implement the feature.
+
+  Key things to check in review:
+  - Did the agent use `supersigil plan` to discover tasks? Did it also use
+    `supersigil context` to orient, or did it grep/explore on its own?
+  - Did the agent follow the task ordering from the tasks document?
+  - Is the implementation reasonable — does it actually filter/show info
+    findings based on the flag?
+  - Did the agent write meaningful tests, not just annotation stubs?
+  - When reproducing Supersigil CLI behavior, prefer the exact binary recorded
+    in `supersigil-binary.txt` when present.
+
+success_criteria:
+  # Agent followed a discover → implement → verify workflow
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: plan
+      - subcommand: verify
+        args_contains: ["--format", "json"]
+
+  # Final verify is clean
+  - type: supersigil_verify_clean
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+
+  # Test files exist
+  - type: glob_exists
+    pattern: "tests/**/*.rs"

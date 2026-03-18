@@ -28,6 +28,7 @@ template:
   type: local
   path: ../templates/rust-verifies
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates Supersigil's Rust ecosystem plugin workflow at the source level.

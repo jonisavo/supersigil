@@ -25,6 +25,7 @@ template:
   type: local
   path: ../templates/bootstrap-init
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates first-run agent behavior in an empty workspace.

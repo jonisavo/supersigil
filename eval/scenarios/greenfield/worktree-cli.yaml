@@ -1,0 +1,91 @@
+version: 1
+name: greenfield-worktree-cli
+description: |
+  Build a Rust CLI tool for git worktree management from scratch, using
+  supersigil for spec-driven development. Tests whether an agent can
+  autonomously bootstrap a project, write specs first, then implement and
+  verify.
+
+plugins:
+  - git
+  - ../../plugin.ts
+
+goal: |
+  Build a Rust CLI tool called `wt` that provides a friendly interface to git
+  worktrees. Use supersigil for spec-driven development: initialize supersigil,
+  write requirements and tasks first, then implement and verify.
+
+  The tool should have subcommands for listing, creating, removing, and
+  switching worktrees.
+
+  Follow the development workflow described in AGENTS.md. Work autonomously —
+  do not ask for user input.
+
+template:
+  type: local
+  path: ../../templates/greenfield/worktree-cli
+timeout: 1800000
+source_path: ../../
+reviewer_timeout: 900000
+
+reviewer_context: |
+  This scenario tests whether supersigil can guide an agent through end-to-end
+  spec-driven development of a new Rust CLI application.
+
+  Key things to check in review:
+  - Did the agent write specs before code, or did it jump to implementation?
+  - Are the requirement criteria specific and testable, or vague stubs?
+  - Does the tasks document reflect a reasonable decomposition?
+  - Is the resulting CLI actually functional?
+  - Did the agent configure the Rust ecosystem plugin correctly?
+  - How many supersigil commands did the agent use, and in what order?
+  - Did the agent use `supersigil verify` iteratively to track progress?
+
+success_criteria:
+  # Agent followed spec-first workflow: init → author specs → verify
+  - type: supersigil_command_sequence
+    mode: ordered_subsequence
+    steps:
+      - subcommand: init
+      - subcommand: new
+      - subcommand: verify
+        args_contains: ["--format", "json"]
+
+  # Final verify is clean
+  - type: supersigil_verify_clean
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+
+  # Meaningful spec coverage — not a trivial single-criterion project
+  - type: supersigil_status_metric
+    command:
+      subcommand: status
+      args_contains: ["--format", "json"]
+      occurrence: last
+    field: targets_total
+    gte: 10
+
+  # Supersigil project exists
+  - type: file_exists
+    path: supersigil.toml
+
+  # Rust project exists
+  - type: file_exists
+    path: Cargo.toml
+
+  # Specs exist
+  - type: dir_exists
+    path: specs
+
+  # Test files exist
+  - type: glob_exists
+    pattern: "tests/**/*.rs"
+
+  # Lint is clean
+  - type: supersigil_exit_code
+    command:
+      subcommand: lint
+      occurrence: last
+    equals: 0

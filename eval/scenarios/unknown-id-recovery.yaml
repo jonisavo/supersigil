@@ -30,6 +30,7 @@ template:
   type: local
   path: ../templates/unknown-id-recovery
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates recovery from a wrong document ID.

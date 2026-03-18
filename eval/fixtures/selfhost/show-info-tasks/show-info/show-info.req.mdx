@@ -1,0 +1,44 @@
+---
+supersigil:
+  id: show-info/req
+  type: requirements
+  status: draft
+title: "Show Info Findings in Terminal"
+---
+
+## Introduction
+
+This spec defines the behavior for displaying info-level verification findings
+in the terminal. By default, info findings are suppressed; this feature adds an
+opt-in flag to make them visible.
+
+## Definitions
+
+- **Info_Finding**: A Verification_Finding whose resolved severity is `info`.
+- **Show_Info_Flag**: The `--show-info` CLI flag passed to `supersigil verify`
+  that enables display of Info_Findings in terminal output.
+
+## Requirement 1: Show Info Findings
+
+As a developer, I want to optionally display info-level findings in the
+terminal, so that I can inspect suppressed findings without changing my
+configuration.
+
+<AcceptanceCriteria>
+  <Criterion id="flag-accepted">
+    THE `supersigil verify` command SHALL accept a `--show-info` flag without
+    error.
+  </Criterion>
+  <Criterion id="info-rendered">
+    WHEN `--show-info` is passed, THE terminal output SHALL include info-level
+    findings that would otherwise be suppressed.
+  </Criterion>
+  <Criterion id="info-prefix">
+    Info findings displayed via `--show-info` SHALL be visually distinguished
+    from other findings, using an `[info]` prefix or dimmed styling.
+  </Criterion>
+  <Criterion id="default-hidden">
+    WITHOUT `--show-info`, info-level findings SHALL remain suppressed in
+    terminal output, preserving current behavior.
+  </Criterion>
+</AcceptanceCriteria>

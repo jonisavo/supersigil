@@ -30,6 +30,7 @@ template:
   type: local
   path: ../templates/warning-only-verify
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates whether the agent can interpret a non-clean verify

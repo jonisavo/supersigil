@@ -1,0 +1,38 @@
+---
+supersigil:
+  id: show-info/tasks
+  type: tasks
+  status: draft
+title: "Show Info Findings Tasks"
+---
+
+## Overview
+
+This tasks document tracks the implementation of the show-info feature defined
+in `show-info/req`. Tasks are ordered to build incrementally on each prior
+step.
+
+<Task id="task-1" status="open" implements="show-info/req#flag-accepted">
+  Add a `--show-info` boolean flag to the `verify` CLI command. The flag must
+  default to `false` and be parsed without error when supplied.
+</Task>
+
+<Task id="task-2" status="open" implements="show-info/req#default-hidden">
+  Thread the `--show-info` flag value through the verify output renderer so
+  that info findings remain suppressed when the flag is absent, preserving
+  current behavior.
+</Task>
+
+<Task id="task-3" status="open" implements="show-info/req#info-rendered, show-info/req#info-prefix">
+  Render info findings in terminal output when `--show-info` is active. Info
+  findings must be visually distinguished from other findings using an `[info]`
+  prefix or dimmed styling.
+</Task>
+
+<Task id="task-4" status="open" implements="show-info/req#flag-accepted, show-info/req#info-rendered, show-info/req#info-prefix, show-info/req#default-hidden">
+  Add tests covering all four criteria. Tests must be annotated with
+  `#[verifies("show-info/req#flag-accepted")]`,
+  `#[verifies("show-info/req#info-rendered")]`,
+  `#[verifies("show-info/req#info-prefix")]`, and
+  `#[verifies("show-info/req#default-hidden")]` as appropriate.
+</Task>

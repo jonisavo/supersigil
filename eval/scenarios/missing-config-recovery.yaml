@@ -27,6 +27,7 @@ template:
   type: local
   path: ../templates/missing-config-recovery
 timeout: 180000
+source_path: ../
 
 reviewer_context: |
   This scenario evaluates recovery from the most basic setup error: a workspace
