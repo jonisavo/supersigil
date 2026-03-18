@@ -1197,3 +1197,81 @@ echo hello
         "hook should produce a finding with interim report data: {report}",
     );
 }
+
+/// Verify that the binary does not panic (exit 101) when stdout is a broken pipe.
+///
+/// Agents commonly pipe through `head` or `2>&1 | head`, which closes the pipe
+/// early. The binary should exit cleanly, not panic from a `BrokenPipe` error in
+/// the error handler.
+///
+/// To trigger the bug, the JSON output must exceed the OS pipe buffer (`~64KB`),
+/// so we generate many documents with evidence to produce a large report.
+#[test]
+fn broken_pipe_does_not_panic() {
+    use std::fmt::Write;
+    use std::process::{Command, Stdio};
+
+    let dir = TempDir::new().unwrap();
+
+    // Generate enough documents and evidence to produce >64KB of JSON output.
+    let mut config = String::from("paths = [\"specs/**/*.mdx\"]\n");
+    config.push_str("\n[ecosystem.rust]\n");
+    fs::write(dir.path().join("supersigil.toml"), &config).unwrap();
+    fs::create_dir_all(dir.path().join("specs")).unwrap();
+    fs::create_dir_all(dir.path().join("tests")).unwrap();
+
+    // Create 30 requirement documents, each with 5 criteria and file-glob evidence.
+    for i in 0..30 {
+        let feature = format!("feat-{i:03}");
+        let feature_dir = dir.path().join("specs").join(&feature);
+        fs::create_dir_all(&feature_dir).unwrap();
+
+        let mut criteria = String::new();
+        for j in 0..5 {
+            write!(
+                criteria,
+                "  <Criterion id=\"ac-{j}\">\n    \
+                 Acceptance criterion {j} for feature {i}\n    \
+                 <VerifiedBy strategy=\"file-glob\" paths=\"tests/{feature}_test.rs\" />\n  \
+                 </Criterion>\n"
+            )
+            .unwrap();
+        }
+
+        common::write_mdx(
+            dir.path(),
+            &format!("specs/{feature}/{feature}.mdx"),
+            &format!("{feature}/req"),
+            Some("requirements"),
+            Some("approved"),
+            &format!("<AcceptanceCriteria>\n{criteria}</AcceptanceCriteria>"),
+        );
+
+        // Create a matching test file so evidence is discovered
+        fs::write(
+            dir.path().join("tests").join(format!("{feature}_test.rs")),
+            format!("fn test_{feature}() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    let bin = assert_cmd::cargo::cargo_bin("supersigil");
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            "{} verify --format json 2>&1 | head -1; exit ${{PIPESTATUS[0]}}",
+            bin.display()
+        ))
+        .current_dir(dir.path())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run pipeline");
+
+    let code = output.status.code().unwrap_or(-1);
+
+    assert_ne!(
+        code, 101,
+        "binary panicked (exit 101) on broken pipe — should exit cleanly"
+    );
+}

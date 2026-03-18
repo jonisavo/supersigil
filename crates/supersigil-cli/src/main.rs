@@ -13,10 +13,20 @@ fn main() -> ExitCode {
         Ok(ExitStatus::VerifyFailed) => ExitCode::from(1),
         Ok(ExitStatus::VerifyWarnings) => ExitCode::from(2),
         Err(e) => {
+            if is_broken_pipe(&e) {
+                return ExitCode::SUCCESS;
+            }
             eprintln!("error: {e}");
             ExitCode::from(1)
         }
     }
+}
+
+fn is_broken_pipe(err: &supersigil_cli::error::CliError) -> bool {
+    if let supersigil_cli::error::CliError::Io(io_err) = err {
+        return io_err.kind() == std::io::ErrorKind::BrokenPipe;
+    }
+    false
 }
 
 fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::error::CliError> {
