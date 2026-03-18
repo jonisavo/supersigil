@@ -1198,6 +1198,53 @@ echo hello
     );
 }
 
+/// Verify that an empty project (0 documents) produces a warning finding and
+/// exits with code 2 (warnings only).
+#[test]
+fn verify_empty_project_warns() {
+    let dir = TempDir::new().unwrap();
+    write_config(dir.path(), "paths = [\"specs/**/*.mdx\"]\n");
+
+    // JSON output: should contain the empty_project finding as a warning
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit code 2 (warnings only)"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    assert!(
+        findings.iter().any(|f| {
+            f["rule"].as_str() == Some("empty_project")
+                && f["effective_severity"].as_str() == Some("warning")
+        }),
+        "verify should include an empty_project warning, got: {findings:?}",
+    );
+
+    // Terminal output: should render the warning (not "Clean: no findings")
+    let terminal_output = cargo_bin_cmd!("supersigil")
+        .args(["verify"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&terminal_output.stdout);
+    assert!(
+        stdout.contains("no documents found"),
+        "terminal output should show empty_project warning, got: {stdout}",
+    );
+    assert!(
+        !stdout.contains("Clean: no findings"),
+        "terminal should not say Clean when there are warnings, got: {stdout}",
+    );
+}
+
 /// Verify that the binary does not panic (exit 101) when stdout is a broken pipe.
 ///
 /// Agents commonly pipe through `head` or `2>&1 | head`, which closes the pipe

@@ -70,6 +70,7 @@ pub enum RuleName {
     IncompleteDecision,
     OrphanDecision,
     MissingDecisionCoverage,
+    EmptyProject,
 }
 
 impl RuleName {
@@ -101,6 +102,7 @@ impl RuleName {
         Self::IncompleteDecision,
         Self::OrphanDecision,
         Self::MissingDecisionCoverage,
+        Self::EmptyProject,
     ];
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
@@ -134,6 +136,7 @@ impl RuleName {
             Self::IncompleteDecision => "incomplete_decision",
             Self::OrphanDecision => "orphan_decision",
             Self::MissingDecisionCoverage => "missing_decision_coverage",
+            Self::EmptyProject => "empty_project",
         }
     }
 
@@ -153,7 +156,8 @@ impl RuleName {
 
             Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
 
-            Self::ZeroTagMatches
+            Self::EmptyProject
+            | Self::ZeroTagMatches
             | Self::StaleTrackedFiles
             | Self::EmptyTrackedGlob
             | Self::OrphanTestTag
@@ -549,7 +553,7 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 26);
+        assert_eq!(RuleName::ALL.len(), 27);
     }
 
     // -----------------------------------------------------------------------
@@ -590,6 +594,7 @@ mod tests {
             (RuleName::IncompleteDecision, ReportSeverity::Warning),
             (RuleName::OrphanDecision, ReportSeverity::Warning),
             (RuleName::MissingDecisionCoverage, ReportSeverity::Off),
+            (RuleName::EmptyProject, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

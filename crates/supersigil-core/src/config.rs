@@ -395,6 +395,7 @@ pub const KNOWN_RULES: &[&str] = &[
     "incomplete_decision",
     "orphan_decision",
     "missing_decision_coverage",
+    "empty_project",
 ];
 
 // ---------------------------------------------------------------------------

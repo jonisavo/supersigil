@@ -18,16 +18,28 @@ pub fn run(config_path: &Path, color: ColorConfig) -> Result<bool, CliError> {
     let mut out = stdout.lock();
 
     if parse_result.errors.is_empty() {
-        writeln!(
-            out,
-            "{} {} files checked, no errors",
-            color.ok(),
-            color.paint(Token::Count, &parse_result.files_checked.to_string()),
-        )?;
-        format::hint(
-            color,
-            "All clean. Run `supersigil verify` to check cross-document rules.",
-        );
+        if parse_result.documents.is_empty() {
+            writeln!(
+                out,
+                "{} no documents found matching configured paths",
+                color.paint(Token::Warning, "warning:"),
+            )?;
+            format::hint(
+                color,
+                "Run `supersigil new requirements <name>` to create a spec document, or check that existing files have valid `supersigil:` frontmatter.",
+            );
+        } else {
+            writeln!(
+                out,
+                "{} {} files checked, no errors",
+                color.ok(),
+                color.paint(Token::Count, &parse_result.files_checked.to_string()),
+            )?;
+            format::hint(
+                color,
+                "All clean. Run `supersigil verify` to check cross-document rules.",
+            );
+        }
         Ok(true)
     } else {
         for err in &parse_result.errors {

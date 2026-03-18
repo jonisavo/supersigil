@@ -306,6 +306,18 @@ pub fn run(
     all_findings.extend(conflict_findings);
     all_findings.extend(example_findings);
 
+    // Warn when the project has no documents at all
+    if doc_count == 0 {
+        let mut finding = Finding::new(
+            supersigil_verify::RuleName::EmptyProject,
+            None,
+            "no documents found — run `supersigil new requirements <name>` to create one, or check that existing files have valid `supersigil:` frontmatter".to_string(),
+            None,
+        );
+        finding.effective_severity = resolve_severity(&finding.rule, None, &config.verify);
+        all_findings.push(finding);
+    }
+
     // Run post-verify hooks
     if !config.hooks.post_verify.is_empty() {
         let interim = VerificationReport::new(

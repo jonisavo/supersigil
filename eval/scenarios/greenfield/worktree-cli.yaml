@@ -12,8 +12,8 @@ plugins:
 
 goal: |
   Build a Rust CLI tool called `wt` that provides a friendly interface to git
-  worktrees. Use supersigil for spec-driven development: initialize supersigil,
-  write requirements and tasks first, then implement and verify.
+  worktrees. Use supersigil for spec-driven development: run `supersigil init`,
+  and follow the `spec-driven-development` skill to spec, implement and verify.
 
   The tool should have subcommands for listing, creating, removing, and
   switching worktrees.

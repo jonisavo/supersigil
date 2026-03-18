@@ -66,7 +66,7 @@ IDs that don't match produce an `invalid_id_pattern` diagnostic (configurable se
 
 ## Verification Rules
 
-Override the severity of configurable rules in the `[verify.rules]` table. Values: `"error"`, `"warning"`, `"off"`.
+Override the severity of configurable rules in the `[verify.rules]` table. Values: `"error"`, `"warning"`, `"info"`, `"off"`.
 
 ```toml title="supersigil.toml"
 [verify.rules]
@@ -96,6 +96,7 @@ invalid_rationale_placement = "warning"   # default
 invalid_alternative_placement = "warning" # default
 duplicate_rationale = "warning"           # default
 invalid_alternative_status = "warning"    # default
+empty_project = "warning"                # default
 ```
 
 <Aside type="note">

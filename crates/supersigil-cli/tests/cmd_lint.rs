@@ -44,7 +44,7 @@ fn lint_invalid_file_exits_one() {
 }
 
 #[test]
-fn lint_empty_project_exits_zero() {
+fn lint_empty_project_exits_zero_with_warning() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
@@ -52,7 +52,8 @@ fn lint_empty_project_exits_zero() {
         .arg("lint")
         .current_dir(tmp.path())
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("no documents found"));
 }
 
 #[verifies("cli-runtime/req#req-4-2")]

@@ -91,6 +91,8 @@ Lint checks a subset of rules that don't require the full document graph: valid 
 
 Suitable for pre-commit hooks and editor integration. Returns the number of errors found. Exit code 1 on any errors.
 
+When no documents are found matching the configured paths, lint prints a warning with guidance to create specs or check frontmatter format.
+
 <Aside type="tip">
   Lint is fast because it never builds the cross-document graph. For full verification including reference resolution, coverage, and executable examples, use `supersigil verify`.
 </Aside>
