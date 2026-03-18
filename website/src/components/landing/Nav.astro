@@ -155,6 +155,11 @@
   const hero = document.querySelector('.hero');
   if (hero) heroObserver.observe(hero);
 
+  // Mobile: opaque nav on any scroll
+  const onScroll = () => nav?.classList.toggle('has-scrolled', window.scrollY > 0);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
   // Theme toggle
   const themeToggle = document.getElementById('theme-toggle');
   themeToggle?.addEventListener('click', () => {
@@ -173,5 +178,6 @@
     const expanded = navToggle.getAttribute('aria-expanded') === 'true';
     navToggle.setAttribute('aria-expanded', String(!expanded));
     navLinks?.classList.toggle('open');
+    nav?.classList.toggle('menu-open');
   });
 </script>

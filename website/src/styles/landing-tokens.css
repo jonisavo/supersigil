@@ -306,9 +306,13 @@ body.js-ready .reveal.visible {
     border-top: 1px solid var(--border);
     margin-top: 0.75rem;
   }
+  .nav.has-scrolled,
+  .nav.menu-open {
+    background: var(--bg-deep);
+  }
   .nav-links.open { display: flex; }
   .nav-links a { padding: 0.5rem 0; }
-  .nav-cta { text-align: center; }
+  .nav-cta { text-align: center; width: 100%; padding: 0.6rem 1rem !important; }
   .hero { padding: 6rem 1.25rem 4rem; }
   .hero-actions { flex-direction: column; }
   .section-title { font-size: 1.8rem; }
