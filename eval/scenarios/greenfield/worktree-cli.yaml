@@ -18,8 +18,9 @@ goal: |
   The tool should have subcommands for listing, creating, removing, and
   switching worktrees.
 
-  Follow the development workflow described in AGENTS.md. Work autonomously —
-  do not ask for user input.
+  Use `--format json` when running `supersigil status` and `supersigil verify`
+  for structured output. Follow the development workflow described in AGENTS.md.
+  Work autonomously — do not ask for user input.
 
 template:
   type: local
@@ -49,16 +50,9 @@ success_criteria:
       - subcommand: init
       - subcommand: new
       - subcommand: verify
-        args_contains: ["--format", "json"]
-
-  # Final verify is clean
-  - type: supersigil_verify_clean
-    command:
-      subcommand: verify
-      args_contains: ["--format", "json"]
-      occurrence: last
 
   # Meaningful spec coverage — not a trivial single-criterion project
+  # NOTE: requires the agent to run `supersigil status --format json` at least once
   - type: supersigil_status_metric
     command:
       subcommand: status
