@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/../.." && pwd)"
+# When running inside a workspace that has its own Cargo.toml with
+# supersigil-cli (e.g. a selfhost eval), build from the workspace so the
+# agent's source edits are reflected in the binary.  Otherwise fall back
+# to the repo that ships this wrapper.
+if [[ -n "${SUPERSIGIL_REPO_ROOT:-}" ]]; then
+  repo_root="${SUPERSIGIL_REPO_ROOT}"
+elif [[ -f Cargo.toml ]] && grep -q 'supersigil-cli' Cargo.toml 2>/dev/null; then
+  repo_root="$(pwd)"
+else
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  repo_root="$(cd "${script_dir}/../.." && pwd)"
+fi
+
 binary_path="${repo_root}/target/release/supersigil"
 
 cargo build --manifest-path "${repo_root}/Cargo.toml" -p supersigil-cli --release -q
