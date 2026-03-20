@@ -14,8 +14,9 @@ use supersigil_verify::{
     results_to_findings,
 };
 use supersigil_verify::{
-    Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport, VerifyOptions,
-    format_json, format_markdown, resolve_finding_severities, resolve_severity,
+    ExampleSkipReason, Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport,
+    VerifyOptions, finalize_example_findings, format_json, format_markdown,
+    resolve_finding_severities, resolve_severity,
 };
 
 use crate::commands::{VerifyArgs, VerifyFormat};
@@ -172,11 +173,10 @@ pub fn run(
     let mut example_summary = None;
     let mut example_progress_display = None;
 
-    let examples_skipped = if has_structural_errors {
-        // Structural errors gate example execution
-        true
+    let example_skip_reason = if has_structural_errors {
+        Some(ExampleSkipReason::StructuralErrors)
     } else if args.skip_examples {
-        true
+        Some(ExampleSkipReason::ExplicitSkip)
     } else {
         // Collect and execute examples
         let specs = collect_examples(&graph, &config.examples);
@@ -211,22 +211,8 @@ pub fn run(
             example_evidence = results_to_evidence(&results);
             example_findings = results_to_findings(&results);
         }
-        false
+        None
     };
-
-    // Optionally add an info finding noting why examples were skipped
-    if examples_skipped {
-        let reason = if has_structural_errors {
-            "example execution skipped due to structural errors in phase 1"
-        } else {
-            "example execution skipped via --skip-examples"
-        };
-        let mut skip_finding =
-            Finding::new(RuleName::ExampleFailed, None, reason.to_string(), None);
-        skip_finding.effective_severity = ReportSeverity::Info;
-        skip_finding.raw_severity = ReportSeverity::Info;
-        example_findings.push(skip_finding);
-    }
 
     // Merge example evidence into artifact graph if we have any
     let final_artifact_graph = if example_evidence.is_empty() {
@@ -252,20 +238,8 @@ pub fn run(
     resolve_finding_severities(&mut conflict_findings, &graph, &config);
     conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
-    // Resolve severities for example findings, but skip the manually-set
-    // skip-info finding (it has raw_severity=Info, which real ExampleFailed
-    // findings never have since they default to Error).
-    for finding in &mut example_findings {
-        if finding.raw_severity != ReportSeverity::Info {
-            let doc_status = finding
-                .doc_id
-                .as_ref()
-                .and_then(|id| graph.document(id))
-                .and_then(|doc| doc.frontmatter.status.as_deref());
-            finding.effective_severity =
-                resolve_severity(&finding.rule, doc_status, &config.verify);
-        }
-    }
+    example_findings =
+        finalize_example_findings(example_findings, example_skip_reason, &graph, &config);
 
     // Filter findings to the selected project scope (req-3-4).
     // Structural findings are already filtered by verify_structural().
@@ -347,7 +321,7 @@ pub fn run(
                         format::hint(color, &hint);
                     }
                 }
-                if examples_skipped {
+                if example_skip_reason.is_some() {
                     let n = count_example_pending_criteria(&report, &graph);
                     if n > 0 {
                         format::hint(
