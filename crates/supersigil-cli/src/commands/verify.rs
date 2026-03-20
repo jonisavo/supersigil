@@ -65,12 +65,6 @@ pub fn run(
         use_merge_base: args.merge_base,
     };
 
-    // Collect document IDs for project filtering. When a project filter is
-    // supplied, only findings whose doc_id belongs to the selected project
-    // (or is None) are reported. The full workspace graph remains available
-    // for non-isolated resolution.
-    let doc_ids = supersigil_verify::scoped_doc_ids(&graph, &options);
-
     // -- Phase 1: Plugin evidence + structural checks --
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
 
@@ -82,7 +76,7 @@ pub fn run(
         &inputs,
     );
 
-    let mut structural_findings =
+    let (mut structural_findings, doc_ids) =
         supersigil_verify::verify_structural(&graph, &config, project_root, &options, &inputs)?;
 
     resolve_finding_severities(&mut structural_findings, &graph, &config);
@@ -147,7 +141,7 @@ pub fn run(
         }
         ResultStatus::HasErrors => {
             if !matches!(args.format, VerifyFormat::Json) {
-                let hints = remediation_hints(&report, &config);
+                let hints = remediation_hints(&report, &config, &graph);
                 if hints.is_empty() {
                     format::hint(color, "Run `supersigil plan` to see outstanding work.");
                 } else {

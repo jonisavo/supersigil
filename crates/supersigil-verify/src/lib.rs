@@ -14,6 +14,7 @@ mod severity;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use supersigil_core::{Config, DocumentGraph, SpecDocument};
@@ -122,7 +123,7 @@ pub fn verify_structural(
     project_root: &Path,
     options: &VerifyOptions,
     inputs: &VerifyInputs,
-) -> Result<Vec<Finding>, VerifyError> {
+) -> Result<(Vec<Finding>, Vec<String>), VerifyError> {
     let doc_ids = scoped_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
 
@@ -178,7 +179,7 @@ pub fn verify_structural(
 
     scope_and_annotate(&mut findings, graph, &doc_ids, options.project.is_some());
 
-    Ok(findings)
+    Ok((findings, doc_ids))
 }
 
 /// Run only the coverage verification rule.
@@ -209,11 +210,10 @@ pub fn verify(
     options: &VerifyOptions,
     artifact_graph: &ArtifactGraph<'_>,
 ) -> Result<VerificationReport, VerifyError> {
-    let doc_ids = scoped_doc_ids(graph, options);
     let inputs = VerifyInputs::resolve(config, project_root);
 
     // Run structural rules and coverage rules
-    let mut findings = verify_structural(graph, config, project_root, options, &inputs)?;
+    let (mut findings, doc_ids) = verify_structural(graph, config, project_root, options, &inputs)?;
     let mut coverage_findings = verify_coverage(graph, artifact_graph);
 
     scope_and_annotate(
@@ -384,11 +384,12 @@ fn scope_and_annotate(
 /// Filter a finding list to a selected document scope while preserving global
 /// findings whose `doc_id` is absent.
 pub fn filter_findings_to_doc_ids(findings: &mut Vec<Finding>, doc_ids: &[String]) {
+    let ids: HashSet<&str> = doc_ids.iter().map(String::as_str).collect();
     findings.retain(|finding| {
         finding
             .doc_id
             .as_ref()
-            .is_none_or(|id| doc_ids.contains(id))
+            .is_none_or(|id| ids.contains(id.as_str()))
     });
 }
 
@@ -427,10 +428,7 @@ pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path
         }
     }
 
-    globs
-        .into_iter()
-        .flat_map(|pattern| supersigil_core::expand_glob(pattern, project_root))
-        .collect()
+    supersigil_core::expand_globs(globs, project_root)
 }
 
 // ===========================================================================
@@ -1135,7 +1133,7 @@ mod verify_tests {
         let config = test_config();
         let options = VerifyOptions::default();
         let inputs = VerifyInputs::resolve(&config, Path::new("/tmp"));
-        let findings =
+        let (findings, _doc_ids) =
             verify_structural(&graph, &config, Path::new("/tmp"), &options, &inputs).unwrap();
         assert!(
             !findings

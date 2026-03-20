@@ -26,15 +26,10 @@ pub fn expand_globs<'a>(
     patterns: impl IntoIterator<Item = &'a str>,
     base_dir: &Path,
 ) -> Vec<PathBuf> {
-    let mut paths = BTreeSet::new();
-
-    for pattern in patterns {
-        let full = base_dir.join(pattern).to_string_lossy().to_string();
-        if let Ok(entries) = glob::glob(&full) {
-            paths.extend(entries.flatten());
-        }
-    }
-
+    let paths: BTreeSet<PathBuf> = patterns
+        .into_iter()
+        .flat_map(|p| expand_glob(p, base_dir))
+        .collect();
     paths.into_iter().collect()
 }
 

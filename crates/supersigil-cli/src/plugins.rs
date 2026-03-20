@@ -242,6 +242,7 @@ mod tests {
 
     use supersigil_core::EcosystemConfig;
     use supersigil_rust::verifies;
+    use supersigil_verify::test_helpers::pos;
 
     use super::*;
 
@@ -649,14 +650,6 @@ mod tests {
     // -------------------------------------------------------------------
     // 6. End-to-end: assembly -> discovery -> artifact graph
     // -------------------------------------------------------------------
-
-    fn pos(line: usize) -> supersigil_core::SourcePosition {
-        supersigil_core::SourcePosition {
-            byte_offset: line * 40,
-            line,
-            column: 1,
-        }
-    }
 
     fn make_requirement_doc() -> supersigil_core::SpecDocument {
         supersigil_core::SpecDocument {

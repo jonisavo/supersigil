@@ -1,9 +1,13 @@
 use std::collections::HashSet;
 
-use supersigil_core::{ComponentDefs, Config, DocumentGraph};
+use supersigil_core::{ComponentDefs, Config, DocumentGraph, VERIFIED_BY};
 use supersigil_verify::{RuleName, VerificationReport};
 
-pub(crate) fn remediation_hints(report: &VerificationReport, config: &Config) -> Vec<String> {
+pub(crate) fn remediation_hints(
+    report: &VerificationReport,
+    config: &Config,
+    graph: &DocumentGraph,
+) -> Vec<String> {
     let mut hints = Vec::new();
 
     if report
@@ -28,7 +32,7 @@ pub(crate) fn remediation_hints(report: &VerificationReport, config: &Config) ->
             );
         }
 
-        hints.push(authored_evidence_hint(config));
+        hints.push(authored_evidence_hint(graph.component_defs()));
     }
 
     for finding in &report.findings {
@@ -50,10 +54,8 @@ pub(crate) fn remediation_hints(report: &VerificationReport, config: &Config) ->
     hints
 }
 
-fn authored_evidence_hint(config: &Config) -> String {
-    let defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
-        .unwrap_or_else(|_| ComponentDefs::defaults());
-    let Some(examples) = defs.get("VerifiedBy").map(|def| def.examples.as_slice()) else {
+fn authored_evidence_hint(defs: &ComponentDefs) -> String {
+    let Some(examples) = defs.get(VERIFIED_BY).map(|def| def.examples.as_slice()) else {
         return "Authored fix: add criterion-nested `<VerifiedBy ... />` evidence.".to_string();
     };
 
