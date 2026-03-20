@@ -1,6 +1,7 @@
 use super::*;
 use crate::format::ColorChoice;
 use supersigil_rust::verifies;
+use supersigil_verify::Finding;
 
 fn color() -> ColorConfig {
     ColorConfig::resolve(ColorChoice::Always)

@@ -3,6 +3,7 @@ use std::path::Path;
 
 mod example_phase;
 mod output;
+mod report_phase;
 
 use example_phase::run_example_phase;
 #[cfg(test)]
@@ -14,10 +15,11 @@ use output::{
     count_example_pending_criteria, format_terminal, remediation_hints,
     should_render_example_summary,
 };
+use report_phase::{ReportPhaseInput, assemble_report};
 
 use supersigil_verify::{
-    Finding, ReportSeverity, ResultStatus, VerifyOptions, finalize_example_findings, format_json,
-    format_markdown, resolve_finding_severities,
+    ReportSeverity, ResultStatus, VerifyOptions, format_json, format_markdown,
+    resolve_finding_severities,
 };
 #[cfg(test)]
 use supersigil_verify::{RuleName, Summary, VerificationReport};
@@ -72,7 +74,7 @@ pub fn run(
     // -- Phase 1: Plugin evidence + structural checks --
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
 
-    let (artifact_graph, mut plugin_findings) = plugins::build_evidence(
+    let (artifact_graph, plugin_findings) = plugins::build_evidence(
         &config,
         &graph,
         project_root,
@@ -97,69 +99,20 @@ pub fn run(
         color,
         has_structural_errors,
     )?;
-    let mut example_findings = example_phase.findings;
-    let example_evidence = example_phase.evidence;
-    let example_summary = example_phase.summary;
-    let example_progress_display = example_phase.progress_display;
-    let example_skip_reason = example_phase.skip_reason;
-
-    // Merge example evidence into artifact graph if we have any
-    let final_artifact_graph = if example_evidence.is_empty() {
-        artifact_graph
-    } else {
-        // Extract existing evidence and append example evidence, then rebuild
-        let mut all_plugin_evidence: Vec<_> = artifact_graph.evidence.into_iter().collect();
-        all_plugin_evidence.extend(example_evidence);
-        supersigil_verify::build_artifact_graph(&graph, vec![], all_plugin_evidence)
-    };
-
-    // -- Phase 3: Coverage --
-    let mut coverage_findings = supersigil_verify::verify_coverage(&graph, &final_artifact_graph);
-
-    resolve_finding_severities(&mut coverage_findings, &graph, &config);
-
-    resolve_finding_severities(&mut plugin_findings, &graph, &config);
-    plugin_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
-
-    // Convert artifact graph conflicts into findings
-    let mut conflict_findings =
-        supersigil_verify::artifact_conflict_findings(&final_artifact_graph);
-    resolve_finding_severities(&mut conflict_findings, &graph, &config);
-    conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
-
-    example_findings =
-        finalize_example_findings(example_findings, example_skip_reason, &graph, &config);
-
-    // Filter findings to the selected project scope (req-3-4).
-    // Structural findings are already filtered by verify_structural().
-    if options.project.is_some() {
-        supersigil_verify::filter_findings_to_doc_ids(&mut coverage_findings, &doc_ids);
-        supersigil_verify::filter_findings_to_doc_ids(&mut plugin_findings, &doc_ids);
-        supersigil_verify::filter_findings_to_doc_ids(&mut conflict_findings, &doc_ids);
-        supersigil_verify::filter_findings_to_doc_ids(&mut example_findings, &doc_ids);
-    }
-
-    // Count documents for summary
-    let doc_count = doc_ids.len();
-
-    // Assemble all findings
-    let mut all_findings: Vec<Finding> = Vec::new();
-    all_findings.extend(structural_findings);
-    all_findings.extend(coverage_findings);
-    all_findings.extend(plugin_findings);
-    all_findings.extend(conflict_findings);
-    all_findings.extend(example_findings);
-
-    if let Some(finding) = supersigil_verify::empty_project_finding(&config, doc_count) {
-        all_findings.push(finding);
-    }
-
-    let report = supersigil_verify::finalize_report(
-        &config,
-        doc_count,
-        all_findings,
-        Some(&final_artifact_graph),
-    );
+    let prepared = assemble_report(ReportPhaseInput {
+        graph: &graph,
+        config: &config,
+        doc_ids: &doc_ids,
+        project_filter: options.project.is_some(),
+        artifact_graph,
+        structural_findings,
+        plugin_findings,
+        example_phase,
+    });
+    let report = prepared.report;
+    let example_summary = prepared.example_summary;
+    let example_progress_display = prepared.example_progress_display;
+    let example_skip_reason = prepared.example_skip_reason;
     let status = report.result_status();
 
     let stdout = io::stdout();
