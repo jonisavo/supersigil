@@ -326,33 +326,12 @@ pub fn run(
         all_findings.push(finding);
     }
 
-    // Run post-verify hooks
-    if !config.hooks.post_verify.is_empty() {
-        let interim = VerificationReport::new(
-            all_findings.clone(),
-            supersigil_verify::Summary::from_findings(doc_count, &all_findings),
-            None,
-        );
-        let interim_json = serde_json::to_string(&interim).unwrap_or_default();
-        let hook_findings = supersigil_verify::run_hooks(
-            &config.hooks.post_verify,
-            &interim_json,
-            config.hooks.timeout_seconds,
-        );
-        all_findings.extend(hook_findings);
-    }
-
-    // Filter out Off-severity findings
-    all_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
-
-    // Recompute summary after all findings assembled
-    let summary = supersigil_verify::Summary::from_findings(doc_count, &all_findings);
-
-    // Populate evidence summary from the final artifact graph
-    let evidence_summary = (!final_artifact_graph.evidence.is_empty())
-        .then(|| supersigil_verify::EvidenceSummary::from_artifact_graph(&final_artifact_graph));
-
-    let report = VerificationReport::new(all_findings, summary, evidence_summary);
+    let report = supersigil_verify::finalize_report(
+        &config,
+        doc_count,
+        all_findings,
+        Some(&final_artifact_graph),
+    );
     let status = report.result_status();
 
     let stdout = io::stdout();

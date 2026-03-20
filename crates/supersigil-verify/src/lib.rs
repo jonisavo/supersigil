@@ -216,12 +216,30 @@ pub fn verify(
 
     // Resolve severities
     resolve_finding_severities(&mut findings, graph, config);
+    Ok(finalize_report(
+        config,
+        doc_ids.len(),
+        findings,
+        Some(artifact_graph),
+    ))
+}
 
-    // Run post-verify hooks (if any)
+/// Build the final verification report after callers have assembled findings.
+///
+/// This centralizes shared report policy: post-verify hooks run against the
+/// interim report, `Off` findings are filtered, summary counts are rebuilt, and
+/// evidence summary metadata is attached when artifact evidence exists.
+#[must_use]
+pub fn finalize_report(
+    config: &Config,
+    doc_count: usize,
+    mut findings: Vec<Finding>,
+    artifact_graph: Option<&ArtifactGraph<'_>>,
+) -> VerificationReport {
     if !config.hooks.post_verify.is_empty() {
         let interim = VerificationReport::new(
             findings.clone(),
-            Summary::from_findings(doc_ids.len(), &findings),
+            Summary::from_findings(doc_count, &findings),
             None,
         );
         let interim_json = serde_json::to_string(&interim).unwrap_or_default();
@@ -232,13 +250,14 @@ pub fn verify(
         ));
     }
 
-    // Filter out Off findings
     findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
-    // Build summary
-    let summary = Summary::from_findings(doc_ids.len(), &findings);
+    let summary = Summary::from_findings(doc_count, &findings);
+    let evidence_summary = artifact_graph
+        .filter(|graph| !graph.evidence.is_empty())
+        .map(EvidenceSummary::from_artifact_graph);
 
-    Ok(VerificationReport::new(findings, summary, None))
+    VerificationReport::new(findings, summary, evidence_summary)
 }
 
 /// Resolve effective severities for a batch of findings.
@@ -318,8 +337,111 @@ pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path
 #[cfg(test)]
 mod verify_tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    use supersigil_evidence::{
+        EvidenceId, PluginProvenance, SourceLocation, TestIdentity, TestKind, VerifiableRef,
+        VerificationEvidenceRecord, VerificationTargets,
+    };
     use tempfile::TempDir;
     use test_helpers::*;
+
+    fn make_artifact_graph_with_evidence(graph: &DocumentGraph) -> ArtifactGraph<'_> {
+        build_artifact_graph(
+            graph,
+            vec![],
+            vec![VerificationEvidenceRecord {
+                id: EvidenceId::new(0),
+                targets: VerificationTargets::single(VerifiableRef {
+                    doc_id: "req/auth".into(),
+                    target_id: "req-1".into(),
+                }),
+                test: TestIdentity {
+                    file: PathBuf::from("tests/auth_test.rs"),
+                    name: "login_succeeds".into(),
+                    kind: TestKind::Unit,
+                },
+                source_location: SourceLocation {
+                    file: PathBuf::from("tests/auth_test.rs"),
+                    line: 3,
+                    column: 1,
+                },
+                provenance: vec![PluginProvenance::RustAttribute {
+                    attribute_span: SourceLocation {
+                        file: PathBuf::from("tests/auth_test.rs"),
+                        line: 3,
+                        column: 1,
+                    },
+                }],
+                metadata: BTreeMap::new(),
+            }],
+        )
+    }
+
+    #[test]
+    fn finalize_report_filters_off_findings() {
+        let config = test_config();
+
+        let mut kept = Finding::new(
+            RuleName::InvalidIdPattern,
+            Some("req/auth".into()),
+            "kept".into(),
+            None,
+        );
+        kept.effective_severity = ReportSeverity::Warning;
+
+        let mut filtered = Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".into()),
+            "filtered".into(),
+            None,
+        );
+        filtered.effective_severity = ReportSeverity::Off;
+
+        let report = finalize_report(&config, 1, vec![kept.clone(), filtered], None);
+
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].message, kept.message);
+        assert_eq!(
+            report.findings[0].effective_severity,
+            ReportSeverity::Warning,
+        );
+        assert_eq!(report.summary.total_documents, 1);
+        assert_eq!(report.summary.warning_count, 1);
+        assert_eq!(report.summary.error_count, 0);
+        assert_eq!(report.summary.info_count, 0);
+        assert!(report.evidence_summary.is_none());
+    }
+
+    #[test]
+    fn finalize_report_preserves_evidence_summary() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let config = test_config();
+        let artifact_graph = make_artifact_graph_with_evidence(&graph);
+
+        let report = finalize_report(&config, 1, Vec::new(), Some(&artifact_graph));
+
+        assert!(
+            report.evidence_summary.is_some(),
+            "artifact-backed reports should preserve evidence summary",
+        );
+        assert_eq!(
+            report
+                .evidence_summary
+                .as_ref()
+                .expect("evidence summary")
+                .records
+                .len(),
+            1,
+        );
+    }
 
     #[test]
     fn verify_with_missing_verification_evidence() {
