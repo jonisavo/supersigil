@@ -59,7 +59,7 @@ fn resolve_skills_dir(flag_path: Option<&Path>) -> PathBuf {
         return path.to_path_buf();
     }
 
-    if let Ok(content) = std::fs::read_to_string("supersigil.toml")
+    if let Ok(content) = std::fs::read_to_string(supersigil_core::CONFIG_FILENAME)
         && let Ok(config) = toml::from_str::<SkillsOnlyConfig>(&content)
         && let Some(path) = config.skills.path
     {

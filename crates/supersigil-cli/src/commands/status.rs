@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use supersigil_core::{CRITERION, VERIFIED_BY};
-use supersigil_verify::artifact_graph::ArtifactGraph;
+use supersigil_verify::ArtifactGraph;
 
 use crate::commands::StatusArgs;
 use crate::error::CliError;
@@ -59,8 +59,9 @@ struct TargetStatus {
 pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
     let (config, graph) = loader::load_graph(config_path)?;
     let project_root = loader::project_root(config_path);
+    let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
     let (artifact_graph, plugin_findings) =
-        plugins::build_evidence(&config, &graph, project_root, None);
+        plugins::build_evidence(&config, &graph, project_root, None, &inputs);
     plugins::warn_plugin_findings(&plugin_findings, color);
 
     match &args.id {

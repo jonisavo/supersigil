@@ -3,6 +3,7 @@
 mod component_defs;
 mod config;
 mod error;
+mod glob_util;
 mod graph;
 mod locate;
 mod refs;
@@ -18,7 +19,8 @@ pub use config::{
     TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
-pub use locate::find_config;
+pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};
+pub use locate::{CONFIG_FILENAME, find_config};
 pub use refs::{is_valid_criterion_ref, split_criterion_ref};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};
 pub use rust_validation_inputs::{
@@ -29,11 +31,14 @@ pub use types::{
     CodeBlock, ExtractedComponent, Frontmatter, ParseResult, SourcePosition, SpecDocument,
 };
 
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
+
 // Graph module re-exports
 pub use graph::{
-    ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION, DEPENDS_ON,
-    DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, GraphError, LinkedDecision,
-    OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE, REFERENCES, ResolvedRef,
-    TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY, build_graph, decision_references_target,
-    glob_prefix,
+    ACCEPTANCE_CRITERIA, ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION,
+    DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, GraphError, IMPLEMENTS,
+    LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE, REFERENCES,
+    ResolvedRef, TASK, TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY, build_graph,
+    decision_references_target, glob_prefix,
 };

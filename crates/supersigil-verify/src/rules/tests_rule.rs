@@ -44,7 +44,7 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
             };
 
             for path in &paths {
-                if crate::expand_glob(path, project_root).is_empty() {
+                if supersigil_core::expand_glob(path, project_root).is_empty() {
                     findings.push(Finding::new(
                         RuleName::MissingTestFiles,
                         Some(doc_id.clone()),

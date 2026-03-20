@@ -83,3 +83,16 @@ fn overlapping_globs_are_deduplicated() {
     assert_eq!(paths.len(), 3);
     assert!(paths.windows(2).all(|pair| pair[0] <= pair[1]));
 }
+
+#[test]
+fn invalid_glob_returns_error() {
+    let tmp = TempDir::new().unwrap();
+
+    let err = discover_spec_files(&["[invalid".to_string()], tmp.path()).unwrap_err();
+
+    let message = err.to_string();
+    assert!(
+        message.contains("invalid"),
+        "invalid glob should be surfaced, got: {message}",
+    );
+}

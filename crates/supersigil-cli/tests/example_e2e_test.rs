@@ -25,7 +25,7 @@ fn fixture_project_examples_pass() {
     let (config, graph) = supersigil_cli::load_graph(&config_path).unwrap();
 
     // Collect examples
-    let specs = supersigil_verify::examples::executor::collect_examples(&graph, &config.examples);
+    let specs = supersigil_verify::collect_examples(&graph, &config.examples);
     assert!(!specs.is_empty(), "should find at least one example");
 
     let example_ids: Vec<&str> = specs.iter().map(|spec| spec.example_id.as_str()).collect();
@@ -43,18 +43,13 @@ fn fixture_project_examples_pass() {
     );
 
     // Execute examples
-    let results = supersigil_verify::examples::executor::execute_examples(
-        &specs,
-        &fixture_root,
-        &config.examples,
-    );
+    let results = supersigil_verify::execute_examples(&specs, &fixture_root, &config.examples);
 
     assert_eq!(results.len(), 2);
     assert!(
-        results.iter().all(|result| matches!(
-            result.outcome,
-            supersigil_verify::examples::types::ExampleOutcome::Pass
-        )),
+        results
+            .iter()
+            .all(|result| matches!(result.outcome, supersigil_verify::ExampleOutcome::Pass)),
         "fixture examples should all pass, got: {results:#?}",
     );
 }
@@ -67,7 +62,7 @@ fn fixture_project_discovery_finds_examples() {
     let config_path = fixture_root.join("supersigil.toml");
     let (config, graph) = supersigil_cli::load_graph(&config_path).unwrap();
 
-    let specs = supersigil_verify::examples::executor::collect_examples(&graph, &config.examples);
+    let specs = supersigil_verify::collect_examples(&graph, &config.examples);
 
     // Verify discovery
     assert_eq!(specs.len(), 2);

@@ -93,7 +93,7 @@ fn resolve_project_root() -> Result<Option<PathBuf>, String> {
             return Ok(None);
         }
         let p = PathBuf::from(&root);
-        if p.join("supersigil.toml").is_file() {
+        if p.join(supersigil_core::CONFIG_FILENAME).is_file() {
             return Ok(Some(p));
         }
         // Explicit root set but config not found — this is an error.
@@ -181,7 +181,7 @@ fn get_or_build_graph(
     }
 
     // Slow path: full config parse + glob expansion + graph build.
-    let config_path = project_root.join("supersigil.toml");
+    let config_path = project_root.join(supersigil_core::CONFIG_FILENAME);
     let config = match supersigil_core::load_config(&config_path) {
         Ok(c) => c,
         Err(errs) => {

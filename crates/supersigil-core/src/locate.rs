@@ -3,6 +3,9 @@
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+/// The conventional filename for the supersigil project configuration file.
+pub const CONFIG_FILENAME: &str = "supersigil.toml";
+
 /// Walk upward from `start` looking for `supersigil.toml`.
 ///
 /// Returns `Ok(Some(path))` when found, `Ok(None)` when the filesystem
@@ -15,7 +18,7 @@ use std::path::{Path, PathBuf};
 pub fn find_config(start: &Path) -> Result<Option<PathBuf>, std::io::Error> {
     let mut current = start.to_path_buf();
     loop {
-        let candidate = current.join("supersigil.toml");
+        let candidate = current.join(CONFIG_FILENAME);
         match std::fs::metadata(&candidate) {
             Ok(metadata) if metadata.is_file() => return Ok(Some(candidate)),
             Ok(_) => {}

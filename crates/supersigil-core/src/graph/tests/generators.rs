@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use proptest::prelude::*;
 
-use crate::graph::{ACCEPTANCE_CRITERIA, CRITERION, DEPENDS_ON, EXAMPLE, TASK, TRACKED_FILES};
-use crate::{Config, ExtractedComponent, Frontmatter, ProjectConfig, SourcePosition, SpecDocument};
+use crate::graph::{EXAMPLE, TASK, TRACKED_FILES};
+use crate::{Config, ExtractedComponent, Frontmatter, ProjectConfig, SpecDocument};
 
 // ---------------------------------------------------------------------------
 // ID generation
@@ -165,28 +165,9 @@ pub fn arb_dag(n: usize) -> impl Strategy<Value = GeneratedDag> {
 // Deterministic test helpers
 // ---------------------------------------------------------------------------
 
-/// Build a `SourcePosition` from a line number (`byte_offset` = line * 40).
-pub fn pos(line: usize) -> SourcePosition {
-    SourcePosition {
-        byte_offset: line * 40,
-        line,
-        column: 1,
-    }
-}
-
-/// Build a `SpecDocument` with path derived from id as `specs/{id}.mdx`.
-pub fn make_doc(id: &str, components: Vec<ExtractedComponent>) -> SpecDocument {
-    SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
-        frontmatter: Frontmatter {
-            id: id.to_owned(),
-            doc_type: None,
-            status: None,
-        },
-        extra: HashMap::new(),
-        components,
-    }
-}
+pub use crate::test_helpers::{
+    make_acceptance_criteria, make_criterion, make_depends_on, make_doc, pos, single_project_config,
+};
 
 /// Build a `SpecDocument` with an explicit path.
 pub fn make_doc_with_path(
@@ -222,33 +203,6 @@ pub fn make_doc_full(
         },
         extra: HashMap::new(),
         components,
-    }
-}
-
-/// Build a `Criterion` component.
-pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: CRITERION.to_owned(),
-        attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
-        children: Vec::new(),
-        body_text: Some(format!("criterion {id}")),
-        code_blocks: Vec::new(),
-        position: pos(line),
-    }
-}
-
-/// Build an `AcceptanceCriteria` wrapper component.
-pub fn make_acceptance_criteria(
-    children: Vec<ExtractedComponent>,
-    line: usize,
-) -> ExtractedComponent {
-    ExtractedComponent {
-        name: ACCEPTANCE_CRITERIA.to_owned(),
-        attributes: HashMap::new(),
-        children,
-        body_text: None,
-        code_blocks: Vec::new(),
-        position: pos(line),
     }
 }
 
@@ -304,11 +258,6 @@ pub fn make_tracked_files_component(paths: &str, line: usize) -> ExtractedCompon
     }
 }
 
-/// Build a `DependsOn` component.
-pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
-    make_refs_component(DEPENDS_ON, refs, line)
-}
-
 /// Build a two-project `Config` with configurable isolation flags.
 ///
 /// Creates `project-a` and `project-b` with paths `project-{x}/specs/**/*.mdx`.
@@ -332,14 +281,6 @@ pub fn two_project_config(a_isolated: bool, b_isolated: bool) -> Config {
     );
     Config {
         projects: Some(projects),
-        ..Config::default()
-    }
-}
-
-/// Build a default single-project `Config`.
-pub fn single_project_config() -> Config {
-    Config {
-        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
         ..Config::default()
     }
 }

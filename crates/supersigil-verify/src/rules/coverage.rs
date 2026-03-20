@@ -95,7 +95,7 @@ fn for_each_criterion(
 mod tests {
     use std::collections::HashMap;
 
-    use supersigil_core::ExtractedComponent;
+    use supersigil_core::{EXAMPLE, ExtractedComponent};
 
     use super::*;
     use crate::test_helpers::*;
@@ -148,7 +148,7 @@ mod tests {
             vec![
                 make_acceptance_criteria(vec![make_criterion("req-1", 10)], 9),
                 ExtractedComponent {
-                    name: "Example".into(),
+                    name: EXAMPLE.to_owned(),
                     attributes: HashMap::from([
                         ("id".into(), "ex-1".into()),
                         ("runner".into(), "sh".into()),

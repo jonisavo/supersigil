@@ -8,13 +8,14 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use supersigil_core::{ComponentDefs, Config};
-use supersigil_verify::examples::executor;
-use supersigil_verify::examples::types::{
-    ExampleOutcome, ExampleResult, ExampleSpec, MatchCheck, MatchFormat,
+use supersigil_verify::{
+    ExampleOutcome, ExampleProgressObserver, ExampleResult, ExampleSpec, MatchCheck, MatchFormat,
+    collect_examples, execute_examples, execute_examples_with_progress, results_to_evidence,
+    results_to_findings,
 };
 use supersigil_verify::{
     Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport, VerifyOptions,
-    format_json, format_markdown, resolve_severity,
+    format_json, format_markdown, resolve_finding_severities, resolve_severity,
 };
 
 use crate::commands::{VerifyArgs, VerifyFormat};
@@ -152,11 +153,18 @@ pub fn run(
     });
 
     // -- Phase 1: Plugin evidence + structural checks --
-    let (artifact_graph, mut plugin_findings) =
-        plugins::build_evidence(&config, &graph, project_root, options.project.as_deref());
+    let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
+
+    let (artifact_graph, mut plugin_findings) = plugins::build_evidence(
+        &config,
+        &graph,
+        project_root,
+        options.project.as_deref(),
+        &inputs,
+    );
 
     let mut structural_findings =
-        supersigil_verify::verify_structural(&graph, &config, project_root, &options)?;
+        supersigil_verify::verify_structural(&graph, &config, project_root, &options, &inputs)?;
 
     resolve_finding_severities(&mut structural_findings, &graph, &config);
 
@@ -177,7 +185,7 @@ pub fn run(
         true
     } else {
         // Collect and execute examples
-        let specs = executor::collect_examples(&graph, &config.examples);
+        let specs = collect_examples(&graph, &config.examples);
         if !specs.is_empty() {
             let results = if matches!(args.format, VerifyFormat::Terminal) {
                 let display = if io::stdout().is_terminal() {
@@ -188,7 +196,7 @@ pub fn run(
                 example_progress_display = Some(display);
                 let mut reporter = ExampleProgressReporter::new(&specs, color, display);
                 reporter.initialize()?;
-                let results = executor::execute_examples_with_progress(
+                let results = execute_examples_with_progress(
                     &specs,
                     project_root,
                     &config.examples,
@@ -197,7 +205,7 @@ pub fn run(
                 reporter.finish()?;
                 results
             } else {
-                executor::execute_examples(&specs, project_root, &config.examples)
+                execute_examples(&specs, project_root, &config.examples)
             };
             example_summary = Some(ExampleExecutionSummary::from_results(&results));
 
@@ -206,8 +214,8 @@ pub fn run(
                 update_snapshots(&results, !matches!(args.format, VerifyFormat::Json));
             }
 
-            example_evidence = executor::results_to_evidence(&results);
-            example_findings = executor::results_to_findings(&results);
+            example_evidence = results_to_evidence(&results);
+            example_findings = results_to_findings(&results);
         }
         false
     };
@@ -233,7 +241,7 @@ pub fn run(
         // Extract existing evidence and append example evidence, then rebuild
         let mut all_plugin_evidence: Vec<_> = artifact_graph.evidence.into_iter().collect();
         all_plugin_evidence.extend(example_evidence);
-        supersigil_verify::artifact_graph::build_artifact_graph(&graph, vec![], all_plugin_evidence)
+        supersigil_verify::build_artifact_graph(&graph, vec![], all_plugin_evidence)
     };
 
     // -- Phase 3: Coverage --
@@ -326,7 +334,7 @@ pub fn run(
             None,
         );
         let interim_json = serde_json::to_string(&interim).unwrap_or_default();
-        let hook_findings = supersigil_verify::hooks::run_hooks(
+        let hook_findings = supersigil_verify::run_hooks(
             &config.hooks.post_verify,
             &interim_json,
             config.hooks.timeout_seconds,
@@ -604,7 +612,7 @@ fn should_render_example_summary(
     }
 }
 
-impl executor::ExampleProgressObserver for ExampleProgressReporter {
+impl ExampleProgressObserver for ExampleProgressReporter {
     fn example_started(&self, spec: &ExampleSpec) {
         let mut state = self.shared.state.lock().unwrap();
         state.snapshot.mark_started(spec);
@@ -675,22 +683,6 @@ impl ExampleExecutionSummary {
     }
 }
 
-/// Resolve effective severity for a batch of findings against the document graph.
-fn resolve_finding_severities(
-    findings: &mut [Finding],
-    graph: &supersigil_core::DocumentGraph,
-    config: &Config,
-) {
-    for finding in findings {
-        let doc_status = finding
-            .doc_id
-            .as_ref()
-            .and_then(|id| graph.document(id))
-            .and_then(|doc| doc.frontmatter.status.as_deref());
-        finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
-    }
-}
-
 /// Update snapshot files by replacing `body_span` content with the actual output
 /// from failed example results.
 ///
@@ -698,10 +690,7 @@ fn resolve_finding_severities(
 /// spec requirement (req-3-4). Source files are normalized (BOM strip, CRLF→LF)
 /// before applying byte offsets, since offsets are computed against the
 /// normalized source by the parser.
-fn update_snapshots(
-    results: &[supersigil_verify::examples::types::ExampleResult],
-    emit_warnings: bool,
-) {
+fn update_snapshots(results: &[supersigil_verify::ExampleResult], emit_warnings: bool) {
     // Collect patches: (source_path, start, end, replacement)
     let mut patches: BTreeMap<&Path, Vec<(usize, usize, &str)>> = BTreeMap::new();
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use supersigil_core::{DocumentGraph, ExtractedComponent};
+use supersigil_core::{DocumentGraph, ExtractedComponent, TASK};
 
 use crate::report::{Finding, FindingDetails, RuleName};
 
@@ -155,7 +155,7 @@ fn check_sibling_docs(
 /// Recursively collect task statuses from all Task components.
 fn collect_tasks<'a>(components: &'a [ExtractedComponent], out: &mut Vec<&'a str>) {
     for comp in components {
-        if comp.name == "Task" {
+        if comp.name == TASK {
             let status = comp
                 .attributes
                 .get("status")
@@ -186,7 +186,7 @@ mod tests {
         children: Vec<supersigil_core::ExtractedComponent>,
     ) -> supersigil_core::ExtractedComponent {
         supersigil_core::ExtractedComponent {
-            name: "Task".into(),
+            name: TASK.to_owned(),
             attributes: std::collections::HashMap::from([
                 ("id".into(), id.into()),
                 ("status".into(), status.into()),

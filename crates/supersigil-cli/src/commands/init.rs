@@ -28,7 +28,7 @@ enum SkillsResolution {
 ///
 /// Returns `CliError` on file system or I/O errors.
 pub fn run(args: &InitArgs, color: ColorConfig) -> Result<(), CliError> {
-    let config_path = Path::new("supersigil.toml");
+    let config_path = Path::new(supersigil_core::CONFIG_FILENAME);
 
     let is_tty = io::stdin().is_terminal();
     let non_interactive = args.yes || !is_tty;

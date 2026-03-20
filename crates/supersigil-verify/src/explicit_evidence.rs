@@ -6,7 +6,7 @@
 //! for merging in the `ArtifactGraph`).
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use supersigil_core::{CRITERION, DocumentGraph, VERIFIED_BY, split_list_attribute};
 use supersigil_evidence::{
@@ -14,7 +14,7 @@ use supersigil_evidence::{
     VerificationEvidenceRecord, VerificationTargets,
 };
 
-use crate::scan::{TagMatch, scan_all_tags};
+use crate::scan::TagMatch;
 
 /// Extract normalized evidence records from all explicit `<VerifiedBy>` components
 /// in the document graph.
@@ -28,24 +28,22 @@ use crate::scan::{TagMatch, scan_all_tags};
 /// - **`strategy="file-glob"`**: expands path globs relative to `project_root`
 ///   and produces one record per matched file, using coarse file-level identity.
 ///
-/// `test_files` should be pre-resolved via `resolve_test_files` to avoid
-/// redundant glob expansion when the caller already has the file list.
+/// `tag_matches` should be pre-computed via `scan_all_tags` to avoid
+/// redundant file I/O when the caller already has the tag scan results.
 ///
 /// Returns an empty `Vec` when no `VerifiedBy` components exist or no matches
 /// are found.
 #[must_use]
 pub fn extract_explicit_evidence(
     graph: &DocumentGraph,
-    test_files: &[PathBuf],
+    tag_matches: &[TagMatch],
     project_root: &Path,
 ) -> Vec<VerificationEvidenceRecord> {
     let mut records = Vec::new();
     let mut next_id: usize = 0;
 
-    // Single-pass scan for all tags across all test files (E5/E9).
-    let all_matches = scan_all_tags(test_files);
     let mut tag_index: HashMap<&str, Vec<&TagMatch>> = HashMap::new();
-    for m in &all_matches {
+    for m in tag_matches {
         tag_index.entry(m.tag.as_str()).or_default().push(m);
     }
 
@@ -120,7 +118,7 @@ fn process_verified_by(
 
             let matched_files: Vec<_> = path_list
                 .iter()
-                .flat_map(|p| crate::expand_glob(p, project_root))
+                .flat_map(|p| supersigil_core::expand_glob(p, project_root))
                 .collect();
             let target = targets
                 .iter()
@@ -245,7 +243,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -305,7 +304,8 @@ mod tests {
         let config = test_config();
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -362,7 +362,8 @@ mod tests {
         let config = test_config();
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(records.len(), 2, "expected one record per criterion");
         assert_eq!(records[0].test.name, "<file-glob:req/auth#crit-1>");
@@ -408,7 +409,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -484,7 +486,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -540,7 +543,8 @@ mod tests {
         let config = test_config();
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -588,7 +592,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -627,7 +632,8 @@ mod tests {
         let config = test_config();
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(records.len(), 1);
         let rec = &records[0];
@@ -669,7 +675,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert_eq!(
             records.len(),
@@ -722,7 +729,8 @@ mod tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
 
         let test_files = crate::resolve_test_files(&config, dir.path());
-        let records = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = crate::scan::scan_all_tags(&test_files);
+        let records = extract_explicit_evidence(&graph, &tag_matches, dir.path());
 
         assert!(
             records.is_empty(),

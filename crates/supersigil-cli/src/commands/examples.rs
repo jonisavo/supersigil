@@ -3,8 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use supersigil_core::ExamplesConfig;
-use supersigil_verify::examples::executor;
-use supersigil_verify::examples::types::ExampleSpec;
+use supersigil_verify::{ExampleSpec, collect_examples};
 
 use crate::commands::ExamplesArgs;
 use crate::error::CliError;
@@ -45,14 +44,14 @@ impl ExampleEntry {
 
 /// Collect all `Example` entries from the graph, optionally filtered by prefix.
 ///
-/// Delegates to `executor::collect_examples` for the component walk, then
+/// Delegates to `collect_examples` for the component walk, then
 /// projects each `ExampleSpec` to the lighter display-only `ExampleEntry`.
 fn collect_entries(
     graph: &supersigil_core::DocumentGraph,
     config: &ExamplesConfig,
     prefix: Option<&str>,
 ) -> Vec<ExampleEntry> {
-    executor::collect_examples(graph, config)
+    collect_examples(graph, config)
         .iter()
         .filter(|spec| prefix.is_none_or(|p| spec.doc_id.starts_with(p)))
         .map(ExampleEntry::from_spec)
@@ -192,7 +191,7 @@ mod tests {
     use super::*;
     use supersigil_core::SourcePosition;
     use supersigil_evidence::VerifiableRef;
-    use supersigil_verify::examples::types::ExpectedSpec;
+    use supersigil_verify::ExpectedSpec;
 
     fn no_color() -> ColorConfig {
         ColorConfig::no_color()
@@ -352,7 +351,7 @@ mod tests {
             code: String::new(),
             expected: Some(ExpectedSpec {
                 status: None,
-                format: supersigil_verify::examples::types::MatchFormat::Text,
+                format: supersigil_verify::MatchFormat::Text,
                 contains: None,
                 body: None,
                 body_span: None,

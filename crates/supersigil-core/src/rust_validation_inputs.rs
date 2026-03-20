@@ -3,7 +3,6 @@
 //! This logic is shared by Rust-facing integrations that need the complete set
 //! of spec files and config paths participating in compile-time validation.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -72,8 +71,8 @@ pub fn resolve_project_validation_inputs(
 ) -> Result<RustValidationInputs, RustValidationInputResolutionError> {
     let globs = resolve_scoped_globs(config, manifest_dir, project_root)?;
     Ok(RustValidationInputs {
-        config_path: project_root.join("supersigil.toml"),
-        spec_files: discover_spec_files(&globs, project_root),
+        config_path: project_root.join(crate::CONFIG_FILENAME),
+        spec_files: crate::expand_globs(globs.iter().map(String::as_str), project_root),
     })
 }
 
@@ -96,8 +95,8 @@ pub fn resolve_workspace_validation_inputs(
 ) -> Result<RustValidationInputs, RustValidationInputResolutionError> {
     let globs = all_spec_globs(config)?;
     Ok(RustValidationInputs {
-        config_path: project_root.join("supersigil.toml"),
-        spec_files: discover_spec_files(&globs, project_root),
+        config_path: project_root.join(crate::CONFIG_FILENAME),
+        spec_files: crate::expand_globs(globs.iter().map(String::as_str), project_root),
     })
 }
 
@@ -136,20 +135,6 @@ fn all_spec_globs(config: &Config) -> Result<Vec<String>, RustValidationInputRes
         .values()
         .flat_map(|p| p.paths.iter().cloned())
         .collect())
-}
-
-fn discover_spec_files(globs: &[String], project_root: &Path) -> Vec<PathBuf> {
-    let mut files = BTreeSet::new();
-
-    for pattern in globs {
-        let full_pattern = project_root.join(pattern);
-        let pattern_str = full_pattern.to_string_lossy();
-        if let Ok(entries) = glob::glob(pattern_str.as_ref()) {
-            files.extend(entries.flatten());
-        }
-    }
-
-    files.into_iter().collect()
 }
 
 #[cfg(test)]

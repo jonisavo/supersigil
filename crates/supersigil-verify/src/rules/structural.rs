@@ -1,6 +1,6 @@
 use supersigil_core::{
-    ALTERNATIVE, ComponentDefs, Config, DECISION, DocumentGraph, EXAMPLE, EXPECTED, RATIONALE,
-    SpecDocument, VERIFIED_BY,
+    ALTERNATIVE, CRITERION, ComponentDefs, Config, DECISION, DEPENDS_ON, DocumentGraph, EXAMPLE,
+    EXPECTED, IMPLEMENTS, RATIONALE, REFERENCES, SpecDocument, TASK, VERIFIED_BY,
 };
 
 use crate::report::{Finding, RuleName};
@@ -75,7 +75,7 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (doc_id, doc) in graph.documents() {
         // Check outgoing refs (document has ref components)
-        let has_outgoing = ["References", "Implements", "DependsOn"]
+        let has_outgoing = [REFERENCES, IMPLEMENTS, DEPENDS_ON]
             .iter()
             .any(|name| has_component(&doc.components, name));
 
@@ -773,7 +773,7 @@ fn check_two_level_m_contiguity(
 }
 
 fn is_referenceable(name: &str) -> bool {
-    name == "Criterion" || name == "Task"
+    name == CRITERION || name == TASK
 }
 
 // ===========================================================================
@@ -784,7 +784,7 @@ fn is_referenceable(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::test_helpers::*;
-    use supersigil_core::DocumentTypeDef;
+    use supersigil_core::{ACCEPTANCE_CRITERIA, DocumentTypeDef};
     use supersigil_rust::verifies;
     use tempfile::TempDir;
 
@@ -799,7 +799,7 @@ mod tests {
             "requirements".into(),
             DocumentTypeDef {
                 status: vec!["draft".into()],
-                required_components: vec!["AcceptanceCriteria".into()],
+                required_components: vec![ACCEPTANCE_CRITERIA.to_owned()],
                 description: None,
             },
         );
@@ -822,7 +822,7 @@ mod tests {
             "requirements".into(),
             DocumentTypeDef {
                 status: vec!["draft".into()],
-                required_components: vec!["AcceptanceCriteria".into()],
+                required_components: vec![ACCEPTANCE_CRITERIA.to_owned()],
                 description: None,
             },
         );
@@ -1051,7 +1051,7 @@ mod tests {
         let component_defs = supersigil_core::ComponentDefs::defaults();
 
         let criterion = supersigil_core::ExtractedComponent {
-            name: "Criterion".into(),
+            name: CRITERION.to_owned(),
             attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
             children: vec![
                 make_verified_by_tag("auth:tag1", 11),
@@ -1091,7 +1091,7 @@ mod tests {
         line: usize,
     ) -> supersigil_core::ExtractedComponent {
         supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::new(),
             children,
             body_text: None,
@@ -1102,7 +1102,7 @@ mod tests {
 
     fn make_expected(line: usize) -> supersigil_core::ExtractedComponent {
         supersigil_core::ExtractedComponent {
-            name: "Expected".into(),
+            name: EXPECTED.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1163,7 +1163,7 @@ mod tests {
     #[test]
     fn example_with_exactly_one_code_block_is_valid() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1182,7 +1182,7 @@ mod tests {
     #[test]
     fn example_with_zero_code_blocks_emits_finding() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1204,7 +1204,7 @@ mod tests {
     #[test]
     fn example_with_two_code_blocks_emits_finding() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1221,7 +1221,7 @@ mod tests {
     #[test]
     fn expected_with_zero_code_blocks_is_valid() {
         let expected = supersigil_core::ExtractedComponent {
-            name: "Expected".into(),
+            name: EXPECTED.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1240,7 +1240,7 @@ mod tests {
     #[test]
     fn expected_with_one_code_block_is_valid() {
         let expected = supersigil_core::ExtractedComponent {
-            name: "Expected".into(),
+            name: EXPECTED.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1259,7 +1259,7 @@ mod tests {
     #[test]
     fn expected_with_two_code_blocks_emits_finding() {
         let expected = supersigil_core::ExtractedComponent {
-            name: "Expected".into(),
+            name: EXPECTED.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1285,7 +1285,7 @@ mod tests {
     #[test]
     fn example_with_valid_env_is_clean() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BAZ=qux".into())]),
             children: vec![],
             body_text: None,
@@ -1304,7 +1304,7 @@ mod tests {
     #[test]
     fn example_with_env_item_missing_equals_emits_finding() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BADITEM".into())]),
             children: vec![],
             body_text: None,
@@ -1326,7 +1326,7 @@ mod tests {
     #[test]
     fn expected_with_env_item_missing_equals_emits_finding() {
         let expected = supersigil_core::ExtractedComponent {
-            name: "Expected".into(),
+            name: EXPECTED.to_owned(),
             attributes: std::collections::HashMap::from([("env".into(), "NOEQUALS".into())]),
             children: vec![],
             body_text: None,
@@ -1343,7 +1343,7 @@ mod tests {
     #[test]
     fn component_without_env_attribute_is_clean() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::new(),
             children: vec![],
             body_text: None,
@@ -1362,7 +1362,7 @@ mod tests {
     #[test]
     fn multiple_invalid_env_items_emit_multiple_findings() {
         let example = supersigil_core::ExtractedComponent {
-            name: "Example".into(),
+            name: EXAMPLE.to_owned(),
             attributes: std::collections::HashMap::from([(
                 "env".into(),
                 "NOEQ1,NOEQ2,VALID=ok".into(),
@@ -1773,7 +1773,7 @@ mod tests {
     fn rationale_inside_non_decision_component_emits_finding() {
         // Rationale nested inside Criterion (not Decision)
         let criterion = supersigil_core::ExtractedComponent {
-            name: "Criterion".into(),
+            name: CRITERION.to_owned(),
             attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
             children: vec![make_rationale(11)],
             body_text: Some("criterion req-1".into()),
@@ -1827,7 +1827,7 @@ mod tests {
     fn alternative_inside_non_decision_component_emits_finding() {
         // Alternative nested inside Criterion (not Decision)
         let criterion = supersigil_core::ExtractedComponent {
-            name: "Criterion".into(),
+            name: CRITERION.to_owned(),
             attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
             children: vec![make_alternative("alt-1", 11)],
             body_text: Some("criterion req-1".into()),

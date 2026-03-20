@@ -24,13 +24,14 @@ ureq.workspace = true
 libc.workspace = true
 
 [features]
-test-helpers = []
+test-helpers = ["supersigil-core/test-helpers"]
 
 [dependencies.tempfile]
 workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+supersigil-core = { path = "../supersigil-core", features = ["test-helpers"] }
 supersigil-rust.workspace = true
 
 [lints]

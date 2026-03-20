@@ -12,8 +12,8 @@ use supersigil_evidence::{
     EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError, ProjectScope,
     VerificationEvidenceRecord,
 };
-use supersigil_verify::artifact_graph::{ArtifactGraph, build_artifact_graph};
-use supersigil_verify::explicit_evidence::extract_explicit_evidence;
+use supersigil_verify::extract_explicit_evidence;
+use supersigil_verify::{ArtifactGraph, build_artifact_graph};
 use supersigil_verify::{Finding, FindingDetails, RuleName};
 
 /// Assemble the enabled ecosystem plugin instances from the config.
@@ -190,13 +190,12 @@ fn format_plugin_location(
 
 /// Build an `ArtifactGraph` from the full evidence pipeline.
 ///
-/// Assembles ecosystem plugins, resolves source files, collects plugin
-/// evidence, extracts explicit `<VerifiedBy>` evidence, and merges
-/// everything into an `ArtifactGraph`.
+/// Assembles ecosystem plugins, collects plugin evidence using pre-resolved
+/// test files, extracts explicit `<VerifiedBy>` evidence using pre-scanned
+/// tags, and merges everything into an `ArtifactGraph`.
 ///
-/// Test file glob expansion (`resolve_test_files`) is performed once and the
-/// resolved list is shared by both plugin discovery and explicit evidence
-/// extraction (E2).
+/// `inputs` should be pre-resolved via [`supersigil_verify::VerifyInputs::resolve`]
+/// to avoid redundant glob expansion and tag scanning.
 ///
 /// Returns the artifact graph and any plugin failure findings.
 #[must_use]
@@ -205,15 +204,16 @@ pub fn build_evidence<'g>(
     graph: &'g DocumentGraph,
     project_root: &Path,
     project: Option<&str>,
+    inputs: &supersigil_verify::VerifyInputs,
 ) -> (ArtifactGraph<'g>, Vec<Finding>) {
     let enabled_plugins = assemble_plugins(config);
-    let test_files = supersigil_verify::resolve_test_files(config, project_root);
     let scope = ProjectScope {
         project: project.map(str::to_owned),
         project_root: project_root.to_path_buf(),
     };
-    let plugin_result = collect_plugin_evidence(&enabled_plugins, &test_files, &scope, graph);
-    let explicit_evidence = extract_explicit_evidence(graph, &test_files, project_root);
+    let plugin_result =
+        collect_plugin_evidence(&enabled_plugins, &inputs.test_files, &scope, graph);
+    let explicit_evidence = extract_explicit_evidence(graph, &inputs.tag_matches, project_root);
     let artifact_graph = build_artifact_graph(graph, explicit_evidence, plugin_result.evidence);
     (artifact_graph, plugin_result.findings)
 }
@@ -771,8 +771,8 @@ mod tests {
     #[verifies("ecosystem-plugins/req#req-2-3")]
     #[test]
     fn end_to_end_plugin_assembly_and_artifact_graph() {
-        use supersigil_verify::artifact_graph::build_artifact_graph;
-        use supersigil_verify::explicit_evidence::extract_explicit_evidence;
+        use supersigil_verify::build_artifact_graph;
+        use supersigil_verify::extract_explicit_evidence;
 
         let (dir, config, graph) = setup_e2e_fixture();
 
@@ -797,7 +797,8 @@ mod tests {
             "expected no plugin failures"
         );
 
-        let explicit_evidence = extract_explicit_evidence(&graph, &test_files, dir.path());
+        let tag_matches = supersigil_verify::scan_all_tags(&test_files);
+        let explicit_evidence = extract_explicit_evidence(&graph, &tag_matches, dir.path());
         assert!(
             !explicit_evidence.is_empty(),
             "should find tag-based evidence"

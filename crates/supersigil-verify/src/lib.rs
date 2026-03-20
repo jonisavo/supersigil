@@ -1,12 +1,12 @@
 //! Verification engine for supersigil spec documents.
 
 pub mod affected;
-pub mod artifact_graph;
+pub(crate) mod artifact_graph;
 mod error;
-pub mod examples;
-pub mod explicit_evidence;
+pub(crate) mod examples;
+pub(crate) mod explicit_evidence;
 pub mod git;
-pub mod hooks;
+pub(crate) mod hooks;
 mod report;
 mod rules;
 mod scan;
@@ -14,14 +14,22 @@ mod severity;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use supersigil_core::{Config, DocumentGraph, SpecDocument};
 
-use artifact_graph::ArtifactGraph;
-
 pub use affected::AffectedDocument;
+pub use artifact_graph::{ArtifactGraph, build_artifact_graph};
 pub use error::VerifyError;
+pub use examples::executor::{
+    ExampleProgressObserver, collect_examples, execute_examples, execute_examples_with_progress,
+    results_to_evidence, results_to_findings,
+};
+pub use examples::types::{
+    ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchCheck, MatchFailure, MatchFormat,
+};
+pub use explicit_evidence::extract_explicit_evidence;
+pub use hooks::run_hooks;
 pub use report::{
     EvidenceReportEntry, EvidenceSummary, Finding, FindingDetails, ReportSeverity, ResultStatus,
     RuleName, Summary, TargetCoverage, VerificationReport, format_json, format_markdown,
@@ -40,6 +48,32 @@ pub struct VerifyOptions {
     pub committed_only: bool,
     /// Use merge-base for git diff.
     pub use_merge_base: bool,
+}
+
+/// Pre-resolved inputs for structural verification.
+///
+/// Computing these is expensive (glob expansion + file I/O). Callers that
+/// need both `verify_structural` and `extract_explicit_evidence` should
+/// resolve once and pass the same inputs to both.
+#[derive(Debug)]
+pub struct VerifyInputs {
+    /// Resolved test file paths from config glob expansion.
+    pub test_files: Vec<PathBuf>,
+    /// Tag matches from scanning all test files.
+    pub tag_matches: Vec<TagMatch>,
+}
+
+impl VerifyInputs {
+    /// Resolve test files and scan for tags.
+    #[must_use]
+    pub fn resolve(config: &Config, project_root: &Path) -> Self {
+        let test_files = resolve_test_files(config, project_root);
+        let tag_matches = scan::scan_all_tags(&test_files);
+        Self {
+            test_files,
+            tag_matches,
+        }
+    }
 }
 
 /// Collect document IDs, optionally filtered by project.
@@ -76,19 +110,16 @@ pub fn verify_structural(
     config: &Config,
     project_root: &Path,
     options: &VerifyOptions,
+    inputs: &VerifyInputs,
 ) -> Result<Vec<Finding>, VerifyError> {
     let doc_ids = collect_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
-    let test_files = resolve_test_files(config, project_root);
-
-    // Single-pass tag scan (shared by check_tags and check_orphan_tags)
-    let all_tag_matches = scan::scan_all_tags(&test_files);
 
     let mut findings = Vec::new();
 
     // Test mapping
     findings.extend(rules::tests_rule::check_file_globs(&docs, project_root));
-    findings.extend(rules::tests_rule::check_tags(&docs, &all_tag_matches));
+    findings.extend(rules::tests_rule::check_tags(&docs, &inputs.tag_matches));
 
     // Tracked files
     findings.extend(rules::tracked::check_empty_globs(graph, project_root));
@@ -108,28 +139,12 @@ pub fn verify_structural(
     findings.extend(rules::structural::check_isolated(graph));
     findings.extend(rules::structural::check_orphan_tags(
         &docs,
-        &all_tag_matches,
+        &inputs.tag_matches,
     ));
-    let component_defs = match supersigil_core::ComponentDefs::merge(
-        supersigil_core::ComponentDefs::defaults(),
-        config.components.clone(),
-    ) {
-        Ok(defs) => defs,
-        Err(errors) => {
-            for err in &errors {
-                findings.push(Finding::new(
-                    RuleName::InvalidVerifiedByPlacement,
-                    None,
-                    format!("component definition error: {err}"),
-                    None,
-                ));
-            }
-            supersigil_core::ComponentDefs::defaults()
-        }
-    };
+    let component_defs = graph.component_defs();
     findings.extend(rules::structural::check_verified_by_placement(
         &docs,
-        &component_defs,
+        component_defs,
     ));
     findings.extend(rules::structural::check_expected_placement(&docs));
     findings.extend(rules::structural::check_rationale_placement(&docs));
@@ -183,9 +198,10 @@ pub fn verify(
     artifact_graph: &ArtifactGraph<'_>,
 ) -> Result<VerificationReport, VerifyError> {
     let doc_ids = collect_doc_ids(graph, options);
+    let inputs = VerifyInputs::resolve(config, project_root);
 
     // Run structural rules and coverage rules
-    let mut findings = verify_structural(graph, config, project_root, options)?;
+    let mut findings = verify_structural(graph, config, project_root, options, &inputs)?;
     let mut coverage_findings = verify_coverage(graph, artifact_graph);
 
     scope_and_annotate(
@@ -198,14 +214,7 @@ pub fn verify(
     findings.extend(coverage_findings);
 
     // Resolve severities
-    for finding in &mut findings {
-        let doc_status = finding
-            .doc_id
-            .as_ref()
-            .and_then(|id| graph.document(id))
-            .and_then(|doc| doc.frontmatter.status.as_deref());
-        finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
-    }
+    resolve_finding_severities(&mut findings, graph, config);
 
     // Run post-verify hooks (if any)
     if !config.hooks.post_verify.is_empty() {
@@ -229,6 +238,22 @@ pub fn verify(
     let summary = Summary::from_findings(doc_ids.len(), &findings);
 
     Ok(VerificationReport::new(findings, summary, None))
+}
+
+/// Resolve effective severities for a batch of findings.
+pub fn resolve_finding_severities(
+    findings: &mut [Finding],
+    graph: &DocumentGraph,
+    config: &Config,
+) {
+    for finding in findings {
+        let doc_status = finding
+            .doc_id
+            .as_ref()
+            .and_then(|id| graph.document(id))
+            .and_then(|doc| doc.frontmatter.status.as_deref());
+        finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
+    }
 }
 
 /// Filter findings to project scope (if enabled) and attach owning spec paths.
@@ -281,20 +306,8 @@ pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path
 
     globs
         .into_iter()
-        .flat_map(|pattern| expand_glob(pattern, project_root))
+        .flat_map(|pattern| supersigil_core::expand_glob(pattern, project_root))
         .collect()
-}
-
-/// Expand a glob pattern relative to `base_dir`, returning matched file paths.
-pub(crate) fn expand_glob(pattern: &str, base_dir: &Path) -> Vec<std::path::PathBuf> {
-    let full = base_dir.join(pattern).to_string_lossy().to_string();
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&full) {
-        for entry in entries.flatten() {
-            files.push(entry);
-        }
-    }
-    files
 }
 
 // ===========================================================================
@@ -477,8 +490,9 @@ mod verify_tests {
         config.tests = Some(vec!["tests/**/*.rs".into()]);
         // Build artifact graph from explicit evidence so coverage is satisfied.
         let test_files = resolve_test_files(&config, dir.path());
+        let tag_matches = scan::scan_all_tags(&test_files);
         let explicit =
-            explicit_evidence::extract_explicit_evidence(&graph, &test_files, dir.path());
+            explicit_evidence::extract_explicit_evidence(&graph, &tag_matches, dir.path());
         let ag = artifact_graph::build_artifact_graph(&graph, explicit, vec![]);
         let options = VerifyOptions::default();
         let report = verify(&graph, &config, dir.path(), &options, &ag).unwrap();
@@ -527,8 +541,9 @@ mod verify_tests {
         )]));
         // Build artifact graph from explicit evidence so coverage is satisfied.
         let test_files = resolve_test_files(&config, dir.path());
+        let tag_matches = scan::scan_all_tags(&test_files);
         let explicit =
-            explicit_evidence::extract_explicit_evidence(&graph, &test_files, dir.path());
+            explicit_evidence::extract_explicit_evidence(&graph, &tag_matches, dir.path());
         let ag = artifact_graph::build_artifact_graph(&graph, explicit, vec![]);
         let options = VerifyOptions::default();
         let report = verify(&graph, &config, dir.path(), &options, &ag).unwrap();
@@ -630,8 +645,9 @@ mod verify_tests {
         );
 
         // Build artifact graph and run full verify
+        let tag_matches = scan::scan_all_tags(&test_files);
         let explicit =
-            explicit_evidence::extract_explicit_evidence(&graph, &test_files, dir.path());
+            explicit_evidence::extract_explicit_evidence(&graph, &tag_matches, dir.path());
         let ag = artifact_graph::build_artifact_graph(&graph, explicit, vec![]);
         let options = VerifyOptions::default();
         let report = verify(&graph, &config, dir.path(), &options, &ag).unwrap();
@@ -684,7 +700,9 @@ mod verify_tests {
         let graph = build_test_graph(docs);
         let config = test_config();
         let options = VerifyOptions::default();
-        let findings = verify_structural(&graph, &config, Path::new("/tmp"), &options).unwrap();
+        let inputs = VerifyInputs::resolve(&config, Path::new("/tmp"));
+        let findings =
+            verify_structural(&graph, &config, Path::new("/tmp"), &options, &inputs).unwrap();
         assert!(
             !findings
                 .iter()

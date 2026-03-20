@@ -82,7 +82,7 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError
         print_summary(&mut out, &result.summary, result.ambiguity_count)?;
 
         // Next-step hint
-        if std::path::Path::new("supersigil.toml").exists() {
+        if std::path::Path::new(supersigil_core::CONFIG_FILENAME).exists() {
             format::hint(
                 color,
                 "Run `supersigil lint` to validate imported documents.",

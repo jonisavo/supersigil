@@ -10,35 +10,18 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use supersigil_core::{Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument};
+use supersigil_core::{
+    ALTERNATIVE, CRITERION, Config, DECISION, ExtractedComponent, Frontmatter, IMPLEMENTS,
+    RATIONALE, REFERENCES, SpecDocument, TASK, TRACKED_FILES, VERIFIED_BY,
+};
 use tempfile::TempDir;
 
-pub fn pos(line: usize) -> SourcePosition {
-    SourcePosition {
-        byte_offset: line * 40,
-        line,
-        column: 1,
-    }
-}
+pub use supersigil_core::test_helpers::{
+    make_acceptance_criteria, make_criterion, make_depends_on, make_doc, pos, single_project_config,
+};
 
 pub fn test_config() -> Config {
-    Config {
-        paths: Some(vec!["specs/**/*.mdx".into()]),
-        ..Config::default()
-    }
-}
-
-pub fn make_doc(id: &str, components: Vec<ExtractedComponent>) -> SpecDocument {
-    SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
-        frontmatter: Frontmatter {
-            id: id.into(),
-            doc_type: None,
-            status: None,
-        },
-        extra: HashMap::new(),
-        components,
-    }
+    single_project_config()
 }
 
 pub fn make_doc_with_status(
@@ -76,34 +59,9 @@ pub fn make_doc_typed(
     }
 }
 
-pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: "Criterion".into(),
-        attributes: HashMap::from([("id".into(), id.into())]),
-        children: vec![],
-        body_text: Some(format!("criterion {id}")),
-        code_blocks: vec![],
-        position: pos(line),
-    }
-}
-
-pub fn make_acceptance_criteria(
-    children: Vec<ExtractedComponent>,
-    line: usize,
-) -> ExtractedComponent {
-    ExtractedComponent {
-        name: "AcceptanceCriteria".into(),
-        attributes: HashMap::new(),
-        children,
-        body_text: None,
-        code_blocks: vec![],
-        position: pos(line),
-    }
-}
-
 pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "References".into(),
+        name: REFERENCES.to_owned(),
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
@@ -114,7 +72,7 @@ pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
 
 pub fn make_verified_by_tag(tag: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "VerifiedBy".into(),
+        name: VERIFIED_BY.to_owned(),
         attributes: HashMap::from([
             ("strategy".into(), "tag".into()),
             ("tag".into(), tag.into()),
@@ -128,7 +86,7 @@ pub fn make_verified_by_tag(tag: &str, line: usize) -> ExtractedComponent {
 
 pub fn make_verified_by_glob(paths: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "VerifiedBy".into(),
+        name: VERIFIED_BY.to_owned(),
         attributes: HashMap::from([
             ("strategy".into(), "file-glob".into()),
             ("paths".into(), paths.into()),
@@ -146,7 +104,7 @@ pub fn make_criterion_with_verified_by(
     line: usize,
 ) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Criterion".into(),
+        name: CRITERION.to_owned(),
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![verified_by],
         body_text: Some(format!("criterion {id}")),
@@ -157,7 +115,7 @@ pub fn make_criterion_with_verified_by(
 
 pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Task".into(),
+        name: TASK.to_owned(),
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![],
         body_text: Some(format!("task {id}")),
@@ -168,7 +126,7 @@ pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
 
 pub fn make_decision(children: Vec<ExtractedComponent>, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Decision".into(),
+        name: DECISION.to_owned(),
         attributes: HashMap::new(),
         children,
         body_text: Some("a decision".into()),
@@ -183,7 +141,7 @@ pub fn make_decision_with_id(
     line: usize,
 ) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Decision".into(),
+        name: DECISION.to_owned(),
         attributes: HashMap::from([("id".into(), id.into())]),
         children,
         body_text: Some(format!("decision {id}")),
@@ -199,7 +157,7 @@ pub fn make_decision_standalone(
     line: usize,
 ) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Decision".into(),
+        name: DECISION.to_owned(),
         attributes: HashMap::from([
             ("id".into(), id.into()),
             ("standalone".into(), reason.into()),
@@ -213,7 +171,7 @@ pub fn make_decision_standalone(
 
 pub fn make_rationale(line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Rationale".into(),
+        name: RATIONALE.to_owned(),
         attributes: HashMap::new(),
         children: vec![],
         body_text: Some("the rationale".into()),
@@ -224,7 +182,7 @@ pub fn make_rationale(line: usize) -> ExtractedComponent {
 
 pub fn make_alternative(id: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Alternative".into(),
+        name: ALTERNATIVE.to_owned(),
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![],
         body_text: Some(format!("alternative {id}")),
@@ -235,7 +193,7 @@ pub fn make_alternative(id: &str, line: usize) -> ExtractedComponent {
 
 pub fn make_alternative_with_status(id: &str, status: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Alternative".into(),
+        name: ALTERNATIVE.to_owned(),
         attributes: HashMap::from([("id".into(), id.into()), ("status".into(), status.into())]),
         children: vec![],
         body_text: Some(format!("alternative {id}")),
@@ -246,7 +204,7 @@ pub fn make_alternative_with_status(id: &str, status: &str, line: usize) -> Extr
 
 pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "TrackedFiles".into(),
+        name: TRACKED_FILES.to_owned(),
         attributes: HashMap::from([("paths".into(), paths.into())]),
         children: vec![],
         body_text: None,
@@ -257,18 +215,7 @@ pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
 
 pub fn make_implements(refs: &str, line: usize) -> ExtractedComponent {
     ExtractedComponent {
-        name: "Implements".into(),
-        attributes: HashMap::from([("refs".into(), refs.into())]),
-        children: vec![],
-        body_text: None,
-        code_blocks: vec![],
-        position: pos(line),
-    }
-}
-
-pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
-    ExtractedComponent {
-        name: "DependsOn".into(),
+        name: IMPLEMENTS.to_owned(),
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,

@@ -11,7 +11,7 @@ pub fn check_empty_globs(graph: &DocumentGraph, project_root: &Path) -> Vec<Find
 
     for (doc_id, globs) in graph.all_tracked_files() {
         for glob_pattern in globs {
-            if crate::expand_glob(glob_pattern, project_root).is_empty() {
+            if supersigil_core::expand_glob(glob_pattern, project_root).is_empty() {
                 findings.push(Finding::new(
                     RuleName::EmptyTrackedGlob,
                     Some(doc_id.to_owned()),

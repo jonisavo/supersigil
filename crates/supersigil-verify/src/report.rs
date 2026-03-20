@@ -104,6 +104,12 @@ impl RuleName {
         Self::MissingDecisionCoverage,
         Self::EmptyProject,
     ];
+}
+
+// Compile-time check: every RuleName variant must have a KNOWN_RULES entry.
+const _: () = assert!(RuleName::ALL.len() == supersigil_core::KNOWN_RULES.len());
+
+impl RuleName {
     /// Returns the config key string used in `[verify.rules]`.
     #[must_use]
     pub fn config_key(self) -> &'static str {
@@ -553,7 +559,6 @@ mod tests {
         let built_in_keys: HashSet<&str> = RuleName::ALL.iter().map(|r| r.config_key()).collect();
         let known: HashSet<&str> = KNOWN_RULES.iter().copied().collect();
         assert_eq!(built_in_keys, known);
-        assert_eq!(RuleName::ALL.len(), 27);
     }
 
     // -----------------------------------------------------------------------

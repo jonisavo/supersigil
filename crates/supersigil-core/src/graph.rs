@@ -28,16 +28,18 @@ pub use query::{
 use crate::{ComponentDefs, Config, ExtractedComponent, SpecDocument};
 
 // Well-known component names used during graph construction and downstream queries.
-pub(crate) const TASK: &str = "Task";
+/// The well-known component name for task components.
+pub const TASK: &str = "Task";
 /// The well-known component name for criterion components.
 pub const CRITERION: &str = "Criterion";
 /// The well-known component name for verified-by components.
 pub const VERIFIED_BY: &str = "VerifiedBy";
-#[cfg(test)]
-pub(crate) const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
+/// The well-known component name for acceptance-criteria wrapper components.
+pub const ACCEPTANCE_CRITERIA: &str = "AcceptanceCriteria";
 /// The well-known component name for references components.
 pub const REFERENCES: &str = "References";
-pub(crate) const IMPLEMENTS: &str = "Implements";
+/// The well-known component name for implements components.
+pub const IMPLEMENTS: &str = "Implements";
 /// The well-known component name for depends-on components.
 pub const DEPENDS_ON: &str = "DependsOn";
 /// The well-known component name for tracked-files components.
@@ -106,6 +108,9 @@ pub struct DocumentGraph {
 
     /// Project membership: document ID → project name (`None` for single-project).
     doc_project: HashMap<String, Option<String>>,
+
+    /// Merged component definitions used during graph construction.
+    component_defs: ComponentDefs,
 }
 
 impl fmt::Debug for DocumentGraph {
@@ -138,6 +143,12 @@ impl DocumentGraph {
     #[must_use]
     pub fn doc_project(&self, doc_id: &str) -> Option<&str> {
         self.doc_project.get(doc_id).and_then(|opt| opt.as_deref())
+    }
+
+    /// Get the merged component definitions used during graph construction.
+    #[must_use]
+    pub fn component_defs(&self) -> &ComponentDefs {
+        &self.component_defs
     }
 
     // -- Component index accessor (task 4.3) --------------------------------
@@ -363,6 +374,7 @@ pub fn build_graph(
         tracked_files_index,
         task_implements,
         doc_project,
+        component_defs,
     })
 }
 

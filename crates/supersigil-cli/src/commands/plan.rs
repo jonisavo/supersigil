@@ -36,8 +36,9 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
 
     // Filter outstanding criteria by evidence: criteria with verification
     // evidence in the ArtifactGraph are no longer outstanding.
+    let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
     let (artifact_graph, plugin_findings) =
-        plugins::build_evidence(&config, &graph, project_root, None);
+        plugins::build_evidence(&config, &graph, project_root, None, &inputs);
     plugins::warn_plugin_findings(&plugin_findings, color);
     plan.outstanding_targets
         .retain(|c| !artifact_graph.has_evidence(&c.doc_id, &c.target_id));
