@@ -1,7 +1,12 @@
 use super::*;
 use crate::format::ColorChoice;
+use std::collections::HashMap;
+use supersigil_core::{EXAMPLE, ExtractedComponent};
 use supersigil_rust::verifies;
 use supersigil_verify::Finding;
+use supersigil_verify::test_helpers::{
+    build_test_graph, make_acceptance_criteria, make_criterion, make_doc, pos,
+};
 
 fn color() -> ColorConfig {
     ColorConfig::resolve(ColorChoice::Always)
@@ -378,4 +383,48 @@ fn terminal_no_evidence_when_absent() {
         !out.contains("Evidence"),
         "terminal output should NOT include Evidence section when absent, got:\n{out}",
     );
+}
+
+#[test]
+fn example_pending_count_deduplicates_target_refs() {
+    let docs = vec![make_doc(
+        "examples/req",
+        vec![
+            make_acceptance_criteria(vec![make_criterion("crit-1", 5)], 4),
+            ExtractedComponent {
+                name: EXAMPLE.to_string(),
+                attributes: HashMap::from([(
+                    "verifies".to_string(),
+                    "examples/req#crit-1".to_string(),
+                )]),
+                children: vec![],
+                body_text: None,
+                code_blocks: vec![],
+                position: pos(10),
+            },
+        ],
+    )];
+    let graph = build_test_graph(docs);
+
+    let mut first = Finding::new(
+        RuleName::MissingVerificationEvidence,
+        Some("examples/req".to_string()),
+        "criterion `crit-1` has no validating property".to_string(),
+        None,
+    );
+    first.details = Some(Box::new(supersigil_verify::FindingDetails {
+        target_ref: Some("examples/req#crit-1".to_string()),
+        ..Default::default()
+    }));
+
+    let mut second = first.clone();
+    second.message = "criterion `crit-1` is still uncovered".to_string();
+
+    let report = VerificationReport::new(
+        vec![first.clone(), second],
+        Summary::from_findings(1, &[first.clone()]),
+        None,
+    );
+
+    assert_eq!(count_example_pending_criteria(&report, &graph), 1);
 }
