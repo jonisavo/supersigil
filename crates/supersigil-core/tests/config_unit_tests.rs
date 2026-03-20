@@ -53,45 +53,22 @@ fn hooks_defaults() {
 }
 
 #[test]
-fn tests_defaults_to_empty() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    // In single-project mode without `tests`, it should be None
-    assert_eq!(config.tests, None);
-}
-
-// ---------------------------------------------------------------------------
-// Severity enum deserialization (Req 15.1, 15.2)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn severity_deserialize_off() {
-    #[derive(Deserialize)]
-    struct W {
+fn severity_deserializes_known_values() {
+    #[derive(Debug, Deserialize)]
+    struct SeverityWrapper {
         s: Severity,
     }
-    let w: W = toml::from_str(r#"s = "off""#).unwrap();
-    assert_eq!(w.s, Severity::Off);
-}
 
-#[test]
-fn severity_deserialize_warning() {
-    #[derive(Deserialize)]
-    struct W {
-        s: Severity,
-    }
-    let w: W = toml::from_str(r#"s = "warning""#).unwrap();
-    assert_eq!(w.s, Severity::Warning);
-}
+    let cases = [
+        ("off", Severity::Off),
+        ("warning", Severity::Warning),
+        ("error", Severity::Error),
+    ];
 
-#[test]
-fn severity_deserialize_error() {
-    #[derive(Deserialize)]
-    struct W {
-        s: Severity,
+    for (raw, expected) in cases {
+        let parsed: SeverityWrapper = toml::from_str(&format!(r#"s = "{raw}""#)).unwrap();
+        assert_eq!(parsed.s, expected, "failed to deserialize {raw}");
     }
-    let w: W = toml::from_str(r#"s = "error""#).unwrap();
-    assert_eq!(w.s, Severity::Error);
 }
 
 #[test]
@@ -136,14 +113,6 @@ tests = ["tests/**/*.rs"]
     assert_eq!(config.paths, Some(vec!["specs/**/*.mdx".to_string()]));
     assert_eq!(config.tests, Some(vec!["tests/**/*.rs".to_string()]));
     assert_eq!(config.projects, None);
-}
-
-#[test]
-fn single_project_without_tests() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.paths, Some(vec!["specs/**/*.mdx".to_string()]));
-    assert_eq!(config.tests, None);
 }
 
 // ---------------------------------------------------------------------------

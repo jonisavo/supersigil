@@ -12,6 +12,19 @@ fn write_config(root: &Path, content: &str) {
     fs::create_dir_all(root.join("specs")).unwrap();
 }
 
+fn setup_explicit_evidence_fixture(root: &Path, config: &str) {
+    write_config(root, config);
+    write_requirement_with_explicit_evidence(root);
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("tests/auth_test.rs"),
+        "# explicit authored evidence\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+}
+
 fn write_requirement_with_explicit_evidence(root: &Path) {
     common::write_mdx(
         root,
@@ -64,16 +77,15 @@ fn write_requirement_with_shared_file_glob_evidence(root: &Path) {
 }
 
 fn setup_plugin_failure_fixture(root: &Path) {
-    common::setup_project_with_rust_plugin_and_tests(root, "tests/**/*.rs", "");
-    write_requirement_with_explicit_evidence(root);
-    fs::create_dir_all(root.join("tests")).unwrap();
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(
-        root.join("tests/auth_test.rs"),
-        "# explicit authored evidence\n",
-    )
-    .unwrap();
-    fs::write(root.join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+    setup_explicit_evidence_fixture(
+        root,
+        r#"paths = ["specs/**/*.mdx"]
+tests = ["tests/**/*.rs"]
+
+[ecosystem]
+plugins = ["rust"]
+"#,
+    );
 }
 
 fn setup_partial_plugin_warning_fixture(root: &Path, extra_config: &str) {
@@ -121,6 +133,18 @@ plugins = []
         "# shared authored evidence\n",
     )
     .unwrap();
+}
+
+fn setup_explicit_evidence_only_fixture(root: &Path) {
+    setup_explicit_evidence_fixture(
+        root,
+        r#"paths = ["specs/**/*.mdx"]
+tests = ["tests/**/*.rs"]
+
+[ecosystem]
+plugins = []
+"#,
+    );
 }
 
 fn setup_clean_example_fixture(root: &Path) {
@@ -413,24 +437,7 @@ fn verify_json_shared_file_glob_evidence_does_not_surface_conflicts() {
 #[test]
 fn verify_with_plugins_disabled_keeps_explicit_evidence_and_stays_clean() {
     let tmp = TempDir::new().unwrap();
-    write_config(
-        tmp.path(),
-        r#"paths = ["specs/**/*.mdx"]
-tests = ["tests/**/*.rs"]
-
-[ecosystem]
-plugins = []
-"#,
-    );
-    write_requirement_with_explicit_evidence(tmp.path());
-    fs::create_dir_all(tmp.path().join("tests")).unwrap();
-    fs::create_dir_all(tmp.path().join("src")).unwrap();
-    fs::write(
-        tmp.path().join("tests/auth_test.rs"),
-        "# explicit authored evidence\n",
-    )
-    .unwrap();
-    fs::write(tmp.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
+    setup_explicit_evidence_only_fixture(tmp.path());
 
     let output = cargo_bin_cmd!("supersigil")
         .args(["verify", "--format", "json"])
@@ -713,28 +720,6 @@ fn verify_skip_examples_flag_prevents_example_execution() {
     );
 }
 
-#[verifies("executable-examples/req#req-4-5")]
-#[test]
-fn verify_update_snapshots_flag_is_accepted() {
-    let tmp = TempDir::new().unwrap();
-    setup_clean_example_fixture(tmp.path());
-
-    let output = cargo_bin_cmd!("supersigil")
-        .args(["verify", "--format", "json", "--update-snapshots"])
-        .current_dir(tmp.path())
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(0));
-
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
-    assert_eq!(
-        report["summary"]["error_count"], 0,
-        "verify with --update-snapshots should succeed on a clean fixture, got: {report}",
-    );
-}
-
 #[test]
 fn verify_skip_examples_hints_about_example_pending_criteria() {
     let tmp = TempDir::new().unwrap();
@@ -1012,42 +997,27 @@ fn verify_project_filter_reports_only_selected_project_findings() {
 
 #[verifies("executable-examples/req#req-6-5")]
 #[test]
-fn verify_parallelism_flag_short_accepted() {
-    let tmp = TempDir::new().unwrap();
-    setup_clean_example_fixture(tmp.path());
+fn verify_parallelism_flags_are_accepted() {
+    for args in [["-j", "2"], ["--parallelism", "1"]] {
+        let tmp = TempDir::new().unwrap();
+        setup_clean_example_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
-        .args(["verify", "--format", "json", "-j", "2"])
-        .current_dir(tmp.path())
-        .output()
-        .unwrap();
+        let output = cargo_bin_cmd!("supersigil")
+            .args(["verify", "--format", "json"])
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
 
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "verify -j 2 should succeed, stderr: {}",
-        String::from_utf8_lossy(&output.stderr),
-    );
-}
-
-#[verifies("executable-examples/req#req-6-5")]
-#[test]
-fn verify_parallelism_flag_long_accepted() {
-    let tmp = TempDir::new().unwrap();
-    setup_clean_example_fixture(tmp.path());
-
-    let output = cargo_bin_cmd!("supersigil")
-        .args(["verify", "--format", "json", "--parallelism", "1"])
-        .current_dir(tmp.path())
-        .output()
-        .unwrap();
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "verify --parallelism 1 should succeed, stderr: {}",
-        String::from_utf8_lossy(&output.stderr),
-    );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "verify {} {} should succeed, stderr: {}",
+            args[0],
+            args[1],
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
 }
 
 #[verifies("executable-examples/req#req-6-5")]

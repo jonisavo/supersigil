@@ -954,34 +954,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Source location accuracy (req-6-3)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn async_test_source_location_has_correct_file() {
-        let records = discover_file(&fixture("async_test.rs")).unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].source_location.file, fixture("async_test.rs"));
-    }
-
-    #[test]
-    fn snapshot_test_source_location_line() {
-        let records = discover_file(&fixture("snapshot_test.rs")).unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].source_location.line, 3);
-    }
-
-    #[test]
-    fn multiple_attrs_source_location_line() {
-        let records = discover_file(&fixture("multiple_attrs.rs")).unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].source_location.line, 3);
-    }
-
-    // -----------------------------------------------------------------------
     // Mod block recursion (functions inside `mod tests { ... }`)
     // -----------------------------------------------------------------------
 

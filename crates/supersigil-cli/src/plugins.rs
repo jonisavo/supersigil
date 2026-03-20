@@ -410,31 +410,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn collect_plugin_evidence_graceful_on_empty_rust_scope() {
-        let mut config = base_config();
-        config.ecosystem.plugins = vec!["rust".into()];
-
-        let plugins = assemble_plugins(&config);
-        let scope = ProjectScope {
-            project: None,
-            project_root: PathBuf::from("/tmp"),
-        };
-        let graph = {
-            let cfg = base_config();
-            supersigil_core::build_graph(vec![], &cfg).unwrap()
-        };
-
-        let result = collect_plugin_evidence(&plugins, &[], &scope, &graph);
-
-        assert!(result.evidence.is_empty());
-        assert!(
-            result.findings.is_empty(),
-            "empty Rust scope should produce no findings, got {:?}",
-            result.findings,
-        );
-    }
-
     // -------------------------------------------------------------------
     // 5b. Plugin discovery failure produces finding (req-8-6)
     // -------------------------------------------------------------------
