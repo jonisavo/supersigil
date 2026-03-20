@@ -227,6 +227,9 @@ pub fn verify(
 
     // Resolve severities
     resolve_finding_severities(&mut findings, graph, config);
+    if let Some(finding) = empty_project_finding(config, doc_ids.len()) {
+        findings.push(finding);
+    }
     Ok(finalize_report(
         config,
         doc_ids.len(),
@@ -330,6 +333,23 @@ pub fn finalize_example_findings(
     }
 
     findings
+}
+
+/// Build the empty-project warning finding when no documents are in scope.
+#[must_use]
+pub fn empty_project_finding(config: &Config, doc_count: usize) -> Option<Finding> {
+    if doc_count != 0 {
+        return None;
+    }
+
+    let mut finding = Finding::new(
+        RuleName::EmptyProject,
+        None,
+        "no documents found — run `supersigil new requirements <name>` to create one, or check that existing files have valid `supersigil:` frontmatter".to_string(),
+        None,
+    );
+    finding.effective_severity = resolve_severity(&finding.rule, None, &config.verify);
+    Some(finding)
 }
 
 /// Resolve effective severities for a batch of findings.
@@ -694,6 +714,44 @@ mod verify_tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].effective_severity, ReportSeverity::Info);
         assert_eq!(findings[0].raw_severity, ReportSeverity::Error);
+    }
+
+    #[test]
+    fn empty_project_finding_warns_when_no_documents_are_in_scope() {
+        let config = test_config();
+
+        let finding = empty_project_finding(&config, 0).expect("empty project finding");
+
+        assert_eq!(finding.rule, RuleName::EmptyProject);
+        assert_eq!(finding.effective_severity, ReportSeverity::Warning);
+        assert!(finding.message.contains("no documents found"));
+    }
+
+    #[test]
+    fn verify_empty_graph_emits_empty_project_warning() {
+        let graph = build_test_graph(Vec::new());
+        let config = test_config();
+        let options = VerifyOptions::default();
+        let artifact_graph = ArtifactGraph::empty(&graph);
+
+        let report = verify(
+            &graph,
+            &config,
+            Path::new("/tmp"),
+            &options,
+            &artifact_graph,
+        )
+        .unwrap();
+
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule == RuleName::EmptyProject),
+            "empty graphs should surface the shared empty-project finding: {:?}",
+            report.findings,
+        );
+        assert_eq!(report.result_status(), ResultStatus::WarningsOnly);
     }
 
     #[test]
