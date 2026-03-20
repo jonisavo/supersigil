@@ -247,26 +247,8 @@ pub fn run(
     plugin_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
     // Convert artifact graph conflicts into findings
-    let mut conflict_findings: Vec<Finding> = if final_artifact_graph.conflicts.is_empty() {
-        Vec::new()
-    } else {
-        final_artifact_graph
-            .conflicts
-            .iter()
-            .map(|conflict| {
-                let test_name = format!("{}::{}", conflict.test.file.display(), conflict.test.name);
-                let left: Vec<String> = conflict.left.iter().map(ToString::to_string).collect();
-                let right: Vec<String> = conflict.right.iter().map(ToString::to_string).collect();
-                let message = format!(
-                    "evidence conflict for test `{test_name}`: \
-                     criterion sets disagree — [{}] vs [{}]",
-                    left.join(", "),
-                    right.join(", "),
-                );
-                Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
-            })
-            .collect()
-    };
+    let mut conflict_findings =
+        supersigil_verify::artifact_conflict_findings(&final_artifact_graph);
     resolve_finding_severities(&mut conflict_findings, &graph, &config);
     conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 

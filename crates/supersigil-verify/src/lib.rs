@@ -262,6 +262,27 @@ pub fn finalize_report(
     VerificationReport::new(findings, summary, evidence_summary)
 }
 
+/// Convert artifact-graph conflicts into global verification findings.
+#[must_use]
+pub fn artifact_conflict_findings(artifact_graph: &ArtifactGraph<'_>) -> Vec<Finding> {
+    artifact_graph
+        .conflicts
+        .iter()
+        .map(|conflict| {
+            let test_name = format!("{}::{}", conflict.test.file.display(), conflict.test.name);
+            let left: Vec<String> = conflict.left.iter().map(ToString::to_string).collect();
+            let right: Vec<String> = conflict.right.iter().map(ToString::to_string).collect();
+            let message = format!(
+                "evidence conflict for test `{test_name}`: \
+                 criterion sets disagree — [{}] vs [{}]",
+                left.join(", "),
+                right.join(", "),
+            );
+            Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
+        })
+        .collect()
+}
+
 /// Resolve effective severities for a batch of findings.
 pub fn resolve_finding_severities(
     findings: &mut [Finding],
@@ -359,35 +380,49 @@ mod verify_tests {
     use tempfile::TempDir;
     use test_helpers::*;
 
-    fn make_artifact_graph_with_evidence(graph: &DocumentGraph) -> ArtifactGraph<'_> {
-        build_artifact_graph(
-            graph,
-            vec![],
-            vec![VerificationEvidenceRecord {
-                id: EvidenceId::new(0),
-                targets: VerificationTargets::single(VerifiableRef {
-                    doc_id: "req/auth".into(),
-                    target_id: "req-1".into(),
-                }),
-                test: TestIdentity {
-                    file: PathBuf::from("tests/auth_test.rs"),
-                    name: "login_succeeds".into(),
-                    kind: TestKind::Unit,
-                },
-                source_location: SourceLocation {
+    fn make_evidence_record(
+        id: usize,
+        doc_id: &str,
+        target_id: &str,
+        test_name: &str,
+    ) -> VerificationEvidenceRecord {
+        VerificationEvidenceRecord {
+            id: EvidenceId::new(id),
+            targets: VerificationTargets::single(VerifiableRef {
+                doc_id: doc_id.into(),
+                target_id: target_id.into(),
+            }),
+            test: TestIdentity {
+                file: PathBuf::from("tests/auth_test.rs"),
+                name: test_name.into(),
+                kind: TestKind::Unit,
+            },
+            source_location: SourceLocation {
+                file: PathBuf::from("tests/auth_test.rs"),
+                line: 3,
+                column: 1,
+            },
+            provenance: vec![PluginProvenance::RustAttribute {
+                attribute_span: SourceLocation {
                     file: PathBuf::from("tests/auth_test.rs"),
                     line: 3,
                     column: 1,
                 },
-                provenance: vec![PluginProvenance::RustAttribute {
-                    attribute_span: SourceLocation {
-                        file: PathBuf::from("tests/auth_test.rs"),
-                        line: 3,
-                        column: 1,
-                    },
-                }],
-                metadata: BTreeMap::new(),
             }],
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn make_artifact_graph_with_evidence(graph: &DocumentGraph) -> ArtifactGraph<'_> {
+        build_artifact_graph(
+            graph,
+            vec![],
+            vec![make_evidence_record(
+                0,
+                "req/auth",
+                "req-1",
+                "login_succeeds",
+            )],
         )
     }
 
@@ -530,6 +565,42 @@ mod verify_tests {
             findings
                 .iter()
                 .all(|finding| finding.doc_id.as_deref() != Some("beta/billing"))
+        );
+    }
+
+    #[test]
+    fn artifact_conflict_findings_surface_conflicts_as_findings() {
+        let docs = vec![make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("req-1", 10), make_criterion("req-2", 20)],
+                9,
+            )],
+        )];
+        let graph = build_test_graph(docs);
+        let artifact_graph = build_artifact_graph(
+            &graph,
+            vec![],
+            vec![
+                make_evidence_record(0, "req/auth", "req-1", "login_succeeds"),
+                make_evidence_record(1, "req/auth", "req-2", "login_succeeds"),
+            ],
+        );
+
+        let findings = artifact_conflict_findings(&artifact_graph);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, RuleName::PluginDiscoveryFailure);
+        assert!(
+            findings[0].message.contains("evidence conflict for test"),
+            "conflict finding should explain the conflicting test: {:?}",
+            findings[0],
+        );
+        assert!(
+            findings[0].message.contains("req/auth#req-1")
+                && findings[0].message.contains("req/auth#req-2"),
+            "conflict finding should list both conflicting target sets: {:?}",
+            findings[0],
         );
     }
 
