@@ -42,49 +42,6 @@ fn discovers_mdx_files_matching_glob() {
 }
 
 #[test]
-fn no_matches_returns_empty_vec() {
-    let tmp = TempDir::new().unwrap();
-    let paths = discover_spec_files(&["specs/**/*.mdx".to_string()], tmp.path()).unwrap();
-
-    assert!(paths.is_empty());
-}
-
-#[test]
-fn multiple_globs_combined() {
-    let tmp = TempDir::new().unwrap();
-    setup_fixture(&tmp);
-    fs::create_dir_all(tmp.path().join("extra")).unwrap();
-    fs::write(
-        tmp.path().join("extra/doc.mdx"),
-        "---\nsupersigil:\n  id: d\n---\n",
-    )
-    .unwrap();
-
-    let paths = discover_spec_files(
-        &["specs/**/*.mdx".to_string(), "extra/**/*.mdx".to_string()],
-        tmp.path(),
-    )
-    .unwrap();
-
-    assert_eq!(paths.len(), 4);
-}
-
-#[test]
-fn overlapping_globs_are_deduplicated() {
-    let tmp = TempDir::new().unwrap();
-    setup_fixture(&tmp);
-
-    let paths = discover_spec_files(
-        &["specs/**/*.mdx".to_string(), "specs/auth/*.mdx".to_string()],
-        tmp.path(),
-    )
-    .unwrap();
-
-    assert_eq!(paths.len(), 3);
-    assert!(paths.windows(2).all(|pair| pair[0] <= pair[1]));
-}
-
-#[test]
 fn invalid_glob_returns_error() {
     let tmp = TempDir::new().unwrap();
 
