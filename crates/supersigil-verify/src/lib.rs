@@ -153,8 +153,9 @@ pub fn verify_structural(
     findings.extend(rules::structural::check_alternative_status(&docs));
     findings.extend(rules::structural::check_code_block_cardinality(&docs));
     findings.extend(rules::structural::check_env_format(&docs));
-    findings.extend(rules::structural::check_sequential_id_order(&docs));
-    findings.extend(rules::structural::check_sequential_id_gap(&docs));
+    let (sequential_id_order, sequential_id_gap) = rules::structural::check_sequential_ids(&docs);
+    findings.extend(sequential_id_order);
+    findings.extend(sequential_id_gap);
 
     // Decision
     findings.extend(rules::decision::check_incomplete(&docs));

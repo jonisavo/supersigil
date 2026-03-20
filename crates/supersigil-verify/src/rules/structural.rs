@@ -1,6 +1,7 @@
 use supersigil_core::{
     ALTERNATIVE, CRITERION, ComponentDefs, Config, DECISION, DEPENDS_ON, DocumentGraph, EXAMPLE,
-    EXPECTED, IMPLEMENTS, RATIONALE, REFERENCES, SpecDocument, TASK, VERIFIED_BY,
+    EXPECTED, ExtractedComponent, IMPLEMENTS, RATIONALE, REFERENCES, SourcePosition, SpecDocument,
+    TASK, VERIFIED_BY,
 };
 
 use crate::report::{Finding, RuleName};
@@ -72,6 +73,7 @@ pub fn check_id_pattern(graph: &DocumentGraph, config: &Config) -> Vec<Finding> 
 /// Check each document for incoming or outgoing refs. Documents with neither
 /// are flagged as isolated.
 pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
+    let (task_level_outgoing, task_level_incoming) = collect_task_level_doc_refs(graph);
     let mut findings = Vec::new();
     for (doc_id, doc) in graph.documents() {
         // Check outgoing refs (document has ref components)
@@ -84,30 +86,8 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
             || !graph.implements(doc_id).is_empty()
             || !graph.depends_on(doc_id).is_empty();
 
-        // Check task-level implements (outgoing: this doc's tasks implement
-        // criteria in another document)
-        let has_task_level_refs = graph.task_order(doc_id).is_some_and(|order| {
-            order.iter().any(|task_id| {
-                graph
-                    .task_implements(doc_id, task_id)
-                    .is_some_and(|impls| impls.iter().any(|(target_doc, _)| target_doc != doc_id))
-            })
-        });
-
-        // Check incoming task-level implements (other docs' tasks implement
-        // criteria in this document)
-        let has_incoming_task_refs = graph.documents().any(|(other_id, _)| {
-            other_id != doc_id
-                && graph.task_order(other_id).is_some_and(|order| {
-                    order.iter().any(|task_id| {
-                        graph
-                            .task_implements(other_id, task_id)
-                            .is_some_and(|impls| {
-                                impls.iter().any(|(target_doc, _)| target_doc == doc_id)
-                            })
-                    })
-                })
-        });
+        let has_task_level_refs = task_level_outgoing.contains(doc_id);
+        let has_incoming_task_refs = task_level_incoming.contains(doc_id);
 
         if !has_outgoing && !has_incoming && !has_task_level_refs && !has_incoming_task_refs {
             findings.push(Finding::new(
@@ -119,6 +99,37 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn collect_task_level_doc_refs(
+    graph: &DocumentGraph,
+) -> (
+    std::collections::HashSet<&str>,
+    std::collections::HashSet<&str>,
+) {
+    let mut outgoing = std::collections::HashSet::new();
+    let mut incoming = std::collections::HashSet::new();
+
+    for (doc_id, _) in graph.documents() {
+        let Some(task_order) = graph.task_order(doc_id) else {
+            continue;
+        };
+
+        for task_id in task_order {
+            let Some(implementations) = graph.task_implements(doc_id, task_id) else {
+                continue;
+            };
+
+            for (target_doc, _) in implementations {
+                if target_doc != doc_id {
+                    outgoing.insert(doc_id);
+                    incoming.insert(target_doc.as_str());
+                }
+            }
+        }
+    }
+
+    (outgoing, incoming)
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +170,19 @@ pub fn check_orphan_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Ve
     findings
 }
 
+fn visit_components<'a, F>(
+    components: &'a [ExtractedComponent],
+    parent_name: Option<&'a str>,
+    visit: &mut F,
+) where
+    F: FnMut(&'a ExtractedComponent, Option<&'a str>),
+{
+    for component in components {
+        visit(component, parent_name);
+        visit_components(&component.children, Some(component.name.as_str()), visit);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // check_verified_by_placement
 // ---------------------------------------------------------------------------
@@ -172,23 +196,12 @@ pub fn check_verified_by_placement(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        walk_for_verified_by(doc_id, &doc.components, None, component_defs, &mut findings);
-    }
-    findings
-}
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, parent_name: Option<&str>| {
+            if component.name != VERIFIED_BY {
+                return;
+            }
 
-/// Recursively walk the component tree. `parent_name` is the name of the
-/// immediate parent component (or `None` at the document root level).
-fn walk_for_verified_by(
-    doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
-    parent_name: Option<&str>,
-    component_defs: &ComponentDefs,
-    findings: &mut Vec<Finding>,
-) {
-    for comp in components {
-        if comp.name == VERIFIED_BY {
             let parent_is_verifiable = parent_name
                 .and_then(|name| component_defs.get(name))
                 .is_some_and(|def| def.verifiable);
@@ -205,19 +218,13 @@ fn walk_for_verified_by(
                         "VerifiedBy in `{doc_id}` is placed {context}; \
                          it must be a direct child of a verifiable component (e.g. Criterion)"
                     ),
-                    Some(comp.position),
+                    Some(component.position),
                 ));
             }
-        }
-        // Recurse into children
-        walk_for_verified_by(
-            doc_id,
-            &comp.children,
-            Some(&comp.name),
-            component_defs,
-            findings,
-        );
+        };
+        visit_components(&doc.components, None, &mut visit);
     }
+    findings
 }
 
 // ---------------------------------------------------------------------------
@@ -234,31 +241,12 @@ fn check_child_placement(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        walk_for_child_placement(
-            doc_id,
-            &doc.components,
-            None,
-            child_name,
-            valid_parent,
-            rule,
-            &mut findings,
-        );
-    }
-    findings
-}
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, parent_name: Option<&str>| {
+            if component.name != child_name || parent_name == Some(valid_parent) {
+                return;
+            }
 
-fn walk_for_child_placement(
-    doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
-    parent_name: Option<&str>,
-    child_name: &str,
-    valid_parent: &str,
-    rule: RuleName,
-    findings: &mut Vec<Finding>,
-) {
-    for comp in components {
-        if comp.name == child_name && parent_name != Some(valid_parent) {
             let context = match parent_name {
                 Some(name) => format!("under `{name}`"),
                 None => "at document root".into(),
@@ -270,19 +258,12 @@ fn walk_for_child_placement(
                     "{child_name} in `{doc_id}` is placed {context}; \
                      it must be a direct child of {valid_parent}"
                 ),
-                Some(comp.position),
+                Some(component.position),
             ));
-        }
-        walk_for_child_placement(
-            doc_id,
-            &comp.children,
-            Some(&comp.name),
-            child_name,
-            valid_parent,
-            rule,
-            findings,
-        );
+        };
+        visit_components(&doc.components, None, &mut visit);
     }
+    findings
 }
 
 /// Check that every `Expected` component is a direct child of an `Example`
@@ -392,47 +373,44 @@ pub fn check_duplicate_rationale(docs: &[&SpecDocument]) -> Vec<Finding> {
 pub fn check_code_block_cardinality(docs: &[&SpecDocument]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        walk_for_code_block_cardinality(doc_id, &doc.components, &mut findings);
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| match component
+            .name
+            .as_str()
+        {
+            EXAMPLE => {
+                let count = component.code_blocks.len();
+                if count != 1 {
+                    findings.push(Finding::new(
+                        RuleName::InvalidCodeBlockCardinality,
+                        Some(doc_id.to_owned()),
+                        format!(
+                            "Example in `{doc_id}` has {count} code block(s); \
+                                 it must have exactly 1"
+                        ),
+                        Some(component.position),
+                    ));
+                }
+            }
+            EXPECTED => {
+                let count = component.code_blocks.len();
+                if count > 1 {
+                    findings.push(Finding::new(
+                        RuleName::InvalidCodeBlockCardinality,
+                        Some(doc_id.to_owned()),
+                        format!(
+                            "Expected in `{doc_id}` has {count} code block(s); \
+                                 it must have at most 1"
+                        ),
+                        Some(component.position),
+                    ));
+                }
+            }
+            _ => {}
+        };
+        visit_components(&doc.components, None, &mut visit);
     }
     findings
-}
-
-fn walk_for_code_block_cardinality(
-    doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
-    findings: &mut Vec<Finding>,
-) {
-    for comp in components {
-        if comp.name == EXAMPLE {
-            let count = comp.code_blocks.len();
-            if count != 1 {
-                findings.push(Finding::new(
-                    RuleName::InvalidCodeBlockCardinality,
-                    Some(doc_id.to_owned()),
-                    format!(
-                        "Example in `{doc_id}` has {count} code block(s); \
-                         it must have exactly 1"
-                    ),
-                    Some(comp.position),
-                ));
-            }
-        } else if comp.name == EXPECTED {
-            let count = comp.code_blocks.len();
-            if count > 1 {
-                findings.push(Finding::new(
-                    RuleName::InvalidCodeBlockCardinality,
-                    Some(doc_id.to_owned()),
-                    format!(
-                        "Expected in `{doc_id}` has {count} code block(s); \
-                         it must have at most 1"
-                    ),
-                    Some(comp.position),
-                ));
-            }
-        }
-        walk_for_code_block_cardinality(doc_id, &comp.children, findings);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -444,21 +422,18 @@ fn walk_for_code_block_cardinality(
 pub fn check_env_format(docs: &[&SpecDocument]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        walk_for_env_format(doc_id, &doc.components, &mut findings);
-    }
-    findings
-}
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
+            if (component.name != EXAMPLE && component.name != EXPECTED)
+                || !component.attributes.contains_key("env")
+            {
+                return;
+            }
 
-fn walk_for_env_format(
-    doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
-    findings: &mut Vec<Finding>,
-) {
-    for comp in components {
-        if (comp.name == EXAMPLE || comp.name == EXPECTED)
-            && let Some(env_val) = comp.attributes.get("env")
-        {
+            let env_val = component
+                .attributes
+                .get("env")
+                .expect("checked env attribute above");
             for item in env_val.split(',') {
                 let item = item.trim();
                 if !item.is_empty() && !item.contains('=') {
@@ -468,15 +443,16 @@ fn walk_for_env_format(
                         format!(
                             "{} in `{doc_id}` has invalid env item `{item}`; \
                              each item must contain `=`",
-                            comp.name
+                            component.name
                         ),
-                        Some(comp.position),
+                        Some(component.position),
                     ));
                 }
             }
-        }
-        walk_for_env_format(doc_id, &comp.children, findings);
+        };
+        visit_components(&doc.components, None, &mut visit);
     }
+    findings
 }
 
 // ---------------------------------------------------------------------------
@@ -490,11 +466,28 @@ pub(crate) enum NumericKey {
     Two(u32, u32),
 }
 
+impl NumericKey {
+    const fn arity(self) -> u8 {
+        match self {
+            Self::One(_) => 1,
+            Self::Two(_, _) => 2,
+        }
+    }
+}
+
 /// A parsed sequential ID: prefix + numeric key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SequentialId<'a> {
     pub prefix: &'a str,
     pub key: NumericKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SequentialOccurrence<'a> {
+    id: &'a str,
+    prefix: &'a str,
+    key: NumericKey,
+    position: SourcePosition,
 }
 
 /// Parse a component ID into a `SequentialId` if it matches the pattern
@@ -557,18 +550,50 @@ pub(crate) fn parse_sequential_id(id: &str) -> Option<SequentialId<'_>> {
 
 /// Check that sequentially-numbered components appear in ascending numeric
 /// order by declaration position within each document.
-pub fn check_sequential_id_order(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        check_sequential_order_at_level(doc_id, &doc.components, &mut findings);
-    }
+#[cfg(test)]
+fn check_sequential_id_order(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let (findings, _) = check_sequential_ids(docs);
     findings
 }
 
-fn check_sequential_order_at_level(
+pub(crate) fn check_sequential_ids(docs: &[&SpecDocument]) -> (Vec<Finding>, Vec<Finding>) {
+    let mut order_findings = Vec::new();
+    let mut gap_findings = Vec::new();
+
+    for doc in docs {
+        let doc_id = doc.frontmatter.id.as_str();
+        let occurrences = collect_sequential_occurrences(&doc.components);
+        collect_sequential_order_findings(doc_id, &occurrences, &mut order_findings);
+        collect_sequential_gap_findings(doc_id, &occurrences, &mut gap_findings);
+    }
+
+    (order_findings, gap_findings)
+}
+
+fn collect_sequential_occurrences<'a>(
+    components: &'a [ExtractedComponent],
+) -> Vec<SequentialOccurrence<'a>> {
+    let mut occurrences = Vec::new();
+    let mut visit = |component: &'a ExtractedComponent, _parent_name: Option<&'a str>| {
+        if is_referenceable(&component.name)
+            && let Some(id) = component.attributes.get("id")
+            && let Some(parsed) = parse_sequential_id(id)
+        {
+            occurrences.push(SequentialOccurrence {
+                id: id.as_str(),
+                prefix: parsed.prefix,
+                key: parsed.key,
+                position: component.position,
+            });
+        }
+    };
+    visit_components(components, None, &mut visit);
+    occurrences
+}
+
+fn collect_sequential_order_findings(
     doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
+    occurrences: &[SequentialOccurrence<'_>],
     findings: &mut Vec<Finding>,
 ) {
     // Group sequential IDs by (prefix, arity), preserving declaration order.
@@ -576,30 +601,22 @@ fn check_sequential_order_at_level(
     let mut last_key: std::collections::HashMap<(&str, u8), (NumericKey, &str)> =
         std::collections::HashMap::new();
 
-    for comp in components {
-        if is_referenceable(&comp.name)
-            && let Some(id) = comp.attributes.get("id")
-            && let Some(parsed) = parse_sequential_id(id)
+    for occurrence in occurrences {
+        let group = (occurrence.prefix, occurrence.key.arity());
+        if let Some((prev_key, prev_id)) = last_key.get(&group)
+            && occurrence.key <= *prev_key
         {
-            let arity = match parsed.key {
-                NumericKey::One(_) => 1,
-                NumericKey::Two(_, _) => 2,
-            };
-            let group = (parsed.prefix, arity);
-            if let Some((prev_key, prev_id)) = last_key.get(&group)
-                && parsed.key <= *prev_key
-            {
-                findings.push(Finding::new(
-                    RuleName::SequentialIdOrder,
-                    Some(doc_id.to_owned()),
-                    format!("`{id}` is declared after `{prev_id}` in document `{doc_id}`"),
-                    Some(comp.position),
-                ));
-            }
-            last_key.insert(group, (parsed.key, id));
+            findings.push(Finding::new(
+                RuleName::SequentialIdOrder,
+                Some(doc_id.to_owned()),
+                format!(
+                    "`{}` is declared after `{prev_id}` in document `{doc_id}`",
+                    occurrence.id
+                ),
+                Some(occurrence.position),
+            ));
         }
-        // Always recurse into children (AcceptanceCriteria wraps Criterion).
-        check_sequential_order_at_level(doc_id, &comp.children, findings);
+        last_key.insert(group, (occurrence.key, occurrence.id));
     }
 }
 
@@ -609,44 +626,29 @@ fn check_sequential_order_at_level(
 
 /// Check that sequentially-numbered components form contiguous sequences
 /// within each prefix group.
-pub fn check_sequential_id_gap(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = &doc.frontmatter.id;
-        check_sequential_gap_at_level(doc_id, &doc.components, &mut findings);
-    }
+#[cfg(test)]
+fn check_sequential_id_gap(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let (_, findings) = check_sequential_ids(docs);
     findings
 }
 
-fn check_sequential_gap_at_level(
+fn collect_sequential_gap_findings(
     doc_id: &str,
-    components: &[supersigil_core::ExtractedComponent],
+    occurrences: &[SequentialOccurrence<'_>],
     findings: &mut Vec<Finding>,
 ) {
-    // Collect sequential IDs grouped by prefix.
     let mut by_prefix: std::collections::HashMap<&str, Vec<NumericKey>> =
         std::collections::HashMap::new();
 
-    collect_sequential_keys(components, &mut by_prefix);
+    for occurrence in occurrences {
+        by_prefix
+            .entry(occurrence.prefix)
+            .or_default()
+            .push(occurrence.key);
+    }
 
     for (prefix, keys) in &by_prefix {
         check_contiguity(doc_id, prefix, keys, findings);
-    }
-}
-
-fn collect_sequential_keys<'a>(
-    components: &'a [supersigil_core::ExtractedComponent],
-    by_prefix: &mut std::collections::HashMap<&'a str, Vec<NumericKey>>,
-) {
-    for comp in components {
-        if is_referenceable(&comp.name)
-            && let Some(id) = comp.attributes.get("id")
-            && let Some(parsed) = parse_sequential_id(id)
-        {
-            by_prefix.entry(parsed.prefix).or_default().push(parsed.key);
-        }
-        // Always recurse into children.
-        collect_sequential_keys(&comp.children, by_prefix);
     }
 }
 
@@ -917,6 +919,60 @@ mod tests {
         let findings = check_isolated(&graph);
         // "other" has incoming ref from "connected", so neither is isolated
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn tasks_doc_with_task_level_implements_is_not_isolated() {
+        let mut task = make_task("task-1", 10);
+        task.attributes
+            .insert("implements".into(), "req/auth#req-1".into());
+
+        let docs = vec![
+            make_doc(
+                "req/auth",
+                vec![make_acceptance_criteria(
+                    vec![make_criterion("req-1", 5)],
+                    4,
+                )],
+            ),
+            make_doc("tasks/auth", vec![task]),
+        ];
+        let graph = build_test_graph(docs);
+        let findings = check_isolated(&graph);
+
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.doc_id.as_deref() != Some("tasks/auth")),
+            "tasks doc with task-level implements should not be isolated, got: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn task_implements_target_is_not_isolated() {
+        let mut task = make_task("task-1", 10);
+        task.attributes
+            .insert("implements".into(), "req/auth#req-1".into());
+
+        let docs = vec![
+            make_doc(
+                "req/auth",
+                vec![make_acceptance_criteria(
+                    vec![make_criterion("req-1", 5)],
+                    4,
+                )],
+            ),
+            make_doc("tasks/auth", vec![task]),
+        ];
+        let graph = build_test_graph(docs);
+        let findings = check_isolated(&graph);
+
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.doc_id.as_deref() != Some("req/auth")),
+            "task implements target should not be isolated, got: {findings:?}",
+        );
     }
 
     // -----------------------------------------------------------------------
