@@ -144,13 +144,7 @@ pub fn run(
     // supplied, only findings whose doc_id belongs to the selected project
     // (or is None) are reported. The full workspace graph remains available
     // for non-isolated resolution.
-    let doc_ids: Option<Vec<String>> = options.project.as_ref().map(|project| {
-        graph
-            .documents()
-            .filter(|(id, _)| graph.doc_project(id) == Some(project.as_str()))
-            .map(|(id, _)| id.to_owned())
-            .collect()
-    });
+    let doc_ids = supersigil_verify::scoped_doc_ids(&graph, &options);
 
     // -- Phase 1: Plugin evidence + structural checks --
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
@@ -293,18 +287,15 @@ pub fn run(
 
     // Filter findings to the selected project scope (req-3-4).
     // Structural findings are already filtered by verify_structural().
-    if let Some(ref ids) = doc_ids {
-        let retain_in_project = |f: &Finding| f.doc_id.as_ref().is_none_or(|id| ids.contains(id));
-        coverage_findings.retain(retain_in_project);
-        plugin_findings.retain(retain_in_project);
-        conflict_findings.retain(retain_in_project);
-        example_findings.retain(retain_in_project);
+    if options.project.is_some() {
+        supersigil_verify::filter_findings_to_doc_ids(&mut coverage_findings, &doc_ids);
+        supersigil_verify::filter_findings_to_doc_ids(&mut plugin_findings, &doc_ids);
+        supersigil_verify::filter_findings_to_doc_ids(&mut conflict_findings, &doc_ids);
+        supersigil_verify::filter_findings_to_doc_ids(&mut example_findings, &doc_ids);
     }
 
     // Count documents for summary
-    let doc_count = doc_ids
-        .as_ref()
-        .map_or_else(|| graph.documents().count(), Vec::len);
+    let doc_count = doc_ids.len();
 
     // Assemble all findings
     let mut all_findings: Vec<Finding> = Vec::new();

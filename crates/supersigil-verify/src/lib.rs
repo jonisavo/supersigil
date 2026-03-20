@@ -76,8 +76,10 @@ impl VerifyInputs {
     }
 }
 
-/// Collect document IDs, optionally filtered by project.
-fn collect_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<String> {
+/// Collect document IDs in scope for verification, optionally filtered by
+/// `VerifyOptions::project`.
+#[must_use]
+pub fn scoped_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<String> {
     if let Some(project) = &options.project {
         graph
             .documents()
@@ -112,7 +114,7 @@ pub fn verify_structural(
     options: &VerifyOptions,
     inputs: &VerifyInputs,
 ) -> Result<Vec<Finding>, VerifyError> {
-    let doc_ids = collect_doc_ids(graph, options);
+    let doc_ids = scoped_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
 
     let mut findings = Vec::new();
@@ -198,7 +200,7 @@ pub fn verify(
     options: &VerifyOptions,
     artifact_graph: &ArtifactGraph<'_>,
 ) -> Result<VerificationReport, VerifyError> {
-    let doc_ids = collect_doc_ids(graph, options);
+    let doc_ids = scoped_doc_ids(graph, options);
     let inputs = VerifyInputs::resolve(config, project_root);
 
     // Run structural rules and coverage rules
@@ -284,9 +286,20 @@ fn scope_and_annotate(
     project_filter: bool,
 ) {
     if project_filter {
-        findings.retain(|f| f.doc_id.as_ref().is_none_or(|id| doc_ids.contains(id)));
+        filter_findings_to_doc_ids(findings, doc_ids);
     }
     attach_doc_paths(findings, graph);
+}
+
+/// Filter a finding list to a selected document scope while preserving global
+/// findings whose `doc_id` is absent.
+pub fn filter_findings_to_doc_ids(findings: &mut Vec<Finding>, doc_ids: &[String]) {
+    findings.retain(|finding| {
+        finding
+            .doc_id
+            .as_ref()
+            .is_none_or(|id| doc_ids.contains(id))
+    });
 }
 
 fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
@@ -440,6 +453,83 @@ mod verify_tests {
                 .records
                 .len(),
             1,
+        );
+    }
+
+    #[test]
+    fn scoped_doc_ids_respects_project_filter() {
+        let mut alpha = make_doc("alpha/auth", vec![]);
+        alpha.path = PathBuf::from("specs/alpha/auth.mdx");
+
+        let mut beta = make_doc("beta/billing", vec![]);
+        beta.path = PathBuf::from("specs/beta/billing.mdx");
+
+        let mut config = test_config();
+        config.projects = Some(std::collections::HashMap::from([
+            (
+                "alpha".into(),
+                supersigil_core::ProjectConfig {
+                    paths: vec!["specs/alpha/**/*.mdx".into()],
+                    tests: vec![],
+                    isolated: false,
+                },
+            ),
+            (
+                "beta".into(),
+                supersigil_core::ProjectConfig {
+                    paths: vec!["specs/beta/**/*.mdx".into()],
+                    tests: vec![],
+                    isolated: false,
+                },
+            ),
+        ]));
+
+        let graph = build_test_graph_with_config(vec![alpha, beta], &config);
+        let options = VerifyOptions {
+            project: Some("alpha".into()),
+            ..VerifyOptions::default()
+        };
+
+        let doc_ids = scoped_doc_ids(&graph, &options);
+
+        assert_eq!(doc_ids, vec!["alpha/auth".to_string()]);
+    }
+
+    #[test]
+    fn filter_findings_to_doc_ids_keeps_global_findings() {
+        let mut findings = vec![
+            Finding::new(
+                RuleName::InvalidIdPattern,
+                Some("alpha/auth".into()),
+                "alpha".into(),
+                None,
+            ),
+            Finding::new(
+                RuleName::InvalidIdPattern,
+                Some("beta/billing".into()),
+                "beta".into(),
+                None,
+            ),
+            Finding::new(RuleName::OrphanTestTag, None, "global".into(), None),
+        ];
+
+        filter_findings_to_doc_ids(&mut findings, &[String::from("alpha/auth")]);
+
+        assert_eq!(findings.len(), 2);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.doc_id.as_deref() == Some("alpha/auth"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.doc_id.is_none() && finding.message == "global")
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.doc_id.as_deref() != Some("beta/billing"))
         );
     }
 
