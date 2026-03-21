@@ -191,3 +191,10 @@ html {
   background-repeat: repeat;
   background-size: 200px;
 }
+
+/* External link icon for sidebar items that open in new tab */
+.external-link::after {
+  content: ' ↗';
+  font-size: 0.75em;
+  opacity: 0.5;
+}

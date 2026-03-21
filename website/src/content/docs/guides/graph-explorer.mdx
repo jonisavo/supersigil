@@ -1,0 +1,97 @@
+---
+title: Graph Explorer
+description: Interactively explore the spec graph in your browser.
+supersigil:
+  id: website/guides/graph-explorer
+  type: documentation
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The graph explorer is an interactive, browser-based visualization of your spec graph. It renders documents as nodes in a force-directed layout, grouped into clusters by prefix, with edges showing Implements, DependsOn, and References relationships.
+
+## Quick Start
+
+Run the explorer from any project with a `supersigil.toml`:
+
+```bash
+supersigil explore
+```
+
+This generates a self-contained HTML file and opens it in your default browser. The visualization uses the same D3.js module that powers the [hosted explorer](/supersigil/explore/) on this docs site.
+
+To save the HTML to a file instead of opening it:
+
+```bash
+supersigil explore --output graph.html
+```
+
+## What You See
+
+The explorer shows your spec graph with:
+
+- **Document nodes** — circles colored by type: teal for requirements, green for design, gold for ADR, gray for other types. Node size scales with component count.
+- **Cluster borders** — dashed rectangles grouping documents that share an ID prefix (e.g., `parser/parser.req` and `parser/parser.design` cluster under `parser`).
+- **Edges** — lines between documents labeled with the relationship kind (Implements, DependsOn, References).
+
+## Interactions
+
+### Navigate
+
+- **Pan**: drag the background
+- **Zoom**: scroll wheel
+- **Drag nodes**: reposition individual nodes (the simulation reheats to settle)
+
+### Inspect
+
+- **Click a node** to open the detail sidebar showing document type, status, edges (incoming and outgoing), and components
+- **Double-click a node** to drill into its internal components — Criteria, Tasks, Decisions with their Rationale and Alternatives appear as child nodes inside the cluster
+
+### Filter
+
+The top bar provides type toggle chips and a status dropdown. Click a type chip to show only documents of that type. Filtered-out nodes fade to near-invisible but remain in place, preserving spatial context.
+
+### Trace Impact
+
+With a node selected, click **Trace impact** in the detail sidebar to highlight everything downstream — all documents that transitively depend on or implement the selected document. The traced subgraph renders at full opacity with gold edges; everything else dims. Click the background to clear the trace.
+
+### Search
+
+Type in the search box (or press `/`) to fuzzy-match on document ID and title. Selecting a result zooms to the node and opens its detail panel.
+
+### Share Views
+
+The URL hash updates as you interact, encoding node selection, active trace, and filter state. Copy the URL to share a specific view with teammates.
+
+Hash patterns:
+- `#/doc/{id}` — select a document
+- `#/doc/{id}/trace` — select and trace
+- `#/filter/type:{types};status:{status}` — filter state
+
+## Docs Site Integration
+
+The explorer is also available as a page on the docs site at [`/explore/`](/supersigil/explore/). Graph data is generated at build time via a prebuild script:
+
+```json
+{
+  "prebuild": "supersigil graph --format json > public/explore/graph.json"
+}
+```
+
+The hosted version uses the same visualization module and design system as the standalone CLI output.
+
+## JSON Graph Format
+
+The explorer consumes the JSON output of `supersigil graph --format json`. The format includes:
+
+- **`documents`** — array of document objects with `id`, `doc_type`, `status`, `title`, and `components`
+- **`edges`** — array of `{ from, to, kind }` objects representing document-level relationships
+
+This format is also useful for building custom tooling on top of the spec graph.
+
+<Aside type="tip">
+  Pipe the JSON to `jq` for quick queries:
+  ```bash
+  supersigil graph --format json | jq '.documents[] | select(.doc_type == "requirements") | .id'
+  ```
+</Aside>

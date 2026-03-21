@@ -25,6 +25,11 @@ export default defineConfig({
       sidebar: [
         { label: 'Introduction', slug: 'introduction' },
         {
+          label: 'Explore Graph',
+          link: '/explore/',
+          attrs: { target: '_blank', class: 'external-link' },
+        },
+        {
           label: 'Quickstart',
           items: [
             { label: 'Quickstart', slug: 'getting-started' },
@@ -39,6 +44,7 @@ export default defineConfig({
             { label: 'Architecture Decisions', slug: 'guides/architecture-decisions' },
             { label: 'CI Verification', slug: 'guides/ci-verification' },
             { label: 'Executable Examples', slug: 'guides/executable-examples' },
+            { label: 'Graph Explorer', slug: 'guides/graph-explorer' },
           ],
         },
         {

@@ -1,3 +1,5 @@
+pub(crate) mod json;
+
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -22,6 +24,7 @@ pub fn run(args: &GraphArgs, config_path: &Path, color: ColorConfig) -> Result<(
     let edge_count = match args.format {
         GraphFormat::Mermaid => write_mermaid(&mut out, &graph)?,
         GraphFormat::Dot => write_dot(&mut out, &graph)?,
+        GraphFormat::Json => write_json(&mut out, &graph)?,
     };
 
     // Summary on stderr so it doesn't pollute piped graph output.
@@ -31,10 +34,16 @@ pub fn run(args: &GraphArgs, config_path: &Path, color: ColorConfig) -> Result<(
         color.paint(Token::Count, &node_count.to_string()),
         color.paint(Token::Count, &edge_count.to_string()),
     );
-    format::hint(
-        color,
-        "Pipe to a file or tool, e.g. `supersigil graph > deps.mmd`.",
-    );
+    let hint_msg = match args.format {
+        GraphFormat::Mermaid => "Pipe to a file or tool, e.g. `supersigil graph > deps.mmd`.",
+        GraphFormat::Dot => {
+            "Pipe to a file or tool, e.g. `supersigil graph --format dot > deps.dot`."
+        }
+        GraphFormat::Json => {
+            "Pipe to a file or tool, e.g. `supersigil graph --format json > graph.json`."
+        }
+    };
+    format::hint(color, hint_msg);
 
     Ok(())
 }
@@ -114,4 +123,8 @@ fn for_each_edge(
 /// Convert a document ID to a valid Mermaid node identifier.
 fn mermaid_id(id: &str) -> String {
     id.replace(['/', '-'], "_")
+}
+
+fn write_json(out: &mut impl Write, graph: &supersigil_core::DocumentGraph) -> io::Result<usize> {
+    json::write_json(out, graph)
 }

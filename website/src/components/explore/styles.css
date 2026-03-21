@@ -1,0 +1,731 @@
+/* ===== Graph Explorer — Component Styles ===== */
+/* All colors reference design tokens from landing-tokens.css.
+   Dark/light theme switching is handled automatically by the token layer. */
+
+/* ===== EXPLORER CONTAINER ===== */
+
+.explorer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 4rem); /* subtract Starlight header */
+  background: var(--bg-deep);
+  overflow: hidden;
+  font-family: var(--font-body);
+  color: var(--text);
+}
+
+/* ===== TOP BAR ===== */
+
+.explorer-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  z-index: 10;
+}
+
+.explorer-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  transition: border-color 0.2s var(--ease);
+  min-width: 220px;
+}
+
+.explorer-search:focus-within {
+  border-color: var(--border-hover);
+  outline: none;
+}
+
+.explorer-search input {
+  background: none;
+  border: none;
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text);
+  width: 100%;
+  caret-color: var(--gold);
+}
+
+.explorer-search input::placeholder {
+  color: var(--text-dim);
+}
+
+.explorer-search-icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* ===== SEARCH RESULTS DROPDOWN ===== */
+
+.search-results {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hover) transparent;
+}
+
+.search-results.open {
+  display: block;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s var(--ease);
+}
+
+.search-result-item:hover,
+.search-result-item.highlighted {
+  background: var(--bg-card-hover);
+}
+
+.search-result-id {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--teal);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.search-result-title {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== SHARED FILTER DROPDOWN BASE ===== */
+
+.filter-multiselect,
+.filter-select {
+  position: relative;
+}
+
+.filter-dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.3rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), color 0.15s var(--ease);
+  white-space: nowrap;
+}
+
+.filter-dropdown-toggle:hover {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+
+.filter-multiselect.open .filter-dropdown-toggle,
+.filter-select.open .filter-dropdown-toggle {
+  border-color: var(--gold);
+  color: var(--text);
+}
+
+.filter-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 30;
+  padding: 0.35rem 0;
+}
+
+.filter-multiselect.open .filter-dropdown-menu,
+.filter-select.open .filter-dropdown-menu {
+  display: block;
+}
+
+.filter-dropdown-item {
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s var(--ease);
+}
+
+.filter-dropdown-item:hover {
+  background: var(--bg-card-hover);
+  color: var(--text);
+}
+
+/* ===== TYPE FILTER MULTISELECT (overrides) ===== */
+
+.filter-multiselect-menu {
+  min-width: 180px;
+}
+
+.filter-multiselect-item {
+  gap: 0.5rem;
+}
+
+.filter-multiselect-checkbox {
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+/* ===== STATUS DROPDOWN (overrides) ===== */
+
+.filter-select-menu {
+  min-width: 160px;
+}
+
+.filter-select-item.active {
+  color: var(--gold);
+}
+
+/* ===== EDGE LEGEND (HTML overlay) ===== */
+
+.edge-legend {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.edge-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.edge-legend-line {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 2px solid;
+}
+
+.legend-implements {
+  border-color: var(--teal);
+}
+
+.legend-dependson {
+  border-color: var(--text-dim);
+  border-top-style: dashed;
+}
+
+.legend-references {
+  border-color: var(--gold);
+  border-top-style: dotted;
+}
+
+/* ===== GRAPH CANVAS AREA ===== */
+
+.explorer-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.explorer-canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ===== NODE STYLES (SVG complement) ===== */
+
+.node {
+  cursor: grab;
+}
+
+.node:active {
+  cursor: grabbing;
+}
+
+.node circle {
+  transition: filter 0.15s var(--ease);
+}
+
+.node:hover circle {
+  filter: brightness(1.2);
+}
+
+/* Selected node: gold stroke glow via SVG filter */
+.node-selected circle {
+  stroke: var(--gold) !important;
+  filter: drop-shadow(0 0 6px var(--gold-dim));
+}
+
+/* Component nodes (drill-down children) */
+.component-node circle {
+  transition: filter 0.15s var(--ease), r 0.3s var(--ease);
+}
+
+.component-node text {
+  font-size: 9px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ===== EDGE STYLES ===== */
+/* Edges are color/dash-coded by kind:
+   - Implements: solid teal
+   - DependsOn: dashed dim
+   - References: dotted gold-dim
+   Labels hidden by default, shown on hover or when a node is selected. */
+
+.edge {
+  transition: opacity 0.2s var(--ease);
+  pointer-events: stroke;
+}
+
+.edge:hover {
+  opacity: 0.9;
+}
+
+/* Edge kind styling applied via data-kind attribute.
+   Colors and dash patterns use CSS; opacity is controlled via JS
+   (inline style) so selection dimming can override without specificity issues. */
+.edge[data-kind="Implements"] {
+  stroke: var(--teal);
+  stroke-width: 1.5;
+}
+.edge[data-kind="DependsOn"] {
+  stroke: var(--text-dim);
+  stroke-dasharray: 6 3;
+}
+.edge[data-kind="References"] {
+  stroke: var(--gold);
+  stroke-dasharray: 2 3;
+}
+
+/* Edge labels: hidden by default */
+.edge-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+/* Show labels when edge is hovered (via sibling targeting in JS) or
+   when a node is selected (class applied by JS) */
+.edge-label.visible {
+  opacity: 1;
+}
+
+/* ===== CLUSTER STYLES ===== */
+
+.cluster {
+  fill: none;
+  stroke: var(--gold-dim);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  rx: 8;
+  ry: 8;
+  cursor: pointer;
+  pointer-events: all;
+  transition: stroke 0.15s var(--ease), stroke-opacity 0.15s var(--ease);
+}
+
+.cluster:hover {
+  stroke: var(--gold);
+  stroke-opacity: 0.7;
+}
+
+.cluster-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  pointer-events: all;
+  user-select: none;
+  transition: fill 0.15s var(--ease);
+}
+
+.cluster:hover + .cluster-label,
+.cluster-label:hover {
+  fill: var(--text);
+}
+
+.cluster-selected {
+  stroke: var(--gold) !important;
+  stroke-opacity: 1 !important;
+  stroke-width: 2px;
+}
+
+.node.in-selected-cluster circle {
+  filter: brightness(1.15);
+}
+
+/* ===== DETAIL SIDEBAR ===== */
+
+.detail-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateX(100%);
+  transition: transform 0.25s var(--ease);
+  z-index: 20;
+}
+
+.detail-panel.open {
+  transform: translateX(0);
+}
+
+.detail-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.detail-panel-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.detail-panel-close {
+  flex-shrink: 0;
+  padding: 0.25rem;
+  color: var(--text-dim);
+  border-radius: 4px;
+  transition: color 0.15s var(--ease);
+  cursor: pointer;
+}
+
+.detail-panel-close:hover {
+  color: var(--text);
+}
+
+.detail-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hover) transparent;
+}
+
+.detail-panel-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.detail-panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detail-panel-body::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 4px;
+}
+
+/* ===== DETAIL PANEL SECTIONS ===== */
+
+.detail-section {
+  margin-bottom: 1.25rem;
+}
+
+.detail-section-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 0.5rem;
+}
+
+.detail-section-content {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ===== BADGES (type / status pills) ===== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border-radius: 100px;
+  line-height: 1;
+}
+
+.badge-type-requirements {
+  background: color-mix(in srgb, var(--teal) 15%, transparent);
+  color: var(--teal);
+  border: 1px solid color-mix(in srgb, var(--teal) 30%, transparent);
+}
+
+.badge-type-design {
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.badge-type-adr {
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  color: var(--gold);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+.badge-type-unknown {
+  background: color-mix(in srgb, var(--text-dim) 15%, transparent);
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--text-dim) 30%, transparent);
+}
+
+.badge-status-approved,
+.badge-status-accepted {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
+}
+
+.badge-status-draft {
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
+}
+
+.badge-status-proposed {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+  border: 1px solid color-mix(in srgb, var(--gold) 25%, transparent);
+}
+
+.badge-status-deprecated {
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--text-dim) 25%, transparent);
+  text-decoration: line-through;
+}
+
+/* ===== EDGES LIST IN DETAIL PANEL ===== */
+
+.edge-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.edge-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.edge-list-kind {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.edge-list-target {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-list-target:hover {
+  color: var(--gold);
+  cursor: pointer;
+}
+
+/* ===== COMPONENTS LIST IN DETAIL PANEL ===== */
+
+.component-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.component-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.component-item-kind {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.component-item-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--teal);
+}
+
+/* ===== IMPACT TRACE BUTTON ===== */
+
+.detail-panel-trace-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  user-select: none;
+}
+
+.detail-panel-trace-btn:hover {
+  background: color-mix(in srgb, var(--gold) 25%, transparent);
+}
+
+.detail-panel-trace-btn.active {
+  background: var(--gold);
+  color: var(--bg-deep);
+}
+
+/* ===== GRAIN TEXTURE OVERLAY ===== */
+
+.explorer-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+[data-theme="light"] .explorer-grain {
+  opacity: 0.015;
+}
+
+/* ===== EMPTY / LOADING STATES ===== */
+
+.explorer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.explorer-empty-icon {
+  opacity: 0.4;
+}
+
+/* ===== RESPONSIVE ===== */
+
+@media (max-width: 600px) {
+  .detail-panel {
+    width: 100%;
+    top: auto;
+    height: 45vh;
+    max-height: 45vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    transform: translateY(100%);
+  }
+
+  .detail-panel.open {
+    transform: translateY(0);
+  }
+
+  .explorer-bar {
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .explorer-search {
+    min-width: 0;
+    flex: 1;
+  }
+}

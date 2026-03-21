@@ -323,6 +323,17 @@ fn parse_graph_dot() {
     }
 }
 
+#[verifies("graph-explorer/req#req-1-1")]
+#[test]
+fn parse_graph_json() {
+    let cli = Cli::parse_from(["supersigil", "graph", "--format", "json"]);
+    if let supersigil_cli::Command::Graph(args) = cli.command {
+        assert!(matches!(args.format, supersigil_cli::GraphFormat::Json));
+    } else {
+        panic!("expected Graph");
+    }
+}
+
 #[test]
 fn parse_init() {
     let cli = Cli::parse_from(["supersigil", "init"]);
@@ -536,6 +547,36 @@ fn parse_refs_prefix_with_flags() {
         panic!("expected Refs");
     }
 }
+
+// -----------------------------------------------------------------------
+// explore command
+// -----------------------------------------------------------------------
+
+#[verifies("graph-explorer/req#req-2-1")]
+#[test]
+fn parse_explore_default() {
+    let cli = Cli::parse_from(["supersigil", "explore"]);
+    if let supersigil_cli::Command::Explore(args) = cli.command {
+        assert!(args.output.is_none());
+    } else {
+        panic!("expected Explore");
+    }
+}
+
+#[verifies("graph-explorer/req#req-2-2")]
+#[test]
+fn parse_explore_with_output() {
+    let cli = Cli::parse_from(["supersigil", "explore", "--output", "graph.html"]);
+    if let supersigil_cli::Command::Explore(args) = cli.command {
+        assert_eq!(args.output, Some(PathBuf::from("graph.html")));
+    } else {
+        panic!("expected Explore");
+    }
+}
+
+// -----------------------------------------------------------------------
+// color flag
+// -----------------------------------------------------------------------
 
 #[test]
 fn parse_color_flag() {

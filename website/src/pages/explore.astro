@@ -1,0 +1,109 @@
+---
+import '../styles/landing-tokens.css';
+import '../components/explore/styles.css';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Interactive graph explorer for the supersigil component graph." />
+  <meta name="theme-color" content="#08080c" />
+  <script is:inline>
+    (function() {
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+      document.documentElement.dataset.theme = prefersDark.matches ? 'dark' : 'light';
+      prefersDark.addEventListener('change', function(e) {
+        document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+      });
+    })();
+  </script>
+  <title>Supersigil — Graph Explorer</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <!-- Grain texture overlay -->
+  <div class="grain" aria-hidden="true"></div>
+
+  <a href="/supersigil/getting-started/" class="explore-back" aria-label="Back to docs">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 12L6 8l4-4"/>
+    </svg>
+    Docs
+  </a>
+
+  <div id="explorer" class="explorer" style="height: 100vh;"></div>
+
+  <style>
+    html, body {
+      overflow: hidden;
+      height: 100vh;
+    }
+  </style>
+  <style>
+    .explore-back {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      z-index: 40;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .explore-back:hover {
+      border-color: var(--border-hover);
+      color: var(--text);
+      background: var(--bg-card);
+    }
+    @media (max-width: 600px) {
+      .explore-back {
+        bottom: 12px;
+      }
+    }
+  </style>
+</body>
+</html>
+
+<script>
+  import { mount } from '../components/explore/graph-explorer.js';
+
+  const container = document.getElementById('explorer');
+
+  async function init() {
+    try {
+      const response = await fetch('/supersigil/explore/graph.json');
+      if (!response.ok) {
+        throw new Error(`Failed to load graph data: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      mount(container, data);
+    } catch (err) {
+      console.error('Graph explorer failed to load:', err);
+      if (container) {
+        container.innerHTML = `<div class="explorer-error">
+          <p>Unable to load graph data.</p>
+          <p><small>${err.message}</small></p>
+        </div>`;
+      }
+    }
+  }
+
+  init();
+</script>

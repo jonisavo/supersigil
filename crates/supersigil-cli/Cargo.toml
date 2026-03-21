@@ -26,12 +26,13 @@ supersigil-import.workspace = true
 supersigil-rust.workspace = true
 supersigil-verify.workspace = true
 include_dir.workspace = true
+open.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
 predicates = "3.1.4"
 supersigil-verify = { workspace = true, features = ["test-helpers"] }
-tempfile.workspace = true
 walkdir = "2.5.0"
 
 [lints]

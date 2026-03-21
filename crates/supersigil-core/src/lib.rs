@@ -37,8 +37,8 @@ pub mod test_helpers;
 // Graph module re-exports
 pub use graph::{
     ACCEPTANCE_CRITERIA, ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION,
-    DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, GraphError, IMPLEMENTS,
-    LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE, REFERENCES,
-    ResolvedRef, TASK, TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY, build_graph,
-    decision_references_target, glob_prefix,
+    DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, EdgeKind, GraphError,
+    IMPLEMENTS, LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE,
+    REFERENCES, ResolvedRef, TASK, TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY,
+    build_graph, decision_references_target, glob_prefix,
 };

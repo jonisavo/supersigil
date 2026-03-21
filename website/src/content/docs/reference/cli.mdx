@@ -258,11 +258,38 @@ Output the document dependency graph.
 ```bash
 supersigil graph                   # Mermaid format (default)
 supersigil graph --format dot      # Graphviz DOT format
+supersigil graph --format json     # Structured JSON for tooling
 ```
+
+The JSON format outputs a structured representation of the graph with `documents` (including their components) and `edges` arrays. This is the format consumed by the [graph explorer](/supersigil/guides/graph-explorer/) and can be used by custom tooling.
 
 | Flag | Description |
 |------|-------------|
-| `--format <fmt>` | Graph format: `mermaid` (default), `dot` |
+| `--format <fmt>` | Graph format: `mermaid` (default), `dot`, `json` |
+
+## `supersigil explore`
+
+Open an interactive graph explorer in your browser.
+
+```bash
+supersigil explore                 # Open in browser
+supersigil explore --output graph.html  # Write to file instead
+```
+
+Generates a self-contained HTML file with an interactive D3.js visualization of the spec graph. The same visualization is available on the docs site at [`/explore/`](/supersigil/explore/).
+
+The explorer provides:
+- **Clustered force-directed layout** with document nodes grouped by prefix
+- **Click** to inspect document details (type, status, edges, components)
+- **Double-click** to drill into a document's internal components
+- **Filter** by document type and status
+- **Impact trace** to highlight everything downstream of a selected document
+- **Search** with fuzzy matching on document ID and title
+- **URL deep-linking** for shareable views
+
+| Flag | Description |
+|------|-------------|
+| `--output <path>` | Write HTML to this path instead of opening in browser |
 
 ## `supersigil schema`
 

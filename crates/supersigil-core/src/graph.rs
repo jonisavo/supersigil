@@ -56,6 +56,21 @@ pub const RATIONALE: &str = "Rationale";
 pub const ALTERNATIVE: &str = "Alternative";
 
 // ---------------------------------------------------------------------------
+// EdgeKind
+// ---------------------------------------------------------------------------
+
+/// The kind of a document-level edge in the graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EdgeKind {
+    /// An `Implements` edge: the source document implements the target.
+    Implements,
+    /// A `DependsOn` edge: the source document depends on the target.
+    DependsOn,
+    /// A `References` edge: the source document references the target.
+    References,
+}
+
+// ---------------------------------------------------------------------------
 // ResolvedRef
 // ---------------------------------------------------------------------------
 
@@ -250,6 +265,43 @@ impl DocumentGraph {
         self.depends_on_reverse
             .get(doc_id)
             .unwrap_or(&EMPTY_BTREESET)
+    }
+
+    // -- Edge iteration (graph-explorer task 2) ------------------------------
+
+    /// Iterate all edges from the reverse mappings.
+    ///
+    /// Yields `(source_doc_id, target_doc_id, EdgeKind)` triples sourced
+    /// from `implements_reverse`, `depends_on_reverse`, and `references_reverse`.
+    pub fn edges(&self) -> impl Iterator<Item = (&str, &str, EdgeKind)> {
+        let implements = self
+            .implements_reverse
+            .iter()
+            .flat_map(|(target, sources)| {
+                sources
+                    .iter()
+                    .map(move |src| (src.as_str(), target.as_str(), EdgeKind::Implements))
+            });
+
+        let depends_on = self
+            .depends_on_reverse
+            .iter()
+            .flat_map(|(target, sources)| {
+                sources
+                    .iter()
+                    .map(move |src| (src.as_str(), target.as_str(), EdgeKind::DependsOn))
+            });
+
+        let references =
+            self.references_reverse
+                .iter()
+                .flat_map(|((target, _fragment), sources)| {
+                    sources
+                        .iter()
+                        .map(move |src| (src.as_str(), target.as_str(), EdgeKind::References))
+                });
+
+        implements.chain(depends_on).chain(references)
     }
 
     // -- TrackedFiles accessors (task 13.3) ----------------------------------

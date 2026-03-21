@@ -16,9 +16,15 @@ run = [
     "cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged",
 ]
 
+[tasks.bundle-explore]
+description = "Bundle the standalone graph explorer for use with the CLI."
+run = "pnpm run bundle:standalone"
+dir = "website"
+
 [tasks.build]
 description = "Build the workspace."
 run = "cargo build --workspace --release"
+depends = ["bundle-explore"]
 
 [tasks.test]
 description = "Run workspace tests."

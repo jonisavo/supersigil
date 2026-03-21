@@ -1,6 +1,7 @@
 pub mod affected;
 pub mod context;
 pub mod examples;
+pub mod explore;
 pub mod graph;
 pub mod import;
 pub mod init;
@@ -55,6 +56,8 @@ pub enum Command {
     Examples(ExamplesArgs),
     /// Manage agent skills
     Skills(SkillsArgs),
+    /// Open an interactive graph explorer in the browser
+    Explore(ExploreArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -204,6 +207,7 @@ pub struct AffectedArgs {
 pub enum GraphFormat {
     Mermaid,
     Dot,
+    Json,
 }
 
 #[derive(Debug, clap::Args)]
@@ -281,6 +285,13 @@ pub struct SkillsInstallArgs {
     /// Target directory for skills
     #[arg(long)]
     pub path: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ExploreArgs {
+    /// Write to this path instead of opening in browser
+    #[arg(long)]
+    pub output: Option<PathBuf>,
 }
 
 fn parse_import_prefix(raw: &str) -> Result<String, String> {

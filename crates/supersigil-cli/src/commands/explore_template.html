@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Interactive graph explorer for the supersigil component graph." />
+  <meta name="theme-color" content="#08080c" />
+  <script>
+    (function() {
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+      document.documentElement.dataset.theme = prefersDark.matches ? 'dark' : 'light';
+      prefersDark.addEventListener('change', function(e) {
+        document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+      });
+    })();
+  </script>
+  <title>Supersigil — Graph Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+{{TOKENS}}
+  </style>
+  <style>
+{{STYLES}}
+  </style>
+</head>
+
+<body>
+  <!-- Grain texture overlay -->
+  <div class="grain" aria-hidden="true"></div>
+
+  <div id="explorer" style="height:100vh;"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script>
+{{EXPLORER_JS}}
+  </script>
+  <script>
+    (function() {
+      var container = document.getElementById('explorer');
+      var data = {{GRAPH_DATA}};
+      if (container && SupersigilExplorer && SupersigilExplorer.mount) {
+        SupersigilExplorer.mount(container, data);
+      }
+    })();
+  </script>
+</body>
+</html>
