@@ -1,10 +1,5 @@
 # Roadmap / Open Questions
 
-- **LSP support**: A language server providing autocomplete on refs,
-  go-to-definition, and diagnostics would significantly improve the
-  authoring experience. This is a v2 concern but the parser architecture
-  should be designed to support incremental re-parsing.
-
 - **Editor extensions**: VS Code, Neovim, JetBrains, and Zed
   extensions that surface diagnostics, coverage indicators, and
   go-to-definition for spec references. Depends on LSP support.
@@ -12,10 +7,6 @@
 - **Watch mode**: `supersigil verify --watch` for continuous feedback
   during authoring. Requires file watching and incremental verification
   (re-verify only documents whose files or dependencies changed).
-
-- **Visual graph explorer**: A browser-based interactive visualization
-  of the spec graph (`supersigil explore`). Force-directed layout,
-  filtering by type/status/coverage, and impact trace highlighting.
 
 - **MCP server**: `supersigil mcp` exposing context, verify,
   affected, and plan as MCP tools for direct agent integration
