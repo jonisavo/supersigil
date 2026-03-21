@@ -1,0 +1,28 @@
+[package]
+name = "supersigil-lsp"
+version = "0.1.0"
+edition = "2024"
+description.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-lsp = { version = "0.2", features = ["client-monitor", "omni-trait", "stdio", "tracing", "tokio"] }
+futures = "0.3"
+lsp-types = "0.95"
+tower = "0.5"
+tokio = { version = "1", features = ["rt", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+supersigil-core.workspace = true
+supersigil-parser.workspace = true
+supersigil-verify.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+glob.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+yaml_serde.workspace = true

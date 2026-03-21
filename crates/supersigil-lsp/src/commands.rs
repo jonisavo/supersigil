@@ -1,0 +1,64 @@
+//! Custom LSP command handlers.
+
+use supersigil_core::DiagnosticsTier;
+
+use crate::parse_tier;
+
+/// The command name for the supersigil verify command.
+pub const VERIFY_COMMAND: &str = "supersigil.verify";
+
+/// Parse an optional tier argument from command arguments.
+///
+/// Expected: `["lint"]`, `["verify"]`, or `[]` (use default).
+///
+/// Returns `None` if no arguments are provided or if the argument is not a
+/// recognised tier name.
+#[must_use]
+pub fn parse_verify_tier(arguments: &[serde_json::Value]) -> Option<DiagnosticsTier> {
+    arguments
+        .first()
+        .and_then(|v| v.as_str())
+        .and_then(parse_tier)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn parse_verify_tier_lint() {
+        assert_eq!(
+            parse_verify_tier(&[json!("lint")]),
+            Some(DiagnosticsTier::Lint),
+        );
+    }
+
+    #[test]
+    fn parse_verify_tier_verify() {
+        assert_eq!(
+            parse_verify_tier(&[json!("verify")]),
+            Some(DiagnosticsTier::Verify),
+        );
+    }
+
+    #[test]
+    fn parse_verify_tier_full_is_now_unknown() {
+        assert_eq!(parse_verify_tier(&[json!("full")]), None);
+    }
+
+    #[test]
+    fn parse_verify_tier_empty_returns_none() {
+        assert_eq!(parse_verify_tier(&[]), None);
+    }
+
+    #[test]
+    fn parse_verify_tier_invalid_returns_none() {
+        assert_eq!(parse_verify_tier(&[json!("invalid")]), None);
+    }
+}

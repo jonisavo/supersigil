@@ -8,6 +8,7 @@ members = [
     "crates/supersigil-rust-macros",
     "crates/supersigil-verify",
     "crates/supersigil-cli",
+    "crates/supersigil-lsp",
 ]
 resolver = "3"
 
@@ -36,6 +37,7 @@ supersigil-rust-macros = { path = "crates/supersigil-rust-macros" }
 supersigil-parser = { path = "crates/supersigil-parser" }
 supersigil-import = { path = "crates/supersigil-import" }
 supersigil-verify = { path = "crates/supersigil-verify" }
+supersigil-lsp = { path = "crates/supersigil-lsp" }
 glob = "0.3.3"
 libc = "0.2"
 ureq = "3.2.0"

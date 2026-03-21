@@ -1,0 +1,147 @@
+---
+supersigil:
+  id: lsp/tasks
+  type: tasks
+  status: done
+title: "Language Server Protocol Support"
+---
+
+<DependsOn refs="lsp/design" />
+
+## Overview
+
+Implementation sequence for the LSP server. Prerequisite crate changes come
+first, then the server skeleton, then features one at a time, each building
+on the last. Each task is independently testable.
+
+<Task
+  id="task-1"
+  status="done"
+  implements="lsp/req#req-8-1"
+>
+  Add `parse_content(path, content, defs)` to `supersigil-parser`. Refactor
+  `parse_file` to read from disk then delegate to `parse_content`. Existing
+  tests must continue to pass with no behavior change.
+</Task>
+
+<Task
+  id="task-2"
+  status="done"
+  implements="lsp/req#req-8-2"
+>
+  Add `lsp: Option<LspConfig>` to `Config` in `supersigil-core` with
+  `#[serde(default)]`. `LspConfig` contains `diagnostics: DiagnosticsTier`
+  defaulting to `Verify`. Existing config files without `[lsp]` must
+  continue to load. Add a config unit test with and without `[lsp]`.
+</Task>
+
+<Task
+  id="task-3"
+  status="done"
+  implements="lsp/req#req-5-1, lsp/req#req-5-2"
+  depends="task-1, task-2"
+>
+  Create `crates/supersigil-lsp` with `async-lsp` and `lsp-types`
+  dependencies. Implement `main.rs` (stdio transport), `lib.rs`
+  (SupersigilLsp struct, LspService trait), and `state.rs` (config
+  discovery, file discovery, initial parallel parse, graph build).
+  Handle the no-config case (empty capabilities, watch for creation).
+  Implement `position.rs` (SourcePosition to/from LSP Position).
+  Add workspace member to root `Cargo.toml`.
+</Task>
+
+<Task
+  id="task-4"
+  status="done"
+  implements="lsp/req#req-5-3, lsp/req#req-5-4, lsp/req#req-5-5, lsp/req#req-5-6, lsp/req#req-5-7"
+  depends="task-3"
+>
+  Implement hybrid re-indexing in `state.rs`: `didOpen` (init buffer,
+  parse), `didChange` (update buffer, re-parse), `didSave` (rebuild graph,
+  retain last-good on failure), `didClose` (clear buffer and diagnostics).
+  Implement `didChangeWatchedFiles` for config and `.mdx` file changes.
+  Add `didChangeConfiguration` handler for runtime tier override.
+  Add `window/workDoneProgress` during initial indexing.
+</Task>
+
+<Task
+  id="task-5"
+  status="done"
+  implements="lsp/req#req-1-1, lsp/req#req-1-2, lsp/req#req-1-3, lsp/req#req-1-4, lsp/req#req-1-5"
+  depends="task-4"
+>
+  Implement `diagnostics.rs`: convert `ParseError`, `GraphError`, and
+  `Finding` to LSP `Diagnostic`. Filter by tier and exclude
+  `ReportSeverity::Off`. Maintain split diagnostic caches (per-file vs
+  cross-doc) and merge on publish. Wire into `didChange` and `didSave`
+  handlers.
+</Task>
+
+<Task
+  id="task-6"
+  status="done"
+  implements="lsp/req#req-2-1, lsp/req#req-2-2, lsp/req#req-2-3"
+  depends="task-5"
+>
+  Implement `definition.rs`: detect cursor on ref string in attribute
+  context, parse ref, look up in graph (fragment or document-level),
+  return Location or empty. Wire into `textDocument/definition` handler.
+</Task>
+
+<Task
+  id="task-7"
+  status="done"
+  implements="lsp/req#req-3-1, lsp/req#req-3-2, lsp/req#req-3-3, lsp/req#req-3-4"
+  depends="task-5"
+>
+  Implement `completion.rs`: context detection (ref attribute, component
+  name after `<`, attribute value), document ID prefix matching, fragment
+  completion within document, component name snippets from ComponentDefs,
+  attribute value enumeration. Wire into `textDocument/completion` handler.
+</Task>
+
+<Task
+  id="task-8"
+  status="done"
+  implements="lsp/req#req-4-1, lsp/req#req-4-2"
+  depends="task-5"
+>
+  Implement `hover.rs`: component name lookup in ComponentDefs (format as
+  Markdown attribute table), ref lookup in graph (document title, criterion
+  body, verification status). Wire into `textDocument/hover` handler.
+</Task>
+
+<Task
+  id="task-9"
+  status="done"
+  implements="lsp/req#req-6-1"
+  depends="task-5"
+>
+  Implement `commands.rs`: `supersigil.verify` command handler, optional
+  tier argument, run verify pipeline, publish diagnostics, progress
+  reporting. Wire into `workspace/executeCommand` handler.
+</Task>
+
+<Task
+  id="task-10"
+  status="done"
+  implements="lsp/req#req-7-1, lsp/req#req-7-2, lsp/req#req-7-3, lsp/req#req-8-3"
+  depends="task-3"
+>
+  MDX coexistence and capability registration: register for `mdx` language
+  ID, activation guard on `supersigil.toml` presence, distinct
+  CompletionItemKind and label detail for Supersigil items, UTF-16
+  position encoding advertisement.
+</Task>
+
+<Task
+  id="task-11"
+  status="draft"
+  depends="task-10"
+>
+  Editor extensions and documentation. Build at least one editor extension
+  (VS Code or Neovim) that activates supersigil-lsp for `.mdx` files,
+  and add user-facing documentation to the website covering installation,
+  configuration, and feature overview. This is the user-facing surface
+  that makes the LSP server accessible. Requires its own design pass.
+</Task>

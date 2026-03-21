@@ -49,41 +49,31 @@ pub fn parse_mdx_body(body: &str, path: &Path) -> Result<mdast::Node, ParseError
 }
 
 // ---------------------------------------------------------------------------
-// parse_file — public API (Req 10)
+// parse_content — public API (Req 8-1)
 // ---------------------------------------------------------------------------
 
-/// Parse a single MDX file into a [`ParseResult`].
+/// Parse MDX content from an in-memory string into a [`ParseResult`].
 ///
-/// Implements the three-stage pipeline:
-/// 1. Preprocess (UTF-8 decode, BOM strip, CRLF normalize) + front matter
-///    extraction and deserialization.
+/// This is the core of the parsing pipeline, operating on a content string
+/// that has already been decoded and normalized (e.g. by the LSP buffer or
+/// by [`parse_file`] after preprocessing). It performs:
+///
+/// 1. Front matter extraction and deserialization.
 /// 2. MDX AST generation via `markdown-rs`.
 /// 3. Component extraction + lint-time validation.
 ///
 /// Stage 1 fatal errors prevent stages 2–3. Stage 2 errors prevent stage 3.
-/// Within each stage, all independent errors are collected.
 ///
 /// # Errors
 ///
 /// Returns `Vec<ParseError>` containing all detected errors across stages.
-pub fn parse_file(
-    path: impl AsRef<Path>,
+pub fn parse_content(
+    path: &Path,
+    content: &str,
     component_defs: &ComponentDefs,
 ) -> Result<ParseResult, Vec<ParseError>> {
-    let path = path.as_ref();
-    // Read file
-    let raw = std::fs::read(path).map_err(|e| {
-        vec![ParseError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        }]
-    })?;
-
-    // Stage 1: Preprocess
-    let content = preprocess(&raw, path).map_err(|e| vec![e])?;
-
     // Stage 1: Extract front matter
-    let (yaml, body) = match extract_front_matter(&content, path) {
+    let (yaml, body) = match extract_front_matter(content, path) {
         Ok(Some((yaml, body))) => (yaml, body),
         Ok(None) => return Ok(ParseResult::NotSupersigil(path.to_path_buf())),
         Err(e) => return Err(vec![e]),
@@ -122,4 +112,41 @@ pub fn parse_file(
     } else {
         Err(errors)
     }
+}
+
+// ---------------------------------------------------------------------------
+// parse_file — public API (Req 10)
+// ---------------------------------------------------------------------------
+
+/// Parse a single MDX file into a [`ParseResult`].
+///
+/// Implements the three-stage pipeline:
+/// 1. Preprocess (UTF-8 decode, BOM strip, CRLF normalize) + front matter
+///    extraction and deserialization.
+/// 2. MDX AST generation via `markdown-rs`.
+/// 3. Component extraction + lint-time validation.
+///
+/// Stage 1 fatal errors prevent stages 2–3. Stage 2 errors prevent stage 3.
+/// Within each stage, all independent errors are collected.
+///
+/// # Errors
+///
+/// Returns `Vec<ParseError>` containing all detected errors across stages.
+pub fn parse_file(
+    path: impl AsRef<Path>,
+    component_defs: &ComponentDefs,
+) -> Result<ParseResult, Vec<ParseError>> {
+    let path = path.as_ref();
+    // Read file
+    let raw = std::fs::read(path).map_err(|e| {
+        vec![ParseError::IoError {
+            path: path.to_path_buf(),
+            source: e,
+        }]
+    })?;
+
+    // Stage 1: Preprocess
+    let content = preprocess(&raw, path).map_err(|e| vec![e])?;
+
+    parse_content(path, &content, component_defs)
 }

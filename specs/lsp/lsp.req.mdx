@@ -1,0 +1,239 @@
+---
+supersigil:
+  id: lsp/req
+  type: requirements
+  status: draft
+title: "Language Server Protocol Support"
+---
+
+## Introduction
+
+A language server for Supersigil `.mdx` spec files that provides diagnostics,
+go-to-definition, autocomplete, and hover documentation inside editors. The
+server coexists with existing MDX language servers on the `mdx` language ID,
+contributing spec-specific intelligence while the MDX LSP handles general
+syntax.
+
+Scope: the LSP server itself and necessary prerequisite changes to existing
+crates (in-memory parsing API, config field, position conversion). Out of
+scope: editor extensions (VS Code, Neovim, etc.) — those are a separate
+feature that depends on this one.
+
+## Definitions
+
+- **Diagnostic_Tier**: One of `lint` or `verify`, controlling how much
+  analysis runs on save. `lint` is parse + structural rules. `verify`
+  adds evidence discovery, tag scanning, and coverage checks.
+- **Hybrid_Reindexing**: The strategy of re-parsing a single file on
+  `didChange` (for fast local feedback) and rebuilding the full
+  `DocumentGraph` on `didSave` (for cross-document analysis).
+- **Last_Good_Graph**: The most recent successfully built `DocumentGraph`,
+  retained when a graph rebuild fails so that cross-document features
+  (go-to-definition, autocomplete, hover on refs) continue working against
+  stale-but-valid data rather than losing all cross-document intelligence.
+
+## Requirement 1: Diagnostics
+
+As a spec author, I want to see verification findings directly in my editor,
+so that I can fix problems without switching to a terminal.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    WHEN an `.mdx` file is opened or changed, THE server SHALL publish
+    per-file diagnostics derived from parse errors and parser-level
+    structural rules (required attributes, unknown components).
+  </Criterion>
+  <Criterion id="req-1-2">
+    WHEN an `.mdx` file is saved, THE server SHALL rebuild the
+    DocumentGraph and publish cross-document diagnostics (broken refs,
+    invalid refs, cycles, missing criteria).
+  </Criterion>
+  <Criterion id="req-1-3">
+    WHEN the configured Diagnostic_Tier is `verify`, THE server SHALL run
+    the verification pipeline on save with real evidence (resolved from
+    VerifiedBy tags and file globs) and include coverage findings in the
+    published diagnostics.
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE server SHALL map `ReportSeverity::Error` to `DiagnosticSeverity::ERROR`,
+    `Warning` to `WARNING`, and `Info` to `HINT`. Findings with
+    `ReportSeverity::Off` SHALL be excluded from diagnostics.
+  </Criterion>
+  <Criterion id="req-1-5">
+    WHEN publishing diagnostics, THE server SHALL merge per-file and
+    cross-document findings into one set per URI, so that a later publish
+    does not silently clear earlier diagnostics.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Go-to-Definition
+
+As a spec author, I want to jump from a ref to the referenced document or
+criterion, so that I can navigate the spec graph without manual file
+searching.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    WHEN the cursor is on a ref string inside a `refs`, `implements`, or
+    `depends` attribute and the ref contains `#`, THE server SHALL resolve
+    it to the target file and component source position using
+    `split_criterion_ref` and the DocumentGraph.
+  </Criterion>
+  <Criterion id="req-2-2">
+    WHEN the ref contains no `#` (document-level ref), THE server SHALL
+    resolve it to the top of the target document file.
+  </Criterion>
+  <Criterion id="req-2-3">
+    WHEN the ref target does not exist in the graph, THE server SHALL
+    return no locations rather than an error.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Autocomplete
+
+As a spec author, I want completions for document IDs, criterion IDs, and
+component names, so that I can write specs without memorizing the full ID
+namespace.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    WHEN the cursor is inside a ref-accepting attribute (`refs`,
+    `implements`, `depends`) and before `#`, THE server SHALL offer
+    completions for all document IDs matching the typed prefix.
+  </Criterion>
+  <Criterion id="req-3-2">
+    WHEN the cursor is inside a ref-accepting attribute after `#`, THE
+    server SHALL offer completions for referenceable component IDs
+    (criteria, tasks) within the specified document.
+  </Criterion>
+  <Criterion id="req-3-3">
+    WHEN the cursor follows `<` in the MDX body, THE server SHALL offer
+    completions for all known components (built-in and user-defined) with
+    attribute signature snippets.
+  </Criterion>
+  <Criterion id="req-3-4">
+    WHEN the cursor is inside a known attribute value (e.g. `strategy`,
+    `status`), THE server SHALL offer completions for valid values.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Hover
+
+As a spec author, I want to see documentation and context on hover, so that
+I can understand components and refs without leaving my current position.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    WHEN the cursor hovers over a component name (e.g. `Criterion`,
+    `VerifiedBy`), THE server SHALL display the component definition:
+    required/optional attributes, whether referenceable/verifiable, and a
+    short description.
+  </Criterion>
+  <Criterion id="req-4-2">
+    WHEN the cursor hovers over a ref string, THE server SHALL display the
+    target's context: document title, criterion body text, and verification
+    status.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: Server Lifecycle
+
+As an editor extension, I need the LSP server to initialize correctly, stay
+responsive, and handle configuration changes, so that the user experience is
+reliable.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    ON `initialize`, THE server SHALL discover `supersigil.toml`, parse all
+    matching `.mdx` files in parallel, build the initial DocumentGraph, and
+    register LSP capabilities for completion, hover, definition, text
+    document sync, execute command, and file watching.
+  </Criterion>
+  <Criterion id="req-5-2">
+    IF no `supersigil.toml` is found during initialization, THE server
+    SHALL start with minimal capabilities (text document sync only, no
+    completion, hover, or definition) and no diagnostics. Reparse and
+    verify are skipped until config is present.
+  </Criterion>
+  <Criterion id="req-5-3">
+    THE server SHALL use Hybrid_Reindexing: single-file re-parse on
+    `didChange` (from in-memory buffer, not disk), full graph rebuild on
+    `didSave`.
+  </Criterion>
+  <Criterion id="req-5-4">
+    WHEN a graph rebuild fails, THE server SHALL retain the Last_Good_Graph
+    and publish GraphErrors as diagnostics, rather than losing
+    cross-document features.
+  </Criterion>
+  <Criterion id="req-5-5">
+    ON `didClose`, THE server SHALL remove the file from the open buffer
+    set and clear diagnostics for that URI.
+  </Criterion>
+  <Criterion id="req-5-6">
+    THE server SHALL report progress during initial indexing via
+    `window/workDoneProgress`.
+  </Criterion>
+  <Criterion id="req-5-7">
+    THE Diagnostic_Tier SHALL be configurable via `[lsp].diagnostics` in
+    `supersigil.toml` with `verify` as the default, and overridable at
+    runtime via `workspace/didChangeConfiguration`.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 6: Custom Commands
+
+As an editor extension, I want to trigger verification on demand, so
+that users can run the verify pipeline without leaving the editor.
+
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    THE server SHALL expose a `supersigil.verify` command via
+    `workspace/executeCommand` that runs verification at the configured
+    tier (or an explicit tier passed as argument) and publishes results
+    as diagnostics.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 7: MDX Coexistence
+
+As a spec author using an MDX language server alongside Supersigil, I want
+both servers to work without conflicts, so that I get both MDX syntax support
+and Supersigil intelligence.
+
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    THE server SHALL register for the `mdx` language ID and coexist with
+    other MDX language servers.
+  </Criterion>
+  <Criterion id="req-7-2">
+    THE server SHALL only activate when `supersigil.toml` is found in the
+    workspace.
+  </Criterion>
+  <Criterion id="req-7-3">
+    Completions SHALL use distinct `CompletionItemKind` or label detail to
+    distinguish Supersigil items from generic MDX completions.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 8: Prerequisite Crate Changes
+
+As the LSP implementer, I need certain APIs in existing crates, so that the
+LSP can function correctly.
+
+<AcceptanceCriteria>
+  <Criterion id="req-8-1">
+    `supersigil-parser` SHALL expose a `parse_content(path, content, defs)`
+    entry point that accepts in-memory content, with `parse_file` becoming
+    a thin wrapper that reads from disk then calls `parse_content`.
+  </Criterion>
+  <Criterion id="req-8-2">
+    `supersigil-core` Config SHALL accept an optional `[lsp]` section
+    (via `lsp: Option<LspConfig>` with `#[serde(default)]`) without
+    breaking existing CLI consumers that use `deny_unknown_fields`.
+  </Criterion>
+  <Criterion id="req-8-3">
+    THE server SHALL convert between `SourcePosition` (1-based line/column,
+    byte offset) and LSP `Position` (0-based line, 0-based UTF-16 character
+    offset), advertising `PositionEncodingKind::UTF16`.
+  </Criterion>
+</AcceptanceCriteria>

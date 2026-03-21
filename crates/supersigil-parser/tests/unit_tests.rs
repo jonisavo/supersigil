@@ -1758,3 +1758,43 @@ echo '{"key": "value"}'
         assert_eq!(block.content, "{\"key\": \"value\"}");
     }
 }
+
+// ── parse_content ────────────────────────────────────────────────────────────
+
+mod parse_content {
+    use supersigil_core::{ComponentDefs, ParseResult};
+
+    #[test]
+    fn parses_valid_mdx_from_string() {
+        let content = "---\nsupersigil:\n  id: test-doc\n  type: requirements\n  status: draft\ntitle: \"Test\"\n---\n\n# Hello\n";
+        let path = std::path::Path::new("test.mdx");
+        let defs = ComponentDefs::defaults();
+        let result = supersigil_parser::parse_content(path, content, &defs);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParseResult::Document(doc) => {
+                assert_eq!(doc.frontmatter.id, "test-doc");
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
+    }
+
+    #[test]
+    fn returns_not_supersigil_for_non_supersigil() {
+        let content = "---\ntitle: \"Not supersigil\"\n---\n\n# Hello\n";
+        let path = std::path::Path::new("other.mdx");
+        let defs = ComponentDefs::defaults();
+        let result = supersigil_parser::parse_content(path, content, &defs);
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), ParseResult::NotSupersigil(_)));
+    }
+
+    #[test]
+    fn reports_parse_errors() {
+        let content = "---\nsupersigil:\n  id: err-doc\n  type: requirements\n  status: draft\ntitle: \"Test\"\n---\n\n<Criterion id={expr}>\ntest\n</Criterion>\n";
+        let path = std::path::Path::new("bad.mdx");
+        let defs = ComponentDefs::defaults();
+        let result = supersigil_parser::parse_content(path, content, &defs);
+        result.unwrap_err();
+    }
+}

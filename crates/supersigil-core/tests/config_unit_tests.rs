@@ -1241,3 +1241,65 @@ project = "frontend"
     assert_eq!(rust.project_scope[1].manifest_dir_prefix, "crates/web");
     assert_eq!(rust.project_scope[1].project, "frontend");
 }
+
+// ---------------------------------------------------------------------------
+// LSP config
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_without_lsp_section_loads() {
+    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.lsp.is_none());
+}
+
+#[test]
+fn config_with_lsp_diagnostics_verify() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[lsp]
+diagnostics = "verify"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let lsp = config.lsp.unwrap();
+    assert_eq!(lsp.diagnostics, supersigil_core::DiagnosticsTier::Verify);
+}
+
+#[test]
+fn lsp_diagnostics_defaults_to_verify() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[lsp]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let lsp = config.lsp.unwrap();
+    assert_eq!(lsp.diagnostics, supersigil_core::DiagnosticsTier::Verify);
+}
+
+#[test]
+fn lsp_diagnostics_lint_variant() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[lsp]
+diagnostics = "lint"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(
+        config.lsp.unwrap().diagnostics,
+        supersigil_core::DiagnosticsTier::Lint,
+    );
+}
+
+#[test]
+fn lsp_diagnostics_rejects_unknown_variant() {
+    let toml_str = r#"
+paths = ["specs/**/*.mdx"]
+
+[lsp]
+diagnostics = "full"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}

@@ -13,10 +13,10 @@ mod types;
 
 pub use component_defs::ComponentDefs;
 pub use config::{
-    AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentsConfig, EcosystemConfig,
-    ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, ProjectConfig, RunnerConfig,
-    RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity, SkillsConfig,
-    TestResultsConfig, VerifyConfig, load_config,
+    AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentsConfig,
+    EcosystemConfig, ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, LspConfig,
+    ProjectConfig, RunnerConfig, RustEcosystemConfig, RustProjectScope, RustValidationPolicy,
+    Severity, SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};

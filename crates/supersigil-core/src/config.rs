@@ -311,6 +311,33 @@ pub struct ProjectConfig {
 }
 
 // ---------------------------------------------------------------------------
+// LSP config
+// ---------------------------------------------------------------------------
+
+/// Diagnostics depth the LSP server runs on save.
+///
+/// `Lint` runs parse errors and structural rules only. `Verify` adds
+/// evidence discovery, tag scanning, and coverage checks.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticsTier {
+    Lint,
+    #[default]
+    Verify,
+}
+
+/// LSP server configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LspConfig {
+    /// Diagnostics tier to run on save. Default: `Verify`.
+    #[serde(default)]
+    pub diagnostics: DiagnosticsTier,
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -354,6 +381,9 @@ pub struct Config {
     /// Agent skills configuration.
     #[serde(default)]
     pub skills: SkillsConfig,
+    /// LSP server configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lsp: Option<LspConfig>,
 }
 
 // ---------------------------------------------------------------------------
