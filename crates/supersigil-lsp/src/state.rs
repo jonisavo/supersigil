@@ -699,6 +699,104 @@ impl LanguageServer for SupersigilLsp {
         ControlFlow::Continue(())
     }
 
+    fn did_change_watched_files(
+        &mut self,
+        params: lsp_types::DidChangeWatchedFilesParams,
+    ) -> ControlFlow<async_lsp::Result<()>> {
+        if self.config.is_none() {
+            return ControlFlow::Continue(());
+        }
+        let Some(project_root) = &self.project_root else {
+            return ControlFlow::Continue(());
+        };
+
+        // Check if supersigil.toml itself changed — reload config.
+        if params.changes.iter().any(|c| {
+            c.uri
+                .to_file_path()
+                .ok()
+                .is_some_and(|p| p.ends_with("supersigil.toml"))
+        }) && let Some((_, new_config)) = discover_config(project_root)
+        {
+            self.diagnostics_tier = new_config
+                .lsp
+                .as_ref()
+                .map_or(DiagnosticsTier::Verify, |lsp| lsp.diagnostics);
+            self.component_defs = Arc::new(Self::effective_component_defs(Some(&new_config)));
+            self.config = Some(new_config);
+        }
+
+        let config = self.config.as_ref().unwrap();
+
+        // Re-discover and re-parse all files, then rebuild the graph.
+        let files = discover_files(config, project_root);
+        let (parses, _errors) = parse_all_files(&files, &self.component_defs);
+        let parses: HashMap<PathBuf, SpecDocument> = parses
+            .into_iter()
+            .map(|(p, doc)| {
+                let rel = p
+                    .strip_prefix(project_root)
+                    .map(Path::to_path_buf)
+                    .unwrap_or(p);
+                (rel, doc)
+            })
+            .collect();
+
+        // Re-insert open file buffers (they may have unsaved changes that
+        // should take precedence over the disk version).
+        let mut merged = parses;
+        for (uri, content) in &self.open_files {
+            if let Some(rel_key) = self.uri_to_relative_key(uri) {
+                let abs_path = project_root.join(&rel_key);
+                if let Ok(ParseResult::Document(doc)) =
+                    parse_content(&abs_path, content, &self.component_defs)
+                {
+                    merged.insert(rel_key, doc);
+                }
+            }
+        }
+
+        let docs: Vec<SpecDocument> = merged.values().cloned().collect();
+        match build_graph(docs, config) {
+            Ok(graph) => {
+                self.graph = Arc::new(graph);
+                self.graph_diagnostics.clear();
+                let tier = self.diagnostics_tier;
+                self.run_verify_and_publish(tier);
+            }
+            Err(errors) => {
+                tracing::warn!(
+                    error_count = errors.len(),
+                    "graph rebuild failed after file watch event"
+                );
+                self.graph_diagnostics.clear();
+                let id_to_path = self.build_id_to_path();
+                let pairs: Vec<(Url, Diagnostic)> = errors
+                    .iter()
+                    .flat_map(|e| {
+                        graph_error_to_diagnostic_with_lookup(e, |doc_id| {
+                            id_to_path.get(doc_id).cloned()
+                        })
+                    })
+                    .collect();
+                let grouped = group_by_url(pairs);
+                for (uri, diags) in grouped {
+                    self.graph_diagnostics.insert(uri, diags);
+                }
+            }
+        }
+
+        self.file_parses = merged;
+        self.republish_all_diagnostics();
+
+        tracing::info!(
+            changes = params.changes.len(),
+            "re-indexed after file watch event"
+        );
+
+        ControlFlow::Continue(())
+    }
+
     fn execute_command(
         &mut self,
         params: ExecuteCommandParams,

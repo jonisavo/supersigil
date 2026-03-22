@@ -142,6 +142,15 @@ async function startClientForFolder(
     `Supersigil LSP (${folder.name})`,
   );
 
+  // Watch for .mdx and supersigil.toml changes on disk (git operations,
+  // branch switches, external edits) so the LSP re-indexes automatically.
+  const mdxWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(folder, "**/*.mdx"),
+  );
+  const configWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(folder, "supersigil.toml"),
+  );
+
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
       {
@@ -152,6 +161,9 @@ async function startClientForFolder(
     ],
     workspaceFolder: folder,
     outputChannel,
+    synchronize: {
+      fileEvents: [mdxWatcher, configWatcher],
+    },
   };
 
   const client = new LanguageClient(
