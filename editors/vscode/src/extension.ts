@@ -76,7 +76,8 @@ function updateStatusBar(): void {
     statusBarItem.backgroundColor = new vscode.ThemeColor(
       "statusBarItem.warningBackground",
     );
-    statusBarItem.tooltip = "Supersigil LSP is not running. Click to restart.";
+    statusBarItem.tooltip =
+      "Supersigil LSP is not running. Click to restart.";
     statusBarItem.show();
     return;
   }
@@ -106,6 +107,15 @@ function updateStatusBar(): void {
   statusBarItem.show();
 }
 
+/** Find the client responsible for a given file URI. */
+function clientForUri(uri: vscode.Uri): LanguageClient | undefined {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (folder) {
+    return clients.get(folder.uri.toString());
+  }
+  return undefined;
+}
+
 /** Find workspace folders that contain a supersigil.toml. */
 function findSupersigilRoots(): vscode.WorkspaceFolder[] {
   const folders = vscode.workspace.workspaceFolders ?? [];
@@ -117,7 +127,6 @@ function findSupersigilRoots(): vscode.WorkspaceFolder[] {
 async function startClientForFolder(
   folder: vscode.WorkspaceFolder,
   serverPath: string,
-  context: vscode.ExtensionContext,
 ): Promise<void> {
   const key = folder.uri.toString();
   if (clients.has(key)) {
@@ -175,7 +184,7 @@ async function startAllClients(
 
   const roots = findSupersigilRoots();
   await Promise.all(
-    roots.map((folder) => startClientForFolder(folder, serverPath, context)),
+    roots.map((folder) => startClientForFolder(folder, serverPath)),
   );
   updateStatusBar();
 }
@@ -191,7 +200,6 @@ async function showStatusMenu(
 ): Promise<void> {
   const items: vscode.QuickPickItem[] = [];
 
-  // Per-root status.
   if (clients.size === 0) {
     items.push({
       label: "$(circle-slash) No supersigil roots found",
@@ -213,13 +221,10 @@ async function showStatusMenu(
     }
   }
 
-  // Diagnostics summary.
   const diagCount = vscode.languages
     .getDiagnostics()
-    .filter(
-      ([, diags]) =>
-        diags.some((d) => d.source === "supersigil"),
-    ).length;
+    .filter(([, diags]) => diags.some((d) => d.source === "supersigil"))
+    .length;
   if (diagCount > 0) {
     items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
     items.push({
@@ -228,7 +233,6 @@ async function showStatusMenu(
     });
   }
 
-  // Actions.
   items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
   items.push({
     label: "$(debug-restart) Restart Server",
@@ -250,7 +254,6 @@ async function showStatusMenu(
     await stopAllClients();
     await startAllClients(context);
   } else if (picked.label.includes("Show Output")) {
-    // Focus the first client's output channel.
     const first = clients.values().next().value;
     if (first) {
       first.outputChannel.show();
@@ -268,10 +271,6 @@ export async function activate(
   statusBarItem.command = "supersigil.showStatus";
   context.subscriptions.push(statusBarItem);
 
-  // Note: supersigil.verify is registered automatically by vscode-languageclient
-  // from the LSP server's executeCommand capabilities. We only declare it in
-  // package.json contributes.commands so it appears in the command palette.
-
   context.subscriptions.push(
     vscode.commands.registerCommand("supersigil.showStatus", () =>
       showStatusMenu(context),
@@ -288,10 +287,27 @@ export async function activate(
     ),
   );
 
-  // React to workspace folder changes (add/remove roots).
+  // Register supersigil.verify ourselves instead of letting each language
+  // client auto-register it (which fails for the second client with
+  // "command already exists"). Routes to the client for the active file.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("supersigil.verify", async () => {
+      const editor = vscode.window.activeTextEditor;
+      const client = editor ? clientForUri(editor.document.uri) : undefined;
+      if (client?.isRunning()) {
+        await client.sendRequest("workspace/executeCommand", {
+          command: "supersigil.verify",
+        });
+      } else {
+        vscode.window.showWarningMessage(
+          "Supersigil LSP server is not running for this workspace.",
+        );
+      }
+    }),
+  );
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(async (e) => {
-      // Stop clients for removed folders.
       for (const removed of e.removed) {
         const key = removed.uri.toString();
         const client = clients.get(key);
@@ -301,12 +317,11 @@ export async function activate(
         }
       }
 
-      // Start clients for added folders that have supersigil.toml.
       const serverPath = resolveServerBinary();
       if (serverPath) {
         for (const added of e.added) {
           if (existsSync(join(added.uri.fsPath, "supersigil.toml"))) {
-            await startClientForFolder(added, serverPath, context);
+            await startClientForFolder(added, serverPath);
           }
         }
       }

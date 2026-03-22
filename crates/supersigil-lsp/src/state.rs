@@ -10,8 +10,8 @@ use futures::future::BoxFuture;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     InitializeParams, InitializeResult, MessageType, NumberOrString, PositionEncodingKind,
     ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ServerCapabilities,
     ShowMessageParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgress,
@@ -391,10 +391,13 @@ impl LanguageServer for SupersigilLsp {
                 }),
                 hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![commands::VERIFY_COMMAND.to_string()],
-                    ..Default::default()
-                }),
+                // Note: we intentionally omit execute_command_provider from
+                // capabilities. The server still handles workspace/executeCommand
+                // requests, but advertising commands here causes vscode-languageclient
+                // to auto-register them as VS Code commands, which fails when
+                // multiple LSP instances run in a multi-root workspace.
+                // The VS Code extension registers commands itself and routes to
+                // the appropriate client.
                 ..ServerCapabilities::default()
             }
         } else {
