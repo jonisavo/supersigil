@@ -24,10 +24,10 @@ pub fn pos(line: usize) -> SourcePosition {
     }
 }
 
-/// Build a `SpecDocument` with path derived from id as `specs/{id}.mdx`.
+/// Build a `SpecDocument` with path derived from id as `specs/{id}.md`.
 pub fn make_doc(id: &str, components: Vec<ExtractedComponent>) -> SpecDocument {
     SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
+        path: PathBuf::from(format!("specs/{id}.md")),
         frontmatter: Frontmatter {
             id: id.to_owned(),
             doc_type: None,
@@ -35,6 +35,7 @@ pub fn make_doc(id: &str, components: Vec<ExtractedComponent>) -> SpecDocument {
         },
         extra: HashMap::new(),
         components,
+        warnings: Vec::new(),
     }
 }
 
@@ -45,6 +46,8 @@ pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children: Vec::new(),
         body_text: Some(format!("criterion {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -60,6 +63,8 @@ pub fn make_acceptance_criteria(
         attributes: HashMap::new(),
         children,
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -72,6 +77,8 @@ pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".to_owned(), refs.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -80,7 +87,7 @@ pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
 /// Build a default single-project `Config`.
 pub fn single_project_config() -> Config {
     Config {
-        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
+        paths: Some(vec!["specs/**/*.md".to_owned()]),
         ..Config::default()
     }
 }

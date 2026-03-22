@@ -1,4 +1,4 @@
-error: supersigil: failed to parse spec files: $DIR/tests/fixtures/malformed-spec-project/specs/broken.mdx: $DIR/tests/fixtures/malformed-spec-project/specs/broken.mdx:12:1: MDX syntax error: Expected a closing tag for `<Criterion>` (3:3)
+error: supersigil: failed to parse spec files: $DIR/tests/fixtures/malformed-spec-project/specs/broken.md: $DIR/tests/fixtures/malformed-spec-project/specs/broken.md:10:1: XML syntax error: mismatched closing tag: expected `</Criterion>`, found `</__root>`
  --> tests/fixtures/fail/malformed_spec_parse_error.rs:5:1
   |
 5 | #[verifies("broken/req#crit-1")]

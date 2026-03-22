@@ -1,33 +1,37 @@
 # Root-level specs that describe workspace-wide or cross-cutting behavior.
 [projects.workspace]
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 # Foundational parsing and graph behavior shared across the core libraries.
 [projects.foundation]
 paths = [
-  "crates/supersigil-core/specs/**/*.mdx",
-  "crates/supersigil-parser/specs/**/*.mdx",
+  "crates/supersigil-core/specs/**/*.md",
+  "crates/supersigil-parser/specs/**/*.md",
 ]
 
 # CLI surface and operator-facing workflows.
 [projects.cli]
-paths = ["crates/supersigil-cli/specs/**/*.mdx"]
+paths = ["crates/supersigil-cli/specs/**/*.md"]
 
 # Verification pipeline, reporting, and affected-file analysis.
 [projects.verify]
-paths = ["crates/supersigil-verify/specs/**/*.mdx"]
+paths = ["crates/supersigil-verify/specs/**/*.md"]
 
 # Kiro import and other migration-oriented flows.
 [projects.import]
-paths = ["crates/supersigil-import/specs/**/*.mdx"]
+paths = ["crates/supersigil-import/specs/**/*.md"]
 
 # Ecosystem integrations and evidence models.
 [projects.ecosystem]
 paths = [
-  "crates/supersigil-evidence/specs/**/*.mdx",
-  "crates/supersigil-rust/specs/**/*.mdx",
-  "crates/supersigil-rust-macros/specs/**/*.mdx",
+  "crates/supersigil-evidence/specs/**/*.md",
+  "crates/supersigil-rust/specs/**/*.md",
+  "crates/supersigil-rust-macros/specs/**/*.md",
 ]
+
+# The documentation site.
+[projects.website]
+paths = ["website/src/content/docs/**/*.mdx"]
 
 [ecosystem.rust]
 validation = "dev"
@@ -43,6 +47,3 @@ project_scope = [
 
 [documents.types.documentation]
 description = "User-facing documentation pages"
-
-[projects.website]
-paths = ["website/src/content/docs/**/*.mdx"]

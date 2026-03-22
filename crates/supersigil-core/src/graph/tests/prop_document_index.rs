@@ -66,8 +66,8 @@ proptest! {
         let mut doc_b = doc_b;
         doc_a.frontmatter.id = shared_id.clone();
         doc_b.frontmatter.id = shared_id.clone();
-        doc_a.path = PathBuf::from(format!("specs/a/{shared_id}.mdx"));
-        doc_b.path = PathBuf::from(format!("specs/b/{shared_id}.mdx"));
+        doc_a.path = PathBuf::from(format!("specs/a/{shared_id}.md"));
+        doc_b.path = PathBuf::from(format!("specs/b/{shared_id}.md"));
 
         let result = build_graph(vec![doc_a.clone(), doc_b.clone()], &config);
         let errors = result.expect_err("build_graph should fail on duplicate IDs");

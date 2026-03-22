@@ -27,6 +27,8 @@ fn make_decision(id: &str, children: Vec<ExtractedComponent>, line: usize) -> Ex
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children,
         body_text: Some(format!("decision {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -41,6 +43,8 @@ fn make_alternative(id: &str, status: &str, line: usize) -> ExtractedComponent {
         ]),
         children: Vec::new(),
         body_text: Some(format!("alternative {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: SourcePosition {
             byte_offset: line * 40,
@@ -67,7 +71,7 @@ proptest! {
         let decision = make_decision(&decision_id, vec![], 1);
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![decision],
         );
 
@@ -98,7 +102,7 @@ proptest! {
         let decision = make_decision(&decision_id, vec![alt], 1);
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![decision],
         );
 
@@ -140,14 +144,14 @@ proptest! {
         let decision = make_decision(&decision_id, vec![], 1);
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![decision],
         );
 
         let fragment_ref = format!("{target_doc_id}#{decision_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
@@ -181,14 +185,14 @@ proptest! {
         let decision = make_decision(&decision_id, vec![alt], 1);
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![decision],
         );
 
         let fragment_ref = format!("{target_doc_id}#{alt_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
@@ -224,7 +228,7 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
@@ -233,7 +237,7 @@ proptest! {
         let decision = make_decision(&decision_id, vec![refs_component], 1);
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![decision],
         );
 
@@ -268,7 +272,7 @@ proptest! {
         let decision = make_decision(&decision_id, vec![tracked], 1);
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![decision],
         );
 
@@ -307,7 +311,7 @@ proptest! {
 
         let dep_doc = make_doc_with_path(
             &dep_doc_id,
-            &format!("specs/{dep_doc_id}.mdx"),
+            &format!("specs/{dep_doc_id}.md"),
             vec![],
         );
 
@@ -316,7 +320,7 @@ proptest! {
         let decision = make_decision(&decision_id, vec![depends_on], 1);
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![decision],
         );
 

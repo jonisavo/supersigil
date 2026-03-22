@@ -9,9 +9,9 @@ use tempfile::TempDir;
 fn lint_clean_project_exits_zero() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/doc.mdx",
+        "specs/doc.md",
         "test/doc",
         None,
         None,
@@ -30,7 +30,7 @@ fn lint_invalid_file_exits_one() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     std::fs::write(
-        tmp.path().join("specs/bad.mdx"),
+        tmp.path().join("specs/bad.md"),
         "---\nsupersigil:\n  id: bad\n",
     )
     .unwrap();
@@ -74,7 +74,7 @@ fn lint_stdout_stderr_discipline() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     std::fs::write(
-        tmp.path().join("specs/bad.mdx"),
+        tmp.path().join("specs/bad.md"),
         "---\nsupersigil:\n  id: bad\n",
     )
     .unwrap();
@@ -94,9 +94,9 @@ fn lint_summary_counts_files_not_errors() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     // Two Criterion components missing required `id` → 2 errors, 1 file
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/bad.mdx",
+        "specs/bad.md",
         "bad/doc",
         None,
         None,

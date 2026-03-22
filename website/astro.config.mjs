@@ -13,6 +13,13 @@ export default defineConfig({
     starlight({
       title: 'supersigil',
       description: 'Spec-driven development with AI agents.',
+      expressiveCode: {
+        shiki: {
+          langAlias: {
+            'supersigil-xml': 'xml',
+          },
+        },
+      },
       plugins: [starlightLlmsTxt()],
       logo: {
         light: './src/assets/logo-light.svg',

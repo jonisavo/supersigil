@@ -19,7 +19,7 @@ fn parse_all_returns_documents_and_errors() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
-    write_invalid_spec(tmp.path(), "specs/b.mdx");
+    write_invalid_spec(tmp.path(), "specs/b.md");
 
     let config_path = tmp.path().join("supersigil.toml");
     let result = supersigil_cli::parse_all(&config_path);
@@ -50,7 +50,7 @@ fn load_graph_succeeds_with_valid_specs() {
 fn load_graph_fails_on_parse_errors() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    write_invalid_spec(tmp.path(), "specs/bad.mdx");
+    write_invalid_spec(tmp.path(), "specs/bad.md");
 
     let config_path = tmp.path().join("supersigil.toml");
     let result = supersigil_cli::load_graph(&config_path);
@@ -85,11 +85,7 @@ fn project_root_is_parent_of_config_path() {
     // Place config in a subdirectory to verify project_root derivation.
     let sub = tmp.path().join("workspace");
     fs::create_dir_all(sub.join("specs")).unwrap();
-    fs::write(
-        sub.join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n",
-    )
-    .unwrap();
+    fs::write(sub.join("supersigil.toml"), "paths = [\"specs/**/*.md\"]\n").unwrap();
     common::write_spec(&sub, "a", "doc/a", "requirements", "draft");
 
     let config_path = sub.join("supersigil.toml");

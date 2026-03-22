@@ -195,6 +195,8 @@ mod tests {
                     ]),
                     children: vec![],
                     body_text: None,
+                    body_text_offset: None,
+                    body_text_end_offset: None,
                     code_blocks: vec![],
                     position: pos(20),
                 },

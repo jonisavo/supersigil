@@ -7,7 +7,7 @@ use supersigil_import::{Diagnostic, ImportPlan, ImportSummary, PlannedDocument};
 fn import_plan_serializes_to_json() {
     let plan = ImportPlan {
         documents: vec![PlannedDocument {
-            output_path: PathBuf::from("specs/auth/auth.req.mdx"),
+            output_path: PathBuf::from("specs/auth/auth.req.md"),
             document_id: "req/auth".into(),
             content: "---\nsupersigil:\n  id: req/auth\n---\n".into(),
         }],
@@ -27,7 +27,7 @@ fn import_plan_serializes_to_json() {
     assert_eq!(
         json["documents"],
         json!([{
-            "output_path": "specs/auth/auth.req.mdx",
+            "output_path": "specs/auth/auth.req.md",
             "document_id": "req/auth",
             "content": "---\nsupersigil:\n  id: req/auth\n---\n",
         }])

@@ -10,6 +10,7 @@ use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Url};
 use supersigil_core::{ComponentDefs, DocumentGraph, SourcePosition, SpecDocument};
 
 use crate::definition::find_ref_at_position;
+use crate::is_in_supersigil_fence;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -122,6 +123,11 @@ pub fn hover_at_position(
     defs: &ComponentDefs,
     graph: &DocumentGraph,
 ) -> Option<Hover> {
+    // Only provide hover inside supersigil-xml fences.
+    if !is_in_supersigil_fence(content, line) {
+        return None;
+    }
+
     // Check ref first (more specific).
     if let Some(ref_str) = find_ref_at_position(content, line, character) {
         return hover_ref(&ref_str, graph);

@@ -1,6 +1,5 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
-assertion_line: 222
 expression: content
 ---
 ---
@@ -11,6 +10,7 @@ supersigil:
 title: "Optional Tasks"
 ---
 
+```supersigil-xml
 <Task id="task-1" status="done">
   Required task
 
@@ -28,12 +28,15 @@ title: "Optional Tasks"
     - This sub-task is optional
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-2" status="ready" depends="task-1">
   Optional top-level task
 
   - This entire task is optional
 </Task>
+```
 
 <!-- TODO(supersigil-import): This task was marked as optional in Kiro; supersigil <Task> has no optional attribute (task: task-1-2) -->
 <!-- TODO(supersigil-import): This task was marked as optional in Kiro; supersigil <Task> has no optional attribute (task: task-2) -->

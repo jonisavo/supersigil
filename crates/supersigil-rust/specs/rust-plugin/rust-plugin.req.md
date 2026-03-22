@@ -1,0 +1,188 @@
+---
+supersigil:
+  id: rust-plugin/req
+  type: requirements
+  status: implemented
+title: "Rust Plugin"
+---
+
+## Introduction
+
+This spec recovers the current Rust ecosystem behavior owned by
+`supersigil-rust`.
+
+It covers three things that currently live in the same crate:
+
+- runtime discovery of `#[verifies(...)]` evidence from Rust source files
+- project-scope resolution helpers for Rust workspaces
+- optional build-support helpers for Cargo freshness integration
+
+It does not describe the proc-macro implementation details of the
+`#[verifies(...)]` attribute itself.
+
+## Definitions
+
+- **Supported_Rust_Test**: A Rust source shape that the runtime plugin
+  currently recognizes as evidence-bearing: `#[test]`, `#[tokio::test]`,
+  snapshot-oriented test functions using `insta::assert_snapshot`, and
+  `proptest!` macro items with an outer `#[verifies(...)]` attribute.
+- **Rust_Record**: One normalized `VerificationEvidenceRecord` produced by the
+  Rust plugin.
+- **Invalid_Verifies_Ref**: A `#[verifies(...)]` string literal that does not
+  use the full `{doc_id}#{target_id}` shape with non-empty fragments.
+- **Rust_Project_Scope**: The resolved project context for Rust workspaces,
+  represented as a shared `ProjectScope` passed into discovery-input planning
+  and runtime discovery.
+
+## Requirement 1: Runtime Discovery Surface
+
+As a developer using Rust-native evidence, I want the runtime plugin to
+recognize the Rust test forms used in this repository, so that source
+annotations become normalized evidence automatically.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE `RustPlugin` SHALL scan only `.rs` files from its discovery input and
+    SHALL ignore non-Rust files.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE runtime plugin SHALL recognize Supported_Rust_Test forms in the current
+    codebase: plain `#[test]` functions, `#[tokio::test]` async functions,
+    `proptest!` macro items with outer `#[verifies(...)]`, and snapshot tests
+    detected by `insta::assert_snapshot` inside a supported test function.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-1-3">
+    THE runtime plugin SHALL ignore helper functions annotated with
+    `#[verifies(...)]` when they are not supported tests.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE runtime plugin SHALL recurse into inline `mod` blocks and SHALL
+    discover supported tests nested inside them.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-1-5">
+    THE runtime plugin SHALL own its Rust-specific discovery-input planning.
+    Starting from shared resolved test files, it SHALL infer additional Rust
+    source files from the conventional `src/`, `tests/`, `benches/`, and
+    `examples/` locations, including workspace-member crates, while
+    deduplicating paths and excluding fixture directories.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 2: Evidence Normalization
+
+As the verification pipeline, I want discovered Rust evidence normalized into
+shared records, so that it can merge with authored evidence consistently.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    FOR EACH discovered supported test with `#[verifies(...)]`, THE runtime
+    plugin SHALL emit one Rust_Record containing the test name, file path,
+    source location of the attribute, test kind, Rust attribute provenance, and
+    one or more resolved verifiable targets.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    THE runtime plugin SHALL accept both bare `#[verifies(...)]` and
+    path-qualified `#[supersigil_rust::verifies(...)]` attributes.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-2-3">
+    WHEN the attribute contains multiple fragment refs, THE runtime plugin
+    SHALL normalize all of them into the Rust_Record target set.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-2-4">
+    WHEN the attribute contains an Invalid_Verifies_Ref, THE runtime plugin
+    SHALL reject that annotation with `PluginError::Discovery` instead of
+    emitting targetless evidence.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-2-5">
+    WHEN the runtime plugin can infer framework metadata reliably, THE emitted
+    Rust_Record SHALL include the current metadata fields: `framework =
+    proptest` for proptest macro items, and `framework = insta` plus
+    `snapshot_name` for detected snapshot tests.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 3: Discovery Fault Tolerance
+
+As an operator running verification across real Rust trees, I want discovery to
+continue where possible, so that one bad file does not hide all other evidence.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    IF the discovery input contains no `.rs` files, THEN `RustPlugin::discover`
+    SHALL succeed with an empty evidence set.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-3-2">
+    IF an individual Rust file cannot be parsed or read, THEN the current
+    runtime plugin SHALL skip that file, SHALL continue processing the rest of
+    the discovery scope, and SHALL return a non-fatal plugin diagnostic for
+    that file instead of printing directly to stderr or returning
+    `PluginError` for the whole run.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+  <Criterion id="req-3-3">
+    IF the discovery scope contains Rust files but zero Supported_Rust_Test
+    items overall, THEN `RustPlugin::discover` SHALL return
+    `PluginError::Discovery` describing the empty supported-test result.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 4: Scope Resolution and Build Support
+
+As a Rust workspace maintainer, I want helper APIs for project selection and
+build freshness, so that compile-time validation and build integration can stay
+aligned with the workspace shape.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    `scope::resolve_scope` SHALL return `ProjectScope { project: None }` in
+    single-project mode.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/scope.rs" />
+  </Criterion>
+  <Criterion id="req-4-2">
+    IN multi-project mode, `scope::resolve_scope` SHALL resolve the project by
+    longest-prefix `ecosystem.rust.project_scope` matching when explicit scope
+    mappings are configured, and SHALL otherwise fall back to path-based
+    inference from the manifest directory.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/scope.rs" />
+  </Criterion>
+  <Criterion id="req-4-3">
+    IF explicit scope matching finds no match, or path-based inference finds
+    zero or multiple candidates, or an explicit scope mapping references an
+    undefined project, THEN `scope::resolve_scope` SHALL return a `ScopeError`
+    instead of guessing.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/scope.rs" />
+  </Criterion>
+  <Criterion id="req-4-4">
+    `build_support::validation_input_paths` and
+    `build_support::emit_rerun_if_changed` SHALL treat `supersigil.toml` and
+    the active spec files resolved from the shared Rust validation-input
+    helper as the current Cargo revalidation inputs.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/build_support.rs" />
+  </Criterion>
+  <Criterion id="req-4-5">
+    In this pass, `ProjectScope` SHALL provide workspace context for Rust
+    discovery-input planning, but `ProjectScope.project` SHALL NOT narrow
+    runtime discovery independently of the workspace-wide evidence pipeline.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-rust/src/discover.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```

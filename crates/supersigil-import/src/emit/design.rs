@@ -4,15 +4,15 @@ use crate::emit::emit_front_matter;
 use crate::parse::design::{DesignBlock, ParsedDesign};
 use crate::refs::{self, RequirementIndex};
 
-/// Emit a design MDX document from parsed Kiro design.
+/// Emit a design spec document from parsed Kiro design.
 ///
 /// When `req_index` is provided, Validates lines are resolved inline against
 /// the requirement index. When absent, an ambiguity marker is emitted instead
 /// of the `<Implements>` component.
 ///
-/// Returns `(mdx_content, ambiguity_count, validates_resolved)`.
+/// Returns `(md_content, ambiguity_count, validates_resolved)`.
 #[must_use]
-pub fn emit_design_mdx(
+pub fn emit_design_md(
     parsed: &ParsedDesign,
     doc_id: &str,
     req_index: Option<&RequirementIndex<'_>>,
@@ -27,7 +27,9 @@ pub fn emit_design_mdx(
 
     // <Implements> or ambiguity marker
     if req_index.is_some() {
+        let _ = writeln!(out, "```supersigil-xml");
         let _ = writeln!(out, "<Implements refs=\"{req_doc_id}\" />");
+        let _ = writeln!(out, "```");
         out.push('\n');
     } else {
         let marker = "<!-- TODO(supersigil-import): No requirements document found for this \
@@ -80,7 +82,9 @@ pub fn emit_design_mdx(
 
                     if !resolved.is_empty() {
                         let refs_str = resolved.join(", ");
+                        let _ = writeln!(out, "```supersigil-xml");
                         let _ = writeln!(out, "<References refs=\"{refs_str}\" />");
+                        let _ = writeln!(out, "```");
                         out.push('\n');
                     } else if refs.is_empty() && markers.is_empty() {
                         // No refs at all — preserve raw line as prose

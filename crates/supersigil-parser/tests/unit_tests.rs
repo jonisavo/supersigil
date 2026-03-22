@@ -307,612 +307,6 @@ mod deserialize_front_matter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Stage 2: MDX AST generation
-// ---------------------------------------------------------------------------
-
-mod mdx_parsing {
-    use super::dummy_path;
-
-    use markdown::mdast::Node;
-    use supersigil_parser::parse_mdx_body;
-
-    fn find_flow_elements(node: &Node) -> Vec<&markdown::mdast::MdxJsxFlowElement> {
-        let mut found = Vec::new();
-        if let Node::MdxJsxFlowElement(el) = node {
-            found.push(el);
-        }
-        if let Some(children) = node.children() {
-            for child in children {
-                found.extend(find_flow_elements(child));
-            }
-        }
-        found
-    }
-
-    #[test]
-    fn valid_mdx_body_produces_ast() {
-        let body = "# Hello\n\nSome text here.\n";
-        let result = parse_mdx_body(body, &dummy_path());
-        assert!(result.is_ok());
-        let node = result.unwrap();
-        assert!(matches!(node, Node::Root(_)));
-    }
-
-    #[test]
-    fn invalid_mdx_syntax_returns_error() {
-        // Unclosed JSX tag is invalid MDX
-        let body = "<Component>\n";
-        let result = parse_mdx_body(body, &dummy_path());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            supersigil_core::ParseError::MdxSyntaxError { .. }
-        ));
-        // Verify the error contains position and message
-        if let supersigil_core::ParseError::MdxSyntaxError { line, message, .. } = err {
-            assert!(line > 0, "line should be > 0");
-            assert!(!message.is_empty(), "message should not be empty");
-        }
-    }
-
-    #[test]
-    fn body_with_pascal_case_components_produces_flow_elements() {
-        let body =
-            "<Validates refs=\"REQ-1\" />\n\n<Criterion id=\"c1\">\nSome text\n</Criterion>\n";
-        let result = parse_mdx_body(body, &dummy_path());
-        assert!(result.is_ok());
-        let node = result.unwrap();
-
-        let elements = find_flow_elements(&node);
-        assert_eq!(elements.len(), 2, "should find 2 flow elements");
-
-        // Check names
-        let names: Vec<_> = elements
-            .iter()
-            .filter_map(|el| el.name.as_deref())
-            .collect();
-        assert!(names.contains(&"Validates"));
-        assert!(names.contains(&"Criterion"));
-    }
-
-    #[test]
-    fn body_with_lowercase_html_elements_in_ast() {
-        // With MDX constructs, lowercase elements are parsed as MdxJsxFlowElement
-        // but with lowercase names (they are standard HTML, not supersigil components).
-        // The parser should still produce an AST containing them.
-        let body = "<div>\n\nsome content\n\n</div>\n";
-        let result = parse_mdx_body(body, &dummy_path());
-        assert!(result.is_ok());
-        let node = result.unwrap();
-
-        let elements = find_flow_elements(&node);
-        // div should appear as a flow element in the AST
-        assert!(
-            !elements.is_empty(),
-            "lowercase HTML elements should appear in AST"
-        );
-        let names: Vec<_> = elements
-            .iter()
-            .filter_map(|el| el.name.as_deref())
-            .collect();
-        assert!(names.contains(&"div"));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Stage 3: Component extraction
-// ---------------------------------------------------------------------------
-
-mod component_extraction {
-    use super::common::extract;
-    use supersigil_core::ParseError;
-
-    // ── Req 8.1: Known PascalCase flow element extracted with name and attributes ──
-
-    #[test]
-    fn pascal_case_flow_element_extracted_with_name_and_attributes() {
-        let body = "<References refs=\"REQ-1, REQ-2\" />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let comp = &components[0];
-        assert_eq!(comp.name, "References");
-        assert_eq!(
-            comp.attributes.get("refs").map(String::as_str),
-            Some("REQ-1, REQ-2")
-        );
-    }
-
-    // ── Req 8.1: Lowercase element (div, p) silently ignored ──
-
-    #[test]
-    fn lowercase_element_silently_ignored() {
-        let body = "<div>\n\nsome content\n\n</div>\n";
-        let (components, errors) = extract(body, 0);
-
-        // div is lowercase HTML — should not be extracted as a component
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert!(
-            components.is_empty(),
-            "lowercase elements should be ignored, got: {components:?}"
-        );
-    }
-
-    #[test]
-    fn lowercase_p_element_silently_ignored() {
-        let body = "<p>\n\ntext\n\n</p>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert!(components.is_empty(), "lowercase <p> should be ignored");
-    }
-
-    // ── Inline JSX (MdxJsxTextElement) extracted when known PascalCase ──
-
-    #[test]
-    fn inline_jsx_text_element_extracted() {
-        // Inline JSX appears within a paragraph (not on its own block).
-        // markdown-rs parses inline JSX as MdxJsxTextElement.
-        // Known PascalCase components are still extracted even when inline.
-        let body = "Some text with <References refs=\"REQ-1\" /> inline.\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(
-            components.len(),
-            1,
-            "known PascalCase inline JSX should be extracted, got: {components:?}"
-        );
-        assert_eq!(components[0].name, "References");
-    }
-
-    // ── Inline JSX inside a parent flow component IS extracted as child ──
-
-    #[test]
-    fn inline_criterion_inside_parent_extracted_as_child() {
-        // When <Criterion> appears on a single line inside <AcceptanceCriteria>,
-        // markdown-rs classifies it as MdxJsxTextElement. It must still be
-        // extracted as a child component — not silently dropped.
-        let body = "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">Must log in</Criterion>\n  <Criterion id=\"ac-2\">Must log out</Criterion>\n</AcceptanceCriteria>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(
-            components.len(),
-            1,
-            "expected AcceptanceCriteria, got: {components:?}"
-        );
-        assert_eq!(components[0].name, "AcceptanceCriteria");
-        assert_eq!(
-            components[0].children.len(),
-            2,
-            "expected 2 Criterion children, got: {:#?}",
-            components[0].children
-        );
-        assert_eq!(components[0].children[0].name, "Criterion");
-        assert_eq!(
-            components[0].children[0]
-                .attributes
-                .get("id")
-                .map(String::as_str),
-            Some("ac-1")
-        );
-        assert_eq!(components[0].children[1].name, "Criterion");
-        assert_eq!(
-            components[0].children[1]
-                .attributes
-                .get("id")
-                .map(String::as_str),
-            Some("ac-2")
-        );
-    }
-
-    // ── P2: Inline JSX children must not leak into parent body_text ──
-
-    #[test]
-    fn inline_children_do_not_leak_into_parent_body_text() {
-        // When <Criterion> appears as MdxJsxTextElement inside AcceptanceCriteria,
-        // the parent's body_text must be None — the text belongs to the children,
-        // not the parent.
-        let body = "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">Must log in</Criterion>\n  <Criterion id=\"ac-2\">Must log out</Criterion>\n</AcceptanceCriteria>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert_eq!(
-            components[0].body_text, None,
-            "parent body_text should be None when all content is child components, got: {:?}",
-            components[0].body_text,
-        );
-        // The children themselves should have the body text
-        assert_eq!(
-            components[0].children[0].body_text.as_deref(),
-            Some("Must log in"),
-        );
-        assert_eq!(
-            components[0].children[1].body_text.as_deref(),
-            Some("Must log out"),
-        );
-    }
-
-    // ── P3: Lowercase inline JSX must recurse into children ──
-
-    #[test]
-    fn lowercase_inline_jsx_does_not_swallow_nested_components() {
-        // A lowercase inline wrapper like <span> should not swallow
-        // known PascalCase components nested inside it.
-        let body = "Some text <span><References refs=\"REQ-1\" /></span> here.\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(
-            components.len(),
-            1,
-            "References inside <span> should be extracted, got: {components:?}"
-        );
-        assert_eq!(components[0].name, "References");
-    }
-
-    // ── Lowercase inline HTML wrappers preserve body text ──
-
-    #[test]
-    fn lowercase_inline_wrapper_text_kept_in_body() {
-        // <span>, <strong>, etc. are text formatting — their text content
-        // must appear in the parent component's body_text.
-        let body = "<Criterion id=\"ac-1\"><strong>Important</strong> text</Criterion>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert_eq!(components[0].name, "Criterion");
-        assert_eq!(
-            components[0].body_text.as_deref(),
-            Some("Important text"),
-            "text inside lowercase inline wrappers must be kept in body_text",
-        );
-    }
-
-    // ── Req 6.1, 6.4: String literal attributes stored as raw strings ──
-
-    #[test]
-    fn string_literal_attributes_stored_as_raw_strings() {
-        let body = "<Criterion id=\"crit-1\" />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let comp = &components[0];
-        assert_eq!(comp.name, "Criterion");
-        // Attribute value should be the exact raw string, no transformation
-        assert_eq!(
-            comp.attributes.get("id").map(String::as_str),
-            Some("crit-1")
-        );
-    }
-
-    #[test]
-    fn multiple_string_attributes_preserved() {
-        let body = "<VerifiedBy strategy=\"unit-test\" tag=\"auth\" />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let comp = &components[0];
-        assert_eq!(
-            comp.attributes.get("strategy").map(String::as_str),
-            Some("unit-test")
-        );
-        assert_eq!(comp.attributes.get("tag").map(String::as_str), Some("auth"));
-    }
-
-    // ── Req 6.2, 6.3: Expression attribute {…} → ExpressionAttribute error ──
-
-    #[test]
-    fn expression_attribute_produces_error_and_is_excluded() {
-        let body = "<References refs={someExpr} />\n";
-        let (components, errors) = extract(body, 0);
-
-        // The component should still be extracted, but the expression attribute excluded
-        assert_eq!(components.len(), 1);
-        let comp = &components[0];
-        assert_eq!(comp.name, "References");
-        assert!(
-            !comp.attributes.contains_key("refs"),
-            "expression attribute should be excluded from attributes"
-        );
-
-        // An ExpressionAttribute error should be recorded
-        assert_eq!(errors.len(), 1, "expected 1 error, got: {errors:?}");
-        assert!(
-            matches!(
-                &errors[0],
-                ParseError::ExpressionAttribute {
-                    component,
-                    attribute,
-                    ..
-                } if component == "References" && attribute == "refs"
-            ),
-            "expected ExpressionAttribute error, got: {:?}",
-            errors[0]
-        );
-    }
-
-    #[test]
-    fn verified_by_paths_expression_attribute_is_rejected() {
-        let body =
-            "<VerifiedBy strategy=\"file-glob\" paths={[\"tests/a.rs\", \"tests/b.rs\"]} />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert_eq!(components.len(), 1);
-        let comp = &components[0];
-        assert_eq!(comp.name, "VerifiedBy");
-        assert_eq!(
-            comp.attributes.get("strategy").map(String::as_str),
-            Some("file-glob")
-        );
-        assert!(
-            !comp.attributes.contains_key("paths"),
-            "expression paths should be excluded from attributes"
-        );
-
-        assert_eq!(errors.len(), 1, "expected 1 error, got: {errors:?}");
-        assert!(
-            matches!(
-                &errors[0],
-                ParseError::ExpressionAttribute {
-                    component,
-                    attribute,
-                    ..
-                } if component == "VerifiedBy" && attribute == "paths"
-            ),
-            "expected ExpressionAttribute error, got: {:?}",
-            errors[0]
-        );
-    }
-
-    // ── Req 8.4: Self-closing component → body_text is None ──
-
-    #[test]
-    fn self_closing_component_body_text_is_none() {
-        let body = "<References refs=\"REQ-1\" />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert!(
-            components[0].body_text.is_none(),
-            "self-closing component should have body_text = None"
-        );
-    }
-
-    // ── Req 8.3: Component with text content → body_text is trimmed concatenation ──
-
-    #[test]
-    fn component_with_text_content_has_trimmed_body_text() {
-        let body = "<Criterion id=\"c1\">\n  Some criterion text  \n</Criterion>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let comp = &components[0];
-        assert_eq!(comp.name, "Criterion");
-        assert_eq!(
-            comp.body_text.as_deref(),
-            Some("Some criterion text"),
-            "body_text should be trimmed concatenation of text nodes"
-        );
-    }
-
-    // ── Req 8.5: Component with only child components → body_text is None ──
-
-    #[test]
-    fn component_with_only_child_components_body_text_is_none() {
-        let body = "<AcceptanceCriteria>\n\n<Criterion id=\"c1\">\nText\n</Criterion>\n\n</AcceptanceCriteria>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let parent = &components[0];
-        assert_eq!(parent.name, "AcceptanceCriteria");
-        assert!(
-            parent.body_text.is_none(),
-            "component with only child components should have body_text = None, got: {:?}",
-            parent.body_text
-        );
-    }
-
-    // ── Req 9.1, 9.2: Nested components: parent's children list populated ──
-
-    #[test]
-    fn nested_components_parent_children_populated() {
-        let body = "<AcceptanceCriteria>\n\n<Criterion id=\"c1\">\nFirst criterion\n</Criterion>\n\n<Criterion id=\"c2\">\nSecond criterion\n</Criterion>\n\n</AcceptanceCriteria>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(
-            components.len(),
-            1,
-            "only top-level parent should be in root list"
-        );
-
-        let parent = &components[0];
-        assert_eq!(parent.name, "AcceptanceCriteria");
-        assert_eq!(parent.children.len(), 2, "parent should have 2 children");
-
-        assert_eq!(parent.children[0].name, "Criterion");
-        assert_eq!(
-            parent.children[0].attributes.get("id").map(String::as_str),
-            Some("c1")
-        );
-        assert_eq!(
-            parent.children[0].body_text.as_deref(),
-            Some("First criterion")
-        );
-
-        assert_eq!(parent.children[1].name, "Criterion");
-        assert_eq!(
-            parent.children[1].attributes.get("id").map(String::as_str),
-            Some("c2")
-        );
-        assert_eq!(
-            parent.children[1].body_text.as_deref(),
-            Some("Second criterion")
-        );
-    }
-
-    // ── Req 9.2: Recursive nesting preserved ──
-
-    #[test]
-    fn recursive_nesting_preserved() {
-        // Three levels: AcceptanceCriteria > Criterion > References
-        let body = "\
-<AcceptanceCriteria>
-
-<Criterion id=\"c1\">
-
-<References refs=\"REQ-1\" />
-
-</Criterion>
-
-</AcceptanceCriteria>
-";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let ac = &components[0];
-        assert_eq!(ac.name, "AcceptanceCriteria");
-        assert_eq!(ac.children.len(), 1);
-
-        let criterion = &ac.children[0];
-        assert_eq!(criterion.name, "Criterion");
-        assert_eq!(criterion.children.len(), 1);
-
-        let references = &criterion.children[0];
-        assert_eq!(references.name, "References");
-        assert_eq!(
-            references.attributes.get("refs").map(String::as_str),
-            Some("REQ-1")
-        );
-        assert!(references.children.is_empty());
-    }
-
-    // ── Req 9.3: Component with no children has empty children list ──
-
-    #[test]
-    fn component_with_no_children_has_empty_children_list() {
-        let body = "<Criterion id=\"c1\">\nSome text\n</Criterion>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert!(
-            components[0].children.is_empty(),
-            "component with no child components should have empty children list"
-        );
-    }
-
-    // ── Req 8.2: Source position offset applied ──
-
-    #[test]
-    fn source_position_offset_applied() {
-        let body = "<References refs=\"REQ-1\" />\n";
-        // Simulate front matter of 50 bytes
-        let body_offset = 50;
-        let (components, errors) = extract(body, body_offset);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let pos = &components[0].position;
-        // The byte_offset should include the front matter offset
-        assert!(
-            pos.byte_offset >= body_offset,
-            "byte_offset ({}) should be >= body_offset ({})",
-            pos.byte_offset,
-            body_offset
-        );
-    }
-
-    #[test]
-    fn source_position_without_offset_starts_at_zero() {
-        let body = "<References refs=\"REQ-1\" />\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-
-        let pos = &components[0].position;
-        // With zero offset, position should be at the start of the body
-        assert_eq!(
-            pos.byte_offset, 0,
-            "with zero offset, byte_offset should be 0"
-        );
-        assert_eq!(pos.line, 1, "first component should be on line 1");
-        assert_eq!(pos.column, 1, "first component should start at column 1");
-    }
-
-    // ── body_text includes inline code (backtick) content ──
-
-    #[test]
-    fn body_text_includes_inline_code() {
-        let body = "<Criterion id=\"c1\">\n  WHEN the `id` field is missing, THE Parser SHALL emit an error.\n</Criterion>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert_eq!(
-            components[0].body_text.as_deref(),
-            Some("WHEN the `id` field is missing, THE Parser SHALL emit an error."),
-            "body_text should include text from inline code nodes"
-        );
-    }
-
-    #[test]
-    fn body_text_includes_multiple_inline_code_spans() {
-        let body =
-            "<Criterion id=\"c1\">\n  The `foo` and `bar` fields are required.\n</Criterion>\n";
-        let (components, errors) = extract(body, 0);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert_eq!(
-            components[0].body_text.as_deref(),
-            Some("The `foo` and `bar` fields are required."),
-            "body_text should include text from all inline code spans"
-        );
-    }
-
-    #[test]
-    fn source_position_offset_for_second_component() {
-        let body = "<References refs=\"REQ-1\" />\n\n<Criterion id=\"c1\">\nText\n</Criterion>\n";
-        let body_offset = 100;
-        let (components, errors) = extract(body, body_offset);
-
-        assert!(errors.is_empty(), "no errors expected, got: {errors:?}");
-        assert_eq!(components.len(), 2);
-
-        // Both components should have offsets >= body_offset
-        assert!(
-            components[0].position.byte_offset >= body_offset,
-            "first component byte_offset should include front matter offset"
-        );
-        assert!(
-            components[1].position.byte_offset > components[0].position.byte_offset,
-            "second component should be after first"
-        );
-    }
-}
-
 // ===========================================================================
 // Lint-time validation tests (Task 12.1)
 // Requirements: 21.1, 21.2, 21.3, 25.1, 25.2
@@ -935,6 +329,8 @@ mod lint_validation {
                 .collect(),
             children: Vec::new(),
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition {
                 byte_offset: 0,
@@ -1203,12 +599,22 @@ mod parse_file_integration {
         f
     }
 
-    // ── Req 10.3: Error collection — unknown component skipped, missing attr collected ──
+    // ── Error collection — unknown component skipped, missing attr collected ──
 
     #[test]
     fn multiple_stage3_errors_all_collected() {
         // File with an unknown component (skipped) AND a known component missing required attr
-        let content = "---\nsupersigil:\n  id: test\n---\n<UnknownWidget />\n\n<Criterion />\n";
+        let content = "\
+---
+supersigil:
+  id: test
+---
+
+```supersigil-xml
+<UnknownWidget />
+<Criterion />
+```
+";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
 
@@ -1235,7 +641,7 @@ mod parse_file_integration {
         );
     }
 
-    // ── Req 10.3: Stage 1 fatal error prevents stages 2-3 ──
+    // ── Stage 1 fatal error prevents later stages ──
 
     #[test]
     fn stage1_fatal_error_prevents_later_stages() {
@@ -1256,41 +662,55 @@ mod parse_file_integration {
         );
     }
 
-    // ── Req 10.3: Stage 2 error prevents stage 3 ──
+    // ── XML syntax error in one fence does not prevent other fences ──
 
     #[test]
-    fn stage2_error_prevents_stage3() {
-        // Valid front matter but invalid MDX body
-        let content = "---\nsupersigil:\n  id: test\n---\n<Criterion id=\"c1\">\n";
+    fn xml_error_in_one_fence_does_not_block_others() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
+
+```supersigil-xml
+<Criterion id=\"c1\">unclosed
+```
+
+```supersigil-xml
+<References refs=\"other\" />
+```
+";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
 
         let result = parse_file(f.path(), &defs);
 
-        assert!(result.is_err(), "expected error, got: {result:?}");
+        // Should have errors (at least the XML syntax error) but also
+        // extract References from the second fence.
+        assert!(result.is_err(), "expected errors, got: {result:?}");
         let errors = result.unwrap_err();
-        // Should have MDX syntax error, no stage 3 errors
-        assert!(
-            errors
-                .iter()
-                .any(|e| matches!(e, ParseError::MdxSyntaxError { .. })),
-            "expected MdxSyntaxError, got: {errors:?}"
-        );
-        // Should NOT have any stage 3 errors (missing attr)
-        assert!(
-            !errors
-                .iter()
-                .any(|e| matches!(e, ParseError::MissingRequiredAttribute { .. })),
-            "stage 3 errors should not appear when stage 2 fails"
-        );
+        let has_xml_error = errors
+            .iter()
+            .any(|e| matches!(e, ParseError::XmlSyntaxError { .. }));
+        assert!(has_xml_error, "expected XmlSyntaxError, got: {errors:?}");
     }
 
-    // ── Req 10.3: Stage 3 errors collected together ──
+    // ── Validation errors collected from XML pipeline ──
 
     #[test]
-    fn stage3_expression_attr_and_validation_errors_collected() {
-        // Expression attribute + unknown component (skipped) + missing required attrs
-        let content = "---\nsupersigil:\n  id: test\n---\n<Criterion id={expr} />\n\n<UnknownComp />\n\n<References />\n";
+    fn validation_errors_collected() {
+        // Criterion missing required id attribute, References missing refs
+        let content = "\
+---
+supersigil:
+  id: test
+---
+
+```supersigil-xml
+<Criterion />
+<References />
+```
+";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
 
@@ -1299,14 +719,6 @@ mod parse_file_integration {
         assert!(result.is_err(), "expected errors, got: {result:?}");
         let errors = result.unwrap_err();
 
-        // 3 errors: ExpressionAttribute + MissingRequiredAttribute for Criterion.id
-        //           + MissingRequiredAttribute for References.refs
-        // (UnknownComp is skipped during extraction)
-        assert_eq!(errors.len(), 3, "expected 3 errors, got: {errors:?}");
-
-        let has_expr = errors
-            .iter()
-            .any(|e| matches!(e, ParseError::ExpressionAttribute { .. }));
         let has_missing_criterion = errors.iter().any(|e| {
             matches!(
                 e,
@@ -1322,7 +734,6 @@ mod parse_file_integration {
             )
         });
 
-        assert!(has_expr, "expected ExpressionAttribute error");
         assert!(
             has_missing_criterion,
             "expected MissingRequiredAttribute for Criterion.id"
@@ -1340,7 +751,9 @@ mod parse_file_integration {
         let mut content = Vec::new();
         // UTF-8 BOM
         content.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-        content.extend_from_slice(b"---\r\nsupersigil:\r\n  id: bom-test\r\n---\r\n<Criterion id=\"c1\">\r\nText\r\n</Criterion>\r\n");
+        content.extend_from_slice(
+            b"---\r\nsupersigil:\r\n  id: bom-test\r\n---\r\n\r\n```supersigil-xml\r\n<Criterion id=\"c1\">\r\nText\r\n</Criterion>\r\n```\r\n",
+        );
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(&content).unwrap();
         f.flush().unwrap();
@@ -1359,11 +772,20 @@ mod parse_file_integration {
         }
     }
 
-    // ── Missing id in front matter → fatal error ──
+    // ── Missing id in front matter is fatal ──
 
     #[test]
     fn missing_id_is_fatal() {
-        let content = "---\nsupersigil:\n  type: spec\n---\n<Criterion id=\"c1\" />\n";
+        let content = "\
+---
+supersigil:
+  type: spec
+---
+
+```supersigil-xml
+<Criterion id=\"c1\" />
+```
+";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
 
@@ -1388,11 +810,13 @@ mod parse_file_integration {
 supersigil:
   id: test
 ---
-<Aside>This is a note</Aside>
 
+```supersigil-xml
+<Aside>This is a note</Aside>
 <Criterion id=\"c1\">
 Some criterion
 </Criterion>
+```
 ";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1418,13 +842,14 @@ Some criterion
 supersigil:
   id: test
 ---
+
+```supersigil-xml
 <Tabs>
 <TabItem>
-
 <References refs=\"other/spec#c1\" />
-
 </TabItem>
 </Tabs>
+```
 ";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1454,11 +879,12 @@ supersigil:
 supersigil:
   id: test
 ---
+
+```supersigil-xml
 <Criterion id=\"c1\">
-
 <Aside>important text</Aside>
-
 </Criterion>
+```
 ";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1486,15 +912,13 @@ supersigil:
 supersigil:
   id: test
 ---
+
+```supersigil-xml
 <Aside>A note</Aside>
-
 <TrackedFiles paths=\"src/**/*.rs\" />
-
-<Steps>
-step content
-</Steps>
-
+<Steps>step content</Steps>
 <References refs=\"other/spec\" />
+```
 ";
         let f = write_temp_file(content);
         let defs = ComponentDefs::defaults();
@@ -1512,250 +936,32 @@ step content
             ParseResult::NotSupersigil(_) => panic!("expected Document"),
         }
     }
-}
 
-// ── Code block extraction ───────────────────────────────────────────────────
-
-mod code_block_extraction {
-    use super::*;
-    use common::extract;
+    // ── No supersigil-xml fences produces empty components ──
 
     #[test]
-    fn example_extracts_single_code_block() {
-        let body = r#"
-<Example id="hello" lang="sh" runner="sh">
+    fn no_xml_fences_produces_empty_components() {
+        let content = "\
+---
+supersigil:
+  id: test
+---
 
-```sh
-echo hello
-```
-
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        let example = &components[0];
-        assert_eq!(example.name, "Example");
-        assert_eq!(example.code_blocks.len(), 1);
-        let block = &example.code_blocks[0];
-        assert_eq!(block.lang.as_deref(), Some("sh"));
-        assert_eq!(block.content, "echo hello");
-        assert!(block.content_offset > 0, "content_offset should be > 0");
-    }
-
-    #[test]
-    fn expected_extracts_code_block() {
-        let body = r#"
-<Example id="hello" lang="sh" runner="sh">
-
-```sh
-echo hello
-```
-
-<Expected status="0">
-
-```
-hello
-```
-
-</Expected>
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        let example = &components[0];
-        assert_eq!(example.name, "Example");
-
-        // Example itself has one code block
-        assert_eq!(
-            example.code_blocks.len(),
-            1,
-            "Example should have 1 code block"
-        );
-
-        // Expected child has one code block
-        assert_eq!(example.children.len(), 1);
-        let expected = &example.children[0];
-        assert_eq!(expected.name, "Expected");
-        assert_eq!(
-            expected.code_blocks.len(),
-            1,
-            "Expected should have 1 code block"
-        );
-        let block = &expected.code_blocks[0];
-        assert_eq!(block.lang, None);
-        assert_eq!(block.content, "hello");
-    }
-
-    #[test]
-    fn non_example_component_has_empty_code_blocks() {
-        let body = r#"
-<Criterion id="crit-1">Some criterion text</Criterion>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        let criterion = &components[0];
-        assert_eq!(criterion.name, "Criterion");
-        assert!(
-            criterion.code_blocks.is_empty(),
-            "non-Example/Expected component should have empty code_blocks"
-        );
-    }
-
-    #[test]
-    fn example_with_no_code_block() {
-        let body = r#"
-<Example id="hello" lang="sh" runner="sh">
-
-Some text but no code block.
-
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        let example = &components[0];
-        assert_eq!(example.name, "Example");
-        assert!(
-            example.code_blocks.is_empty(),
-            "Example with no fenced code block should have empty code_blocks"
-        );
-    }
-
-    #[test]
-    fn example_with_multiple_code_blocks() {
-        let body = r#"
-<Example id="multi" lang="sh" runner="sh">
-
-```sh
-echo first
-```
-
-```sh
-echo second
-```
-
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        let example = &components[0];
-        assert_eq!(example.name, "Example");
-        assert_eq!(
-            example.code_blocks.len(),
-            2,
-            "Example should extract both code blocks"
-        );
-        assert_eq!(example.code_blocks[0].content, "echo first");
-        assert_eq!(example.code_blocks[1].content, "echo second");
-    }
-
-    #[test]
-    fn code_block_with_language_tag() {
-        let body = r#"
-<Example id="rust-hello" lang="rust" runner="cargo-test">
-
-```rust
-fn main() { println!("hello"); }
-```
-
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        let example = &components[0];
-        assert_eq!(example.code_blocks.len(), 1);
-        let block = &example.code_blocks[0];
-        assert_eq!(block.lang.as_deref(), Some("rust"));
-        assert_eq!(block.content, "fn main() { println!(\"hello\"); }");
-    }
-
-    #[test]
-    fn code_block_offset_accounts_for_body_offset() {
-        let body = r#"
-<Example id="hello" lang="sh" runner="sh">
-
-```sh
-echo hello
-```
-
-</Example>
-"#;
-        let body_offset = 100; // simulate frontmatter
-        let (components, _) = extract(body, body_offset);
-        let example = &components[0];
-        assert_eq!(example.code_blocks.len(), 1);
-        let block = &example.code_blocks[0];
-        assert!(
-            block.content_offset >= body_offset,
-            "content_offset ({}) should include body_offset ({})",
-            block.content_offset,
-            body_offset
-        );
-    }
-
-    #[test]
-    fn code_block_content_offset_points_to_fence_in_source() {
-        // The content_offset should point to the opening fence line.
-        // With body_offset=0, the offset should match the fence position in the body.
-        let body = "<Example id=\"hello\" lang=\"sh\" runner=\"sh\">\n\n```sh\necho hello\n```\n\n</Example>\n";
-        let fence_pos = body.find("```sh").expect("fence should exist");
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        let block = &components[0].code_blocks[0];
-        assert_eq!(
-            block.content_offset, fence_pos,
-            "content_offset should point to start of opening fence"
-        );
-    }
-
-    #[test]
-    fn acceptance_criteria_with_code_has_empty_code_blocks() {
-        // Even if there happens to be code-like content in a non-Example/Expected
-        // component, code_blocks should be empty.
-        let body = r"
-<AcceptanceCriteria>
-
-Some text about criteria.
-
-</AcceptanceCriteria>
+Just some markdown text with no supersigil-xml fences.
 ";
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        assert_eq!(components.len(), 1);
-        assert!(components[0].code_blocks.is_empty());
-    }
+        let f = write_temp_file(content);
+        let defs = ComponentDefs::defaults();
 
-    #[test]
-    fn expected_with_format_and_code_block() {
-        let body = r#"
-<Example id="json-test" lang="sh" runner="sh">
-
-```sh
-echo '{"key": "value"}'
-```
-
-<Expected status="0" format="json">
-
-```json
-{"key": "value"}
-```
-
-</Expected>
-</Example>
-"#;
-        let (components, errors) = extract(body, 0);
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-        let example = &components[0];
-        let expected = &example.children[0];
-        assert_eq!(expected.name, "Expected");
-        assert_eq!(expected.code_blocks.len(), 1);
-        let block = &expected.code_blocks[0];
-        assert_eq!(block.lang.as_deref(), Some("json"));
-        assert_eq!(block.content, "{\"key\": \"value\"}");
+        let result = parse_file(f.path(), &defs).unwrap();
+        match result {
+            ParseResult::Document(doc) => {
+                assert!(
+                    doc.components.is_empty(),
+                    "no supersigil-xml fences means no components"
+                );
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
     }
 }
 
@@ -1765,15 +971,31 @@ mod parse_content {
     use supersigil_core::{ComponentDefs, ParseResult};
 
     #[test]
-    fn parses_valid_mdx_from_string() {
-        let content = "---\nsupersigil:\n  id: test-doc\n  type: requirements\n  status: draft\ntitle: \"Test\"\n---\n\n# Hello\n";
-        let path = std::path::Path::new("test.mdx");
+    fn parses_valid_content_from_string() {
+        let content = "\
+---
+supersigil:
+  id: test-doc
+  type: requirements
+  status: draft
+title: \"Test\"
+---
+
+# Hello
+
+```supersigil-xml
+<Criterion id=\"c1\">Some text</Criterion>
+```
+";
+        let path = std::path::Path::new("test.md");
         let defs = ComponentDefs::defaults();
         let result = supersigil_parser::parse_content(path, content, &defs);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result.unwrap() {
             ParseResult::Document(doc) => {
                 assert_eq!(doc.frontmatter.id, "test-doc");
+                assert_eq!(doc.components.len(), 1);
+                assert_eq!(doc.components[0].name, "Criterion");
             }
             ParseResult::NotSupersigil(_) => panic!("expected Document"),
         }
@@ -1782,7 +1004,7 @@ mod parse_content {
     #[test]
     fn returns_not_supersigil_for_non_supersigil() {
         let content = "---\ntitle: \"Not supersigil\"\n---\n\n# Hello\n";
-        let path = std::path::Path::new("other.mdx");
+        let path = std::path::Path::new("other.md");
         let defs = ComponentDefs::defaults();
         let result = supersigil_parser::parse_content(path, content, &defs);
         assert!(result.is_ok());
@@ -1790,11 +1012,71 @@ mod parse_content {
     }
 
     #[test]
-    fn reports_parse_errors() {
-        let content = "---\nsupersigil:\n  id: err-doc\n  type: requirements\n  status: draft\ntitle: \"Test\"\n---\n\n<Criterion id={expr}>\ntest\n</Criterion>\n";
-        let path = std::path::Path::new("bad.mdx");
+    fn reports_validation_errors() {
+        let content = "\
+---
+supersigil:
+  id: err-doc
+  type: requirements
+  status: draft
+title: \"Test\"
+---
+
+```supersigil-xml
+<Criterion />
+```
+";
+        let path = std::path::Path::new("bad.md");
         let defs = ComponentDefs::defaults();
         let result = supersigil_parser::parse_content(path, content, &defs);
-        result.unwrap_err();
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                supersigil_core::ParseError::MissingRequiredAttribute { component, attribute, .. }
+                if component == "Criterion" && attribute == "id"
+            )),
+            "expected MissingRequiredAttribute for Criterion.id, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn reports_xml_syntax_errors() {
+        let content = "\
+---
+supersigil:
+  id: err-doc
+---
+
+```supersigil-xml
+<Criterion id=\"c1\">unclosed
+```
+";
+        let path = std::path::Path::new("bad.md");
+        let defs = ComponentDefs::defaults();
+        let result = supersigil_parser::parse_content(path, content, &defs);
+        let errors = result.unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, supersigil_core::ParseError::XmlSyntaxError { .. })),
+            "expected XmlSyntaxError, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn no_xml_fences_returns_empty_document() {
+        let content = "---\nsupersigil:\n  id: empty\n---\n\n# Just Markdown\n";
+        let path = std::path::Path::new("empty.md");
+        let defs = ComponentDefs::defaults();
+        let result = supersigil_parser::parse_content(path, content, &defs);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result.unwrap() {
+            ParseResult::Document(doc) => {
+                assert_eq!(doc.frontmatter.id, "empty");
+                assert!(doc.components.is_empty());
+            }
+            ParseResult::NotSupersigil(_) => panic!("expected Document"),
+        }
     }
 }

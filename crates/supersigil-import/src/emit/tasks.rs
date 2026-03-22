@@ -1,9 +1,24 @@
 use std::fmt::Write;
 
-use crate::emit::emit_front_matter;
+use crate::emit::{emit_front_matter, xml_escape};
 use crate::ids::{deduplicate_ids, make_task_id};
 use crate::parse::tasks::{ParsedSubTask, ParsedTasks, TaskRefs, TaskStatus};
 use crate::refs::{self, RequirementIndex};
+
+/// Return the length of the longest run of consecutive backtick characters in `text`.
+fn max_backtick_run(text: &str) -> usize {
+    let mut max = 0;
+    let mut current = 0;
+    for c in text.chars() {
+        if c == '`' {
+            current += 1;
+            max = max.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    max
+}
 
 /// Build the attribute string for a `<Task>` opening tag.
 fn task_attrs(
@@ -39,7 +54,7 @@ fn emit_task_body(
     ambiguity_count: &mut usize,
     task_markers: &mut Vec<String>,
 ) {
-    let _ = writeln!(out, "{}  {title}", ctx.indent);
+    let _ = writeln!(out, "{}  {}", ctx.indent, xml_escape(title));
 
     if ctx.is_optional {
         let marker = format!(
@@ -56,15 +71,19 @@ fn emit_task_body(
         if !trimmed.is_empty() {
             out.push('\n');
             for line in trimmed.lines() {
-                let _ = writeln!(out, "{}  {}", ctx.indent, line.trim());
+                let _ = writeln!(out, "{}  {}", ctx.indent, xml_escape(line.trim()));
             }
         }
     }
 
     if let TaskRefs::Comment(comment) = ctx.refs {
-        let comment = comment.replace("*/", "* /");
-        out.push('\n');
-        let _ = writeln!(out, "{}  {{/* {comment} */}}", ctx.indent);
+        let comment = comment.replace("--", "- -");
+        let marker = format!(
+            "<!-- TODO(supersigil-import): Kiro metadata for task {}: {comment} -->",
+            ctx.task_id
+        );
+        task_markers.push(marker);
+        *ambiguity_count += 1;
     }
 }
 
@@ -127,14 +146,14 @@ fn format_raw_refs(refs: &[crate::parse::RawRef]) -> String {
         .join(", ")
 }
 
-/// Emit a tasks MDX document from parsed Kiro tasks.
+/// Emit a tasks spec document from parsed Kiro tasks.
 ///
 /// When `req_index` is provided, task requirement refs are resolved inline
 /// against the index. When absent, unresolvable-ref markers are emitted.
 ///
-/// Returns `(mdx_content, ambiguity_count, validates_resolved)`.
+/// Returns `(md_content, ambiguity_count, validates_resolved)`.
 #[must_use]
-pub fn emit_tasks_mdx(
+pub fn emit_tasks_md(
     parsed: &ParsedTasks,
     doc_id: &str,
     req_index: Option<&RequirementIndex<'_>>,
@@ -183,6 +202,23 @@ pub fn emit_tasks_mdx(
         task_markers.extend(impl_markers);
 
         let attrs = task_attrs(task_id, &task.status, prev_top_id, implements.as_deref());
+
+        // Compute fence length: scan all content that will appear inside the fence.
+        let mut max_run = max_backtick_run(&task.title);
+        for desc in &task.description {
+            max_run = max_run.max(max_backtick_run(desc));
+        }
+        for sub in &task.sub_tasks {
+            max_run = max_run.max(max_backtick_run(&sub.title));
+            for desc in &sub.description {
+                max_run = max_run.max(max_backtick_run(desc));
+            }
+        }
+        let fence_len = max_run + 1;
+        let fence_len = fence_len.max(3);
+        let fence = "`".repeat(fence_len);
+
+        let _ = writeln!(out, "{fence}supersigil-xml");
         let _ = writeln!(out, "<Task {attrs}>");
 
         emit_task_body(
@@ -213,6 +249,7 @@ pub fn emit_tasks_mdx(
         );
 
         let _ = writeln!(out, "</Task>");
+        let _ = writeln!(out, "{fence}");
         out.push('\n');
 
         prev_top_id = Some(task_id);
@@ -287,5 +324,158 @@ fn emit_sub_tasks(
         let _ = writeln!(out, "  </Task>");
 
         prev_sub_id = Some(sub_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse::tasks::ParsedTask;
+
+    fn simple_task(title: &str, description: Vec<String>) -> ParsedTask {
+        ParsedTask {
+            number: "1".to_string(),
+            title: title.to_string(),
+            status: TaskStatus::Ready,
+            is_optional: false,
+            description,
+            requirement_refs: TaskRefs::None,
+            sub_tasks: vec![],
+        }
+    }
+
+    fn parsed_tasks_with(task: ParsedTask) -> ParsedTasks {
+        ParsedTasks {
+            title: None,
+            preamble: vec![],
+            tasks: vec![task],
+            postamble: vec![],
+        }
+    }
+
+    #[test]
+    fn max_backtick_run_empty() {
+        assert_eq!(max_backtick_run(""), 0);
+    }
+
+    #[test]
+    fn max_backtick_run_no_backticks() {
+        assert_eq!(max_backtick_run("hello world"), 0);
+    }
+
+    #[test]
+    fn max_backtick_run_single() {
+        assert_eq!(max_backtick_run("a`b"), 1);
+    }
+
+    #[test]
+    fn max_backtick_run_triple() {
+        assert_eq!(max_backtick_run("some ```triple``` backticks"), 3);
+    }
+
+    #[test]
+    fn max_backtick_run_mixed_runs() {
+        // longest run wins
+        assert_eq!(max_backtick_run("```` then `` then `"), 4);
+    }
+
+    #[test]
+    fn emit_uses_triple_fence_when_no_backticks() {
+        let task = simple_task("Do something", vec![]);
+        let parsed = parsed_tasks_with(task);
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+
+        assert!(
+            output.contains("```supersigil-xml"),
+            "expected triple-backtick fence when no backticks in content"
+        );
+        // Ensure the fence is exactly 3 backticks, not more
+        assert!(
+            !output.contains("````supersigil-xml"),
+            "fence should be exactly 3 backticks when no backticks in content"
+        );
+    }
+
+    #[test]
+    fn emit_uses_quadruple_fence_when_description_has_triple_backticks() {
+        let desc = "Use this code:\n```rust\nfn main() {}\n```\nDone.".to_string();
+        let task = simple_task("Implement feature", vec![desc]);
+        let parsed = parsed_tasks_with(task);
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+
+        // The outer fence must be 4 backticks
+        assert!(
+            output.contains("````supersigil-xml"),
+            "expected 4-backtick fence when description contains triple backticks;\noutput:\n{output}"
+        );
+        // Must also close with 4 backticks
+        // The closing fence is a line with exactly 4 backticks
+        let has_closing_fence = output.lines().any(|l| l == "````");
+        assert!(
+            has_closing_fence,
+            "expected closing 4-backtick fence line;\noutput:\n{output}"
+        );
+        // Must NOT have a fence line that is exactly 3 backticks (would be broken by inner ```)
+        let has_triple_only_fence = output.lines().any(|l| l == "```supersigil-xml");
+        assert!(
+            !has_triple_only_fence,
+            "outer fence must not be exactly 3 backticks;\noutput:\n{output}"
+        );
+    }
+
+    #[test]
+    fn emit_uses_five_fence_when_description_has_quadruple_backticks() {
+        let desc = "See ```` for details.".to_string();
+        let task = simple_task("Use quad backticks", vec![desc]);
+        let parsed = parsed_tasks_with(task);
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+
+        assert!(
+            output.contains("`````supersigil-xml"),
+            "expected 5-backtick fence when content has 4 consecutive backticks;\noutput:\n{output}"
+        );
+    }
+
+    #[test]
+    fn emit_uses_quadruple_fence_when_subtask_description_has_triple_backticks() {
+        let sub_desc = "Run: ```shell\nls\n```".to_string();
+        let sub = ParsedSubTask {
+            parent_number: "1".to_string(),
+            number: "1".to_string(),
+            title: "Sub-task".to_string(),
+            status: TaskStatus::Ready,
+            is_optional: false,
+            description: vec![sub_desc],
+            requirement_refs: TaskRefs::None,
+        };
+        let task = ParsedTask {
+            number: "1".to_string(),
+            title: "Parent task".to_string(),
+            status: TaskStatus::Ready,
+            is_optional: false,
+            description: vec![],
+            requirement_refs: TaskRefs::None,
+            sub_tasks: vec![sub],
+        };
+        let parsed = parsed_tasks_with(task);
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+
+        assert!(
+            output.contains("````supersigil-xml"),
+            "expected 4-backtick fence when subtask description contains triple backticks;\noutput:\n{output}"
+        );
+    }
+
+    #[test]
+    fn emit_uses_quadruple_fence_when_title_has_triple_backticks() {
+        // A task title with triple backticks (unusual but must be handled)
+        let task = simple_task("Use ```code``` in title", vec![]);
+        let parsed = parsed_tasks_with(task);
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+
+        assert!(
+            output.contains("````supersigil-xml"),
+            "expected 4-backtick fence when title contains triple backticks;\noutput:\n{output}"
+        );
     }
 }

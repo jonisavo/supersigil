@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_helpers::*;
-use supersigil_core::{ACCEPTANCE_CRITERIA, DocumentTypeDef};
+use supersigil_core::{ACCEPTANCE_CRITERIA, DocumentTypeDef, ParseWarning, SpanKind};
 use supersigil_rust::verifies;
 use tempfile::TempDir;
 
@@ -329,6 +329,8 @@ fn multiple_verified_by_children_under_one_verifiable_component_are_additive() {
             make_verified_by_tag("auth:tag2", 13),
         ],
         body_text: Some("criterion req-1".into()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
     };
@@ -353,6 +355,8 @@ fn make_code_block() -> supersigil_core::CodeBlock {
         lang: Some("bash".into()),
         content: "echo hello".into(),
         content_offset: 0,
+        content_end_offset: "echo hello".len(),
+        span_kind: SpanKind::RefFence,
     }
 }
 
@@ -365,6 +369,8 @@ fn make_example(
         attributes: std::collections::HashMap::new(),
         children,
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(line),
     }
@@ -376,6 +382,8 @@ fn make_expected(line: usize) -> supersigil_core::ExtractedComponent {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -437,6 +445,8 @@ fn example_with_exactly_one_code_block_is_valid() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -456,6 +466,8 @@ fn example_with_zero_code_blocks_emits_finding() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
     };
@@ -478,6 +490,8 @@ fn example_with_two_code_blocks_emits_finding() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block(), make_code_block()],
         position: pos(5),
     };
@@ -495,6 +509,8 @@ fn expected_with_zero_code_blocks_is_valid() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
     };
@@ -514,6 +530,8 @@ fn expected_with_one_code_block_is_valid() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -533,6 +551,8 @@ fn expected_with_two_code_blocks_emits_finding() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block(), make_code_block()],
         position: pos(5),
     };
@@ -559,6 +579,8 @@ fn example_with_valid_env_is_clean() {
         attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BAZ=qux".into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -578,6 +600,8 @@ fn example_with_env_item_missing_equals_emits_finding() {
         attributes: std::collections::HashMap::from([("env".into(), "FOO=bar,BADITEM".into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -600,6 +624,8 @@ fn expected_with_env_item_missing_equals_emits_finding() {
         attributes: std::collections::HashMap::from([("env".into(), "NOEQUALS".into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
     };
@@ -617,6 +643,8 @@ fn component_without_env_attribute_is_clean() {
         attributes: std::collections::HashMap::new(),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -639,6 +667,8 @@ fn multiple_invalid_env_items_emit_multiple_findings() {
         )]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
     };
@@ -1047,6 +1077,8 @@ fn rationale_inside_non_decision_component_emits_finding() {
         attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
         children: vec![make_rationale(11)],
         body_text: Some("criterion req-1".into()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
     };
@@ -1101,6 +1133,8 @@ fn alternative_inside_non_decision_component_emits_finding() {
         attributes: std::collections::HashMap::from([("id".into(), "req-1".into())]),
         children: vec![make_alternative("alt-1", 11)],
         body_text: Some("criterion req-1".into()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
     };
@@ -1311,4 +1345,180 @@ fn alternative_status_draft_gating() {
             );
         }
     }
+}
+
+// -----------------------------------------------------------------------
+// check_expected_cardinality
+// -----------------------------------------------------------------------
+
+#[test]
+fn example_with_zero_expected_children_no_finding() {
+    let example = make_example(vec![], 10);
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_expected_cardinality(&doc_refs);
+    assert!(
+        findings.is_empty(),
+        "Example with 0 Expected children should produce no findings, got: {findings:?}",
+    );
+}
+
+#[test]
+fn example_with_one_expected_child_no_finding() {
+    let example = make_example(vec![make_expected(11)], 10);
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_expected_cardinality(&doc_refs);
+    assert!(
+        findings.is_empty(),
+        "Example with 1 Expected child should produce no findings, got: {findings:?}",
+    );
+}
+
+#[test]
+fn example_with_two_expected_children_emits_finding() {
+    let example = make_example(vec![make_expected(11), make_expected(12)], 10);
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_expected_cardinality(&doc_refs);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].rule, RuleName::MultipleExpectedChildren);
+    assert!(
+        findings[0].message.contains("2 Expected children"),
+        "message should mention count, got: {}",
+        findings[0].message,
+    );
+}
+
+// -----------------------------------------------------------------------
+// check_inline_example_lang
+// -----------------------------------------------------------------------
+
+#[test]
+fn example_with_fence_lang_and_no_attr_is_valid() {
+    // Code block has lang: Some("sh") — no error regardless of attribute
+    let example = supersigil_core::ExtractedComponent {
+        name: EXAMPLE.to_owned(),
+        attributes: std::collections::HashMap::new(),
+        children: vec![],
+        body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
+        code_blocks: vec![supersigil_core::CodeBlock {
+            lang: Some("sh".into()),
+            content: "echo hello".into(),
+            content_offset: 0,
+            content_end_offset: "echo hello".len(),
+            span_kind: SpanKind::RefFence,
+        }],
+        position: pos(5),
+    };
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_inline_example_lang(&doc_refs);
+    assert!(
+        findings.is_empty(),
+        "Example with fence lang should be valid, got: {findings:?}",
+    );
+}
+
+#[test]
+fn example_with_inline_code_and_lang_attr_is_valid() {
+    // Code block has lang: None but the Example has a `lang` attribute
+    let example = supersigil_core::ExtractedComponent {
+        name: EXAMPLE.to_owned(),
+        attributes: std::collections::HashMap::from([("lang".into(), "python".into())]),
+        children: vec![],
+        body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
+        code_blocks: vec![supersigil_core::CodeBlock {
+            lang: None,
+            content: "print('hello')".into(),
+            content_offset: 0,
+            content_end_offset: "print('hello')".len(),
+            span_kind: SpanKind::XmlInline,
+        }],
+        position: pos(5),
+    };
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_inline_example_lang(&doc_refs);
+    assert!(
+        findings.is_empty(),
+        "Example with inline code and lang attr should be valid, got: {findings:?}",
+    );
+}
+
+#[test]
+fn example_with_inline_code_and_no_lang_attr_emits_finding() {
+    // Code block has lang: None and no `lang` attribute — error
+    let example = supersigil_core::ExtractedComponent {
+        name: EXAMPLE.to_owned(),
+        attributes: std::collections::HashMap::new(),
+        children: vec![],
+        body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
+        code_blocks: vec![supersigil_core::CodeBlock {
+            lang: None,
+            content: "print('hello')".into(),
+            content_offset: 0,
+            content_end_offset: "print('hello')".len(),
+            span_kind: SpanKind::XmlInline,
+        }],
+        position: pos(5),
+    };
+    let docs = [make_doc("ex/doc", vec![example])];
+    let doc_refs: Vec<&_> = docs.iter().collect();
+    let findings = check_inline_example_lang(&doc_refs);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].rule, RuleName::InlineExampleWithoutLang);
+    assert!(
+        findings[0].message.contains("lang"),
+        "message should mention lang, got: {}",
+        findings[0].message,
+    );
+}
+
+// -----------------------------------------------------------------------
+// check_code_ref_conflicts
+// -----------------------------------------------------------------------
+
+#[test]
+fn orphan_code_ref_warning_surfaces_as_finding() {
+    let mut doc = make_doc_with_status("test/doc", "draft", vec![]);
+    doc.warnings.push(ParseWarning::OrphanCodeRef {
+        path: doc.path.clone(),
+        target: "no-such-test".into(),
+        content_offset: 0,
+    });
+    let findings = check_code_ref_conflicts(&[&doc]);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].rule, RuleName::CodeRefConflict);
+    assert_eq!(findings[0].doc_id.as_deref(), Some("test/doc"));
+}
+
+#[test]
+fn no_warnings_emits_no_findings() {
+    let doc = make_doc_with_status("test/doc", "draft", vec![]);
+    let findings = check_code_ref_conflicts(&[&doc]);
+    assert!(findings.is_empty());
+}
+
+#[test]
+fn multiple_warnings_emit_multiple_findings() {
+    let mut doc = make_doc_with_status("test/doc", "draft", vec![]);
+    doc.warnings.push(ParseWarning::DuplicateCodeRef {
+        path: doc.path.clone(),
+        target: "dup-test".into(),
+    });
+    doc.warnings.push(ParseWarning::DualSourceConflict {
+        path: doc.path.clone(),
+        target: "conflict-test".into(),
+        content_offset: 0,
+    });
+    let findings = check_code_ref_conflicts(&[&doc]);
+    assert_eq!(findings.len(), 2);
+    assert!(findings.iter().all(|f| f.rule == RuleName::CodeRefConflict));
 }

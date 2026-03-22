@@ -56,3 +56,7 @@ dir = "crates/supersigil-lsp"
 description = "Install the LSP server locally after QA is OK"
 run = ["mise install-lsp"]
 depends = "qa"
+
+[tasks.install-all]
+description = "Install all binaries locally"
+run = ["mise bundle-explore", "mise install-cli", "mise install-lsp"]

@@ -9,17 +9,17 @@ fn setup_fixture(dir: &TempDir) {
     fs::create_dir_all(specs.join("auth")).unwrap();
     fs::create_dir_all(specs.join("billing")).unwrap();
     fs::write(
-        specs.join("auth/req.mdx"),
+        specs.join("auth/req.md"),
         "---\nsupersigil:\n  id: a\n---\n",
     )
     .unwrap();
     fs::write(
-        specs.join("auth/design.mdx"),
+        specs.join("auth/design.md"),
         "---\nsupersigil:\n  id: b\n---\n",
     )
     .unwrap();
     fs::write(
-        specs.join("billing/req.mdx"),
+        specs.join("billing/req.md"),
         "---\nsupersigil:\n  id: c\n---\n",
     )
     .unwrap();
@@ -27,17 +27,17 @@ fn setup_fixture(dir: &TempDir) {
 }
 
 #[test]
-fn discovers_mdx_files_matching_glob() {
+fn discovers_md_files_matching_glob() {
     let tmp = TempDir::new().unwrap();
     setup_fixture(&tmp);
 
-    let paths = discover_spec_files(&["specs/**/*.mdx".to_string()], tmp.path()).unwrap();
+    let paths = discover_spec_files(&["specs/**/*.md".to_string()], tmp.path()).unwrap();
 
     assert_eq!(paths.len(), 3);
     assert!(
         paths
             .iter()
-            .all(|p| p.extension().is_some_and(|e| e == "mdx"))
+            .all(|p| p.extension().is_some_and(|e| e == "md"))
     );
 }
 

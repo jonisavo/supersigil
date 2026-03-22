@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-rust/src/**/*.rs" />
+```
 
 Coverage in Supersigil is not a vague statement about “having tests.” A
 criterion is covered only when the graph can point to specific evidence for it.
@@ -51,7 +52,7 @@ is sufficient.
 
 For non-Rust projects, tags are a portable bridge from criteria to tests:
 
-```mdx
+```xml
 <Criterion id="valid-creds">
   WHEN a user submits valid credentials
   THE SYSTEM SHALL issue a session token.
@@ -77,7 +78,7 @@ styles, so they work across languages.
 
 File globs trade precision for speed:
 
-```mdx
+```xml
 <VerifiedBy strategy="file-glob" paths="tests/auth/login_*.rs" />
 ```
 
@@ -93,19 +94,19 @@ you do not need per-test granularity.
 
 Examples are ideal when the proof should live in the documentation itself:
 
-````mdx
-<Example id="create-task" runner="http" verifies="tasks/req/create#due-date">
-
-```http
+````md
+```http supersigil-ref=create-task
 POST /api/v1/tasks
 Content-Type: application/json
 
 {"title": "Buy milk"}
 ```
 
-<Expected status="201" />
-
+```supersigil-xml
+<Example id="create-task" runner="http" verifies="tasks/req/create#due-date">
+  <Expected status="201" />
 </Example>
+```
 ````
 
 Passing examples count as evidence during `supersigil verify`, so the same

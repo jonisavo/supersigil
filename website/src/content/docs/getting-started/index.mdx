@@ -42,7 +42,7 @@ supersigil --version
    This creates a `supersigil.toml` config and installs four agent skills to `.agents/skills/`. The skills teach AI coding agents how to work with Supersigil's spec-driven workflow.
 
    ```toml title="supersigil.toml"
-   paths = ["specs/**/*.mdx"]
+   paths = ["specs/**/*.md"]
    ```
 
    Use `--no-skills` to skip skills installation, or `-y` to accept all defaults without prompting.
@@ -55,9 +55,9 @@ supersigil --version
    supersigil new requirements auth
    ```
 
-   Then replace `specs/auth/auth.req.mdx` with one real criterion:
+   Then replace `specs/auth/auth.req.md` with one real criterion:
 
-   ```mdx title="specs/auth/auth.req.mdx"
+   ````md title="specs/auth/auth.req.md"
    ---
    supersigil:
      id: auth/req
@@ -66,15 +66,19 @@ supersigil --version
    title: "Authentication"
    ---
 
+   ```supersigil-xml
    <AcceptanceCriteria>
      <Criterion id="valid-creds">
        WHEN a user submits valid credentials
        THE SYSTEM SHALL issue a session token.
      </Criterion>
    </AcceptanceCriteria>
+   ```
 
+   ```supersigil-xml
    <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
    ```
+   ````
 
    This is deliberately set to `approved` so the next verification run is
    meaningful. Supersigil now expects real evidence.

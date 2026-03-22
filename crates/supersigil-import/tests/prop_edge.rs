@@ -3,8 +3,8 @@ mod generators;
 use std::fmt::Write;
 
 use proptest::prelude::*;
-use supersigil_import::emit::design::emit_design_mdx;
-use supersigil_import::emit::tasks::emit_tasks_mdx;
+use supersigil_import::emit::design::emit_design_md;
+use supersigil_import::emit::tasks::emit_tasks_md;
 use supersigil_import::parse::design::DesignBlock;
 use supersigil_import::parse::tasks::parse_tasks;
 
@@ -159,9 +159,9 @@ proptest! {
             target, md
         );
 
-        // When emitted as MDX, the ambiguity marker should appear in the output
+        // When emitted, the ambiguity marker should appear in the output
         let title = parsed.title.as_deref().unwrap_or("Edge Test");
-        let (mdx, ambiguity_count, _) = emit_design_mdx(
+        let (output, ambiguity_count, _) = emit_design_md(
             &parsed,
             "design/edge-test",
             None,
@@ -169,10 +169,10 @@ proptest! {
             title,
         );
 
-        // The MDX should contain the ambiguity marker about the non-requirement target
+        // The output should contain the ambiguity marker about the non-requirement target
         prop_assert!(
-            mdx.contains("<!-- TODO(supersigil-import):"),
-            "Emitted MDX should contain ambiguity marker for non-requirement target"
+            output.contains("<!-- TODO(supersigil-import):"),
+            "Emitted output should contain ambiguity marker for non-requirement target"
         );
 
         // Ambiguity count should be at least 1 (the non-req target marker,
@@ -226,9 +226,9 @@ proptest! {
             );
         }
 
-        // When emitted as MDX, optional tasks should produce ambiguity markers
+        // When emitted, optional tasks should produce ambiguity markers
         let title = parsed.title.as_deref().unwrap_or("Optional Test");
-        let (mdx, ambiguity_count, _) = emit_tasks_mdx(
+        let (output, ambiguity_count, _) = emit_tasks_md(
             &parsed,
             "tasks/optional-test",
             None,
@@ -238,14 +238,14 @@ proptest! {
 
         let optional_count = expected_tasks.iter().filter(|(_, _, opt)| *opt).count();
 
-        // Each optional task should produce an ambiguity marker in the MDX
-        let optional_marker_count = mdx
+        // Each optional task should produce an ambiguity marker
+        let optional_marker_count = output
             .matches("<!-- TODO(supersigil-import): This task was marked as optional")
             .count();
         prop_assert_eq!(
             optional_marker_count, optional_count,
-            "Expected {} optional-task ambiguity markers, found {}.\n\nMDX:\n{}",
-            optional_count, optional_marker_count, mdx
+            "Expected {} optional-task ambiguity markers, found {}.\n\nOutput:\n{}",
+            optional_count, optional_marker_count, output
         );
 
         // Ambiguity count should include the optional markers
@@ -255,16 +255,16 @@ proptest! {
             ambiguity_count, optional_count
         );
 
-        // All tasks (including optional ones) should appear in the MDX output
+        // All tasks (including optional ones) should appear in the output
         for (exp_num, exp_title, _) in &expected_tasks {
             let task_id = format!("task-{exp_num}");
             prop_assert!(
-                mdx.contains(&format!("id=\"{task_id}\"")),
-                "MDX missing task with id {task_id}"
+                output.contains(&format!("id=\"{task_id}\"")),
+                "output missing task with id {task_id}"
             );
             prop_assert!(
-                mdx.contains(exp_title.trim()),
-                "MDX missing task title: {:?}",
+                output.contains(exp_title.trim()),
+                "output missing task title: {:?}",
                 exp_title
             );
         }

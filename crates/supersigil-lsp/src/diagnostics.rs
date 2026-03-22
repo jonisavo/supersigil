@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Url};
-use supersigil_core::{GraphError, ParseError};
+use supersigil_core::{GraphError, ParseError, ParseWarning};
 use supersigil_verify::{Finding, ReportSeverity};
 
 use crate::DIAGNOSTIC_SOURCE;
@@ -24,14 +24,20 @@ use crate::position::{raw_to_lsp, source_to_lsp_from_file, source_to_lsp_utf16, 
 /// produce a valid file URL (e.g., the path cannot be turned into a `file://`
 /// URI).
 ///
-/// All parse errors map to [`DiagnosticSeverity::ERROR`].
+/// All parse errors map to [`DiagnosticSeverity::ERROR`] by default. Use
+/// [`parse_warning_to_diagnostic`] for code-ref warnings that should map
+/// to [`DiagnosticSeverity::WARNING`].
 #[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "match arms for each ParseError variant"
+)]
 pub fn parse_error_to_diagnostic(
     err: &ParseError,
     buffer: Option<&str>,
 ) -> Option<(Url, Diagnostic)> {
     let (path, pos, message) = match err {
-        ParseError::MdxSyntaxError {
+        ParseError::XmlSyntaxError {
             path,
             line,
             column,
@@ -44,19 +50,6 @@ pub fn parse_error_to_diagnostic(
             };
             (path, sp_to_lsp(&sp, path, buffer), message.clone())
         }
-        ParseError::ExpressionAttribute {
-            path,
-            position,
-            component,
-            attribute,
-        } => (
-            path,
-            sp_to_lsp(position, path, buffer),
-            format!(
-                "expression attribute `{attribute}` on `<{component}>` \
-                 (only string literals supported)"
-            ),
-        ),
         ParseError::MissingRequiredAttribute {
             path,
             position,
@@ -83,12 +76,150 @@ pub fn parse_error_to_diagnostic(
         ParseError::IoError { path, source } => {
             (path, raw_to_lsp(0, 0), format!("I/O error: {source}"))
         }
+        ParseError::OrphanCodeRef {
+            path,
+            target,
+            content_offset,
+        } => {
+            let (line, column) = if let Some(buf) = buffer {
+                let offset = (*content_offset).min(buf.len());
+                let before = &buf[..offset];
+                let line = before.chars().filter(|&c| c == '\n').count() + 1;
+                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
+                let column = offset - last_nl + 1;
+                (line, column)
+            } else {
+                (1, 1)
+            };
+            let sp = supersigil_core::SourcePosition {
+                byte_offset: *content_offset,
+                line,
+                column,
+            };
+            (
+                path,
+                sp_to_lsp(&sp, path, buffer),
+                format!("orphan supersigil-ref `{target}` (no matching component)"),
+            )
+        }
+        ParseError::DuplicateCodeRef { path, target } => (
+            path,
+            raw_to_lsp(0, 0),
+            format!("duplicate supersigil-ref fences targeting `{target}`"),
+        ),
+        ParseError::DualSourceConflict {
+            path,
+            target,
+            content_offset,
+        } => {
+            let (line, column) = if let Some(buf) = buffer {
+                let offset = (*content_offset).min(buf.len());
+                let before = &buf[..offset];
+                let line = before.chars().filter(|&c| c == '\n').count() + 1;
+                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
+                let column = offset - last_nl + 1;
+                (line, column)
+            } else {
+                (1, 1)
+            };
+            let sp = supersigil_core::SourcePosition {
+                byte_offset: *content_offset,
+                line,
+                column,
+            };
+            (
+                path,
+                sp_to_lsp(&sp, path, buffer),
+                format!(
+                    "dual-source conflict for `{target}` (both inline text and supersigil-ref fence)"
+                ),
+            )
+        }
     };
 
     let url = path_to_url(path)?;
     let diagnostic = Diagnostic {
         range: zero_range(pos),
         severity: Some(DiagnosticSeverity::ERROR),
+        source: Some(DIAGNOSTIC_SOURCE.to_string()),
+        message,
+        ..Diagnostic::default()
+    };
+    Some((url, diagnostic))
+}
+
+/// Convert a [`ParseWarning`] to a diagnostic with [`DiagnosticSeverity::WARNING`].
+#[must_use]
+pub fn parse_warning_to_diagnostic(
+    warn: &ParseWarning,
+    buffer: Option<&str>,
+) -> Option<(Url, Diagnostic)> {
+    let (path, pos, message) = match warn {
+        ParseWarning::OrphanCodeRef {
+            path,
+            target,
+            content_offset,
+        } => {
+            let (line, column) = if let Some(buf) = buffer {
+                let offset = (*content_offset).min(buf.len());
+                let before = &buf[..offset];
+                let line = before.chars().filter(|&c| c == '\n').count() + 1;
+                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
+                let column = offset - last_nl + 1;
+                (line, column)
+            } else {
+                (1, 1)
+            };
+            let sp = supersigil_core::SourcePosition {
+                byte_offset: *content_offset,
+                line,
+                column,
+            };
+            (
+                path,
+                sp_to_lsp(&sp, path, buffer),
+                format!("orphan supersigil-ref `{target}` (no matching component)"),
+            )
+        }
+        ParseWarning::DuplicateCodeRef { path, target } => (
+            path,
+            raw_to_lsp(0, 0),
+            format!("duplicate supersigil-ref fences targeting `{target}`"),
+        ),
+        ParseWarning::DualSourceConflict {
+            path,
+            target,
+            content_offset,
+        } => {
+            let (line, column) = if let Some(buf) = buffer {
+                let offset = (*content_offset).min(buf.len());
+                let before = &buf[..offset];
+                let line = before.chars().filter(|&c| c == '\n').count() + 1;
+                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
+                let column = offset - last_nl + 1;
+                (line, column)
+            } else {
+                (1, 1)
+            };
+            let sp = supersigil_core::SourcePosition {
+                byte_offset: *content_offset,
+                line,
+                column,
+            };
+            (
+                path,
+                sp_to_lsp(&sp, path, buffer),
+                format!(
+                    "dual-source conflict for `{target}` (both inline text and supersigil-ref fence)"
+                ),
+            )
+        }
+    };
+
+    let url = path_to_url(path)?;
+    let diagnostic = Diagnostic {
+        range: zero_range(pos),
+        severity: Some(DiagnosticSeverity::WARNING),
         source: Some(DIAGNOSTIC_SOURCE.to_string()),
         message,
         ..Diagnostic::default()
@@ -415,7 +546,7 @@ mod tests {
 
     #[test]
     fn duplicate_id_produces_one_diagnostic_per_path() {
-        let path = std::path::PathBuf::from("/tmp/spec-a.mdx");
+        let path = std::path::PathBuf::from("/tmp/spec-a.md");
         let err = GraphError::DuplicateId {
             id: "REQ-001".into(),
             paths: vec![path.clone()],
@@ -434,8 +565,8 @@ mod tests {
         let err = GraphError::DuplicateId {
             id: "REQ-002".into(),
             paths: vec![
-                std::path::PathBuf::from("/tmp/a.mdx"),
-                std::path::PathBuf::from("/tmp/b.mdx"),
+                std::path::PathBuf::from("/tmp/a.md"),
+                std::path::PathBuf::from("/tmp/b.md"),
             ],
         };
 
@@ -481,7 +612,7 @@ mod tests {
 
     #[test]
     fn broken_ref_with_lookup_produces_diagnostic() {
-        let path = std::path::PathBuf::from("/tmp/req-001.mdx");
+        let path = std::path::PathBuf::from("/tmp/req-001.md");
         let err = GraphError::BrokenRef {
             doc_id: "REQ-001".into(),
             ref_str: "REQ-999".into(),
@@ -519,7 +650,7 @@ mod tests {
 
     #[test]
     fn duplicate_component_id_with_lookup_produces_one_diagnostic_per_position() {
-        let path = std::path::PathBuf::from("/tmp/req-comp.mdx");
+        let path = std::path::PathBuf::from("/tmp/req-comp.md");
         let err = GraphError::DuplicateComponentId {
             doc_id: "REQ-001".into(),
             component_id: "crit-1".into(),
@@ -547,7 +678,7 @@ mod tests {
     fn finding_with_position_and_details_path_but_no_line_uses_position() {
         // When attach_doc_paths sets details.path but not details.line/column,
         // the diagnostic should use finding.position, not default to (0, 0).
-        let path = std::path::PathBuf::from("/tmp/test-doc.mdx");
+        let path = std::path::PathBuf::from("/tmp/test-doc.md");
 
         // Write a minimal file so source_to_lsp_from_file can read it.
         let _ = std::fs::write(
@@ -584,7 +715,7 @@ mod tests {
     #[test]
     fn finding_with_details_path_and_line_uses_details_line() {
         // When details has both path AND line, those should be used (existing behavior).
-        let path = std::path::PathBuf::from("/tmp/test-doc2.mdx");
+        let path = std::path::PathBuf::from("/tmp/test-doc2.md");
         let _ = std::fs::write(&path, "line1\nline2\nline3\nline4\nline5\n");
 
         let mut finding = Finding::new(
@@ -613,9 +744,57 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    // -----------------------------------------------------------------------
+    // OrphanCodeRef / DualSourceConflict position computation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn orphan_code_ref_diagnostic_uses_correct_line_from_byte_offset() {
+        let path = std::path::PathBuf::from("/tmp/orphan-ref.md");
+        // content_offset 12 → "line1\nline2\n" → line 3, column 1
+        let buffer = "line1\nline2\norphan ref here\n";
+        let err = ParseError::OrphanCodeRef {
+            path: path.clone(),
+            target: "some-target".into(),
+            content_offset: 12,
+        };
+
+        let result = parse_error_to_diagnostic(&err, Some(buffer));
+        let (_, diag) = result.expect("should produce a diagnostic");
+        // Line 3 → 0-based LSP line 2
+        assert_eq!(
+            diag.range.start.line, 2,
+            "orphan code ref should point to line 3 (0-based: 2), not line 0"
+        );
+        assert_eq!(
+            diag.range.start.character, 0,
+            "orphan code ref should point to column 1 (0-based: 0)"
+        );
+    }
+
+    #[test]
+    fn dual_source_conflict_diagnostic_uses_correct_line_from_byte_offset() {
+        let path = std::path::PathBuf::from("/tmp/dual-source.md");
+        // content_offset 18 → "line1\nline2\nline3\n" → line 4, column 1
+        let buffer = "line1\nline2\nline3\ndual source here\n";
+        let err = ParseError::DualSourceConflict {
+            path: path.clone(),
+            target: "some-target".into(),
+            content_offset: 18,
+        };
+
+        let result = parse_error_to_diagnostic(&err, Some(buffer));
+        let (_, diag) = result.expect("should produce a diagnostic");
+        // Line 4 → 0-based LSP line 3
+        assert_eq!(
+            diag.range.start.line, 3,
+            "dual source conflict should point to line 4 (0-based: 3), not line 0"
+        );
+    }
+
     #[test]
     fn task_dependency_cycle_with_lookup_produces_diagnostic() {
-        let path = std::path::PathBuf::from("/tmp/tasks.mdx");
+        let path = std::path::PathBuf::from("/tmp/tasks.md");
         let err = GraphError::TaskDependencyCycle {
             doc_id: "TASKS".into(),
             cycle: vec!["TASK-A".into(), "TASK-B".into()],

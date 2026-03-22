@@ -49,14 +49,14 @@ success_criteria:
     path: supersigil.toml
 
   - type: file_exists
-    path: specs/auth.req.mdx
+    path: specs/auth.req.md
 
   - type: file_contains
-    path: specs/auth.req.mdx
+    path: specs/auth.req.md
     contains: "id: auth/req/login"
 
   - type: file_contains
-    path: specs/auth.req.mdx
+    path: specs/auth.req.md
     contains: '<Criterion id="login-succeeds">'
 
   - type: supersigil_command_sequence

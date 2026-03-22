@@ -35,7 +35,7 @@ proptest! {
         // Requirement doc with a Criterion.
         let req_doc = make_doc_with_path(
             &req_doc_id,
-            &format!("specs/{req_doc_id}.mdx"),
+            &format!("specs/{req_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
@@ -43,7 +43,7 @@ proptest! {
         let impl_ref = format!("{req_doc_id}#{crit_id}");
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&impl_ref), None, 1)],
         );
 
@@ -78,7 +78,7 @@ proptest! {
 
         let req_doc = make_doc_with_path(
             &req_doc_id,
-            &format!("specs/{req_doc_id}.mdx"),
+            &format!("specs/{req_doc_id}.md"),
             vec![make_acceptance_criteria(
                 vec![make_criterion(&crit_a, 2), make_criterion(&crit_b, 3)],
                 1,
@@ -88,7 +88,7 @@ proptest! {
         let impl_refs = format!("{req_doc_id}#{crit_a}, {req_doc_id}#{crit_b}");
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&impl_refs), None, 1)],
         );
 
@@ -121,14 +121,14 @@ proptest! {
 
         let req_doc = make_doc_with_path(
             &req_doc_id,
-            &format!("specs/{req_doc_id}.mdx"),
+            &format!("specs/{req_doc_id}.md"),
             vec![],
         );
 
         // Task implements ref has no fragment — just a doc ID.
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&req_doc_id), None, 1)],
         );
 
@@ -173,14 +173,14 @@ proptest! {
         // Requirement doc exists but has no criteria.
         let req_doc = make_doc_with_path(
             &req_doc_id,
-            &format!("specs/{req_doc_id}.mdx"),
+            &format!("specs/{req_doc_id}.md"),
             vec![],
         );
 
         let impl_ref = format!("{req_doc_id}#{bad_crit_id}");
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&impl_ref), None, 1)],
         );
 
@@ -219,7 +219,7 @@ proptest! {
         let impl_ref = format!("{nonexistent_id}#{crit_id}");
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&impl_ref), None, 1)],
         );
 
@@ -253,7 +253,7 @@ proptest! {
 
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("specs/{tasks_doc_id}.mdx"),
+            &format!("specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, None, None, 1)],
         );
 
@@ -286,7 +286,7 @@ proptest! {
         // Requirement doc in project-b with a Criterion.
         let req_doc = make_doc_with_path(
             &req_doc_id,
-            &format!("project-b/specs/{req_doc_id}.mdx"),
+            &format!("project-b/specs/{req_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
@@ -295,7 +295,7 @@ proptest! {
         let impl_ref = format!("{req_doc_id}#{crit_id}");
         let tasks_doc = make_doc_with_path(
             &tasks_doc_id,
-            &format!("project-a/specs/{tasks_doc_id}.mdx"),
+            &format!("project-a/specs/{tasks_doc_id}.md"),
             vec![make_task(&task_id, None, Some(&impl_ref), None, 1)],
         );
 

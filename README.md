@@ -12,16 +12,16 @@
 
 ---
 
-Supersigil is a CLI tool and verification framework that turns MDX spec
+Supersigil is a CLI tool and verification framework that turns Markdown spec
 files into a verifiable graph of criteria, evidence, and test mappings.
 Specs are code: they render as documentation, provide agent context, and
 are checked by CI.
 
 ## Principles
 
-- **Everything-as-code.** Specs are MDX files in your repository. They
-  render with Astro, Docusaurus, or any MDX-aware site. No separate
-  system of record.
+- **Everything-as-code.** Specs are Markdown files in your repository,
+  with structured components in `supersigil-xml` fenced code blocks. No
+  separate system of record.
 
 - **Verifiable by default.** Cross-references are typed and checked.
   Criterion-to-test mappings are discovered and reported. Staleness,
@@ -70,23 +70,24 @@ supersigil explore             # Interactive graph explorer (browser)
 A minimal `supersigil.toml`:
 
 ```toml
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 ```
 
 For monorepos, use the `[projects]` table:
 
 ```toml
 [projects.backend]
-paths = ["services/api/specs/**/*.mdx"]
+paths = ["services/api/specs/**/*.md"]
 
 [projects.frontend]
-paths = ["apps/web/specs/**/*.mdx"]
+paths = ["apps/web/specs/**/*.md"]
 ```
 
 ## How it works
 
-Spec documents are MDX files with `supersigil:` front matter. Structured
-components (`<Criterion>`, `<VerifiedBy>`, `<Implements>`, etc.) form a
+Spec documents are Markdown files with `supersigil:` front matter.
+Structured components (`<Criterion>`, `<VerifiedBy>`, `<Implements>`,
+etc.) are written inside `supersigil-xml` fenced code blocks and form a
 typed graph that supersigil verifies:
 
 ```
@@ -132,14 +133,14 @@ needed.
 ### Other editors
 
 Any editor with LSP support can use `supersigil-lsp` directly. Point
-your editor's LSP client at the binary and register it for MDX files.
+your editor's LSP client at the binary and register it for Markdown files.
 
 ## Project structure
 
 ```
 crates/
   supersigil-core/         # Document model, graph, config
-  supersigil-parser/       # MDX parsing, front matter extraction
+  supersigil-parser/       # Markdown parsing, front matter extraction
   supersigil-verify/       # Verification engine
   supersigil-evidence/     # Language-agnostic evidence primitives
   supersigil-rust/         # Rust ecosystem plugin

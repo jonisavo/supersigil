@@ -30,7 +30,7 @@ pub fn make_doc_with_status(
     components: Vec<ExtractedComponent>,
 ) -> SpecDocument {
     SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
+        path: PathBuf::from(format!("specs/{id}.md")),
         frontmatter: Frontmatter {
             id: id.into(),
             doc_type: None,
@@ -38,6 +38,7 @@ pub fn make_doc_with_status(
         },
         extra: HashMap::new(),
         components,
+        warnings: Vec::new(),
     }
 }
 
@@ -48,7 +49,7 @@ pub fn make_doc_typed(
     components: Vec<ExtractedComponent>,
 ) -> SpecDocument {
     SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
+        path: PathBuf::from(format!("specs/{id}.md")),
         frontmatter: Frontmatter {
             id: id.into(),
             doc_type: Some(doc_type.into()),
@@ -56,6 +57,7 @@ pub fn make_doc_typed(
         },
         extra: HashMap::new(),
         components,
+        warnings: Vec::new(),
     }
 }
 
@@ -65,6 +67,8 @@ pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -79,6 +83,8 @@ pub fn make_verified_by_tag(tag: &str, line: usize) -> ExtractedComponent {
         ]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -93,6 +99,8 @@ pub fn make_verified_by_glob(paths: &str, line: usize) -> ExtractedComponent {
         ]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -108,6 +116,8 @@ pub fn make_criterion_with_verified_by(
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![verified_by],
         body_text: Some(format!("criterion {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -119,6 +129,8 @@ pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![],
         body_text: Some(format!("task {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -130,6 +142,8 @@ pub fn make_decision(children: Vec<ExtractedComponent>, line: usize) -> Extracte
         attributes: HashMap::new(),
         children,
         body_text: Some("a decision".into()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -145,6 +159,8 @@ pub fn make_decision_with_id(
         attributes: HashMap::from([("id".into(), id.into())]),
         children,
         body_text: Some(format!("decision {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -164,6 +180,8 @@ pub fn make_decision_standalone(
         ]),
         children,
         body_text: Some(format!("decision {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -175,6 +193,8 @@ pub fn make_rationale(line: usize) -> ExtractedComponent {
         attributes: HashMap::new(),
         children: vec![],
         body_text: Some("the rationale".into()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -186,6 +206,8 @@ pub fn make_alternative(id: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".into(), id.into())]),
         children: vec![],
         body_text: Some(format!("alternative {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -197,6 +219,8 @@ pub fn make_alternative_with_status(id: &str, status: &str, line: usize) -> Extr
         attributes: HashMap::from([("id".into(), id.into()), ("status".into(), status.into())]),
         children: vec![],
         body_text: Some(format!("alternative {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -208,6 +232,8 @@ pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("paths".into(), paths.into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }
@@ -219,6 +245,8 @@ pub fn make_implements(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".into(), refs.into())]),
         children: vec![],
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
     }

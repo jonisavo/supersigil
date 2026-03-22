@@ -1,0 +1,73 @@
+---
+supersigil:
+  id: sequential-id-rules/tasks
+  type: tasks
+  status: done
+title: "Sequential ID Rules Tasks"
+---
+
+```supersigil-xml
+<DependsOn refs="sequential-id-rules/design" />
+```
+
+## Overview
+
+Implementation follows TDD: each task writes tests first, then
+implementation, then verifies. Tasks are ordered so that foundational
+parsing is built and tested before the rules that depend on it, and
+registration is done before the rules are wired into the pipeline.
+
+```supersigil-xml
+<Task id="task-1" status="done" implements="sequential-id-rules/req#req-2-3, sequential-id-rules/req#req-3-3, sequential-id-rules/req#req-4-1">
+  Register `SequentialIdOrder` and `SequentialIdGap` in the rule system.
+
+  Add `"sequential_id_order"` and `"sequential_id_gap"` to `KNOWN_RULES` in
+  `supersigil-core/src/config.rs`. Add `SequentialIdOrder` and
+  `SequentialIdGap` variants to `RuleName` in `supersigil-verify/src/report.rs`
+  with `config_key()` returning the snake_case names, `default_severity()`
+  returning `Warning`, and inclusion in `RuleName::ALL`. Update the existing
+  `config_keys_match_known_rules` round-trip test and `RuleName::ALL` count
+  assertion, and add both variants to the `default_severity_all_variants`
+  test.
+</Task>
+
+<Task id="task-2" status="done" depends="task-1" implements="sequential-id-rules/req#req-1-1, sequential-id-rules/req#req-1-2, sequential-id-rules/req#req-1-3">
+  Implement and test `parse_sequential_id` in `rules/structural.rs`.
+
+  Write tests first covering: single-level (`task-3`), two-level
+  (`req-1-2`), non-sequential semantic IDs (`login-success`), suffix IDs
+  (`req-1-2-foo`), 3+ numeric segments (`req-1-2-3`), no-prefix (`123`),
+  single segment (`foo`), empty string, and multi-segment prefix
+  (`my-prefix-1-2`). Then implement the parser.
+</Task>
+
+<Task id="task-3" status="done" depends="task-2" implements="sequential-id-rules/req#req-2-1, sequential-id-rules/req#req-2-2, sequential-id-rules/req#req-2-3">
+  Implement and test `check_sequential_id_order` in `rules/structural.rs`.
+
+  Write tests first covering: correct order (no findings), swapped pair
+  (finding emitted with both IDs named), multiple prefix groups checked
+  independently, non-sequential IDs silently skipped (req-1-3), mixed
+  sequential and non-sequential IDs coexisting in same document. Then
+  implement the rule.
+</Task>
+
+<Task id="task-4" status="done" depends="task-2" implements="sequential-id-rules/req#req-3-1, sequential-id-rules/req#req-3-2, sequential-id-rules/req#req-3-3">
+  Implement and test `check_sequential_id_gap` in `rules/structural.rs`.
+
+  Write tests first covering: contiguous sequence (no findings), missing
+  middle element (finding names both neighbors), missing first element
+  (leading gap: finding references only the first present ID), two-level
+  M contiguity within each N group, first-level N contiguity across
+  groups (req-3-1 outer check), non-sequential IDs silently skipped
+  (req-1-3). Then implement the rule.
+</Task>
+
+<Task id="task-5" status="done" depends="task-3, task-4" implements="sequential-id-rules/req#req-4-2, sequential-id-rules/req#req-4-3">
+  Wire both rules into `verify_structural()` in `lib.rs`.
+
+  Add calls to `check_sequential_id_order` and `check_sequential_id_gap`
+  in the structural section of `verify_structural()`. Verify with an
+  integration test that findings appear in a full `verify()` run and
+  that severity overrides and draft gating apply correctly.
+</Task>
+```

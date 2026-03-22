@@ -32,6 +32,22 @@
         "title": "Supersigil: Show Status"
       }
     ],
+    "languages": [
+      {
+        "id": "supersigil-xml-injection"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "supersigil-xml-injection",
+        "scopeName": "markdown.supersigil-xml.codeblock",
+        "path": "./syntaxes/supersigil-xml-injection.json",
+        "injectTo": ["text.html.markdown", "source.mdx"],
+        "embeddedLanguages": {
+          "meta.embedded.block.supersigil-xml": "xml"
+        }
+      }
+    ],
     "configuration": {
       "title": "Supersigil",
       "properties": {

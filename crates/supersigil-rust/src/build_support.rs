@@ -72,7 +72,7 @@ mod tests {
     /// Helper: build a minimal single-project config.
     fn minimal_config() -> Config {
         Config {
-            paths: Some(vec!["specs/**/*.mdx".to_string()]),
+            paths: Some(vec!["specs/**/*.md".to_string()]),
             ..Config::default()
         }
     }
@@ -82,7 +82,7 @@ mod tests {
         let root = temp.path().to_path_buf();
         fs::write(
             root.join("supersigil.toml"),
-            "paths = [\"specs/**/*.mdx\"]\n",
+            "paths = [\"specs/**/*.md\"]\n",
         )
         .unwrap();
         for relative in spec_files {
@@ -116,23 +116,23 @@ mod tests {
     #[test]
     fn input_paths_includes_spec_files() {
         let (_temp, config, root, manifest_dir) =
-            create_project(&["specs/auth.mdx", "specs/api.mdx"]);
+            create_project(&["specs/auth.md", "specs/api.md"]);
 
         let paths = validation_input_paths(&config, &root, &manifest_dir).unwrap();
 
-        assert!(paths.contains(&root.join("specs/auth.mdx")));
-        assert!(paths.contains(&root.join("specs/api.mdx")));
+        assert!(paths.contains(&root.join("specs/auth.md")));
+        assert!(paths.contains(&root.join("specs/api.md")));
     }
 
     #[test]
     fn input_paths_combines_toml_and_specs() {
-        let (_temp, config, root, manifest_dir) = create_project(&["specs/auth.mdx"]);
+        let (_temp, config, root, manifest_dir) = create_project(&["specs/auth.md"]);
 
         let paths = validation_input_paths(&config, &root, &manifest_dir).unwrap();
 
         // Must include both supersigil.toml AND the spec files
         assert!(paths.contains(&root.join("supersigil.toml")));
-        assert!(paths.contains(&root.join("specs/auth.mdx")));
+        assert!(paths.contains(&root.join("specs/auth.md")));
         // Should be exactly 2 entries (toml + one spec)
         assert_eq!(paths.len(), 2);
     }
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn emit_writes_rerun_lines_for_spec_files() {
         let (_temp, config, root, manifest_dir) =
-            create_project(&["specs/auth.mdx", "specs/api.mdx"]);
+            create_project(&["specs/auth.md", "specs/api.md"]);
         let mut output = Vec::new();
 
         emit_rerun_if_changed(&mut output, &config, &root, &manifest_dir).unwrap();
@@ -179,17 +179,17 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains(&format!(
             "cargo:rerun-if-changed={}",
-            root.join("specs/auth.mdx").display()
+            root.join("specs/auth.md").display()
         )));
         assert!(text.contains(&format!(
             "cargo:rerun-if-changed={}",
-            root.join("specs/api.mdx").display()
+            root.join("specs/api.md").display()
         )));
     }
 
     #[test]
     fn emit_writes_one_line_per_input() {
-        let (_temp, config, root, manifest_dir) = create_project(&["specs/auth.mdx"]);
+        let (_temp, config, root, manifest_dir) = create_project(&["specs/auth.md"]);
         let mut output = Vec::new();
 
         emit_rerun_if_changed(&mut output, &config, &root, &manifest_dir).unwrap();

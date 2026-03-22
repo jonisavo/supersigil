@@ -286,223 +286,11 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 3: Component extraction property tests
+// Stage 3: Validation property tests
 // ---------------------------------------------------------------------------
 
-use common::extract;
 use supersigil_core::{ComponentDefs, ExtractedComponent, ParseError};
 use supersigil_parser::validate_components;
-
-// ---------------------------------------------------------------------------
-// Feature: parser-and-config, Property 8: String attribute extraction fidelity
-// Validates: Requirements 6.1, 6.4
-// ---------------------------------------------------------------------------
-
-/// Strategy that generates valid attribute values (non-empty strings without
-/// quotes or angle brackets that would break MDX syntax).
-fn arb_attr_value() -> impl Strategy<Value = String> {
-    "[a-zA-Z0-9_/ ,.-]{1,40}"
-}
-
-/// Strategy that generates valid attribute names, excluding `id` which is
-/// hardcoded on the Criterion component in the test below.
-fn arb_attr_name() -> impl Strategy<Value = String> {
-    "[a-z][a-zA-Z0-9_]{0,10}".prop_filter("must not collide with hardcoded id attr", |n| n != "id")
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(200))]
-
-    // Property 8: String attribute extraction fidelity
-    // For any MDX component with string literal attributes, the parser shall
-    // store each attribute value as the exact raw string from the source.
-    #[test]
-    fn string_attribute_extraction_fidelity(
-        name in arb_attr_name(),
-        value in arb_attr_value(),
-    ) {
-        // Use a known component (Criterion) with the `id` attribute to avoid
-        // unknown-component errors, but also test with arbitrary attr names
-        // on a custom component by using a PascalCase name.
-        let mdx = format!("<Criterion {name}=\"{value}\" id=\"c1\" />\n");
-        let (components, _errors) = extract(&mdx, 0);
-
-        prop_assert_eq!(components.len(), 1, "expected 1 component");
-        let comp = &components[0];
-
-        // The attribute value must be the exact raw string — no transformation.
-        prop_assert_eq!(
-            comp.attributes.get(&name).map(String::as_str),
-            Some(value.as_str()),
-            "attribute '{}' should have exact value '{}'",
-            name, value
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Feature: parser-and-config, Property 9: Body text is trimmed concatenation
-// of non-component text nodes
-// Validates: Requirements 8.3, 8.4, 8.5
-// ---------------------------------------------------------------------------
-
-/// Strategy that generates non-empty text content (no angle brackets).
-fn arb_body_text() -> impl Strategy<Value = String> {
-    "[a-zA-Z0-9 ]{1,30}"
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(200))]
-
-    // Property 9: Body text rules
-    // Self-closing → body_text is None
-    #[test]
-    fn self_closing_has_no_body_text(
-        value in arb_attr_value(),
-    ) {
-        let mdx = format!("<Criterion id=\"{value}\" />\n");
-        let (components, errors) = extract(&mdx, 0);
-
-        prop_assert!(errors.is_empty(), "no errors expected: {:?}", errors);
-        prop_assert_eq!(components.len(), 1);
-        prop_assert!(
-            components[0].body_text.is_none(),
-            "self-closing component should have body_text = None"
-        );
-    }
-
-    // Component with text content → body_text is trimmed concatenation
-    #[test]
-    fn body_text_is_trimmed_concatenation(
-        text in arb_body_text(),
-    ) {
-        let mdx = format!("<Criterion id=\"c1\">\n  {text}  \n</Criterion>\n");
-        let (components, errors) = extract(&mdx, 0);
-
-        prop_assert!(errors.is_empty(), "no errors expected: {:?}", errors);
-        prop_assert_eq!(components.len(), 1);
-
-        let body = components[0].body_text.as_deref();
-        let trimmed_input = text.trim();
-
-        if trimmed_input.is_empty() {
-            // Whitespace-only text → body_text should be None
-            prop_assert!(
-                body.is_none(),
-                "whitespace-only text should produce body_text = None"
-            );
-        } else {
-            // Non-empty trimmed text → body_text should be trimmed
-            prop_assert!(body.is_some(), "expected body_text for component with text");
-            let body = body.unwrap();
-            prop_assert_eq!(body, body.trim(), "body_text should be trimmed");
-            prop_assert!(
-                body.contains(trimmed_input),
-                "body_text '{}' should contain trimmed input '{}'",
-                body, trimmed_input
-            );
-        }
-    }
-
-    // Component with only child components → body_text is None
-    #[test]
-    fn only_children_has_no_body_text(
-        id1 in "[a-z]{2,6}",
-        id2 in "[a-z]{2,6}",
-    ) {
-        let mdx = format!(
-            "<AcceptanceCriteria>\n\n<Criterion id=\"{id1}\">\ntext\n</Criterion>\n\n<Criterion id=\"{id2}\">\ntext\n</Criterion>\n\n</AcceptanceCriteria>\n"
-        );
-        let (components, errors) = extract(&mdx, 0);
-
-        prop_assert!(errors.is_empty(), "no errors expected: {:?}", errors);
-        prop_assert_eq!(components.len(), 1);
-        prop_assert!(
-            components[0].body_text.is_none(),
-            "component with only child components should have body_text = None, got: {:?}",
-            components[0].body_text
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Feature: parser-and-config, Property 10: Recursive child collection
-// preserves nesting structure
-// Validates: Requirements 9.1, 9.2, 9.3
-// ---------------------------------------------------------------------------
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(200))]
-
-    // Property 10: Recursive child collection preserves nesting structure
-    // Generate 1-5 Criterion children inside AcceptanceCriteria, verify tree.
-    #[test]
-    fn recursive_child_collection_preserves_nesting(
-        ids in proptest::collection::vec("[a-z]{2,6}", 1..=5),
-    ) {
-        // Deduplicate IDs
-        let mut seen = std::collections::HashSet::new();
-        let unique_ids: Vec<&str> = ids.iter()
-            .map(String::as_str)
-            .filter(|id| seen.insert(*id))
-            .collect();
-
-        let n = unique_ids.len();
-
-        let mut mdx = String::from("<AcceptanceCriteria>\n\n");
-        for id in &unique_ids {
-            use std::fmt::Write;
-            write!(mdx, "<Criterion id=\"{id}\">\ntext for {id}\n</Criterion>\n\n").unwrap();
-        }
-        mdx.push_str("</AcceptanceCriteria>\n");
-
-        let (components, errors) = extract(&mdx, 0);
-
-        prop_assert!(errors.is_empty(), "no errors expected: {:?}", errors);
-        prop_assert_eq!(components.len(), 1, "should have 1 top-level component");
-
-        let parent = &components[0];
-        prop_assert_eq!(parent.name.as_str(), "AcceptanceCriteria");
-        prop_assert_eq!(
-            parent.children.len(), n,
-            "parent should have {} children, got {}",
-            n, parent.children.len()
-        );
-
-        // Each child should be a Criterion with the correct id
-        for (i, id) in unique_ids.iter().enumerate() {
-            let child = &parent.children[i];
-            prop_assert_eq!(child.name.as_str(), "Criterion");
-            prop_assert_eq!(
-                child.attributes.get("id").map(String::as_str),
-                Some(*id),
-                "child {} should have id '{}'",
-                i, id
-            );
-            // Leaf children should have empty children list
-            prop_assert!(
-                child.children.is_empty(),
-                "leaf Criterion should have no children"
-            );
-        }
-    }
-
-    // Components with no children have empty children list
-    #[test]
-    fn leaf_component_has_empty_children(
-        id in "[a-z]{2,8}",
-    ) {
-        let mdx = format!("<Criterion id=\"{id}\">\nsome text\n</Criterion>\n");
-        let (components, errors) = extract(&mdx, 0);
-
-        prop_assert!(errors.is_empty(), "no errors expected: {:?}", errors);
-        prop_assert_eq!(components.len(), 1);
-        prop_assert!(
-            components[0].children.is_empty(),
-            "leaf component should have empty children list"
-        );
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Feature: parser-and-config, Property 16: Missing required attributes are
@@ -588,6 +376,8 @@ proptest! {
             attributes: instance_attrs,
             children: Vec::new(),
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
@@ -649,6 +439,8 @@ proptest! {
             attributes: std::collections::HashMap::new(),
             children: Vec::new(),
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
@@ -677,6 +469,8 @@ proptest! {
             attributes: std::collections::HashMap::new(),
             children: Vec::new(),
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
@@ -721,6 +515,8 @@ proptest! {
                 attributes: std::collections::HashMap::new(),
                 children: Vec::new(),
                 body_text: None,
+                body_text_offset: None,
+                body_text_end_offset: None,
                 code_blocks: Vec::new(),
                 position: SourcePosition {
                     byte_offset: i * 100,

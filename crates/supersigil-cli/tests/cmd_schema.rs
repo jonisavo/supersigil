@@ -11,7 +11,7 @@ fn schema_json_succeeds_without_parsing_specs() {
     std::fs::write(
         tmp.path().join("supersigil.toml"),
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.requirement]
 status = ["draft", "approved"]
@@ -19,7 +19,7 @@ status = ["draft", "approved"]
     )
     .unwrap();
     std::fs::create_dir_all(tmp.path().join("specs")).unwrap();
-    std::fs::write(tmp.path().join("specs/broken.mdx"), "---\nnot yaml").unwrap();
+    std::fs::write(tmp.path().join("specs/broken.md"), "---\nnot yaml").unwrap();
 
     let output = cargo_bin_cmd!("supersigil")
         .args(["schema", "--format", "json"])
@@ -121,7 +121,7 @@ fn schema_merges_user_component_overrides() {
     std::fs::write(
         tmp.path().join("supersigil.toml"),
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Task]
 referenceable = false
@@ -166,7 +166,7 @@ fn schema_includes_configured_document_types() {
     std::fs::write(
         tmp.path().join("supersigil.toml"),
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.requirement]
 status = ["draft", "review", "approved"]
@@ -321,7 +321,7 @@ fn schema_user_override_without_description_omits_it() {
     std::fs::write(
         tmp.path().join("supersigil.toml"),
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Custom]
 

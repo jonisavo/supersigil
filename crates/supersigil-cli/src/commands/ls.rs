@@ -201,13 +201,13 @@ mod tests {
                 "auth/req",
                 "requirement",
                 "draft",
-                "/proj/specs/auth/auth.req.mdx",
+                "/proj/specs/auth/auth.req.md",
             ),
             entry(
                 "auth/tasks",
                 "tasks",
                 "approved",
-                "/proj/specs/auth/auth.tasks.mdx",
+                "/proj/specs/auth/auth.tasks.md",
             ),
         ];
         let color = ColorConfig::resolve(ColorChoice::Never);
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn table_uses_unicode_separator() {
-        let entries = vec![entry("a/b", "design", "draft", "/p/specs/a.mdx")];
+        let entries = vec![entry("a/b", "design", "draft", "/p/specs/a.md")];
         let color = ColorConfig::resolve(ColorChoice::Always);
         let mut buf = Vec::new();
         write_table(&mut buf, &entries, Path::new("/p"), color).unwrap();
@@ -253,14 +253,14 @@ mod tests {
             "cli/req",
             "requirement",
             "draft",
-            "/home/user/proj/specs/cli/cli.req.mdx",
+            "/home/user/proj/specs/cli/cli.req.md",
         )];
         let color = ColorConfig::resolve(ColorChoice::Never);
         let mut buf = Vec::new();
         write_table(&mut buf, &entries, Path::new("/home/user/proj"), color).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(
-            output.contains("specs/cli/cli.req.mdx"),
+            output.contains("specs/cli/cli.req.md"),
             "expected relative path, got:\n{output}"
         );
         assert!(
@@ -283,8 +283,8 @@ mod tests {
     #[test]
     fn table_shows_count() {
         let entries = vec![
-            entry("a/req", "requirement", "draft", "/p/a.mdx"),
-            entry("b/req", "requirement", "draft", "/p/b.mdx"),
+            entry("a/req", "requirement", "draft", "/p/a.md"),
+            entry("b/req", "requirement", "draft", "/p/b.md"),
         ];
         let color = ColorConfig::resolve(ColorChoice::Never);
         let mut buf = Vec::new();

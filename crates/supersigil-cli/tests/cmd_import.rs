@@ -61,12 +61,12 @@ fn import_write_mode_creates_files() {
         .assert()
         .success();
 
-    // Verify at least one mdx file was created
-    let has_mdx = walkdir::WalkDir::new(&out_dir)
+    // Verify at least one md file was created
+    let has_md = walkdir::WalkDir::new(&out_dir)
         .into_iter()
         .filter_map(Result::ok)
-        .any(|e| e.path().extension().is_some_and(|ext| ext == "mdx"));
-    assert!(has_mdx, "expected mdx files in output dir");
+        .any(|e| e.path().extension().is_some_and(|ext| ext == "md"));
+    assert!(has_md, "expected md files in output dir");
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn import_write_mode_prints_lint_hint() {
     // Create a supersigil.toml so the hint says "supersigil lint" (not "supersigil init").
     fs::write(
         project.path().join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n",
+        "paths = [\"specs/**/*.md\"]\n",
     )
     .unwrap();
 

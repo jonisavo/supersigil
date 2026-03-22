@@ -14,10 +14,10 @@ use supersigil_core::{
 
 #[test]
 fn minimal_config_paths_only() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
 
-    assert_eq!(config.paths, Some(vec!["specs/**/*.mdx".to_string()]));
+    assert_eq!(config.paths, Some(vec!["specs/**/*.md".to_string()]));
     assert_eq!(config.tests, None);
     assert_eq!(config.projects, None);
     assert_eq!(config.id_pattern, None);
@@ -88,7 +88,7 @@ fn severity_deserialize_invalid_rejected() {
 #[test]
 fn unknown_top_level_key_rejected() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 unknown_key = "oops"
 "#;
     let err = toml::from_str::<Config>(toml_str).unwrap_err();
@@ -106,11 +106,11 @@ unknown_key = "oops"
 #[test]
 fn single_project_with_paths_and_tests() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs"]
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.paths, Some(vec!["specs/**/*.mdx".to_string()]));
+    assert_eq!(config.paths, Some(vec!["specs/**/*.md".to_string()]));
     assert_eq!(config.tests, Some(vec!["tests/**/*.rs".to_string()]));
     assert_eq!(config.projects, None);
 }
@@ -123,12 +123,12 @@ tests = ["tests/**/*.rs"]
 fn multi_project_config() {
     let toml_str = r#"
 [projects.frontend]
-paths = ["frontend/specs/**/*.mdx"]
+paths = ["frontend/specs/**/*.md"]
 tests = ["frontend/tests/**/*.rs"]
 isolated = true
 
 [projects.backend]
-paths = ["backend/specs/**/*.mdx"]
+paths = ["backend/specs/**/*.md"]
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.paths, None);
@@ -138,12 +138,12 @@ paths = ["backend/specs/**/*.mdx"]
     assert_eq!(projects.len(), 2);
 
     let fe = &projects["frontend"];
-    assert_eq!(fe.paths, vec!["frontend/specs/**/*.mdx".to_string()]);
+    assert_eq!(fe.paths, vec!["frontend/specs/**/*.md".to_string()]);
     assert_eq!(fe.tests, vec!["frontend/tests/**/*.rs".to_string()]);
     assert!(fe.isolated);
 
     let be = &projects["backend"];
-    assert_eq!(be.paths, vec!["backend/specs/**/*.mdx".to_string()]);
+    assert_eq!(be.paths, vec!["backend/specs/**/*.md".to_string()]);
     assert!(be.tests.is_empty()); // defaults to empty
     assert!(!be.isolated); // defaults to false
 }
@@ -168,7 +168,7 @@ tests = ["tests/**/*.rs"]
 #[test]
 fn document_type_with_status_and_required_components() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.requirements]
 status = ["draft", "approved", "deprecated"]
@@ -207,7 +207,7 @@ status = ["draft", "final"]
 
 #[test]
 fn no_document_types_defaults_to_empty() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert!(config.documents.types.is_empty());
 }
@@ -219,7 +219,7 @@ fn no_document_types_defaults_to_empty() {
 #[test]
 fn component_def_with_attributes() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Validates.attributes.refs]
 required = true
@@ -243,7 +243,7 @@ required = false
 #[test]
 fn component_def_referenceable_and_target() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Criterion]
 referenceable = true
@@ -276,7 +276,7 @@ list = true
 #[test]
 fn verify_config_with_strictness_and_rules() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [verify]
 strictness = "warning"
@@ -293,7 +293,7 @@ unused_criterion = "off"
 
 #[test]
 fn verify_config_defaults_when_absent() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.verify.strictness, None);
     assert!(config.verify.rules.is_empty());
@@ -306,7 +306,7 @@ fn verify_config_defaults_when_absent() {
 #[test]
 fn hooks_with_timeout() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [hooks]
 post_verify = ["cargo test"]
@@ -324,7 +324,7 @@ timeout_seconds = 60
 #[test]
 fn hooks_without_timeout_defaults_to_30() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [hooks]
 post_verify = ["cargo test"]
@@ -338,7 +338,7 @@ post_verify = ["cargo test"]
 
 #[test]
 fn no_hooks_section_uses_defaults() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.hooks, HooksConfig::default());
 }
@@ -350,7 +350,7 @@ fn no_hooks_section_uses_defaults() {
 #[test]
 fn test_results_config() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [test_results]
 formats = ["junit", "tap"]
@@ -369,7 +369,7 @@ paths = ["target/test-results/**/*.xml"]
 
 #[test]
 fn no_test_results_defaults_to_empty() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert!(config.test_results.formats.is_empty());
     assert!(config.test_results.paths.is_empty());
@@ -382,7 +382,7 @@ fn no_test_results_defaults_to_empty() {
 #[test]
 fn ecosystem_with_explicit_plugins() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = ["rust", "python"]
@@ -397,7 +397,7 @@ plugins = ["rust", "python"]
 #[test]
 fn ecosystem_explicit_empty_plugins() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = []
@@ -408,7 +408,7 @@ plugins = []
 
 #[test]
 fn ecosystem_absent_defaults_to_rust() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.ecosystem.plugins, vec!["rust".to_string()]);
 }
@@ -420,7 +420,7 @@ fn ecosystem_absent_defaults_to_rust() {
 #[test]
 fn id_pattern_stored_as_string() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 id_pattern = "^[a-z][a-z0-9-/]+$"
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
@@ -434,7 +434,7 @@ id_pattern = "^[a-z][a-z0-9-/]+$"
 #[test]
 fn config_toml_round_trip_basic() {
     let original = Config {
-        paths: Some(vec!["specs/**/*.mdx".to_string()]),
+        paths: Some(vec!["specs/**/*.md".to_string()]),
         tests: Some(vec!["tests/**/*.rs".to_string()]),
         ..Config::default()
     };
@@ -450,7 +450,7 @@ fn config_toml_round_trip_basic() {
 #[test]
 fn unknown_key_in_hooks_rejected() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [hooks]
 post_verify = ["cargo test"]
@@ -462,7 +462,7 @@ unknown_hook_field = true
 #[test]
 fn unknown_key_in_ecosystem_rejected() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = ["rust"]
@@ -475,7 +475,7 @@ extra = "nope"
 fn unknown_key_in_project_rejected() {
     let toml_str = r#"
 [projects.myproj]
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 unknown = true
 "#;
     toml::from_str::<Config>(toml_str).unwrap_err();
@@ -484,7 +484,7 @@ unknown = true
 #[test]
 fn unknown_key_in_component_def_rejected() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Foo]
 unknown_field = "bad"
@@ -495,7 +495,7 @@ unknown_field = "bad"
 #[test]
 fn unknown_key_in_verify_rejected() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [verify]
 strictness = "warning"
@@ -523,10 +523,10 @@ use common::write_temp_toml;
 fn load_config_paths_and_projects_mutual_exclusivity() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [projects.frontend]
-paths = ["frontend/**/*.mdx"]
+paths = ["frontend/**/*.md"]
 "#,
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
@@ -543,7 +543,7 @@ fn load_config_tests_and_projects_mutual_exclusivity() {
 tests = ["tests/**/*.rs"]
 
 [projects.frontend]
-paths = ["frontend/**/*.mdx"]
+paths = ["frontend/**/*.md"]
 "#,
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
@@ -577,7 +577,7 @@ strictness = "warning"
 fn load_config_unknown_rule_name_error() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [verify.rules]
 nonexistent_rule = "warning"
@@ -595,7 +595,7 @@ nonexistent_rule = "warning"
 fn load_config_known_rule_names_accepted() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [verify.rules]
 missing_verification_evidence = "warning"
@@ -616,7 +616,7 @@ fn load_config_invalid_severity_toml_error() {
     // Invalid severity is caught by serde during deserialization, producing a TomlSyntax error
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [verify.rules]
 zero_tag_matches = "fatal"
@@ -638,7 +638,7 @@ zero_tag_matches = "fatal"
 fn load_config_valid_id_pattern_accepted() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 id_pattern = "^[a-z][a-z0-9-/]+$"
 "#,
     );
@@ -650,7 +650,7 @@ id_pattern = "^[a-z][a-z0-9-/]+$"
 fn load_config_invalid_id_pattern_error() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 id_pattern = "[invalid(regex"
 "#,
     );
@@ -665,7 +665,7 @@ id_pattern = "[invalid(regex"
 fn load_config_no_id_pattern_no_validation() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
@@ -716,7 +716,7 @@ tests = ["tests/**/*.rs"]
 fn load_config_valid_single_project() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs"]
 id_pattern = "^[a-z]+"
 
@@ -726,7 +726,7 @@ missing_verification_evidence = "warning"
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
-    assert_eq!(config.paths, Some(vec!["specs/**/*.mdx".to_string()]));
+    assert_eq!(config.paths, Some(vec!["specs/**/*.md".to_string()]));
     assert_eq!(config.tests, Some(vec!["tests/**/*.rs".to_string()]));
     assert_eq!(config.verify.rules.len(), 2);
 }
@@ -736,11 +736,11 @@ fn load_config_valid_multi_project() {
     let path = write_temp_toml(
         r#"
 [projects.frontend]
-paths = ["frontend/**/*.mdx"]
+paths = ["frontend/**/*.md"]
 tests = ["frontend/tests/**/*.rs"]
 
 [projects.backend]
-paths = ["backend/**/*.mdx"]
+paths = ["backend/**/*.md"]
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
@@ -755,7 +755,7 @@ paths = ["backend/**/*.mdx"]
 #[test]
 fn component_def_with_description_and_examples() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Criterion]
 referenceable = true
@@ -780,7 +780,7 @@ required = true
 #[test]
 fn component_def_description_and_examples_default_to_empty() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [components.Foo]
 referenceable = false
@@ -797,7 +797,7 @@ required = true
 #[test]
 fn document_type_def_with_description() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.requirements]
 description = "Captures what the system must do"
@@ -814,7 +814,7 @@ status = ["draft", "approved"]
 #[test]
 fn document_type_def_description_defaults_to_none() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.design]
 status = ["draft"]
@@ -832,11 +832,11 @@ fn load_config_collects_multiple_errors() {
     // Both paths+projects AND unknown rule → should get at least 2 errors
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 id_pattern = "[bad(regex"
 
 [projects.frontend]
-paths = ["frontend/**/*.mdx"]
+paths = ["frontend/**/*.md"]
 
 [verify.rules]
 nonexistent_rule = "warning"
@@ -865,7 +865,7 @@ nonexistent_rule = "warning"
 fn ecosystem_default_rust_validation_is_dev() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
@@ -885,7 +885,7 @@ paths = ["specs/**/*.mdx"]
 fn ecosystem_explicit_empty_plugins_via_load_config() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = []
@@ -903,7 +903,7 @@ plugins = []
 fn ecosystem_unknown_plugin_rejected() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = ["python"]
@@ -925,7 +925,7 @@ plugins = ["python"]
 fn ecosystem_rust_validation_off() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "off"
@@ -947,7 +947,7 @@ validation = "off"
 fn ecosystem_rust_validation_dev() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "dev"
@@ -969,7 +969,7 @@ validation = "dev"
 fn ecosystem_rust_validation_all() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "all"
@@ -991,7 +991,7 @@ validation = "all"
 fn ecosystem_rust_validation_invalid_rejected() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "invalid"
@@ -1013,7 +1013,7 @@ validation = "invalid"
 fn ecosystem_rust_single_project_scope() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "dev"
@@ -1044,7 +1044,7 @@ project = "backend"
 fn ecosystem_rust_multiple_project_scopes() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "all"
@@ -1084,7 +1084,7 @@ project = "frontend"
 fn ecosystem_rust_project_scope_missing_project_rejected() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "dev"
@@ -1147,7 +1147,7 @@ fn examples_config_default_parallelism_at_least_one() {
 #[test]
 fn examples_config_custom_values() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [examples]
 timeout = 60
@@ -1171,7 +1171,7 @@ command = "python3 {file}"
 fn examples_config_invalid_placeholder() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [examples.runners.python]
 command = "python3 {invalid}"
@@ -1194,7 +1194,7 @@ command = "python3 {invalid}"
 fn examples_config_valid_placeholders() {
     let path = write_temp_toml(
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [examples.runners.python]
 command = "python3 {file} --dir {dir} --lang {lang} --name {name}"
@@ -1215,7 +1215,7 @@ command = "python3 {file} --dir {dir} --lang {lang} --name {name}"
 #[test]
 fn ecosystem_rust_deserialization_with_validation_and_project_scope() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem.rust]
 validation = "dev"
@@ -1248,7 +1248,7 @@ project = "frontend"
 
 #[test]
 fn config_without_lsp_section_loads() {
-    let toml_str = r#"paths = ["specs/**/*.mdx"]"#;
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert!(config.lsp.is_none());
 }
@@ -1256,7 +1256,7 @@ fn config_without_lsp_section_loads() {
 #[test]
 fn config_with_lsp_diagnostics_verify() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [lsp]
 diagnostics = "verify"
@@ -1269,7 +1269,7 @@ diagnostics = "verify"
 #[test]
 fn lsp_diagnostics_defaults_to_verify() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [lsp]
 "#;
@@ -1281,7 +1281,7 @@ paths = ["specs/**/*.mdx"]
 #[test]
 fn lsp_diagnostics_lint_variant() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [lsp]
 diagnostics = "lint"
@@ -1296,7 +1296,7 @@ diagnostics = "lint"
 #[test]
 fn lsp_diagnostics_rejects_unknown_variant() {
     let toml_str = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [lsp]
 diagnostics = "full"

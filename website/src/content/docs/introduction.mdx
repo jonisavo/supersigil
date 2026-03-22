@@ -1,6 +1,6 @@
 ---
 title: What is Supersigil?
-description: Supersigil turns MDX spec files into a verifiable graph — so specifications stay honest as code evolves.
+description: Supersigil turns Markdown spec files into a verifiable graph — so specifications stay honest as code evolves.
 supersigil:
   id: website/introduction
   type: documentation
@@ -8,7 +8,7 @@ supersigil:
 
 import { Aside } from '@astrojs/starlight/components';
 
-Supersigil is an open-source CLI tool that turns specification documents into a **verifiable directed graph**. You write specs as MDX files with typed components — criteria, test mappings, design links, tracked files — and Supersigil checks every edge in the graph: broken references, uncovered criteria, dependency cycles, stale evidence. Run it locally or in CI, same as a linter or test suite.
+Supersigil is an open-source CLI tool that turns specification documents into a **verifiable directed graph**. You write specs as Markdown files with typed components in `supersigil-xml` fenced code blocks — criteria, test mappings, design links, tracked files — and Supersigil checks every edge in the graph: broken references, uncovered criteria, dependency cycles, stale evidence. Run it locally or in CI, same as a linter or test suite.
 
 ```bash
 cargo install supersigil
@@ -24,15 +24,17 @@ AI coding agents make this worse. An agent can plan and implement a feature in m
 
 ## How Supersigil solves it
 
-Specs live in your repository as MDX files. Each file declares typed components:
+Specs live in your repository as Markdown files. Each file declares typed components inside `supersigil-xml` fenced code blocks:
 
-```mdx
+````md
+```supersigil-xml
 <Criterion id="valid-creds">
   WHEN a user submits valid credentials
   THE SYSTEM SHALL issue a session token within 200ms.
   <VerifiedBy strategy="tag" tag="auth:valid-creds" />
 </Criterion>
 ```
+````
 
 Components form a **directed graph** — criteria point to evidence, designs point to requirements, tasks point to criteria. Supersigil traverses this graph during verification and reports exactly what is missing, broken, or stale.
 

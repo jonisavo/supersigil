@@ -32,7 +32,6 @@
       "src/content",
       "src/assets",
       "src/components/landing",
-      "src/components/supersigil",
       "astro.config.mjs",
       "vitest.config.js",
       "public"

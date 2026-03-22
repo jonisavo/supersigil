@@ -1,6 +1,5 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
-assertion_line: 93
 expression: content
 ---
 ---
@@ -15,6 +14,7 @@ title: "Document Graph"
 
 Build the `supersigil-core::graph` module following TDD: for each pipeline stage, write property tests first (red), implement to make them pass (green), then refactor. The build pipeline is sequential — indexing → component indexing → ref resolution → task implements → cycle detection → topo sort → reverse mappings → tracked files → query layer. Each task starts with the property test, then the implementation.
 
+```supersigil-xml
 <Task id="task-1" status="done">
   Set up graph module skeleton and error types
 
@@ -23,7 +23,7 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
     - Define `GraphError` enum in `error.rs` and `QueryError` enum in `query.rs` (both with `thiserror` derives) per the design
     - Define `ResolvedRef`, `DocumentGraph` struct (with empty fields), `ContextOutput`, `CriterionContext`, `DocRef`, `TaskContext`, `PlanOutput`, `OutstandingCriterion`, `PlanTask`, `IllustrationRef`, `PlanQuery` types in `mod.rs` / `query.rs`
-    - Stub `build_graph` function signature: `pub fn build_graph(documents: Vec<SpecDocument>, config: &Config) -> Result<DocumentGraph, Vec<GraphError>>`
+    - Stub `build_graph` function signature: `pub fn build_graph(documents: Vec&lt;SpecDocument&gt;, config: &amp;Config) -&gt; Result&lt;DocumentGraph, Vec&lt;GraphError&gt;&gt;`
     - Stub `DocumentGraph` read-only accessor methods (return `None`/empty defaults). These stubs are replaced with real implementations as each pipeline stage is completed: `document`/`documents` in task 3.3, `component` in task 4.3, `resolved_refs` in task 6.5, `task_implements` in task 7.2, `task_order`/`doc_order` in task 10.3, `validates`/`implements`/`illustrates` in task 12.3, `tracked_files`/`all_tracked_files` in task 13.3, `doc_project` in task 3.3.
     - Register `mod graph;` in `crates/supersigil-core/src/lib.rs` and add public re-exports
   </Task>
@@ -37,17 +37,19 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - `arb_document_set(n)` — generates `n` documents with guaranteed unique IDs
     - `arb_config()` — generates `Config` with optional multi-project setup and `ComponentDefs`
     - `arb_dag(n)` — generates a random DAG with `n` nodes for dependency testing
-
-    {/* all (generators support all property tests) */}
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-2" status="done" depends="task-1">
   Checkpoint — Verify module compiles
 
   - Ensure `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`, and `cargo nextest run` all pass. Ask the user if questions arise.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-3" status="done" depends="task-2">
   Document indexing (index.rs)
 
@@ -68,14 +70,16 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
   <Task id="task-3-3" status="done" depends="task-3-2" implements="req/document-graph#req-1-1, req/document-graph#req-1-2, req/document-graph#req-1-3, req/document-graph#req-1-4">
     Implement document indexing in `index.rs`
 
-    - Build `HashMap<String, SpecDocument>` from input documents keyed by `frontmatter.id`
+    - Build `HashMap&lt;String, SpecDocument&gt;` from input documents keyed by `frontmatter.id`
     - Detect duplicate IDs during insertion, emit `GraphError::DuplicateId` with all conflicting paths
     - Build `doc_project` map from `Config` project membership
     - Replace the `document`, `documents`, and `doc_project` accessor stubs with real implementations
     - Wire into `build_graph` as pipeline stage 1
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-4" status="done" depends="task-3">
   Referenceable component indexing (index.rs)
 
@@ -103,13 +107,17 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Wire into `build_graph` as pipeline stage 2
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-5" status="done" depends="task-4">
   Checkpoint — Indexing complete
 
   - Ensure all tests pass, ask the user if questions arise.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-6" status="done" depends="task-5">
   Ref resolution (resolve.rs)
 
@@ -145,17 +153,19 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     Implement ref resolution in `resolve.rs`
 
     - For each component with a `refs` attribute (determined by `ComponentDefs`), split using `split_list_attribute`
-    - Parse each ref into `(doc_id, Option<fragment>)` using `parse_ref` helper
+    - Parse each ref into `(doc_id, Option&lt;fragment&gt;)` using `parse_ref` helper
     - Verify doc_id exists in document index; if fragment present, verify `(doc_id, fragment)` in component index
     - If `ComponentDef` has `target_component`, verify resolved component name matches
     - For isolated projects, restrict resolution to same-project documents
     - Convert `ListSplitError` to `BrokenRef`
-    - Collect all `BrokenRef` errors, store successful `ResolvedRef` values in `resolved_refs` map keyed by `(source_doc_id, Vec<usize>)` where the `Vec<usize>` is the component index path (single-element for top-level components, multi-element for nested components per design.md)
+    - Collect all `BrokenRef` errors, store successful `ResolvedRef` values in `resolved_refs` map keyed by `(source_doc_id, Vec&lt;usize&gt;)` where the `Vec&lt;usize&gt;` is the component index path (single-element for top-level components, multi-element for nested components per design.md)
     - Replace the `resolved_refs` accessor stub with the real implementation
     - Wire into `build_graph` as pipeline stage 3
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-7" status="done" depends="task-6">
   Task implements resolution (resolve.rs)
 
@@ -171,18 +181,22 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
     - For each `Task` component with an `implements` attribute, split and resolve each ref
     - Each ref MUST include a `#fragment` targeting a `Criterion`; ref without fragment is `BrokenRef`
-    - Store resolved mappings in `task_implements: HashMap<(String, String), Vec<(String, String)>>`
+    - Store resolved mappings in `task_implements: HashMap&lt;(String, String), Vec&lt;(String, String)&gt;&gt;`
     - Replace the `task_implements` accessor stub with the real implementation
     - Wire into `build_graph` as pipeline stage 4
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-8" status="done" depends="task-7">
   Checkpoint — Resolution complete
 
   - Ensure all tests pass, ask the user if questions arise.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-9" status="done" depends="task-8">
   Cycle detection (cycle.rs)
 
@@ -233,7 +247,9 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Wire into `build_graph` as pipeline stages 5 (task cycles) and 6 (document cycles)
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-10" status="done" depends="task-9">
   Topological sort (topo.rs)
 
@@ -263,13 +279,17 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Wire into `build_graph` as pipeline stage 7
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-11" status="done" depends="task-10">
   Checkpoint — Graph structure complete
 
   - Ensure all tests pass, ask the user if questions arise.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-12" status="done" depends="task-11">
   Reverse mappings (reverse.rs)
 
@@ -291,15 +311,17 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     Implement reverse mappings in `reverse.rs`
 
     - Iterate all resolved refs, build three reverse indexes: `validates_reverse`, `implements_reverse`, `illustrates_reverse`
-    - `Validates`: key by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
-    - `Implements`: key by `target_doc_id` → `BTreeSet<source_doc_id>` (discard fragments)
-    - `Illustrates`: key by `(target_doc_id, Option<fragment>)` → `BTreeSet<source_doc_id>`
+    - `Validates`: key by `(target_doc_id, Option&lt;fragment&gt;)` → `BTreeSet&lt;source_doc_id&gt;`
+    - `Implements`: key by `target_doc_id` → `BTreeSet&lt;source_doc_id&gt;` (discard fragments)
+    - `Illustrates`: key by `(target_doc_id, Option&lt;fragment&gt;)` → `BTreeSet&lt;source_doc_id&gt;`
     - Deduplicate refs within same attribute
     - Implement accessor methods that return empty `BTreeSet` for unreferenced targets
     - Wire into `build_graph` as pipeline stage 8
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-13" status="done" depends="task-12">
   TrackedFiles indexing (index.rs)
 
@@ -325,7 +347,9 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Wire into `build_graph` as pipeline stage 9
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-14" status="done" depends="task-13">
   Error aggregation
 
@@ -333,7 +357,7 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     Write property test for error aggregation
 
     - **Property 22: Error aggregation**
-    - Generate input with multiple independent errors (duplicate IDs, broken refs, cycles), assert `build_graph` returns all errors in a single `Vec<GraphError>`. Generate error-free input, assert `Ok(DocumentGraph)`.
+    - Generate input with multiple independent errors (duplicate IDs, broken refs, cycles), assert `build_graph` returns all errors in a single `Vec&lt;GraphError&gt;`. Generate error-free input, assert `Ok(DocumentGraph)`.
   </Task>
 
   <Task id="task-14-2" status="done" depends="task-14-1" implements="req/document-graph#req-13-1, req/document-graph#req-13-2, req/document-graph#req-13-3">
@@ -344,13 +368,17 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Ensure `build_graph` returns `Err(errors)` if any errors collected, `Ok(graph)` otherwise
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-15" status="done" depends="task-14">
   Checkpoint — Core graph construction complete
 
   - Ensure all tests pass, ask the user if questions arise.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-16" status="done" depends="task-15">
   Context query (query.rs)
 
@@ -373,8 +401,6 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
     - **Property 28a: Task-to-criterion mappings in ContextOutput**
     - Build a graph with tasks that have resolved `implements` refs. Assert `ContextOutput` includes the resolved criterion refs in each task's `implements` field.
-
-    {/* Requirements 11.3 (context half) */}
   </Task>
 
   <Task id="task-16-4" status="done" depends="task-16-3" implements="req/document-graph#req-9-1, req/document-graph#req-9-2, req/document-graph#req-9-3, req/document-graph#req-9-4, req/document-graph#req-9-5, req/document-graph#req-9-6, req/document-graph#req-9-7">
@@ -388,7 +414,9 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Assemble and return `ContextOutput`
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-17" status="done" depends="task-16">
   Plan query (query.rs)
 
@@ -425,8 +453,6 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
     - **Property 28b: Task-to-criterion mappings in PlanOutput**
     - Build a graph with tasks that have resolved `implements` refs. Assert `PlanOutput` includes the resolved criterion refs in each task's `implements` field.
-
-    {/* Requirements 11.3 (plan half) */}
   </Task>
 
   <Task id="task-17-6" status="done" depends="task-17-5" implements="req/document-graph#req-10-1, req/document-graph#req-10-2, req/document-graph#req-10-3, req/document-graph#req-10-4, req/document-graph#req-10-5, req/document-graph#req-10-6, req/document-graph#req-10-7, req/document-graph#req-10-8">
@@ -439,7 +465,9 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
     - Assemble and return `PlanOutput`
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-18" status="done" depends="task-17">
   Unit tests (tests/unit.rs)
 
@@ -462,11 +490,13 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
   <Task id="task-18-3" status="done" depends="task-18-2" implements="req/document-graph#req-13-1, req/document-graph#req-13-2, req/document-graph#req-13-3">
     Write integration unit tests for cross-phase error aggregation
 
-    - Document with both broken refs and cycles should report both error types in a single `Vec<GraphError>`
+    - Document with both broken refs and cycles should report both error types in a single `Vec&lt;GraphError&gt;`
     - Document with duplicate component IDs and broken refs should report both
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-19" status="done" depends="task-18">
   Final checkpoint — All tests pass
 
@@ -474,6 +504,7 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
   - Ensure zero warnings and zero errors
   - Ask the user if questions arise.
 </Task>
+```
 
 ## Notes
 
@@ -490,3 +521,7 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 - `proptest` is already a dev-dependency of `supersigil-core`
 
 - All code goes in `crates/supersigil-core/src/graph/` with tests in `crates/supersigil-core/src/graph/tests/`
+
+<!-- TODO(supersigil-import): Kiro metadata for task task-1-2: all (generators support all property tests) -->
+<!-- TODO(supersigil-import): Kiro metadata for task task-16-3: Requirements 11.3 (context half) -->
+<!-- TODO(supersigil-import): Kiro metadata for task task-17-5: Requirements 11.3 (plan half) -->

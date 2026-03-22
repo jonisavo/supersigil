@@ -774,6 +774,112 @@ fn check_two_level_m_contiguity(
     check_level_contiguity(doc_id, m_values, |m| format!("{prefix}-{n}-{m}"), findings);
 }
 
+// ---------------------------------------------------------------------------
+// check_expected_cardinality
+// ---------------------------------------------------------------------------
+
+/// Check that every `Example` component has at most one `Expected` child.
+/// Examples with 2+ `Expected` children are a structural error.
+pub fn check_expected_cardinality(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
+            if component.name != EXAMPLE {
+                return;
+            }
+            let count = component
+                .children
+                .iter()
+                .filter(|c| c.name == EXPECTED)
+                .count();
+            if count > 1 {
+                findings.push(Finding::new(
+                    RuleName::MultipleExpectedChildren,
+                    Some(doc_id.to_owned()),
+                    format!(
+                        "Example in `{doc_id}` has {count} Expected children; \
+                         it must have at most 1"
+                    ),
+                    Some(component.position),
+                ));
+            }
+        };
+        visit_components(&doc.components, None, &mut visit);
+    }
+    findings
+}
+
+// ---------------------------------------------------------------------------
+// check_inline_example_lang
+// ---------------------------------------------------------------------------
+
+/// Check that `Example` components with inline code content (code block with
+/// `lang: None`) have a `lang` attribute on the component itself.
+pub fn check_inline_example_lang(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = doc.frontmatter.id.as_str();
+        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
+            if component.name != EXAMPLE {
+                return;
+            }
+            // Check the first code block's lang field
+            let has_fence_lang = component
+                .code_blocks
+                .first()
+                .and_then(|cb| cb.lang.as_ref())
+                .is_some();
+            if has_fence_lang {
+                // Code block has a language from the fence info string — no error
+                return;
+            }
+            // No code block at all means nothing to check (cardinality rule handles that)
+            if component.code_blocks.is_empty() {
+                return;
+            }
+            // Code block exists but has lang: None — check for attribute
+            let has_lang_attr = component.attributes.contains_key("lang");
+            if !has_lang_attr {
+                findings.push(Finding::new(
+                    RuleName::InlineExampleWithoutLang,
+                    Some(doc_id.to_owned()),
+                    format!(
+                        "Example in `{doc_id}` has inline code without a language; \
+                         add a `lang` attribute or use a fenced code block with a language tag"
+                    ),
+                    Some(component.position),
+                ));
+            }
+        };
+        visit_components(&doc.components, None, &mut visit);
+    }
+    findings
+}
+
+// ---------------------------------------------------------------------------
+// check_code_ref_conflicts
+// ---------------------------------------------------------------------------
+
+/// Surface non-fatal code-ref parse warnings (orphan refs, duplicate refs,
+/// dual-source conflicts) as verification findings so they are visible in
+/// `supersigil verify` output, not only in `supersigil lint` / LSP.
+pub fn check_code_ref_conflicts(docs: &[&SpecDocument]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for doc in docs {
+        let doc_id = doc.frontmatter.id.as_str();
+        for warning in &doc.warnings {
+            findings.push(Finding::new(
+                RuleName::CodeRefConflict,
+                Some(doc_id.to_owned()),
+                warning.to_string(),
+                None,
+            ));
+        }
+    }
+    findings
+}
+
 fn is_referenceable(name: &str) -> bool {
     name == CRITERION || name == TASK
 }

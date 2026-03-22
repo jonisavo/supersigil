@@ -1,0 +1,49 @@
+---
+supersigil:
+  id: verification-engine/tasks
+  type: tasks
+  status: done
+title: "Verification Engine Tasks"
+---
+
+## Overview
+
+This tasks document tracks the next cleanup passes exposed by the recovered
+verification spec. It replaces the stale implementation-history tasks doc with
+current debt in the ArtifactGraph-era verification surface.
+
+```supersigil-xml
+<Task id="task-1" status="done" implements="verification-engine/req#req-1-1, verification-engine/req#req-1-4, verification-engine/req#req-2-4, verification-engine/req#req-3-1, verification-engine/req#req-4-4, verification-engine/req#req-5-3, verification-engine/req#req-6-3, verification-engine/req#req-7-1, verification-engine/req#req-7-2, verification-engine/req#req-7-3">
+  Recover the current verification behavior into project-local req, design, and
+  tasks docs under `crates/supersigil-verify/specs/verification-engine/`, and
+  retire the stale root-level verification docs.
+</Task>
+
+<Task id="task-2" status="done">
+  Decide whether `status_inconsistency` remains a real rule.
+  Decision: keep. The rule is fully implemented with three checks (tasks-doc
+  internal drift, sibling design drift, sibling requirements drift) and has
+  comprehensive test coverage.
+</Task>
+
+<Task id="task-3" status="done">
+  Add end-to-end multi-project coverage for `verify --project`, `status`, and
+  `affected` so the CLI evidence assembly and project filtering behavior are
+  exercised outside the crate unit tests.
+</Task>
+
+<Task id="task-4" status="done">
+  Decide whether plugin failure and evidence-conflict findings should stay in
+  CLI glue or move into a shared verification-library boundary.
+  Decision: keep in CLI glue. The CLI is the only consumer and the verify
+  library intentionally stays evidence-unaware.
+</Task>
+
+<Task id="task-5" status="done" implements="verification-engine/req#req-3-4, verification-engine/req#req-7-1">
+  Add `example_coverable` flag to coverage findings and status output.
+  The coverage rule scans `Example` components with `verifies` attributes
+  and flags uncovered criteria that would be satisfied by example execution.
+  The `status` command shows `example-coverable` instead of `uncovered`
+  for these criteria. JSON output includes the flag in finding details.
+</Task>
+```

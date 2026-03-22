@@ -16,7 +16,7 @@ goal: |
   Requirements:
   1. Initialize the project with `supersigil init`.
   2. Use `supersigil new requirements auth` to scaffold the requirements document.
-     This creates the document at the canonical path `specs/auth/auth.req.mdx`.
+     This creates the document at the canonical path `specs/auth/auth.req.md`.
   3. Run `supersigil lint` and leave the workspace in a lint-clean state.
 
   Do not create extra spec documents that are not needed for this task.
@@ -40,10 +40,10 @@ success_criteria:
     path: supersigil.toml
 
   - type: file_exists
-    path: specs/auth/auth.req.mdx
+    path: specs/auth/auth.req.md
 
   - type: file_contains
-    path: specs/auth/auth.req.mdx
+    path: specs/auth/auth.req.md
     contains: "id: auth/req"
 
   - type: supersigil_command_sequence

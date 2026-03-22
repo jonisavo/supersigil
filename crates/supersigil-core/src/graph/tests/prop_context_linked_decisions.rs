@@ -24,6 +24,8 @@ fn make_decision(id: &str, children: Vec<ExtractedComponent>, line: usize) -> Ex
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children,
         body_text: Some(format!("decision {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }

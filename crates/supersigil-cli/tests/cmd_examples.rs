@@ -67,44 +67,44 @@ fn examples_scoped_to_cwd_via_tracked_files() {
     common::setup_project(tmp.path());
 
     // Two docs, each with TrackedFiles pointing to different directories
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("approved"),
-        r#"<TrackedFiles paths="src/auth/**" />
+        r#"```supersigil-xml
+<TrackedFiles paths="src/auth/**" />
 <AcceptanceCriteria>
   <Criterion id="a-1">auth</Criterion>
 </AcceptanceCriteria>
 
-<Example id="auth-ex" lang="sh" runner="sh">
-
-```sh
-echo auth
+<Example id="auth-ex" lang="sh" runner="sh" />
 ```
 
-</Example>"#,
+```sh supersigil-ref=auth-ex
+echo auth
+```"#,
     );
 
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/billing.mdx",
+        "specs/billing.md",
         "billing/req",
         Some("requirements"),
         Some("approved"),
-        r#"<TrackedFiles paths="src/billing/**" />
+        r#"```supersigil-xml
+<TrackedFiles paths="src/billing/**" />
 <AcceptanceCriteria>
   <Criterion id="b-1">billing</Criterion>
 </AcceptanceCriteria>
 
-<Example id="billing-ex" lang="sh" runner="sh">
-
-```sh
-echo billing
+<Example id="billing-ex" lang="sh" runner="sh" />
 ```
 
-</Example>"#,
+```sh supersigil-ref=billing-ex
+echo billing
+```"#,
     );
 
     // Create the tracked directories

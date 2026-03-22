@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-core/src/config.rs" />
+```
 
 Supersigil is configured through a `supersigil.toml` file at your project root. Run `supersigil init` to generate one.
 
@@ -18,7 +19,7 @@ Supersigil is configured through a `supersigil.toml` file at your project root. 
 The minimal configuration requires only a `paths` array:
 
 ```toml title="supersigil.toml"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs", "src/**/*.rs"]
 ```
 
@@ -33,11 +34,11 @@ For monorepos with multiple projects, use the `[projects]` table instead of top-
 
 ```toml title="supersigil.toml"
 [projects.frontend]
-paths = ["frontend/specs/**/*.mdx"]
+paths = ["frontend/specs/**/*.md"]
 tests = ["frontend/tests/**/*.rs"]
 
 [projects.backend]
-paths = ["backend/specs/**/*.mdx"]
+paths = ["backend/specs/**/*.md"]
 tests = ["backend/src/**/*.rs"]
 isolated = true
 ```
@@ -97,10 +98,13 @@ invalid_alternative_placement = "warning" # default
 duplicate_rationale = "warning"           # default
 invalid_alternative_status = "warning"    # default
 empty_project = "warning"                # default
+multiple_expected_children = "error"     # default
+inline_example_without_lang = "error"    # default
+code_ref_conflict = "warning"            # default
 ```
 
 <Aside type="note">
-  Hard errors (`broken_ref`, `duplicate_id`, `dependency_cycle`, `expression_attribute`, `missing_required_attribute`) cannot be suppressed or reconfigured.
+  Hard errors (`broken_ref`, `duplicate_id`, `dependency_cycle`, `missing_required_attribute`) cannot be suppressed or reconfigured.
 </Aside>
 
 ## Document Types
@@ -207,6 +211,19 @@ timeout_seconds = 30
 | `export` | string[] | `[]` | Export hook commands |
 | `timeout_seconds` | integer | `30` | Max execution time per hook |
 
+## LSP
+
+Configure the language server behavior:
+
+```toml title="supersigil.toml"
+[lsp]
+diagnostics = "verify"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `diagnostics` | `"lint"` \| `"verify"` | `"verify"` | Diagnostics tier on save. `lint` runs only parse + structural checks (fast). `verify` additionally runs graph rules, coverage checks, and plugin evidence (slower but more complete). |
+
 ## Skills
 
 Configure the path for installed agent skills:
@@ -225,7 +242,7 @@ This section is only needed when using a non-default skills path. When omitted, 
 ## Full Example
 
 ```toml title="supersigil.toml"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs", "src/**/*.rs"]
 id_pattern = "^[a-z][a-z0-9-]*/[a-z]+/[a-z][a-z0-9-]*$"
 

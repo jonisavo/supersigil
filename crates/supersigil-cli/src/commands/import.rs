@@ -7,7 +7,7 @@ use crate::commands::{ImportArgs, ImportSource};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, Token};
 
-/// Run the import command, reading Kiro specs and writing MDX output.
+/// Run the import command, reading Kiro specs and writing spec documents.
 ///
 /// # Errors
 ///

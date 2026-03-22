@@ -43,7 +43,7 @@ fn dogfooding_pipeline() {
     // Step 2: Create a supersigil.toml pointing at the imported specs
     fs::write(
         project.path().join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n",
+        "paths = [\"specs/**/*.md\"]\n",
     )
     .unwrap();
 

@@ -324,21 +324,21 @@ fn arb_nesting_level() -> impl Strategy<Value = NestingLevel> {
 /// Build a valid Config TOML with an unknown key injected at the given nesting level.
 fn inject_unknown_key(level: &NestingLevel, key: &str) -> String {
     match level {
-        NestingLevel::TopLevel => format!("paths = [\"specs/**/*.mdx\"]\n{key} = \"bad\"\n"),
+        NestingLevel::TopLevel => format!("paths = [\"specs/**/*.md\"]\n{key} = \"bad\"\n"),
         NestingLevel::Documents => {
-            format!("paths = [\"specs/**/*.mdx\"]\n\n[documents]\n{key} = \"bad\"\n")
+            format!("paths = [\"specs/**/*.md\"]\n\n[documents]\n{key} = \"bad\"\n")
         }
         NestingLevel::Verify => {
-            format!("paths = [\"specs/**/*.mdx\"]\n\n[verify]\n{key} = \"bad\"\n")
+            format!("paths = [\"specs/**/*.md\"]\n\n[verify]\n{key} = \"bad\"\n")
         }
         NestingLevel::Hooks => {
-            format!("paths = [\"specs/**/*.mdx\"]\n\n[hooks]\n{key} = \"bad\"\n")
+            format!("paths = [\"specs/**/*.md\"]\n\n[hooks]\n{key} = \"bad\"\n")
         }
         NestingLevel::Ecosystem => {
-            format!("paths = [\"specs/**/*.mdx\"]\n\n[ecosystem]\n{key} = \"bad\"\n")
+            format!("paths = [\"specs/**/*.md\"]\n\n[ecosystem]\n{key} = \"bad\"\n")
         }
         NestingLevel::TestResults => {
-            format!("paths = [\"specs/**/*.mdx\"]\n\n[test_results]\n{key} = \"bad\"\n")
+            format!("paths = [\"specs/**/*.md\"]\n\n[test_results]\n{key} = \"bad\"\n")
         }
     }
 }

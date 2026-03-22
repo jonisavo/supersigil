@@ -30,7 +30,7 @@ proptest! {
         let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc_id = "tasks/topo-test";
-        let doc = make_doc_with_path(doc_id, "specs/tasks/topo-test.mdx", tasks);
+        let doc = make_doc_with_path(doc_id, "specs/tasks/topo-test.md", tasks);
         let result = build_graph(vec![doc], &config);
 
         match result {
@@ -143,8 +143,8 @@ proptest! {
         let tasks = dag_to_task_components(&dag, &deps_map);
 
         let doc_id = "tasks/determinism";
-        let doc1 = make_doc_with_path(doc_id, "specs/tasks/determinism.mdx", tasks.clone());
-        let doc2 = make_doc_with_path(doc_id, "specs/tasks/determinism.mdx", tasks);
+        let doc1 = make_doc_with_path(doc_id, "specs/tasks/determinism.md", tasks.clone());
+        let doc2 = make_doc_with_path(doc_id, "specs/tasks/determinism.md", tasks);
 
         let result1 = build_graph(vec![doc1], &config);
         let result2 = build_graph(vec![doc2], &config);
@@ -217,7 +217,7 @@ proptest! {
             .collect();
 
         let doc_id = "tasks/tiebreak";
-        let doc = make_doc_with_path(doc_id, "specs/tasks/tiebreak.mdx", tasks);
+        let doc = make_doc_with_path(doc_id, "specs/tasks/tiebreak.md", tasks);
         let result = build_graph(vec![doc], &config);
 
         match result {
@@ -250,7 +250,7 @@ proptest! {
         let mut ids: Vec<String> = (0..n).map(|i| format!("doc-{i:03}")).collect();
         let documents = ids
             .iter()
-            .map(|id| make_doc_with_path(id, &format!("specs/{id}.mdx"), Vec::new()))
+            .map(|id| make_doc_with_path(id, &format!("specs/{id}.md"), Vec::new()))
             .collect();
 
         let result = build_graph(documents, &config);

@@ -161,7 +161,7 @@ impl<'a> RequirementIndex<'a> {
 }
 
 /// Resolve a list of `RawRef`s against the requirement index to produce
-/// criterion ref strings for MDX output.
+/// criterion ref strings for spec document output.
 ///
 /// Each resolvable ref becomes `{doc_id_base}#req-{X}-{Y}`. Unresolvable refs
 /// (requirement number or criterion index not found) produce an ambiguity marker

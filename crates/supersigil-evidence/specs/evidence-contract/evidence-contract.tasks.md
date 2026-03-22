@@ -1,0 +1,37 @@
+---
+supersigil:
+  id: evidence-contract/tasks
+  type: tasks
+  status: done
+title: "Evidence Contract Tasks"
+---
+
+## Overview
+
+This tasks document tracks the retroactive-specification pass for the shared
+evidence contract.
+
+```supersigil-xml
+<Task id="task-1" status="done" implements="evidence-contract/req#req-1-1, evidence-contract/req#req-1-2, evidence-contract/req#req-1-3, evidence-contract/req#req-2-1, evidence-contract/req#req-2-2, evidence-contract/req#req-2-3, evidence-contract/req#req-2-4, evidence-contract/req#req-3-1, evidence-contract/req#req-3-2, evidence-contract/req#req-3-3">
+  Recover the current `supersigil-evidence` contract into project-local req,
+  design, and tasks docs under
+  `crates/supersigil-evidence/specs/evidence-contract/`.
+</Task>
+
+<Task id="task-2" status="done" implements="evidence-contract/req#req-1-1, evidence-contract/req#req-2-1">
+  Encode the shared criterion-target invariant in `supersigil-evidence` by
+  rejecting malformed refs and making `VerificationEvidenceRecord` use a
+  non-empty `VerificationTargets` set.
+</Task>
+
+<Task id="task-3" status="done" implements="evidence-contract/req#req-3-2, evidence-contract/req#req-3-3">
+  Decide whether the shared plugin contract needs a non-fatal partial-warning
+  channel in addition to `PluginError`.
+</Task>
+
+<Task id="task-4" status="done" implements="evidence-contract/req#req-3-1, evidence-contract/req#req-3-2">
+  Extend the shared plugin contract so plugins can plan plugin-owned discovery
+  inputs from shared test files without expanding `ProjectScope` into an
+  ecosystem-specific policy object.
+</Task>
+```

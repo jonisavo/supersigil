@@ -26,6 +26,8 @@ fn make_criterion(id: &str, body: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children: Vec::new(),
         body_text: Some(body.to_owned()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -52,12 +54,13 @@ fn make_doc(
         },
         extra,
         components,
+        warnings: vec![],
     }
 }
 
 fn default_config() -> Config {
     Config {
-        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
+        paths: Some(vec!["specs/**/*.md".to_owned()]),
         ..Config::default()
     }
 }
@@ -67,6 +70,11 @@ fn hover_text(h: &lsp_types::Hover) -> &str {
         lsp_types::HoverContents::Markup(mc) => &mc.value,
         _ => panic!("expected MarkupContent hover"),
     }
+}
+
+/// Wrap content in a `supersigil-xml` fence. Lines inside start at line 1.
+fn fenced(inner: &str) -> String {
+    format!("```supersigil-xml\n{inner}\n```")
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +157,7 @@ fn fragment_ref_hover_shows_title_and_body() {
     let criterion = make_criterion("req-1-1", "User logs in successfully.", 5);
     let doc = make_doc(
         "auth/req",
-        "/specs/auth/req.mdx",
+        "/specs/auth/req.md",
         Some("requirements"),
         Some("approved"),
         Some("User Authentication"),
@@ -185,7 +193,7 @@ fn fragment_ref_hover_shows_title_and_body() {
 fn document_ref_hover_shows_title_and_status() {
     let doc = make_doc(
         "design/session",
-        "/specs/design/session.mdx",
+        "/specs/design/session.md",
         Some("design"),
         Some("draft"),
         Some("Session Management"),
@@ -213,7 +221,7 @@ fn nonexistent_ref_returns_none() {
 
 #[test]
 fn nonexistent_fragment_ref_returns_none() {
-    let doc = make_doc("auth/req", "/specs/auth/req.mdx", None, None, None, vec![]);
+    let doc = make_doc("auth/req", "/specs/auth/req.md", None, None, None, vec![]);
     let graph = build_graph(vec![doc], &default_config()).expect("graph must build");
     let result = hover_ref("auth/req#missing-frag", &graph);
     assert!(result.is_none());
@@ -223,7 +231,7 @@ fn nonexistent_fragment_ref_returns_none() {
 fn doc_without_title_falls_back_to_id() {
     let doc = make_doc(
         "auth/req",
-        "/specs/auth/req.mdx",
+        "/specs/auth/req.md",
         Some("requirements"),
         Some("draft"),
         None, // no title
@@ -242,25 +250,25 @@ fn doc_without_title_falls_back_to_id() {
 
 #[test]
 fn hover_at_position_on_component_name() {
-    let content = "<Criterion id=\"req-1\">\nsome body\n</Criterion>";
+    let content = fenced("<Criterion id=\"req-1\">\nsome body\n</Criterion>");
     let defs = supersigil_core::ComponentDefs::defaults();
     let graph = build_graph(vec![], &default_config()).expect("graph must build");
 
-    // Cursor on "Criterion" — character 3 is inside the name.
-    let h = hover_at_position(content, 0, 3, &defs, &graph).expect("should return hover");
+    // Line 1 = <Criterion ...> (inside fence), character 3 is inside the name.
+    let h = hover_at_position(&content, 1, 3, &defs, &graph).expect("should return hover");
     let text = hover_text(&h);
     assert!(text.contains("Criterion"));
 }
 
 #[test]
 fn hover_at_position_on_ref_string() {
-    let content = "<References refs=\"auth/req#req-1\" />";
+    let content = fenced("<References refs=\"auth/req#req-1\" />");
     let defs = supersigil_core::ComponentDefs::defaults();
 
     let criterion = make_criterion("req-1", "test body", 5);
     let doc = make_doc(
         "auth/req",
-        "/specs/auth/req.mdx",
+        "/specs/auth/req.md",
         Some("requirements"),
         Some("approved"),
         Some("Auth Requirements"),
@@ -268,8 +276,8 @@ fn hover_at_position_on_ref_string() {
     );
     let graph = build_graph(vec![doc], &default_config()).expect("graph must build");
 
-    // Cursor at position 22 is inside "auth/req#req-1".
-    let h = hover_at_position(content, 0, 22, &defs, &graph).expect("should return hover");
+    // Line 1 inside fence, position 22 is inside "auth/req#req-1".
+    let h = hover_at_position(&content, 1, 22, &defs, &graph).expect("should return hover");
     let text = hover_text(&h);
     assert!(text.contains("Auth Requirements"), "should show doc title");
     assert!(text.contains("Criterion"), "should show component kind");
@@ -281,5 +289,15 @@ fn hover_at_position_on_whitespace_returns_none() {
     let defs = supersigil_core::ComponentDefs::defaults();
     let graph = build_graph(vec![], &default_config()).expect("graph must build");
     let result = hover_at_position(content, 0, 0, &defs, &graph);
+    assert!(result.is_none());
+}
+
+#[test]
+fn hover_at_position_outside_fence_returns_none() {
+    // Component name outside a fence should not trigger hover.
+    let content = "<Criterion id=\"req-1\">\nsome body\n</Criterion>";
+    let defs = supersigil_core::ComponentDefs::defaults();
+    let graph = build_graph(vec![], &default_config()).expect("graph must build");
+    let result = hover_at_position(content, 0, 3, &defs, &graph);
     assert!(result.is_none());
 }

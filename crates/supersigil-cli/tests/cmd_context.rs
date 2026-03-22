@@ -9,9 +9,9 @@ use tempfile::TempDir;
 fn context_shows_document_info() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "auth/req/login",
         Some("requirements"),
         Some("approved"),
@@ -39,9 +39,9 @@ fn context_shows_document_info() {
 fn context_json_format() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/doc",
         Some("requirements"),
         None,
@@ -65,7 +65,7 @@ fn context_json_format() {
 fn context_unknown_id_exits_one() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(tmp.path(), "specs/req.mdx", "test/doc", None, None, "");
+    common::write_spec_doc(tmp.path(), "specs/req.md", "test/doc", None, None, "");
 
     cargo_bin_cmd!("supersigil")
         .args(["context", "nonexistent/doc"])
@@ -81,9 +81,9 @@ fn context_unknown_id_exits_one() {
 fn context_json_has_no_illustrations_key() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/doc",
         Some("requirements"),
         Some("draft"),

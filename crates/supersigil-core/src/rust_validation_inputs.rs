@@ -159,12 +159,12 @@ mod tests {
         let temp = tempdir().expect("create temp dir");
         let root = temp.path();
         touch(&root.join("supersigil.toml"));
-        touch(&root.join("specs/auth/login.mdx"));
-        touch(&root.join("specs/billing/refunds.mdx"));
-        touch(&root.join("docs/ignored.mdx"));
+        touch(&root.join("specs/auth/login.md"));
+        touch(&root.join("specs/billing/refunds.md"));
+        touch(&root.join("docs/ignored.md"));
 
         let config = Config {
-            paths: Some(vec!["specs/**/*.mdx".to_string()]),
+            paths: Some(vec!["specs/**/*.md".to_string()]),
             ..Config::default()
         };
         let manifest_dir = root.join("crates/app");
@@ -178,8 +178,8 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([
                 root.join("supersigil.toml"),
-                root.join("specs/auth/login.mdx"),
-                root.join("specs/billing/refunds.mdx"),
+                root.join("specs/auth/login.md"),
+                root.join("specs/billing/refunds.md"),
             ]),
         );
     }
@@ -189,14 +189,14 @@ mod tests {
         let temp = tempdir().expect("create temp dir");
         let root = temp.path();
         touch(&root.join("supersigil.toml"));
-        touch(&root.join("frontend/specs/ui/button.mdx"));
-        touch(&root.join("backend/specs/api/orders.mdx"));
+        touch(&root.join("frontend/specs/ui/button.md"));
+        touch(&root.join("backend/specs/api/orders.md"));
 
         let mut projects = HashMap::new();
         projects.insert(
             "frontend".to_string(),
             ProjectConfig {
-                paths: vec!["frontend/specs/**/*.mdx".to_string()],
+                paths: vec!["frontend/specs/**/*.md".to_string()],
                 tests: Vec::new(),
                 isolated: false,
             },
@@ -204,7 +204,7 @@ mod tests {
         projects.insert(
             "backend".to_string(),
             ProjectConfig {
-                paths: vec!["backend/specs/**/*.mdx".to_string()],
+                paths: vec!["backend/specs/**/*.md".to_string()],
                 tests: Vec::new(),
                 isolated: false,
             },
@@ -235,7 +235,7 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([
                 root.join("supersigil.toml"),
-                root.join("frontend/specs/ui/button.mdx"),
+                root.join("frontend/specs/ui/button.md"),
             ]),
         );
     }
@@ -245,14 +245,14 @@ mod tests {
         let temp = tempdir().expect("create temp dir");
         let root = temp.path();
         touch(&root.join("supersigil.toml"));
-        touch(&root.join("frontend/specs/ui/button.mdx"));
-        touch(&root.join("backend/specs/api/orders.mdx"));
+        touch(&root.join("frontend/specs/ui/button.md"));
+        touch(&root.join("backend/specs/api/orders.md"));
 
         let mut projects = HashMap::new();
         projects.insert(
             "frontend".to_string(),
             ProjectConfig {
-                paths: vec!["frontend/specs/**/*.mdx".to_string()],
+                paths: vec!["frontend/specs/**/*.md".to_string()],
                 tests: Vec::new(),
                 isolated: false,
             },
@@ -260,7 +260,7 @@ mod tests {
         projects.insert(
             "backend".to_string(),
             ProjectConfig {
-                paths: vec!["backend/specs/**/*.mdx".to_string()],
+                paths: vec!["backend/specs/**/*.md".to_string()],
                 tests: Vec::new(),
                 isolated: false,
             },
@@ -288,7 +288,7 @@ mod tests {
         assert!(
             !scoped
                 .spec_files
-                .contains(&root.join("backend/specs/api/orders.mdx")),
+                .contains(&root.join("backend/specs/api/orders.md")),
             "scoped inputs must NOT include backend specs"
         );
 
@@ -296,11 +296,11 @@ mod tests {
         let workspace = resolve_workspace_validation_inputs(&config, root).unwrap();
         let all_files: BTreeSet<_> = workspace.spec_files.into_iter().collect();
         assert!(
-            all_files.contains(&root.join("frontend/specs/ui/button.mdx")),
+            all_files.contains(&root.join("frontend/specs/ui/button.md")),
             "workspace inputs must include frontend specs"
         );
         assert!(
-            all_files.contains(&root.join("backend/specs/api/orders.mdx")),
+            all_files.contains(&root.join("backend/specs/api/orders.md")),
             "workspace inputs must include backend specs"
         );
     }

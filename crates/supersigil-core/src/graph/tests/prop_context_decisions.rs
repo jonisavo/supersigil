@@ -23,6 +23,8 @@ fn make_decision(id: &str, children: Vec<ExtractedComponent>, line: usize) -> Ex
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children,
         body_text: Some(format!("decision {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -34,6 +36,8 @@ fn make_rationale(body: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::new(),
         children: Vec::new(),
         body_text: Some(body.to_owned()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -48,6 +52,8 @@ fn make_alternative(id: &str, status: &str, line: usize) -> ExtractedComponent {
         ]),
         children: Vec::new(),
         body_text: Some(format!("alternative {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }

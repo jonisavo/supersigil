@@ -82,7 +82,7 @@ pub enum ImportError {
     FileExists { path: PathBuf },
 }
 
-/// Perform the full import: parse, convert, and write MDX files.
+/// Perform the full import: parse, convert, and write spec documents.
 ///
 /// # Errors
 ///
@@ -229,7 +229,7 @@ impl PlanAccumulator {
             output_path: ctx
                 .output_dir
                 .join(ctx.feature)
-                .join(format!("{}.{type_hint}.mdx", ctx.feature)),
+                .join(format!("{}.{type_hint}.md", ctx.feature)),
             document_id: doc_id.to_string(),
             content,
         });
@@ -251,7 +251,7 @@ fn emit_requirements(
     }
 
     let (content, amb) =
-        emit::requirements::emit_requirements_mdx(reqs, ctx.req_doc_id, ctx.feature_title);
+        emit::requirements::emit_requirements_md(reqs, ctx.req_doc_id, ctx.feature_title);
     acc.summary.criteria_converted += reqs
         .requirements
         .iter()
@@ -267,7 +267,7 @@ fn emit_design(
     ctx: &FeatureContext<'_>,
     acc: &mut PlanAccumulator,
 ) {
-    let (content, amb, validates_resolved) = emit::design::emit_design_mdx(
+    let (content, amb, validates_resolved) = emit::design::emit_design_md(
         design,
         design_doc_id,
         req_index,
@@ -288,7 +288,7 @@ fn emit_tasks(
     for task in &tasks.tasks {
         acc.summary.tasks_converted += 1 + task.sub_tasks.len();
     }
-    let (content, amb, validates_resolved) = emit::tasks::emit_tasks_mdx(
+    let (content, amb, validates_resolved) = emit::tasks::emit_tasks_md(
         tasks,
         tasks_doc_id,
         req_index,

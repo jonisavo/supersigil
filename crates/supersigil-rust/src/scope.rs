@@ -63,7 +63,7 @@ mod tests {
     /// Helper: build a minimal single-project `Config`.
     fn single_project_config() -> Config {
         Config {
-            paths: Some(vec!["specs/**/*.mdx".to_string()]),
+            paths: Some(vec!["specs/**/*.md".to_string()]),
             ..Config::default()
         }
     }
@@ -76,7 +76,7 @@ mod tests {
                 (
                     (*name).to_string(),
                     ProjectConfig {
-                        paths: vec![format!("{name}/specs/**/*.mdx")],
+                        paths: vec![format!("{name}/specs/**/*.md")],
                         tests: vec![],
                         isolated: false,
                     },

@@ -1,6 +1,5 @@
 ---
 source: crates/supersigil-import/tests/snapshots.rs
-assertion_line: 72
 expression: content
 ---
 ---
@@ -19,6 +18,7 @@ IMPORTANT: when adding dependencies, prefer `cargo add` to ensure we use latest 
 
 Use your Rust skills while developing.
 
+```supersigil-xml
 <Task id="task-1" status="done">
   Set up workspace structure and crate scaffolding
 
@@ -32,7 +32,9 @@ Use your Rust skills while developing.
   - Create test file stubs: `crates/supersigil-core/tests/config_property_tests.rs`, `crates/supersigil-core/tests/config_unit_tests.rs`, `crates/supersigil-parser/tests/property_tests.rs`, `crates/supersigil-parser/tests/unit_tests.rs`, `crates/supersigil-parser/tests/fixtures/` directory
   - Verify workspace compiles with `cargo build` and `cargo nextest run` passes (no tests yet)
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-2" status="done" depends="task-1">
   Implement `supersigil-core` data model types
 
@@ -62,7 +64,9 @@ Use your Rust skills while developing.
     - Verify `type` ↔ `doc_type` rename survives round-trip
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-3" status="done" depends="task-2">
   Implement Config types and deserialization
 
@@ -98,7 +102,9 @@ Use your Rust skills while developing.
     - Serialize to TOML, deserialize back, assert equality
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-4" status="done" depends="task-3">
   Implement built-in component definitions and ComponentDefs
 
@@ -126,7 +132,9 @@ Use your Rust skills while developing.
     - Generate random user component defs, merge over defaults, verify: overrides replace, new names added, unmentioned built-ins remain
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-5" status="done" depends="task-4">
   Implement `load_config` with validation
 
@@ -144,7 +152,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-5-2" status="done" depends="task-5-1" implements="req/parser-and-config#req-11-1, req/parser-and-config#req-11-2, req/parser-and-config#req-11-3, req/parser-and-config#req-12-1, req/parser-and-config#req-12-2, req/parser-and-config#req-12-3, req/parser-and-config#req-12-4, req/parser-and-config#req-12-5, req/parser-and-config#req-15-3, req/parser-and-config#req-20-1, req/parser-and-config#req-20-2">
-    Implement `load_config(path) -> Result<Config, Vec<ConfigError>>`
+    Implement `load_config(path) -&gt; Result&lt;Config, Vec&lt;ConfigError&gt;&gt;`
 
     - Read and deserialize TOML (with `deny_unknown_fields` catching unknown keys)
     - Post-deserialization validation: mutual exclusivity check, unknown rule name check, id_pattern regex compilation
@@ -179,7 +187,9 @@ Use your Rust skills while developing.
     - Generate valid and invalid regex strings, verify acceptance/rejection
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-6" status="done" depends="task-5">
   Implement `split_list_attribute` utility
 
@@ -196,7 +206,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-6-2" status="done" depends="task-6-1" implements="req/parser-and-config#req-7-2">
-    Implement `split_list_attribute(raw: &str) -> Result<Vec<&str>, ListSplitError>`
+    Implement `split_list_attribute(raw: &amp;str) -&gt; Result&lt;Vec&lt;&amp;str&gt;, ListSplitError&gt;`
 
     - Split on `,`, trim each item, reject empty items
   </Task>
@@ -209,14 +219,18 @@ Use your Rust skills while developing.
     - Verify all output items are non-empty and trimmed; trailing/consecutive commas rejected
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-7" status="done" depends="task-6">
   Checkpoint — `supersigil-core` complete
 
   - Ensure all tests pass with `cargo nextest run -p supersigil-core`, ask the user if questions arise.
   - Run `cargo clippy -p supersigil-core` and fix any warnings.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-8" status="in-progress" depends="task-7">
   Implement parser Stage 1: Preprocessing
 
@@ -235,7 +249,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-8-2" status="done" depends="task-8-1" implements="req/parser-and-config#req-1-1, req/parser-and-config#req-1-2, req/parser-and-config#req-1-3, req/parser-and-config#req-2-1, req/parser-and-config#req-2-2">
-    Implement `preprocess(raw: &[u8]) -> Result<String, ParseError>`
+    Implement `preprocess(raw: &amp;[u8]) -&gt; Result&lt;String, ParseError&gt;`
 
     - Decode UTF-8 (return `IoError` on failure)
     - Strip leading BOM (U+FEFF) if present
@@ -256,7 +270,9 @@ Use your Rust skills while developing.
     - Generate strings with arbitrary `\r\n` placement, verify all original CRLF pairs replaced, bare `\r` preserved
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-9" status="done" depends="task-8">
   Implement parser Stage 1: Front matter extraction and deserialization
 
@@ -284,7 +300,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-9-3" status="done" depends="task-9-2" implements="req/parser-and-config#req-3-1, req/parser-and-config#req-3-2, req/parser-and-config#req-3-3">
-    Implement `extract_front_matter(content: &str) -> Result<Option<(&str, &str)>, ParseError>`
+    Implement `extract_front_matter(content: &amp;str) -&gt; Result&lt;Option&lt;(&amp;str, &amp;str)&gt;, ParseError&gt;`
 
     - Detect opening `---` (with optional trailing whitespace) on first line
     - Find closing `---` line (with optional trailing whitespace)
@@ -292,7 +308,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-9-4" status="done" depends="task-9-3" implements="req/parser-and-config#req-4-1, req/parser-and-config#req-4-2, req/parser-and-config#req-4-3, req/parser-and-config#req-4-4, req/parser-and-config#req-4-5, req/parser-and-config#req-4-6">
-    Implement `deserialize_front_matter(yaml: &str) -> Result<FrontMatterResult, ParseError>`
+    Implement `deserialize_front_matter(yaml: &amp;str) -&gt; Result&lt;FrontMatterResult, ParseError&gt;`
 
     - Deserialize YAML, check for `supersigil:` key
     - Extract `id` (required), `doc_type`, `status` into `Frontmatter`
@@ -321,7 +337,9 @@ Use your Rust skills while developing.
     - Generate YAML with `supersigil:` key and additional arbitrary keys, verify all non-supersigil keys appear in `extra`
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-10" status="done" depends="task-9">
   Implement parser Stage 2: MDX AST generation
 
@@ -335,13 +353,15 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-10-2" status="done" depends="task-10-1" implements="req/parser-and-config#req-5-1, req/parser-and-config#req-5-2">
-    Implement `parse_mdx_body(body: &str) -> Result<mdast::Node, ParseError>`
+    Implement `parse_mdx_body(body: &amp;str) -&gt; Result&lt;mdast::Node, ParseError&gt;`
 
     - Use `markdown-rs` with MDX constructs enabled
     - Map parse errors to `MdxSyntaxError`
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-11" status="done" depends="task-10">
   Implement parser Stage 3: Component extraction
 
@@ -361,7 +381,7 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-11-2" status="done" depends="task-11-1" implements="req/parser-and-config#req-6-1, req/parser-and-config#req-6-2, req/parser-and-config#req-6-3, req/parser-and-config#req-6-4, req/parser-and-config#req-8-1, req/parser-and-config#req-8-2, req/parser-and-config#req-8-3, req/parser-and-config#req-8-4, req/parser-and-config#req-8-5, req/parser-and-config#req-8-6, req/parser-and-config#req-9-1, req/parser-and-config#req-9-2, req/parser-and-config#req-9-3">
-    Implement `extract_components(node, component_defs, body_offset, errors) -> Vec<ExtractedComponent>`
+    Implement `extract_components(node, component_defs, body_offset, errors) -&gt; Vec&lt;ExtractedComponent&gt;`
 
     - Walk AST recursively, process only `MdxJsxFlowElement` nodes
     - Skip lowercase element names (HTML), skip `MdxJsxTextElement` (inline)
@@ -391,7 +411,9 @@ Use your Rust skills while developing.
     - Generate nested component structures, verify tree structure matches source
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-12" status="done" depends="task-11">
   Implement lint-time validation and `parse_file` public API
 
@@ -427,11 +449,11 @@ Use your Rust skills while developing.
   </Task>
 
   <Task id="task-12-4" status="done" depends="task-12-3" implements="req/parser-and-config#req-10-1, req/parser-and-config#req-10-2, req/parser-and-config#req-10-3">
-    Implement `parse_file(path, &ComponentDefs) -> Result<ParseResult, Vec<ParseError>>`
+    Implement `parse_file(path, &amp;ComponentDefs) -&gt; Result&lt;ParseResult, Vec&lt;ParseError&gt;&gt;`
 
     - Wire the three-stage pipeline: preprocess → extract/deserialize front matter → parse MDX → extract components → lint-time validation
     - Implement error collection: stage 1 fatal errors stop pipeline, stage 2 errors stop stage 3, stage 3 errors collected
-    - Return `ParseResult::Document` or `ParseResult::NotSupersigil` on success, `Vec<ParseError>` on failure
+    - Return `ParseResult::Document` or `ParseResult::NotSupersigil` on success, `Vec&lt;ParseError&gt;` on failure
   </Task>
 
   <Task id="task-12-5" status="done" depends="task-12-4" implements="req/parser-and-config#req-21-1, req/parser-and-config#req-21-2">
@@ -455,14 +477,18 @@ Use your Rust skills while developing.
     - Generate files with multiple independent error conditions, verify all errors returned
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-13" status="done" depends="task-12">
   Checkpoint — `supersigil-parser` complete
 
   - Ensure all tests pass with `cargo nextest run`, ask the user if questions arise.
   - Run `cargo clippy --workspace` and fix any warnings.
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-14" status="done" depends="task-13">
   Create MDX test fixtures and final integration validation
 
@@ -470,7 +496,7 @@ Use your Rust skills while developing.
     Create MDX test fixture files
 
     - Create `crates/supersigil-parser/tests/fixtures/valid_simple.mdx`: minimal valid supersigil document
-    - Create `crates/supersigil-parser/tests/fixtures/valid_nested.mdx`: document with nested components (AcceptanceCriteria > Criterion)
+    - Create `crates/supersigil-parser/tests/fixtures/valid_nested.mdx`: document with nested components (AcceptanceCriteria &gt; Criterion)
     - Create `crates/supersigil-parser/tests/fixtures/no_frontmatter.mdx`: plain MDX without front matter
     - Create `crates/supersigil-parser/tests/fixtures/no_supersigil_key.mdx`: front matter without `supersigil:` key
     - Create `crates/supersigil-parser/tests/fixtures/extra_metadata.mdx`: front matter with supersigil + extra keys
@@ -483,7 +509,9 @@ Use your Rust skills while developing.
     - Verify round-trip properties hold for fixture front matter
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-15" status="done" depends="task-14">
   Final checkpoint — all crates complete
 
@@ -491,6 +519,7 @@ Use your Rust skills while developing.
   - Run `cargo clippy --workspace` and fix any warnings.
   - Verify `cargo doc --workspace --no-deps` builds without warnings.
 </Task>
+```
 
 ## Notes
 

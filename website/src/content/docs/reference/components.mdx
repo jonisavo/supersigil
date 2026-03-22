@@ -7,22 +7,23 @@ supersigil:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
-import { References, TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <References refs="parser-pipeline/req" />
 <TrackedFiles paths="crates/supersigil-core/src/component_defs.rs" />
+```
 
-Components are MDX JSX elements that carry specification semantics. Supersigil has 13 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
+Components are XML elements inside `supersigil-xml` fenced code blocks that carry specification semantics. Supersigil has 13 built-in components. Each component is validated during lint and becomes a typed node in the specification graph.
 
 <Aside type="caution">
-  All component attributes must be **plain string literals**. JSX expression attributes (e.g. `refs={variable}`) are a hard lint error. Use comma-separated strings for multi-value attributes: `refs="doc-a#crit-1, doc-b#crit-2"`.
+  All component attributes must be **plain double-quoted string literals**. Use comma-separated strings for multi-value attributes: `refs="doc-a#crit-1, doc-b#crit-2"`.
 </Aside>
 
 ## `<AcceptanceCriteria>`
 
 Groups one or more `<Criterion>` components. Used for visual and semantic grouping.
 
-```mdx
+```xml
 <AcceptanceCriteria>
   <Criterion id="valid-input">...</Criterion>
   <Criterion id="invalid-input">...</Criterion>
@@ -37,7 +38,7 @@ Not referenceable.
 
 A single verifiable criterion. This is the only "verifiable" component -- the target of coverage tracking.
 
-```mdx
+```xml
 <Criterion id="valid-creds">
   WHEN a user submits valid credentials
   THE SYSTEM SHALL issue a session token within 200ms
@@ -54,7 +55,7 @@ Referenceable. The `missing_verification_evidence` rule checks that every criter
 
 Informational traceability links. Creates edges in the graph for documentation purposes but has no verification semantics -- it does not satisfy coverage.
 
-```mdx
+```xml
 <References refs="auth/req/login#valid-creds, auth/req/login#invalid-creds" />
 ```
 
@@ -68,7 +69,7 @@ Not referenceable.
 
 Specifies how a criterion is verified: by tag-based test matching or by file glob patterns.
 
-```mdx
+```xml
 <VerifiedBy strategy="tag" tag="test_login_success" />
 <VerifiedBy strategy="file-glob" paths="tests/auth/test_session.rs" />
 ```
@@ -90,7 +91,7 @@ Not referenceable.
 
 Declares that the containing document implements criteria from another document. Typically used by design documents pointing at requirements.
 
-```mdx
+```xml
 <Implements refs="auth/req/login#valid-creds" />
 ```
 
@@ -104,7 +105,7 @@ Not referenceable.
 
 Declares document-level dependencies. Used for dependency tracking and cycle detection.
 
-```mdx
+```xml
 <DependsOn refs="auth/design/session-mgmt, auth/req/login" />
 ```
 
@@ -118,7 +119,7 @@ Not referenceable.
 
 A trackable work item. Tasks live in documents with `type: tasks`.
 
-```mdx
+```xml
 <Task id="define-model" status="done" implements="auth/req/login#valid-creds">
   Define the user authentication data model.
 </Task>
@@ -141,7 +142,7 @@ Referenceable. Tasks form a dependency sub-graph within a document. `depends` ed
 
 Declares which source files this specification cares about. Used by `supersigil affected` for staleness detection.
 
-```mdx
+```xml
 <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
 ```
 
@@ -157,40 +158,36 @@ Not referenceable.
 
 ## `<Example>`
 
-An executable code example. The code block inside is extracted and run by the specified runner. When `verifies` is set, the example counts toward spec coverage.
+An executable code example. Code content can be inline (for trivial cases) or in a separate code fence linked via `supersigil-ref`. When `verifies` is set, the example counts toward spec coverage.
 
-````mdx
-<Example
-  id="login-success"
-  runner="bash"
-  lang="bash"
-  verifies="auth/req/login#valid-creds"
-  env="BASE_URL=http://localhost:3000"
-  timeout="10"
->
-
-```bash
+````md
+```sh supersigil-ref=login-success
 curl -s -X POST "$BASE_URL/api/login" \
   -H "Content-Type: application/json" \
   -d '{"user":"admin","pass":"secret"}'
 ```
 
-<Expected status="0" format="json">
-
-```json
+```json supersigil-ref=login-success#expected
 {"token": "<any-string>"}
 ```
 
-</Expected>
-
+```supersigil-xml
+<Example
+  id="login-success"
+  runner="sh"
+  verifies="auth/req/login#valid-creds"
+  env="BASE_URL=http://localhost:3000"
+  timeout="10">
+  <Expected status="0" format="json" />
 </Example>
+```
 ````
 
 | Attribute | Required | List | Description |
 |-----------|----------|------|-------------|
 | `id` | yes | no | Unique identifier within the document |
 | `runner` | yes | no | Execution strategy (configured in `[examples.runners]` or built-in) |
-| `lang` | no | no | Language of the code block (`bash`, `rust`, `typescript`, etc.) |
+| `lang` | no | no | Language of the code block. Derived from the `supersigil-ref` fence language when using external fences. Required when using inline text content. |
 | `verifies` | no | yes | Criteria this example verifies. Creates coverage edges. |
 | `references` | no | yes | Criteria this example references (informational, no coverage). |
 | `timeout` | no | no | Max execution time in seconds (default: 30) |
@@ -201,16 +198,18 @@ Referenceable. See [Executable Examples](/guides/executable-examples/) for the f
 
 ## `<Expected>`
 
-Declares the expected output of an `<Example>`. Must be a direct child of `<Example>`. When the example runs, its actual output is compared against this expectation.
+Declares the expected output of an `<Example>`. Must be a direct child of `<Example>` (at most one per Example). When the example runs, its actual output is compared against this expectation. Code content can be inline or linked via `supersigil-ref=example-id#expected`.
 
-````mdx
-<Expected status="0" format="json" contains="token">
-
-```json
+````md
+```json supersigil-ref=my-example#expected
 {"token": "<any-string>", "expires_in": "<any-number>"}
 ```
 
-</Expected>
+```supersigil-xml
+<Example id="my-example" runner="http" verifies="...">
+  <Expected status="0" format="json" contains="token" />
+</Example>
+```
 ````
 
 | Attribute | Required | List | Description |
@@ -234,7 +233,7 @@ Not referenceable.
 
 A recorded architectural choice. Typically used in ADR documents. Can contain `<Rationale>`, `<Alternative>`, `<References>`, `<TrackedFiles>`, and `<DependsOn>` as children.
 
-```mdx
+```xml
 <Decision id="unidirectional-refs">
   References always point from concrete to abstract.
 
@@ -259,7 +258,7 @@ Referenceable.
 
 Justification for a Decision. Must be a direct child of `<Decision>`. At most one per Decision.
 
-```mdx
+```xml
 <Rationale>
   Bidirectional references create synchronization burden.
 </Rationale>
@@ -273,7 +272,7 @@ Not referenceable.
 
 A considered option for a Decision. Must be a direct child of `<Decision>`. Each alternative records a choice that was not taken (or was deferred/superseded).
 
-```mdx
+```xml
 <Alternative id="bidirectional" status="rejected">
   Maintain forward and reverse refs in both documents.
 </Alternative>

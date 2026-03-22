@@ -189,7 +189,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-1-2")]
     fn title_from_extra_when_present() {
         let doc = SpecDocument {
-            path: PathBuf::from("specs/design/auth.mdx"),
+            path: PathBuf::from("specs/design/auth.md"),
             frontmatter: Frontmatter {
                 id: "design/auth".into(),
                 doc_type: Some("design".into()),
@@ -200,6 +200,7 @@ mod tests {
                 yaml_serde::Value::String("Auth System".into()),
             )]),
             components: vec![],
+            warnings: vec![],
         };
         let graph = build_test_graph(vec![doc]);
         let json = build_graph_json(&graph);
@@ -241,6 +242,8 @@ mod tests {
             attributes: HashMap::new(),
             children: vec![],
             body_text: Some("some body".into()),
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: vec![],
             position: pos(5),
         };

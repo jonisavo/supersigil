@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-cli/src/commands/*.rs" />
+```
 
 ## Global Options
 
@@ -44,7 +45,7 @@ In a terminal, `init` prompts whether to install agent skills (default: yes) and
 When a non-default skills path is used, `init` adds a `[skills]` section to the generated config:
 
 ```toml
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [skills]
 path = "custom/skills"
@@ -67,9 +68,9 @@ The `type` argument is a document type (`requirements`, `design`, `tasks`, or an
 
 Convention:
 - Document ID: `{id}/{type_short}` (e.g. `auth/req`, `auth/design`)
-- File path: `{spec_dir}{id}/{id}.{type_short}.mdx`
+- File path: `{spec_dir}{id}/{id}.{type_short}.md`
 
-In single-project mode, `{spec_dir}` is `specs/`. In multi-project mode, `{spec_dir}` is derived from the selected project's glob pattern (e.g. `backend/specs/` for a project with `paths = ["backend/specs/**/*.mdx"]`).
+In single-project mode, `{spec_dir}` is `specs/`. In multi-project mode, `{spec_dir}` is derived from the selected project's glob pattern (e.g. `backend/specs/` for a project with `paths = ["backend/specs/**/*.md"]`).
 
 The `requirements` type is shortened to `req` in IDs and filenames. All other types use their full name.
 
@@ -306,7 +307,7 @@ supersigil schema --format json
 
 ## `supersigil import --from kiro`
 
-Import Kiro format specs into Supersigil MDX.
+Import Kiro format specs into Supersigil Markdown.
 
 ```bash
 supersigil import --from kiro

@@ -8,7 +8,7 @@ use crate::format::{self, ColorConfig, Token};
 use crate::prompt;
 use crate::skills::{self, DEFAULT_SKILLS_PATH};
 
-const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.mdx"]
+const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.md"]
 "#;
 
 /// Resolved skills installation decision.

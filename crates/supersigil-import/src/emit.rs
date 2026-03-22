@@ -4,6 +4,20 @@ pub mod tasks;
 
 use std::fmt::Write;
 
+/// Escape a string for use as XML text content.
+///
+/// Replaces `&`, `<`, and `>` with their XML entity references so that
+/// arbitrary prose can safely appear inside XML element bodies.
+///
+/// Note: `supersigil-core` exports an identical `xml_escape` function but
+/// `supersigil-import` does not depend on it at runtime, so we keep a local
+/// copy to avoid adding a dependency edge.
+pub(crate) fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// Escape a string for use inside a double-quoted YAML scalar.
 ///
 /// Escapes backslashes and double quotes so the resulting value is valid YAML

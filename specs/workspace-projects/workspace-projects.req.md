@@ -1,0 +1,209 @@
+---
+supersigil:
+  id: workspace-projects/req
+  type: requirements
+  status: implemented
+title: "Workspace Projects"
+---
+
+## Introduction
+
+This spec recovers the current multi-project workspace behavior already
+implemented in supersigil. It covers configuration modes, per-project spec
+discovery, project isolation, workspace-wide reference resolution, and the
+project-aware verification/query surface.
+
+This is a recovery document, not a redesign document. It captures the current
+behavior visible in `supersigil-core`, `supersigil-verify`, and the CLI.
+Behavior that appears incomplete for authoring workflows, especially the
+root-only `init` and `new` ergonomics, is treated as specification debt and is
+called out in the design/tasks docs rather than normalized here.
+
+## Definitions
+
+- **Workspace_Config**: A `supersigil.toml` file loaded from the repository
+  root that governs spec discovery, verification, and query behavior.
+- **Single_Project_Mode**: Configuration mode using top-level `paths` and
+  optional top-level `tests`.
+- **Multi_Project_Mode**: Configuration mode using named `[projects.<name>]`
+  entries instead of top-level `paths` and `tests`.
+- **Project_Config**: One named project entry with required `paths`, optional
+  `tests`, and optional `isolated`.
+- **Shared_Workspace_Config**: Top-level config sections such as
+  `id_pattern`, document/component definitions, verification settings,
+  ecosystem settings, hooks, and test-results settings that apply across the
+  whole workspace.
+- **Project_Membership**: The project name assigned to a document in
+  Multi_Project_Mode based on the document file path.
+- **Isolated_Project**: A project with `isolated = true`, which restricts
+  source documents in that project from resolving refs into other projects.
+- **Project_Filter**: A CLI or library option that limits output findings or
+  listed documents to one named project.
+
+## Requirement 1: Workspace Configuration Modes
+
+As a repository maintainer, I want supersigil to support both single-project
+and multi-project workspace layouts, so that small repos and monorepos can use
+the same toolchain.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE Workspace_Config SHALL support Single_Project_Mode using top-level
+    `paths` plus optional top-level `tests`, OR Multi_Project_Mode using named
+    `[projects.&lt;name&gt;]` entries.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_property_tests.rs"
+    />
+  </Criterion>
+  <Criterion id="req-1-2">
+    IN Multi_Project_Mode, EACH Project_Config SHALL require `paths`. `tests`
+    SHALL default to an empty list when omitted, and `isolated` SHALL default
+    to `false`.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
+    />
+  </Criterion>
+  <Criterion id="req-1-3">
+    Top-level `paths` and top-level `tests` SHALL be mutually exclusive with
+    `projects`. IF they are mixed, THEN config loading SHALL report validation
+    errors for the conflicting keys.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
+    />
+  </Criterion>
+  <Criterion id="req-1-4">
+    THE Workspace_Config SHALL require at least one discovery mode. IF neither
+    top-level `paths` nor `projects` is present, THEN config loading SHALL
+    report an error.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
+    />
+  </Criterion>
+  <Criterion id="req-1-5">
+    Shared_Workspace_Config SHALL remain top-level in both modes and SHALL NOT
+    move under individual Project_Config entries.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Project Membership and Reference Scope
+
+As a monorepo maintainer, I want documents to belong to named projects without
+losing workspace-wide traceability, so that related domains can be partitioned
+without fragmenting the graph.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    IN Multi_Project_Mode, supersigil SHALL build one workspace-wide document
+    graph from all configured project `paths`, while still assigning each
+    discovered document a Project_Membership.
+  </Criterion>
+  <Criterion id="req-2-2">
+    WHEN neither the source project nor the target project is isolated,
+    document refs SHALL resolve across project boundaries using the global
+    workspace graph.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs"
+    />
+  </Criterion>
+  <Criterion id="req-2-3">
+    WHEN a source document belongs to an Isolated_Project, refs from that
+    document into a different project SHALL fail as broken references even if
+    the target document exists elsewhere in the workspace.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs"
+    />
+  </Criterion>
+  <Criterion id="req-2-4">
+    WHEN both source and target documents belong to the same Isolated_Project,
+    same-project refs SHALL continue to resolve successfully.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs"
+    />
+  </Criterion>
+  <Criterion id="req-2-5">
+    Task `implements` refs SHALL obey the same cross-project isolation rules as
+    other resolved refs.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-core/src/graph/tests/prop_task_implements.rs"
+    />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Project-Aware Verification and Query Surface
+
+As a workspace maintainer, I want verification and listing commands to work at
+either workspace scope or project scope, so that I can review one domain at a
+time without losing the shared workspace model.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    THE `verify` CLI surface SHALL accept an optional `--project &lt;name&gt;` flag
+    that selects a named project scope.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-cli/tests/clap_parse.rs"
+    />
+  </Criterion>
+  <Criterion id="req-3-2">
+    IN Multi_Project_Mode, verification test discovery SHALL resolve test files
+    from `projects[*].tests` rather than from top-level `tests`.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-verify/src/lib.rs"
+    />
+  </Criterion>
+  <Criterion id="req-3-3">
+    IN Multi_Project_Mode, verification SHALL collect test files from all
+    configured project test globs before rule execution.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
+  </Criterion>
+  <Criterion id="req-3-4">
+    WHEN a Project_Filter is supplied to verification, findings SHALL be
+    reported only for documents in the selected project, while the workspace
+    graph remains available for non-isolated resolution.
+  </Criterion>
+  <Criterion id="req-3-5">
+    THE `ls` command SHALL accept an optional `--project &lt;name&gt;` filter and
+    use Project_Membership to limit the listed documents.
+    <VerifiedBy
+      strategy="file-glob"
+      paths="crates/supersigil-cli/tests/cmd_ls.rs"
+    />
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Repository Project Map
+
+As a repository maintainer, I want the supersigil repo to use domain-oriented
+workspace projects, so that root-level and project-local specs can be migrated
+incrementally without forcing a crate-per-crate partition.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THIS repository SHALL keep overarching and cross-cutting specs under the
+    root `specs/` tree as the `workspace` project.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
+  </Criterion>
+  <Criterion id="req-4-2">
+    THE initial repository project map SHALL include at least `workspace`,
+    `foundation`, `cli`, `verify`, `import`, and `ecosystem`.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
+  </Criterion>
+  <Criterion id="req-4-3">
+    A repository project MAY own more than one crate-local spec root when the
+    behavior it captures spans multiple crates more naturally than a strict
+    crate-by-crate split.
+    <VerifiedBy strategy="file-glob" paths="supersigil.toml" />
+  </Criterion>
+</AcceptanceCriteria>
+```

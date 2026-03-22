@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-verify/src/**/*.rs" />
+```
 
 Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and stale specs -- automatically, on every commit.
 
@@ -33,7 +34,7 @@ These are structural integrity failures detected during parsing and graph constr
 | `broken_ref` | Referenced document or fragment does not exist |
 | `duplicate_id` | Two or more documents share the same ID, or duplicate component IDs within a document |
 | `missing_required_attribute` | Component missing a required attribute (e.g., `<Criterion>` without `id`) |
-| `expression_attribute` | JSX `{...}` syntax used instead of a string literal |
+| `xml_syntax_error` | Malformed XML inside a `supersigil-xml` fence |
 | `dependency_cycle` | Circular dependency in `<Task>` chains or `<DependsOn>` chains |
 
 <Aside type="caution">
@@ -73,6 +74,9 @@ These rules have built-in default severities that can be overridden in `supersig
 | `invalid_alternative_status` | warning | `<Alternative>` status is not `rejected`, `deferred`, or `superseded` |
 | `isolated_document` | off | Document has no edges to or from any other document |
 | `empty_project` | warning | No documents found matching configured paths |
+| `multiple_expected_children` | error | `<Example>` has more than one `<Expected>` child |
+| `inline_example_without_lang` | error | `<Example>` with inline code has no `lang` attribute and no fenced code block language |
+| `code_ref_conflict` | warning | Orphan, duplicate, or dual-source `supersigil-ref` fence detected |
 
 ## Severity Levels
 

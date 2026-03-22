@@ -1,4 +1,4 @@
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = ["rust"]

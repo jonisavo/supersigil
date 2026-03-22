@@ -703,8 +703,8 @@ mod edge_file_writing {
     #[test]
     fn write_files_best_effort_partial_failure() {
         let tmp = tempfile::tempdir().unwrap();
-        let good_path = tmp.path().join("good.mdx");
-        let conflict_path = tmp.path().join("conflict.mdx");
+        let good_path = tmp.path().join("good.md");
+        let conflict_path = tmp.path().join("conflict.md");
         std::fs::write(&conflict_path, "existing").unwrap();
 
         let docs = vec![
@@ -1047,9 +1047,9 @@ The importer should produce unique filenames.
             .collect();
 
         let expected_paths = std::collections::BTreeSet::from([
-            PathBuf::from("unique-names").join("unique-names.req.mdx"),
-            PathBuf::from("unique-names").join("unique-names.design.mdx"),
-            PathBuf::from("unique-names").join("unique-names.tasks.mdx"),
+            PathBuf::from("unique-names").join("unique-names.req.md"),
+            PathBuf::from("unique-names").join("unique-names.design.md"),
+            PathBuf::from("unique-names").join("unique-names.tasks.md"),
         ]);
 
         assert_eq!(actual_paths, expected_paths);
@@ -1159,5 +1159,71 @@ mod feature_title_precedence {
 
         let title = extract_title(&specs_dir, &tmp.path().join("out"), "fallback-dir-name");
         assert_eq!(title, "fallback-dir-name");
+    }
+}
+
+mod fix_task_comment_syntax {
+    use supersigil_import::emit::tasks::emit_tasks_md;
+    use supersigil_import::parse::tasks::{ParsedTask, ParsedTasks, TaskRefs, TaskStatus};
+
+    fn make_parsed_tasks_with_comment(comment: &str) -> ParsedTasks {
+        ParsedTasks {
+            title: None,
+            preamble: vec![],
+            tasks: vec![ParsedTask {
+                number: "1".to_string(),
+                title: "Do something".to_string(),
+                status: TaskStatus::Ready,
+                is_optional: false,
+                description: vec![],
+                requirement_refs: TaskRefs::Comment(comment.to_string()),
+                sub_tasks: vec![],
+            }],
+            postamble: vec![],
+        }
+    }
+
+    #[test]
+    fn comment_emitted_as_marker_outside_fence() {
+        let parsed = make_parsed_tasks_with_comment("test infrastructure");
+        let (output, ambiguity, _) = emit_tasks_md(&parsed, "tasks/test", None, "", "Test");
+
+        // Must NOT contain JSX/MDX comment syntax
+        assert!(
+            !output.contains("{/*"),
+            "output must not contain JSX comment syntax `{{/*`, got:\n{output}"
+        );
+        assert!(
+            !output.contains("*/}"),
+            "output must not contain JSX comment syntax `*/}}`, got:\n{output}"
+        );
+        // Comment should appear as an HTML comment marker outside fences
+        assert!(
+            output.contains("<!-- TODO(supersigil-import): Kiro metadata for task"),
+            "output must contain marker comment, got:\n{output}"
+        );
+        assert!(
+            output.contains("test infrastructure"),
+            "marker must contain the original comment text, got:\n{output}"
+        );
+        // Comment should count as an ambiguity
+        assert!(ambiguity >= 1, "comment should increase ambiguity count");
+    }
+
+    #[test]
+    fn comment_marker_escapes_double_dash() {
+        // XML comments must not contain `--`; the emitter should replace it with `- -`.
+        let parsed = make_parsed_tasks_with_comment("note -- important");
+        let (output, _, _) = emit_tasks_md(&parsed, "tasks/test", None, "", "Test");
+
+        assert!(
+            !output.contains("{/*"),
+            "output must not contain JSX comment syntax"
+        );
+        // The raw `--` in the comment body must be escaped to `- -`
+        assert!(
+            output.contains("note - - important"),
+            "output must escape `--` to `- -` inside XML comment, got:\n{output}"
+        );
     }
 }

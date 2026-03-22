@@ -193,7 +193,7 @@ mod tests {
 
         // Simulate the real loader which sets absolute paths on SpecDocument
         let mut doc = make_doc("design/auth", vec![make_tracked_files("src/**/*.rs", 5)]);
-        doc.path = dir.path().join("specs/design/auth.mdx");
+        doc.path = dir.path().join("specs/design/auth.md");
 
         let docs = vec![doc];
         let graph = build_test_graph(docs);

@@ -426,6 +426,9 @@ pub const KNOWN_RULES: &[&str] = &[
     "orphan_decision",
     "missing_decision_coverage",
     "empty_project",
+    "multiple_expected_children",
+    "inline_example_without_lang",
+    "code_ref_conflict",
 ];
 
 // ---------------------------------------------------------------------------
@@ -543,7 +546,7 @@ mod tests {
     #[test]
     fn skills_path_deserializes() {
         let toml = r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [skills]
 path = "custom/skills"
@@ -554,7 +557,7 @@ path = "custom/skills"
 
     #[test]
     fn absent_skills_section_deserializes_to_none() {
-        let toml = r#"paths = ["specs/**/*.mdx"]"#;
+        let toml = r#"paths = ["specs/**/*.md"]"#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.skills.path.is_none());
     }

@@ -28,9 +28,9 @@ fn abs_path(name: &str) -> PathBuf {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn mdx_syntax_error_maps_to_error_with_position() {
-    let path = abs_path("spec.mdx");
-    let err = ParseError::MdxSyntaxError {
+fn xml_syntax_error_maps_to_error_with_position() {
+    let path = abs_path("spec.md");
+    let err = ParseError::XmlSyntaxError {
         path: path.clone(),
         line: 5,
         column: 3,
@@ -39,7 +39,7 @@ fn mdx_syntax_error_maps_to_error_with_position() {
 
     let (url, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/spec.mdx"));
+    assert_eq!(url, file_url("/tmp/test/spec.md"));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     // LSP positions are 0-based.
     assert_eq!(diag.range.start.line, 4);
@@ -49,12 +49,12 @@ fn mdx_syntax_error_maps_to_error_with_position() {
 
 #[test]
 fn missing_id_maps_to_error_at_origin() {
-    let path = abs_path("spec.mdx");
+    let path = abs_path("spec.md");
     let err = ParseError::MissingId { path: path.clone() };
 
     let (url, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/spec.mdx"));
+    assert_eq!(url, file_url("/tmp/test/spec.md"));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     assert_eq!(diag.range.start.line, 0);
     assert_eq!(diag.range.start.character, 0);
@@ -63,7 +63,7 @@ fn missing_id_maps_to_error_at_origin() {
 
 #[test]
 fn unclosed_front_matter_maps_to_origin() {
-    let path = abs_path("spec.mdx");
+    let path = abs_path("spec.md");
     let err = ParseError::UnclosedFrontMatter { path: path.clone() };
 
     let (_, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
@@ -75,7 +75,7 @@ fn unclosed_front_matter_maps_to_origin() {
 
 #[test]
 fn invalid_yaml_maps_to_origin() {
-    let path = abs_path("spec.mdx");
+    let path = abs_path("spec.md");
     let err = ParseError::InvalidYaml {
         path: path.clone(),
         message: "unexpected scalar".to_owned(),
@@ -89,30 +89,8 @@ fn invalid_yaml_maps_to_origin() {
 }
 
 #[test]
-fn expression_attribute_maps_position_from_source_position() {
-    let path = abs_path("spec.mdx");
-    let err = ParseError::ExpressionAttribute {
-        path: path.clone(),
-        component: "Criterion".to_owned(),
-        attribute: "id".to_owned(),
-        position: SourcePosition {
-            byte_offset: 0,
-            line: 10,
-            column: 4,
-        },
-    };
-
-    let (_, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
-
-    assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
-    // 1-based (10, 4) → 0-based (9, 3)
-    assert_eq!(diag.range.start.line, 9);
-    assert_eq!(diag.range.start.character, 3);
-}
-
-#[test]
 fn missing_required_attribute_maps_position() {
-    let path = abs_path("spec.mdx");
+    let path = abs_path("spec.md");
     let err = ParseError::MissingRequiredAttribute {
         path: path.clone(),
         component: "Criterion".to_owned(),
@@ -139,9 +117,9 @@ fn parse_error_uses_buffer_content_for_utf16_conversion() {
     // UTF-16: 'a'(1) + 'é'(1) + 'b'(1) + '<'(1) = character 4 (0-based: 3).
     // Without buffer, source_to_lsp_from_file would read a non-existent file
     // and fall back to byte-based: 5-1 = 4 (wrong).
-    let path = abs_path("buffer_test.mdx");
+    let path = abs_path("buffer_test.md");
     let buffer = "a\u{00E9}b<X";
-    let err = ParseError::MdxSyntaxError {
+    let err = ParseError::XmlSyntaxError {
         path,
         line: 1,
         column: 5,
@@ -198,7 +176,7 @@ fn no_path_lookup(_: &str) -> Option<PathBuf> {
 
 fn path_lookup(doc_id: &str) -> Option<PathBuf> {
     match doc_id {
-        "req/auth" => Some(abs_path("req/auth.mdx")),
+        "req/auth" => Some(abs_path("req/auth.md")),
         _ => None,
     }
 }
@@ -295,7 +273,7 @@ fn finding_with_position_uses_source_position() {
     let (url, diag) =
         finding_to_diagnostic(&finding, path_lookup).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/req/auth.mdx"));
+    assert_eq!(url, file_url("/tmp/test/req/auth.md"));
     // 1-based (3, 5) → 0-based (2, 4)
     assert_eq!(diag.range.start.line, 2);
     assert_eq!(diag.range.start.character, 4);
@@ -313,7 +291,7 @@ fn finding_with_details_path_uses_details_path() {
         raw_severity: ReportSeverity::Error,
         position: None,
         details: Some(Box::new(FindingDetails {
-            path: Some("/tmp/test/req/auth.mdx".to_owned()),
+            path: Some("/tmp/test/req/auth.md".to_owned()),
             line: Some(7),
             column: Some(2),
             ..FindingDetails::default()
@@ -323,7 +301,7 @@ fn finding_with_details_path_uses_details_path() {
     let (url, diag) =
         finding_to_diagnostic(&finding, no_path_lookup).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/req/auth.mdx"));
+    assert_eq!(url, file_url("/tmp/test/req/auth.md"));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     // 1-based (7, 2) → 0-based (6, 1)
     assert_eq!(diag.range.start.line, 6);

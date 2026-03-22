@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use supersigil_core::SourcePosition;
+use supersigil_core::{SourcePosition, SpanKind};
 use supersigil_evidence::VerifiableRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,13 +12,21 @@ pub enum MatchFormat {
     Snapshot,
 }
 
+/// Byte-offset span into the source file for an `Expected` body.
+#[derive(Debug, Clone, Copy)]
+pub struct BodySpan {
+    pub start: usize,
+    pub end: usize,
+    pub kind: SpanKind,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExpectedSpec {
     pub status: Option<u32>,
     pub format: MatchFormat,
     pub contains: Option<String>,
     pub body: Option<String>,
-    pub body_span: Option<(usize, usize)>,
+    pub body_span: Option<BodySpan>,
 }
 
 #[derive(Debug, Clone)]

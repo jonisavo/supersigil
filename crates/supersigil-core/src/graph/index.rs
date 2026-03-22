@@ -61,7 +61,7 @@ pub(super) fn build_doc_project(
     match &config.projects {
         Some(projects) => {
             // Extract directory prefixes from glob patterns.
-            // e.g. "project-a/specs/**/*.mdx" → ["project-a", "specs"]
+            // e.g. "project-a/specs/**/*.md" → ["project-a", "specs"]
             let prefixes: Vec<(&str, Vec<Vec<OsString>>)> = projects
                 .iter()
                 .map(|(name, pc)| {
@@ -107,9 +107,9 @@ pub(super) fn build_doc_project(
 /// (with trailing slash).
 ///
 /// Examples:
-/// - `"project-a/specs/**/*.mdx"` → `"project-a/specs/"`
-/// - `"specs/*.mdx"` → `"specs/"`
-/// - `"**/*.mdx"` → `""`
+/// - `"project-a/specs/**/*.md"` → `"project-a/specs/"`
+/// - `"specs/*.md"` → `"specs/"`
+/// - `"**/*.md"` → `""`
 #[must_use]
 pub fn glob_prefix(pattern: &str) -> String {
     let meta_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());

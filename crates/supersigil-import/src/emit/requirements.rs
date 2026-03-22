@@ -1,18 +1,18 @@
 use std::fmt::Write;
 
-use crate::emit::emit_front_matter;
+use crate::emit::{emit_front_matter, xml_escape};
 use crate::ids::{deduplicate_ids, make_criterion_id};
 use crate::parse::requirements::ParsedRequirements;
 
-/// Emit a requirements MDX document from parsed Kiro requirements.
+/// Emit a requirements spec document from parsed Kiro requirements.
 ///
-/// Returns `(mdx_content, ambiguity_count)`.
+/// Returns `(md_content, ambiguity_count)`.
 #[must_use]
 #[allow(
     clippy::missing_panics_doc,
     reason = "internal invariant: deduped IDs align with criteria"
 )]
-pub fn emit_requirements_mdx(
+pub fn emit_requirements_md(
     parsed: &ParsedRequirements,
     doc_id: &str,
     feature_title: &str,
@@ -73,14 +73,16 @@ pub fn emit_requirements_mdx(
 
         // AcceptanceCriteria block
         if !req.criteria.is_empty() {
+            let _ = writeln!(out, "```supersigil-xml");
             let _ = writeln!(out, "<AcceptanceCriteria>");
             for criterion in &req.criteria {
                 let crit_id = id_iter.next().expect("deduped IDs aligned with criteria");
                 let _ = writeln!(out, "  <Criterion id=\"{crit_id}\">");
-                let _ = writeln!(out, "    {}", criterion.text);
+                let _ = writeln!(out, "    {}", xml_escape(&criterion.text));
                 let _ = writeln!(out, "  </Criterion>");
             }
             let _ = writeln!(out, "</AcceptanceCriteria>");
+            let _ = writeln!(out, "```");
             out.push('\n');
         }
     }

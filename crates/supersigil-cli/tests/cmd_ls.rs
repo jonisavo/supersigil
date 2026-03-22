@@ -106,14 +106,14 @@ fn ls_filter_by_project_in_multi_project_mode() {
     std::fs::write(
         tmp.path().join("supersigil.toml"),
         r#"[projects.workspace]
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 "#,
     )
     .unwrap();
     std::fs::create_dir_all(tmp.path().join("specs")).unwrap();
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/workspace-doc.mdx",
+        "specs/workspace-doc.md",
         "workspace/doc",
         Some("requirements"),
         Some("draft"),

@@ -24,7 +24,7 @@ Start small. Pick one module you understand well, write a single requirements sp
    supersigil init
    ```
 
-   This creates `supersigil.toml` and installs agent skills to `.agents/skills/`. The default `paths` glob (`specs/**/*.mdx`) is a good starting point — specs live in their own directory, separate from source code. Use `--no-skills` if you don't need the agent skills.
+   This creates `supersigil.toml` and installs agent skills to `.agents/skills/`. The default `paths` glob (`specs/**/*.md`) is a good starting point — specs live in their own directory, separate from source code. Use `--no-skills` if you don't need the agent skills.
 
 2. **Pick one module and write a requirements spec**
 
@@ -36,7 +36,7 @@ Start small. Pick one module you understand well, write a single requirements sp
 
    Edit the generated file to describe the behavior that already exists. Start with `status: draft` so verification stays relaxed while you iterate:
 
-   ```mdx title="specs/auth/auth.req.mdx"
+   ````md title="specs/auth/auth.req.md"
    ---
    supersigil:
      id: auth/req
@@ -45,6 +45,7 @@ Start small. Pick one module you understand well, write a single requirements sp
    title: "Authentication"
    ---
 
+   ```supersigil-xml
    <AcceptanceCriteria>
      <Criterion id="valid-creds">
        WHEN a user submits valid credentials
@@ -59,6 +60,7 @@ Start small. Pick one module you understand well, write a single requirements sp
 
    <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
    ```
+   ````
 
    Write criteria for behavior that is already implemented and tested. You are documenting reality, not specifying new work.
 

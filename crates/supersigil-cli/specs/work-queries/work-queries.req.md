@@ -1,0 +1,137 @@
+---
+supersigil:
+  id: work-queries/req
+  type: requirements
+  status: implemented
+title: "CLI Work Queries"
+---
+
+## Introduction
+
+This spec recovers the CLI query surface for `context` and `plan`. It captures
+the current post-Illustrates query model, including ArtifactGraph-backed plan
+filtering and the split between default actionable output and verbose output.
+
+It does not attempt to re-spec `ls`, `schema`, `graph`, `verify`, `status`,
+`affected`, `init`, or `new`. Those are separate CLI domains.
+
+## Definitions
+
+- **Work_Query_Command**: Either `context` or `plan`.
+- **Context_View**: The structured document-centric query result returned by
+  `DocumentGraph::context`.
+- **Plan_Scope**: The resolved query mode for `plan`: one exact document, a
+  prefix slice, or the whole workspace.
+- **Outstanding_Target**: A requirement target that still appears in the final
+  `plan` output after ArtifactGraph evidence filtering.
+- **Actionable_Target**: An Outstanding_Target whose implementing task is
+  currently unblocked, or that has no pending implementing task at all.
+
+## Requirement 1: Query Resolution
+
+As an operator, I want `context` and `plan` to resolve query input
+consistently, so that I can inspect one document, a prefix slice, or the whole
+workspace without guessing how the CLI will interpret my input.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE `context` command SHALL load the graph and resolve exactly one document
+    by explicit ID. IF the requested ID is absent, THEN it SHALL fail the
+    command rather than falling back to prefix behavior.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_context.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    THE `plan` command SHALL interpret no query argument as workspace scope, an
+    exact document ID as single-document scope, and a non-empty non-exact
+    string with at least one matching document ID as prefix scope. IF no IDs
+    match, THEN it SHALL fail the command.
+  </Criterion>
+  <Criterion id="req-1-3">
+    WHEN either Work_Query_Command fails because the requested document or
+    query cannot be resolved, THEN it SHALL print a `supersigil ls` remediation
+    hint to stderr before returning the query failure.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 2: Context Views
+
+As a developer, I want `context` to show the current query neighborhood around
+one document, so that I can inspect its verification targets, incoming refs,
+implementations, and linked tasks from one command.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    In terminal mode, THE `context` command SHALL print the document heading and
+    status, then conditionally render sections for verification targets,
+    implementing documents, referencing documents, and linked tasks when those
+    collections are non-empty.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/context.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    In JSON mode, THE `context` command SHALL write the current `Context_View`
+    structure with `document`, `criteria`, `implemented_by`, `referenced_by`,
+    and `tasks`.
+  </Criterion>
+  <Criterion id="req-2-3">
+    THE current `context` query model SHALL expose verification targets, task
+    links, and document refs only. It SHALL NOT expose a separate illustrations
+    collection.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 3: Plan Views and Evidence Filtering
+
+As a developer, I want `plan` to show only work that still lacks verification
+evidence, so that planning output reflects the current ArtifactGraph rather
+than only raw graph relationships.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    AFTER building the graph-level `PlanOutput`, THE `plan` command SHALL build
+    plugin evidence, warn about plugin findings on stderr, and remove any
+    target already backed by ArtifactGraph evidence before emitting the final
+    output.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/plan.rs" />
+  </Criterion>
+  <Criterion id="req-3-2">
+    In JSON mode, THE `plan` command SHALL write the filtered `PlanOutput`
+    structure with `outstanding_targets`, `pending_tasks`, and
+    `completed_tasks`.
+  </Criterion>
+  <Criterion id="req-3-3">
+    Plugin warnings SHALL remain on stderr so `plan --format json` keeps stdout
+    valid JSON even when evidence discovery reports non-fatal plugin findings.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_plan.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 4: Terminal Planning Semantics
+
+As a developer, I want the terminal `plan` output to distinguish immediate work
+from blocked work, so that I can see what to do next without losing the full
+dependency picture.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    In default terminal mode, THE `plan` command SHALL render the dependency
+    graph first and SHALL then show only Actionable_Targets plus a blocked-count
+    summary when additional targets are waiting on upstream tasks.
+  </Criterion>
+  <Criterion id="req-4-2">
+    In verbose terminal mode, THE `plan` command SHALL render all remaining
+    outstanding targets and SHALL include pending tasks in dependency order.
+  </Criterion>
+  <Criterion id="req-4-3">
+    THE terminal `plan` output SHALL append a completed-task summary when
+    completed tasks exist. IF there are no outstanding targets, no pending
+    tasks, and no completed tasks, THEN it SHALL print `No outstanding work.`
+  </Criterion>
+</AcceptanceCriteria>
+```

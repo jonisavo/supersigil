@@ -26,7 +26,7 @@ fn arb_planned_documents(base_dir: PathBuf) -> impl Strategy<Value = Vec<Planned
                 if !seen.insert(type_hint.to_string()) {
                     continue;
                 }
-                let filename = format!("{feature}.{type_hint}.mdx");
+                let filename = format!("{feature}.{type_hint}.md");
                 docs.push(PlannedDocument {
                     output_path: dir.join(&feature).join(filename),
                     document_id: format!("test/{feature}"),

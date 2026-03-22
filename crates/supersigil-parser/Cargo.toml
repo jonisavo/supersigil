@@ -11,6 +11,7 @@ categories.workspace = true
 
 [dependencies]
 markdown.workspace = true
+quick-xml.workspace = true
 supersigil-core.workspace = true
 yaml_serde.workspace = true
 

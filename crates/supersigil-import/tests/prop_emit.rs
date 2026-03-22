@@ -4,9 +4,9 @@ use generators::{
     arb_code_block, arb_mermaid_block, arb_parsed_design, arb_parsed_requirements, arb_parsed_tasks,
 };
 use proptest::prelude::*;
-use supersigil_import::emit::design::emit_design_mdx;
-use supersigil_import::emit::requirements::emit_requirements_mdx;
-use supersigil_import::emit::tasks::emit_tasks_mdx;
+use supersigil_import::emit::design::emit_design_md;
+use supersigil_import::emit::requirements::emit_requirements_md;
+use supersigil_import::emit::tasks::emit_tasks_md;
 use supersigil_import::ids::{deduplicate_ids, make_criterion_id, make_task_id};
 use supersigil_import::parse::requirements::ParsedRequirements;
 use supersigil_import::refs::RequirementIndex;
@@ -15,7 +15,7 @@ use supersigil_rust::verifies;
 // Feature: kiro-import, Property 12: Prose and code block round-trip fidelity
 //
 // For any Kiro spec file containing prose paragraphs, fenced code blocks, and
-// mermaid blocks, the MDX output contains each element verbatim as a substring.
+// mermaid blocks, the output contains each element verbatim as a substring.
 //
 // Validates: Requirements 19.1, 19.2, 19.3, 4.2, 4.5, 5.2, 5.3, 7.3, 12.4, 12.5
 proptest! {
@@ -25,13 +25,13 @@ proptest! {
     ) {
         let doc_id = "req/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let (mdx, _) = emit_requirements_mdx(&parsed, doc_id, title);
+        let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
         // Introduction prose must appear verbatim
         if !parsed.introduction.trim().is_empty() {
             prop_assert!(
-                mdx.contains(&parsed.introduction),
-                "MDX missing introduction prose: {:?}",
+                output.contains(&parsed.introduction),
+                "output missing introduction prose: {:?}",
                 parsed.introduction
             );
         }
@@ -39,8 +39,8 @@ proptest! {
         // Glossary prose must appear verbatim when present
         if let Some(glossary) = parsed.glossary.as_ref().filter(|g| !g.trim().is_empty()) {
             prop_assert!(
-                mdx.contains(glossary.as_str()),
-                "MDX missing glossary prose: {:?}",
+                output.contains(glossary.as_str()),
+                "output missing glossary prose: {:?}",
                 glossary
             );
         }
@@ -49,8 +49,8 @@ proptest! {
         for req in &parsed.requirements {
             for criterion in &req.criteria {
                 prop_assert!(
-                    mdx.contains(&criterion.text),
-                    "MDX missing criterion text: {:?}",
+                    output.contains(&criterion.text),
+                    "output missing criterion text: {:?}",
                     criterion.text
                 );
             }
@@ -58,8 +58,8 @@ proptest! {
             // User story must appear verbatim
             if let Some(ref story) = req.user_story {
                 prop_assert!(
-                    mdx.contains(story),
-                    "MDX missing user story: {:?}",
+                    output.contains(story),
+                    "output missing user story: {:?}",
                     story
                 );
             }
@@ -77,10 +77,10 @@ proptest! {
             glossary: None,
             requirements: vec![],
         };
-        let (mdx, _) = emit_requirements_mdx(&parsed, "req/test", "Code Test");
+        let (output, _) = emit_requirements_md(&parsed, "req/test", "Code Test");
         prop_assert!(
-            mdx.contains(&code_block),
-            "MDX missing code block: {:?}",
+            output.contains(&code_block),
+            "output missing code block: {:?}",
             code_block
         );
     }
@@ -95,10 +95,10 @@ proptest! {
             glossary: None,
             requirements: vec![],
         };
-        let (mdx, _) = emit_requirements_mdx(&parsed, "req/test", "Mermaid Test");
+        let (output, _) = emit_requirements_md(&parsed, "req/test", "Mermaid Test");
         prop_assert!(
-            mdx.contains(&mermaid),
-            "MDX missing mermaid block: {:?}",
+            output.contains(&mermaid),
+            "output missing mermaid block: {:?}",
             mermaid
         );
     }
@@ -106,7 +106,7 @@ proptest! {
 
 // Feature: kiro-import, Property 13: Front matter round-trip
 //
-// For all generated MDX documents, parsing the front matter YAML produces
+// For all generated documents, parsing the front matter YAML produces
 // correct `id`, `type`, `status` (always `draft`), and `title`.
 // Front matter delimited by `---` lines.
 //
@@ -119,16 +119,16 @@ proptest! {
     ) {
         let doc_id = "req/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let (mdx, _) = emit_requirements_mdx(&parsed, doc_id, title);
+        let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
         // Front matter must start with ---
         prop_assert!(
-            mdx.starts_with("---\n"),
-            "MDX must start with front matter delimiter"
+            output.starts_with("---\n"),
+            "output must start with front matter delimiter"
         );
 
         // Find the closing --- delimiter
-        let rest = &mdx[4..]; // skip opening "---\n"
+        let rest = &output[4..]; // skip opening "---\n"
         let close_idx = rest.find("\n---\n").expect("closing front matter delimiter");
         let front_matter = &rest[..close_idx];
 
@@ -162,7 +162,7 @@ proptest! {
 
 // Feature: kiro-import, Property 14: AcceptanceCriteria structure
 //
-// For any parsed requirements with N requirement sections, emitted MDX
+// For any parsed requirements with N requirement sections, emitted output
 // contains exactly N `<AcceptanceCriteria>` blocks, each with correct
 // `<Criterion>` components.
 //
@@ -175,7 +175,7 @@ proptest! {
     ) {
         let doc_id = "req/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let (mdx, _) = emit_requirements_mdx(&parsed, doc_id, title);
+        let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
         // Count requirements that have criteria (only those get AcceptanceCriteria blocks)
         let reqs_with_criteria = parsed.requirements.iter()
@@ -183,7 +183,7 @@ proptest! {
             .count();
 
         // Count <AcceptanceCriteria> blocks in output
-        let ac_count = mdx.matches("<AcceptanceCriteria>").count();
+        let ac_count = output.matches("<AcceptanceCriteria>").count();
         prop_assert_eq!(
             ac_count, reqs_with_criteria,
             "Expected {} <AcceptanceCriteria> blocks, found {}",
@@ -196,22 +196,22 @@ proptest! {
                 let crit_id = make_criterion_id(&req.number, &criterion.index);
                 let expected_tag = format!("<Criterion id=\"{crit_id}\">");
                 prop_assert!(
-                    mdx.contains(&expected_tag),
-                    "MDX missing Criterion tag: {}",
+                    output.contains(&expected_tag),
+                    "output missing Criterion tag: {}",
                     expected_tag
                 );
             }
         }
 
         // Count closing tags match
-        let close_ac_count = mdx.matches("</AcceptanceCriteria>").count();
+        let close_ac_count = output.matches("</AcceptanceCriteria>").count();
         prop_assert_eq!(
             ac_count, close_ac_count,
             "Mismatched AcceptanceCriteria open/close tags"
         );
 
-        let criterion_open = mdx.matches("<Criterion id=").count();
-        let criterion_close = mdx.matches("</Criterion>").count();
+        let criterion_open = output.matches("<Criterion id=").count();
+        let criterion_close = output.matches("</Criterion>").count();
         prop_assert_eq!(
             criterion_open, criterion_close,
             "Mismatched Criterion open/close tags"
@@ -231,8 +231,8 @@ proptest! {
 
 // Feature: kiro-import, Property 15: Design Implements emission
 //
-// When both requirements and design exist, design MDX contains
-// `<Implements refs="{req_doc_id}" />`. When only design exists, MDX contains
+// When both requirements and design exist, design output contains
+// `<Implements refs="{req_doc_id}" />`. When only design exists, output contains
 // ambiguity marker and no `<Implements>`.
 //
 // Validates: Requirements 7.2
@@ -247,7 +247,7 @@ proptest! {
         let empty_reqs = ParsedRequirements { title: None, introduction: String::new(), glossary: None, requirements: vec![] };
         let req_index = RequirementIndex::new(&empty_reqs);
 
-        let (mdx, _, _) = emit_design_mdx(
+        let (output, _, _) = emit_design_md(
             &parsed,
             doc_id,
             Some(&req_index),
@@ -258,14 +258,14 @@ proptest! {
         // Must contain <Implements> with the req doc id
         let expected = format!("<Implements refs=\"{req_doc_id}\" />");
         prop_assert!(
-            mdx.contains(&expected),
-            "Design MDX missing Implements component: {expected}"
+            output.contains(&expected),
+            "design output missing Implements component: {expected}"
         );
 
         // Must NOT contain an ambiguity marker about missing requirements
         prop_assert!(
-            !mdx.contains("<!-- TODO(supersigil-import): No requirements document"),
-            "Design MDX should not have missing-requirements marker when req_doc_id is present"
+            !output.contains("<!-- TODO(supersigil-import): No requirements document"),
+            "design output should not have missing-requirements marker when req_doc_id is present"
         );
     }
 
@@ -276,7 +276,7 @@ proptest! {
         let doc_id = "design/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
 
-        let (mdx, ambiguity_count, _) = emit_design_mdx(
+        let (output, ambiguity_count, _) = emit_design_md(
             &parsed,
             doc_id,
             None,
@@ -286,14 +286,14 @@ proptest! {
 
         // Must NOT contain <Implements> component (the tag, not just the word in a comment)
         prop_assert!(
-            !mdx.contains("<Implements refs="),
-            "Design MDX should not have Implements component when no requirements exist"
+            !output.contains("<Implements refs="),
+            "design output should not have Implements component when no requirements exist"
         );
 
         // Must contain an ambiguity marker about missing requirements
         prop_assert!(
-            mdx.contains("<!-- TODO(supersigil-import):"),
-            "Design MDX should have ambiguity marker when no requirements exist"
+            output.contains("<!-- TODO(supersigil-import):"),
+            "design output should have ambiguity marker when no requirements exist"
         );
 
         // Ambiguity count must be at least 1 (for the missing requirements marker)
@@ -319,14 +319,14 @@ fn build_deduped_task_ids(parsed: &supersigil_import::parse::tasks::ParsedTasks)
     deduped
 }
 
-/// Find the next `<Task ...>` opening tag in `mdx` starting from `offset`.
+/// Find the next `<Task ...>` opening tag in `content` starting from `offset`.
 /// Returns `(tag_start, tag_str)` where `tag_str` is the full opening tag.
-fn find_task_tag(mdx: &str, offset: usize) -> Option<(usize, String)> {
-    let rest = &mdx[offset..];
+fn find_task_tag(content: &str, offset: usize) -> Option<(usize, String)> {
+    let rest = &content[offset..];
     let rel_start = rest.find("<Task ")?;
     let abs_start = offset + rel_start;
-    let tag_end = mdx[abs_start..].find('>')?;
-    let tag_str = mdx[abs_start..=abs_start + tag_end].to_string();
+    let tag_end = content[abs_start..].find('>')?;
+    let tag_str = content[abs_start..=abs_start + tag_end].to_string();
     Some((abs_start, tag_str))
 }
 
@@ -344,11 +344,11 @@ proptest! {
     ) {
         let doc_id = "tasks/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let (mdx, _, _) = emit_tasks_mdx(&parsed, doc_id, None, "", title);
+        let (output, _, _) = emit_tasks_md(&parsed, doc_id, None, "", title);
 
         let deduped = build_deduped_task_ids(&parsed);
 
-        // Walk through the MDX sequentially, verifying dependency chain order.
+        // Walk through the output sequentially, verifying dependency chain order.
         // Uses deduped IDs to account for collision disambiguation.
         let mut scan_pos = 0;
         let mut id_cursor = 0;
@@ -359,7 +359,7 @@ proptest! {
             id_cursor += 1;
 
             // Find the next top-level <Task> tag from current position
-            let (tag_start, tag_str) = find_task_tag(&mdx, scan_pos)
+            let (tag_start, tag_str) = find_task_tag(&output, scan_pos)
                 .expect("should find Task tag");
             prop_assert!(
                 tag_str.contains(&format!("id=\"{task_id}\"")),
@@ -387,7 +387,7 @@ proptest! {
                 let sub_id = &deduped[id_cursor];
                 id_cursor += 1;
 
-                let (sub_start, sub_tag) = find_task_tag(&mdx, scan_pos)
+                let (sub_start, sub_tag) = find_task_tag(&output, scan_pos)
                     .expect("should find sub-Task tag");
                 prop_assert!(
                     sub_tag.contains(&format!("id=\"{sub_id}\"")),
@@ -417,7 +417,7 @@ proptest! {
 
 // Feature: kiro-import, Property 17: Task component structure
 //
-// For any parsed tasks, emitted MDX contains `<Task>` components with `id`,
+// For any parsed tasks, emitted output contains `<Task>` components with `id`,
 // `status`, optional `depends` and `implements`. Sub-tasks are nested.
 // Description text appears as body.
 //
@@ -430,22 +430,22 @@ proptest! {
     ) {
         let doc_id = "tasks/test-feature";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
-        let (mdx, _, _) = emit_tasks_mdx(&parsed, doc_id, None, "", title);
+        let (output, _, _) = emit_tasks_md(&parsed, doc_id, None, "", title);
 
         let deduped = build_deduped_task_ids(&parsed);
 
         // Front matter checks
-        prop_assert!(mdx.starts_with("---\n"), "MDX must start with front matter");
-        prop_assert!(mdx.contains("type: tasks"), "Front matter must have type: tasks");
-        prop_assert!(mdx.contains(&format!("id: {doc_id}")), "Front matter must have correct id");
-        prop_assert!(mdx.contains("status: draft"), "Front matter must have status: draft");
+        prop_assert!(output.starts_with("---\n"), "output must start with front matter");
+        prop_assert!(output.contains("type: tasks"), "Front matter must have type: tasks");
+        prop_assert!(output.contains(&format!("id: {doc_id}")), "Front matter must have correct id");
+        prop_assert!(output.contains("status: draft"), "Front matter must have status: draft");
 
         // Preamble prose should appear in output
         for preamble_line in &parsed.preamble {
             if !preamble_line.trim().is_empty() {
                 prop_assert!(
-                    mdx.contains(preamble_line.trim()),
-                    "MDX missing preamble prose: {:?}",
+                    output.contains(preamble_line.trim()),
+                    "output missing preamble prose: {:?}",
                     preamble_line
                 );
             }
@@ -460,7 +460,7 @@ proptest! {
             let status_str = task.status.as_str();
 
             // Find the next <Task> tag
-            let (tag_start, tag_str) = find_task_tag(&mdx, scan_pos)
+            let (tag_start, tag_str) = find_task_tag(&output, scan_pos)
                 .expect("should find Task tag");
             prop_assert!(
                 tag_str.contains(&format!("id=\"{task_id}\"")),
@@ -472,10 +472,10 @@ proptest! {
             );
 
             // Title text must appear after the tag
-            let after_tag = &mdx[tag_start + tag_str.len()..];
+            let after_tag = &output[tag_start + tag_str.len()..];
             prop_assert!(
                 after_tag.contains(&task.title),
-                "MDX missing task title after tag: {:?}",
+                "output missing task title after tag: {:?}",
                 task.title
             );
 
@@ -484,7 +484,7 @@ proptest! {
                 if !desc.trim().is_empty() {
                     prop_assert!(
                         after_tag.contains(desc.trim()),
-                        "MDX missing task description: {:?}",
+                        "output missing task description: {:?}",
                         desc
                     );
                 }
@@ -498,7 +498,7 @@ proptest! {
                 id_cursor += 1;
                 let sub_status = sub.status.as_str();
 
-                let (sub_start, sub_tag) = find_task_tag(&mdx, scan_pos)
+                let (sub_start, sub_tag) = find_task_tag(&output, scan_pos)
                     .expect("should find sub-Task tag");
                 prop_assert!(
                     sub_tag.contains(&format!("id=\"{sub_id}\"")),
@@ -510,10 +510,10 @@ proptest! {
                 );
 
                 // Sub-task title must appear after its tag
-                let after_sub = &mdx[sub_start + sub_tag.len()..];
+                let after_sub = &output[sub_start + sub_tag.len()..];
                 prop_assert!(
                     after_sub.contains(&sub.title),
-                    "MDX missing sub-task title: {:?}",
+                    "output missing sub-task title: {:?}",
                     sub.title
                 );
 
@@ -528,8 +528,8 @@ proptest! {
         }
 
         // Count open/close Task tags should match
-        let open_count = mdx.matches("<Task ").count();
-        let close_count = mdx.matches("</Task>").count();
+        let open_count = output.matches("<Task ").count();
+        let close_count = output.matches("</Task>").count();
         prop_assert_eq!(
             open_count, close_count,
             "Mismatched Task open/close tags: {} vs {}",

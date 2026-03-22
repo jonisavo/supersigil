@@ -415,7 +415,7 @@ mod tests {
     fn write_config(root: &Path) {
         fs::write(
             root.join("supersigil.toml"),
-            "paths = [\"specs/**/*.mdx\"]\n",
+            "paths = [\"specs/**/*.md\"]\n",
         )
         .unwrap();
     }
@@ -423,9 +423,9 @@ mod tests {
     fn write_spec(root: &Path, criterion_id: &str) {
         fs::create_dir_all(root.join("specs")).unwrap();
         fs::write(
-            root.join("specs/auth.mdx"),
+            root.join("specs/auth.md"),
             format!(
-                "---\nsupersigil:\n  id: auth/req\n  type: requirements\n  status: approved\n---\n\n<AcceptanceCriteria>\n  <Criterion id=\"{criterion_id}\">\n    Must log in.\n  </Criterion>\n</AcceptanceCriteria>\n"
+                "---\nsupersigil:\n  id: auth/req\n  type: requirements\n  status: approved\n---\n\n```supersigil-xml\n<AcceptanceCriteria>\n  <Criterion id=\"{criterion_id}\">\n    Must log in.\n  </Criterion>\n</AcceptanceCriteria>\n```\n"
             ),
         )
         .unwrap();

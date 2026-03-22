@@ -16,7 +16,7 @@ fn count_ambiguity_markers(content: &str) -> usize {
 //
 // For any import result or plan, the reported `ambiguity_count` equals the
 // number of `<!-- TODO(supersigil-import):` occurrences across all generated
-// MDX documents.
+// spec documents.
 //
 // Validates: Requirements 13.3, 14.3
 proptest! {
@@ -56,7 +56,7 @@ proptest! {
         prop_assert_eq!(
             plan.ambiguity_count,
             actual_marker_count,
-            "Reported ambiguity_count ({}) != actual marker occurrences ({}) in generated MDX",
+            "Reported ambiguity_count ({}) != actual marker occurrences ({}) in generated output",
             plan.ambiguity_count,
             actual_marker_count,
         );

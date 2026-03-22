@@ -10,6 +10,7 @@ supersigil:
 title: "NA Metadata"
 ---
 
+```supersigil-xml
 <Task id="task-1" status="done">
   Set up project scaffolding
 
@@ -21,9 +22,12 @@ title: "NA Metadata"
     - Run git init
   </Task>
 </Task>
+```
 
+```supersigil-xml
 <Task id="task-2" status="ready" depends="task-1" implements="req/na-metadata#req-1-1, req/na-metadata#req-1-2">
   Implement core logic
 
   - Write the main algorithm
 </Task>
+```

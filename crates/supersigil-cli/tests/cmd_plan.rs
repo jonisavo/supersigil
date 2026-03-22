@@ -11,9 +11,9 @@ use tempfile::TempDir;
 fn plan_all_shows_outstanding_targets() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "auth/req/login",
         Some("requirements"),
         Some("approved"),
@@ -40,9 +40,9 @@ fn plan_all_shows_outstanding_targets() {
 fn plan_exact_id() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "auth/req/login",
         Some("requirements"),
         None,
@@ -62,17 +62,17 @@ fn plan_exact_id() {
 fn plan_prefix_match() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/a.mdx",
+        "specs/a.md",
         "auth/req/login",
         Some("requirements"),
         None,
         "# A\n\n<AcceptanceCriteria>\n  <Criterion id=\"c1\">\n    Test.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/b.mdx",
+        "specs/b.md",
         "billing/req/pay",
         Some("requirements"),
         None,
@@ -93,7 +93,7 @@ fn plan_prefix_match() {
 fn plan_no_match_exits_one() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(tmp.path(), "specs/req.mdx", "test/doc", None, None, "");
+    common::write_spec_doc(tmp.path(), "specs/req.md", "test/doc", None, None, "");
 
     cargo_bin_cmd!("supersigil")
         .args(["plan", "nonexistent"])
@@ -107,9 +107,9 @@ fn plan_no_match_exits_one() {
 fn plan_shows_dependency_graph() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         Some("approved"),
@@ -125,9 +125,9 @@ fn plan_shows_dependency_graph() {
 </AcceptanceCriteria>
 "#,
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/tasks.mdx",
+        "specs/tasks.md",
         "test/tasks",
         Some("tasks"),
         None,
@@ -156,9 +156,9 @@ fn plan_shows_dependency_graph() {
 fn plan_default_shows_actionable_work() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         Some("approved"),
@@ -174,9 +174,9 @@ fn plan_default_shows_actionable_work() {
 </AcceptanceCriteria>
 "#,
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/tasks.mdx",
+        "specs/tasks.md",
         "test/tasks",
         Some("tasks"),
         None,
@@ -208,9 +208,9 @@ fn plan_default_shows_actionable_work() {
 fn plan_verbose_shows_all_targets_and_task_list() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         Some("approved"),
@@ -226,9 +226,9 @@ fn plan_verbose_shows_all_targets_and_task_list() {
 </AcceptanceCriteria>
 "#,
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/tasks.mdx",
+        "specs/tasks.md",
         "test/tasks",
         Some("tasks"),
         None,
@@ -261,9 +261,9 @@ fn plan_verbose_shows_all_targets_and_task_list() {
 fn plan_json_format() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/doc",
         Some("requirements"),
         None,
@@ -288,9 +288,9 @@ fn plan_json_format() {
 fn plan_plugin_failure_warning_on_stderr() {
     let tmp = TempDir::new().unwrap();
     common::setup_project_with_rust_plugin(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         None,
@@ -317,9 +317,9 @@ fn plan_plugin_failure_warning_on_stderr() {
 fn plan_json_stdout_clean_despite_plugin_warning() {
     let tmp = TempDir::new().unwrap();
     common::setup_project_with_rust_plugin(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         None,
@@ -359,9 +359,9 @@ fn plan_no_work_message_and_completed_summary() {
     // Case 1: No criteria, no tasks at all -> "No outstanding work."
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         Some("draft"),
@@ -378,9 +378,9 @@ fn plan_no_work_message_and_completed_summary() {
     // Case 2: A done task exists -> completed-task summary is appended.
     let tmp2 = TempDir::new().unwrap();
     common::setup_project(tmp2.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp2.path(),
-        "specs/req.mdx",
+        "specs/req.md",
         "test/req",
         Some("requirements"),
         Some("approved"),
@@ -393,9 +393,9 @@ fn plan_no_work_message_and_completed_summary() {
 </AcceptanceCriteria>
 "#,
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp2.path(),
-        "specs/tasks.mdx",
+        "specs/tasks.md",
         "test/tasks",
         Some("tasks"),
         None,

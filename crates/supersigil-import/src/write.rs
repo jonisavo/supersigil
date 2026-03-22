@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::{ImportError, OutputFile, PlannedDocument};
 
-/// Write generated MDX files to disk.
+/// Write generated spec document files to disk.
 ///
 /// Uses best-effort semantics: files are written sequentially and a failure
 /// on a later file does not roll back previously written files.

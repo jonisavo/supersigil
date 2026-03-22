@@ -1,0 +1,141 @@
+---
+supersigil:
+  id: workspace-projects/tasks
+  type: tasks
+  status: done
+title: "Workspace Projects"
+---
+
+## Overview
+
+This tasks document tracks the staged workspace-topology migration. The goal is
+to dogfood Supersigil's project feature immediately, but to recover and move
+the existing specs one bounded area at a time instead of attempting a single
+repository-wide reshuffle.
+
+```supersigil-xml
+<Task id="task-1" status="done" implements="workspace-projects/req#req-1-1, workspace-projects/req#req-1-2, workspace-projects/req#req-4-1, workspace-projects/req#req-4-2">
+  Convert `supersigil.toml` to explicit named projects and land the initial
+  `workspace-projects` draft spec set. Keep the existing root `specs/` tree as
+  the `workspace` project while reserving the future project-local spec roots.
+</Task>
+
+<Task id="task-1-1" status="done" depends="task-1" implements="workspace-projects/req#req-3-5">
+  Add a failing CLI regression test for `ls --project workspace` in
+  Multi_Project_Mode and fix loader path normalization so discovered documents
+  retain project-root-relative paths inside the graph.
+</Task>
+
+<Task id="task-2" status="done" implements="workspace-projects/req#req-4-2, workspace-projects/req#req-4-3">
+  Recover the `foundation` project. Split the root `parser-and-config` blur
+  into `parser-pipeline` and `config`, move `document-graph` into the core
+  spec root, and update dependent root-level specs to reference the new
+  project-local documents.
+</Task>
+
+<Task id="task-3" status="done" depends="task-2" implements="workspace-projects/req#req-3-2, workspace-projects/req#req-3-4">
+  Recover the `verify` project and relocate the verification specs. Use that
+  pass to reconcile stale rule names and coverage semantics against the current
+  ArtifactGraph-backed implementation.
+</Task>
+
+<Task id="task-4" status="done" depends="task-1" implements="workspace-projects/req#req-3-1, workspace-projects/req#req-3-5">
+  Recover the `cli` project by domain rather than as one monolith. Split the
+  current root-level CLI spec into project-local runtime, work-query,
+  inventory-query, and authoring domains. Retire the stale root CLI monolith
+  once those project-local docs fully supersede it, while keeping the current
+  root-centric `init` and `new` behavior explicit as specification debt.
+</Task>
+
+<Task id="task-4-1" status="done" depends="task-4">
+  Recover the `cli-runtime` domain under `crates/supersigil-cli/specs/`.
+  Capture clap parsing, startup dispatch, config discovery, the shared loader
+  pipeline, semantic output configuration, and top-level error and exit
+  behavior without re-specifying every command's domain semantics.
+</Task>
+
+<Task id="task-4-2" status="done" depends="task-4">
+  Recover the CLI work-query domain into project-local docs that match the
+  current ArtifactGraph-backed plan filtering and the post-Illustrates query
+  model. Keep the remaining root CLI monolith in place until the other CLI
+  domains are migrated.
+</Task>
+
+<Task id="task-4-3" status="done" depends="task-4">
+  Recover the CLI inventory-query domain for `ls`, `schema`, and `graph` into
+  project-local docs. Capture the current table-based listing output,
+  config-only schema export, and graph-visualization behavior while keeping the
+  remaining root CLI monolith in place until the authoring domain is migrated.
+</Task>
+
+<Task id="task-4-4" status="done" depends="task-4">
+  Recover the CLI authoring domain for `init` and `new`. Keep the current
+  single-project, root-centric behavior explicit instead of normalizing it into
+  a project-aware story that the code does not implement yet, and retire the
+  stale root `specs/cli/*` docs once the split is complete.
+</Task>
+
+<Task id="task-5" status="done" depends="task-1" implements="workspace-projects/req#req-4-2">
+  Recover the `import` project and move the Kiro import docs into the
+  project-local import spec root. Keep the stable `kiro-import/*` document IDs
+  while relocating the recovered docs under
+  `crates/supersigil-import/specs/kiro-import/`, then retire the stale root
+  `specs/kiro-import/*` set.
+</Task>
+
+<Task id="task-6" status="done" depends="task-1" implements="workspace-projects/req#req-4-2, workspace-projects/req#req-4-3">
+  Recover the `ecosystem` project. Separate truly workspace-level plugin policy
+  from crate-local evidence, Rust discovery, and proc-macro behavior by
+  narrowing the root `ecosystem-plugins` docs and adding project-local
+  `evidence-contract`, `rust-plugin`, and `verifies-macro` domains under the
+  ecosystem crates.
+</Task>
+
+<Task id="task-7" status="done" depends="task-4" implements="workspace-projects/req#req-3-4, workspace-projects/req#req-3-5">
+  Add missing end-to-end coverage for multi-project CLI behavior, especially
+  `ls --project` and `verify --project` behavior against true multi-project
+  fixtures.
+</Task>
+
+<Task id="task-8" status="done" implements="workspace-projects/req#req-1-5">
+  Add a test verifying that Shared_Workspace_Config remains top-level in both
+  modes. Assert that sections like `id_pattern`, `[documents]`, `[components]`,
+  `[verify]`, `[ecosystem]`, and `[hooks]` are parsed from the top level in
+  both single-project and multi-project configs, and that placing them inside a
+  `[projects.*]` entry is rejected.
+</Task>
+
+<Task id="task-9" status="done" implements="workspace-projects/req#req-3-3">
+  Add a test verifying that multi-project verification collects test files from
+  all configured project test globs. Set up a multi-project fixture with
+  distinct test globs per project and assert that verification discovers test
+  files from every project before rule execution.
+</Task>
+
+<Task id="task-10" status="done" implements="workspace-projects/req#req-3-4">
+  Add a test for project-filtered verification. When a `--project` filter is
+  supplied, assert that findings are reported only for documents in the selected
+  project, while the workspace graph remains available for cross-project
+  reference resolution.
+</Task>
+
+<Task id="task-11" status="done" implements="workspace-projects/req#req-4-1">
+  Add a test or structural assertion that this repository keeps overarching
+  specs under the root `specs/` tree as the `workspace` project. This can be
+  a verify pass confirming the workspace project discovers root-level specs.
+</Task>
+
+<Task id="task-12" status="done" implements="workspace-projects/req#req-4-2">
+  Add a test or structural assertion that the initial repository project map
+  includes at least `workspace`, `foundation`, `cli`, `verify`, `import`, and
+  `ecosystem`. This can be validated by loading the repository's own
+  `supersigil.toml` and checking the project names.
+</Task>
+
+<Task id="task-13" status="done" implements="workspace-projects/req#req-4-3">
+  Add a test or structural assertion that a repository project may own more
+  than one crate-local spec root. Verify that projects with multiple path
+  globs spanning different crate directories are accepted and discover
+  documents from all specified roots.
+</Task>
+```

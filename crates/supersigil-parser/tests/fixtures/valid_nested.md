@@ -1,0 +1,17 @@
+---
+supersigil:
+  id: req/auth
+  type: requirement
+  status: approved
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="crit-1">
+    User can log in with valid credentials
+  </Criterion>
+  <Criterion id="crit-2">
+    Invalid credentials are rejected
+  </Criterion>
+</AcceptanceCriteria>
+```

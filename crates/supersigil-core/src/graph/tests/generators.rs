@@ -57,10 +57,11 @@ pub fn arb_spec_document_with_id(
     components: Vec<ExtractedComponent>,
 ) -> impl Strategy<Value = SpecDocument> {
     arb_frontmatter_with_id(id).prop_map(move |frontmatter| SpecDocument {
-        path: PathBuf::from(format!("specs/{}.mdx", frontmatter.id)),
+        path: PathBuf::from(format!("specs/{}.md", frontmatter.id)),
         frontmatter,
         extra: HashMap::new(),
         components: components.clone(),
+        warnings: Vec::new(),
     })
 }
 
@@ -100,7 +101,7 @@ fn arb_multi_project_config() -> impl Strategy<Value = Config> {
         projects.insert(
             "project-a".to_owned(),
             ProjectConfig {
-                paths: vec!["project-a/specs/**/*.mdx".to_owned()],
+                paths: vec!["project-a/specs/**/*.md".to_owned()],
                 tests: Vec::new(),
                 isolated,
             },
@@ -108,7 +109,7 @@ fn arb_multi_project_config() -> impl Strategy<Value = Config> {
         projects.insert(
             "project-b".to_owned(),
             ProjectConfig {
-                paths: vec!["project-b/specs/**/*.mdx".to_owned()],
+                paths: vec!["project-b/specs/**/*.md".to_owned()],
                 tests: Vec::new(),
                 isolated: false,
             },
@@ -184,6 +185,7 @@ pub fn make_doc_with_path(
         },
         extra: HashMap::new(),
         components,
+        warnings: Vec::new(),
     }
 }
 
@@ -195,7 +197,7 @@ pub fn make_doc_full(
     components: Vec<ExtractedComponent>,
 ) -> SpecDocument {
     SpecDocument {
-        path: PathBuf::from(format!("specs/{id}.mdx")),
+        path: PathBuf::from(format!("specs/{id}.md")),
         frontmatter: Frontmatter {
             id: id.to_owned(),
             doc_type: doc_type.map(str::to_owned),
@@ -203,6 +205,7 @@ pub fn make_doc_full(
         },
         extra: HashMap::new(),
         components,
+        warnings: Vec::new(),
     }
 }
 
@@ -213,6 +216,8 @@ pub fn make_refs_component(name: &str, refs: &str, line: usize) -> ExtractedComp
         attributes: HashMap::from([("refs".to_owned(), refs.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -241,6 +246,8 @@ pub fn make_task(
         attributes,
         children: Vec::new(),
         body_text: Some(format!("task {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -253,6 +260,8 @@ pub fn make_tracked_files_component(paths: &str, line: usize) -> ExtractedCompon
         attributes: HashMap::from([("paths".to_owned(), paths.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -260,13 +269,13 @@ pub fn make_tracked_files_component(paths: &str, line: usize) -> ExtractedCompon
 
 /// Build a two-project `Config` with configurable isolation flags.
 ///
-/// Creates `project-a` and `project-b` with paths `project-{x}/specs/**/*.mdx`.
+/// Creates `project-a` and `project-b` with paths `project-{x}/specs/**/*.md`.
 pub fn two_project_config(a_isolated: bool, b_isolated: bool) -> Config {
     let mut projects = HashMap::new();
     projects.insert(
         "project-a".to_owned(),
         ProjectConfig {
-            paths: vec!["project-a/specs/**/*.mdx".to_owned()],
+            paths: vec!["project-a/specs/**/*.md".to_owned()],
             tests: Vec::new(),
             isolated: a_isolated,
         },
@@ -274,7 +283,7 @@ pub fn two_project_config(a_isolated: bool, b_isolated: bool) -> Config {
     projects.insert(
         "project-b".to_owned(),
         ProjectConfig {
-            paths: vec!["project-b/specs/**/*.mdx".to_owned()],
+            paths: vec!["project-b/specs/**/*.md".to_owned()],
             tests: Vec::new(),
             isolated: b_isolated,
         },
@@ -332,6 +341,8 @@ pub fn make_example(
         attributes,
         children: Vec::new(),
         body_text: Some(format!("example {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -350,7 +361,7 @@ pub fn dag_to_depends_on_docs(
                 Some(targets) => vec![make_depends_on(&targets.join(", "), i + 1)],
                 None => Vec::new(),
             };
-            make_doc_with_path(node, &format!("specs/{node}.mdx"), components)
+            make_doc_with_path(node, &format!("specs/{node}.md"), components)
         })
         .collect()
 }

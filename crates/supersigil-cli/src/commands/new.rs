@@ -40,9 +40,9 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
     // Determine the spec directory prefix based on project selection.
     let spec_dir = resolve_spec_dir(&config, args.project.as_deref())?;
 
-    // Convention: ID = {feature}/{type_short}, path = {spec_dir}{feature}/{feature}.{type_short}.mdx
+    // Convention: ID = {feature}/{type_short}, path = {spec_dir}{feature}/{feature}.{type_short}.md
     let doc_id = format!("{}/{type_short}", args.id);
-    let output_path = format!("{spec_dir}{}/{}.{type_short}.mdx", args.id, args.id);
+    let output_path = format!("{spec_dir}{}/{}.{type_short}.md", args.id, args.id);
     let output = Path::new(&output_path);
 
     // Ensure parent dir exists
@@ -52,7 +52,7 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
 
     // Check if a requirements file exists for this feature (used by design template)
     let project_root = loader::project_root(config_path);
-    let req_path = project_root.join(format!("{}{}/{}.req.mdx", spec_dir, args.id, args.id));
+    let req_path = project_root.join(format!("{}{}/{}.req.md", spec_dir, args.id, args.id));
     let req_exists = req_path.is_file();
 
     let content = generate_template(&args.doc_type, &doc_id, &args.id, req_exists);
@@ -141,6 +141,10 @@ fn type_short_name(doc_type: &str) -> &str {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "template literals dominate line count"
+)]
 fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String {
     let status = "draft";
 
@@ -160,11 +164,11 @@ title: ""
             r#"{frontmatter}
 ## Introduction
 
-{{/* What problem does this feature solve? What is in scope and out of scope? */}}
+<!-- What problem does this feature solve? What is in scope and out of scope? -->
 
 ## Definitions
 
-{{/* Domain terms used in the requirements below. Use bold for the term name. */}}
+<!-- Domain terms used in the requirements below. Use bold for the term name. -->
 
 - **Term**: Definition.
 
@@ -172,49 +176,56 @@ title: ""
 
 As a [role], I want [capability], so that [benefit].
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
     WHEN [precondition], THE [component] SHALL [behavior].
   </Criterion>
 </AcceptanceCriteria>
+```
 "#
         ),
         "design" => {
-            let implements_line = if req_exists {
-                format!(r#"<Implements refs="{feature}/req" />"#)
+            let implements_block = if req_exists {
+                format!("```supersigil-xml\n<Implements refs=\"{feature}/req\" />\n```")
             } else {
-                r#"{/* <Implements refs="" /> */}"#.to_owned()
+                "<!-- ```supersigil-xml\n<Implements refs=\"\" />\n``` -->".to_owned()
             };
             format!(
                 r#"{frontmatter}
-{implements_line}
+{implements_block}
 
-{{/* <DependsOn refs="" /> */}}
-{{/* <TrackedFiles paths="" /> */}}
+<!-- ```supersigil-xml
+<DependsOn refs="" />
+``` -->
+
+<!-- ```supersigil-xml
+<TrackedFiles paths="" />
+``` -->
 
 ## Overview
 
-{{/* High-level summary of the design approach. */}}
+<!-- High-level summary of the design approach. -->
 
 ## Architecture
 
-{{/* System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged. */}}
+<!-- System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged. -->
 
 ## Key Types
 
-{{/* Core data structures and their relationships. Rust type sketches encouraged. */}}
+<!-- Core data structures and their relationships. Rust type sketches encouraged. -->
 
 ## Error Handling
 
-{{/* Error types, failure modes, recovery strategies. */}}
+<!-- Error types, failure modes, recovery strategies. -->
 
 ## Testing Strategy
 
-{{/* How correctness will be verified: property tests, unit tests, integration tests. */}}
+<!-- How correctness will be verified: property tests, unit tests, integration tests. -->
 
 ## Alternatives Considered
 
-{{/* Approaches that were evaluated and rejected, with rationale. */}}
+<!-- Approaches that were evaluated and rejected, with rationale. -->
 "#
             )
         }
@@ -222,56 +233,72 @@ As a [role], I want [capability], so that [benefit].
             r#"{frontmatter}
 ## Overview
 
-{{/* Brief description of the implementation sequence and approach. */}}
+<!-- Brief description of the implementation sequence and approach. -->
 
+```supersigil-xml
 <Task id="task-1" status="draft">
-  {{/* Describe the task. Use implements="{feature}/req#req-1-1" to link to criteria. */}}
+  Describe the task. Use implements="{feature}/req#req-1-1" to link to criteria.
+</Task>
+```
 
-  {{/* Subtasks are optional:
+<!-- Subtasks are optional — nest them inside the parent Task:
+
+```supersigil-xml
+<Task id="task-1" status="draft">
   <Task id="task-1-1" status="draft" implements="">
     Subtask description.
   </Task>
-
   <Task id="task-1-2" status="draft" depends="task-1-1">
     Subtask that depends on task-1-1.
   </Task>
-  */}}
 </Task>
+```
+-->
 "#
         ),
         "adr" => {
-            let references_line = if req_exists {
-                format!(r#"<References refs="{feature}/req" />"#)
+            let references_block = if req_exists {
+                format!("```supersigil-xml\n<References refs=\"{feature}/req\" />\n```")
             } else {
-                r#"{/* <References refs="" /> */}"#.to_owned()
+                "<!-- ```supersigil-xml\n<References refs=\"\" />\n``` -->".to_owned()
             };
             format!(
                 r#"{frontmatter}
-{references_line}
+{references_block}
 
 ## Context
 
-{{/* What is the situation that motivates this decision? What forces are at play? */}}
+<!-- What is the situation that motivates this decision? What forces are at play? -->
 
 ## Decision
 
-{{/* What decision was made? State it clearly and directly. */}}
+<!-- What decision was made? State it clearly and directly. -->
 
+```supersigil-xml
 <Decision id="decision-1">
-  {{/* One-line summary of the decision. */}}
+  One-line summary of the decision.
 
   <Rationale>
-    {{/* Why was this decision made? What tradeoffs were accepted? */}}
+    Why was this decision made? What tradeoffs were accepted?
   </Rationale>
-
-  {{/* <Alternative id="alt-1" status="rejected">
-    Describe the alternative and why it was not chosen.
-  </Alternative> */}}
 </Decision>
+```
+
+<!-- Add alternatives inside the Decision element:
+
+```supersigil-xml
+<Decision id="decision-1">
+  ...
+  <Alternative id="alt-1" status="rejected">
+    Describe the alternative and why it was not chosen.
+  </Alternative>
+</Decision>
+```
+-->
 
 ## Consequences
 
-{{/* What are the expected outcomes, positive and negative, of this decision? */}}
+<!-- What are the expected outcomes, positive and negative, of this decision? -->
 "#
             )
         }

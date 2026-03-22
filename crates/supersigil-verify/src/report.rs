@@ -71,6 +71,9 @@ pub enum RuleName {
     OrphanDecision,
     MissingDecisionCoverage,
     EmptyProject,
+    MultipleExpectedChildren,
+    InlineExampleWithoutLang,
+    CodeRefConflict,
 }
 
 impl RuleName {
@@ -103,6 +106,9 @@ impl RuleName {
         Self::OrphanDecision,
         Self::MissingDecisionCoverage,
         Self::EmptyProject,
+        Self::MultipleExpectedChildren,
+        Self::InlineExampleWithoutLang,
+        Self::CodeRefConflict,
     ];
 }
 
@@ -143,6 +149,9 @@ impl RuleName {
             Self::OrphanDecision => "orphan_decision",
             Self::MissingDecisionCoverage => "missing_decision_coverage",
             Self::EmptyProject => "empty_project",
+            Self::MultipleExpectedChildren => "multiple_expected_children",
+            Self::InlineExampleWithoutLang => "inline_example_without_lang",
+            Self::CodeRefConflict => "code_ref_conflict",
         }
     }
 
@@ -158,7 +167,9 @@ impl RuleName {
             | Self::InvalidExpectedPlacement
             | Self::InvalidCodeBlockCardinality
             | Self::InvalidEnvFormat
-            | Self::ExampleFailed => ReportSeverity::Error,
+            | Self::ExampleFailed
+            | Self::MultipleExpectedChildren
+            | Self::InlineExampleWithoutLang => ReportSeverity::Error,
 
             Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
 
@@ -180,7 +191,8 @@ impl RuleName {
             | Self::DuplicateRationale
             | Self::InvalidAlternativeStatus
             | Self::IncompleteDecision
-            | Self::OrphanDecision => ReportSeverity::Warning,
+            | Self::OrphanDecision
+            | Self::CodeRefConflict => ReportSeverity::Warning,
         }
     }
 }
@@ -604,6 +616,9 @@ mod tests {
             (RuleName::OrphanDecision, ReportSeverity::Warning),
             (RuleName::MissingDecisionCoverage, ReportSeverity::Off),
             (RuleName::EmptyProject, ReportSeverity::Warning),
+            (RuleName::MultipleExpectedChildren, ReportSeverity::Error),
+            (RuleName::InlineExampleWithoutLang, ReportSeverity::Error),
+            (RuleName::CodeRefConflict, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

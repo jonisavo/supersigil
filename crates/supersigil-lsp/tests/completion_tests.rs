@@ -31,6 +31,8 @@ fn make_criterion(id: &str, body: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("id".to_owned(), id.to_owned())]),
         children: Vec::new(),
         body_text: Some(body.to_owned()),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -38,7 +40,7 @@ fn make_criterion(id: &str, body: &str, line: usize) -> ExtractedComponent {
 
 fn make_doc(id: &str, doc_type: Option<&str>, components: Vec<ExtractedComponent>) -> SpecDocument {
     SpecDocument {
-        path: PathBuf::from(format!("/specs/{id}.mdx")),
+        path: PathBuf::from(format!("/specs/{id}.md")),
         frontmatter: Frontmatter {
             id: id.to_owned(),
             doc_type: doc_type.map(str::to_owned),
@@ -46,14 +48,29 @@ fn make_doc(id: &str, doc_type: Option<&str>, components: Vec<ExtractedComponent
         },
         extra: HashMap::new(),
         components,
+        warnings: vec![],
     }
 }
 
 fn default_config() -> Config {
     Config {
-        paths: Some(vec!["specs/**/*.mdx".to_owned()]),
+        paths: Some(vec!["specs/**/*.md".to_owned()]),
         ..Config::default()
     }
+}
+
+/// Wrap a single line of content inside a `supersigil-xml` fence.
+/// Returns `(content, line)` where `line` is the 0-based line number of the
+/// wrapped content (always 1).
+fn fenced(line_content: &str) -> (String, u32) {
+    let content = format!("```supersigil-xml\n{line_content}\n```");
+    (content, 1)
+}
+
+/// Wrap multiple lines inside a `supersigil-xml` fence.
+/// Returns the full content string. Line numbers inside the fence start at 1.
+fn fenced_multi(lines: &str) -> String {
+    format!("```supersigil-xml\n{lines}\n```")
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +80,8 @@ fn default_config() -> Config {
 #[test]
 fn detect_refs_attribute_doc_id_prefix() {
     // `refs="auth-` — cursor after `auth-`
-    let line = r#"<References refs="auth-"#;
-    //            0         1         2
-    //            012345678901234567890123
-    // `refs="` starts at 13; value starts at 19. Cursor at 24 = after `auth-`.
-    let ctx = detect_context(line, 0, 24);
+    let (content, line) = fenced(r#"<References refs="auth-"#);
+    let ctx = detect_context(&content, line, 24);
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
@@ -78,10 +92,8 @@ fn detect_refs_attribute_doc_id_prefix() {
 
 #[test]
 fn detect_implements_attribute_doc_id_prefix() {
-    let line = r#"<Task id="t1" implements="design/"#;
-    // `implements="` starts at 14; value starts at 26.
-    // Cursor at 33 = after `design/`.
-    let ctx = detect_context(line, 0, 33);
+    let (content, line) = fenced(r#"<Task id="t1" implements="design/"#);
+    let ctx = detect_context(&content, line, 33);
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
@@ -92,10 +104,8 @@ fn detect_implements_attribute_doc_id_prefix() {
 
 #[test]
 fn detect_depends_attribute_empty_prefix() {
-    let line = r#"<Task id="t1" depends=""#;
-    // `depends="` starts at 14; value starts at 23.
-    // Cursor at 23 = just after opening quote, empty prefix.
-    let ctx = detect_context(line, 0, 23);
+    let (content, line) = fenced(r#"<Task id="t1" depends=""#);
+    let ctx = detect_context(&content, line, 23);
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
@@ -110,13 +120,8 @@ fn detect_depends_attribute_empty_prefix() {
 
 #[test]
 fn detect_refs_attribute_fragment_prefix() {
-    // `refs="auth/req#req-` — cursor after `req-`
-    let line = r#"<References refs="auth/req#req-"#;
-    //                                  0         1         2         3
-    //                                  0123456789012345678901234567890
-    // `refs="` starts at 13; value starts at 19.
-    // `auth/req#req-` is 14 chars; cursor at 19 + 14 = 33.
-    let ctx = detect_context(line, 0, 33);
+    let (content, line) = fenced(r#"<References refs="auth/req#req-"#);
+    let ctx = detect_context(&content, line, 33);
     assert_eq!(
         ctx,
         CompletionContext::RefFragment {
@@ -128,9 +133,8 @@ fn detect_refs_attribute_fragment_prefix() {
 
 #[test]
 fn detect_refs_attribute_fragment_empty_prefix() {
-    let line = r#"<References refs="auth/req#"#;
-    // cursor at 27 = just after `#`
-    let ctx = detect_context(line, 0, 27);
+    let (content, line) = fenced(r#"<References refs="auth/req#"#);
+    let ctx = detect_context(&content, line, 27);
     assert_eq!(
         ctx,
         CompletionContext::RefFragment {
@@ -142,11 +146,8 @@ fn detect_refs_attribute_fragment_empty_prefix() {
 
 #[test]
 fn detect_second_ref_in_comma_list() {
-    // `refs="a/req, auth/req#req-` — cursor after `req-` in second token
-    let line = r#"<References refs="a/req, auth/req#req-"#;
-    // After last comma + space: `auth/req#req-`
-    // Cursor at end = 38
-    let ctx = detect_context(line, 0, 38);
+    let (content, line) = fenced(r#"<References refs="a/req, auth/req#req-"#);
+    let ctx = detect_context(&content, line, 38);
     assert_eq!(
         ctx,
         CompletionContext::RefFragment {
@@ -162,8 +163,8 @@ fn detect_second_ref_in_comma_list() {
 
 #[test]
 fn detect_component_name_prefix() {
-    let line = "<Cri";
-    let ctx = detect_context(line, 0, 4);
+    let (content, line) = fenced("<Cri");
+    let ctx = detect_context(&content, line, 4);
     assert_eq!(
         ctx,
         CompletionContext::ComponentName {
@@ -174,8 +175,8 @@ fn detect_component_name_prefix() {
 
 #[test]
 fn detect_component_name_empty_prefix() {
-    let line = "<";
-    let ctx = detect_context(line, 0, 1);
+    let (content, line) = fenced("<");
+    let ctx = detect_context(&content, line, 1);
     assert_eq!(
         ctx,
         CompletionContext::ComponentName {
@@ -186,8 +187,8 @@ fn detect_component_name_empty_prefix() {
 
 #[test]
 fn detect_closing_tag_returns_none() {
-    let line = "</Criterion>";
-    let ctx = detect_context(line, 0, 3);
+    let (content, line) = fenced("</Criterion>");
+    let ctx = detect_context(&content, line, 3);
     // After `</` — this is a closing tag, not a completion context.
     assert_eq!(ctx, CompletionContext::None);
 }
@@ -195,8 +196,8 @@ fn detect_closing_tag_returns_none() {
 #[test]
 fn detect_component_name_with_whitespace_returns_none() {
     // Cursor is inside the attributes of an already-opened tag.
-    let line = r#"<Task id=""#;
-    let ctx = detect_context(line, 0, 10);
+    let (content, line) = fenced(r#"<Task id=""#);
+    let ctx = detect_context(&content, line, 10);
     // After `<Task ` there's whitespace, so component name detection should not fire.
     assert_eq!(ctx, CompletionContext::None);
 }
@@ -207,8 +208,8 @@ fn detect_component_name_with_whitespace_returns_none() {
 
 #[test]
 fn detect_strategy_attribute_on_verified_by() {
-    let line = r#"<VerifiedBy strategy="ta"#;
-    let ctx = detect_context(line, 0, 24);
+    let (content, line) = fenced(r#"<VerifiedBy strategy="ta"#);
+    let ctx = detect_context(&content, line, 24);
     assert_eq!(
         ctx,
         CompletionContext::AttributeStrategy {
@@ -220,8 +221,8 @@ fn detect_strategy_attribute_on_verified_by() {
 
 #[test]
 fn detect_status_attribute_on_task() {
-    let line = r#"<Task id="t1" status="dra"#;
-    let ctx = detect_context(line, 0, 25);
+    let (content, line) = fenced(r#"<Task id="t1" status="dra"#);
+    let ctx = detect_context(&content, line, 25);
     assert_eq!(
         ctx,
         CompletionContext::AttributeStatus {
@@ -233,8 +234,9 @@ fn detect_status_attribute_on_task() {
 
 #[test]
 fn detect_status_attribute_on_alternative() {
-    let content = "<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej";
-    let ctx = detect_context(content, 1, 51);
+    let content = fenced_multi("<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej");
+    // Line 1 = <Decision ...>, Line 2 = <Alternative ...>
+    let ctx = detect_context(&content, 2, 51);
     assert_eq!(
         ctx,
         CompletionContext::AttributeStatus {
@@ -255,6 +257,26 @@ fn detect_plain_text_returns_none() {
 fn detect_out_of_bounds_line_returns_none() {
     let content = "only one line";
     let ctx = detect_context(content, 5, 0);
+    assert_eq!(ctx, CompletionContext::None);
+}
+
+// ---------------------------------------------------------------------------
+// detect_context — plain Markdown should NOT trigger completions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn detect_angle_bracket_in_plain_markdown_returns_none() {
+    // A `<` in regular prose (not in a fence) should not trigger completions.
+    let content = "# Title\n\nSome text with <Criterion in it";
+    let ctx = detect_context(content, 2, 16);
+    assert_eq!(ctx, CompletionContext::None);
+}
+
+#[test]
+fn detect_refs_outside_fence_returns_none() {
+    // ref-like pattern in plain Markdown should not trigger completions.
+    let content = "plain text refs=\"auth-";
+    let ctx = detect_context(content, 0, 21);
     assert_eq!(ctx, CompletionContext::None);
 }
 
@@ -361,7 +383,10 @@ fn complete_fragment_ids_body_preview_in_detail() {
     let detail = items[0].detail.as_deref().expect("should have detail");
     // Preview should be truncated to 60 chars + ellipsis.
     assert!(detail.len() < long_body.len(), "detail should be truncated");
-    assert!(detail.ends_with('…'), "detail should end with ellipsis");
+    assert!(
+        detail.ends_with('\u{2026}'),
+        "detail should end with ellipsis"
+    );
 }
 
 // ---------------------------------------------------------------------------

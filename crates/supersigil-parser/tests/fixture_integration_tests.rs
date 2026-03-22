@@ -1,6 +1,6 @@
 //! Fixture-based integration tests for the supersigil-parser.
 //!
-//! Each test loads a real `.mdx` fixture file through `parse_file` and verifies
+//! Each test loads a real `.md` fixture file through `parse_file` and verifies
 //! the expected output structure.
 
 use std::path::{Path, PathBuf};
@@ -15,12 +15,12 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// valid_simple.mdx
+// valid_simple.md
 // ---------------------------------------------------------------------------
 
 #[test]
 fn fixture_valid_simple_produces_document() {
-    let path = fixture_path("valid_simple.mdx");
+    let path = fixture_path("valid_simple.md");
     let defs = ComponentDefs::defaults();
     let result = parse_file(&path, &defs).expect("should parse without errors");
 
@@ -43,12 +43,12 @@ fn fixture_valid_simple_produces_document() {
 }
 
 // ---------------------------------------------------------------------------
-// valid_nested.mdx
+// valid_nested.md
 // ---------------------------------------------------------------------------
 
 #[test]
 fn fixture_valid_nested_produces_document_with_children() {
-    let path = fixture_path("valid_nested.mdx");
+    let path = fixture_path("valid_nested.md");
     let defs = ComponentDefs::defaults();
     let result = parse_file(&path, &defs).expect("should parse without errors");
 
@@ -91,12 +91,12 @@ fn fixture_valid_nested_produces_document_with_children() {
 }
 
 // ---------------------------------------------------------------------------
-// extra_metadata.mdx
+// extra_metadata.md
 // ---------------------------------------------------------------------------
 
 #[test]
 fn fixture_extra_metadata_preserved_in_extra_map() {
-    let path = fixture_path("extra_metadata.mdx");
+    let path = fixture_path("extra_metadata.md");
     let defs = ComponentDefs::defaults();
     let result = parse_file(&path, &defs).expect("should parse without errors");
 
@@ -127,6 +127,131 @@ fn fixture_extra_metadata_preserved_in_extra_map() {
             // One References component
             assert_eq!(doc.components.len(), 1);
             assert_eq!(doc.components[0].name, "References");
+        }
+        ParseResult::NotSupersigil(_) => panic!("expected Document, got NotSupersigil"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// no_frontmatter.md — files without front matter are NotSupersigil
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fixture_no_frontmatter_is_not_supersigil() {
+    let path = fixture_path("no_frontmatter.md");
+    let defs = ComponentDefs::defaults();
+    let result = parse_file(&path, &defs).expect("should parse without errors");
+    assert!(
+        matches!(result, ParseResult::NotSupersigil(_)),
+        "expected NotSupersigil"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// no_supersigil_key.md — files with frontmatter but no supersigil key
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fixture_no_supersigil_key_is_not_supersigil() {
+    let path = fixture_path("no_supersigil_key.md");
+    let defs = ComponentDefs::defaults();
+    let result = parse_file(&path, &defs).expect("should parse without errors");
+    assert!(
+        matches!(result, ParseResult::NotSupersigil(_)),
+        "expected NotSupersigil"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// with_example_ref.md — Example with supersigil-ref code fences
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fixture_with_example_ref_resolves_code_blocks() {
+    let path = fixture_path("with_example_ref.md");
+    let defs = ComponentDefs::defaults();
+    let result = parse_file(&path, &defs).expect("should parse without errors");
+
+    match result {
+        ParseResult::Document(doc) => {
+            assert_eq!(doc.frontmatter.id, "req/echo");
+
+            // Should have: AcceptanceCriteria, Example, VerifiedBy
+            assert_eq!(
+                doc.components.len(),
+                3,
+                "expected 3 top-level components, got: {:?}",
+                doc.components.iter().map(|c| &c.name).collect::<Vec<_>>()
+            );
+
+            let ac = &doc.components[0];
+            assert_eq!(ac.name, "AcceptanceCriteria");
+            assert_eq!(ac.children.len(), 1);
+            assert_eq!(ac.children[0].name, "Criterion");
+            assert_eq!(ac.children[0].attributes.get("id").unwrap(), "echo-works");
+
+            let example = &doc.components[1];
+            assert_eq!(example.name, "Example");
+            assert_eq!(example.attributes.get("id").unwrap(), "echo-test");
+            // Example should have code block from supersigil-ref
+            assert_eq!(
+                example.code_blocks.len(),
+                1,
+                "Example should have 1 code block from ref fence"
+            );
+            assert_eq!(example.code_blocks[0].lang.as_deref(), Some("sh"));
+            assert_eq!(example.code_blocks[0].content, "echo hello");
+
+            // Expected child should have code block from supersigil-ref#expected
+            assert_eq!(example.children.len(), 1);
+            let expected = &example.children[0];
+            assert_eq!(expected.name, "Expected");
+            assert_eq!(
+                expected.code_blocks.len(),
+                1,
+                "Expected should have 1 code block from ref fence"
+            );
+            assert_eq!(expected.code_blocks[0].lang.as_deref(), Some("txt"));
+            assert_eq!(expected.code_blocks[0].content, "hello");
+
+            let verified = &doc.components[2];
+            assert_eq!(verified.name, "VerifiedBy");
+        }
+        ParseResult::NotSupersigil(_) => panic!("expected Document, got NotSupersigil"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// multi_fence.md — Multiple supersigil-xml fences
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fixture_multi_fence_collects_components_from_all_fences() {
+    let path = fixture_path("multi_fence.md");
+    let defs = ComponentDefs::defaults();
+    let result = parse_file(&path, &defs).expect("should parse without errors");
+
+    match result {
+        ParseResult::Document(doc) => {
+            assert_eq!(doc.frontmatter.id, "req/multi");
+
+            // Should have: AcceptanceCriteria (from first fence) + References (from second)
+            assert_eq!(
+                doc.components.len(),
+                2,
+                "expected 2 top-level components, got: {:?}",
+                doc.components.iter().map(|c| &c.name).collect::<Vec<_>>()
+            );
+
+            let ac = &doc.components[0];
+            assert_eq!(ac.name, "AcceptanceCriteria");
+            assert_eq!(ac.children.len(), 1);
+            assert_eq!(ac.children[0].name, "Criterion");
+            assert_eq!(ac.children[0].attributes.get("id").unwrap(), "crit-a");
+
+            let refs = &doc.components[1];
+            assert_eq!(refs.name, "References");
+            assert_eq!(refs.attributes.get("refs").unwrap(), "req/other");
         }
         ParseResult::NotSupersigil(_) => panic!("expected Document, got NotSupersigil"),
     }

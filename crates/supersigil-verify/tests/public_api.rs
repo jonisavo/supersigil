@@ -23,7 +23,7 @@ fn example_failures_are_constructible_from_public_api() {
                 line: 1,
                 column: 1,
             },
-            source_path: PathBuf::from("specs/req/auth.mdx"),
+            source_path: PathBuf::from("specs/req/auth.md"),
         },
         outcome: ExampleOutcome::Fail(vec![MatchFailure {
             check: MatchCheck::Body,

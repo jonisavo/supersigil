@@ -52,10 +52,10 @@ proptest! {
         let config = single_project_config();
 
         // Two documents sharing id_a, two documents sharing id_b.
-        let doc_a1 = make_doc_with_path(&id_a, &format!("specs/a1/{id_a}.mdx"), vec![]);
-        let doc_a2 = make_doc_with_path(&id_a, &format!("specs/a2/{id_a}.mdx"), vec![]);
-        let doc_b1 = make_doc_with_path(&id_b, &format!("specs/b1/{id_b}.mdx"), vec![]);
-        let doc_b2 = make_doc_with_path(&id_b, &format!("specs/b2/{id_b}.mdx"), vec![]);
+        let doc_a1 = make_doc_with_path(&id_a, &format!("specs/a1/{id_a}.md"), vec![]);
+        let doc_a2 = make_doc_with_path(&id_a, &format!("specs/a2/{id_a}.md"), vec![]);
+        let doc_b1 = make_doc_with_path(&id_b, &format!("specs/b1/{id_b}.md"), vec![]);
+        let doc_b2 = make_doc_with_path(&id_b, &format!("specs/b2/{id_b}.md"), vec![]);
 
         let result = build_graph(vec![doc_a1, doc_a2, doc_b1, doc_b2], &config);
         let errors = result.expect_err("should fail with duplicate IDs");
@@ -100,7 +100,7 @@ proptest! {
         // Document with a References ref to a nonexistent target.
         let broken_ref_doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![make_refs_component(REFERENCES, "nonexistent/target", 1)],
         );
 
@@ -108,7 +108,7 @@ proptest! {
         let cyclic_task = make_task("t0", None, None, Some("t0"), 1);
         let tasks_doc = make_doc_with_path(
             &tasks_id,
-            &format!("specs/{tasks_id}.mdx"),
+            &format!("specs/{tasks_id}.md"),
             vec![cyclic_task],
         );
 
@@ -157,19 +157,19 @@ proptest! {
         // Document with a broken ref.
         let broken_ref_doc = make_doc_with_path(
             &ref_doc_id,
-            &format!("specs/{ref_doc_id}.mdx"),
+            &format!("specs/{ref_doc_id}.md"),
             vec![make_refs_component(REFERENCES, "ghost/doc", 1)],
         );
 
         // Two documents forming a mutual dependency cycle.
         let cycle_doc_a = make_doc_with_path(
             &cycle_a_id,
-            &format!("specs/{cycle_a_id}.mdx"),
+            &format!("specs/{cycle_a_id}.md"),
             vec![make_depends_on(&cycle_b_id, 1)],
         );
         let cycle_doc_b = make_doc_with_path(
             &cycle_b_id,
-            &format!("specs/{cycle_b_id}.mdx"),
+            &format!("specs/{cycle_b_id}.md"),
             vec![make_depends_on(&cycle_a_id, 1)],
         );
 
@@ -221,7 +221,7 @@ proptest! {
         // 1. Document with a broken ref.
         let broken_ref_doc = make_doc_with_path(
             &ref_doc_id,
-            &format!("specs/{ref_doc_id}.mdx"),
+            &format!("specs/{ref_doc_id}.md"),
             vec![make_refs_component(REFERENCES, "nonexistent/target", 1)],
         );
 
@@ -229,19 +229,19 @@ proptest! {
         let cyclic_task = make_task("t0", None, None, Some("t0"), 1);
         let tasks_doc = make_doc_with_path(
             &tasks_id,
-            &format!("specs/{tasks_id}.mdx"),
+            &format!("specs/{tasks_id}.md"),
             vec![cyclic_task],
         );
 
         // 3. Two documents forming a mutual dependency cycle.
         let cycle_doc_a = make_doc_with_path(
             &cycle_a_id,
-            &format!("specs/{cycle_a_id}.mdx"),
+            &format!("specs/{cycle_a_id}.md"),
             vec![make_depends_on(&cycle_b_id, 1)],
         );
         let cycle_doc_b = make_doc_with_path(
             &cycle_b_id,
-            &format!("specs/{cycle_b_id}.mdx"),
+            &format!("specs/{cycle_b_id}.md"),
             vec![make_depends_on(&cycle_a_id, 1)],
         );
 

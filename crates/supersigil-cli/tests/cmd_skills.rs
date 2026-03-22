@@ -64,7 +64,7 @@ fn skills_install_reads_path_from_toml() {
     let tmp = TempDir::new().unwrap();
     fs::write(
         tmp.path().join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n\n[skills]\npath = \"my/skills\"\n",
+        "paths = [\"specs/**/*.md\"]\n\n[skills]\npath = \"my/skills\"\n",
     )
     .unwrap();
 
@@ -87,7 +87,7 @@ fn skills_install_path_flag_overrides_toml() {
     let tmp = TempDir::new().unwrap();
     fs::write(
         tmp.path().join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n\n[skills]\npath = \"from/toml\"\n",
+        "paths = [\"specs/**/*.md\"]\n\n[skills]\npath = \"from/toml\"\n",
     )
     .unwrap();
 

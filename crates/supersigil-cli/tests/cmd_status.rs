@@ -11,9 +11,9 @@ use tempfile::TempDir;
 fn status_counts_nested_criteria() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -34,9 +34,9 @@ fn status_counts_nested_criteria() {
 fn status_per_document_shows_verified_by_per_criterion() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -93,9 +93,9 @@ fn status_per_document_shows_verified_by_per_criterion() {
 fn status_per_document_omits_empty_verified_by() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -131,9 +131,9 @@ fn status_per_document_omits_empty_verified_by() {
 fn status_terminal_shows_verified_by_per_criterion() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -159,9 +159,9 @@ fn status_terminal_shows_verified_by_per_criterion() {
 fn status_plugin_failure_warning_on_stderr() {
     let tmp = TempDir::new().unwrap();
     common::setup_project_with_rust_plugin(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -187,9 +187,9 @@ fn status_plugin_failure_warning_on_stderr() {
 fn status_json_stdout_clean_despite_plugin_warning() {
     let tmp = TempDir::new().unwrap();
     common::setup_project_with_rust_plugin(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -225,9 +225,9 @@ fn status_json_stdout_clean_despite_plugin_warning() {
 /// intentionally broken, so the plugin emits a recoverable diagnostic.
 fn setup_partial_rust_warning_fixture(root: &std::path::Path) {
     common::setup_project_with_rust_plugin(root);
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -317,26 +317,26 @@ fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
 fn status_prefix_aggregates_matching_documents() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/feat/req.mdx",
+        "specs/feat/req.md",
         "feat/req",
         Some("requirements"),
         Some("approved"),
         "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    First\n  </Criterion>\n</AcceptanceCriteria>",
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/feat/design.mdx",
+        "specs/feat/design.md",
         "feat/design",
         Some("design"),
         Some("draft"),
         "<AcceptanceCriteria>\n  <Criterion id=\"dc-1\">\n    Second\n  </Criterion>\n</AcceptanceCriteria>",
     );
     // Unrelated document that should NOT appear in the prefix output.
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/other.mdx",
+        "specs/other.md",
         "other/req",
         Some("requirements"),
         Some("draft"),
@@ -368,9 +368,9 @@ fn status_prefix_aggregates_matching_documents() {
 fn status_prefix_terminal_shows_prefix_header() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/feat/req.mdx",
+        "specs/feat/req.md",
         "feat/req",
         Some("requirements"),
         Some("approved"),
@@ -392,9 +392,9 @@ fn status_prefix_terminal_shows_prefix_header() {
 fn status_no_match_fails_with_error() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("draft"),
@@ -418,13 +418,14 @@ fn status_counts_example_pending_coverage() {
     common::setup_project(tmp.path());
 
     // A spec with two criteria: one covered by VerifiedBy, one only by Example verifies.
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="ac-1">
     Covered by file-glob.
     <VerifiedBy strategy="file-glob" paths="tests/auth_test.rs" />
@@ -435,13 +436,13 @@ fn status_counts_example_pending_coverage() {
 </AcceptanceCriteria>
 
 <Example id="login-test" runner="sh" verifies="auth/req#ac-2">
-
-```sh
-echo "ok"
+  <Expected status="0" />
+</Example>
 ```
 
-<Expected status="0" />
-</Example>"#,
+```sh supersigil-ref=login-test
+echo "ok"
+```"#,
     );
 
     // Create the test file so file-glob evidence resolves for ac-1.

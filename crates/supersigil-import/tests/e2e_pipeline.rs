@@ -27,7 +27,7 @@ fn write_and_parse_all_documents(
         if let Some(parent) = planned.output_path.parent() {
             std::fs::create_dir_all(parent).expect("create output parent directories");
         }
-        std::fs::write(&planned.output_path, &planned.content).expect("write planned mdx file");
+        std::fs::write(&planned.output_path, &planned.content).expect("write planned spec file");
 
         match parse_file(&planned.output_path, &defs) {
             Ok(ParseResult::Document(doc)) => docs.push(doc),
@@ -69,7 +69,7 @@ fn imported_real_specs_build_graph_successfully() {
     );
 
     let graph_config = Config {
-        paths: Some(vec!["specs/**/*.mdx".to_string()]),
+        paths: Some(vec!["specs/**/*.md".to_string()]),
         ..Config::default()
     };
 

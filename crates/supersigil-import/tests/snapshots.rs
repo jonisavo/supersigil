@@ -1,7 +1,7 @@
 // Snapshot tests for the Kiro import pipeline.
 //
 // Full-pipeline snapshots feed real `.kiro/specs/` directories through
-// `plan_kiro_import` and snapshot each generated MDX document using `insta`.
+// `plan_kiro_import` and snapshot each generated spec document using `insta`.
 // Synthetic snapshots cover edge cases with hand-crafted minimal inputs.
 
 mod common;
@@ -97,7 +97,7 @@ fn snapshot_document_graph_tasks() {
 // 21.3: Synthetic snapshot tests for edge cases
 // ---------------------------------------------------------------------------
 
-/// Design-only feature (no requirements or tasks) → design MDX should contain
+/// Design-only feature (no requirements or tasks) → design output should contain
 /// an ambiguity marker for missing requirements and no `<Implements>`.
 #[test]
 fn snapshot_edge_design_only() {
@@ -137,7 +137,7 @@ The output is always non-empty.
     insta::assert_snapshot!("edge__design_only", content);
 }
 
-/// Tasks with `N/A` metadata → tasks MDX with `TaskRefs::None` handling
+/// Tasks with `N/A` metadata → tasks output with `TaskRefs::None` handling
 /// (no `implements` attribute, no ambiguity marker for the N/A itself).
 #[test]
 fn snapshot_edge_tasks_na_metadata() {
@@ -189,7 +189,7 @@ fn snapshot_edge_tasks_na_metadata() {
     insta::assert_snapshot!("edge__tasks_na_metadata", content);
 }
 
-/// Tasks with optional markers (`[x]* 2.1 ...`) → tasks MDX should include
+/// Tasks with optional markers (`[x]* 2.1 ...`) → tasks output should include
 /// the task with an ambiguity marker noting the optional status.
 #[test]
 fn snapshot_edge_tasks_optional_marker() {
@@ -222,7 +222,7 @@ fn snapshot_edge_tasks_optional_marker() {
     insta::assert_snapshot!("edge__tasks_optional_marker", content);
 }
 
-/// Non-requirement Validates target (`Design Decision 5`) → design MDX should
+/// Non-requirement Validates target (`Design Decision 5`) → design output should
 /// contain an ambiguity marker noting the non-requirement target.
 #[test]
 fn snapshot_edge_non_requirement_validates() {

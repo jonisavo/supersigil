@@ -1,19 +1,7 @@
 use std::path::PathBuf;
 
-use supersigil_core::{ExtractedComponent, ParseError};
-use supersigil_parser::{extract_components, parse_mdx_body};
-
 pub fn dummy_path() -> PathBuf {
-    PathBuf::from("test.mdx")
-}
-
-/// Parse MDX body and extract components using default component defs.
-pub fn extract(body: &str, body_offset: usize) -> (Vec<ExtractedComponent>, Vec<ParseError>) {
-    let defs = supersigil_core::ComponentDefs::defaults();
-    let ast = parse_mdx_body(body, &dummy_path()).expect("MDX should parse");
-    let mut errors = Vec::new();
-    let components = extract_components(&ast, body_offset, 0, &dummy_path(), &mut errors, &defs);
-    (components, errors)
+    PathBuf::from("test.md")
 }
 
 /// Count CRLF pairs, bare CR, and bare LF in a byte string.

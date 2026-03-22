@@ -364,7 +364,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
-            source_path: PathBuf::from("specs/test.mdx"),
+            source_path: PathBuf::from("specs/test.md"),
         };
 
         let entry = ExampleEntry::from_spec(&spec);
@@ -394,7 +394,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
-            source_path: PathBuf::from("specs/test.mdx"),
+            source_path: PathBuf::from("specs/test.md"),
         };
 
         let entry = ExampleEntry::from_spec(&spec);

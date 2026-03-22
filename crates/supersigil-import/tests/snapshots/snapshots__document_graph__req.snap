@@ -34,6 +34,7 @@ The Document Graph module builds the cross-document data structure from parsed s
 
 As a verification engine consumer, I want all parsed documents indexed by their unique ID, so that any document can be looked up in constant time during ref resolution and query generation.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
     WHEN a collection of `SpecDocument` values is provided, THE Graph_Builder SHALL construct a Document_Index mapping each document's `frontmatter.id` to the corresponding `SpecDocument`.
@@ -48,11 +49,13 @@ As a verification engine consumer, I want all parsed documents indexed by their 
     WHEN a multi-project `Config` is provided, THE Graph_Builder SHALL build a single global Document_Index spanning all projects.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 2: Referenceable Component Indexing
 
 As a verification engine consumer, I want all referenceable components (e.g., `Criterion`, `Task`) indexed by their `id` attribute, so that fragment refs can be resolved to the correct component within the correct document.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
     WHEN a `SpecDocument` contains components whose definitions in `ComponentDefs` have `referenceable = true`, THE Graph_Builder SHALL index each such component by its `id` attribute, mapping it to the owning document ID and the component.
@@ -67,11 +70,13 @@ As a verification engine consumer, I want all referenceable components (e.g., `C
     WHEN a referenceable component is nested inside another component (e.g., `Criterion` inside `AcceptanceCriteria`), THE Graph_Builder SHALL index the nested component using the parent document's ID.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 3: Ref Resolution
 
 As a verification engine consumer, I want every `refs` attribute in every component resolved to its target document and optional fragment, so that broken references are detected as hard errors.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
     WHEN a component has a `refs` attribute (as determined by `ComponentDefs`), THE Graph_Builder SHALL split the attribute value using `split_list_attribute` and resolve each ref individually.
@@ -95,11 +100,13 @@ As a verification engine consumer, I want every `refs` attribute in every compon
     IF a ref's fragment resolves to a component whose name does not match the expected `target_component`, THEN THE Graph_Builder SHALL return a `broken_ref` hard error identifying the type mismatch.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 4: Cross-Project Ref Resolution
 
 As a monorepo user, I want refs to resolve across all projects by default, so that specs in one project can reference criteria in another project.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-4-1">
     WHEN a multi-project `Config` is provided without `isolated = true` on any project, THE Graph_Builder SHALL resolve refs against the global Document_Index spanning all projects.
@@ -114,11 +121,13 @@ As a monorepo user, I want refs to resolve across all projects by default, so th
     WHEN verifying a single project via a project scope filter, THE Graph_Builder SHALL still resolve refs against the global Document_Index for non-isolated projects.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 5: Task Dependency Cycle Detection
 
 As a spec author, I want the graph to detect cycles in `Task` `depends` chains within each tasks document, so that circular dependencies are caught as hard errors before topological sorting.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
     WHEN a tasks document contains `Task` components with `depends` attributes, THE Graph_Builder SHALL construct a directed graph of task dependencies within that document.
@@ -136,11 +145,13 @@ As a spec author, I want the graph to detect cycles in `Task` `depends` chains w
     WHEN `Task` components are nested, THE Graph_Builder SHALL scope `depends` resolution to sibling tasks within the same parent.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 6: Document Dependency Cycle Detection
 
 As a spec author, I want the graph to detect cycles in `DependsOn` ref chains between documents, so that circular document-level dependencies are caught as hard errors.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
     WHEN documents contain `DependsOn` components, THE Graph_Builder SHALL construct a directed graph of document-level dependencies from the resolved refs.
@@ -152,11 +163,13 @@ As a spec author, I want the graph to detect cycles in `DependsOn` ref chains be
     IF the document dependency graph contains a cycle, THEN THE Graph_Builder SHALL return a `dependency_cycle` hard error identifying the cycle participants by their document IDs. Self-references (a document listing itself in `DependsOn`) are treated as trivial cycles.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 7: Topological Sort
 
 As a query consumer, I want tasks and document dependencies computed in topological order, so that the `context` and `plan` commands can present work items in implementation sequence.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-7-1">
     WHEN the task dependency graph within a document is a valid DAG, THE Graph_Builder SHALL compute a Topological_Order of the tasks.
@@ -171,11 +184,13 @@ As a query consumer, I want tasks and document dependencies computed in topologi
     WHEN multiple valid topological orderings exist, THE Graph_Builder SHALL produce a deterministic ordering (stable across identical inputs). The tiebreaker for nodes with no ordering constraint between them SHALL be declaration order in the source document (for tasks) or alphabetical by document ID (for documents).
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 8: Reverse Mappings
 
 As a query consumer, I want to know which documents validate, implement, or illustrate a given criterion or document, so that the `context` and `plan` commands can display incoming relationships without requiring bidirectional refs in source documents.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-8-1">
     WHEN documents contain `Validates` components with resolved refs, THE Graph_Builder SHALL compute a reverse mapping from each target criterion (document_id, fragment) to the set of validating document IDs.
@@ -196,11 +211,13 @@ As a query consumer, I want to know which documents validate, implement, or illu
     WHEN a `refs` attribute contains duplicate ref strings (e.g., the same ref listed twice), THE Graph_Builder SHALL deduplicate them — each unique ref contributes once to the reverse mapping.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 9: Context Query
 
 As an AI agent or developer, I want to retrieve a structured view of a document and all its relationships, so that I have complete context for implementing or reviewing a feature.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-9-1">
     WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Context_Output containing the target document's frontmatter, criteria, and body content.
@@ -224,11 +241,13 @@ As an AI agent or developer, I want to retrieve a structured view of a document 
     THE Context_Output SHALL be a structured data type, not a formatted string.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 10: Plan Query
 
 As an AI agent or developer, I want to retrieve a structured view of outstanding work for a requirement or feature, so that I know what criteria are uncovered, what tasks are pending, and what work is complete.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-10-1">
     WHEN a valid document ID is provided, THE Graph_Builder SHALL produce a Plan_Output containing outstanding criteria (those with no validating document in the Reverse_Mapping AND no completed Task — status `done` — that implements them via resolved `implements` refs).
@@ -255,11 +274,13 @@ As an AI agent or developer, I want to retrieve a structured view of outstanding
     THE Plan_Output SHALL be a structured data type, not a formatted string.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 11: Task Implements Resolution
 
 As a query consumer, I want `Task` `implements` attributes resolved to their target criteria, so that the plan and context queries can associate tasks with the criteria they address.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-11-1">
     WHEN a `Task` component has an `implements` attribute, THE Graph_Builder SHALL split the attribute value and resolve each ref to a target criterion using the same resolution logic as Requirement 3. Each ref MUST include a `#fragment` targeting a `Criterion` component; a ref without a fragment is a `broken_ref` hard error.
@@ -271,11 +292,13 @@ As a query consumer, I want `Task` `implements` attributes resolved to their tar
     THE Graph_Builder SHALL make resolved task-to-criterion mappings available for Context_Output and Plan_Output generation.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 12: TrackedFiles Indexing
 
 As a verification engine consumer, I want all `TrackedFiles` components indexed by their owning document, so that downstream consumers (e.g., the `affected` command and `stale_tracked_files` rule in Spec 3) can match changed files against spec documents without re-parsing.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-12-1">
     WHEN a `SpecDocument` contains `TrackedFiles` components, THE Graph_Builder SHALL index each component's `paths` attribute values by the owning document ID in the TrackedFiles_Index.
@@ -290,11 +313,13 @@ As a verification engine consumer, I want all `TrackedFiles` components indexed 
     WHEN a document contains multiple `TrackedFiles` components, THE Graph_Builder SHALL aggregate all path globs from all such components under the same document ID.
   </Criterion>
 </AcceptanceCriteria>
+```
 
 ## Requirement 13: Graph Construction Error Aggregation
 
 As a verification engine consumer, I want all graph construction errors collected and returned together, so that a single build pass reports all problems rather than stopping at the first error.
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-13-1">
     WHEN multiple errors occur during graph construction (duplicate IDs, duplicate component IDs, broken refs, dependency cycles), THE Graph_Builder SHALL collect all errors and return them as a single collection.
@@ -306,3 +331,4 @@ As a verification engine consumer, I want all graph construction errors collecte
     WHEN no errors occur during graph construction, THE Graph_Builder SHALL return the completed `DocumentGraph` with all indexes, reverse mappings, topological orderings, and TrackedFiles_Index populated.
   </Criterion>
 </AcceptanceCriteria>
+```

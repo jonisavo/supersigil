@@ -90,8 +90,8 @@ diagnostics = "lint"  # "lint" or "verify"
 
 The `supersigil-lsp` binary communicates over stdio and implements the Language Server Protocol. It works with any LSP-capable editor:
 
-- **Neovim** — configure via `nvim-lspconfig` with `cmd = {"supersigil-lsp"}` and `filetypes = {"mdx"}`.
+- **Neovim** — configure via `nvim-lspconfig` with `cmd = {"supersigil-lsp"}` and `filetypes = {"markdown", "mdx"}`.
 - **Zed** — add an LSP entry in settings pointing to the binary.
-- **Helix** — add to `languages.toml` under the `mdx` language.
+- **Helix** — add to `languages.toml` under the `markdown` language.
 
 Editor-specific extensions for these editors are not yet available but the raw LSP works today.

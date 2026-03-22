@@ -10,7 +10,9 @@ supersigil:
 title: "Mixed Validates"
 ---
 
+```supersigil-xml
 <Implements refs="req/mixed-validates" />
+```
 
 ## Overview
 
@@ -22,7 +24,9 @@ A design with both requirement and non-requirement Validates targets.
 
 This property validates against requirements.
 
+```supersigil-xml
 <References refs="req/mixed-validates#req-1-1, req/mixed-validates#req-1-2" />
+```
 
 ### Property 2: Non-standard property
 
@@ -35,4 +39,6 @@ This property validates against a design decision.
 
 This one is normal.
 
+```supersigil-xml
 <References refs="req/mixed-validates#req-2-1" />
+```

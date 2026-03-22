@@ -17,7 +17,7 @@
       <div class="panel reveal" style="--reveal-delay: 0.1s">
         <div class="panel-bar">
           <div class="panel-dots"><span></span><span></span><span></span></div>
-          <span class="panel-title">auth/req/login.mdx</span>
+          <span class="panel-title">auth/req/login.md</span>
         </div>
         <div class="panel-body code-panel">
           <pre><code><span class="c-gray">---</span>
@@ -29,6 +29,7 @@
 
 <span class="c-muted"># User Authentication</span>
 
+<span class="c-muted">```supersigil-xml</span>
 <span class="c-gold">&lt;AcceptanceCriteria&gt;</span>
   <span class="c-gold">&lt;Criterion</span> <span class="c-teal">id</span>=<span class="c-str">"valid-creds"</span><span class="c-gold">&gt;</span>
     WHEN a user submits valid credentials
@@ -44,6 +45,7 @@
     <span class="c-gold">&lt;VerifiedBy</span> <span class="c-teal">strategy</span>=<span class="c-str">"tag"</span> <span class="c-teal">tag</span>=<span class="c-str">"auth:invalid-creds"</span> <span class="c-gold">/&gt;</span>
   <span class="c-gold">&lt;/Criterion&gt;</span>
 <span class="c-gold">&lt;/AcceptanceCriteria&gt;</span>
+<span class="c-muted">```</span>
 
 <span class="c-gold">&lt;TrackedFiles</span> <span class="c-teal">paths</span>=<span class="c-str">"src/auth/**/*.rs, tests/auth/**/*.rs"</span> <span class="c-gold">/&gt;</span></code></pre>
         </div>

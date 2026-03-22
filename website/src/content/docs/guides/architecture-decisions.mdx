@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-core/src/component_defs.rs, crates/supersigil-verify/src/rules/decision.rs" />
+```
 
 Specifications capture *what* the system does (criteria), *how* it is built (designs), and *whether it works* (evidence). But they often miss *why* the system is shaped the way it is. When architectural rationale lives in wikis, chat threads, or people's heads, it disconnects from the specs it explains and drifts silently as the system evolves.
 
@@ -21,7 +22,7 @@ Supersigil solves this with three components — `<Decision>`, `<Rationale>`, an
 
 A recorded architectural choice. Referenceable by ID, so other documents can link to it.
 
-````mdx
+```xml
 <Decision id="unidirectional-refs">
   References always point from concrete to abstract.
   Designs point at requirements, not the reverse.
@@ -46,7 +47,7 @@ A recorded architectural choice. Referenceable by ID, so other documents can lin
 
   <References refs="document-graph/req" />
 </Decision>
-````
+```
 
 ### `<Rationale>`
 
@@ -85,7 +86,7 @@ This creates a document with `type: adr` and a Decision component placeholder.
 
 Decisions become most useful when they are connected to the specs they explain. Use nested `<References>` inside a Decision to link it to specific criteria or documents:
 
-```mdx
+```xml
 <Decision id="graduated-verification">
   Verification rules default to different severities to
   allow incremental adoption.
@@ -119,7 +120,7 @@ This gives agents and developers the architectural context behind the criteria t
 
 Decisions can track the source files that embody them using nested `<TrackedFiles>`:
 
-```mdx
+```xml
 <Decision id="single-binary">
   Supersigil is distributed as a single binary.
 
@@ -146,7 +147,7 @@ Supersigil includes verification rules that nudge teams toward complete, connect
 
 **`orphan_decision`** — A `<Decision>` has no outward connections (no `<References>`, `<TrackedFiles>`, or `<DependsOn>` children) and is not referenced by any other component. An orphan decision is disconnected from the graph. Use the `standalone` attribute to exempt intentionally unconnected decisions:
 
-```mdx
+```xml
 <Decision id="rust-toolchain" standalone="Project-level technology choice with no corresponding requirement">
   Use Rust for single-binary distribution.
 </Decision>
@@ -179,19 +180,6 @@ The `adr` type provides a conventional home for Architecture Decision Records. I
 | `review` | Decision is proposed and awaiting feedback |
 | `accepted` | Decision is in effect |
 | `superseded` | Decision has been replaced by a newer one |
-
-When a decision is superseded, use `<References>` to link to the replacement, creating an audit trail:
-
-```mdx
----
-supersigil:
-  id: arch/adr-old-auth
-  type: adr
-  status: superseded
----
-
-<References refs="arch/adr-new-auth" />
-```
 
 ## Related Reading
 

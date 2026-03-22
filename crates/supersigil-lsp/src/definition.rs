@@ -9,6 +9,7 @@ use lsp_types::Location;
 use supersigil_core::DocumentGraph;
 
 use crate::REF_ATTRS;
+use crate::is_in_supersigil_fence;
 use crate::path_to_url;
 use crate::position;
 
@@ -20,6 +21,11 @@ use crate::position;
 /// is not inside a ref-accepting attribute value.
 #[must_use]
 pub fn find_ref_at_position(content: &str, line: u32, character: u32) -> Option<String> {
+    // Only resolve refs inside supersigil-xml fences.
+    if !is_in_supersigil_fence(content, line) {
+        return None;
+    }
+
     let line_str = content.lines().nth(line as usize)?;
 
     for attr in REF_ATTRS {

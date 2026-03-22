@@ -165,7 +165,7 @@ fn init_fails_if_config_exists() {
     let tmp = TempDir::new().unwrap();
     fs::write(
         tmp.path().join("supersigil.toml"),
-        "paths = [\"specs/**/*.mdx\"]\n",
+        "paths = [\"specs/**/*.md\"]\n",
     )
     .unwrap();
     cargo_bin_cmd!("supersigil")

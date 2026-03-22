@@ -32,14 +32,14 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
         let ref_str = format!("{target_doc_id}#{crit_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
@@ -72,14 +72,14 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         // Implements with a doc-only ref.
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 
@@ -109,13 +109,13 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &target_doc_id, 1)],
         );
 
@@ -144,7 +144,7 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
@@ -152,7 +152,7 @@ proptest! {
         let dup_refs = format!("{target_doc_id}, {target_doc_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &dup_refs, 1)],
         );
 
@@ -180,14 +180,14 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         // References with doc-only ref (no fragment).
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &target_doc_id, 1)],
         );
 
@@ -216,14 +216,14 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
         let ref_str = format!("{target_doc_id}#{crit_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
@@ -263,20 +263,20 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
         let ref_str = format!("{target_doc_id}#{crit_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
         let unreferenced_doc = make_doc_with_path(
             &unreferenced_id,
-            &format!("specs/{unreferenced_id}.mdx"),
+            &format!("specs/{unreferenced_id}.md"),
             vec![],
         );
 
@@ -310,19 +310,19 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 
         let unreferenced_doc = make_doc_with_path(
             &unreferenced_id,
-            &format!("specs/{unreferenced_id}.mdx"),
+            &format!("specs/{unreferenced_id}.md"),
             vec![],
         );
 
@@ -355,20 +355,20 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![make_acceptance_criteria(vec![make_criterion(&crit_id, 2)], 1)],
         );
 
         let ref_str = format!("{target_doc_id}#{crit_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
         let unreferenced_doc = make_doc_with_path(
             &unreferenced_id,
-            &format!("specs/{unreferenced_id}.mdx"),
+            &format!("specs/{unreferenced_id}.md"),
             vec![],
         );
 

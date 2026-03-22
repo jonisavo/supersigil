@@ -37,7 +37,7 @@ proptest! {
         // Target document has a Criterion component.
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![make_criterion(&crit_id, 1)],
         );
 
@@ -45,7 +45,7 @@ proptest! {
         let fragment_ref = format!("{target_doc_id}#{crit_id}");
         let source_doc_a = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
@@ -77,14 +77,14 @@ proptest! {
 
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         // Implements has no target_component, so doc-only ref is fine.
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 
@@ -119,14 +119,14 @@ proptest! {
         let ac = make_acceptance_criteria(vec![nested_crit], 4);
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![ac],
         );
 
         let fragment_ref = format!("{target_doc_id}#{crit_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &fragment_ref, 1)],
         );
 
@@ -162,7 +162,7 @@ proptest! {
 
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &nonexistent_id, 1)],
         );
 
@@ -200,14 +200,14 @@ proptest! {
         // Target doc exists but has no referenceable components.
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![],
         );
 
         let ref_str = format!("{target_doc_id}#{bad_fragment}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
@@ -249,6 +249,8 @@ proptest! {
             attributes: HashMap::from([("id".to_owned(), task_id.clone())]),
             children: Vec::new(),
             body_text: Some("a task".to_owned()),
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition {
                 byte_offset: 0,
@@ -258,7 +260,7 @@ proptest! {
         };
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("specs/{target_doc_id}.mdx"),
+            &format!("specs/{target_doc_id}.md"),
             vec![task],
         );
 
@@ -266,7 +268,7 @@ proptest! {
         let ref_str = format!("{target_doc_id}#{task_id}");
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("specs/{source_doc_id}.mdx"),
+            &format!("specs/{source_doc_id}.md"),
             vec![make_refs_component(REFERENCES, &ref_str, 1)],
         );
 
@@ -305,12 +307,12 @@ proptest! {
         // Target in project-a, source in project-b.
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("project-a/specs/{target_doc_id}.mdx"),
+            &format!("project-a/specs/{target_doc_id}.md"),
             vec![],
         );
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("project-b/specs/{source_doc_id}.mdx"),
+            &format!("project-b/specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 
@@ -348,12 +350,12 @@ proptest! {
         // Source in isolated project-a, target in project-b.
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("project-b/specs/{target_doc_id}.mdx"),
+            &format!("project-b/specs/{target_doc_id}.md"),
             vec![],
         );
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("project-a/specs/{source_doc_id}.mdx"),
+            &format!("project-a/specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 
@@ -390,12 +392,12 @@ proptest! {
         // Both docs in the same isolated project.
         let target_doc = make_doc_with_path(
             &target_doc_id,
-            &format!("project-a/specs/{target_doc_id}.mdx"),
+            &format!("project-a/specs/{target_doc_id}.md"),
             vec![],
         );
         let source_doc = make_doc_with_path(
             &source_doc_id,
-            &format!("project-a/specs/{source_doc_id}.mdx"),
+            &format!("project-a/specs/{source_doc_id}.md"),
             vec![make_refs_component(IMPLEMENTS, &target_doc_id, 1)],
         );
 

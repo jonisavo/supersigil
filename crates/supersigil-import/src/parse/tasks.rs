@@ -236,7 +236,7 @@ impl TaskStatus {
         }
     }
 
-    /// Return the supersigil status string for MDX output.
+    /// Return the supersigil status string for spec document output.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {

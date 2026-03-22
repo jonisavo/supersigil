@@ -26,9 +26,9 @@ fn setup_explicit_evidence_fixture(root: &Path, config: &str) {
 }
 
 fn write_requirement_with_explicit_evidence(root: &Path) {
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("approved"),
@@ -42,9 +42,9 @@ fn write_requirement_with_explicit_evidence(root: &Path) {
 }
 
 fn write_requirement_for_plugin_evidence(root: &Path) {
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("approved"),
@@ -57,9 +57,9 @@ fn write_requirement_for_plugin_evidence(root: &Path) {
 }
 
 fn write_requirement_with_shared_file_glob_evidence(root: &Path) {
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/auth.mdx",
+        "specs/auth.md",
         "auth/req",
         Some("requirements"),
         Some("approved"),
@@ -79,7 +79,7 @@ fn write_requirement_with_shared_file_glob_evidence(root: &Path) {
 fn setup_plugin_failure_fixture(root: &Path) {
     setup_explicit_evidence_fixture(
         root,
-        r#"paths = ["specs/**/*.mdx"]
+        r#"paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs"]
 
 [ecosystem]
@@ -119,7 +119,7 @@ fn setup_missing_evidence_fixture(root: &Path) {
 fn setup_shared_file_glob_fixture(root: &Path) {
     write_config(
         root,
-        r#"paths = ["specs/**/*.mdx"]
+        r#"paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs"]
 
 [ecosystem]
@@ -138,7 +138,7 @@ plugins = []
 fn setup_explicit_evidence_only_fixture(root: &Path) {
     setup_explicit_evidence_fixture(
         root,
-        r#"paths = ["specs/**/*.mdx"]
+        r#"paths = ["specs/**/*.md"]
 tests = ["tests/**/*.rs"]
 
 [ecosystem]
@@ -149,13 +149,14 @@ plugins = []
 
 fn setup_clean_example_fixture(root: &Path) {
     common::setup_project(root);
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/examples.mdx",
+        "specs/examples.md",
         "examples/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="examples-1">cargo-test examples run during verify</Criterion>
 </AcceptanceCriteria>
 
@@ -165,28 +166,29 @@ fn setup_clean_example_fixture(root: &Path) {
   runner="cargo-test"
   verifies="examples/req#examples-1"
 >
+  <Expected status="0" contains="cargo-test-pass" />
+</Example>
+```
 
-```rust
+```rust supersigil-ref=cargo-pass
 #[test]
 fn cargo_pass() {
     println!("cargo-test-pass");
 }
-```
-
-<Expected status="0" contains="cargo-test-pass" />
-</Example>"#,
+```"#,
     );
 }
 
 fn setup_failing_example_fixture(root: &Path) {
     common::setup_project(root);
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/examples.mdx",
+        "specs/examples.md",
         "examples/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="examples-1">cargo-test examples run during verify</Criterion>
 </AcceptanceCriteria>
 
@@ -196,15 +198,7 @@ fn setup_failing_example_fixture(root: &Path) {
   runner="cargo-test"
   verifies="examples/req#examples-1"
 >
-
-```rust
-#[test]
-fn cargo_pass() {
-    println!("cargo-test-pass");
-}
-```
-
-<Expected status="0" contains="cargo-test-pass" />
+  <Expected status="0" contains="cargo-test-pass" />
 </Example>
 
 <Example
@@ -213,28 +207,36 @@ fn cargo_pass() {
   runner="cargo-test"
   verifies="examples/req#examples-1"
 >
+  <Expected status="0" />
+</Example>
+```
 
-```rust
+```rust supersigil-ref=cargo-pass
+#[test]
+fn cargo_pass() {
+    println!("cargo-test-pass");
+}
+```
+
+```rust supersigil-ref=cargo-fail
 #[test]
 fn cargo_fail() {
     assert_eq!(1, 2);
 }
-```
-
-<Expected status="0" />
-</Example>"#,
+```"#,
     );
 }
 
 fn setup_non_blocking_failing_example_fixture(root: &Path) {
     common::setup_project(root);
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/examples.mdx",
+        "specs/examples.md",
         "examples/req",
         Some("requirements"),
         Some("draft"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="examples-1">draft examples can fail without blocking verify</Criterion>
 </AcceptanceCriteria>
 
@@ -244,19 +246,17 @@ fn setup_non_blocking_failing_example_fixture(root: &Path) {
   runner="sh"
   verifies="examples/req#examples-1"
 >
+  <Expected status="0" format="regex" />
+</Example>
+```
 
-```sh
+```sh supersigil-ref=body-mismatch
 printf 'line1\nline2\n'
 ```
 
-<Expected status="0" format="regex">
-
-```regex
+```regex supersigil-ref=body-mismatch#expected
 expected-output
-```
-
-</Expected>
-</Example>"#,
+```"#,
     );
 }
 
@@ -503,7 +503,7 @@ fn verify_unknown_plugin_config_fails_before_plugin_assembly() {
     let tmp = TempDir::new().unwrap();
     write_config(
         tmp.path(),
-        r#"paths = ["specs/**/*.mdx"]
+        r#"paths = ["specs/**/*.md"]
 
 [ecosystem]
 plugins = ["python"]
@@ -595,18 +595,19 @@ fn verify_skips_examples_when_structural_errors_exist() {
     // a <VerifiedBy> at document root (outside a Criterion) triggers
     // InvalidVerifiedByPlacement, which is an Error-severity structural finding.
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/mixed.mdx",
+        "specs/mixed.md",
         "mixed/req",
         Some("requirements"),
         Some("approved"),
-        r#"<VerifiedBy strategy="file-glob" paths="specs/mixed.mdx" />
+        r#"```supersigil-xml
+<VerifiedBy strategy="file-glob" paths="specs/mixed.md" />
 
 <AcceptanceCriteria>
   <Criterion id="crit-1">
     Has evidence
-    <VerifiedBy strategy="file-glob" paths="specs/mixed.mdx" />
+    <VerifiedBy strategy="file-glob" paths="specs/mixed.md" />
   </Criterion>
 </AcceptanceCriteria>
 
@@ -616,13 +617,13 @@ fn verify_skips_examples_when_structural_errors_exist() {
   runner="sh"
   verifies="mixed/req#crit-1"
 >
-
-```sh
-echo "this should be skipped"
+  <Expected status="0" contains="skipped" />
+</Example>
 ```
 
-<Expected status="0" contains="skipped" />
-</Example>"#,
+```sh supersigil-ref=should-not-run
+echo "this should be skipped"
+```"#,
     );
 
     let output = cargo_bin_cmd!("supersigil")
@@ -716,33 +717,25 @@ fn verify_skip_examples_hints_about_example_pending_criteria() {
 #[verifies("executable-examples/req#req-3-4")]
 #[verifies("executable-examples/req#req-4-5")]
 #[test]
-fn verify_update_snapshots_rewrites_mdx_file() {
+fn verify_update_snapshots_accepts_flag() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/snap.mdx",
+        "specs/snap.md",
         "snap/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="snap-1">snapshot test</Criterion>
 </AcceptanceCriteria>
 
 <Example id="snap-ex" lang="sh" runner="sh" verifies="snap/req#snap-1">
-
-```sh
-echo "new output"
-```
-
-<Expected status="0" format="snapshot">
-
-```
-old output
-```
-
-</Expected>
-</Example>"#,
+  echo "new output"
+  <Expected status="0" format="snapshot">old output</Expected>
+</Example>
+```"#,
     );
 
     let output = cargo_bin_cmd!("supersigil")
@@ -751,8 +744,6 @@ old output
         .output()
         .unwrap();
 
-    // Snapshot mismatch is expected (old vs new), so exit code may be non-zero.
-    // The important thing is that the file was rewritten.
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.is_empty(),
@@ -760,15 +751,16 @@ old output
         String::from_utf8_lossy(&output.stderr),
     );
 
-    // The MDX file should have been rewritten with the actual output
-    let updated = fs::read_to_string(tmp.path().join("specs/snap.mdx")).unwrap();
+    // After --update-snapshots, the spec file should have "old output" replaced
+    // with the actual output ("new output") from the example execution.
+    let updated = fs::read_to_string(tmp.path().join("specs/snap.md")).unwrap();
     assert!(
         updated.contains("new output"),
-        "snapshot should be updated to actual output in MDX file:\n{updated}",
+        "snapshot rewrite should replace inline Expected content with actual output, got:\n{updated}",
     );
     assert!(
         !updated.contains("old output"),
-        "old snapshot content should be replaced:\n{updated}",
+        "snapshot rewrite should remove the old Expected content, got:\n{updated}",
     );
 }
 
@@ -812,11 +804,11 @@ fn setup_multi_project_coverage_fixture(root: &Path) {
         root.join("supersigil.toml"),
         r#"
 [projects.covered]
-paths = ["specs/covered/**/*.mdx"]
+paths = ["specs/covered/**/*.md"]
 tests = ["tests/covered/**/*.rs"]
 
 [projects.uncovered]
-paths = ["specs/uncovered/**/*.mdx"]
+paths = ["specs/uncovered/**/*.md"]
 tests = ["tests/uncovered/**/*.rs"]
 
 [ecosystem]
@@ -827,9 +819,9 @@ plugins = []
 
     // Project "covered": spec with criterion + matching evidence file
     fs::create_dir_all(root.join("specs/covered")).unwrap();
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/covered/auth.mdx",
+        "specs/covered/auth.md",
         "covered/auth",
         Some("requirements"),
         Some("approved"),
@@ -849,9 +841,9 @@ plugins = []
 
     // Project "uncovered": spec with criterion and NO evidence
     fs::create_dir_all(root.join("specs/uncovered")).unwrap();
-    common::write_mdx(
+    common::write_spec_doc(
         root,
-        "specs/uncovered/billing.mdx",
+        "specs/uncovered/billing.md",
         "uncovered/billing",
         Some("requirements"),
         Some("approved"),
@@ -982,29 +974,30 @@ fn verify_parallelism_flag_overrides_config() {
     let tmp = TempDir::new().unwrap();
     write_config(
         tmp.path(),
-        r#"paths = ["specs/**/*.mdx"]
+        r#"paths = ["specs/**/*.md"]
 [examples]
 parallelism = 8
 "#,
     );
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/demo.mdx",
+        "specs/demo.md",
         "demo/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="d-1">demo</Criterion>
 </AcceptanceCriteria>
 
 <Example id="par-test" lang="sh" runner="sh" verifies="demo/req#d-1">
-
-```sh
-echo ok
+  <Expected status="0" contains="ok" />
+</Example>
 ```
 
-<Expected status="0" contains="ok" />
-</Example>"#,
+```sh supersigil-ref=par-test
+echo ok
+```"#,
     );
 
     // -j 1 forces sequential even though config says 8
@@ -1058,7 +1051,7 @@ echo "[[\"info\", \"hook saw $COUNT finding rules\"]]"
     fs::write(
         tmp.path().join("supersigil.toml"),
         format!(
-            r#"paths = ["specs/**/*.mdx"]
+            r#"paths = ["specs/**/*.md"]
 
 [hooks]
 post_verify = ["{hook}"]
@@ -1069,24 +1062,25 @@ post_verify = ["{hook}"]
     .unwrap();
     fs::create_dir_all(tmp.path().join("specs")).unwrap();
 
-    common::write_mdx(
+    common::write_spec_doc(
         tmp.path(),
-        "specs/hook-test.mdx",
+        "specs/hook-test.md",
         "hook-test/req",
         Some("requirements"),
         Some("approved"),
-        r#"<AcceptanceCriteria>
+        r#"```supersigil-xml
+<AcceptanceCriteria>
   <Criterion id="h-1">hook test</Criterion>
 </AcceptanceCriteria>
 
 <Example id="hook-ex" lang="sh" runner="sh" verifies="hook-test/req#h-1">
-
-```sh
-echo hello
+  <Expected status="0" contains="hello" />
+</Example>
 ```
 
-<Expected status="0" contains="hello" />
-</Example>"#,
+```sh supersigil-ref=hook-ex
+echo hello
+```"#,
     );
 
     let output = cargo_bin_cmd!("supersigil")
@@ -1129,7 +1123,7 @@ echo hello
 #[test]
 fn verify_empty_project_warns() {
     let dir = TempDir::new().unwrap();
-    write_config(dir.path(), "paths = [\"specs/**/*.mdx\"]\n");
+    write_config(dir.path(), "paths = [\"specs/**/*.md\"]\n");
 
     // JSON output: should contain the empty_project finding as a warning
     let output = cargo_bin_cmd!("supersigil")
@@ -1187,7 +1181,7 @@ fn broken_pipe_does_not_panic() {
     let dir = TempDir::new().unwrap();
 
     // Generate enough documents and evidence to produce >64KB of JSON output.
-    let mut config = String::from("paths = [\"specs/**/*.mdx\"]\n");
+    let mut config = String::from("paths = [\"specs/**/*.md\"]\n");
     config.push_str("\n[ecosystem.rust]\n");
     fs::write(dir.path().join("supersigil.toml"), &config).unwrap();
     fs::create_dir_all(dir.path().join("specs")).unwrap();
@@ -1211,9 +1205,9 @@ fn broken_pipe_does_not_panic() {
             .unwrap();
         }
 
-        common::write_mdx(
+        common::write_spec_doc(
             dir.path(),
-            &format!("specs/{feature}/{feature}.mdx"),
+            &format!("specs/{feature}/{feature}.md"),
             &format!("{feature}/req"),
             Some("requirements"),
             Some("approved"),
@@ -1247,4 +1241,39 @@ fn broken_pipe_does_not_panic() {
         code, 101,
         "binary panicked (exit 101) on broken pipe — should exit cleanly"
     );
+}
+
+// -----------------------------------------------------------------------
+// code_ref_conflict rule
+// -----------------------------------------------------------------------
+
+#[test]
+fn verify_orphan_code_ref_emits_warning_and_exits_two() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+
+    // Write a document with an orphan supersigil-ref fence (targets no component).
+    // Using status: approved so the warning is not downgraded to info.
+    let content = "\
+---
+supersigil:
+  id: ref-test/doc
+  status: approved
+---
+
+# A spec with an orphan ref
+
+```sh supersigil-ref=nonexistent-example
+echo hello
+```
+";
+    fs::write(tmp.path().join("specs/orphan.md"), content).unwrap();
+
+    cargo_bin_cmd!("supersigil")
+        .args(["verify", "--skip-examples"])
+        .current_dir(tmp.path())
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("code_ref_conflict"))
+        .stdout(predicate::str::contains("orphan"));
 }

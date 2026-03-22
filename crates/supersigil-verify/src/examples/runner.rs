@@ -477,7 +477,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
-            source_path: PathBuf::from("test.mdx"),
+            source_path: PathBuf::from("test.md"),
         }
     }
 

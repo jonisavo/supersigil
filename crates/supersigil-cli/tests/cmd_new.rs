@@ -11,10 +11,10 @@ fn setup_multi_project(dir: &std::path::Path) {
         dir.join("supersigil.toml"),
         r#"
 [projects.workspace]
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [projects.cli]
-paths = ["crates/my-cli/specs/**/*.mdx"]
+paths = ["crates/my-cli/specs/**/*.md"]
 "#,
     )
     .unwrap();
@@ -107,7 +107,7 @@ fn new_design_with_existing_req_fills_implements() {
 
     // The design file should have a filled-in Implements ref
     let design_content =
-        std::fs::read_to_string(tmp.path().join("specs/auth/auth.design.mdx")).unwrap();
+        std::fs::read_to_string(tmp.path().join("specs/auth/auth.design.md")).unwrap();
     assert!(
         design_content.contains(r#"<Implements refs="auth/req" />"#),
         "design should have filled Implements ref, got:\n{design_content}"
@@ -134,7 +134,7 @@ fn new_with_project_places_file_in_project_dir() {
         .success();
 
     // File should be under the cli project's spec directory
-    let expected = tmp.path().join("crates/my-cli/specs/auth/auth.req.mdx");
+    let expected = tmp.path().join("crates/my-cli/specs/auth/auth.req.md");
     assert!(
         expected.is_file(),
         "expected file at {}",
@@ -161,7 +161,7 @@ fn new_with_workspace_project_uses_root_specs() {
         .assert()
         .success();
 
-    let expected = tmp.path().join("specs/auth/auth.req.mdx");
+    let expected = tmp.path().join("specs/auth/auth.req.md");
     assert!(
         expected.is_file(),
         "expected file at {}",
@@ -232,7 +232,7 @@ fn new_design_with_project_detects_sibling_req() {
         .success();
 
     let design_content =
-        std::fs::read_to_string(tmp.path().join("crates/my-cli/specs/auth/auth.design.mdx"))
+        std::fs::read_to_string(tmp.path().join("crates/my-cli/specs/auth/auth.design.md"))
             .unwrap();
     assert!(
         design_content.contains(r#"<Implements refs="auth/req" />"#),
@@ -248,7 +248,7 @@ fn new_accepts_custom_doc_type_from_config() {
     fs::write(
         tmp.path().join("supersigil.toml"),
         r#"
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]
 
 [documents.types.narrative]
 status = ["draft", "approved"]
@@ -268,7 +268,7 @@ status = ["draft", "approved"]
 
     // The generated file should exist with the correct type in frontmatter.
     let content =
-        fs::read_to_string(tmp.path().join("specs/onboarding/onboarding.narrative.mdx")).unwrap();
+        fs::read_to_string(tmp.path().join("specs/onboarding/onboarding.narrative.md")).unwrap();
     assert!(
         content.contains("type: narrative"),
         "frontmatter should contain custom type, got:\n{content}"
@@ -316,7 +316,7 @@ fn new_prints_path_to_stdout_and_lint_hint_to_stderr() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("specs/billing/billing.req.mdx"),
+        stdout.contains("specs/billing/billing.req.md"),
         "stdout should contain the generated file path, got: {stdout}"
     );
 
@@ -340,7 +340,7 @@ fn new_adr_produces_correct_frontmatter() {
         .assert()
         .success();
 
-    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.md")).unwrap();
     assert!(
         content.contains("type: adr"),
         "frontmatter should contain type: adr, got:\n{content}"
@@ -395,7 +395,7 @@ fn new_adr_with_existing_req_includes_references() {
         .assert()
         .success();
 
-    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.md")).unwrap();
     assert!(
         content.contains(r#"<References refs="auth/req" />"#),
         "adr should include References link to req, got:\n{content}"
@@ -421,7 +421,7 @@ fn new_adr_without_req_has_commented_references() {
         .assert()
         .success();
 
-    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.mdx")).unwrap();
+    let content = fs::read_to_string(tmp.path().join("specs/auth/auth.adr.md")).unwrap();
     // Should not have an active References component
     assert!(
         !content.contains(r#"<References refs="auth/req" />"#),
@@ -457,7 +457,7 @@ fn new_scaffolds_include_type_appropriate_placeholders() {
         .assert()
         .success();
 
-    let req_content = fs::read_to_string(tmp.path().join("specs/auth/auth.req.mdx")).unwrap();
+    let req_content = fs::read_to_string(tmp.path().join("specs/auth/auth.req.md")).unwrap();
     assert!(
         req_content.contains("AcceptanceCriteria"),
         "requirements scaffold should contain AcceptanceCriteria, got:\n{req_content}"
@@ -471,7 +471,7 @@ fn new_scaffolds_include_type_appropriate_placeholders() {
         .success();
 
     let design_content =
-        fs::read_to_string(tmp.path().join("specs/billing/billing.design.mdx")).unwrap();
+        fs::read_to_string(tmp.path().join("specs/billing/billing.design.md")).unwrap();
     assert!(
         design_content.contains("Architecture"),
         "design scaffold should contain Architecture section, got:\n{design_content}"

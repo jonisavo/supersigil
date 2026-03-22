@@ -1,4 +1,4 @@
-//! Autocomplete support for supersigil MDX documents.
+//! Autocomplete support for supersigil spec documents.
 //!
 //! Implements:
 //! - req-3-1: Document ID completions inside ref-accepting attributes before `#`.
@@ -11,6 +11,7 @@ use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
 use supersigil_core::{ComponentDefs, Config, DocumentGraph};
 
 use crate::REF_ATTRS;
+use crate::is_in_supersigil_fence;
 
 // ---------------------------------------------------------------------------
 // CompletionContext
@@ -69,6 +70,12 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
         return CompletionContext::None;
     };
 
+    // Only offer completions inside frontmatter or supersigil-xml fences.
+    let in_frontmatter = is_in_frontmatter(content, line as usize);
+    if !in_frontmatter && !is_in_supersigil_fence(content, line) {
+        return CompletionContext::None;
+    }
+
     let char_pos = character as usize;
     // Clamp to line length in case character is past end.
     let char_pos = char_pos.min(line_str.len());
@@ -109,9 +116,6 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
             };
         }
     }
-
-    // Determine if we're in frontmatter (before closing `---`)
-    let in_frontmatter = is_in_frontmatter(content, line as usize);
 
     // --- Check for strategy="..." ---
     let strategy_needle = "strategy=\"";
@@ -559,8 +563,8 @@ mod tests {
 
     #[test]
     fn status_on_task_component() {
-        let content = "<Task\n  id=\"task-1\"\n  status=\"dr";
-        let ctx = detect_context(content, 2, 13);
+        let content = "```supersigil-xml\n<Task\n  id=\"task-1\"\n  status=\"dr\n```";
+        let ctx = detect_context(content, 3, 13);
         assert_eq!(
             ctx,
             CompletionContext::AttributeStatus {
@@ -572,8 +576,9 @@ mod tests {
 
     #[test]
     fn status_on_alternative() {
-        let content = "<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej";
-        let ctx = detect_context(content, 1, 51);
+        let content =
+            "```supersigil-xml\n<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej\n```";
+        let ctx = detect_context(content, 2, 51);
         assert_eq!(
             ctx,
             CompletionContext::AttributeStatus {
@@ -585,9 +590,11 @@ mod tests {
 
     #[test]
     fn strategy_on_verified_by() {
-        let content = "<VerifiedBy strategy=\"ta";
+        let content = "```supersigil-xml\n<VerifiedBy strategy=\"ta\n```";
+        // Line 1 is the content line inside the fence.
+        let line_str = content.lines().nth(1).unwrap();
         #[expect(clippy::cast_possible_truncation, reason = "test string is short")]
-        let ctx = detect_context(content, 0, content.len() as u32);
+        let ctx = detect_context(content, 1, line_str.len() as u32);
         assert_eq!(
             ctx,
             CompletionContext::AttributeStrategy {

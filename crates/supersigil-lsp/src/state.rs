@@ -33,7 +33,7 @@ use crate::completion;
 use crate::definition;
 use crate::diagnostics::{
     finding_to_diagnostic, graph_error_to_diagnostic_with_lookup, group_by_url,
-    parse_error_to_diagnostic,
+    parse_error_to_diagnostic, parse_warning_to_diagnostic,
 };
 use crate::hover;
 use crate::parse_tier;
@@ -207,8 +207,15 @@ impl SupersigilLsp {
         };
         match parse_content(&abs_path, content, &self.component_defs) {
             Ok(ParseResult::Document(doc)) => {
+                // Publish non-fatal warnings as WARNING-severity diagnostics.
+                let diags: Vec<Diagnostic> = doc
+                    .warnings
+                    .iter()
+                    .filter_map(|e| parse_warning_to_diagnostic(e, Some(content)))
+                    .map(|(_, d)| d)
+                    .collect();
                 self.file_parses.insert(rel_key, doc);
-                self.file_diagnostics.insert(uri.clone(), vec![]);
+                self.file_diagnostics.insert(uri.clone(), diags);
             }
             Ok(ParseResult::NotSupersigil(_)) => {
                 self.file_parses.remove(&rel_key);
@@ -400,7 +407,7 @@ impl LanguageServer for SupersigilLsp {
         // Only advertise full capabilities when supersigil.toml is
         // discoverable from the workspace root. Without config the server
         // stays dormant (text sync only) so it does not interfere with
-        // other MDX servers in non-Supersigil workspaces.
+        // other language servers in non-Supersigil workspaces.
         let has_config = self
             .project_root
             .as_ref()
@@ -1013,11 +1020,11 @@ mod tests {
     #[test]
     fn collect_globs_single_project() {
         let config = Config {
-            paths: Some(vec!["specs/**/*.mdx".into()]),
+            paths: Some(vec!["specs/**/*.md".into()]),
             ..Config::default()
         };
         let globs = collect_globs(&config);
-        assert_eq!(globs, vec!["specs/**/*.mdx"]);
+        assert_eq!(globs, vec!["specs/**/*.md"]);
     }
 
     #[test]
@@ -1055,7 +1062,7 @@ mod tests {
 
         // A requirement doc with one criterion and no explicit VerifiedBy
         let doc = SpecDocument {
-            path: dir.path().join("specs/my-feature.req.mdx"),
+            path: dir.path().join("specs/my-feature.req.md"),
             frontmatter: Frontmatter {
                 id: "my-feature/req".into(),
                 doc_type: Some("requirements".into()),
@@ -1067,6 +1074,8 @@ mod tests {
                 attributes: HashMap::from([("id".into(), "crit-1".into())]),
                 children: vec![],
                 body_text: Some("The feature shall work".into()),
+                body_text_offset: None,
+                body_text_end_offset: None,
                 code_blocks: vec![],
                 position: supersigil_core::SourcePosition {
                     byte_offset: 0,
@@ -1074,10 +1083,11 @@ mod tests {
                     column: 1,
                 },
             }],
+            warnings: vec![],
         };
 
         let mut config = Config {
-            paths: Some(vec!["specs/**/*.mdx".into()]),
+            paths: Some(vec!["specs/**/*.md".into()]),
             tests: Some(vec!["tests/**/*.rs".into()]),
             ecosystem: EcosystemConfig {
                 plugins: vec!["rust".into()],

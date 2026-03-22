@@ -1,0 +1,242 @@
+---
+supersigil:
+  id: decision-components/req
+  type: requirements
+  status: implemented
+title: "Decision Components"
+---
+
+## Introduction
+
+Supersigil tracks *what* the system does (criteria), *how* it's built (designs),
+and *whether it works* (evidence). It does not yet track *why* the system is
+shaped the way it is. Architectural rationale — decisions, their justifications,
+and rejected alternatives — lives outside the graph in prose files or wikis,
+where it drifts and disconnects from the specs it explains.
+
+This feature adds `<Decision>`, `<Rationale>`, and `<Alternative>` as built-in
+components, a new `adr` document type, and configurable verification rules that
+nudge authors toward recording and maintaining rationale alongside their specs.
+
+### Scope
+
+- New built-in components: `Decision`, `Rationale`, `Alternative`.
+- New built-in document type: `adr`.
+- New configurable verification rules for decision completeness and coverage.
+- Integration with `supersigil context` output.
+- Integration with `supersigil affected` for decision staleness.
+
+### Out of scope
+
+- Workflow enforcement (e.g., requiring decisions before designs can be approved).
+- Import of existing ADR formats (e.g., MADR, Nygard-style markdown).
+- UI rendering of decision components on the website.
+
+## Definitions
+
+- **Decision**: A recorded architectural choice with a unique ID. Referenceable
+  but not verifiable — it is a traceability node, not a coverage target.
+- **Rationale**: The justification for a decision. Singular per decision.
+  Non-referenceable.
+- **Alternative**: A considered option that was not chosen (or was deferred).
+  Referenceable by ID so other decisions can cross-link to it.
+- **ADR**: Architecture Decision Record. A document type whose primary purpose
+  is to contain `<Decision>` components, though decisions can live in any
+  document type.
+
+## Requirement 1: Decision Component
+
+As a spec author, I want to record architectural decisions as structured
+components, so that rationale is part of the specification graph rather than
+disconnected prose.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    THE component surface SHALL include a built-in `Decision` component that is
+    referenceable (has a required `id` attribute) and not verifiable.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/component_defs_unit_tests.rs" />
+  </Criterion>
+  <Criterion id="req-1-2">
+    `Decision` components SHALL be extractable from any document type. There
+    SHALL be no enforcement restricting which document types may contain
+    `Decision` components.
+  </Criterion>
+  <Criterion id="req-1-3">
+    `Decision` components SHALL participate in the component graph as
+    referenceable nodes. Other components (`References`, `Implements`,
+    `DependsOn`, `Task`) SHALL be able to reference a `Decision` using
+    fragment syntax (`doc-id#decision-id`).
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_decision_integration.rs" />
+  </Criterion>
+  <Criterion id="req-1-4">
+    `Decision` components SHALL support nesting `References`, `TrackedFiles`,
+    and `DependsOn` as children, following the same nesting rules as other
+    referenceable components.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_decision_integration.rs" />
+  </Criterion>
+  <Criterion id="req-1-5">
+    `Decision` SHALL support an optional `standalone` attribute whose value
+    is a non-empty reason string. When present, it declares that the decision
+    is intentionally unconnected to other components in the graph.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 2: Rationale Component
+
+As a spec author, I want to record the justification for a decision in a
+structured way, so that the "why" is distinguishable from the "what" in the
+decision body.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE component surface SHALL include a built-in `Rationale` component that
+    is neither referenceable nor verifiable. It SHALL have no required
+    attributes.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/component_defs_unit_tests.rs" />
+  </Criterion>
+  <Criterion id="req-2-2">
+    `Rationale` SHALL be valid only as a child of `Decision`. Placement outside
+    a `Decision` SHALL be reported as a structural finding.
+  </Criterion>
+  <Criterion id="req-2-3">
+    At most one `Rationale` component SHALL be permitted per `Decision`. A
+    second `Rationale` within the same `Decision` SHALL be reported as a
+    structural finding.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 3: Alternative Component
+
+As a spec author, I want to record alternatives that were considered alongside
+a decision, so that future readers understand what was rejected and why.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    THE component surface SHALL include a built-in `Alternative` component that
+    is referenceable (has a required `id` attribute) and not verifiable.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/component_defs_unit_tests.rs" />
+  </Criterion>
+  <Criterion id="req-3-2">
+    `Alternative` SHALL have a required `status` attribute. The recognized
+    values SHALL be `rejected`, `deferred`, and `superseded`.
+  </Criterion>
+  <Criterion id="req-3-3">
+    THE verification engine SHALL include a configurable rule
+    `invalid_alternative_status` (default severity: `warning`) that fires
+    when an `Alternative` component's `status` attribute is not one of the
+    recognized values.
+  </Criterion>
+  <Criterion id="req-3-4">
+    `Alternative` SHALL be valid only as a child of `Decision`. Placement
+    outside a `Decision` SHALL be reported as a structural finding.
+  </Criterion>
+  <Criterion id="req-3-5">
+    Zero or more `Alternative` components SHALL be permitted per `Decision`.
+    There SHALL be no upper cardinality limit on alternatives.
+  </Criterion>
+  <Criterion id="req-3-6">
+    `Alternative` components SHALL be referenceable from other documents using
+    fragment syntax (`doc-id#alternative-id`), so that decisions in other
+    documents can cross-link to rejected alternatives.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_decision_integration.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 4: ADR Document Type
+
+As a spec author, I want a dedicated document type for architecture decision
+records, so that I have a conventional home for cross-cutting rationale.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THE built-in document types SHALL include `adr` with valid statuses
+    `draft`, `review`, `accepted`, and `superseded`.
+  </Criterion>
+  <Criterion id="req-4-2">
+    `supersigil new adr &lt;feature&gt;` SHALL scaffold an ADR document with the
+    `adr` type and a `Decision` component placeholder.
+  </Criterion>
+  <Criterion id="req-4-3">
+    The `adr` type SHALL have no required components. A document with
+    `type: adr` and no `Decision` components SHALL be lint-clean.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 5: Verification Rules
+
+As a project lead, I want configurable rules that check decision quality and
+coverage, so that rationale does not silently go missing as the project grows.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    THE verification engine SHALL include a configurable rule
+    `incomplete_decision` (default severity: `warning`) that fires when a
+    `Decision` component has no `Rationale` child.
+  </Criterion>
+  <Criterion id="req-5-2">
+    THE verification engine SHALL include a configurable rule
+    `orphan_decision` (default severity: `warning`) that fires when a
+    `Decision` component has no outward references (no `References`,
+    `TrackedFiles`, or `DependsOn` children) AND is not referenced by any
+    other component in the graph. A `Decision` with a `standalone` attribute
+    SHALL be exempt from this rule.
+  </Criterion>
+  <Criterion id="req-5-3">
+    THE verification engine SHALL include a configurable rule
+    `missing_decision_coverage` (default severity: `off`) that fires when a
+    design document has no `Decision` referencing it — either from another
+    document or within the design document itself.
+  </Criterion>
+  <Criterion id="req-5-4">
+    All decision-related configurable rules (`incomplete_decision`,
+    `orphan_decision`, `missing_decision_coverage`,
+    `invalid_alternative_status`) SHALL be suppressible to `info` by draft
+    gating, overridable via `[verify.rules]`, and subject to the existing
+    4-level severity precedence chain.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 6: Context and Affected Integration
+
+As an agent or developer, I want decisions surfaced in `supersigil context`
+output and flagged by `supersigil affected`, so that rationale is visible
+when reviewing or modifying a feature.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    WHEN `supersigil context &lt;id&gt;` is run on a document that contains
+    `Decision` components, the output SHALL include those decisions with their
+    rationale text and alternatives.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_context_decisions.rs" />
+  </Criterion>
+  <Criterion id="req-6-2">
+    WHEN `supersigil context &lt;id&gt;` is run on a document that is referenced by
+    `Decision` components in other documents, the output SHALL include those
+    linked decisions in a reverse-mapping section.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/graph/tests/prop_context_linked_decisions.rs" />
+  </Criterion>
+  <Criterion id="req-6-3">
+    WHEN a `Decision` component contains `TrackedFiles` whose paths have
+    changed since the specified git ref, `supersigil affected` SHALL flag the
+    owning document as affected.
+  </Criterion>
+  <Criterion id="req-6-4">
+    WHEN a `Decision` contains nested `References` or `DependsOn` targeting a
+    document that is flagged as affected, the decision's owning document SHALL
+    also be flagged as transitively affected. This is satisfied by the general
+    transitive staleness behavior specified in `verification-engine/req#req-6-4`.
+    <References refs="verification-engine/req#req-6-4" />
+  </Criterion>
+</AcceptanceCriteria>
+```

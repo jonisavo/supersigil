@@ -30,7 +30,7 @@ proptest! {
         let deps_map = dag_deps_map(&dag);
         let tasks = dag_to_task_components(&dag, &deps_map);
 
-        let doc = make_doc_with_path("tasks/test", "specs/tasks/test.mdx", tasks);
+        let doc = make_doc_with_path("tasks/test", "specs/tasks/test.md", tasks);
         let result = build_graph(vec![doc], &config);
 
         match result {
@@ -76,7 +76,7 @@ proptest! {
 
         let tasks = dag_to_task_components(&dag, &deps_map);
 
-        let doc = make_doc_with_path("tasks/cyclic", "specs/tasks/cyclic.mdx", tasks);
+        let doc = make_doc_with_path("tasks/cyclic", "specs/tasks/cyclic.md", tasks);
         let result = build_graph(vec![doc], &config);
 
         match result {
@@ -122,7 +122,7 @@ proptest! {
         let task_id = format!("t{id_suffix}");
 
         let task = make_task(&task_id, None, None, Some(&task_id), 1);
-        let doc = make_doc_with_path("tasks/self-ref", "specs/tasks/self-ref.mdx", vec![task]);
+        let doc = make_doc_with_path("tasks/self-ref", "specs/tasks/self-ref.md", vec![task]);
         let result = build_graph(vec![doc], &config);
 
         match result {
@@ -181,6 +181,8 @@ fn make_task_with_children(
         attributes,
         children,
         body_text: Some(format!("task {id}")),
+        body_text_offset: None,
+        body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
     }
@@ -205,7 +207,7 @@ proptest! {
 
         let doc = make_doc_with_path(
             "tasks/sibling",
-            "specs/tasks/sibling.mdx",
+            "specs/tasks/sibling.md",
             vec![task_a, task_b],
         );
         let result = build_graph(vec![doc], &config);
@@ -249,7 +251,7 @@ proptest! {
 
         let doc = make_doc_with_path(
             "tasks/nested",
-            "specs/tasks/nested.mdx",
+            "specs/tasks/nested.md",
             vec![parent, toplevel],
         );
         let result = build_graph(vec![doc], &config);
@@ -299,7 +301,7 @@ proptest! {
         let task = make_task(&task_id, None, None, Some(&ghost_id), 1);
         let doc = make_doc_with_path(
             "tasks/ghost",
-            "specs/tasks/ghost.mdx",
+            "specs/tasks/ghost.md",
             vec![task],
         );
         let result = build_graph(vec![doc], &config);
@@ -437,7 +439,7 @@ proptest! {
         let config = single_project_config();
 
         let depends_on = make_depends_on(&doc_id, 1);
-        let doc = make_doc_with_path(&doc_id, &format!("specs/{doc_id}.mdx"), vec![depends_on]);
+        let doc = make_doc_with_path(&doc_id, &format!("specs/{doc_id}.md"), vec![depends_on]);
         let result = build_graph(vec![doc], &config);
 
         match result {

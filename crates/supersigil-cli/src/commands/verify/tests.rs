@@ -399,6 +399,8 @@ fn example_pending_count_deduplicates_target_refs() {
                 )]),
                 children: vec![],
                 body_text: None,
+                body_text_offset: None,
+                body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(10),
             },

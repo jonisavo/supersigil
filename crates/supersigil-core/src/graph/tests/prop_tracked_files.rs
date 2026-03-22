@@ -28,7 +28,7 @@ proptest! {
 
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![make_tracked_files_component("src/**/*.rs, tests/**/*.rs", 1)],
         );
 
@@ -55,7 +55,7 @@ proptest! {
 
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![
                 make_tracked_files_component("src/**/*.rs", 1),
                 make_tracked_files_component("tests/**/*.rs, docs/**/*.md", 2),
@@ -85,7 +85,7 @@ proptest! {
 
         let doc = make_doc_with_path(
             &doc_id,
-            &format!("specs/{doc_id}.mdx"),
+            &format!("specs/{doc_id}.md"),
             vec![],
         );
 
@@ -119,12 +119,12 @@ proptest! {
 
         let doc_a = make_doc_with_path(
             &id_a,
-            &format!("specs/{id_a}.mdx"),
+            &format!("specs/{id_a}.md"),
             vec![make_tracked_files_component("src/**/*.rs", 1)],
         );
         let doc_b = make_doc_with_path(
             &id_b,
-            &format!("specs/{id_b}.mdx"),
+            &format!("specs/{id_b}.md"),
             vec![make_tracked_files_component("lib/**/*.rs, bin/**/*.rs", 1)],
         );
 
@@ -163,12 +163,12 @@ proptest! {
 
         let doc_with = make_doc_with_path(
             &id_with,
-            &format!("specs/{id_with}.mdx"),
+            &format!("specs/{id_with}.md"),
             vec![make_tracked_files_component("src/**/*.rs", 1)],
         );
         let doc_without = make_doc_with_path(
             &id_without,
-            &format!("specs/{id_without}.mdx"),
+            &format!("specs/{id_without}.md"),
             vec![],
         );
 

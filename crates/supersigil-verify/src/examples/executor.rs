@@ -16,7 +16,9 @@ use supersigil_evidence::{
 };
 
 use super::runner;
-use super::types::{ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchFormat};
+use super::types::{
+    BodySpan, ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchFormat,
+};
 use crate::report::{Finding, FindingDetails, RuleName};
 
 /// Optional observer for live example execution progress.
@@ -184,11 +186,14 @@ fn build_expected_spec(component: &supersigil_core::ExtractedComponent) -> Expec
     // Extract body from first code block content
     let body = component.code_blocks.first().map(|cb| cb.content.clone());
 
-    // Extract body_span as (content_offset, content_offset + content.len())
-    let body_span = component.code_blocks.first().map(|cb| {
-        let start = cb.content_offset;
-        let end = start + cb.content.len();
-        (start, end)
+    // Extract body_span from the code block's raw source offsets.
+    // Using `content_end_offset` (instead of computing from decoded content
+    // length) is critical for inline XML body text with entity references
+    // like `&lt;` — the decoded content is shorter than the raw source.
+    let body_span = component.code_blocks.first().map(|cb| BodySpan {
+        start: cb.content_offset,
+        end: cb.content_end_offset,
+        kind: cb.span_kind,
     });
 
     ExpectedSpec {
@@ -474,7 +479,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
-    use supersigil_core::{CodeBlock, ExtractedComponent, Frontmatter, SpecDocument};
+    use supersigil_core::{CodeBlock, ExtractedComponent, Frontmatter, SpanKind, SpecDocument};
     use supersigil_evidence::EvidenceKind;
 
     use super::*;
@@ -502,6 +507,8 @@ mod tests {
                 lang: Some(lang.to_string()),
                 content: c.to_string(),
                 content_offset: 0,
+                content_end_offset: c.len(),
+                span_kind: SpanKind::RefFence,
             }]
         } else {
             vec![]
@@ -512,6 +519,8 @@ mod tests {
             attributes,
             children: vec![],
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks,
             position: pos(5),
         }
@@ -566,7 +575,7 @@ mod tests {
             env: vec![],
             setup: None,
             position: pos(5),
-            source_path: PathBuf::from("specs/test.mdx"),
+            source_path: PathBuf::from("specs/test.md"),
         }
     }
 
@@ -575,7 +584,7 @@ mod tests {
         components: Vec<ExtractedComponent>,
     ) -> supersigil_core::DocumentGraph {
         let doc = SpecDocument {
-            path: PathBuf::from(format!("specs/{doc_id}.mdx")),
+            path: PathBuf::from(format!("specs/{doc_id}.md")),
             frontmatter: Frontmatter {
                 id: doc_id.to_string(),
                 doc_type: None,
@@ -583,6 +592,7 @@ mod tests {
             },
             extra: HashMap::new(),
             components,
+            warnings: Vec::new(),
         };
         crate::test_helpers::build_test_graph(vec![doc])
     }
@@ -742,6 +752,8 @@ mod tests {
             ]),
             children: vec![],
             body_text: None,
+            body_text_offset: None,
+            body_text_end_offset: None,
             code_blocks: vec![],
             position: pos(1),
         };
@@ -775,7 +787,7 @@ mod tests {
         let rec = &evidence[0];
         assert_eq!(rec.kind(), Some(EvidenceKind::Example));
         assert_eq!(rec.test.name, "my-example");
-        assert_eq!(rec.test.file, PathBuf::from("specs/test.mdx"));
+        assert_eq!(rec.test.file, PathBuf::from("specs/test.md"));
         assert_eq!(rec.test.kind, TestKind::Unknown);
 
         // Check provenance
@@ -1064,7 +1076,7 @@ mod tests {
             env: vec![],
             setup: None,
             position: pos(1),
-            source_path: PathBuf::from("specs/test.mdx"),
+            source_path: PathBuf::from("specs/test.md"),
         }
     }
 

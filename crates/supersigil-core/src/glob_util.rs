@@ -100,10 +100,10 @@ mod tests {
     fn expand_globs_deduplicates_overlapping_patterns() {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("specs/auth")).unwrap();
-        fs::write(dir.path().join("specs/auth/login.mdx"), "").unwrap();
-        fs::write(dir.path().join("specs/auth/signup.mdx"), "").unwrap();
+        fs::write(dir.path().join("specs/auth/login.md"), "").unwrap();
+        fs::write(dir.path().join("specs/auth/signup.md"), "").unwrap();
 
-        let result = expand_globs(["specs/**/*.mdx", "specs/auth/*.mdx"], dir.path());
+        let result = expand_globs(["specs/**/*.md", "specs/auth/*.md"], dir.path());
         assert_eq!(result.len(), 2, "overlapping globs should be deduplicated");
     }
 
@@ -123,11 +123,11 @@ mod tests {
     fn expand_globs_output_is_sorted() {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("specs")).unwrap();
-        fs::write(dir.path().join("specs/c.mdx"), "").unwrap();
-        fs::write(dir.path().join("specs/a.mdx"), "").unwrap();
-        fs::write(dir.path().join("specs/b.mdx"), "").unwrap();
+        fs::write(dir.path().join("specs/c.md"), "").unwrap();
+        fs::write(dir.path().join("specs/a.md"), "").unwrap();
+        fs::write(dir.path().join("specs/b.md"), "").unwrap();
 
-        let result = expand_globs(["specs/*.mdx"], dir.path());
+        let result = expand_globs(["specs/*.md"], dir.path());
         assert!(result.windows(2).all(|w| w[0] <= w[1]));
     }
 

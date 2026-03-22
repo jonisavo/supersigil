@@ -1,0 +1,37 @@
+---
+supersigil:
+  id: inventory-queries/tasks
+  type: tasks
+  status: done
+title: "CLI Inventory Queries Tasks"
+---
+
+## Overview
+
+This tasks document tracks the bounded recovery pass for the CLI `ls`,
+`schema`, and `graph` domain.
+
+```supersigil-xml
+<Task id="task-1" status="done" implements="inventory-queries/req#req-1-1, inventory-queries/req#req-1-2, inventory-queries/req#req-1-3, inventory-queries/req#req-1-4, inventory-queries/req#req-2-1, inventory-queries/req#req-2-2, inventory-queries/req#req-2-3, inventory-queries/req#req-2-4, inventory-queries/req#req-3-1, inventory-queries/req#req-3-2, inventory-queries/req#req-3-3">
+  Recover the current `ls`, `schema`, and `graph` command behavior into
+  project-local req, design, and tasks docs under
+  `crates/supersigil-cli/specs/inventory-queries/`.
+</Task>
+
+<Task id="task-2" status="done">
+  Add end-to-end CLI coverage for `graph`, including Mermaid output, DOT
+  output, and the stderr-only summary and hint behavior.
+</Task>
+
+<Task id="task-3" status="done">
+  Decide whether `graph` should grow a `--project` filter.
+  Decision: no. Graph visualizes workspace topology including cross-project
+  edges; filtering by project would hide the relationships it exists to show.
+</Task>
+
+<Task id="task-4" status="done" implements="inventory-queries/req#req-3-3">
+  Add a test for `graph` stdout/stderr output discipline. Assert that the
+  Graph_View syntax (Mermaid or DOT) is written only to stdout, while the
+  node/edge summary and pipe hint are written only to stderr.
+</Task>
+```

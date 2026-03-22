@@ -27,7 +27,8 @@ pub use examples::executor::{
     results_to_evidence, results_to_findings,
 };
 pub use examples::types::{
-    ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchCheck, MatchFailure, MatchFormat,
+    BodySpan, ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchCheck, MatchFailure,
+    MatchFormat,
 };
 pub use explicit_evidence::extract_explicit_evidence;
 pub use hooks::run_hooks;
@@ -164,6 +165,9 @@ pub fn verify_structural(
     findings.extend(rules::structural::check_duplicate_rationale(&docs));
     findings.extend(rules::structural::check_alternative_status(&docs));
     findings.extend(rules::structural::check_code_block_cardinality(&docs));
+    findings.extend(rules::structural::check_expected_cardinality(&docs));
+    findings.extend(rules::structural::check_inline_example_lang(&docs));
+    findings.extend(rules::structural::check_code_ref_conflicts(&docs));
     findings.extend(rules::structural::check_env_format(&docs));
     let (sequential_id_order, sequential_id_gap) = rules::structural::check_sequential_ids(&docs);
     findings.extend(sequential_id_order);
@@ -561,17 +565,17 @@ mod verify_tests {
     #[test]
     fn scoped_doc_ids_respects_project_filter() {
         let mut alpha = make_doc("alpha/auth", vec![]);
-        alpha.path = PathBuf::from("specs/alpha/auth.mdx");
+        alpha.path = PathBuf::from("specs/alpha/auth.md");
 
         let mut beta = make_doc("beta/billing", vec![]);
-        beta.path = PathBuf::from("specs/beta/billing.mdx");
+        beta.path = PathBuf::from("specs/beta/billing.md");
 
         let mut config = test_config();
         config.projects = Some(std::collections::HashMap::from([
             (
                 "alpha".into(),
                 supersigil_core::ProjectConfig {
-                    paths: vec!["specs/alpha/**/*.mdx".into()],
+                    paths: vec!["specs/alpha/**/*.md".into()],
                     tests: vec![],
                     isolated: false,
                 },
@@ -579,7 +583,7 @@ mod verify_tests {
             (
                 "beta".into(),
                 supersigil_core::ProjectConfig {
-                    paths: vec!["specs/beta/**/*.mdx".into()],
+                    paths: vec!["specs/beta/**/*.md".into()],
                     tests: vec![],
                     isolated: false,
                 },
@@ -801,7 +805,7 @@ mod verify_tests {
                 .details
                 .as_ref()
                 .and_then(|details| details.path.as_deref()),
-            Some("specs/req/auth.mdx"),
+            Some("specs/req/auth.md"),
         );
     }
 
@@ -966,7 +970,7 @@ mod verify_tests {
         config.projects = Some(std::collections::HashMap::from([(
             "core".into(),
             supersigil_core::ProjectConfig {
-                paths: vec!["specs/**/*.mdx".into()],
+                paths: vec!["specs/**/*.md".into()],
                 tests: vec!["tests/**/*.rs".into()],
                 isolated: false,
             },
@@ -1044,7 +1048,7 @@ mod verify_tests {
             (
                 "alpha".into(),
                 supersigil_core::ProjectConfig {
-                    paths: vec!["specs/**/*.mdx".into()],
+                    paths: vec!["specs/**/*.md".into()],
                     tests: vec!["alpha_tests/**/*.rs".into()],
                     isolated: false,
                 },
@@ -1052,7 +1056,7 @@ mod verify_tests {
             (
                 "beta".into(),
                 supersigil_core::ProjectConfig {
-                    paths: vec!["specs/**/*.mdx".into()],
+                    paths: vec!["specs/**/*.md".into()],
                     tests: vec!["beta_tests/**/*.rs".into()],
                     isolated: false,
                 },

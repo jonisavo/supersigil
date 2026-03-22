@@ -1,1 +1,1 @@
-paths = ["specs/**/*.mdx"]
+paths = ["specs/**/*.md"]

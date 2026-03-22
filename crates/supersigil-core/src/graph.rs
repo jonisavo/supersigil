@@ -54,6 +54,10 @@ pub const DECISION: &str = "Decision";
 pub const RATIONALE: &str = "Rationale";
 /// The well-known component name for alternative components.
 pub const ALTERNATIVE: &str = "Alternative";
+/// The language identifier for supersigil XML fenced code blocks.
+pub const SUPERSIGIL_XML_LANG: &str = "supersigil-xml";
+/// The well-known fragment name for expected output in ref fences.
+pub const EXPECTED_FRAGMENT: &str = "expected";
 
 // ---------------------------------------------------------------------------
 // EdgeKind

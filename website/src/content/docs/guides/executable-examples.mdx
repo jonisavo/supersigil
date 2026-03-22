@@ -7,9 +7,10 @@ supersigil:
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
-import { TrackedFiles } from '../../../components/supersigil';
 
+```supersigil-xml
 <TrackedFiles paths="crates/supersigil-verify/src/examples/*.rs" />
+```
 
 Executable Examples turn code samples in your specs into tests. Instead of documentation snippets that silently rot, your examples run on every `supersigil verify` and fail when they no longer match reality.
 
@@ -22,21 +23,21 @@ graph LR
 
 ## The `<Example>` Component
 
-The `<Example>` component embeds a runnable code sample in any spec document:
+The `<Example>` component embeds a runnable code sample in any spec document. Code content can be provided inline (for trivial cases) or in a separate code fence linked via `supersigil-ref` (for content needing syntax highlighting or XML-special characters):
 
-````mdx
-<Example id="greeting" runner="sh" verifies="cli/req/help#shows-version">
-
-```sh
+````md
+```sh supersigil-ref=greeting
 supersigil --version
 ```
 
-<Expected status="0" contains="supersigil" />
-
+```supersigil-xml
+<Example id="greeting" runner="sh" verifies="cli/req/help#shows-version">
+  <Expected status="0" contains="supersigil" />
 </Example>
+```
 ````
 
-The code block inside `<Example>` is extracted and executed by the specified runner. If the example has a `verifies` attribute, a passing result produces verification evidence that counts toward criterion coverage.
+The code fence with `supersigil-ref=greeting` is linked to the Example by ID. When the example runs, its output is compared against the `<Expected>` declaration. If the example has a `verifies` attribute, a passing result produces verification evidence that counts toward criterion coverage.
 
 ### Attributes
 
@@ -44,7 +45,7 @@ The code block inside `<Example>` is extracted and executed by the specified run
 |-----------|----------|-------------|
 | `id` | yes | Unique identifier within the document |
 | `runner` | yes | Execution strategy: `sh`, `cargo-test`, `http`, or a custom runner name |
-| `lang` | no | Language of the code block. If omitted, derived from the fenced code block's language tag |
+| `lang` | no | Language of the code block. If omitted, derived from the `supersigil-ref` fence's language tag. Required when using inline text content |
 | `verifies` | no | Comma-separated criterion refs (e.g., `doc/req#crit-1, doc/req#crit-2`). Passing examples with `verifies` produce coverage evidence |
 | `references` | no | Comma-separated criterion refs. Informational only -- creates reference edges but does not produce coverage evidence |
 | `timeout` | no | Max execution time in seconds. Overrides the global default |
@@ -57,19 +58,21 @@ Use `verifies` when the example is a deterministic test that should count toward
 
 ## The `<Expected>` Component
 
-`<Expected>` is a child of `<Example>` that declares the golden output. When the example runs, its output is compared against this expectation.
+`<Expected>` is a child of `<Example>` that declares the golden output. When the example runs, its output is compared against this expectation. Like `<Example>`, its code content can be inline or in a `supersigil-ref` fence:
 
-````mdx
-<Expected status="0" format="json">
-
-```json
+````md
+```json supersigil-ref=my-example#expected
 {
   "id": "<any-string>",
   "count": 42
 }
 ```
 
-</Expected>
+```supersigil-xml
+<Example id="my-example" runner="http" verifies="...">
+  <Expected status="0" format="json" />
+</Example>
+```
 ````
 
 ### Attributes
@@ -99,7 +102,7 @@ Arrays are compared element-by-element (same length required). Objects are compa
 
 **`regex`** -- The expected body is compiled as a regex and matched against the full output.
 
-**`snapshot`** -- Same as text matching on normal runs. When `--update-snapshots` is passed, a mismatch rewrites the expected body in the source MDX file instead of failing.
+**`snapshot`** -- Same as text matching on normal runs. When `--update-snapshots` is passed, a mismatch rewrites the expected body in the source file instead of failing.
 
 <Aside>
 The `json` matcher with wildcards is the most common mode for API examples. It lets you assert on structure and deterministic fields while ignoring generated IDs, timestamps, and other dynamic values.
@@ -117,28 +120,26 @@ Runners are the execution engines for examples. Each runner knows how to take th
 
 **`http`** -- A native runner (no subprocess). Parses the code block as an HTTP request and sends it. The format is:
 
-````mdx
-<Example id="create-task" runner="http" env="BASE_URL=http://localhost:3000">
-
-```http
+````md
+```http supersigil-ref=create-task
 POST /api/v1/tasks
 Content-Type: application/json
 
 {"title": "Buy milk"}
 ```
 
-<Expected status="201" format="json">
-
-```json
+```json supersigil-ref=create-task#expected
 {
   "id": "<any-uuid>",
   "title": "Buy milk"
 }
 ```
 
-</Expected>
-
+```supersigil-xml
+<Example id="create-task" runner="http" env="BASE_URL=http://localhost:3000">
+  <Expected status="201" format="json" />
 </Example>
+```
 ````
 
 The first line is `METHOD URL`. Subsequent lines until the first blank line are headers. Everything after the blank line is the request body. Relative URLs are prefixed with the `BASE_URL` environment variable.
@@ -238,7 +239,7 @@ Let's add an executable example to a spec and see it run.
 
 1. **Start with a requirement that has a criterion**
 
-   ```mdx title="specs/cli/req/help.mdx"
+   ````md title="specs/cli/req/help.md"
    ---
    supersigil:
      id: cli/req/help
@@ -248,6 +249,7 @@ Let's add an executable example to a spec and see it run.
 
    # CLI Help Output
 
+   ```supersigil-xml
    <AcceptanceCriteria>
      <Criterion id="shows-version">
        WHEN a user runs the CLI with --version
@@ -255,24 +257,25 @@ Let's add an executable example to a spec and see it run.
      </Criterion>
    </AcceptanceCriteria>
    ```
+   ````
 
 2. **Add an example that verifies the criterion**
 
-   ````mdx title="specs/cli/req/help.mdx" ins={4-14}
-   </AcceptanceCriteria>
+   `````md title="specs/cli/req/help.md" ins={4-14}
+   ```
 
    ## Examples
 
-   <Example id="version-check" runner="sh" verifies="cli/req/help#shows-version">
-
-   ```sh
+   ```sh supersigil-ref=version-check
    supersigil --version
    ```
 
-   <Expected status="0" contains="supersigil" />
-
+   ```supersigil-xml
+   <Example id="version-check" runner="sh" verifies="cli/req/help#shows-version">
+     <Expected status="0" contains="supersigil" />
    </Example>
-   ````
+   ```
+   `````
 
    This example runs `supersigil --version`, checks that the exit code is 0, and checks that the output contains "supersigil".
 

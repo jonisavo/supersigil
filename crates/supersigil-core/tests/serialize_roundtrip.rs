@@ -10,7 +10,7 @@ use supersigil_core::{
 #[test]
 fn spec_document_serializes_to_json() {
     let doc = SpecDocument {
-        path: PathBuf::from("specs/auth/req.mdx"),
+        path: PathBuf::from("specs/auth/req.md"),
         frontmatter: supersigil_core::Frontmatter {
             id: "auth/req/login".into(),
             doc_type: Some("requirements".into()),
@@ -18,10 +18,11 @@ fn spec_document_serializes_to_json() {
         },
         extra: HashMap::new(),
         components: vec![],
+        warnings: vec![],
     };
     let json = serde_json::to_value(&doc).expect("serialize SpecDocument");
 
-    assert_eq!(json["path"], "specs/auth/req.mdx");
+    assert_eq!(json["path"], "specs/auth/req.md");
     assert_eq!(json["frontmatter"]["id"], "auth/req/login");
     assert_eq!(json["frontmatter"]["type"], "requirements");
     assert_eq!(json["frontmatter"]["status"], "approved");
@@ -33,7 +34,7 @@ fn spec_document_serializes_to_json() {
 fn context_output_serializes_to_json() {
     let ctx = ContextOutput {
         document: SpecDocument {
-            path: PathBuf::from("test.mdx"),
+            path: PathBuf::from("test.md"),
             frontmatter: supersigil_core::Frontmatter {
                 id: "test/doc".into(),
                 doc_type: None,
@@ -41,6 +42,7 @@ fn context_output_serializes_to_json() {
             },
             extra: HashMap::new(),
             components: vec![],
+            warnings: vec![],
         },
         criteria: vec![TargetContext {
             id: "c1".into(),
@@ -72,7 +74,7 @@ fn context_output_serializes_to_json() {
     };
     let json = serde_json::to_value(&ctx).expect("serialize ContextOutput");
 
-    assert_eq!(json["document"]["path"], "test.mdx");
+    assert_eq!(json["document"]["path"], "test.md");
     assert_eq!(json["document"]["frontmatter"], json!({ "id": "test/doc" }));
     assert_eq!(
         json["criteria"],

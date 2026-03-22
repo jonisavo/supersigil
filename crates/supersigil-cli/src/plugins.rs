@@ -248,7 +248,7 @@ mod tests {
 
     fn base_config() -> Config {
         Config {
-            paths: Some(vec!["specs/**/*.mdx".into()]),
+            paths: Some(vec!["specs/**/*.md".into()]),
             ecosystem: EcosystemConfig {
                 plugins: vec![],
                 rust: None,
@@ -653,13 +653,14 @@ mod tests {
 
     fn make_requirement_doc() -> supersigil_core::SpecDocument {
         supersigil_core::SpecDocument {
-            path: PathBuf::from("specs/req/auth.mdx"),
+            path: PathBuf::from("specs/req/auth.md"),
             frontmatter: supersigil_core::Frontmatter {
                 id: "req/auth".into(),
                 doc_type: None,
                 status: None,
             },
             extra: HashMap::new(),
+            warnings: vec![],
             components: vec![supersigil_core::ExtractedComponent {
                 name: "AcceptanceCriteria".into(),
                 attributes: HashMap::new(),
@@ -674,14 +675,20 @@ mod tests {
                         ]),
                         children: vec![],
                         body_text: None,
+                        body_text_offset: None,
+                        body_text_end_offset: None,
                         code_blocks: vec![],
                         position: pos(11),
                     }],
                     body_text: Some("criterion crit-1".into()),
+                    body_text_offset: None,
+                    body_text_end_offset: None,
                     code_blocks: vec![],
                     position: pos(10),
                 }],
                 body_text: None,
+                body_text_offset: None,
+                body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(9),
             }],
@@ -690,18 +697,21 @@ mod tests {
 
     fn make_property_doc() -> supersigil_core::SpecDocument {
         supersigil_core::SpecDocument {
-            path: PathBuf::from("specs/prop/auth.mdx"),
+            path: PathBuf::from("specs/prop/auth.md"),
             frontmatter: supersigil_core::Frontmatter {
                 id: "prop/auth".into(),
                 doc_type: None,
                 status: None,
             },
             extra: HashMap::new(),
+            warnings: vec![],
             components: vec![supersigil_core::ExtractedComponent {
                 name: "References".into(),
                 attributes: HashMap::from([("refs".into(), "req/auth#crit-1".into())]),
                 children: vec![],
                 body_text: None,
+                body_text_offset: None,
+                body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(5),
             }],
