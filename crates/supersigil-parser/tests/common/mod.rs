@@ -12,7 +12,7 @@ pub fn extract(body: &str, body_offset: usize) -> (Vec<ExtractedComponent>, Vec<
     let defs = supersigil_core::ComponentDefs::defaults();
     let ast = parse_mdx_body(body, &dummy_path()).expect("MDX should parse");
     let mut errors = Vec::new();
-    let components = extract_components(&ast, body_offset, &dummy_path(), &mut errors, &defs);
+    let components = extract_components(&ast, body_offset, 0, &dummy_path(), &mut errors, &defs);
     (components, errors)
 }
 

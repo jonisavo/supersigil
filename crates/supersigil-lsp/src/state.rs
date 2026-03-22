@@ -136,10 +136,41 @@ impl SupersigilLsp {
             .collect()
     }
 
+    /// Check whether a file URI belongs to this supersigil project.
+    ///
+    /// A file belongs to the project if it was part of the initial indexing
+    /// (already in `file_parses`) OR if its path, relative to the project
+    /// root, matches one of the configured glob patterns. Files from other
+    /// supersigil roots (e.g. worktrees) are rejected.
+    fn is_project_file(&self, uri: &Url) -> bool {
+        let Some(rel_key) = self.uri_to_relative_key(uri) else {
+            return false;
+        };
+        // Already known from initial indexing.
+        if self.file_parses.contains_key(&rel_key) {
+            return true;
+        }
+        // Check against configured globs.
+        let Some(config) = &self.config else {
+            return false;
+        };
+        let Some(root) = &self.project_root else {
+            return false;
+        };
+        let abs = root.join(&rel_key);
+        let configured_files = discover_files(config, root);
+        configured_files.contains(&abs)
+    }
+
     fn reparse_and_publish(&mut self, uri: &Url, content: &str) {
         let Some(rel_key) = self.uri_to_relative_key(uri) else {
             return;
         };
+        // Skip files that don't belong to this project (e.g. files from
+        // a worktree opened inside the main repo's VS Code workspace).
+        if !self.file_parses.contains_key(&rel_key) && !self.is_project_file(uri) {
+            return;
+        }
         // Parse with the absolute path so SpecDocument.path is absolute
         // (consistent with initial indexing via parse_file).
         let abs_path = match &self.project_root {

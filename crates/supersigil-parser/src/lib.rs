@@ -91,13 +91,39 @@ pub fn parse_content(
     // Compute body offset for source position adjustment.
     // body starts at content[body_offset..], so:
     let body_offset = content.len() - body.len();
+    // Count frontmatter lines so component line numbers (which markdown-rs
+    // reports relative to the body) can be adjusted to file-absolute.
+    let frontmatter_lines = content[..body_offset].lines().count();
 
     // Stage 2: Parse MDX body
-    let ast = parse_mdx_body(body, path).map_err(|e| vec![e])?;
+    let ast = parse_mdx_body(body, path).map_err(|e| {
+        // Adjust body-relative line to file-absolute.
+        vec![match e {
+            ParseError::MdxSyntaxError {
+                path,
+                line,
+                column,
+                message,
+            } => ParseError::MdxSyntaxError {
+                path,
+                line: line + frontmatter_lines,
+                column,
+                message,
+            },
+            other => other,
+        }]
+    })?;
 
     // Stage 3: Extract components
     let mut errors = Vec::new();
-    let components = extract_components(&ast, body_offset, path, &mut errors, component_defs);
+    let components = extract_components(
+        &ast,
+        body_offset,
+        frontmatter_lines,
+        path,
+        &mut errors,
+        component_defs,
+    );
 
     // Stage 3: Lint-time validation
     validate_components(&components, component_defs, path, &mut errors);

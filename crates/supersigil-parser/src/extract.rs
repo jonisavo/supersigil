@@ -163,6 +163,9 @@ fn extract_code_blocks(
 /// Groups the parameters that are invariant across a single component extraction.
 struct ExtractionCtx<'a> {
     body_offset: usize,
+    /// Number of lines in the frontmatter block (including delimiters).
+    /// Added to markdown-rs line numbers to produce file-absolute positions.
+    frontmatter_lines: usize,
     path: &'a Path,
     errors: &'a mut Vec<ParseError>,
     defs: &'a ComponentDefs,
@@ -186,12 +189,14 @@ struct ExtractionCtx<'a> {
 pub fn extract_components(
     node: &mdast::Node,
     body_offset: usize,
+    frontmatter_lines: usize,
     path: &Path,
     errors: &mut Vec<ParseError>,
     defs: &ComponentDefs,
 ) -> Vec<ExtractedComponent> {
     let mut ctx = ExtractionCtx {
         body_offset,
+        frontmatter_lines,
         path,
         errors,
         defs,
@@ -288,12 +293,12 @@ fn process_jsx_element(
     let pos = position.map_or(
         SourcePosition {
             byte_offset: ctx.body_offset,
-            line: 1,
+            line: 1 + ctx.frontmatter_lines,
             column: 1,
         },
         |p| SourcePosition {
             byte_offset: p.start.offset + ctx.body_offset,
-            line: p.start.line,
+            line: p.start.line + ctx.frontmatter_lines,
             column: p.start.column,
         },
     );
