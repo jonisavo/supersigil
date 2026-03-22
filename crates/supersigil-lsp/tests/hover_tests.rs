@@ -164,10 +164,7 @@ fn fragment_ref_hover_shows_title_and_body() {
         text.contains("User Authentication"),
         "should contain doc title"
     );
-    assert!(
-        text.contains("Criterion"),
-        "should contain component kind"
-    );
+    assert!(text.contains("Criterion"), "should contain component kind");
     assert!(text.contains("req-1-1"), "should contain fragment id");
     assert!(
         text.contains("User logs in successfully"),
@@ -274,10 +271,7 @@ fn hover_at_position_on_ref_string() {
     // Cursor at position 22 is inside "auth/req#req-1".
     let h = hover_at_position(content, 0, 22, &defs, &graph).expect("should return hover");
     let text = hover_text(&h);
-    assert!(
-        text.contains("Auth Requirements"),
-        "should show doc title"
-    );
+    assert!(text.contains("Auth Requirements"), "should show doc title");
     assert!(text.contains("Criterion"), "should show component kind");
 }
 

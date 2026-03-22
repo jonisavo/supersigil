@@ -40,6 +40,7 @@ export default defineConfig({
         {
           label: 'Workflows',
           items: [
+            { label: 'Editor Setup', slug: 'guides/editor-setup' },
             { label: 'Working with AI Agents', slug: 'guides/ai-agents' },
             { label: 'Architecture Decisions', slug: 'guides/architecture-decisions' },
             { label: 'CI Verification', slug: 'guides/ci-verification' },

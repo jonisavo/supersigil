@@ -68,6 +68,15 @@
           <code><span class="c-muted">// supersigil:</span> <span class="c-teal">auth:valid-creds</span></code>
         </div>
       </div>
+
+      <div class="bento-card bento-editor reveal" style="--reveal-delay: 0.24s">
+        <div class="bento-label">Editor Integration</div>
+        <h3>Live feedback as you write specs.</h3>
+        <p>The <a href="/supersigil/guides/editor-setup/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">VS Code extension</a> surfaces diagnostics, autocomplete, hover docs, and go-to-definition through an LSP server. Multi-root workspaces and worktrees supported.</p>
+        <div class="bento-snippet" aria-hidden="true">
+          <code><span class="c-gold">[err]</span> criterion <span class="c-teal">`req-1-1`</span> has no verification evidence</code>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -84,14 +93,16 @@
     gap: 1.25rem;
     margin-top: 3rem;
     grid-template-areas:
-      "graph ai     verify"
-      "graph examples rust";
+      "graph ai      verify"
+      "graph examples rust"
+      "editor editor  editor";
   }
   .bento-graph    { grid-area: graph; }
   .bento-ai       { grid-area: ai; }
   .bento-verify   { grid-area: verify; }
   .bento-examples { grid-area: examples; }
   .bento-rust     { grid-area: rust; }
+  .bento-editor   { grid-area: editor; }
 
   .bento-card {
     padding: 2rem;

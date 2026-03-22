@@ -1,0 +1,97 @@
+---
+title: Editor Setup
+description: Install the VS Code extension for live diagnostics, completions, and hover documentation in Supersigil spec files.
+supersigil:
+  id: website/editor-setup
+  type: documentation
+---
+
+import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+
+The Supersigil VS Code extension connects to the `supersigil-lsp` language server, giving you live diagnostics, go-to-definition, autocomplete, and hover documentation directly in your editor.
+
+## What you get
+
+- **Live diagnostics** — parse errors, broken refs, missing coverage, and structural issues appear as you type and save.
+- **Go-to-definition** — jump from a ref like `auth/req#req-1-1` to the criterion's source location.
+- **Autocomplete** — document IDs, criterion IDs, component names with attribute snippets, and context-sensitive `status`/`strategy` values.
+- **Hover documentation** — hover over a ref to see the target's title, body text, and a clickable link to navigate there.
+
+## Installation
+
+<Steps>
+
+1. **Install the LSP server**
+
+   The extension needs the `supersigil-lsp` binary. Install it with Cargo:
+
+   ```bash
+   cargo install supersigil-lsp
+   ```
+
+2. **Install the VS Code extension**
+
+   Build and install from the repository:
+
+   ```bash
+   cd editors/vscode
+   pnpm install
+   pnpm run package
+   code --install-extension supersigil-0.1.0.vsix
+   ```
+
+   <Aside>
+     The extension will be published to the VS Code Marketplace in a future release. For now, install from the built `.vsix` file.
+   </Aside>
+
+3. **Open a Supersigil project**
+
+   Open any folder containing a `supersigil.toml`. The extension activates automatically and starts the language server. You should see **Supersigil** in the status bar.
+
+</Steps>
+
+## Configuration
+
+The extension has one setting:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `supersigil.lsp.serverPath` | `null` | Absolute path to the `supersigil-lsp` binary. When null, searches `$PATH` and common install locations (`~/.cargo/bin`, `~/.local/bin`). |
+
+If the server binary is not found, the extension shows a notification with install instructions.
+
+## Multi-root workspaces
+
+The extension supports VS Code multi-root workspaces. Each workspace folder with a `supersigil.toml` gets its own LSP server instance. This means you can work with a main project and a git worktree side by side, each with independent diagnostics and completions.
+
+The status bar shows the instance count (e.g. "Supersigil (2)") when multiple roots are active. Click it to see per-root status and actions.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| **Supersigil: Verify** | Run the verification pipeline and publish diagnostics. Routes to the server for the active file. |
+| **Supersigil: Restart Server** | Stop and restart all LSP server instances. |
+| **Supersigil: Show Status** | Open a status menu showing per-root server state, diagnostic counts, and actions. |
+
+## Diagnostics tier
+
+The LSP server runs at the `verify` diagnostic tier by default, which includes coverage checks. You can change this in `supersigil.toml`:
+
+```toml
+[lsp]
+diagnostics = "lint"  # "lint" or "verify"
+```
+
+- **`lint`** — fast: parse errors and structural rules only.
+- **`verify`** — full: adds evidence discovery and coverage analysis on save.
+
+## Other editors
+
+The `supersigil-lsp` binary communicates over stdio and implements the Language Server Protocol. It works with any LSP-capable editor:
+
+- **Neovim** — configure via `nvim-lspconfig` with `cmd = {"supersigil-lsp"}` and `filetypes = {"mdx"}`.
+- **Zed** — add an LSP entry in settings pointing to the binary.
+- **Helix** — add to `languages.toml` under the `mdx` language.
+
+Editor-specific extensions for these editors are not yet available but the raw LSP works today.
