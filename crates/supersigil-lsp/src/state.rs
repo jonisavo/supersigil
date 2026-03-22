@@ -11,11 +11,11 @@ use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, MessageType, NumberOrString, PositionEncodingKind,
-    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ServerCapabilities,
-    ShowMessageParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgress,
-    WorkDoneProgressBegin, WorkDoneProgressEnd,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
+    InitializeResult, MessageType, NumberOrString, PositionEncodingKind, ProgressParams,
+    ProgressParamsValue, PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
@@ -105,6 +105,34 @@ impl SupersigilLsp {
                 diagnostics: merged,
                 version: None,
             });
+    }
+
+    /// Check whether a URI is strictly under `project_root` (no nested
+    /// supersigil roots in between). Returns `false` if the file is inside
+    /// a subdirectory that has its own `supersigil.toml`.
+    fn uri_is_owned(&self, uri: &lsp_types::Url) -> bool {
+        let Some(root) = &self.project_root else {
+            return false;
+        };
+        let Ok(abs) = uri.to_file_path() else {
+            return false;
+        };
+        let Ok(rel) = abs.strip_prefix(root) else {
+            return false;
+        };
+        // Walk up from the file's parent toward root, checking for an
+        // intermediate supersigil.toml that would indicate a nested project.
+        let mut check = rel;
+        while let Some(parent) = check.parent() {
+            if parent.as_os_str().is_empty() {
+                break;
+            }
+            if root.join(parent).join("supersigil.toml").is_file() {
+                return false; // Nested project owns this file
+            }
+            check = parent;
+        }
+        true
     }
 
     /// Convert a URI to a relative path suitable as a `file_parses` key.
@@ -538,6 +566,9 @@ impl LanguageServer for SupersigilLsp {
         params: DidOpenTextDocumentParams,
     ) -> ControlFlow<async_lsp::Result<()>> {
         let uri = params.text_document.uri;
+        if !self.uri_is_owned(&uri) {
+            return ControlFlow::Continue(());
+        }
         let content = params.text_document.text;
 
         // Only reparse when config is loaded (server is active).
@@ -553,6 +584,9 @@ impl LanguageServer for SupersigilLsp {
         params: DidChangeTextDocumentParams,
     ) -> ControlFlow<async_lsp::Result<()>> {
         let uri = params.text_document.uri;
+        if !self.uri_is_owned(&uri) {
+            return ControlFlow::Continue(());
+        }
 
         if let Some(change) = params.content_changes.into_iter().last() {
             let content = change.text;
@@ -702,6 +736,9 @@ impl LanguageServer for SupersigilLsp {
             .text_document
             .uri
             .clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
         let position = params.text_document_position_params.position;
         let content = self.open_files.get(&uri).cloned();
         let graph = Arc::clone(&self.graph);
@@ -730,6 +767,9 @@ impl LanguageServer for SupersigilLsp {
             .text_document
             .uri
             .clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
         let position = params.text_document_position_params.position;
         let content = self.open_files.get(&uri).cloned();
         let graph = Arc::clone(&self.graph);
@@ -755,6 +795,9 @@ impl LanguageServer for SupersigilLsp {
         params: CompletionParams,
     ) -> BoxFuture<'static, Result<Option<CompletionResponse>, Self::Error>> {
         let uri = params.text_document_position.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
         let position = params.text_document_position.position;
         let content = self.open_files.get(&uri).cloned();
         let graph = Arc::clone(&self.graph);
