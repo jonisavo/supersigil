@@ -46,13 +46,16 @@ so that I can fix problems without switching to a terminal.
   <Criterion id="req-1-2">
     WHEN an `.mdx` file is saved, THE server SHALL rebuild the
     DocumentGraph and publish cross-document diagnostics (broken refs,
-    invalid refs, cycles, missing criteria).
+    invalid refs, cycles, missing criteria). THE server SHALL also run
+    verification on initial indexing (not just on save) so that
+    diagnostics appear immediately when the workspace opens.
   </Criterion>
   <Criterion id="req-1-3">
     WHEN the configured Diagnostic_Tier is `verify`, THE server SHALL run
-    the verification pipeline on save with real evidence (resolved from
-    VerifiedBy tags and file globs) and include coverage findings in the
-    published diagnostics.
+    the verification pipeline with real evidence from both authored
+    `VerifiedBy` components and ecosystem plugins (e.g. Rust `#[verifies]`
+    macros), and SHALL include coverage findings in the published
+    diagnostics.
   </Criterion>
   <Criterion id="req-1-4">
     THE server SHALL map `ReportSeverity::Error` to `DiagnosticSeverity::ERROR`,
@@ -150,8 +153,12 @@ I can understand components and refs without leaving my current position.
   </Criterion>
   <Criterion id="req-4-2">
     WHEN the cursor hovers over a ref string, THE server SHALL display the
-    target's context: document title, criterion body text, and verification
-    status.
+    target's context as a clickable Markdown link to the target file:
+    - For fragment refs (`doc#criterion`): the document title, component
+      kind, fragment ID, and body text. The link opens the file at the
+      component's line.
+    - For document-level refs: the document title, type, and status. The
+      link opens the file at line 1.
   </Criterion>
 </AcceptanceCriteria>
 
@@ -166,7 +173,9 @@ reliable.
     ON `initialize`, THE server SHALL discover `supersigil.toml`, parse all
     matching `.mdx` files in parallel, build the initial DocumentGraph, and
     register LSP capabilities for completion, hover, definition, text
-    document sync, execute command, and file watching.
+    document sync, and file watching. THE server SHALL NOT advertise
+    `executeCommandProvider` in capabilities (the editor extension
+    registers commands itself to avoid conflicts in multi-root workspaces).
   </Criterion>
   <Criterion id="req-5-2">
     IF no `supersigil.toml` is found during initialization, THE server
@@ -197,6 +206,14 @@ reliable.
     `supersigil.toml` with `verify` as the default, and overridable at
     runtime via `workspace/didChangeConfiguration`.
   </Criterion>
+  <Criterion id="req-5-8">
+    WHEN a file URI is inside a subdirectory that contains its own
+    `supersigil.toml` (a nested supersigil root), THE server SHALL
+    ignore `didOpen`, `didChange`, hover, completion, and definition
+    requests for that file, returning empty results. This prevents
+    cross-root interference when multiple LSP instances serve nested
+    projects.
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 6: Custom Commands
@@ -206,10 +223,12 @@ that users can run the verify pipeline without leaving the editor.
 
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
-    THE server SHALL expose a `supersigil.verify` command via
+    THE server SHALL handle a `supersigil.verify` command via
     `workspace/executeCommand` that runs verification at the configured
     tier (or an explicit tier passed as argument) and publishes results
-    as diagnostics.
+    as diagnostics. THE server SHALL NOT advertise this command in
+    `executeCommandProvider` capabilities; the editor extension registers
+    it and routes to the appropriate server instance.
   </Criterion>
 </AcceptanceCriteria>
 
