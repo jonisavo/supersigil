@@ -25,6 +25,10 @@
       {
         "command": "supersigil.restartServer",
         "title": "Supersigil: Restart Server"
+      },
+      {
+        "command": "supersigil.showStatus",
+        "title": "Supersigil: Show Status"
       }
     ],
     "configuration": {

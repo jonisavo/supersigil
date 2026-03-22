@@ -186,6 +186,78 @@ async function stopAllClients(): Promise<void> {
   clients.clear();
 }
 
+async function showStatusMenu(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  const items: vscode.QuickPickItem[] = [];
+
+  // Per-root status.
+  if (clients.size === 0) {
+    items.push({
+      label: "$(circle-slash) No supersigil roots found",
+      description: "No workspace folder contains supersigil.toml",
+    });
+  } else {
+    for (const [key, client] of clients) {
+      const folder = vscode.workspace.workspaceFolders?.find(
+        (f) => f.uri.toString() === key,
+      );
+      const name = folder?.name ?? key;
+      const running = client.isRunning();
+      const icon = running ? "$(check)" : "$(warning)";
+      const state = running ? "running" : "stopped";
+      items.push({
+        label: `${icon} ${name}`,
+        description: state,
+      });
+    }
+  }
+
+  // Diagnostics summary.
+  const diagCount = vscode.languages
+    .getDiagnostics()
+    .filter(
+      ([, diags]) =>
+        diags.some((d) => d.source === "supersigil"),
+    ).length;
+  if (diagCount > 0) {
+    items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
+    items.push({
+      label: `$(issues) ${diagCount} file(s) with diagnostics`,
+      description: "from supersigil",
+    });
+  }
+
+  // Actions.
+  items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
+  items.push({
+    label: "$(debug-restart) Restart Server",
+    description: "Stop and restart all LSP instances",
+  });
+  items.push({
+    label: "$(output) Show Output",
+    description: "Open the LSP output channel",
+  });
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: "Supersigil",
+    placeHolder: "Server status and actions",
+  });
+
+  if (!picked) return;
+
+  if (picked.label.includes("Restart Server")) {
+    await stopAllClients();
+    await startAllClients(context);
+  } else if (picked.label.includes("Show Output")) {
+    // Focus the first client's output channel.
+    const first = clients.values().next().value;
+    if (first) {
+      first.outputChannel.show();
+    }
+  }
+}
+
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
@@ -193,12 +265,18 @@ export async function activate(
     vscode.StatusBarAlignment.Right,
     10,
   );
-  statusBarItem.command = "supersigil.restartServer";
+  statusBarItem.command = "supersigil.showStatus";
   context.subscriptions.push(statusBarItem);
 
   // Note: supersigil.verify is registered automatically by vscode-languageclient
   // from the LSP server's executeCommand capabilities. We only declare it in
   // package.json contributes.commands so it appears in the command palette.
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("supersigil.showStatus", () =>
+      showStatusMenu(context),
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
