@@ -340,14 +340,19 @@ pub fn finding_to_diagnostic(
     {
         let path: PathBuf = path_str.into();
         let url = path_to_url(&path)?;
-        let line = details.line.unwrap_or(0);
-        let col = details.column.unwrap_or(0);
-        let sp = supersigil_core::SourcePosition {
-            byte_offset: 0,
-            line,
-            column: col,
-        };
-        (url, source_to_lsp_from_file(&sp, &path))
+        if let Some(line) = details.line {
+            let col = details.column.unwrap_or(0);
+            let sp = supersigil_core::SourcePosition {
+                byte_offset: 0,
+                line,
+                column: col,
+            };
+            (url, source_to_lsp_from_file(&sp, &path))
+        } else if let Some(sp) = &finding.position {
+            (url, source_to_lsp_from_file(sp, &path))
+        } else {
+            (url, raw_to_lsp(0, 0))
+        }
     } else if let Some(sp) = &finding.position {
         let doc_id = finding.doc_id.as_deref().unwrap_or("");
         let path = doc_path(doc_id)?;
@@ -532,6 +537,80 @@ mod tests {
                 .all(|(_, d)| d.severity == Some(DiagnosticSeverity::ERROR))
         );
         assert!(pairs.iter().all(|(_, d)| d.message.contains("crit-1")));
+    }
+
+    // -----------------------------------------------------------------------
+    // finding_to_diagnostic
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn finding_with_position_and_details_path_but_no_line_uses_position() {
+        // When attach_doc_paths sets details.path but not details.line/column,
+        // the diagnostic should use finding.position, not default to (0, 0).
+        let path = std::path::PathBuf::from("/tmp/test-doc.mdx");
+
+        // Write a minimal file so source_to_lsp_from_file can read it.
+        let _ = std::fs::write(
+            &path,
+            "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\n<Decision>\n",
+        );
+
+        let mut finding = Finding::new(
+            supersigil_verify::RuleName::IncompleteDecision,
+            Some("test/doc".into()),
+            "Decision has no Rationale".into(),
+            Some(dummy_source_pos(10, 1)),
+        );
+        // Simulate what attach_doc_paths does: set details.path without line/column
+        finding.details = Some(Box::new(supersigil_verify::FindingDetails {
+            path: Some(path.to_string_lossy().into_owned()),
+            ..Default::default()
+        }));
+
+        let result = finding_to_diagnostic(&finding, |_| Some(path.clone()));
+
+        let (_, diag) = result.expect("should produce a diagnostic");
+        // Should use finding.position (line 10) → LSP line 9, not (0, 0)
+        assert_eq!(
+            diag.range.start.line, 9,
+            "diagnostic should point to line 10 (0-based: 9), not line 0"
+        );
+        assert_eq!(diag.range.start.character, 0);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn finding_with_details_path_and_line_uses_details_line() {
+        // When details has both path AND line, those should be used (existing behavior).
+        let path = std::path::PathBuf::from("/tmp/test-doc2.mdx");
+        let _ = std::fs::write(&path, "line1\nline2\nline3\nline4\nline5\n");
+
+        let mut finding = Finding::new(
+            supersigil_verify::RuleName::IncompleteDecision,
+            Some("test/doc".into()),
+            "Decision has no Rationale".into(),
+            Some(dummy_source_pos(10, 1)), // finding.position says line 10
+        );
+        // details says line 5 — details.line should win
+        finding.details = Some(Box::new(supersigil_verify::FindingDetails {
+            path: Some(path.to_string_lossy().into_owned()),
+            line: Some(5),
+            column: Some(3),
+            ..Default::default()
+        }));
+
+        let result = finding_to_diagnostic(&finding, |_| Some(path.clone()));
+
+        let (_, diag) = result.expect("should produce a diagnostic");
+        // details.line = 5 → LSP line 4
+        assert_eq!(
+            diag.range.start.line, 4,
+            "should use details.line (5 → 0-based 4)"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

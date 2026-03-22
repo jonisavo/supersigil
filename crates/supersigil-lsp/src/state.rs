@@ -742,6 +742,16 @@ impl LanguageServer for SupersigilLsp {
             })
             .collect();
 
+        // Evict open-file buffers whose backing file was deleted (e.g.
+        // during a rename). Without this, the stale buffer would be
+        // re-inserted below, producing a duplicate-ID error when the
+        // renamed file is also discovered on disk.
+        for change in &params.changes {
+            if change.typ == lsp_types::FileChangeType::DELETED {
+                self.open_files.remove(&change.uri);
+            }
+        }
+
         // Re-insert open file buffers (they may have unsaved changes that
         // should take precedence over the disk version).
         let mut merged = parses;
