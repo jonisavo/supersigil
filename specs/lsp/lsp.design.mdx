@@ -181,8 +181,33 @@ Context detection by scanning backward from cursor:
   - After `doc-id#` → referenceable component IDs within that document
 - After `<` at line start or after whitespace → component name completions
   from `ComponentDefs`, with snippet inserts for required attributes
-- Inside `strategy="` → `tag`, `file-glob`
-- Inside `status="` → valid statuses from document type config
+- Inside `strategy="..."` or `status="..."` → context-sensitive attribute
+  value completions (see below)
+
+#### Attribute value context resolution
+
+For `status` and `strategy`, the completion engine determines the
+enclosing context by scanning backward from the cursor to find which
+component (or frontmatter) the attribute belongs to:
+
+| Enclosing context | Attribute | Completions |
+|---|---|---|
+| YAML frontmatter | `status` | Valid statuses from the document type definition in config (e.g. `draft`, `review`, `approved`, `implemented` for `requirements`) |
+| `<Task>` | `status` | `draft`, `ready`, `in-progress`, `done` |
+| `<Alternative>` | `status` | `rejected`, `deferred`, `superseded` |
+| `<Expected>` | `status` | *(none — free-form exit code)* |
+| `<VerifiedBy>` | `strategy` | `tag`, `file-glob` |
+| Other / unknown | any | *(none)* |
+
+The enclosing component is detected by scanning backward from the cursor
+for the nearest unmatched `<ComponentName` token. If the `status`
+attribute is in the YAML frontmatter (before the closing `---`), the
+document type is read from the parsed `SpecDocument` to look up valid
+statuses from the config's `documents.types` section.
+
+The `complete` function receives the config (for document type
+definitions) and the current file's parsed document type (for
+frontmatter status lookups).
 
 Each `CompletionItem` includes:
 - `label`: the ID or component name

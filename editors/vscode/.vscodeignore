@@ -1,0 +1,10 @@
+src/**
+node_modules/**
+tsconfig.json
+esbuild.mjs
+.gitignore
+pnpm-lock.yaml
+pnpm-workspace.yaml
+**/*.ts
+**/*.map
+**/*.vsix

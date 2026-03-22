@@ -37,12 +37,22 @@ run = [
 description = "Run all tooling to ensure the repository is squeaky clean."
 run = ["mise format", "mise lint", "mise build", "mise test"]
 
-[tasks.clinstall]
+[tasks.install-cli]
 description = "Install the CLI locally"
 run = "cargo install --path ."
 dir = "crates/supersigil-cli"
 
-[tasks."clinstall:safe"]
+[tasks."install-cli:safe"]
 description = "Install the CLI locally after QA is OK"
-run = ["mise clinstall"]
+run = ["mise install-cli"]
+depends = "qa"
+
+[tasks.install-lsp]
+description = "Install the LSP server locally"
+run = "cargo install --path ."
+dir = "crates/supersigil-lsp"
+
+[tasks."install-lsp:safe"]
+description = "Install the LSP server locally after QA is OK"
+run = ["mise install-lsp"]
 depends = "qa"

@@ -1,0 +1,152 @@
+---
+supersigil:
+  id: vscode-extension/req
+  type: requirements
+  status: draft
+title: "VS Code Extension"
+---
+
+## Introduction
+
+A VS Code extension that connects to the `supersigil-lsp` language server,
+surfacing diagnostics, go-to-definition, autocomplete, and hover for `.mdx`
+spec files directly in the editor.
+
+Scope: the VS Code extension itself — binary discovery, language client
+lifecycle, command palette entries, status bar, and extension packaging. The
+LSP server features (diagnostics, completions, etc.) are already specified in
+`lsp/req` and are out of scope here.
+
+<References refs="lsp/req, lsp/design" />
+
+## Definitions
+
+- **Server_Binary**: The `supersigil-lsp` executable that the extension
+  launches as a child process over stdio.
+- **Binary_Resolution**: The three-step process for locating the
+  Server_Binary: setting override, `$PATH` lookup, not-found notification.
+
+## Requirement 1: Binary Discovery
+
+As a spec author, I want the extension to find and launch the LSP server
+automatically, so that I get language intelligence without manual
+configuration.
+
+<AcceptanceCriteria>
+  <Criterion id="req-1-1">
+    WHEN the `supersigil.lsp.serverPath` setting is configured, THE extension
+    SHALL use that path to launch the Server_Binary. IF the path does not
+    exist or is not executable, THE extension SHALL show an error notification.
+  </Criterion>
+  <Criterion id="req-1-2">
+    WHEN `supersigil.lsp.serverPath` is not set, THE extension SHALL search
+    `$PATH` for `supersigil-lsp` and use the first match.
+  </Criterion>
+  <Criterion id="req-1-3">
+    WHEN the Server_Binary cannot be found by either method, THE extension
+    SHALL show an informational notification with install instructions and an
+    "Open Settings" action. THE notification SHALL appear at most once per
+    session.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 2: Extension Activation
+
+As a spec author, I want the extension to activate only in Supersigil
+projects, so that it does not consume resources in unrelated workspaces.
+
+<AcceptanceCriteria>
+  <Criterion id="req-2-1">
+    THE extension SHALL activate when the workspace contains a
+    `supersigil.toml` file, using the `workspaceContains` activation event.
+  </Criterion>
+  <Criterion id="req-2-2">
+    THE extension SHALL NOT activate in workspaces that do not contain a
+    `supersigil.toml` file.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 3: Language Client Lifecycle
+
+As a spec author, I want the LSP connection to be reliable and recoverable,
+so that I do not lose language intelligence during editing sessions.
+
+<AcceptanceCriteria>
+  <Criterion id="req-3-1">
+    ON activation, THE extension SHALL create a `LanguageClient` from
+    `vscode-languageclient` with stdio transport, targeting the resolved
+    Server_Binary.
+  </Criterion>
+  <Criterion id="req-3-2">
+    THE client SHALL register for documents matching
+    `{ scheme: 'file', language: 'mdx' }`.
+  </Criterion>
+  <Criterion id="req-3-3">
+    WHEN the server process crashes, THE extension SHALL attempt to restart
+    it automatically, up to a configurable maximum (default: 3 restarts).
+  </Criterion>
+  <Criterion id="req-3-4">
+    ON deactivation, THE extension SHALL stop the language client and
+    terminate the server process.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 4: Commands
+
+As a spec author, I want to trigger common actions from the command palette,
+so that I can verify specs and recover from server issues without leaving
+the editor.
+
+<AcceptanceCriteria>
+  <Criterion id="req-4-1">
+    THE extension SHALL register a "Supersigil: Verify" command that sends
+    the `supersigil.verify` execute command to the LSP server.
+  </Criterion>
+  <Criterion id="req-4-2">
+    THE extension SHALL register a "Supersigil: Restart Server" command that
+    stops and restarts the language client and server process.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 5: Status Bar
+
+As a spec author, I want visual feedback on the server state, so that I know
+whether language intelligence is active.
+
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    THE extension SHALL display a status bar item showing "Supersigil" when
+    the server is running.
+  </Criterion>
+  <Criterion id="req-5-2">
+    WHEN the server has stopped or crashed beyond the restart limit, THE
+    status bar item SHALL show a warning indicator.
+  </Criterion>
+  <Criterion id="req-5-3">
+    WHEN clicked, THE status bar item SHALL execute the "Supersigil: Restart
+    Server" command.
+  </Criterion>
+  <Criterion id="req-5-4">
+    THE status bar item SHALL be hidden when the extension is not active.
+  </Criterion>
+</AcceptanceCriteria>
+
+## Requirement 6: Extension Packaging
+
+As a developer distributing the extension, I want it to be small and
+fast-loading, so that installation and activation are seamless.
+
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    THE extension source SHALL be bundled with esbuild into a single
+    JavaScript file for distribution.
+  </Criterion>
+  <Criterion id="req-6-2">
+    THE `.vsix` package SHALL contain only the bundled output, package
+    manifest, and any icon or readme — no source files or `node_modules`.
+  </Criterion>
+  <Criterion id="req-6-3">
+    THE extension SHALL be written in TypeScript with type checking
+    performed separately from the esbuild bundle step.
+  </Criterion>
+</AcceptanceCriteria>

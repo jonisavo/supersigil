@@ -139,6 +139,15 @@ records, so that authored traceability links do not masquerade as proof.
     satisfy coverage even when there is no separate validating spec document.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/coverage.rs, crates/supersigil-verify/src/artifact_graph.rs" />
   </Criterion>
+  <Criterion id="req-3-4">
+    WHEN a criterion has no ArtifactGraph evidence but is targeted by at
+    least one `Example` component with a `verifies` attribute, THE
+    `missing_verification_evidence` finding SHALL carry an
+    `example_coverable` flag set to `true` in its details. Consumers (CLI
+    terminal hints, JSON output, LSP diagnostics) SHALL use this flag to
+    distinguish genuinely uncovered criteria from criteria whose evidence
+    depends on example execution.
+  </Criterion>
 </AcceptanceCriteria>
 
 ## Requirement 4: Explicit VerifiedBy Handling and Test Discovery
@@ -268,7 +277,10 @@ are inspectable without reimplementing the pipeline.
     THE `status` command SHALL use the ArtifactGraph to count project-wide
     verification targets and covered targets, and SHALL expose per-document
     target coverage plus the authored `VerifiedBy` strategies nested under each
-    criterion.
+    criterion. WHEN a criterion is uncovered but targeted by at least one
+    `Example` with a `verifies` attribute, THE `status` output SHALL show
+    `example-coverable` instead of `uncovered` to indicate that running
+    examples may satisfy this criterion.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/status.rs" />
   </Criterion>
   <Criterion id="req-7-2">

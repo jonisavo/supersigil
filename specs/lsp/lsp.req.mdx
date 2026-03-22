@@ -59,6 +59,12 @@ so that I can fix problems without switching to a terminal.
     `Warning` to `WARNING`, and `Info` to `HINT`. Findings with
     `ReportSeverity::Off` SHALL be excluded from diagnostics.
   </Criterion>
+  <Criterion id="req-1-6">
+    WHEN a `missing_verification_evidence` finding has `example_coverable`
+    set to `true`, THE server SHALL downgrade it to
+    `DiagnosticSeverity::HINT` regardless of its effective severity, since
+    the LSP does not execute examples.
+  </Criterion>
   <Criterion id="req-1-5">
     WHEN publishing diagnostics, THE server SHALL merge per-file and
     cross-document findings into one set per URI, so that a later publish
@@ -113,7 +119,17 @@ namespace.
   </Criterion>
   <Criterion id="req-3-4">
     WHEN the cursor is inside a known attribute value (e.g. `strategy`,
-    `status`), THE server SHALL offer completions for valid values.
+    `status`), THE server SHALL offer completions for valid values
+    scoped to the enclosing context:
+    - For `status` in YAML frontmatter: values from the document type
+      definition in the config.
+    - For `status` on `Task`: task lifecycle values (`draft`, `ready`,
+      `in-progress`, `done`).
+    - For `status` on `Alternative`: recognized alternative statuses
+      (`rejected`, `deferred`, `superseded`).
+    - For `strategy` on `VerifiedBy`: `tag`, `file-glob`.
+    - For `status` on `Expected` or other free-form contexts: no
+      completions.
   </Criterion>
 </AcceptanceCriteria>
 

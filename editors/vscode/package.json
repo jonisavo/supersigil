@@ -1,0 +1,62 @@
+{
+  "name": "supersigil",
+  "displayName": "Supersigil",
+  "description": "Language Server for Supersigil",
+  "version": "0.1.0",
+  "publisher": "supersigil",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/supersigil.toml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "supersigil.verify",
+        "title": "Supersigil: Verify"
+      },
+      {
+        "command": "supersigil.restartServer",
+        "title": "Supersigil: Restart Server"
+      }
+    ],
+    "configuration": {
+      "title": "Supersigil",
+      "properties": {
+        "supersigil.lsp.serverPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Absolute path to the supersigil-lsp binary. When null, searches $PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "check-types": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "package": "pnpm run build && vsce package --no-dependencies",
+    "vscode:prepublish": "pnpm run build"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^3.2.2",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -22,6 +22,7 @@ use supersigil_core::{
     ComponentDefs, Config, DiagnosticsTier, DocumentGraph, ParseResult, SpecDocument, build_graph,
     expand_globs, find_config, load_config,
 };
+use supersigil_evidence::{EcosystemPlugin, ProjectScope};
 use supersigil_parser::parse_content;
 use supersigil_verify::{
     VerifyInputs, VerifyOptions, build_artifact_graph, extract_explicit_evidence, verify,
@@ -192,11 +193,19 @@ impl SupersigilLsp {
         let id_to_path = self.build_id_to_path();
         let options = VerifyOptions::default();
 
-        // Build real evidence from VerifiedBy tags and file globs so that
-        // coverage diagnostics match what `supersigil verify` reports.
+        // Build evidence from both explicit VerifiedBy components and
+        // ecosystem plugins (e.g. Rust #[verifies] macros), matching the
+        // CLI's full evidence pipeline.
         let inputs = VerifyInputs::resolve(config, &project_root);
+        let plugins = assemble_plugins(config);
+        let scope = ProjectScope {
+            project: None,
+            project_root: project_root.clone(),
+        };
+        let plugin_evidence =
+            collect_plugin_evidence(&plugins, &inputs.test_files, &scope, &self.graph);
         let explicit = extract_explicit_evidence(&self.graph, &inputs.tag_matches, &project_root);
-        let artifact_graph = build_artifact_graph(&self.graph, explicit, vec![]);
+        let artifact_graph = build_artifact_graph(&self.graph, explicit, plugin_evidence.evidence);
 
         match verify(
             &self.graph,
@@ -223,6 +232,47 @@ impl SupersigilLsp {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin evidence helpers (mirrors supersigil-cli/src/plugins.rs)
+// ---------------------------------------------------------------------------
+
+/// Assemble the enabled ecosystem plugin instances from the config.
+fn assemble_plugins(config: &Config) -> Vec<Box<dyn EcosystemPlugin>> {
+    let mut plugins: Vec<Box<dyn EcosystemPlugin>> = Vec::new();
+    for name in &config.ecosystem.plugins {
+        if name == "rust" {
+            plugins.push(Box::new(supersigil_rust::RustPlugin));
+        }
+    }
+    plugins
+}
+
+/// Collect evidence from all enabled plugins.
+fn collect_plugin_evidence(
+    plugins: &[Box<dyn EcosystemPlugin>],
+    test_files: &[PathBuf],
+    scope: &ProjectScope,
+    documents: &DocumentGraph,
+) -> PluginEvidenceResult {
+    let mut evidence = Vec::new();
+    for plugin in plugins {
+        let files = plugin.plan_discovery_inputs(test_files, scope);
+        match plugin.discover(&files, scope, documents) {
+            Ok(result) => {
+                evidence.extend(result.evidence);
+            }
+            Err(err) => {
+                tracing::warn!(plugin = plugin.name(), error = %err, "plugin discovery failed");
+            }
+        }
+    }
+    PluginEvidenceResult { evidence }
+}
+
+struct PluginEvidenceResult {
+    evidence: Vec<supersigil_evidence::VerificationEvidenceRecord>,
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +404,17 @@ impl LanguageServer for SupersigilLsp {
         }
 
         self.file_parses = parses;
+        self.diagnostics_tier = config
+            .lsp
+            .as_ref()
+            .map_or(DiagnosticsTier::Verify, |lsp| lsp.diagnostics);
         self.config = Some(config);
+
+        // Run verify on initial load so diagnostics appear immediately
+        // without requiring a save.
+        let tier = self.diagnostics_tier;
+        self.run_verify_and_publish(tier);
+        self.republish_all_diagnostics();
 
         let _ = client.notify::<lsp_types::notification::Progress>(ProgressParams {
             token,
@@ -624,13 +684,28 @@ impl LanguageServer for SupersigilLsp {
         let content = self.open_files.get(&uri).cloned();
         let graph = Arc::clone(&self.graph);
         let defs = Arc::clone(&self.component_defs);
+        let config = self.config.clone();
+
+        // Look up the current file's document type from parsed frontmatter.
+        let doc_type = self
+            .uri_to_relative_key(&uri)
+            .and_then(|rel| self.file_parses.get(&rel))
+            .and_then(|doc| doc.frontmatter.doc_type.clone());
 
         Box::pin(async move {
             let Some(content) = content else {
                 return Ok(None);
             };
             let byte_char = position::utf16_to_byte(&content, position.line, position.character);
-            let items = completion::complete(&content, position.line, byte_char, &graph, &defs);
+            let items = completion::complete(
+                &content,
+                position.line,
+                byte_char,
+                &graph,
+                &defs,
+                config.as_ref(),
+                doc_type.as_deref(),
+            );
             if items.is_empty() {
                 Ok(None)
             } else {
@@ -730,5 +805,108 @@ mod tests {
     fn discover_config_returns_none_in_temp_dir() {
         let dir = tempfile::tempdir().unwrap();
         assert!(discover_config(dir.path()).is_none());
+    }
+
+    #[test]
+    fn plugin_evidence_incorporated_into_verify() {
+        use std::collections::HashMap;
+        use supersigil_core::{EcosystemConfig, ExtractedComponent, Frontmatter, SpecDocument};
+
+        let dir = tempfile::tempdir().unwrap();
+        let test_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        // A Rust test file that uses #[verifies("my-feature/req#crit-1")]
+        std::fs::write(
+            test_dir.join("feature_test.rs"),
+            concat!(
+                "#[test]\n",
+                "#[verifies(\"my-feature/req#crit-1\")]\n",
+                "fn test_feature() { assert!(true); }\n",
+            ),
+        )
+        .unwrap();
+
+        // A requirement doc with one criterion and no explicit VerifiedBy
+        let doc = SpecDocument {
+            path: dir.path().join("specs/my-feature.req.mdx"),
+            frontmatter: Frontmatter {
+                id: "my-feature/req".into(),
+                doc_type: Some("requirements".into()),
+                status: Some("implemented".into()),
+            },
+            extra: HashMap::new(),
+            components: vec![ExtractedComponent {
+                name: "Criterion".into(),
+                attributes: HashMap::from([("id".into(), "crit-1".into())]),
+                children: vec![],
+                body_text: Some("The feature shall work".into()),
+                code_blocks: vec![],
+                position: supersigil_core::SourcePosition {
+                    byte_offset: 0,
+                    line: 5,
+                    column: 1,
+                },
+            }],
+        };
+
+        let mut config = Config {
+            paths: Some(vec!["specs/**/*.mdx".into()]),
+            tests: Some(vec!["tests/**/*.rs".into()]),
+            ecosystem: EcosystemConfig {
+                plugins: vec!["rust".into()],
+                rust: None,
+            },
+            ..Config::default()
+        };
+        config.ecosystem.rust = Some(supersigil_core::RustEcosystemConfig {
+            validation: supersigil_core::RustValidationPolicy::Dev,
+            project_scope: vec![],
+        });
+
+        let graph = build_graph(vec![doc], &config).unwrap();
+        let project_root = dir.path().to_path_buf();
+
+        // Run the same pipeline as run_verify_and_publish
+        let inputs = VerifyInputs::resolve(&config, &project_root);
+        let plugins = assemble_plugins(&config);
+        let scope = ProjectScope {
+            project: None,
+            project_root: project_root.clone(),
+        };
+        let plugin_result = collect_plugin_evidence(&plugins, &inputs.test_files, &scope, &graph);
+
+        // Plugin should find evidence from the #[verifies] attribute
+        assert!(
+            !plugin_result.evidence.is_empty(),
+            "Rust plugin should discover evidence from #[verifies] attribute"
+        );
+
+        let explicit = extract_explicit_evidence(&graph, &inputs.tag_matches, &project_root);
+        let artifact_graph = build_artifact_graph(&graph, explicit, plugin_result.evidence);
+
+        // The criterion should be covered via plugin evidence
+        assert!(
+            artifact_graph.has_evidence("my-feature/req", "crit-1"),
+            "crit-1 should be covered by Rust plugin evidence"
+        );
+
+        // Verify should produce no error-level findings for this criterion
+        let options = VerifyOptions::default();
+        let report = verify(&graph, &config, &project_root, &options, &artifact_graph)
+            .expect("verify should succeed");
+
+        let errors: Vec<_> = report
+            .findings
+            .iter()
+            .filter(|f| {
+                f.effective_severity == supersigil_verify::ReportSeverity::Error
+                    && f.doc_id.as_deref() == Some("my-feature/req")
+            })
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "no error-level findings expected when plugin evidence covers the criterion, got: {errors:?}"
+        );
     }
 }

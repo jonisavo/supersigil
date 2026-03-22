@@ -9,8 +9,8 @@ use supersigil_core::{
     build_graph,
 };
 use supersigil_lsp::completion::{
-    CompletionContext, complete_attribute_values, complete_component_names, complete_document_ids,
-    complete_fragment_ids, detect_context,
+    CompletionContext, StatusContext, complete_component_names, complete_document_ids,
+    complete_fragment_ids, complete_status, complete_strategy, detect_context,
 };
 
 // ---------------------------------------------------------------------------
@@ -206,27 +206,40 @@ fn detect_component_name_with_whitespace_returns_none() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn detect_strategy_attribute_prefix() {
+fn detect_strategy_attribute_on_verified_by() {
     let line = r#"<VerifiedBy strategy="ta"#;
-    // `strategy="` starts at 12; value starts at 22. Cursor at 24 = after `ta`.
     let ctx = detect_context(line, 0, 24);
     assert_eq!(
         ctx,
         CompletionContext::AttributeStrategy {
-            prefix: "ta".to_owned()
+            prefix: "ta".to_owned(),
+            component: Some("VerifiedBy".to_owned()),
         }
     );
 }
 
 #[test]
-fn detect_status_attribute_prefix() {
+fn detect_status_attribute_on_task() {
     let line = r#"<Task id="t1" status="dra"#;
-    // `status="` starts at 14; value starts at 22. Cursor at 25 = after `dra`.
     let ctx = detect_context(line, 0, 25);
     assert_eq!(
         ctx,
         CompletionContext::AttributeStatus {
-            prefix: "dra".to_owned()
+            prefix: "dra".to_owned(),
+            context: StatusContext::Task,
+        }
+    );
+}
+
+#[test]
+fn detect_status_attribute_on_alternative() {
+    let content = "<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej";
+    let ctx = detect_context(content, 1, 51);
+    assert_eq!(
+        ctx,
+        CompletionContext::AttributeStatus {
+            prefix: "rej".to_owned(),
+            context: StatusContext::Alternative,
         }
     );
 }
@@ -427,12 +440,12 @@ fn complete_component_names_no_match_returns_empty() {
 }
 
 // ---------------------------------------------------------------------------
-// complete_attribute_values (req-3-4)
+// Context-sensitive attribute completions (req-3-4)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn complete_strategy_values() {
-    let items = complete_attribute_values("strategy", "");
+fn complete_strategy_on_verified_by() {
+    let items = complete_strategy("", Some("VerifiedBy"));
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
     assert!(labels.contains(&"tag"));
@@ -444,8 +457,8 @@ fn complete_strategy_values() {
 }
 
 #[test]
-fn complete_strategy_values_with_prefix() {
-    let items = complete_attribute_values("strategy", "ta");
+fn complete_strategy_with_prefix() {
+    let items = complete_strategy("ta", Some("VerifiedBy"));
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
     assert!(labels.contains(&"tag"), "should match 'tag'");
@@ -456,14 +469,24 @@ fn complete_strategy_values_with_prefix() {
 }
 
 #[test]
-fn complete_status_values() {
-    let items = complete_attribute_values("status", "");
+fn complete_strategy_on_other_component_returns_empty() {
+    let items = complete_strategy("", Some("Task"));
+    assert!(items.is_empty());
+}
+
+#[test]
+fn complete_task_status_values() {
+    let items = complete_status("", &StatusContext::Task, None, None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
     assert!(labels.contains(&"draft"));
-    assert!(labels.contains(&"approved"));
+    assert!(labels.contains(&"ready"));
     assert!(labels.contains(&"in-progress"));
     assert!(labels.contains(&"done"));
+
+    // Should NOT contain document-level or alternative statuses
+    assert!(!labels.contains(&"approved"));
+    assert!(!labels.contains(&"rejected"));
 
     for item in &items {
         assert_eq!(item.kind, Some(CompletionItemKind::ENUM_MEMBER));
@@ -471,8 +494,8 @@ fn complete_status_values() {
 }
 
 #[test]
-fn complete_status_values_with_prefix() {
-    let items = complete_attribute_values("status", "dra");
+fn complete_task_status_with_prefix() {
+    let items = complete_status("dra", &StatusContext::Task, None, None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
     assert!(labels.contains(&"draft"), "should match 'draft'");
@@ -480,7 +503,67 @@ fn complete_status_values_with_prefix() {
 }
 
 #[test]
-fn complete_unknown_attribute_returns_empty() {
-    let items = complete_attribute_values("unknown", "");
+fn complete_alternative_status_values() {
+    let items = complete_status("", &StatusContext::Alternative, None, None);
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+
+    assert!(labels.contains(&"rejected"));
+    assert!(labels.contains(&"deferred"));
+    assert!(labels.contains(&"superseded"));
+
+    // Should NOT contain task or document-level statuses
+    assert!(!labels.contains(&"draft"));
+    assert!(!labels.contains(&"done"));
+}
+
+#[test]
+fn complete_expected_status_returns_empty() {
+    let items = complete_status("", &StatusContext::Expected, None, None);
+    assert!(items.is_empty());
+}
+
+#[test]
+fn complete_frontmatter_status_from_config() {
+    let mut config = Config::default();
+    config.documents.types.insert(
+        "requirements".into(),
+        supersigil_core::DocumentTypeDef {
+            status: vec![
+                "draft".into(),
+                "review".into(),
+                "approved".into(),
+                "implemented".into(),
+            ],
+            required_components: vec![],
+            description: None,
+        },
+    );
+
+    let items = complete_status(
+        "",
+        &StatusContext::Frontmatter,
+        Some(&config),
+        Some("requirements"),
+    );
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+
+    assert!(labels.contains(&"draft"));
+    assert!(labels.contains(&"review"));
+    assert!(labels.contains(&"approved"));
+    assert!(labels.contains(&"implemented"));
+
+    // Should NOT contain task or alternative statuses
+    assert!(!labels.contains(&"done"));
+    assert!(!labels.contains(&"rejected"));
+}
+
+#[test]
+fn complete_frontmatter_status_unknown_doc_type() {
+    let items = complete_status(
+        "",
+        &StatusContext::Frontmatter,
+        Some(&Config::default()),
+        Some("unknown"),
+    );
     assert!(items.is_empty());
 }
