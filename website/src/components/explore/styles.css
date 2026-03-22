@@ -9,6 +9,7 @@
   display: flex;
   flex-direction: column;
   height: calc(100vh - 4rem); /* subtract Starlight header */
+  height: calc(100dvh - 4rem); /* mobile: tracks visible viewport */
   background: var(--bg-deep);
   overflow: hidden;
   font-family: var(--font-body);
@@ -709,7 +710,9 @@
     width: 100%;
     top: auto;
     height: 45vh;
+    height: 45dvh;
     max-height: 45vh;
+    max-height: 45dvh;
     border-left: none;
     border-top: 1px solid var(--border);
     transform: translateY(100%);
@@ -717,6 +720,10 @@
 
   .detail-panel.open {
     transform: translateY(0);
+  }
+
+  .detail-panel-body {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   }
 
   .explorer-bar {
