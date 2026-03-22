@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use supersigil_core::{CRITERION, DocumentGraph};
+use supersigil_core::{CRITERION, DocumentGraph, EXAMPLE, split_criterion_ref};
 
 use crate::artifact_graph::ArtifactGraph;
 
@@ -27,12 +27,17 @@ pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<F
         }
     }
 
+    // Pre-compute (doc_id, criterion_id) pairs targeted by <Example verifies="...">
+    // so we can flag findings as example-coverable.
+    let example_targets = collect_example_targets(graph);
+
     for (doc_id, doc) in graph.documents() {
         for_each_criterion(
             &doc.components,
             doc_id,
             artifact_graph,
             &suggestable,
+            &example_targets,
             &mut findings,
         );
     }
@@ -40,11 +45,41 @@ pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<F
     findings
 }
 
+/// Collect all `(doc_id, criterion_id)` pairs targeted by `<Example verifies="...">`
+/// components across the entire graph.
+fn collect_example_targets(graph: &DocumentGraph) -> HashSet<(String, String)> {
+    let mut targets = HashSet::new();
+    for (_doc_id, doc) in graph.documents() {
+        collect_example_targets_from(&doc.components, &mut targets);
+    }
+    targets
+}
+
+fn collect_example_targets_from(
+    components: &[supersigil_core::ExtractedComponent],
+    targets: &mut HashSet<(String, String)>,
+) {
+    for component in components {
+        if component.name == EXAMPLE
+            && let Some(verifies) = component.attributes.get("verifies")
+        {
+            for ref_str in verifies.split(',') {
+                let ref_str = ref_str.trim();
+                if let Some((doc_id, criterion_id)) = split_criterion_ref(ref_str) {
+                    targets.insert((doc_id.to_owned(), criterion_id.to_owned()));
+                }
+            }
+        }
+        collect_example_targets_from(&component.children, targets);
+    }
+}
+
 fn for_each_criterion(
     components: &[supersigil_core::ExtractedComponent],
     doc_id: &str,
     artifact_graph: &ArtifactGraph<'_>,
     suggestable: &HashSet<(&str, &str)>,
+    example_targets: &HashSet<(String, String)>,
     findings: &mut Vec<Finding>,
 ) {
     for component in components {
@@ -53,6 +88,9 @@ fn for_each_criterion(
         {
             let has_evidence = artifact_graph.has_evidence(doc_id, criterion_id);
             if !has_evidence {
+                let example_coverable =
+                    example_targets.contains(&(doc_id.to_owned(), criterion_id.to_owned()));
+
                 let mut message =
                     format!("criterion `{criterion_id}` has no verification evidence");
 
@@ -75,6 +113,7 @@ fn for_each_criterion(
                              or use a language plugin (e.g. `#[verifies(\"{target_ref}\")]` for Rust)."
                         )),
                         target_ref: Some(target_ref),
+                        example_coverable,
                         ..FindingDetails::default()
                     }),
                 );
@@ -86,6 +125,7 @@ fn for_each_criterion(
             doc_id,
             artifact_graph,
             suggestable,
+            example_targets,
             findings,
         );
     }
@@ -95,7 +135,7 @@ fn for_each_criterion(
 mod tests {
     use std::collections::HashMap;
 
-    use supersigil_core::{EXAMPLE, ExtractedComponent};
+    use supersigil_core::ExtractedComponent;
 
     use super::*;
     use crate::test_helpers::*;

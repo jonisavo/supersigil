@@ -37,3 +37,11 @@ current debt in the ArtifactGraph-era verification surface.
   Decision: keep in CLI glue. The CLI is the only consumer and the verify
   library intentionally stays evidence-unaware.
 </Task>
+
+<Task id="task-5" status="done" implements="verification-engine/req#req-3-4, verification-engine/req#req-7-1">
+  Add `example_coverable` flag to coverage findings and status output.
+  The coverage rule scans `Example` components with `verifies` attributes
+  and flags uncovered criteria that would be satisfied by example execution.
+  The `status` command shows `example-coverable` instead of `uncovered`
+  for these criteria. JSON output includes the flag in finding details.
+</Task>

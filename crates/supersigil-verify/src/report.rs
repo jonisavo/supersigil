@@ -221,6 +221,10 @@ pub struct FindingDetails {
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    /// When `true`, this criterion is targeted by at least one `<Example
+    /// verifies="...">` component, so running examples may cover it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub example_coverable: bool,
 }
 
 impl Finding {

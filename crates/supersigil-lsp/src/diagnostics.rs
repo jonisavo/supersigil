@@ -323,7 +323,17 @@ pub fn finding_to_diagnostic(
     finding: &Finding,
     doc_path: impl Fn(&str) -> Option<PathBuf>,
 ) -> Option<(Url, Diagnostic)> {
-    let lsp_severity = severity_to_lsp(finding.effective_severity)?;
+    let mut lsp_severity = severity_to_lsp(finding.effective_severity)?;
+
+    // Downgrade example-coverable findings to HINT since the LSP does not
+    // execute examples (req-1-6).
+    if finding
+        .details
+        .as_ref()
+        .is_some_and(|d| d.example_coverable)
+    {
+        lsp_severity = DiagnosticSeverity::HINT;
+    }
 
     let (url, pos) = if let Some(details) = &finding.details
         && let Some(path_str) = &details.path

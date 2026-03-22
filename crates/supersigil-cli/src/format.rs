@@ -18,6 +18,7 @@ pub enum Token {
     Status,
     StatusGood,
     StatusBad,
+    StatusInfo,
     StatusSuperseded,
     Count,
     Path,
@@ -33,7 +34,9 @@ impl Token {
             Token::Header | Token::Label | Token::Count => Style::new().effects(Effects::BOLD),
             Token::DocId => Style::new().fg_color(Some(AnsiColor::Cyan.into())),
             Token::DocType => Style::new().fg_color(Some(AnsiColor::Blue.into())),
-            Token::Status => Style::new().fg_color(Some(AnsiColor::Yellow.into())),
+            Token::Status | Token::StatusInfo => {
+                Style::new().fg_color(Some(AnsiColor::Yellow.into()))
+            }
             Token::StatusGood => Style::new().fg_color(Some(AnsiColor::Green.into())),
             Token::StatusBad => Style::new().fg_color(Some(AnsiColor::Red.into())),
             Token::StatusSuperseded | Token::Path | Token::Hint => {

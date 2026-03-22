@@ -45,6 +45,10 @@ struct DocumentStatus {
 struct TargetStatus {
     id: String,
     covered: bool,
+    /// When `true`, this criterion is not covered by artifact evidence but
+    /// is targeted by at least one `<Example verifies="...">` component.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    example_coverable: bool,
     /// `VerifiedBy` strategies associated with this criterion (e.g. `"tag:my_tag"`,
     /// `"file-glob:tests/**"`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -69,7 +73,15 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
         Some(id) => {
             // Exact match → per-document detail view.
             if graph.document(id).is_some() {
-                return run_per_document(id, &args.format, &graph, &artifact_graph, color);
+                let example_refs = scope::collect_example_verifies_refs(&graph);
+                return run_per_document(
+                    id,
+                    &args.format,
+                    &graph,
+                    &artifact_graph,
+                    &example_refs,
+                    color,
+                );
             }
             // Prefix match → aggregated project-style summary for matching docs.
             let has_prefix_match = graph
@@ -236,6 +248,7 @@ fn run_per_document(
     fmt: &OutputFormat,
     graph: &supersigil_core::DocumentGraph,
     artifact_graph: &ArtifactGraph<'_>,
+    example_refs: &HashSet<String>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let ctx = graph.context(id)?;
@@ -243,7 +256,7 @@ fn run_per_document(
 
     // Build per-criterion status with VerifiedBy info extracted from the
     // component tree (VerifiedBy is always nested inside Criterion).
-    let criteria = build_targets_status(id, &doc.components, artifact_graph);
+    let criteria = build_targets_status(id, &doc.components, artifact_graph, example_refs);
 
     let tracked_files = graph
         .tracked_files(id)
@@ -284,6 +297,8 @@ fn run_per_document(
                 for crit in &status.criteria {
                     let (marker, tok) = if crit.covered {
                         ("covered", Token::StatusGood)
+                    } else if crit.example_coverable {
+                        ("example-coverable", Token::StatusInfo)
                     } else {
                         ("uncovered", Token::StatusBad)
                     };
@@ -353,9 +368,16 @@ fn build_targets_status(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
+    example_refs: &HashSet<String>,
 ) -> Vec<TargetStatus> {
     let mut result = Vec::new();
-    collect_targets_status(doc_id, components, artifact_graph, &mut result);
+    collect_targets_status(
+        doc_id,
+        components,
+        artifact_graph,
+        example_refs,
+        &mut result,
+    );
     result
 }
 
@@ -363,6 +385,7 @@ fn collect_targets_status(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
+    example_refs: &HashSet<String>,
     result: &mut Vec<TargetStatus>,
 ) {
     for comp in components {
@@ -392,13 +415,17 @@ fn collect_targets_status(
                 })
                 .collect();
 
+            let covered = artifact_graph.has_evidence(doc_id, crit_id);
+            let example_coverable =
+                !covered && example_refs.contains(&format!("{doc_id}#{crit_id}"));
             result.push(TargetStatus {
                 id: crit_id.clone(),
-                covered: artifact_graph.has_evidence(doc_id, crit_id),
+                covered,
+                example_coverable,
                 verified_by,
             });
         }
         // Recurse into children (e.g. AcceptanceCriteria -> Criterion).
-        collect_targets_status(doc_id, &comp.children, artifact_graph, result);
+        collect_targets_status(doc_id, &comp.children, artifact_graph, example_refs, result);
     }
 }

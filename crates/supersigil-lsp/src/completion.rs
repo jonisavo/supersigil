@@ -137,7 +137,7 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
         let value_start = attr_start + status_needle.len();
         let value_so_far = &before_cursor[value_start..];
         if !value_so_far.contains('"') {
-            let context = if in_frontmatter {
+            let status_ctx = if in_frontmatter {
                 StatusContext::Frontmatter
             } else {
                 match find_enclosing_component(content, line as usize) {
@@ -150,7 +150,7 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
             };
             return CompletionContext::AttributeStatus {
                 prefix: value_so_far.to_owned(),
-                context,
+                context: status_ctx,
             };
         }
     }
@@ -586,6 +586,7 @@ mod tests {
     #[test]
     fn strategy_on_verified_by() {
         let content = "<VerifiedBy strategy=\"ta";
+        #[expect(clippy::cast_possible_truncation, reason = "test string is short")]
         let ctx = detect_context(content, 0, content.len() as u32);
         assert_eq!(
             ctx,

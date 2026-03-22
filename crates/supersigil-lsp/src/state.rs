@@ -215,6 +215,21 @@ impl SupersigilLsp {
             &artifact_graph,
         ) {
             Ok(report) => {
+                // Count example-coverable findings per document before
+                // converting to diagnostics (conversion downgrades them
+                // to HINT, losing the distinction).
+                let mut example_coverable_counts: HashMap<String, usize> = HashMap::new();
+                for finding in &report.findings {
+                    if finding
+                        .details
+                        .as_ref()
+                        .is_some_and(|d| d.example_coverable)
+                        && let Some(doc_id) = &finding.doc_id
+                    {
+                        *example_coverable_counts.entry(doc_id.clone()).or_default() += 1;
+                    }
+                }
+
                 let pairs: Vec<(Url, Diagnostic)> = report
                     .findings
                     .iter()
@@ -225,6 +240,32 @@ impl SupersigilLsp {
                 let grouped = group_by_url(pairs);
                 for (uri, diags) in grouped {
                     self.graph_diagnostics.insert(uri, diags);
+                }
+
+                // Add a single info diagnostic per document summarizing
+                // how many criteria are gated behind example execution.
+                for (doc_id, count) in &example_coverable_counts {
+                    if let Some(path) = id_to_path.get(doc_id.as_str())
+                        && let Some(url) = crate::path_to_url(path)
+                    {
+                        let message = if *count == 1 {
+                            "1 criterion covered only by executable examples (not run by LSP). Use `supersigil verify` to confirm.".to_owned()
+                        } else {
+                            format!(
+                                "{count} criteria covered only by executable examples (not run by LSP). Use `supersigil verify` to confirm."
+                            )
+                        };
+                        self.graph_diagnostics
+                            .entry(url)
+                            .or_default()
+                            .push(Diagnostic {
+                                range: position::zero_range(position::raw_to_lsp(0, 0)),
+                                severity: Some(lsp_types::DiagnosticSeverity::INFORMATION),
+                                source: Some(crate::DIAGNOSTIC_SOURCE.to_string()),
+                                message,
+                                ..Diagnostic::default()
+                            });
+                    }
                 }
             }
             Err(err) => {
