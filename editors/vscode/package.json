@@ -3,8 +3,9 @@
   "displayName": "Supersigil",
   "description": "Language Server for Supersigil",
   "version": "0.1.0",
-  "publisher": "supersigil",
+  "publisher": "savolainen",
   "license": "MIT",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.74.0"
   },
