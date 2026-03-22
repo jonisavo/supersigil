@@ -6,8 +6,8 @@
 
 use std::fmt::Write as _;
 
-use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind};
-use supersigil_core::{ComponentDefs, DocumentGraph, SpecDocument};
+use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Url};
+use supersigil_core::{ComponentDefs, DocumentGraph, SourcePosition, SpecDocument};
 
 use crate::definition::find_ref_at_position;
 
@@ -80,8 +80,9 @@ pub fn hover_ref(ref_str: &str, graph: &DocumentGraph) -> Option<Hover> {
 
         let title = doc_title(doc);
         let kind = &component.name;
+        let link = file_link(&doc.path, Some(&component.position));
 
-        let mut md = format!("### {title} — {kind} `{fragment_id}`\n\n");
+        let mut md = format!("### [{title} — {kind} `{fragment_id}`]({link})\n\n");
 
         if let Some(body) = &component.body_text {
             let _ = writeln!(md, "> {body}");
@@ -94,8 +95,9 @@ pub fn hover_ref(ref_str: &str, graph: &DocumentGraph) -> Option<Hover> {
         let title = doc_title(doc);
         let doc_type = doc.frontmatter.doc_type.as_deref().unwrap_or("unknown");
         let status = doc.frontmatter.status.as_deref().unwrap_or("unknown");
+        let link = file_link(&doc.path, None);
 
-        format!("### {title}\n\n**Type:** {doc_type} | **Status:** {status}\n")
+        format!("### [{title}]({link})\n\n**Type:** {doc_type} | **Status:** {status}\n")
     };
 
     Some(Hover {
@@ -182,6 +184,17 @@ fn component_name_at_position(content: &str, line: u32, character: u32) -> Optio
     }
 
     Some(word.to_owned())
+}
+
+/// Build a `file://` URI with an optional line fragment for clickable links
+/// in hover tooltips.
+fn file_link(path: &std::path::Path, position: Option<&SourcePosition>) -> String {
+    let uri = Url::from_file_path(path)
+        .map_or_else(|()| format!("file://{}", path.display()), |u| u.to_string());
+    match position {
+        Some(pos) if pos.line > 0 => format!("{uri}#{}", pos.line),
+        _ => uri,
+    }
 }
 
 /// Get the document title from the `extra` [`HashMap`], falling back to the ID.
