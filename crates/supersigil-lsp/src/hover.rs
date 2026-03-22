@@ -79,14 +79,11 @@ pub fn hover_ref(ref_str: &str, graph: &DocumentGraph) -> Option<Hover> {
         let component = graph.component(doc_id, fragment_id)?;
 
         let title = doc_title(doc);
-        let doc_type = doc.frontmatter.doc_type.as_deref().unwrap_or("unknown");
-        let status = doc.frontmatter.status.as_deref().unwrap_or("unknown");
+        let kind = &component.name;
 
-        let mut md = format!("### {doc_id} — {title}\n\n");
-        let _ = writeln!(md, "**Type:** {doc_type} | **Status:** {status}");
+        let mut md = format!("### {title} — {kind} `{fragment_id}`\n\n");
 
         if let Some(body) = &component.body_text {
-            md.push_str("\n---\n\n");
             let _ = writeln!(md, "> {body}");
         }
 
@@ -98,7 +95,7 @@ pub fn hover_ref(ref_str: &str, graph: &DocumentGraph) -> Option<Hover> {
         let doc_type = doc.frontmatter.doc_type.as_deref().unwrap_or("unknown");
         let status = doc.frontmatter.status.as_deref().unwrap_or("unknown");
 
-        format!("### {ref_str} — {title}\n\n**Type:** {doc_type} | **Status:** {status}\n")
+        format!("### {title}\n\n**Type:** {doc_type} | **Status:** {status}\n")
     };
 
     Some(Hover {

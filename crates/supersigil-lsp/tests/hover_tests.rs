@@ -160,16 +160,23 @@ fn fragment_ref_hover_shows_title_and_body() {
     let h = hover_ref("auth/req#req-1-1", &graph).expect("should return hover");
     let text = hover_text(&h);
 
-    assert!(text.contains("auth/req"), "should contain doc id");
     assert!(
         text.contains("User Authentication"),
         "should contain doc title"
     );
-    assert!(text.contains("requirements"), "should contain doc type");
-    assert!(text.contains("approved"), "should contain doc status");
+    assert!(
+        text.contains("Criterion"),
+        "should contain component kind"
+    );
+    assert!(text.contains("req-1-1"), "should contain fragment id");
     assert!(
         text.contains("User logs in successfully"),
         "should contain criterion body"
+    );
+    // Fragment hover should NOT show type/status — that's for doc-level hover.
+    assert!(
+        !text.contains("requirements"),
+        "fragment hover should not show doc type"
     );
 }
 
@@ -192,7 +199,6 @@ fn document_ref_hover_shows_title_and_status() {
     let h = hover_ref("design/session", &graph).expect("should return hover");
     let text = hover_text(&h);
 
-    assert!(text.contains("design/session"), "should contain doc id");
     assert!(
         text.contains("Session Management"),
         "should contain doc title"
@@ -268,7 +274,11 @@ fn hover_at_position_on_ref_string() {
     // Cursor at position 22 is inside "auth/req#req-1".
     let h = hover_at_position(content, 0, 22, &defs, &graph).expect("should return hover");
     let text = hover_text(&h);
-    assert!(text.contains("auth/req"), "should show doc id");
+    assert!(
+        text.contains("Auth Requirements"),
+        "should show doc title"
+    );
+    assert!(text.contains("Criterion"), "should show component kind");
 }
 
 #[test]
