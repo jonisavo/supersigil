@@ -62,6 +62,7 @@ supersigil init                # Create supersigil.toml and install agent skills
 supersigil skills install      # Install or update agent skills
 supersigil import --from kiro  # Import from Kiro format
 supersigil examples            # List executable examples
+supersigil explore             # Interactive graph explorer (browser)
 ```
 
 ## Configuration
@@ -104,18 +105,48 @@ Test files / executable examples
 - `status: draft` suppresses warnings so you can work iteratively.
   Hard errors (broken refs, cycles, duplicates) are always fatal.
 
-See [DECISIONS.md](DECISIONS.md) for architectural rationale.
+## Editor integration
+
+The Supersigil LSP server provides real-time feedback in your editor:
+diagnostics, go-to-definition, autocomplete for document and criterion
+IDs, and hover documentation.
+
+### VS Code
+
+Install the **Supersigil** extension from `editors/vscode/`. It
+activates automatically when a workspace contains `supersigil.toml` and
+discovers the `supersigil-lsp` binary from your `$PATH`,
+`~/.cargo/bin/`, or `~/.local/bin/`.
+
+Features:
+- Inline diagnostics (parse errors, broken refs, coverage gaps)
+- Go-to-definition for cross-references
+- Autocomplete for document IDs, criterion IDs, and component attributes
+- Hover tooltips with document context and clickable links
+- Status bar indicator with server health
+- Commands: **Supersigil: Verify**, **Restart Server**, **Show Status**
+
+Configure a custom server path with `supersigil.lsp.serverPath` if
+needed.
+
+### Other editors
+
+Any editor with LSP support can use `supersigil-lsp` directly. Point
+your editor's LSP client at the binary and register it for MDX files.
 
 ## Project structure
 
 ```
 crates/
-  supersigil-core/       # Document model, graph, config
-  supersigil-parser/     # MDX parsing, front matter extraction
-  supersigil-verify/     # Verification engine
-  supersigil-evidence/   # Language-agnostic evidence primitives
-  supersigil-rust/       # Rust ecosystem plugin
+  supersigil-core/         # Document model, graph, config
+  supersigil-parser/       # MDX parsing, front matter extraction
+  supersigil-verify/       # Verification engine
+  supersigil-evidence/     # Language-agnostic evidence primitives
+  supersigil-rust/         # Rust ecosystem plugin
   supersigil-rust-macros/  # #[verifies(...)] proc macro
-  supersigil-import/     # Kiro import
-  supersigil-cli/        # CLI entry point
+  supersigil-import/       # Kiro import
+  supersigil-lsp/          # Language Server Protocol server
+  supersigil-cli/          # CLI entry point
+editors/
+  vscode/                  # VS Code extension
 ```
