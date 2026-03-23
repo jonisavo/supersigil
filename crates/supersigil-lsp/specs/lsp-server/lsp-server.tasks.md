@@ -1,13 +1,13 @@
 ---
 supersigil:
-  id: lsp/tasks
+  id: lsp-server/tasks
   type: tasks
   status: done
 title: "Language Server Protocol Support"
 ---
 
 ```supersigil-xml
-<DependsOn refs="lsp/design" />
+<DependsOn refs="lsp-server/design" />
 ```
 
 ## Overview
@@ -20,7 +20,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-1"
   status="done"
-  implements="lsp/req#req-8-1"
+  implements="lsp-server/req#req-8-1"
 >
   Add `parse_content(path, content, defs)` to `supersigil-parser`. Refactor
   `parse_file` to read from disk then delegate to `parse_content`. Existing
@@ -30,7 +30,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-2"
   status="done"
-  implements="lsp/req#req-8-2"
+  implements="lsp-server/req#req-8-2"
 >
   Add `lsp: Option&lt;LspConfig&gt;` to `Config` in `supersigil-core` with
   `#[serde(default)]`. `LspConfig` contains `diagnostics: DiagnosticsTier`
@@ -41,7 +41,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-3"
   status="done"
-  implements="lsp/req#req-5-1, lsp/req#req-5-2"
+  implements="lsp-server/req#req-5-1, lsp-server/req#req-5-2"
   depends="task-1, task-2"
 >
   Create `crates/supersigil-lsp` with `async-lsp` and `lsp-types`
@@ -56,7 +56,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-4"
   status="done"
-  implements="lsp/req#req-5-3, lsp/req#req-5-4, lsp/req#req-5-5, lsp/req#req-5-6, lsp/req#req-5-7"
+  implements="lsp-server/req#req-5-3, lsp-server/req#req-5-4, lsp-server/req#req-5-5, lsp-server/req#req-5-6, lsp-server/req#req-5-7"
   depends="task-3"
 >
   Implement hybrid re-indexing in `state.rs`: `didOpen` (init buffer,
@@ -70,7 +70,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-5"
   status="done"
-  implements="lsp/req#req-1-1, lsp/req#req-1-2, lsp/req#req-1-3, lsp/req#req-1-4, lsp/req#req-1-5"
+  implements="lsp-server/req#req-1-1, lsp-server/req#req-1-2, lsp-server/req#req-1-3, lsp-server/req#req-1-4, lsp-server/req#req-1-5"
   depends="task-4"
 >
   Implement `diagnostics.rs`: convert `ParseError`, `GraphError`, and
@@ -83,7 +83,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-6"
   status="done"
-  implements="lsp/req#req-2-1, lsp/req#req-2-2, lsp/req#req-2-3"
+  implements="lsp-server/req#req-2-1, lsp-server/req#req-2-2, lsp-server/req#req-2-3"
   depends="task-5"
 >
   Implement `definition.rs`: detect cursor on ref string in attribute
@@ -94,7 +94,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-7"
   status="done"
-  implements="lsp/req#req-3-1, lsp/req#req-3-2, lsp/req#req-3-3, lsp/req#req-3-4"
+  implements="lsp-server/req#req-3-1, lsp-server/req#req-3-2, lsp-server/req#req-3-3, lsp-server/req#req-3-4"
   depends="task-5"
 >
   Implement `completion.rs`: context detection (ref attribute, component
@@ -106,7 +106,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-8"
   status="done"
-  implements="lsp/req#req-4-1, lsp/req#req-4-2"
+  implements="lsp-server/req#req-4-1, lsp-server/req#req-4-2"
   depends="task-5"
 >
   Implement `hover.rs`: component name lookup in ComponentDefs (format as
@@ -117,7 +117,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-9"
   status="done"
-  implements="lsp/req#req-6-1"
+  implements="lsp-server/req#req-6-1"
   depends="task-5"
 >
   Implement `commands.rs`: `supersigil.verify` command handler, optional
@@ -128,7 +128,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-10"
   status="done"
-  implements="lsp/req#req-7-1, lsp/req#req-7-2, lsp/req#req-7-3, lsp/req#req-8-3"
+  implements="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3, lsp-server/req#req-8-3"
   depends="task-3"
 >
   Markdown integration and capability registration: register for `markdown`
@@ -152,7 +152,7 @@ on the last. Each task is independently testable.
 <Task
   id="task-12"
   status="done"
-  implements="lsp/req#req-1-6"
+  implements="lsp-server/req#req-1-6"
   depends="task-5"
 >
   Downgrade example-coverable coverage findings to HINT in the LSP and

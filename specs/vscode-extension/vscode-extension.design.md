@@ -8,7 +8,7 @@ title: "VS Code Extension"
 
 ```supersigil-xml
 <Implements refs="vscode-extension/req" />
-<DependsOn refs="lsp/design" />
+<DependsOn refs="lsp-server/design" />
 <TrackedFiles paths="editors/vscode/src/**/*.ts, editors/vscode/package.json" />
 ```
 

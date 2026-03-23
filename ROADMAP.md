@@ -1,8 +1,36 @@
 # Roadmap / Open Questions
 
-- **Editor extensions**: VS Code, Neovim, JetBrains, and Zed
-  extensions that surface diagnostics, coverage indicators, and
-  go-to-definition for spec references. Depends on LSP support.
+- **LSP: Document Symbols**: Expose component structure (requirements,
+  properties, design decisions, tasks) via `textDocument/documentSymbol`
+  so the VS Code outline panel, breadcrumbs, and minimap show spec
+  hierarchy. Low effort, immediate navigation win.
+
+- **LSP: Find All References**: Given a component or document ID, find
+  every `refs`, `implements`, and `depends` attribute that references it
+  via `textDocument/references`. Natural complement to go-to-definition.
+
+- **LSP: Code Actions / Quick Fixes**: Attach actionable fixes to
+  diagnostics — add missing required attributes, create referenced
+  documents, fix broken refs. Turns read-only warnings into one-click
+  fixes via `textDocument/codeAction`.
+
+- **LSP: Code Lenses**: Show inline metadata above components:
+  reference counts ("3 references"), verification status ("verified by
+  2 tests"), coverage percentage. Makes verification status visible
+  without running the CLI. Via `textDocument/codeLens`.
+
+- **LSP: Rename**: Rename a document ID or component ID and update all
+  references across the spec tree via `textDocument/rename` and
+  `textDocument/prepareRename`. Refactoring safety net for spec
+  evolution.
+
+- **VS Code: Spec Explorer Tree View**: A sidebar panel showing the
+  document graph — features grouped by type (requirements, properties,
+  design, tasks) with status icons and coverage indicators. Clicking
+  navigates to the file. Requires a `TreeDataProvider` in the extension.
+
+- **Editor extensions**: Neovim, JetBrains, and Zed extensions that
+  surface the full LSP feature set. VS Code extension is implemented.
 
 - **Watch mode**: `supersigil verify --watch` for continuous feedback
   during authoring. Requires file watching and incremental verification

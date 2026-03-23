@@ -21,6 +21,10 @@ paths = ["crates/supersigil-verify/specs/**/*.md"]
 [projects.import]
 paths = ["crates/supersigil-import/specs/**/*.md"]
 
+# LSP server and editor integration.
+[projects.lsp]
+paths = ["crates/supersigil-lsp/specs/**/*.md"]
+
 # Ecosystem integrations and evidence models.
 [projects.ecosystem]
 paths = [

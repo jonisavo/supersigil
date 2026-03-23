@@ -15,10 +15,10 @@ spec files directly in the editor.
 Scope: the VS Code extension itself — binary discovery, language client
 lifecycle, command palette entries, status bar, and extension packaging. The
 LSP server features (diagnostics, completions, etc.) are already specified in
-`lsp/req` and are out of scope here.
+`lsp-server/req` and are out of scope here.
 
 ```supersigil-xml
-<References refs="lsp/req, lsp/design" />
+<References refs="lsp-server/req, lsp-server/design" />
 ```
 
 ## Definitions

@@ -1,13 +1,13 @@
 ---
 supersigil:
-  id: lsp/adr
+  id: lsp-server/adr
   type: adr
   status: accepted
 title: "LSP Architecture Decisions"
 ---
 
 ```supersigil-xml
-<References refs="lsp/req, lsp/design" />
+<References refs="lsp-server/req, lsp-server/design" />
 ```
 
 ## Context
@@ -23,7 +23,7 @@ general content.
   Implement the LSP server as a separate `supersigil-lsp` crate with its
   own binary, not as a subcommand of the CLI.
 
-  <References refs="lsp/req#req-5-1" />
+  <References refs="lsp-server/req#req-5-1" />
 
   <Rationale>
     LSP servers are long-running, stateful, and async. The CLI is run-once
@@ -44,7 +44,7 @@ general content.
 <Decision id="decision-2">
   Use `async-lsp` as the LSP framework.
 
-  <References refs="lsp/req#req-5-1, lsp/req#req-5-3" />
+  <References refs="lsp-server/req#req-5-1, lsp-server/req#req-5-3" />
 
   <Rationale>
     `async-lsp` processes notifications sequentially and requests
@@ -73,7 +73,7 @@ general content.
   Use hybrid re-indexing: single-file re-parse on `didChange`, full
   `DocumentGraph` rebuild on `didSave`.
 
-  <References refs="lsp/req#req-5-3, lsp/req#req-5-4, lsp/req#req-1-1, lsp/req#req-1-2" />
+  <References refs="lsp-server/req#req-5-3, lsp-server/req#req-5-4, lsp-server/req#req-1-1, lsp-server/req#req-1-2" />
 
   <Rationale>
     Re-parsing one file on each keystroke gives instant local feedback
@@ -98,7 +98,7 @@ general content.
   Register for both `markdown` and `mdx` language IDs, using fence-aware
   context detection to scope features to `supersigil-xml` fenced blocks.
 
-  <References refs="lsp/req#req-7-1, lsp/req#req-7-2, lsp/req#req-7-3" />
+  <References refs="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3" />
 
   <Rationale>
     Spec files are standard Markdown with `supersigil-xml` fences. Registering
@@ -122,7 +122,7 @@ general content.
   Offer two configurable diagnostics tiers (`lint` and `verify`) with
   `verify` as the default.
 
-  <References refs="lsp/req#req-1-3, lsp/req#req-5-7, lsp/req#req-6-1" />
+  <References refs="lsp-server/req#req-1-3, lsp-server/req#req-5-7, lsp-server/req#req-6-1" />
 
   <Rationale>
     The verification pipeline (with real evidence from VerifiedBy tags

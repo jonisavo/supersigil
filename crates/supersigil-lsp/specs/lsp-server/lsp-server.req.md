@@ -1,6 +1,6 @@
 ---
 supersigil:
-  id: lsp/req
+  id: lsp-server/req
   type: requirements
   status: draft
 title: "Language Server Protocol Support"

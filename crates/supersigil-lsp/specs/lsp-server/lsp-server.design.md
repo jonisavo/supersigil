@@ -1,13 +1,13 @@
 ---
 supersigil:
-  id: lsp/design
+  id: lsp-server/design
   type: design
   status: draft
 title: "Language Server Protocol Support"
 ---
 
 ```supersigil-xml
-<Implements refs="lsp/req" />
+<Implements refs="lsp-server/req" />
 <TrackedFiles paths="crates/supersigil-lsp/src/**/*.rs" />
 ```
 
@@ -319,6 +319,6 @@ diagnostics or user-visible messages rather than panicking.
 
 ## Alternatives Considered
 
-See `lsp/adr` for the full decision record covering framework choice,
+See `lsp-server/adr` for the full decision record covering framework choice,
 crate structure, re-indexing strategy, Markdown integration, and diagnostics
 tiers.
