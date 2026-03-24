@@ -220,6 +220,7 @@ pub fn make_refs_component(name: &str, refs: &str, line: usize) -> ExtractedComp
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 
@@ -250,6 +251,7 @@ pub fn make_task(
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 
@@ -264,6 +266,7 @@ pub fn make_tracked_files_component(paths: &str, line: usize) -> ExtractedCompon
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 
@@ -345,6 +348,7 @@ pub fn make_example(
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 

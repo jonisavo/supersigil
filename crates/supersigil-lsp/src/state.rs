@@ -10,12 +10,12 @@ use futures::future::BoxFuture;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
-    InitializeResult, MessageType, NumberOrString, PositionEncodingKind, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressEnd,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, InitializeParams, InitializeResult, MessageType, NumberOrString,
+    PositionEncodingKind, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
+    ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
@@ -23,7 +23,6 @@ use supersigil_core::{
     expand_globs, find_config, load_config,
 };
 use supersigil_evidence::{EcosystemPlugin, ProjectScope};
-use supersigil_parser::parse_content;
 use supersigil_verify::{
     VerifyInputs, VerifyOptions, build_artifact_graph, extract_explicit_evidence, verify,
 };
@@ -35,6 +34,7 @@ use crate::diagnostics::{
     finding_to_diagnostic, graph_error_to_diagnostic_with_lookup, group_by_url,
     parse_error_to_diagnostic, parse_warning_to_diagnostic,
 };
+use crate::document_symbols;
 use crate::hover;
 use crate::parse_tier;
 use crate::position;
@@ -51,6 +51,7 @@ pub struct SupersigilLsp {
     diagnostics_tier: DiagnosticsTier,
     open_files: HashMap<lsp_types::Url, Arc<String>>,
     file_parses: HashMap<PathBuf, SpecDocument>,
+    partial_file_parses: HashMap<PathBuf, SpecDocument>,
     graph: Arc<DocumentGraph>,
     component_defs: Arc<ComponentDefs>,
     file_diagnostics: HashMap<Url, Vec<Diagnostic>>,
@@ -64,6 +65,7 @@ impl std::fmt::Debug for SupersigilLsp {
             .field("diagnostics_tier", &self.diagnostics_tier)
             .field("open_files", &self.open_files.len())
             .field("file_parses", &self.file_parses.len())
+            .field("partial_file_parses", &self.partial_file_parses.len())
             .finish_non_exhaustive()
     }
 }
@@ -78,6 +80,7 @@ impl SupersigilLsp {
             diagnostics_tier: DiagnosticsTier::default(),
             open_files: HashMap::new(),
             file_parses: HashMap::new(),
+            partial_file_parses: HashMap::new(),
             graph: Arc::new(empty_graph()),
             component_defs: Arc::new(ComponentDefs::defaults()),
             file_diagnostics: HashMap::new(),
@@ -205,24 +208,42 @@ impl SupersigilLsp {
             Some(root) => root.join(&rel_key),
             None => rel_key.clone(),
         };
-        match parse_content(&abs_path, content, &self.component_defs) {
-            Ok(ParseResult::Document(doc)) => {
-                // Publish non-fatal warnings as WARNING-severity diagnostics.
-                let diags: Vec<Diagnostic> = doc
-                    .warnings
-                    .iter()
-                    .filter_map(|e| parse_warning_to_diagnostic(e, Some(content)))
-                    .map(|(_, d)| d)
-                    .collect();
-                self.file_parses.insert(rel_key, doc);
-                self.file_diagnostics.insert(uri.clone(), diags);
-            }
-            Ok(ParseResult::NotSupersigil(_)) => {
-                self.file_parses.remove(&rel_key);
-                self.file_diagnostics.insert(uri.clone(), vec![]);
-            }
+        match supersigil_parser::parse_content_recovering(&abs_path, content, &self.component_defs)
+        {
+            Ok(recovered) => match recovered.result {
+                ParseResult::Document(doc) => {
+                    let mut diags: Vec<Diagnostic> = doc
+                        .warnings
+                        .iter()
+                        .filter_map(|e| parse_warning_to_diagnostic(e, Some(content)))
+                        .map(|(_, d)| d)
+                        .collect();
+                    diags.extend(
+                        recovered
+                            .fatal_errors
+                            .iter()
+                            .filter_map(|e| parse_error_to_diagnostic(e, Some(content)))
+                            .map(|(_, d)| d),
+                    );
+
+                    if recovered.fatal_errors.is_empty() {
+                        self.partial_file_parses.remove(&rel_key);
+                        self.file_parses.insert(rel_key, doc);
+                    } else {
+                        self.file_parses.remove(&rel_key);
+                        self.partial_file_parses.insert(rel_key, doc);
+                    }
+                    self.file_diagnostics.insert(uri.clone(), diags);
+                }
+                ParseResult::NotSupersigil(_) => {
+                    self.file_parses.remove(&rel_key);
+                    self.partial_file_parses.remove(&rel_key);
+                    self.file_diagnostics.insert(uri.clone(), vec![]);
+                }
+            },
             Err(errs) => {
                 self.file_parses.remove(&rel_key);
+                self.partial_file_parses.remove(&rel_key);
                 let diags: Vec<Diagnostic> = errs
                     .iter()
                     .filter_map(|e| parse_error_to_diagnostic(e, Some(content)))
@@ -426,6 +447,7 @@ impl LanguageServer for SupersigilLsp {
                 }),
                 hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
+                document_symbol_provider: Some(lsp_types::OneOf::Left(true)),
                 // Note: we intentionally omit execute_command_provider from
                 // capabilities. The server still handles workspace/executeCommand
                 // requests, but advertising commands here causes vscode-languageclient
@@ -514,6 +536,7 @@ impl LanguageServer for SupersigilLsp {
         }
 
         self.file_parses = parses;
+        self.partial_file_parses.clear();
         self.diagnostics_tier = config
             .lsp
             .as_ref()
@@ -687,13 +710,16 @@ impl LanguageServer for SupersigilLsp {
             if abs_path.exists() {
                 match supersigil_parser::parse_file(&abs_path, &self.component_defs) {
                     Ok(ParseResult::Document(doc)) => {
+                        self.partial_file_parses.remove(&rel_key);
                         self.file_parses.insert(rel_key, doc);
                     }
                     Ok(ParseResult::NotSupersigil(_)) | Err(_) => {
+                        self.partial_file_parses.remove(&rel_key);
                         self.file_parses.remove(&rel_key);
                     }
                 }
             } else {
+                self.partial_file_parses.remove(&rel_key);
                 self.file_parses.remove(&rel_key);
             }
         }
@@ -762,13 +788,25 @@ impl LanguageServer for SupersigilLsp {
         // Re-insert open file buffers (they may have unsaved changes that
         // should take precedence over the disk version).
         let mut merged = parses;
+        let mut partial_parses = HashMap::new();
         for (uri, content) in &self.open_files {
             if let Some(rel_key) = self.uri_to_relative_key(uri) {
                 let abs_path = project_root.join(&rel_key);
-                if let Ok(ParseResult::Document(doc)) =
-                    parse_content(&abs_path, content, &self.component_defs)
-                {
-                    merged.insert(rel_key, doc);
+                if let Ok(recovered) = supersigil_parser::parse_content_recovering(
+                    &abs_path,
+                    content,
+                    &self.component_defs,
+                ) {
+                    match recovered.result {
+                        ParseResult::Document(doc) => {
+                            if recovered.fatal_errors.is_empty() {
+                                merged.insert(rel_key, doc);
+                            } else {
+                                partial_parses.insert(rel_key, doc);
+                            }
+                        }
+                        ParseResult::NotSupersigil(_) => {}
+                    }
                 }
             }
         }
@@ -804,6 +842,7 @@ impl LanguageServer for SupersigilLsp {
         }
 
         self.file_parses = merged;
+        self.partial_file_parses = partial_parses;
         self.republish_all_diagnostics();
 
         tracing::info!(
@@ -871,6 +910,38 @@ impl LanguageServer for SupersigilLsp {
             let location = definition::resolve_ref(&ref_str, &graph);
             Ok(location.map(GotoDefinitionResponse::Scalar))
         })
+    }
+
+    fn document_symbol(
+        &mut self,
+        params: DocumentSymbolParams,
+    ) -> BoxFuture<'static, Result<Option<DocumentSymbolResponse>, Self::Error>> {
+        let uri = params.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
+        let symbols = self
+            .open_files
+            .get(&uri)
+            .and_then(|content| {
+                let rel = self.uri_to_relative_key(&uri)?;
+                let doc = self
+                    .partial_file_parses
+                    .get(&rel)
+                    .or_else(|| self.file_parses.get(&rel))?;
+                Some(document_symbols::document_symbols(doc, content))
+            })
+            .or_else(|| {
+                let rel = self.uri_to_relative_key(&uri)?;
+                let doc = self.file_parses.get(&rel)?;
+                let abs_path = match &self.project_root {
+                    Some(root) => root.join(&rel),
+                    None => rel.clone(),
+                };
+                let content = std::fs::read_to_string(abs_path).ok()?;
+                Some(document_symbols::document_symbols(doc, &content))
+            });
+        Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
     }
 
     fn hover(
@@ -1009,6 +1080,14 @@ fn empty_graph() -> DocumentGraph {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc as StdArc, Mutex};
+
+    use async_lsp::router::Router;
+    use futures::executor::block_on;
+    use lsp_types::{
+        PartialResultParams, TextDocumentIdentifier, TextDocumentItem, WorkDoneProgressParams,
+    };
+
     use super::*;
 
     #[test]
@@ -1082,6 +1161,11 @@ mod tests {
                     line: 5,
                     column: 1,
                 },
+                end_position: supersigil_core::SourcePosition {
+                    byte_offset: 0,
+                    line: 5,
+                    column: 1,
+                },
             }],
             warnings: vec![],
         };
@@ -1144,5 +1228,170 @@ mod tests {
             errors.is_empty(),
             "no error-level findings expected when plugin evidence covers the criterion, got: {errors:?}"
         );
+    }
+
+    fn test_client_socket() -> ClientSocket {
+        let captured = StdArc::new(Mutex::new(None));
+        let captured_for_builder = StdArc::clone(&captured);
+
+        let (_main_loop, _socket) = async_lsp::MainLoop::new_server(move |client| {
+            *captured_for_builder.lock().unwrap() = Some(client.clone());
+            Router::<(), ResponseError>::new(())
+        });
+
+        captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("builder should capture client socket")
+    }
+
+    fn test_state(root: &Path) -> SupersigilLsp {
+        SupersigilLsp {
+            client: test_client_socket(),
+            config: Some(Config {
+                paths: Some(vec!["specs/**/*.md".into()]),
+                ..Config::default()
+            }),
+            project_root: Some(root.to_path_buf()),
+            diagnostics_tier: DiagnosticsTier::default(),
+            open_files: HashMap::new(),
+            file_parses: HashMap::new(),
+            partial_file_parses: HashMap::new(),
+            graph: Arc::new(empty_graph()),
+            component_defs: Arc::new(ComponentDefs::defaults()),
+            file_diagnostics: HashMap::new(),
+            graph_diagnostics: HashMap::new(),
+        }
+    }
+
+    fn indexed_doc(state: &mut SupersigilLsp, abs_path: &Path, rel_path: &Path) {
+        let parse = supersigil_parser::parse_file(abs_path, &state.component_defs)
+            .expect("fixture should parse");
+        let ParseResult::Document(doc) = parse else {
+            panic!("fixture should be a supersigil document");
+        };
+        state.file_parses.insert(rel_path.to_path_buf(), doc);
+    }
+
+    fn document_symbol_params(uri: Url) -> DocumentSymbolParams {
+        DocumentSymbolParams {
+            text_document: TextDocumentIdentifier { uri },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }
+    }
+
+    fn nested_symbols(response: Option<DocumentSymbolResponse>) -> Vec<lsp_types::DocumentSymbol> {
+        let Some(DocumentSymbolResponse::Nested(symbols)) = response else {
+            panic!("expected nested document symbols");
+        };
+        symbols
+    }
+
+    #[test]
+    fn document_symbol_falls_back_to_disk_for_indexed_closed_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/auth.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &abs_path,
+            "\
+---
+supersigil:
+  id: auth/req
+  type: requirements
+  status: draft
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"auth-1\">ok</Criterion>
+</AcceptanceCriteria>
+```
+",
+        )
+        .unwrap();
+
+        let mut state = test_state(root);
+        indexed_doc(&mut state, &abs_path, &rel_path);
+
+        let uri = Url::from_file_path(&abs_path).unwrap();
+        let response = block_on(state.document_symbol(document_symbol_params(uri))).unwrap();
+        let symbols = nested_symbols(response);
+
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "AcceptanceCriteria");
+        let children = symbols[0].children.as_ref().expect("nested criterion");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "auth-1");
+    }
+
+    #[test]
+    fn document_symbol_uses_partial_parse_for_invalid_open_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/partial.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &abs_path,
+            "\
+---
+supersigil:
+  id: partial/req
+  type: requirements
+  status: draft
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"disk-ok\">ok</Criterion>
+</AcceptanceCriteria>
+```
+",
+        )
+        .unwrap();
+
+        let mut state = test_state(root);
+        indexed_doc(&mut state, &abs_path, &rel_path);
+
+        let uri = Url::from_file_path(&abs_path).unwrap();
+        let invalid_buffer = "\
+---
+supersigil:
+  id: partial/req
+  type: requirements
+  status: draft
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion>broken</Criterion>
+  <Criterion id=\"ok-1\">ok</Criterion>
+</AcceptanceCriteria>
+```
+";
+
+        let _ = state.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "markdown".into(),
+                version: 1,
+                text: invalid_buffer.into(),
+            },
+        });
+
+        let response = block_on(state.document_symbol(document_symbol_params(uri))).unwrap();
+        let symbols = nested_symbols(response);
+
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "AcceptanceCriteria");
+        let children = symbols[0].children.as_ref().expect("nested criteria");
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].name, "Criterion");
+        assert_eq!(children[1].name, "ok-1");
     }
 }

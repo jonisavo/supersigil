@@ -380,6 +380,7 @@ proptest! {
             body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
+            end_position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
         let mut errors = Vec::new();
@@ -443,6 +444,7 @@ proptest! {
             body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
+            end_position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
         let mut errors = Vec::new();
@@ -473,6 +475,7 @@ proptest! {
             body_text_end_offset: None,
             code_blocks: Vec::new(),
             position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
+            end_position: SourcePosition { byte_offset: 0, line: 1, column: 1 },
         };
 
         let mut errors = Vec::new();
@@ -519,6 +522,11 @@ proptest! {
                 body_text_end_offset: None,
                 code_blocks: Vec::new(),
                 position: SourcePosition {
+                    byte_offset: i * 100,
+                    line: i + 1,
+                    column: 1,
+                },
+                end_position: SourcePosition {
                     byte_offset: i * 100,
                     line: i + 1,
                     column: 1,

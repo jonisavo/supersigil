@@ -246,6 +246,7 @@ mod tests {
             body_text_end_offset: None,
             code_blocks: vec![],
             position: pos(5),
+            end_position: pos(5),
         };
         let docs = vec![make_doc("design/auth", vec![comp])];
         let graph = build_test_graph(docs);

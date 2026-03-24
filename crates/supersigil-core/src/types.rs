@@ -103,6 +103,8 @@ pub struct ExtractedComponent {
     /// Fenced code blocks extracted from the component body.
     pub code_blocks: Vec<CodeBlock>,
     pub position: SourcePosition,
+    /// Source position of the end of this component (past the closing `>`).
+    pub end_position: SourcePosition,
 }
 
 // ---------------------------------------------------------------------------

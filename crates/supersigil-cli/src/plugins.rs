@@ -679,18 +679,21 @@ mod tests {
                         body_text_end_offset: None,
                         code_blocks: vec![],
                         position: pos(11),
+                        end_position: pos(11),
                     }],
                     body_text: Some("criterion crit-1".into()),
                     body_text_offset: None,
                     body_text_end_offset: None,
                     code_blocks: vec![],
                     position: pos(10),
+                    end_position: pos(10),
                 }],
                 body_text: None,
                 body_text_offset: None,
                 body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(9),
+                end_position: pos(9),
             }],
         }
     }
@@ -714,6 +717,7 @@ mod tests {
                 body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(5),
+                end_position: pos(5),
             }],
         }
     }

@@ -523,6 +523,7 @@ mod tests {
             body_text_end_offset: None,
             code_blocks,
             position: pos(5),
+            end_position: pos(5),
         }
     }
 
@@ -756,6 +757,7 @@ mod tests {
             body_text_end_offset: None,
             code_blocks: vec![],
             position: pos(1),
+            end_position: pos(1),
         };
         let doc = make_doc("req/doc", vec![bad_component]);
         let graph = crate::test_helpers::build_test_graph(vec![doc]);

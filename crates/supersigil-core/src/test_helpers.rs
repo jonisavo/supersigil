@@ -50,6 +50,7 @@ pub fn make_criterion(id: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -67,6 +68,7 @@ pub fn make_acceptance_criteria(
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -81,6 +83,7 @@ pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 

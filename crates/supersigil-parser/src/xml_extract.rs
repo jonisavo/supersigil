@@ -159,6 +159,7 @@ fn collect_component(node: &XmlNode, ctx: &ExtractionCtx<'_>, out: &mut Vec<Extr
             attributes,
             children,
             offset,
+            end_offset,
         } => {
             if !is_pascal_case(name) {
                 collect_from_nodes(children, ctx, out);
@@ -178,6 +179,13 @@ fn collect_component(node: &XmlNode, ctx: &ExtractionCtx<'_>, out: &mut Vec<Extr
                 column,
             };
 
+            let (end_line, end_column) = line_col(ctx.content, *end_offset);
+            let end_position = SourcePosition {
+                byte_offset: *end_offset,
+                line: end_line,
+                column: end_column,
+            };
+
             let attrs = attributes_to_map(attributes);
 
             let mut child_components = Vec::new();
@@ -195,6 +203,7 @@ fn collect_component(node: &XmlNode, ctx: &ExtractionCtx<'_>, out: &mut Vec<Extr
                 body_text_end_offset,
                 code_blocks: Vec::new(),
                 position,
+                end_position,
             });
         }
     }
@@ -226,19 +235,24 @@ mod tests {
     #[test]
     fn extracts_known_component() {
         let defs = ComponentDefs::defaults();
+        let content = "0123456789<Criterion id=\"c1\">Some text</Criterion>";
         let nodes = vec![XmlNode::Element {
             name: "Criterion".into(),
             attributes: vec![("id".into(), "c1".into())],
             children: vec![text("Some text")],
             offset: 10,
+            end_offset: content.len(),
         }];
-        let content = "0123456789<Criterion id=\"c1\">Some text</Criterion>";
 
         let result = extract(&nodes, content, &defs);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "Criterion");
         assert_eq!(result[0].attributes["id"], "c1");
         assert_eq!(result[0].body_text.as_deref(), Some("Some text"));
+        assert_eq!(result[0].position.byte_offset, 10);
+        assert_eq!(result[0].end_position.byte_offset, content.len());
+        assert_eq!(result[0].end_position.line, 1);
+        assert_eq!(result[0].end_position.column, content.len() + 1);
     }
 
     #[test]
@@ -250,12 +264,14 @@ mod tests {
                 attributes: vec![("id".into(), "c1".into())],
                 children: vec![text("text")],
                 offset: 0,
+                end_offset: 0,
             },
             XmlNode::Element {
                 name: "VerifiedBy".into(),
                 attributes: vec![("refs".into(), "c1".into())],
                 children: vec![],
                 offset: 50,
+                end_offset: 0,
             },
         ];
         let content = &"x".repeat(100);
@@ -280,8 +296,10 @@ mod tests {
                 attributes: vec![("id".into(), "c1".into())],
                 children: vec![],
                 offset: 20,
+                end_offset: 0,
             }],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -305,10 +323,13 @@ mod tests {
                     attributes: vec![("id".into(), "deep".into())],
                     children: vec![],
                     offset: 40,
+                    end_offset: 0,
                 }],
                 offset: 20,
+                end_offset: 0,
             }],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -331,8 +352,10 @@ mod tests {
                 attributes: vec![("id".into(), "c1".into())],
                 children: vec![],
                 offset: 10,
+                end_offset: 0,
             }],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -355,6 +378,7 @@ mod tests {
             ],
             children: vec![],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -372,6 +396,7 @@ mod tests {
             attributes: vec![("refs".into(), "c1".into())],
             children: vec![],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -391,6 +416,7 @@ mod tests {
             attributes: vec![("id".into(), "c1".into())],
             children: vec![text("\n  The system shall do something.\n")],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -409,6 +435,7 @@ mod tests {
             attributes: vec![("id".into(), "c1".into())],
             children: vec![text("   \n  \n  ")],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -429,9 +456,11 @@ mod tests {
                     attributes: vec![("id".into(), "c1".into())],
                     children: vec![text("Child text")],
                     offset: 30,
+                    end_offset: 0,
                 },
             ],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -453,8 +482,10 @@ mod tests {
                 attributes: vec![],
                 children: vec![text("important")],
                 offset: 20,
+                end_offset: 0,
             }],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -477,15 +508,18 @@ mod tests {
                     attributes: vec![("id".into(), "c1".into())],
                     children: vec![text("First")],
                     offset: 20,
+                    end_offset: 0,
                 },
                 XmlNode::Element {
                     name: "Criterion".into(),
                     attributes: vec![("id".into(), "c2".into())],
                     children: vec![text("Second")],
                     offset: 60,
+                    end_offset: 0,
                 },
             ],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -513,6 +547,7 @@ mod tests {
             attributes: vec![("id".into(), "c1".into())],
             children: vec![],
             offset: 12,
+            end_offset: 0,
         }];
 
         let result = extract(&nodes, content, &defs);
@@ -531,6 +566,7 @@ mod tests {
             attributes: vec![("id".into(), "c1".into())],
             children: vec![],
             offset: 9, // "abcdef\n  " = 7 + 2 = 9
+            end_offset: 0,
         }];
 
         let result = extract(&nodes, content, &defs);
@@ -552,6 +588,7 @@ mod tests {
             ],
             children: vec![text("some content")],
             offset: 0,
+            end_offset: 0,
         }];
         let content = &"x".repeat(100);
 
@@ -614,14 +651,17 @@ supersigil:
                         "\n    P99 latency must be under 100ms for API requests.\n  ",
                     )],
                     offset: 70,
+                    end_offset: 0,
                 }],
                 offset: 50,
+                end_offset: 0,
             },
             XmlNode::Element {
                 name: "VerifiedBy".into(),
                 attributes: vec![("refs".into(), "perf-latency".into())],
                 children: vec![],
                 offset: 160,
+                end_offset: 0,
             },
         ];
 
@@ -660,6 +700,7 @@ supersigil:
             attributes: vec![("id".into(), "c1".into())],
             children: vec![],
             offset: 0,
+            end_offset: 0,
         }];
 
         let result = extract_components_from_xml(&nodes, "x", &defs);

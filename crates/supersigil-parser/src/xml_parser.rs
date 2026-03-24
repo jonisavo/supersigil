@@ -37,6 +37,8 @@ pub enum XmlNode {
         children: Vec<XmlNode>,
         /// Byte offset of the opening `<` relative to the source file.
         offset: usize,
+        /// Byte offset past the closing `>` relative to the source file.
+        end_offset: usize,
     },
     /// Raw text content (entity references already resolved).
     Text {
@@ -255,11 +257,16 @@ fn parse_children(
                 let children =
                     parse_children(reader, &tag_name, content, fence_offset, root_tag_len, path)?;
 
+                // After parse_children returns, reader is past the closing `>`.
+                let end_in_content = content_offset(reader.buffer_position(), root_tag_len);
+                let file_end_offset = fence_offset + end_in_content;
+
                 nodes.push(XmlNode::Element {
                     name: tag_name,
                     attributes,
                     children,
                     offset: file_offset,
+                    end_offset: file_end_offset,
                 });
             }
 
@@ -279,11 +286,16 @@ fn parse_children(
                 validate_element_name(&tag_name, content, offset_in_content, path)?;
                 let attributes = parse_attributes(e, content, offset_in_content, path)?;
 
+                // After reading Empty event, reader is past the closing `/>`.
+                let end_in_content = content_offset(reader.buffer_position(), root_tag_len);
+                let file_end_offset = fence_offset + end_in_content;
+
                 nodes.push(XmlNode::Element {
                     name: tag_name,
                     attributes,
                     children: vec![],
                     offset: file_offset,
+                    end_offset: file_end_offset,
                 });
             }
 
@@ -721,6 +733,7 @@ mod tests {
                 attributes,
                 children,
                 offset,
+                ..
             } => {
                 assert_eq!(name, "Spec");
                 assert_eq!(attributes, &[("id".to_owned(), "s1".to_owned())]);
@@ -1349,6 +1362,94 @@ mod tests {
             }
         } else {
             panic!("expected Element");
+        }
+    }
+
+    // -- end_offset on Element ------------------------------------------------
+
+    #[test]
+    fn self_closing_element_end_offset() {
+        let input = r#"<Spec id="s1" />"#;
+        let nodes = parse(input).unwrap();
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0] {
+            XmlNode::Element {
+                name,
+                offset,
+                end_offset,
+                ..
+            } => {
+                assert_eq!(name, "Spec");
+                assert_eq!(*offset, 0);
+                assert_eq!(*end_offset, input.len());
+            }
+            _ => panic!("expected Element"),
+        }
+    }
+
+    #[test]
+    fn regular_element_end_offset() {
+        let input = "<Title>Hello</Title>";
+        let nodes = parse(input).unwrap();
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0] {
+            XmlNode::Element {
+                name,
+                offset,
+                end_offset,
+                ..
+            } => {
+                assert_eq!(name, "Title");
+                assert_eq!(*offset, 0);
+                assert_eq!(*end_offset, input.len());
+            }
+            _ => panic!("expected Element"),
+        }
+    }
+
+    #[test]
+    fn nested_element_end_offsets() {
+        let input = r#"<Parent><Child id="c1" /></Parent>"#;
+        let nodes = parse(input).unwrap();
+        match &nodes[0] {
+            XmlNode::Element {
+                end_offset,
+                children,
+                ..
+            } => {
+                assert_eq!(*end_offset, input.len());
+                match &children[0] {
+                    XmlNode::Element {
+                        name,
+                        offset,
+                        end_offset,
+                        ..
+                    } => {
+                        assert_eq!(name, "Child");
+                        assert_eq!(*offset, 8);
+                        // "<Child id="c1" />" ends at position 25
+                        assert_eq!(*end_offset, 25);
+                    }
+                    _ => panic!("expected Element"),
+                }
+            }
+            _ => panic!("expected Element"),
+        }
+    }
+
+    #[test]
+    fn element_end_offset_with_fence_offset() {
+        let input = r#"<Spec id="s1" />"#;
+        let fence_offset = 100;
+        let nodes = parse_with_offset(input, fence_offset).unwrap();
+        match &nodes[0] {
+            XmlNode::Element {
+                offset, end_offset, ..
+            } => {
+                assert_eq!(*offset, 100);
+                assert_eq!(*end_offset, 100 + input.len());
+            }
+            _ => panic!("expected Element"),
         }
     }
 }

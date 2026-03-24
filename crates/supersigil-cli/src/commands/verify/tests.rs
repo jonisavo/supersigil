@@ -403,6 +403,7 @@ fn example_pending_count_deduplicates_target_refs() {
                 body_text_end_offset: None,
                 code_blocks: vec![],
                 position: pos(10),
+                end_position: pos(10),
             },
         ],
     )];

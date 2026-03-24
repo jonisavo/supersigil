@@ -185,6 +185,7 @@ fn make_task_with_children(
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 

@@ -71,6 +71,7 @@ pub fn make_references(refs: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -87,6 +88,7 @@ pub fn make_verified_by_tag(tag: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -103,6 +105,7 @@ pub fn make_verified_by_glob(paths: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -120,6 +123,7 @@ pub fn make_criterion_with_verified_by(
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -133,6 +137,7 @@ pub fn make_task(id: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -146,6 +151,7 @@ pub fn make_decision(children: Vec<ExtractedComponent>, line: usize) -> Extracte
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -163,6 +169,7 @@ pub fn make_decision_with_id(
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -184,6 +191,7 @@ pub fn make_decision_standalone(
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -197,6 +205,7 @@ pub fn make_rationale(line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -210,6 +219,7 @@ pub fn make_alternative(id: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -223,6 +233,7 @@ pub fn make_alternative_with_status(id: &str, status: &str, line: usize) -> Extr
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -236,6 +247,7 @@ pub fn make_tracked_files(paths: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 
@@ -249,6 +261,7 @@ pub fn make_implements(refs: &str, line: usize) -> ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line + 1),
     }
 }
 

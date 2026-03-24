@@ -28,6 +28,7 @@ fn make_decision(id: &str, children: Vec<ExtractedComponent>, line: usize) -> Ex
         body_text_end_offset: None,
         code_blocks: Vec::new(),
         position: pos(line),
+        end_position: pos(line),
     }
 }
 

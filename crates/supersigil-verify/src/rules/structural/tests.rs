@@ -333,6 +333,7 @@ fn multiple_verified_by_children_under_one_verifiable_component_are_additive() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
+        end_position: pos(10),
     };
     let docs = [make_doc(
         "req/auth",
@@ -373,6 +374,7 @@ fn make_example(
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(line),
+        end_position: pos(line),
     }
 }
 
@@ -386,6 +388,7 @@ fn make_expected(line: usize) -> supersigil_core::ExtractedComponent {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(line),
+        end_position: pos(line),
     }
 }
 
@@ -449,6 +452,7 @@ fn example_with_exactly_one_code_block_is_valid() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -470,6 +474,7 @@ fn example_with_zero_code_blocks_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -494,6 +499,7 @@ fn example_with_two_code_blocks_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block(), make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -513,6 +519,7 @@ fn expected_with_zero_code_blocks_is_valid() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![expected])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -534,6 +541,7 @@ fn expected_with_one_code_block_is_valid() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![expected])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -555,6 +563,7 @@ fn expected_with_two_code_blocks_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block(), make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![expected])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -583,6 +592,7 @@ fn example_with_valid_env_is_clean() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -604,6 +614,7 @@ fn example_with_env_item_missing_equals_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -628,6 +639,7 @@ fn expected_with_env_item_missing_equals_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![expected])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -647,6 +659,7 @@ fn component_without_env_attribute_is_clean() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -671,6 +684,7 @@ fn multiple_invalid_env_items_emit_multiple_findings() {
         body_text_end_offset: None,
         code_blocks: vec![make_code_block()],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -1081,6 +1095,7 @@ fn rationale_inside_non_decision_component_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
+        end_position: pos(10),
     };
     let docs = [make_doc("adr/logging", vec![criterion])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -1137,6 +1152,7 @@ fn alternative_inside_non_decision_component_emits_finding() {
         body_text_end_offset: None,
         code_blocks: vec![],
         position: pos(10),
+        end_position: pos(10),
     };
     let docs = [make_doc("adr/logging", vec![criterion])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -1412,6 +1428,7 @@ fn example_with_fence_lang_and_no_attr_is_valid() {
             span_kind: SpanKind::RefFence,
         }],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -1440,6 +1457,7 @@ fn example_with_inline_code_and_lang_attr_is_valid() {
             span_kind: SpanKind::XmlInline,
         }],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();
@@ -1468,6 +1486,7 @@ fn example_with_inline_code_and_no_lang_attr_emits_finding() {
             span_kind: SpanKind::XmlInline,
         }],
         position: pos(5),
+        end_position: pos(5),
     };
     let docs = [make_doc("ex/doc", vec![example])];
     let doc_refs: Vec<&_> = docs.iter().collect();

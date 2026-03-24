@@ -209,6 +209,11 @@ mod tests {
                 line: 1,
                 column: 1,
             },
+            end_position: SourcePosition {
+                byte_offset: 0,
+                line: 1,
+                column: 1,
+            },
         }
     }
 
@@ -228,6 +233,11 @@ mod tests {
             body_text_end_offset: None,
             code_blocks: vec![],
             position: SourcePosition {
+                byte_offset: 100,
+                line: 5,
+                column: 3,
+            },
+            end_position: SourcePosition {
                 byte_offset: 100,
                 line: 5,
                 column: 3,
@@ -378,6 +388,11 @@ mod tests {
             body_text_end_offset: None,
             code_blocks: vec![],
             position: SourcePosition {
+                byte_offset: 0,
+                line: 1,
+                column: 1,
+            },
+            end_position: SourcePosition {
                 byte_offset: 0,
                 line: 1,
                 column: 1,
@@ -560,6 +575,11 @@ mod tests {
                 body_text_end_offset: Some(112), // raw span: "&lt;html&gt;" = 12 bytes
                 code_blocks: vec![],
                 position: SourcePosition {
+                    byte_offset: 80,
+                    line: 5,
+                    column: 3,
+                },
+                end_position: SourcePosition {
                     byte_offset: 80,
                     line: 5,
                     column: 3,

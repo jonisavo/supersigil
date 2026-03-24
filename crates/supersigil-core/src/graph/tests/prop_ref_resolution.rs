@@ -257,6 +257,11 @@ proptest! {
                 line: 1,
                 column: 1,
             },
+            end_position: SourcePosition {
+                byte_offset: 0,
+                line: 1,
+                column: 1,
+            },
         };
         let target_doc = make_doc_with_path(
             &target_doc_id,

@@ -199,6 +199,7 @@ mod tests {
                     body_text_end_offset: None,
                     code_blocks: vec![],
                     position: pos(20),
+                    end_position: pos(20),
                 },
             ],
         )];

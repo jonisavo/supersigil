@@ -23,6 +23,19 @@ use std::path::Path;
 
 use supersigil_core::{ComponentDefs, ExtractedComponent, ParseError, ParseResult, SpecDocument};
 
+/// A recovered parse result that may include a partial document alongside
+/// fatal validation errors.
+#[derive(Debug)]
+pub struct RecoveredParse {
+    /// The parse result. `Document` may be present even when `fatal_errors`
+    /// is non-empty, allowing best-effort local features to use the partial
+    /// component tree.
+    pub result: ParseResult,
+    /// Fatal errors produced after enough structure was recovered to build a
+    /// partial `SpecDocument`.
+    pub fatal_errors: Vec<ParseError>,
+}
+
 // ---------------------------------------------------------------------------
 // Lint-time validation (format-agnostic)
 // ---------------------------------------------------------------------------
@@ -82,15 +95,20 @@ pub fn validate_components(
 /// # Errors
 ///
 /// Returns `Vec<ParseError>` containing all detected errors across stages.
-pub fn parse_content(
+pub fn parse_content_recovering(
     path: &Path,
     content: &str,
     component_defs: &ComponentDefs,
-) -> Result<ParseResult, Vec<ParseError>> {
+) -> Result<RecoveredParse, Vec<ParseError>> {
     // Stage 1: Extract front matter
     let (yaml, body) = match extract_front_matter(content, path) {
         Ok(Some((yaml, body))) => (yaml, body),
-        Ok(None) => return Ok(ParseResult::NotSupersigil(path.to_path_buf())),
+        Ok(None) => {
+            return Ok(RecoveredParse {
+                result: ParseResult::NotSupersigil(path.to_path_buf()),
+                fatal_errors: Vec::new(),
+            });
+        }
         Err(e) => return Err(vec![e]),
     };
 
@@ -98,7 +116,10 @@ pub fn parse_content(
     let (frontmatter, extra) = match deserialize_front_matter(yaml, path) {
         Ok(FrontMatterResult::Supersigil { frontmatter, extra }) => (frontmatter, extra),
         Ok(FrontMatterResult::NotSupersigil) => {
-            return Ok(ParseResult::NotSupersigil(path.to_path_buf()));
+            return Ok(RecoveredParse {
+                result: ParseResult::NotSupersigil(path.to_path_buf()),
+                fatal_errors: Vec::new(),
+            });
         }
         Err(e) => return Err(vec![e]),
     };
@@ -163,16 +184,38 @@ pub fn parse_content(
         }
     }
 
-    if fatal_errors.is_empty() {
-        Ok(ParseResult::Document(SpecDocument {
+    Ok(RecoveredParse {
+        result: ParseResult::Document(SpecDocument {
             path: path.to_path_buf(),
             frontmatter,
             extra,
             components: all_components,
             warnings,
-        }))
+        }),
+        fatal_errors,
+    })
+}
+
+/// Parse a spec document from an in-memory string into a [`ParseResult`].
+///
+/// This returns only fully valid documents. Call
+/// [`parse_content_recovering`] when the caller needs best-effort access to
+/// partially valid component trees.
+///
+/// # Errors
+///
+/// Returns `Vec<ParseError>` when front matter, XML parsing, or validation
+/// prevents the document from being considered fully valid.
+pub fn parse_content(
+    path: &Path,
+    content: &str,
+    component_defs: &ComponentDefs,
+) -> Result<ParseResult, Vec<ParseError>> {
+    let recovered = parse_content_recovering(path, content, component_defs)?;
+    if recovered.fatal_errors.is_empty() {
+        Ok(recovered.result)
     } else {
-        Err(fatal_errors)
+        Err(recovered.fatal_errors)
     }
 }
 
@@ -468,6 +511,49 @@ supersigil:
         assert!(
             doc.warnings.is_empty(),
             "clean document should have no warnings"
+        );
+    }
+
+    #[test]
+    fn parse_content_recovering_keeps_partial_document_on_validation_error() {
+        let content = "\
+---
+supersigil:
+  id: test/partial
+  type: requirements
+  status: draft
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion>broken</Criterion>
+  <Criterion id=\"ok-1\">ok</Criterion>
+</AcceptanceCriteria>
+```
+";
+        let defs = ComponentDefs::defaults();
+        let recovered = parse_content_recovering(Path::new("test.md"), content, &defs)
+            .expect("recovering parse should return a partial document");
+
+        assert_eq!(recovered.fatal_errors.len(), 1);
+        assert!(matches!(
+            recovered.fatal_errors[0],
+            ParseError::MissingRequiredAttribute { .. }
+        ));
+
+        let ParseResult::Document(doc) = recovered.result else {
+            panic!("expected partial document");
+        };
+        assert_eq!(doc.components.len(), 1);
+        assert_eq!(doc.components[0].name, "AcceptanceCriteria");
+        assert_eq!(doc.components[0].children.len(), 2);
+        assert_eq!(doc.components[0].children[0].name, "Criterion");
+        assert_eq!(
+            doc.components[0].children[1]
+                .attributes
+                .get("id")
+                .map(String::as_str),
+            Some("ok-1")
         );
     }
 }
