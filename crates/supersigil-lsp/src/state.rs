@@ -12,7 +12,7 @@ use lsp_types::{
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, InitializeParams, InitializeResult, MessageType, NumberOrString,
+    Hover, HoverParams, InitializeParams, InitializeResult, Location, MessageType, NumberOrString,
     PositionEncodingKind, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
     ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
     WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
@@ -38,6 +38,7 @@ use crate::document_symbols;
 use crate::hover;
 use crate::parse_tier;
 use crate::position;
+use crate::references;
 
 // ---------------------------------------------------------------------------
 // SupersigilLsp
@@ -448,6 +449,7 @@ impl LanguageServer for SupersigilLsp {
                 hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
                 document_symbol_provider: Some(lsp_types::OneOf::Left(true)),
+                references_provider: Some(lsp_types::OneOf::Left(true)),
                 // Note: we intentionally omit execute_command_provider from
                 // capabilities. The server still handles workspace/executeCommand
                 // requests, but advertising commands here causes vscode-languageclient
@@ -942,6 +944,52 @@ impl LanguageServer for SupersigilLsp {
                 Some(document_symbols::document_symbols(doc, &content))
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
+    }
+
+    fn references(
+        &mut self,
+        params: lsp_types::ReferenceParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<Location>>, Self::Error>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+        let content = self.open_files.get(&uri).cloned();
+        let graph = Arc::clone(&self.graph);
+
+        // Resolve file URI to document ID.
+        let doc_id = self
+            .uri_to_relative_key(&uri)
+            .and_then(|rel| self.file_parses.get(&rel))
+            .map(|doc| doc.frontmatter.id.clone());
+
+        Box::pin(async move {
+            let Some(content) = content else {
+                return Ok(None);
+            };
+            let Some(doc_id) = doc_id else {
+                return Ok(None);
+            };
+            let byte_char = position::utf16_to_byte(&content, position.line, position.character);
+            let Some((target_doc, target_fragment)) =
+                references::find_reference_target(&content, position.line, byte_char, &doc_id)
+            else {
+                return Ok(None);
+            };
+            let locations = references::collect_references(
+                &target_doc,
+                target_fragment.as_deref(),
+                include_declaration,
+                &graph,
+            );
+            if locations.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(locations))
+            }
+        })
     }
 
     fn hover(

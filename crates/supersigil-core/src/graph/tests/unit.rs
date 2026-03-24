@@ -971,6 +971,97 @@ fn example_without_references_has_no_reference_edges() {
     );
 }
 
+// ===========================================================================
+// component_at_path, resolved_refs_for_doc, task_implements_for_doc
+// ===========================================================================
+
+#[test]
+fn component_at_path_returns_top_level_component() {
+    let (graph, _) = build_auth_login_scenario();
+    // The req doc has components: [TrackedFiles(0), AcceptanceCriteria(1)]
+    // AcceptanceCriteria has children: [Criterion "valid-creds"(0), Criterion "invalid-password"(1), ...]
+    // Path [1, 0] should be the first Criterion (valid-creds).
+    let comp = graph
+        .component_at_path("auth/req/login", &[1, 0])
+        .expect("should find component at path [1, 0]");
+    assert_eq!(comp.name, "Criterion");
+    assert_eq!(
+        comp.attributes.get("id").map(String::as_str),
+        Some("valid-creds")
+    );
+}
+
+#[test]
+fn component_at_path_returns_none_for_invalid_path() {
+    let (graph, _) = build_auth_login_scenario();
+    assert!(graph.component_at_path("auth/req/login", &[99]).is_none());
+}
+
+#[test]
+fn component_at_path_returns_none_for_unknown_doc() {
+    let (graph, _) = build_auth_login_scenario();
+    assert!(graph.component_at_path("nonexistent", &[0]).is_none());
+}
+
+#[test]
+fn resolved_refs_for_doc_returns_refs_from_document() {
+    let (graph, _) = build_auth_login_scenario();
+    // auth/prop/token-generation has a References component pointing at auth/req/login#valid-creds
+    let refs: Vec<_> = graph
+        .resolved_refs_for_doc("auth/prop/token-generation")
+        .collect();
+    assert!(!refs.is_empty(), "should have resolved refs");
+    // Check that one of the resolved refs targets auth/req/login
+    let has_target = refs
+        .iter()
+        .any(|(_, resolved)| resolved.iter().any(|r| r.target_doc_id == "auth/req/login"));
+    assert!(has_target, "should reference auth/req/login: {refs:?}");
+}
+
+#[test]
+fn resolved_refs_for_doc_returns_empty_for_doc_without_refs() {
+    let (graph, _) = build_auth_login_scenario();
+    // auth/req/login has no outgoing refs
+    let refs: Vec<_> = graph.resolved_refs_for_doc("auth/req/login").collect();
+    assert!(
+        refs.is_empty(),
+        "req doc should have no outgoing refs: {refs:?}"
+    );
+}
+
+#[test]
+fn resolved_refs_for_doc_returns_empty_for_unknown_doc() {
+    let (graph, _) = build_auth_login_scenario();
+    let refs: Vec<_> = graph.resolved_refs_for_doc("nonexistent").collect();
+    assert!(refs.is_empty());
+}
+
+#[test]
+fn task_implements_for_doc_returns_entries() {
+    let (graph, _) = build_auth_login_scenario();
+    // auth/tasks/login has adapter-code implementing auth/req/login#valid-creds
+    let entries: Vec<_> = graph.task_implements_for_doc("auth/tasks/login").collect();
+    assert!(!entries.is_empty(), "should have task implements entries");
+    let has_adapter = entries
+        .iter()
+        .any(|(task_id, _)| *task_id == "adapter-code");
+    assert!(has_adapter, "should have adapter-code: {entries:?}");
+}
+
+#[test]
+fn task_implements_for_doc_returns_empty_for_doc_without_tasks() {
+    let (graph, _) = build_auth_login_scenario();
+    let entries: Vec<_> = graph.task_implements_for_doc("auth/req/login").collect();
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn task_implements_for_doc_returns_empty_for_unknown_doc() {
+    let (graph, _) = build_auth_login_scenario();
+    let entries: Vec<_> = graph.task_implements_for_doc("nonexistent").collect();
+    assert!(entries.is_empty());
+}
+
 /// An Example with `references` shows up in context query's `referenced_by`.
 #[test]
 fn example_references_appears_in_context_referenced_by() {

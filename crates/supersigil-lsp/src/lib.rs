@@ -12,6 +12,7 @@ pub mod diagnostics;
 pub mod document_symbols;
 pub mod hover;
 pub mod position;
+pub mod references;
 pub mod state;
 
 pub(crate) const REF_ATTRS: &[&str] = &["refs", "implements", "depends"];

@@ -79,7 +79,7 @@ pub(super) fn build_reverse_mappings(
 /// Walk a component tree following the index path to find the component.
 ///
 /// For a path like `[2, 1]`, this returns `components[2].children[1]`.
-fn resolve_component_path<'a>(
+pub(super) fn resolve_component_path<'a>(
     components: &'a [ExtractedComponent],
     path: &[usize],
 ) -> Option<&'a ExtractedComponent> {

@@ -150,7 +150,11 @@ pub fn hover_at_position(
 /// Returns `Some(name)` if the cursor is on an identifier that immediately
 /// follows a `<` character on the same line (allowing for the closing tag
 /// prefix `</` as well).
-fn component_name_at_position(content: &str, line: u32, character: u32) -> Option<String> {
+pub(crate) fn component_name_at_position(
+    content: &str,
+    line: u32,
+    character: u32,
+) -> Option<String> {
     let line_str = content.lines().nth(line as usize)?;
     let char_idx = character as usize;
 

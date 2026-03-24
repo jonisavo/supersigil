@@ -220,6 +220,48 @@ impl DocumentGraph {
             .map(Vec::as_slice)
     }
 
+    // -- Find-all-references accessors ---------------------------------------
+
+    /// Walk a document's component tree by index path to retrieve a component.
+    ///
+    /// For a path like `[2, 1]`, returns `doc.components[2].children[1]`.
+    /// Returns `None` if the document does not exist or the path is invalid.
+    #[must_use]
+    pub fn component_at_path(&self, doc_id: &str, path: &[usize]) -> Option<&ExtractedComponent> {
+        let doc = self.doc_index.get(doc_id)?;
+        reverse::resolve_component_path(&doc.components, path)
+    }
+
+    /// Iterate all resolved refs originating from a document.
+    ///
+    /// Yields `(component_path, resolved_refs)` pairs for each component in
+    /// the document that has resolved refs.
+    pub fn resolved_refs_for_doc(
+        &self,
+        doc_id: &str,
+    ) -> impl Iterator<Item = (&[usize], &[ResolvedRef])> {
+        self.resolved_refs
+            .iter()
+            .filter_map(move |((src_doc, path), refs)| {
+                (src_doc == doc_id).then_some((path.as_slice(), refs.as_slice()))
+            })
+    }
+
+    /// Iterate all task implements entries from a document.
+    ///
+    /// Yields `(task_id, targets)` pairs for each task in the document that
+    /// has `implements` refs.
+    pub fn task_implements_for_doc(
+        &self,
+        doc_id: &str,
+    ) -> impl Iterator<Item = (&str, &[(String, String)])> {
+        self.task_implements
+            .iter()
+            .filter_map(move |((src_doc, task_id), targets)| {
+                (src_doc == doc_id).then_some((task_id.as_str(), targets.as_slice()))
+            })
+    }
+
     // -- Topological order accessors (task 10.3) ---------------------------
 
     /// Get the topological ordering of tasks within a tasks document.

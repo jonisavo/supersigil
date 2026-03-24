@@ -26,5 +26,6 @@ serde_json.workspace = true
 glob.workspace = true
 
 [dev-dependencies]
+supersigil-core = { workspace = true, features = ["test-helpers"] }
 tempfile.workspace = true
 yaml_serde.workspace = true

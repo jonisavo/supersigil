@@ -181,15 +181,15 @@ reliable.
   <Criterion id="req-5-1">
     ON `initialize`, THE server SHALL discover `supersigil.toml`, parse all
     matching `.md` files in parallel, build the initial DocumentGraph, and
-    register LSP capabilities for completion, hover, definition, text
-    document sync, and file watching. THE server SHALL NOT advertise
+    register LSP capabilities for completion, hover, definition,
+    references, text document sync, and file watching. THE server SHALL NOT advertise
     `executeCommandProvider` in capabilities (the editor extension
     registers commands itself to avoid conflicts in multi-root workspaces).
   </Criterion>
   <Criterion id="req-5-2">
     IF no `supersigil.toml` is found during initialization, THE server
     SHALL start with minimal capabilities (text document sync only, no
-    completion, hover, or definition) and no diagnostics. Reparse and
+    completion, hover, definition, or references) and no diagnostics. Reparse and
     verify are skipped until config is present.
   </Criterion>
   <Criterion id="req-5-3">
