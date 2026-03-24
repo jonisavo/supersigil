@@ -1,14 +1,5 @@
 # Roadmap / Open Questions
 
-- **LSP: Document Symbols**: Expose component structure (requirements,
-  properties, design decisions, tasks) via `textDocument/documentSymbol`
-  so the VS Code outline panel, breadcrumbs, and minimap show spec
-  hierarchy. Low effort, immediate navigation win.
-
-- **LSP: Find All References**: Given a component or document ID, find
-  every `refs`, `implements`, and `depends` attribute that references it
-  via `textDocument/references`. Natural complement to go-to-definition.
-
 - **LSP: Code Actions / Quick Fixes**: Attach actionable fixes to
   diagnostics — add missing required attributes, create referenced
   documents, fix broken refs. Turns read-only warnings into one-click
