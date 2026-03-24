@@ -946,6 +946,88 @@ fn example_references_does_not_create_verification_evidence() {
     );
 }
 
+// ===========================================================================
+// Example `verifies` attribute creates reference edges in graph
+// ===========================================================================
+
+/// An Example with `verifies="other-doc/req#crit-a"` creates a reference
+/// edge that appears in the `references_reverse` mapping, enabling
+/// find-all-references from the criterion back to the Example.
+#[test]
+fn example_verifies_creates_reference_edge() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "other-doc/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-a", 2)],
+            1,
+        )],
+    );
+
+    let example_doc = make_doc(
+        "my/spec",
+        vec![make_example(
+            "ex-1",
+            "sh",
+            None,
+            Some("other-doc/req#crit-a"),
+            1,
+        )],
+    );
+
+    let graph =
+        build_graph(vec![req_doc, example_doc], &config).expect("graph should build successfully");
+
+    // The verifies edge should appear in references_reverse.
+    let refs = graph.references("other-doc/req", Some("crit-a"));
+    assert!(
+        refs.contains("my/spec"),
+        "Example verifies should create a reference edge: {refs:?}"
+    );
+}
+
+/// An Example with both `references` and `verifies` should create edges for both.
+#[test]
+fn example_with_both_references_and_verifies() {
+    let config = single_project_config();
+
+    let req_doc = make_doc(
+        "my/req",
+        vec![make_acceptance_criteria(
+            vec![make_criterion("crit-a", 2), make_criterion("crit-b", 3)],
+            1,
+        )],
+    );
+
+    let example_doc = make_doc(
+        "my/spec",
+        vec![make_example(
+            "ex-1",
+            "sh",
+            Some("my/req#crit-a"),
+            Some("my/req#crit-b"),
+            1,
+        )],
+    );
+
+    let graph =
+        build_graph(vec![req_doc, example_doc], &config).expect("graph should build successfully");
+
+    // Both references and verifies should create reference edges.
+    let refs_a = graph.references("my/req", Some("crit-a"));
+    assert!(
+        refs_a.contains("my/spec"),
+        "Example references should create an edge to crit-a: {refs_a:?}"
+    );
+
+    let refs_b = graph.references("my/req", Some("crit-b"));
+    assert!(
+        refs_b.contains("my/spec"),
+        "Example verifies should create an edge to crit-b: {refs_b:?}"
+    );
+}
+
 /// An Example without `references` works as before (no regression).
 #[test]
 fn example_without_references_has_no_reference_edges() {

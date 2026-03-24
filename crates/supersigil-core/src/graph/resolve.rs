@@ -248,22 +248,33 @@ fn resolve_components_recursive(
             }
         }
 
-        // Example components may have a `references` attribute that creates
-        // informational reference edges (same semantics as <References refs="...">).
-        if component.name == EXAMPLE
-            && let Some(refs_value) = component.attributes.get("references")
-        {
-            let resolved = resolve_single_refs_attribute(
-                ctx,
-                doc_id,
-                refs_value,
-                component.position,
-                FragmentCheck::None,
-                errors,
-            );
+        // Example components may have `references` (informational edges) or
+        // `verifies` (verification edges targeting verifiable components).
+        // Both create reference edges for LSP navigation.
+        if component.name == EXAMPLE {
+            const EXAMPLE_REF_ATTRS: &[(&str, FragmentCheck<'_>)] = &[
+                ("references", FragmentCheck::None),
+                ("verifies", FragmentCheck::Verifiable),
+            ];
 
-            if !resolved.is_empty() {
-                resolved_refs.insert((doc_id.to_owned(), component_path.clone()), resolved);
+            for &(attr, check) in EXAMPLE_REF_ATTRS {
+                if let Some(value) = component.attributes.get(attr) {
+                    let resolved = resolve_single_refs_attribute(
+                        ctx,
+                        doc_id,
+                        value,
+                        component.position,
+                        check,
+                        errors,
+                    );
+
+                    if !resolved.is_empty() {
+                        resolved_refs
+                            .entry((doc_id.to_owned(), component_path.clone()))
+                            .or_default()
+                            .extend(resolved);
+                    }
+                }
             }
         }
 

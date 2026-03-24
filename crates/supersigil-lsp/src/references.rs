@@ -522,6 +522,28 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    // -- Example verifies refs -----------------------------------------------
+
+    #[test]
+    fn verifies_ref_detected_as_target() {
+        let content = "```supersigil-xml\n<Example id=\"ex-1\" runner=\"sh\" verifies=\"auth/req#crit-1\" />\n```";
+        let result = find_reference_target(content, 1, 52, "my/spec");
+        assert_eq!(
+            result,
+            Some(("auth/req".to_owned(), Some("crit-1".to_owned())))
+        );
+    }
+
+    #[test]
+    fn collect_references_finds_verifies_refs() {
+        let graph = test_graph_with_verifies();
+        let results = collect_references("test/req", Some("crit-a"), false, &graph);
+        assert!(
+            !results.is_empty(),
+            "should find Example verifies reference: {results:?}"
+        );
+    }
+
     // -- Helpers --------------------------------------------------------------
 
     fn empty_graph() -> DocumentGraph {
@@ -595,5 +617,28 @@ mod tests {
         );
 
         build_graph(vec![req_doc, impl_doc], &Config::default()).unwrap()
+    }
+
+    /// Like `test_graph` but with an `Example` using `verifies` instead of `References`.
+    fn test_graph_with_verifies() -> DocumentGraph {
+        use supersigil_core::test_helpers::{
+            make_acceptance_criteria, make_criterion, make_doc, make_example,
+        };
+        use supersigil_core::{Config, build_graph};
+
+        let req_doc = make_doc(
+            "test/req",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("crit-a", 5)],
+                3,
+            )],
+        );
+
+        let example_doc = make_doc(
+            "test/example",
+            vec![make_example("ex-1", "sh", None, Some("test/req#crit-a"), 3)],
+        );
+
+        build_graph(vec![req_doc, example_doc], &Config::default()).unwrap()
     }
 }

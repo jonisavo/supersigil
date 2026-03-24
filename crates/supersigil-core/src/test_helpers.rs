@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::{
-    ACCEPTANCE_CRITERIA, CRITERION, Config, DEPENDS_ON, ExtractedComponent, Frontmatter,
+    ACCEPTANCE_CRITERIA, CRITERION, Config, DEPENDS_ON, EXAMPLE, ExtractedComponent, Frontmatter,
     SourcePosition, SpecDocument,
 };
 
@@ -79,6 +79,37 @@ pub fn make_depends_on(refs: &str, line: usize) -> ExtractedComponent {
         attributes: HashMap::from([("refs".to_owned(), refs.to_owned())]),
         children: Vec::new(),
         body_text: None,
+        body_text_offset: None,
+        body_text_end_offset: None,
+        code_blocks: Vec::new(),
+        position: pos(line),
+        end_position: pos(line + 1),
+    }
+}
+
+/// Build an `Example` component with optional `references` and `verifies` attributes.
+pub fn make_example(
+    id: &str,
+    runner: &str,
+    references: Option<&str>,
+    verifies: Option<&str>,
+    line: usize,
+) -> ExtractedComponent {
+    let mut attributes = HashMap::from([
+        ("id".to_owned(), id.to_owned()),
+        ("runner".to_owned(), runner.to_owned()),
+    ]);
+    if let Some(r) = references {
+        attributes.insert("references".to_owned(), r.to_owned());
+    }
+    if let Some(v) = verifies {
+        attributes.insert("verifies".to_owned(), v.to_owned());
+    }
+    ExtractedComponent {
+        name: EXAMPLE.to_owned(),
+        attributes,
+        children: Vec::new(),
+        body_text: Some(format!("example {id}")),
         body_text_offset: None,
         body_text_end_offset: None,
         code_blocks: Vec::new(),

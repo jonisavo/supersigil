@@ -484,7 +484,9 @@ mod tests {
 
     use super::*;
     use crate::examples::types::{MatchCheck, MatchFailure};
-    use crate::test_helpers::{make_doc, pos};
+    use crate::test_helpers::{
+        build_test_graph, make_acceptance_criteria, make_criterion, make_doc, pos,
+    };
 
     fn make_example_component(
         id: &str,
@@ -595,7 +597,7 @@ mod tests {
             components,
             warnings: Vec::new(),
         };
-        crate::test_helpers::build_test_graph(vec![doc])
+        build_test_graph(vec![doc])
     }
 
     // -----------------------------------------------------------------------
@@ -611,8 +613,15 @@ mod tests {
             Some("req/auth#crit-1"),
             Some("echo hello"),
         );
+        let criterion = make_criterion("crit-1", 2);
 
-        let graph = build_test_graph_with_components("req/auth", vec![example_component]);
+        let graph = build_test_graph_with_components(
+            "req/auth",
+            vec![
+                make_acceptance_criteria(vec![criterion], 1),
+                example_component,
+            ],
+        );
         let config = ExamplesConfig::default();
 
         let specs = collect_examples(&graph, &config);
@@ -653,7 +662,7 @@ mod tests {
     fn collect_examples_uses_config_default_timeout() {
         let example_component = make_example_component("ex", "sh", "sh", None, None);
         let doc = make_doc("req/doc", vec![example_component]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        let graph = build_test_graph(vec![doc]);
 
         let config = ExamplesConfig {
             timeout: 60,
@@ -672,7 +681,7 @@ mod tests {
             .attributes
             .insert("timeout".to_string(), "120".to_string());
         let doc = make_doc("req/doc", vec![component]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        let graph = build_test_graph(vec![doc]);
 
         let config = ExamplesConfig {
             timeout: 30,
@@ -691,7 +700,7 @@ mod tests {
             .attributes
             .insert("env".to_string(), "KEY1=val1, KEY2=val2".to_string());
         let doc = make_doc("req/doc", vec![component]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        let graph = build_test_graph(vec![doc]);
         let config = ExamplesConfig::default();
 
         let specs = collect_examples(&graph, &config);
@@ -715,7 +724,15 @@ mod tests {
             None,
         );
         let doc = make_doc("req/doc", vec![component]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        // Add the target doc with both criteria so graph ref resolution succeeds.
+        let target_doc = make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion("crit-1", 2), make_criterion("crit-2", 3)],
+                1,
+            )],
+        );
+        let graph = build_test_graph(vec![doc, target_doc]);
         let config = ExamplesConfig::default();
 
         let specs = collect_examples(&graph, &config);
@@ -734,7 +751,7 @@ mod tests {
     #[test]
     fn collect_examples_no_examples_returns_empty() {
         let doc = make_doc("req/doc", vec![]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        let graph = build_test_graph(vec![doc]);
         let config = ExamplesConfig::default();
 
         let specs = collect_examples(&graph, &config);
@@ -760,7 +777,7 @@ mod tests {
             end_position: pos(1),
         };
         let doc = make_doc("req/doc", vec![bad_component]);
-        let graph = crate::test_helpers::build_test_graph(vec![doc]);
+        let graph = build_test_graph(vec![doc]);
         let config = ExamplesConfig::default();
 
         // Should not panic, just skip
