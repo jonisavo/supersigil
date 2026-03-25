@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use lsp_types::Url;
 use supersigil_core::{DiagnosticsTier, SUPERSIGIL_XML_LANG};
 
+pub mod code_lens;
 pub mod commands;
 pub mod completion;
 pub mod definition;

@@ -22,7 +22,7 @@ use supersigil_core::{
     ComponentDefs, Config, DiagnosticsTier, DocumentGraph, ParseResult, SpecDocument, build_graph,
     expand_globs, find_config, load_config,
 };
-use supersigil_evidence::{EcosystemPlugin, ProjectScope};
+use supersigil_evidence::{EcosystemPlugin, EvidenceId, ProjectScope};
 use supersigil_verify::{
     VerifyInputs, VerifyOptions, build_artifact_graph, extract_explicit_evidence, verify,
 };
@@ -44,6 +44,9 @@ use crate::references;
 // SupersigilLsp
 // ---------------------------------------------------------------------------
 
+/// Evidence index: `doc_id` → `target_id` → evidence IDs.
+type EvidenceIndex = HashMap<String, HashMap<String, Vec<EvidenceId>>>;
+
 /// The main language server state.
 pub struct SupersigilLsp {
     client: ClientSocket,
@@ -57,6 +60,9 @@ pub struct SupersigilLsp {
     component_defs: Arc<ComponentDefs>,
     file_diagnostics: HashMap<Url, Vec<Diagnostic>>,
     graph_diagnostics: HashMap<Url, Vec<Diagnostic>>,
+    /// Cached evidence-by-target index from the last verify run.
+    /// Keyed by `doc_id` → `target_id` → evidence IDs.
+    evidence_by_target: Option<Arc<EvidenceIndex>>,
 }
 
 impl std::fmt::Debug for SupersigilLsp {
@@ -86,6 +92,7 @@ impl SupersigilLsp {
             component_defs: Arc::new(ComponentDefs::defaults()),
             file_diagnostics: HashMap::new(),
             graph_diagnostics: HashMap::new(),
+            evidence_by_target: None,
         })
     }
 
@@ -294,6 +301,7 @@ impl SupersigilLsp {
             collect_plugin_evidence(&plugins, &inputs.test_files, &scope, &self.graph);
         let explicit = extract_explicit_evidence(&self.graph, &inputs.tag_matches, &project_root);
         let artifact_graph = build_artifact_graph(&self.graph, explicit, plugin_evidence.evidence);
+        self.evidence_by_target = Some(Arc::new(artifact_graph.evidence_by_target.clone()));
 
         match verify(
             &self.graph,
@@ -450,6 +458,9 @@ impl LanguageServer for SupersigilLsp {
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
                 document_symbol_provider: Some(lsp_types::OneOf::Left(true)),
                 references_provider: Some(lsp_types::OneOf::Left(true)),
+                code_lens_provider: Some(lsp_types::CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
                 // Note: we intentionally omit execute_command_provider from
                 // capabilities. The server still handles workspace/executeCommand
                 // requests, but advertising commands here causes vscode-languageclient
@@ -992,6 +1003,63 @@ impl LanguageServer for SupersigilLsp {
         })
     }
 
+    fn code_lens(
+        &mut self,
+        params: lsp_types::CodeLensParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<lsp_types::CodeLens>>, Self::Error>> {
+        let uri = params.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
+
+        let rel_key = self.uri_to_relative_key(&uri);
+        let doc = rel_key.as_ref().and_then(|rel| {
+            self.file_parses
+                .get(rel)
+                .or_else(|| self.partial_file_parses.get(rel))
+                .cloned()
+        });
+        let doc_id = doc.as_ref().map(|d| d.frontmatter.id.clone());
+
+        // Read content from open buffers; fall back to disk.
+        let content = self.open_files.get(&uri).cloned().or_else(|| {
+            let rel = rel_key.as_ref()?;
+            let abs = self
+                .project_root
+                .as_ref()
+                .map(|r| r.join(rel))
+                .unwrap_or(rel.clone());
+            std::fs::read_to_string(&abs).ok().map(Arc::new)
+        });
+
+        let graph = Arc::clone(&self.graph);
+        let evidence = self.evidence_by_target.clone();
+
+        Box::pin(async move {
+            let Some(doc) = doc else {
+                return Ok(None);
+            };
+            let Some(doc_id) = doc_id else {
+                return Ok(None);
+            };
+            let Some(content) = content else {
+                return Ok(None);
+            };
+            let lenses = crate::code_lens::build_code_lenses(
+                &doc,
+                &doc_id,
+                &content,
+                &graph,
+                evidence.as_deref(),
+            );
+            if lenses.is_empty() {
+                Ok(Some(vec![]))
+            } else {
+                Ok(Some(lenses))
+            }
+        })
+    }
+
     fn hover(
         &mut self,
         params: HoverParams,
@@ -1310,6 +1378,7 @@ mod tests {
             component_defs: Arc::new(ComponentDefs::defaults()),
             file_diagnostics: HashMap::new(),
             graph_diagnostics: HashMap::new(),
+            evidence_by_target: None,
         }
     }
 
