@@ -10,6 +10,7 @@ pub mod commands;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
+pub mod document_list;
 pub mod document_symbols;
 pub mod hover;
 pub mod position;

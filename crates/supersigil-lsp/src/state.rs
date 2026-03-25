@@ -80,7 +80,7 @@ impl std::fmt::Debug for SupersigilLsp {
 impl SupersigilLsp {
     #[must_use]
     pub fn new_router(client: ClientSocket) -> async_lsp::router::Router<Self, ResponseError> {
-        async_lsp::router::Router::from_language_server(Self {
+        let mut router = async_lsp::router::Router::from_language_server(Self {
             client,
             config: None,
             project_root: None,
@@ -93,7 +93,9 @@ impl SupersigilLsp {
             file_diagnostics: HashMap::new(),
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
-        })
+        });
+        router.request::<crate::document_list::DocumentListRequest, _>(Self::handle_document_list);
+        router
     }
 
     fn effective_component_defs(config: Option<&Config>) -> ComponentDefs {
@@ -263,6 +265,12 @@ impl SupersigilLsp {
         self.publish_merged_diagnostics(uri);
     }
 
+    fn notify_documents_changed(&self) {
+        let _ = self
+            .client
+            .notify::<crate::document_list::DocumentsChanged>(());
+    }
+
     fn republish_all_diagnostics(&self) {
         let mut uris: Vec<Url> = self.open_files.keys().cloned().collect();
         for uri in self.graph_diagnostics.keys() {
@@ -368,6 +376,18 @@ impl SupersigilLsp {
                 tracing::warn!(error = %err, "verify pipeline failed");
             }
         }
+    }
+
+    fn handle_document_list(
+        &mut self,
+        _params: serde_json::Value,
+    ) -> BoxFuture<'static, Result<crate::document_list::DocumentListResult, ResponseError>> {
+        let graph = Arc::clone(&self.graph);
+        let project_root = self.project_root.clone().unwrap_or_default();
+
+        let documents = crate::document_list::build_document_entries(&graph, &project_root);
+
+        Box::pin(async move { Ok(crate::document_list::DocumentListResult { documents }) })
     }
 }
 
@@ -561,6 +581,7 @@ impl LanguageServer for SupersigilLsp {
         let tier = self.diagnostics_tier;
         self.run_verify_and_publish(tier);
         self.republish_all_diagnostics();
+        self.notify_documents_changed();
 
         let _ = client.notify::<lsp_types::notification::Progress>(ProgressParams {
             token,
@@ -689,6 +710,7 @@ impl LanguageServer for SupersigilLsp {
             }
 
             self.republish_all_diagnostics();
+            self.notify_documents_changed();
 
             // Clear stale diagnostics for closed files that no longer have issues.
             for uri in &prev_closed_uris {
@@ -857,6 +879,7 @@ impl LanguageServer for SupersigilLsp {
         self.file_parses = merged;
         self.partial_file_parses = partial_parses;
         self.republish_all_diagnostics();
+        self.notify_documents_changed();
 
         tracing::info!(
             changes = params.changes.len(),
@@ -884,6 +907,7 @@ impl LanguageServer for SupersigilLsp {
             self.graph_diagnostics.clear();
             self.run_verify_and_publish(tier);
             self.republish_all_diagnostics();
+            self.notify_documents_changed();
 
             for uri in &prev_closed_uris {
                 if !self.graph_diagnostics.contains_key(uri) {

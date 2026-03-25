@@ -33,6 +33,10 @@ paths = [
   "crates/supersigil-rust-macros/specs/**/*.md",
 ]
 
+# VS Code extension and editor-side features.
+[projects.vscode]
+paths = ["editors/vscode/specs/**/*.md"]
+
 # The documentation site.
 [projects.website]
 paths = ["website/src/content/docs/**/*.mdx"]
@@ -47,6 +51,7 @@ project_scope = [
   { manifest_dir_prefix = "crates/supersigil-import", project = "import" },
   { manifest_dir_prefix = "crates/supersigil-evidence", project = "ecosystem" },
   { manifest_dir_prefix = "crates/supersigil-rust", project = "ecosystem" },
+  { manifest_dir_prefix = "crates/supersigil-lsp", project = "vscode" },
 ]
 
 [documents.types.documentation]

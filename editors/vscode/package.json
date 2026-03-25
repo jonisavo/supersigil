@@ -30,6 +30,34 @@
       {
         "command": "supersigil.showStatus",
         "title": "Supersigil: Show Status"
+      },
+      {
+        "command": "supersigil.init",
+        "title": "Supersigil: Initialize Project"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "supersigil",
+          "title": "Supersigil",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "supersigil": [
+        {
+          "id": "supersigil.specExplorer",
+          "name": "Spec Explorer"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "supersigil.specExplorer",
+        "contents": "No supersigil project found in this workspace.\n[Initialize Project](command:supersigil.init)",
+        "when": "supersigil.noRoots"
       }
     ],
     "languages": [

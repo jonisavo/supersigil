@@ -10,9 +10,11 @@ import {
   State,
   TransportKind,
 } from "vscode-languageclient/node";
+import { METHOD_DOCUMENTS_CHANGED, SpecExplorerProvider } from "./specExplorer";
 
 const clients = new Map<string, LanguageClient>();
 let statusBarItem: vscode.StatusBarItem;
+let specExplorer: SpecExplorerProvider;
 let notFoundShown = false;
 
 function resolveServerBinary(): string | undefined {
@@ -68,6 +70,14 @@ function resolveServerBinary(): string | undefined {
   }
 
   return undefined;
+}
+
+function updateNoRootsContext(): void {
+  vscode.commands.executeCommand(
+    "setContext",
+    "supersigil.noRoots",
+    clients.size === 0,
+  );
 }
 
 function updateStatusBar(): void {
@@ -183,6 +193,11 @@ async function startClientForFolder(
 
   client.onDidChangeState(() => updateStatusBar());
 
+  // Refresh the Spec Explorer tree when the LSP re-indexes.
+  client.onNotification(METHOD_DOCUMENTS_CHANGED, () => {
+    specExplorer?.refresh();
+  });
+
   clients.set(key, client);
 
   try {
@@ -191,6 +206,8 @@ async function startClientForFolder(
     // Status bar will reflect the error state
   }
   updateStatusBar();
+  updateNoRootsContext();
+  specExplorer?.refresh();
 }
 
 async function startAllClients(
@@ -213,6 +230,8 @@ async function stopAllClients(): Promise<void> {
   const stops = Array.from(clients.values()).map((c) => c.stop());
   await Promise.all(stops);
   clients.clear();
+  updateNoRootsContext();
+  specExplorer?.refresh();
 }
 
 async function showStatusMenu(
@@ -307,6 +326,24 @@ export async function activate(
     ),
   );
 
+  // Spec Explorer tree view
+  specExplorer = new SpecExplorerProvider(clients);
+  context.subscriptions.push(specExplorer);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider(
+      "supersigil.specExplorer",
+      specExplorer,
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("supersigil.init", () => {
+      const terminal = vscode.window.createTerminal("Supersigil Init");
+      terminal.show();
+      terminal.sendText("supersigil init");
+    }),
+  );
+
   // Register supersigil.verify ourselves instead of letting each language
   // client auto-register it (which fails for the second client with
   // "command already exists"). Routes to the client for the active file.
@@ -346,10 +383,13 @@ export async function activate(
         }
       }
       updateStatusBar();
+      updateNoRootsContext();
+      specExplorer?.refresh();
     }),
   );
 
   await startAllClients(context);
+  updateNoRootsContext();
 }
 
 export async function deactivate(): Promise<void> {
