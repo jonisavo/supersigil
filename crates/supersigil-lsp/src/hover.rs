@@ -129,8 +129,8 @@ pub fn hover_at_position(
     }
 
     // Check ref first (more specific).
-    if let Some(ref_str) = find_ref_at_position(content, line, character) {
-        return hover_ref(&ref_str, graph);
+    if let Some(ref_at) = find_ref_at_position(content, line, character) {
+        return hover_ref(&ref_at.ref_string, graph);
     }
 
     // Check for component name: cursor on a word after `<`.

@@ -1,25 +1,5 @@
 # Roadmap / Open Questions
 
-- **LSP: Code Actions / Quick Fixes**: Attach actionable fixes to
-  diagnostics — add missing required attributes, create referenced
-  documents, fix broken refs. Turns read-only warnings into one-click
-  fixes via `textDocument/codeAction`.
-
-- **LSP: Code Lenses**: Show inline metadata above components:
-  reference counts ("3 references"), verification status ("verified by
-  2 tests"), coverage percentage. Makes verification status visible
-  without running the CLI. Via `textDocument/codeLens`.
-
-- **LSP: Rename**: Rename a document ID or component ID and update all
-  references across the spec tree via `textDocument/rename` and
-  `textDocument/prepareRename`. Refactoring safety net for spec
-  evolution.
-
-- **VS Code: Spec Explorer Tree View**: A sidebar panel showing the
-  document graph — features grouped by type (requirements, properties,
-  design, tasks) with status icons and coverage indicators. Clicking
-  navigates to the file. Requires a `TreeDataProvider` in the extension.
-
 - **Editor extensions**: Neovim, JetBrains, and Zed extensions that
   surface the full LSP feature set. VS Code extension is implemented.
 

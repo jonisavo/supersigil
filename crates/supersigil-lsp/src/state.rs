@@ -39,6 +39,7 @@ use crate::hover;
 use crate::parse_tier;
 use crate::position;
 use crate::references;
+use crate::rename;
 
 // ---------------------------------------------------------------------------
 // SupersigilLsp
@@ -478,6 +479,10 @@ impl LanguageServer for SupersigilLsp {
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
                 document_symbol_provider: Some(lsp_types::OneOf::Left(true)),
                 references_provider: Some(lsp_types::OneOf::Left(true)),
+                rename_provider: Some(lsp_types::OneOf::Right(lsp_types::RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
+                })),
                 code_lens_provider: Some(lsp_types::CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
@@ -939,12 +944,11 @@ impl LanguageServer for SupersigilLsp {
                 return Ok(None);
             };
             let byte_char = position::utf16_to_byte(&content, position.line, position.character);
-            let Some(ref_str) =
-                definition::find_ref_at_position(&content, position.line, byte_char)
+            let Some(ref_at) = definition::find_ref_at_position(&content, position.line, byte_char)
             else {
                 return Ok(None);
             };
-            let location = definition::resolve_ref(&ref_str, &graph);
+            let location = definition::resolve_ref(&ref_at.ref_string, &graph);
             Ok(location.map(GotoDefinitionResponse::Scalar))
         })
     }
@@ -1024,6 +1028,105 @@ impl LanguageServer for SupersigilLsp {
             } else {
                 Ok(Some(locations))
             }
+        })
+    }
+
+    fn prepare_rename(
+        &mut self,
+        params: lsp_types::TextDocumentPositionParams,
+    ) -> BoxFuture<'static, Result<Option<lsp_types::PrepareRenameResponse>, Self::Error>> {
+        let uri = params.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
+        let pos = params.position;
+        let content = self.open_files.get(&uri).cloned();
+        let doc_id = self
+            .uri_to_relative_key(&uri)
+            .and_then(|rel| self.file_parses.get(&rel))
+            .map(|doc| doc.frontmatter.id.clone());
+
+        Box::pin(async move {
+            let Some(content) = content else {
+                return Ok(None);
+            };
+            let Some(doc_id) = doc_id else {
+                return Ok(None);
+            };
+            let byte_char = position::utf16_to_byte(&content, pos.line, pos.character);
+            let Some(target) = rename::find_rename_target(&content, pos.line, byte_char, &doc_id)
+            else {
+                return Ok(None);
+            };
+
+            let (placeholder, range) = match &target {
+                rename::RenameTarget::ComponentId {
+                    component_id,
+                    range,
+                    ..
+                } => (component_id.clone(), range),
+                rename::RenameTarget::DocumentId { doc_id, range } => (doc_id.clone(), range),
+            };
+
+            let line_str = content.lines().nth(range.line as usize).unwrap_or("");
+            let lsp_range = position::byte_range_to_lsp(
+                line_str,
+                range.line,
+                range.start as usize,
+                range.end as usize,
+            );
+
+            Ok(Some(
+                lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
+                    range: lsp_range,
+                    placeholder,
+                },
+            ))
+        })
+    }
+
+    fn rename(
+        &mut self,
+        params: lsp_types::RenameParams,
+    ) -> BoxFuture<'static, Result<Option<lsp_types::WorkspaceEdit>, Self::Error>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        if !self.uri_is_owned(&uri) {
+            return Box::pin(async { Ok(None) });
+        }
+        let pos = params.text_document_position.position;
+        let new_name = params.new_name;
+        let content = self.open_files.get(&uri).cloned();
+        let graph = Arc::clone(&self.graph);
+        let open_files = self.open_files.clone();
+        let doc_id = self
+            .uri_to_relative_key(&uri)
+            .and_then(|rel| self.file_parses.get(&rel))
+            .map(|doc| doc.frontmatter.id.clone());
+
+        Box::pin(async move {
+            let Some(content) = content else {
+                return Ok(None);
+            };
+            let Some(doc_id) = doc_id else {
+                return Ok(None);
+            };
+
+            if let Err(msg) = rename::validate_new_name(&new_name) {
+                return Err(ResponseError::new(
+                    async_lsp::ErrorCode::INVALID_PARAMS,
+                    msg,
+                ));
+            }
+
+            let byte_char = position::utf16_to_byte(&content, pos.line, pos.character);
+            let Some(target) = rename::find_rename_target(&content, pos.line, byte_char, &doc_id)
+            else {
+                return Ok(None);
+            };
+
+            let workspace_edit =
+                rename::collect_rename_edits(&target, &new_name, &graph, &open_files);
+            Ok(Some(workspace_edit))
         })
     }
 

@@ -53,12 +53,8 @@ pub fn source_to_lsp_utf16(sp: &SourcePosition, content: &str) -> Position {
     let byte_col = sp.column.saturating_sub(1);
     let line_content = &content[line_start..];
 
-    #[allow(clippy::cast_possible_truncation, reason = "len_utf16 returns 1 or 2")]
-    let character = line_content
-        .char_indices()
-        .take_while(|(i, _)| *i < byte_col)
-        .map(|(_, c)| c.len_utf16() as u32)
-        .sum();
+    #[allow(clippy::cast_possible_truncation, reason = "byte_col fits in u32")]
+    let character = byte_to_utf16(line_content, byte_col as u32);
 
     Position { line, character }
 }
@@ -71,6 +67,35 @@ pub fn source_to_lsp_from_file(sp: &SourcePosition, path: &Path) -> Position {
     match std::fs::read_to_string(path) {
         Ok(content) => source_to_lsp_utf16(sp, &content),
         Err(_) => source_to_lsp(sp),
+    }
+}
+
+/// Convert a byte offset within a line to a UTF-16 character offset.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, reason = "len_utf16 returns 1 or 2")]
+pub fn byte_to_utf16(line_str: &str, byte_offset: u32) -> u32 {
+    line_str
+        .char_indices()
+        .take_while(|(i, _)| (*i as u32) < byte_offset)
+        .map(|(_, c)| c.len_utf16() as u32)
+        .sum()
+}
+
+/// Convert byte offsets within a line to an LSP `Range` with UTF-16 columns.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, reason = "byte offsets fit in u32")]
+pub fn byte_range_to_lsp(line_str: &str, line: u32, byte_start: usize, byte_end: usize) -> Range {
+    let start_char = byte_to_utf16(line_str, byte_start as u32);
+    let end_char = byte_to_utf16(line_str, byte_end as u32);
+    Range {
+        start: Position {
+            line,
+            character: start_char,
+        },
+        end: Position {
+            line,
+            character: end_char,
+        },
     }
 }
 

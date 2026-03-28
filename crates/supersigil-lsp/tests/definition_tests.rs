@@ -85,7 +85,10 @@ fn cursor_inside_refs_attribute() {
     let (content, line) = fenced(r#"<References refs="auth/req#req-1-1" />"#);
     // Value `auth/req#req-1-1` starts at byte 20 on the inner line.
     let result = find_ref_at_position(&content, line, 25);
-    assert_eq!(result.as_deref(), Some("auth/req#req-1-1"));
+    assert_eq!(
+        result.as_ref().map(|r| r.ref_string.as_str()),
+        Some("auth/req#req-1-1")
+    );
 }
 
 #[test]
@@ -93,7 +96,10 @@ fn cursor_inside_implements_attribute() {
     let (content, line) = fenced(r#"<Task id="t1" implements="design/req" />"#);
     // `implements="` starts at 14; value `design/req` starts at 26.
     let result = find_ref_at_position(&content, line, 30);
-    assert_eq!(result.as_deref(), Some("design/req"));
+    assert_eq!(
+        result.as_ref().map(|r| r.ref_string.as_str()),
+        Some("design/req")
+    );
 }
 
 #[test]
@@ -101,7 +107,10 @@ fn cursor_on_second_ref_in_comma_list() {
     let (content, line) = fenced(r#"<References refs="a/req#c1, b/req#c2" />"#);
     // Cursor at 32 is inside b/req#c2.
     let result = find_ref_at_position(&content, line, 32);
-    assert_eq!(result.as_deref(), Some("b/req#c2"));
+    assert_eq!(
+        result.as_ref().map(|r| r.ref_string.as_str()),
+        Some("b/req#c2")
+    );
 }
 
 #[test]
@@ -227,7 +236,10 @@ fn cursor_inside_verifies_attribute() {
     let (content, line) = fenced(r#"<Example id="ex-1" runner="sh" verifies="auth/req#crit-1" />"#);
     // `verifies="` starts at 31; value `auth/req#crit-1` starts at 41.
     let result = find_ref_at_position(&content, line, 45);
-    assert_eq!(result.as_deref(), Some("auth/req#crit-1"));
+    assert_eq!(
+        result.as_ref().map(|r| r.ref_string.as_str()),
+        Some("auth/req#crit-1")
+    );
 }
 
 #[test]
@@ -236,5 +248,8 @@ fn cursor_inside_verifies_comma_list() {
         fenced(r#"<Example id="ex-1" runner="sh" verifies="a/req#c1, b/req#c2" />"#);
     // Second ref starts after the comma+space.
     let result = find_ref_at_position(&content, line, 52);
-    assert_eq!(result.as_deref(), Some("b/req#c2"));
+    assert_eq!(
+        result.as_ref().map(|r| r.ref_string.as_str()),
+        Some("b/req#c2")
+    );
 }

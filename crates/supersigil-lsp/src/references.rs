@@ -36,8 +36,8 @@ pub fn find_reference_target(
     character: u32,
     doc_id: &str,
 ) -> Option<(String, Option<String>)> {
-    if let Some(ref_str) = find_ref_at_position(content, line, character) {
-        return Some(parse_ref_target(&ref_str));
+    if let Some(ref_at) = find_ref_at_position(content, line, character) {
+        return Some(parse_ref_target(&ref_at.ref_string));
     }
 
     if let Some((target, _fragment)) = find_supersigil_ref_at_position(content, line, character) {
@@ -73,7 +73,7 @@ fn parse_ref_target(ref_str: &str) -> (String, Option<String>) {
 /// Returns `Some((target, Option<fragment>))` if the line is a code fence
 /// opening with `supersigil-ref=` in the info string and the cursor column
 /// falls within the `supersigil-ref=<value>` token.
-fn find_supersigil_ref_at_position(
+pub(crate) fn find_supersigil_ref_at_position(
     content: &str,
     line: u32,
     character: u32,
@@ -152,9 +152,12 @@ fn find_supersigil_ref_at_position(
 }
 
 /// Extract the `id="..."` attribute value from a line.
-fn extract_id_attribute_on_line(content: &str, line: u32) -> Option<String> {
+///
+/// Searches for ` id="` (with leading space) to avoid matching substrings
+/// like `some-id="..."` inside other attribute values.
+pub(crate) fn extract_id_attribute_on_line(content: &str, line: u32) -> Option<String> {
     let line_str = content.lines().nth(line as usize)?;
-    let needle = "id=\"";
+    let needle = " id=\"";
     let pos = line_str.find(needle)?;
     let value_start = pos + needle.len();
     let rest = &line_str[value_start..];
@@ -171,7 +174,7 @@ fn extract_id_attribute_on_line(content: &str, line: u32) -> Option<String> {
 ///
 /// Frontmatter is the region strictly between the first `---` at line 0
 /// and the next `---` line.
-fn is_in_frontmatter(content: &str, line: u32) -> bool {
+pub(crate) fn is_in_frontmatter(content: &str, line: u32) -> bool {
     let target = line as usize;
 
     let mut found_open = false;
