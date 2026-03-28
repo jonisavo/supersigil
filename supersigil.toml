@@ -51,7 +51,7 @@ project_scope = [
   { manifest_dir_prefix = "crates/supersigil-import", project = "import" },
   { manifest_dir_prefix = "crates/supersigil-evidence", project = "ecosystem" },
   { manifest_dir_prefix = "crates/supersigil-rust", project = "ecosystem" },
-  { manifest_dir_prefix = "crates/supersigil-lsp", project = "vscode" },
+  { manifest_dir_prefix = "crates/supersigil-lsp", project = "lsp" },
 ]
 
 [documents.types.documentation]

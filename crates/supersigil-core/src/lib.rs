@@ -9,6 +9,7 @@ mod locate;
 mod refs;
 mod rust_scope;
 mod rust_validation_inputs;
+pub mod scaffold;
 mod types;
 mod xml;
 

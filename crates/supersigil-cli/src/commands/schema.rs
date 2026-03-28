@@ -4,7 +4,9 @@ use std::path::Path;
 use serde::Serialize;
 use supersigil_core::{AttributeDef, ComponentDef, ComponentDefs, DocumentTypeDef, load_config};
 
-use crate::commands::{BUILTIN_DOC_TYPES, SchemaArgs, SchemaFormat};
+use supersigil_core::scaffold::BUILTIN_DOC_TYPES;
+
+use crate::commands::{SchemaArgs, SchemaFormat};
 use crate::error::CliError;
 use crate::format::{ColorConfig, write_json, write_yaml};
 

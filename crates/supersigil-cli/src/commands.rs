@@ -20,9 +20,6 @@ use std::path::PathBuf;
 
 use crate::format::OutputFormat;
 
-/// Built-in document types recognized without explicit configuration.
-pub const BUILTIN_DOC_TYPES: &[&str] = &["requirements", "design", "tasks", "adr"];
-
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Structural checks on spec files (per-file, no graph)

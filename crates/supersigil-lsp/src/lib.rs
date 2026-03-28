@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use lsp_types::Url;
 use supersigil_core::{DiagnosticsTier, SUPERSIGIL_XML_LANG};
 
+pub mod code_actions;
 pub mod code_lens;
 pub mod commands;
 pub mod completion;
@@ -39,23 +40,26 @@ pub(crate) fn path_to_url(path: &Path) -> Option<Url> {
     }
 }
 
-/// Returns `true` if the given 0-based line is inside a `supersigil-xml`
-/// fenced code block in `content`.
+/// A supersigil-xml fence region found in a document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FenceRegion {
+    /// 0-based line number of the opening delimiter (e.g. `` ```supersigil-xml ``).
+    pub open_line: usize,
+    /// 0-based line number of the closing delimiter (e.g. `` ``` ``).
+    pub close_line: usize,
+}
+
+/// Returns all `supersigil-xml` fence regions in `content`.
 ///
 /// Uses a lightweight line-by-line scan — no full Markdown parse.
-/// A line is "inside" a fence if it is strictly between an opening delimiter
-/// (`` ```supersigil-xml `` or `~~~supersigil-xml`) and its matching closing
-/// delimiter. The delimiter lines themselves are NOT considered "inside" the
-/// fence.
-///
-/// HTML comments (`<!-- ... -->`) outside of fences are skipped so that
-/// commented-out fence examples in scaffold files do not confuse the scanner.
-pub(crate) fn is_in_supersigil_fence(content: &str, line: u32) -> bool {
-    let target = line as usize;
+/// Handles backtick and tilde fences of varying lengths (>= 3), nested fences
+/// (where a shorter delimiter inside a longer one is ignored), and HTML
+/// comments outside of fences.
+pub(crate) fn supersigil_fence_regions(content: &str) -> Vec<FenceRegion> {
+    let mut regions = Vec::new();
     // State: None = not in any fence,
-    //        Some((fence_char, open_count, is_supersigil))
-    //        fence_char: b'`' or b'~'
-    let mut fence_state: Option<(u8, usize, bool)> = None;
+    //        Some((fence_char, open_count, is_supersigil, open_line))
+    let mut fence_state: Option<(u8, usize, bool, usize)> = None;
     let mut in_html_comment = false;
 
     for (i, l) in content.lines().enumerate() {
@@ -67,16 +71,13 @@ pub(crate) fn is_in_supersigil_fence(content: &str, line: u32) -> bool {
                 if trimmed.contains("-->") {
                     in_html_comment = false;
                 }
-                // Skip fence detection regardless of whether comment ended.
                 continue;
             }
 
             if let Some(after_open) = trimmed.strip_prefix("<!--") {
-                // Check if the comment closes on the same line.
                 if !after_open.contains("-->") {
                     in_html_comment = true;
                 }
-                // Skip fence detection on this line.
                 continue;
             }
         }
@@ -97,21 +98,21 @@ pub(crate) fn is_in_supersigil_fence(content: &str, line: u32) -> bool {
         if fence_count >= 3 {
             let after_fence = &trimmed[fence_count..];
 
-            if let Some((open_char, open_count, is_supersigil)) = fence_state {
+            if let Some((open_char, open_count, is_supersigil, open_line)) = fence_state {
                 // Inside a fence — check for closing delimiter.
-                // Closing: same char type, count >= open_count, nothing after.
                 if fence_char == open_char
                     && fence_count >= open_count
                     && after_fence.trim().is_empty()
                 {
+                    if is_supersigil {
+                        regions.push(FenceRegion {
+                            open_line,
+                            close_line: i,
+                        });
+                    }
                     fence_state = None;
-                    // Closing delimiter line is NOT inside.
-                    continue;
                 }
-                // Not a valid close — this line is content inside the fence.
-                if i == target && is_supersigil {
-                    return true;
-                }
+                // Not a valid close — content line inside the fence.
             } else {
                 // Not inside any fence — this is an opening fence line.
                 let info_string = after_fence.trim();
@@ -119,18 +120,30 @@ pub(crate) fn is_in_supersigil_fence(content: &str, line: u32) -> bool {
                     || info_string
                         .strip_prefix(SUPERSIGIL_XML_LANG)
                         .is_some_and(|rest| rest.starts_with(' '));
-                fence_state = Some((fence_char, fence_count, is_supersigil));
-                // Opening delimiter line is NOT inside.
-            }
-        } else if let Some((_, _, true)) = fence_state {
-            // Regular line inside a supersigil fence.
-            if i == target {
-                return true;
+                fence_state = Some((fence_char, fence_count, is_supersigil, i));
             }
         }
     }
 
-    false
+    regions
+}
+
+/// Returns `true` if the given 0-based line is inside a `supersigil-xml`
+/// fenced code block in `content`.
+///
+/// Uses a lightweight line-by-line scan — no full Markdown parse.
+/// A line is "inside" a fence if it is strictly between an opening delimiter
+/// (`` ```supersigil-xml `` or `~~~supersigil-xml`) and its matching closing
+/// delimiter. The delimiter lines themselves are NOT considered "inside" the
+/// fence.
+///
+/// HTML comments (`<!-- ... -->`) outside of fences are skipped so that
+/// commented-out fence examples in scaffold files do not confuse the scanner.
+pub(crate) fn is_in_supersigil_fence(content: &str, line: u32) -> bool {
+    let target = line as usize;
+    supersigil_fence_regions(content)
+        .iter()
+        .any(|r| target > r.open_line && target < r.close_line)
 }
 
 // ---------------------------------------------------------------------------

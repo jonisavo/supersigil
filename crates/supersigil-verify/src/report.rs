@@ -1,6 +1,6 @@
 //! Verification report types: findings, summaries, and result status.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use supersigil_core::{Severity, SourcePosition};
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ impl From<Severity> for ReportSeverity {
 /// The built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
 /// `HookOutput` and `HookFailure` are synthetic rules emitted by hook
 /// execution rather than config-driven checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleName {
     MissingVerificationEvidence,

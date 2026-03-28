@@ -8,14 +8,14 @@ use std::sync::Arc;
 use async_lsp::{ClientSocket, LanguageServer, ResponseError};
 use futures::future::BoxFuture;
 use lsp_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, InitializeParams, InitializeResult, Location, MessageType, NumberOrString,
-    PositionEncodingKind, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
-    ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    CodeActionOrCommand, CodeActionParams, CompletionOptions, CompletionParams, CompletionResponse,
+    Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location,
+    MessageType, NumberOrString, PositionEncodingKind, ProgressParams, ProgressParamsValue,
+    PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
@@ -27,11 +27,12 @@ use supersigil_verify::{
     VerifyInputs, VerifyOptions, build_artifact_graph, extract_explicit_evidence, verify,
 };
 
+use crate::code_actions::{ActionRequestContext, CodeActionProvider};
 use crate::commands;
 use crate::completion;
 use crate::definition;
 use crate::diagnostics::{
-    finding_to_diagnostic, graph_error_to_diagnostic_with_lookup, group_by_url,
+    DiagnosticData, finding_to_diagnostic, graph_error_to_diagnostic_with_lookup, group_by_url,
     parse_error_to_diagnostic, parse_warning_to_diagnostic,
 };
 use crate::document_symbols;
@@ -64,6 +65,7 @@ pub struct SupersigilLsp {
     /// Cached evidence-by-target index from the last verify run.
     /// Keyed by `doc_id` → `target_id` → evidence IDs.
     evidence_by_target: Option<Arc<EvidenceIndex>>,
+    providers: Vec<Box<dyn CodeActionProvider>>,
 }
 
 impl std::fmt::Debug for SupersigilLsp {
@@ -94,6 +96,16 @@ impl SupersigilLsp {
             file_diagnostics: HashMap::new(),
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
+            providers: vec![
+                Box::new(crate::code_actions::MissingAttributeProvider),
+                Box::new(crate::code_actions::DuplicateIdProvider),
+                Box::new(crate::code_actions::IncompleteDecisionProvider),
+                Box::new(crate::code_actions::MissingComponentProvider),
+                Box::new(crate::code_actions::OrphanDecisionProvider),
+                Box::new(crate::code_actions::InvalidPlacementProvider),
+                Box::new(crate::code_actions::SequentialIdProvider),
+                Box::new(crate::code_actions::BrokenRefProvider),
+            ],
         });
         router.request::<crate::document_list::DocumentListRequest, _>(Self::handle_document_list);
         router
@@ -390,6 +402,146 @@ impl SupersigilLsp {
 
         Box::pin(async move { Ok(crate::document_list::DocumentListResult { documents }) })
     }
+
+    /// Handle the `supersigil.createDocument` command.
+    ///
+    /// Prompts the user to pick a project via `window/showMessageRequest`,
+    /// then scaffolds a new document file in the chosen project's spec
+    /// directory and applies the edit via `workspace/applyEdit`.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "async scaffolding dominates line count"
+    )]
+    fn execute_create_document(
+        &self,
+        arguments: &[serde_json::Value],
+    ) -> BoxFuture<'static, Result<Option<serde_json::Value>, ResponseError>> {
+        // Parse command arguments.
+        let Some(args) = arguments.first() else {
+            return Box::pin(async { Ok(None) });
+        };
+        let Some(target_ref) = args.get("ref").and_then(|v| v.as_str()) else {
+            return Box::pin(async { Ok(None) });
+        };
+        let Some(feature) = args.get("feature").and_then(|v| v.as_str()) else {
+            return Box::pin(async { Ok(None) });
+        };
+        let Some(full_type) = args.get("type").and_then(|v| v.as_str()) else {
+            return Box::pin(async { Ok(None) });
+        };
+
+        // Collect project names.
+        let project_names: Vec<String> = match &self.config {
+            Some(config) => match &config.projects {
+                Some(projects) if !projects.is_empty() => {
+                    let mut names: Vec<String> = projects.keys().cloned().collect();
+                    names.sort();
+                    names
+                }
+                _ => return Box::pin(async { Ok(None) }),
+            },
+            None => return Box::pin(async { Ok(None) }),
+        };
+
+        // Clone data needed for the async block.
+        let mut client = self.client.clone();
+        let config = self.config.clone().unwrap_or_default();
+        let project_root = self.project_root.clone().unwrap_or_default();
+        let target_ref = target_ref.to_string();
+        let feature = feature.to_string();
+        let full_type = full_type.to_string();
+
+        Box::pin(async move {
+            use async_lsp::LanguageClient;
+            use lsp_types::{
+                ApplyWorkspaceEditParams, CreateFile, CreateFileOptions, DocumentChangeOperation,
+                DocumentChanges, MessageActionItem, OptionalVersionedTextDocumentIdentifier,
+                Position, Range, ResourceOp, ShowMessageRequestParams, TextDocumentEdit, TextEdit,
+                WorkspaceEdit,
+            };
+            use supersigil_core::glob_prefix;
+            use supersigil_core::scaffold::generate_template;
+
+            // Ask the user which project to use.
+            let params = ShowMessageRequestParams {
+                typ: MessageType::INFO,
+                message: format!("Which project should '{target_ref}' be created in?"),
+                actions: Some(
+                    project_names
+                        .iter()
+                        .map(|name| MessageActionItem {
+                            title: name.clone(),
+                            properties: HashMap::new(),
+                        })
+                        .collect(),
+                ),
+            };
+
+            let response = client.show_message_request(params).await;
+            let chosen = match response {
+                Ok(Some(item)) => item.title,
+                // User dismissed the dialog or request failed — take no action.
+                _ => return Ok(None),
+            };
+
+            // Resolve the spec directory from the chosen project.
+            let Some(projects) = &config.projects else {
+                return Ok(None);
+            };
+            let Some(project_config) = projects.get(&chosen) else {
+                return Ok(None);
+            };
+            let Some(first_pattern) = project_config.paths.first() else {
+                return Ok(None);
+            };
+            let spec_dir = glob_prefix(first_pattern);
+
+            // Derive the short type for file naming.
+            let type_short = supersigil_core::scaffold::type_short_name(&full_type);
+
+            let file_rel = format!("{spec_dir}{feature}/{feature}.{type_short}.md");
+            let file_path = project_root.join(&file_rel);
+            let Some(file_uri) = Url::from_file_path(&file_path).ok() else {
+                return Ok(None);
+            };
+
+            let content = generate_template(&full_type, &target_ref, &feature, false);
+
+            let create_op = DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                uri: file_uri.clone(),
+                options: Some(CreateFileOptions {
+                    overwrite: Some(false),
+                    ignore_if_exists: Some(false),
+                }),
+                annotation_id: None,
+            }));
+
+            let insert_op = DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: file_uri,
+                    version: None,
+                },
+                edits: vec![lsp_types::OneOf::Left(TextEdit {
+                    range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    new_text: content,
+                })],
+            });
+
+            let workspace_edit = WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(vec![create_op, insert_op])),
+                ..Default::default()
+            };
+
+            let _ = client
+                .apply_edit(ApplyWorkspaceEditParams {
+                    label: Some(format!("Create {target_ref}")),
+                    edit: workspace_edit,
+                })
+                .await;
+
+            Ok(None)
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +638,12 @@ impl LanguageServer for SupersigilLsp {
                 code_lens_provider: Some(lsp_types::CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
+                code_action_provider: Some(lsp_types::CodeActionProviderCapability::Options(
+                    lsp_types::CodeActionOptions {
+                        code_action_kinds: Some(vec![lsp_types::CodeActionKind::QUICKFIX]),
+                        ..Default::default()
+                    },
+                )),
                 // Note: we intentionally omit execute_command_provider from
                 // capabilities. The server still handles workspace/executeCommand
                 // requests, but advertising commands here causes vscode-languageclient
@@ -894,6 +1052,72 @@ impl LanguageServer for SupersigilLsp {
         ControlFlow::Continue(())
     }
 
+    fn code_action(
+        &mut self,
+        params: CodeActionParams,
+    ) -> BoxFuture<'static, Result<Option<lsp_types::CodeActionResponse>, ResponseError>> {
+        let uri = params.text_document.uri;
+
+        // Early exit: if no config or project root, nothing to offer.
+        let (Some(config), Some(project_root)) = (&self.config, &self.project_root) else {
+            return Box::pin(async { Ok(Some(Vec::new())) });
+        };
+
+        let content = self
+            .open_files
+            .get(&uri)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(String::new()));
+
+        let ctx = ActionRequestContext {
+            graph: &self.graph,
+            config,
+            component_defs: &self.component_defs,
+            file_parses: &self.file_parses,
+            project_root,
+            file_uri: &uri,
+            file_content: &content,
+        };
+
+        let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+
+        for diag in &params.context.diagnostics {
+            // req-2-3: skip diagnostics without data or with non-deserializable data.
+            let Some(raw_data) = &diag.data else {
+                continue;
+            };
+            let Ok(data) = serde_json::from_value::<DiagnosticData>(raw_data.clone()) else {
+                continue;
+            };
+
+            for provider in &self.providers {
+                if !provider.handles(&data) {
+                    continue;
+                }
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    provider.actions(diag, &data, &ctx)
+                })) {
+                    Ok(provider_actions) => {
+                        for mut action in provider_actions {
+                            // req-2-4: ensure kind is quickfix and diagnostics includes the originating one.
+                            action.kind = Some(lsp_types::CodeActionKind::QUICKFIX);
+                            action.diagnostics = Some(vec![diag.clone()]);
+                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            diagnostic_message = %diag.message,
+                            "code action provider panicked, skipping"
+                        );
+                    }
+                }
+            }
+        }
+
+        Box::pin(async move { Ok(Some(actions)) })
+    }
+
     fn execute_command(
         &mut self,
         params: ExecuteCommandParams,
@@ -919,7 +1143,13 @@ impl LanguageServer for SupersigilLsp {
                     self.publish_merged_diagnostics(uri);
                 }
             }
+            return Box::pin(async { Ok(None) });
         }
+
+        if params.command == commands::CREATE_DOCUMENT_COMMAND {
+            return self.execute_create_document(&params.arguments);
+        }
+
         Box::pin(async { Ok(None) })
     }
 
@@ -1332,6 +1562,7 @@ mod tests {
     };
 
     use super::*;
+    use supersigil_rust_macros::verifies;
 
     #[test]
     fn empty_graph_builds_successfully() {
@@ -1506,6 +1737,26 @@ mod tests {
             file_diagnostics: HashMap::new(),
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
+            providers: Vec::new(),
+        }
+    }
+
+    /// Helper: build a minimal `SupersigilLsp` for code-action unit tests.
+    fn test_server() -> SupersigilLsp {
+        SupersigilLsp {
+            client: ClientSocket::new_closed(),
+            config: Some(Config::default()),
+            project_root: Some(PathBuf::from("/tmp/project")),
+            diagnostics_tier: DiagnosticsTier::default(),
+            open_files: HashMap::new(),
+            file_parses: HashMap::new(),
+            partial_file_parses: HashMap::new(),
+            graph: Arc::new(empty_graph()),
+            component_defs: Arc::new(ComponentDefs::defaults()),
+            file_diagnostics: HashMap::new(),
+            graph_diagnostics: HashMap::new(),
+            evidence_by_target: None,
+            providers: Vec::new(),
         }
     }
 
@@ -1637,5 +1888,290 @@ supersigil:
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].name, "Criterion");
         assert_eq!(children[1].name, "ok-1");
+    }
+
+    fn make_code_action_params(diagnostics: Vec<Diagnostic>) -> CodeActionParams {
+        CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: Url::parse("file:///tmp/project/spec.md").unwrap(),
+            },
+            range: lsp_types::Range::default(),
+            context: lsp_types::CodeActionContext {
+                diagnostics,
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+            partial_result_params: lsp_types::PartialResultParams::default(),
+        }
+    }
+
+    #[test]
+    fn code_action_returns_empty_with_no_providers() {
+        let mut server = test_server();
+        let params = make_code_action_params(vec![]);
+        let result = futures::executor::block_on(server.code_action(params)).unwrap();
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[verifies("lsp-code-actions/req#req-2-3")]
+    #[test]
+    fn code_action_skips_diagnostic_without_data() {
+        let mut server = test_server();
+
+        // A diagnostic with no `data` field.
+        let diag = Diagnostic {
+            range: lsp_types::Range::default(),
+            severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+            message: "some warning".into(),
+            data: None,
+            ..Diagnostic::default()
+        };
+        let params = make_code_action_params(vec![diag]);
+        let result = futures::executor::block_on(server.code_action(params)).unwrap();
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn code_action_skips_diagnostic_with_invalid_data() {
+        let mut server = test_server();
+
+        // A diagnostic with data that is not a valid DiagnosticData.
+        let diag = Diagnostic {
+            range: lsp_types::Range::default(),
+            severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+            message: "some warning".into(),
+            data: Some(serde_json::json!({ "unrelated": true })),
+            ..Diagnostic::default()
+        };
+        let params = make_code_action_params(vec![diag]);
+        let result = futures::executor::block_on(server.code_action(params)).unwrap();
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[verifies("lsp-code-actions/req#req-2-2", "lsp-code-actions/req#req-2-4")]
+    #[test]
+    fn code_action_collects_actions_from_provider() {
+        use crate::code_actions::{ActionRequestContext, CodeActionProvider};
+        use crate::diagnostics::{ActionContext, DiagnosticSource, ParseDiagnosticKind};
+
+        struct TestProvider;
+        impl CodeActionProvider for TestProvider {
+            fn handles(&self, data: &DiagnosticData) -> bool {
+                matches!(
+                    data.source,
+                    DiagnosticSource::Parse(ParseDiagnosticKind::MissingRequiredAttribute)
+                )
+            }
+
+            fn actions(
+                &self,
+                _diagnostic: &Diagnostic,
+                _data: &DiagnosticData,
+                _ctx: &ActionRequestContext,
+            ) -> Vec<lsp_types::CodeAction> {
+                vec![lsp_types::CodeAction {
+                    title: "Add missing attribute".into(),
+                    ..lsp_types::CodeAction::default()
+                }]
+            }
+        }
+
+        let mut server = test_server();
+        server.providers.push(Box::new(TestProvider));
+
+        let data = DiagnosticData {
+            source: DiagnosticSource::Parse(ParseDiagnosticKind::MissingRequiredAttribute),
+            doc_id: None,
+            context: ActionContext::MissingAttribute {
+                component: "Task".into(),
+                attribute: "id".into(),
+            },
+        };
+        let diag = Diagnostic {
+            range: lsp_types::Range::default(),
+            severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+            message: "missing attribute".into(),
+            data: Some(serde_json::to_value(&data).unwrap()),
+            ..Diagnostic::default()
+        };
+        let params = make_code_action_params(vec![diag.clone()]);
+        let result = futures::executor::block_on(server.code_action(params))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.len(), 1);
+        let CodeActionOrCommand::CodeAction(action) = &result[0] else {
+            panic!("expected CodeAction, got Command");
+        };
+        assert_eq!(action.title, "Add missing attribute");
+        assert_eq!(action.kind, Some(lsp_types::CodeActionKind::QUICKFIX));
+        assert_eq!(action.diagnostics.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            action.diagnostics.as_ref().unwrap()[0].message,
+            diag.message
+        );
+    }
+
+    #[test]
+    fn code_action_skips_provider_that_does_not_handle() {
+        use crate::code_actions::{ActionRequestContext, CodeActionProvider};
+        use crate::diagnostics::{ActionContext, DiagnosticSource, ParseDiagnosticKind};
+
+        struct NeverHandles;
+        impl CodeActionProvider for NeverHandles {
+            fn handles(&self, _data: &DiagnosticData) -> bool {
+                false
+            }
+
+            fn actions(
+                &self,
+                _diagnostic: &Diagnostic,
+                _data: &DiagnosticData,
+                _ctx: &ActionRequestContext,
+            ) -> Vec<lsp_types::CodeAction> {
+                panic!("should not be called");
+            }
+        }
+
+        let mut server = test_server();
+        server.providers.push(Box::new(NeverHandles));
+
+        let data = DiagnosticData {
+            source: DiagnosticSource::Parse(ParseDiagnosticKind::XmlSyntaxError),
+            doc_id: None,
+            context: ActionContext::None,
+        };
+        let diag = Diagnostic {
+            range: lsp_types::Range::default(),
+            severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+            message: "xml error".into(),
+            data: Some(serde_json::to_value(&data).unwrap()),
+            ..Diagnostic::default()
+        };
+        let params = make_code_action_params(vec![diag]);
+        let result = futures::executor::block_on(server.code_action(params)).unwrap();
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[verifies("lsp-code-actions/req#req-2-1")]
+    #[test]
+    fn initialize_advertises_code_action_provider() {
+        let mut server = SupersigilLsp {
+            client: ClientSocket::new_closed(),
+            config: None,
+            project_root: None,
+            diagnostics_tier: DiagnosticsTier::default(),
+            open_files: HashMap::new(),
+            file_parses: HashMap::new(),
+            partial_file_parses: HashMap::new(),
+            graph: Arc::new(empty_graph()),
+            component_defs: Arc::new(ComponentDefs::defaults()),
+            file_diagnostics: HashMap::new(),
+            graph_diagnostics: HashMap::new(),
+            evidence_by_target: None,
+            providers: Vec::new(),
+        };
+
+        // Create a temp dir with supersigil.toml so capabilities are full.
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("supersigil.toml"), "").unwrap();
+
+        #[allow(
+            deprecated,
+            reason = "root_uri is the standard field for this lsp-types version"
+        )]
+        let params = InitializeParams {
+            root_uri: Some(Url::from_directory_path(tmp.path()).unwrap()),
+            ..Default::default()
+        };
+
+        let result = futures::executor::block_on(server.initialize(params)).unwrap();
+
+        match result.capabilities.code_action_provider {
+            Some(lsp_types::CodeActionProviderCapability::Options(opts)) => {
+                let kinds = opts.code_action_kinds.unwrap();
+                assert!(kinds.contains(&lsp_types::CodeActionKind::QUICKFIX));
+            }
+            other => panic!("expected CodeActionOptions with quickfix kind, got {other:?}"),
+        }
+    }
+
+    #[verifies("lsp-code-actions/req#req-3-3")]
+    #[test]
+    fn all_providers_iterated_for_each_diagnostic() {
+        use crate::code_actions::{ActionRequestContext, CodeActionProvider};
+        use crate::diagnostics::{ActionContext, DiagnosticSource, ParseDiagnosticKind};
+
+        /// Provider A: does not handle the diagnostic.
+        struct ProviderA;
+        impl CodeActionProvider for ProviderA {
+            fn handles(&self, _data: &DiagnosticData) -> bool {
+                false
+            }
+            fn actions(
+                &self,
+                _diagnostic: &Diagnostic,
+                _data: &DiagnosticData,
+                _ctx: &ActionRequestContext,
+            ) -> Vec<lsp_types::CodeAction> {
+                panic!("should not be called when handles returns false");
+            }
+        }
+
+        /// Provider B: handles the diagnostic and returns one action.
+        struct ProviderB;
+        impl CodeActionProvider for ProviderB {
+            fn handles(&self, data: &DiagnosticData) -> bool {
+                matches!(
+                    data.source,
+                    DiagnosticSource::Parse(ParseDiagnosticKind::MissingRequiredAttribute)
+                )
+            }
+            fn actions(
+                &self,
+                _diagnostic: &Diagnostic,
+                _data: &DiagnosticData,
+                _ctx: &ActionRequestContext,
+            ) -> Vec<lsp_types::CodeAction> {
+                vec![lsp_types::CodeAction {
+                    title: "Fix from provider B".into(),
+                    ..lsp_types::CodeAction::default()
+                }]
+            }
+        }
+
+        let mut server = test_server();
+        // Register providers in order: A first, then B.
+        // The handler must iterate past A (which doesn't handle) to reach B.
+        server.providers.push(Box::new(ProviderA));
+        server.providers.push(Box::new(ProviderB));
+
+        let data = DiagnosticData {
+            source: DiagnosticSource::Parse(ParseDiagnosticKind::MissingRequiredAttribute),
+            doc_id: None,
+            context: ActionContext::MissingAttribute {
+                component: "Task".into(),
+                attribute: "id".into(),
+            },
+        };
+        let diag = Diagnostic {
+            range: lsp_types::Range::default(),
+            severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+            message: "missing attribute".into(),
+            data: Some(serde_json::to_value(&data).unwrap()),
+            ..Diagnostic::default()
+        };
+        let params = make_code_action_params(vec![diag]);
+        let result = futures::executor::block_on(server.code_action(params))
+            .unwrap()
+            .unwrap();
+
+        // Provider B's action is returned, proving iteration reached all providers.
+        assert_eq!(result.len(), 1);
+        let CodeActionOrCommand::CodeAction(action) = &result[0] else {
+            panic!("expected CodeAction, got Command");
+        };
+        assert_eq!(action.title, "Fix from provider B");
     }
 }

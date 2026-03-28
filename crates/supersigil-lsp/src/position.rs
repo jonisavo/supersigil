@@ -99,6 +99,12 @@ pub fn byte_range_to_lsp(line_str: &str, line: u32, byte_start: usize, byte_end:
     }
 }
 
+/// Convert a byte offset in a string to a UTF-16 code-unit offset (LSP column).
+#[allow(clippy::cast_possible_truncation, reason = "column count fits u32")]
+pub(crate) fn utf16_col(s: &str, byte_offset: usize) -> u32 {
+    s[..byte_offset].encode_utf16().count() as u32
+}
+
 /// Convert a UTF-16 character offset to a byte offset within a line.
 fn utf16_to_byte_offset(line_str: &str, utf16_offset: u32) -> usize {
     let mut utf16_count = 0u32;

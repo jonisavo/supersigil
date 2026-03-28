@@ -2,9 +2,12 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
+use supersigil_core::scaffold::{
+    BUILTIN_DOC_TYPES, generate_template, is_known_doc_type, type_short_name,
+};
 use supersigil_core::{glob_prefix, load_config};
 
-use crate::commands::{BUILTIN_DOC_TYPES, NewArgs};
+use crate::commands::NewArgs;
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, Token};
 use crate::loader;
@@ -18,10 +21,7 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
     let config = load_config(config_path).map_err(CliError::Config)?;
 
     // Validate doc_type exists in config or is a built-in type
-    let is_known = BUILTIN_DOC_TYPES.contains(&args.doc_type.as_str())
-        || config.documents.types.contains_key(&args.doc_type);
-
-    if !is_known {
+    if !is_known_doc_type(&args.doc_type, &config) {
         let custom_types: Vec<&str> = config.documents.types.keys().map(String::as_str).collect();
         let all_types: Vec<&str> = BUILTIN_DOC_TYPES
             .iter()
@@ -130,178 +130,5 @@ fn resolve_spec_dir(
         Ok("specs/".to_owned())
     } else {
         Ok(prefix)
-    }
-}
-
-/// Map full type name to short name used in file conventions.
-fn type_short_name(doc_type: &str) -> &str {
-    match doc_type {
-        "requirements" => "req",
-        other => other,
-    }
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "template literals dominate line count"
-)]
-fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String {
-    let status = "draft";
-
-    let frontmatter = format!(
-        r#"---
-supersigil:
-  id: {id}
-  type: {doc_type}
-  status: {status}
-title: ""
----
-"#
-    );
-
-    match doc_type {
-        "requirements" => format!(
-            r#"{frontmatter}
-## Introduction
-
-<!-- What problem does this feature solve? What is in scope and out of scope? -->
-
-## Definitions
-
-<!-- Domain terms used in the requirements below. Use bold for the term name. -->
-
-- **Term**: Definition.
-
-## Requirement 1: Title
-
-As a [role], I want [capability], so that [benefit].
-
-```supersigil-xml
-<AcceptanceCriteria>
-  <Criterion id="req-1-1">
-    WHEN [precondition], THE [component] SHALL [behavior].
-  </Criterion>
-</AcceptanceCriteria>
-```
-"#
-        ),
-        "design" => {
-            let implements_block = if req_exists {
-                format!("```supersigil-xml\n<Implements refs=\"{feature}/req\" />\n```")
-            } else {
-                "<!-- ```supersigil-xml\n<Implements refs=\"\" />\n``` -->".to_owned()
-            };
-            format!(
-                r#"{frontmatter}
-{implements_block}
-
-<!-- ```supersigil-xml
-<DependsOn refs="" />
-``` -->
-
-<!-- ```supersigil-xml
-<TrackedFiles paths="" />
-``` -->
-
-## Overview
-
-<!-- High-level summary of the design approach. -->
-
-## Architecture
-
-<!-- System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged. -->
-
-## Key Types
-
-<!-- Core data structures and their relationships. Rust type sketches encouraged. -->
-
-## Error Handling
-
-<!-- Error types, failure modes, recovery strategies. -->
-
-## Testing Strategy
-
-<!-- How correctness will be verified: property tests, unit tests, integration tests. -->
-
-## Alternatives Considered
-
-<!-- Approaches that were evaluated and rejected, with rationale. -->
-"#
-            )
-        }
-        "tasks" => format!(
-            r#"{frontmatter}
-## Overview
-
-<!-- Brief description of the implementation sequence and approach. -->
-
-```supersigil-xml
-<Task id="task-1" status="draft">
-  Describe the task. Use implements="{feature}/req#req-1-1" to link to criteria.
-</Task>
-```
-
-<!-- Subtasks are optional — nest them inside the parent Task:
-
-```supersigil-xml
-<Task id="task-1" status="draft">
-  <Task id="task-1-1" status="draft" implements="">
-    Subtask description.
-  </Task>
-  <Task id="task-1-2" status="draft" depends="task-1-1">
-    Subtask that depends on task-1-1.
-  </Task>
-</Task>
-```
--->
-"#
-        ),
-        "adr" => {
-            let references_block = if req_exists {
-                format!("```supersigil-xml\n<References refs=\"{feature}/req\" />\n```")
-            } else {
-                "<!-- ```supersigil-xml\n<References refs=\"\" />\n``` -->".to_owned()
-            };
-            format!(
-                r#"{frontmatter}
-{references_block}
-
-## Context
-
-<!-- What is the situation that motivates this decision? What forces are at play? -->
-
-## Decision
-
-<!-- What decision was made? State it clearly and directly. -->
-
-```supersigil-xml
-<Decision id="decision-1">
-  One-line summary of the decision.
-
-  <Rationale>
-    Why was this decision made? What tradeoffs were accepted?
-  </Rationale>
-</Decision>
-```
-
-<!-- Add alternatives inside the Decision element:
-
-```supersigil-xml
-<Decision id="decision-1">
-  ...
-  <Alternative id="alt-1" status="rejected">
-    Describe the alternative and why it was not chosen.
-  </Alternative>
-</Decision>
-```
--->
-
-## Consequences
-
-<!-- What are the expected outcomes, positive and negative, of this decision? -->
-"#
-            )
-        }
-        _ => format!("{frontmatter}\n"),
     }
 }

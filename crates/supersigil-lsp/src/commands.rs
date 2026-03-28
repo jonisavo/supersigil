@@ -7,6 +7,12 @@ use crate::parse_tier;
 /// The command name for the supersigil verify command.
 pub const VERIFY_COMMAND: &str = "supersigil.verify";
 
+/// The command name for the interactive create-document command.
+///
+/// Used when the target project is ambiguous (multi-project mode) and the
+/// server needs to ask the user which project to place the file in.
+pub const CREATE_DOCUMENT_COMMAND: &str = "supersigil.createDocument";
+
 /// Parse an optional tier argument from command arguments.
 ///
 /// Expected: `["lint"]`, `["verify"]`, or `[]` (use default).
