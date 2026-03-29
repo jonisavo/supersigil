@@ -61,4 +61,10 @@ current Kiro import domain.
   the CLI prints the written file list, a summary, and a next-step hint to
   the expected output streams.
 </Task>
+
+<Task id="task-9" status="done" implements="kiro-import/req#req-2-1">
+  Fix document ID generation to use `{feature}/{type}` convention instead of
+  `{type}/{feature}`, matching `supersigil new`. Update `make_document_id`,
+  its call sites, and all snapshot and property-based tests.
+</Task>
 ```

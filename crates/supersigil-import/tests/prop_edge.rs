@@ -163,7 +163,7 @@ proptest! {
         let title = parsed.title.as_deref().unwrap_or("Edge Test");
         let (output, ambiguity_count, _) = emit_design_md(
             &parsed,
-            "design/edge-test",
+            "edge-test/design",
             None,
             "",
             title,
@@ -230,7 +230,7 @@ proptest! {
         let title = parsed.title.as_deref().unwrap_or("Optional Test");
         let (output, ambiguity_count, _) = emit_tasks_md(
             &parsed,
-            "tasks/optional-test",
+            "optional-test/tasks",
             None,
             "",
             title,

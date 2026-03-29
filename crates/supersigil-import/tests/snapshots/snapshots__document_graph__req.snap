@@ -4,7 +4,7 @@ expression: content
 ---
 ---
 supersigil:
-  id: req/document-graph
+  id: document-graph/req
   type: requirements
   status: draft
 title: "Document Graph"

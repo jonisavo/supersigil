@@ -4,7 +4,7 @@ expression: content
 ---
 ---
 supersigil:
-  id: design/design-only
+  id: design-only/design
   type: design
   status: draft
 title: "Standalone Design"

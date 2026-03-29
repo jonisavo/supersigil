@@ -4,7 +4,7 @@ expression: content
 ---
 ---
 supersigil:
-  id: tasks/optional-tasks
+  id: optional-tasks/tasks
   type: tasks
   status: draft
 title: "Optional Tasks"

@@ -125,12 +125,12 @@ proptest! {
                 feature_name,
             );
             // Must contain a type hint segment
-            let has_type_hint = id.contains("/req/")
-                || id.contains("/design/")
-                || id.contains("/tasks/")
-                || id.starts_with("req/")
-                || id.starts_with("design/")
-                || id.starts_with("tasks/");
+            let has_type_hint = id.contains("/req")
+                || id.contains("/design")
+                || id.contains("/tasks")
+                || id.ends_with("/req")
+                || id.ends_with("/design")
+                || id.ends_with("/tasks");
             prop_assert!(
                 has_type_hint,
                 "Document ID '{}' missing type hint segment",

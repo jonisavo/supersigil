@@ -23,7 +23,7 @@ proptest! {
     fn prop_12_prose_round_trip(
         parsed in arb_parsed_requirements(),
     ) {
-        let doc_id = "req/test-feature";
+        let doc_id = "test-feature/req";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
@@ -77,7 +77,7 @@ proptest! {
             glossary: None,
             requirements: vec![],
         };
-        let (output, _) = emit_requirements_md(&parsed, "req/test", "Code Test");
+        let (output, _) = emit_requirements_md(&parsed, "test/req", "Code Test");
         prop_assert!(
             output.contains(&code_block),
             "output missing code block: {:?}",
@@ -95,7 +95,7 @@ proptest! {
             glossary: None,
             requirements: vec![],
         };
-        let (output, _) = emit_requirements_md(&parsed, "req/test", "Mermaid Test");
+        let (output, _) = emit_requirements_md(&parsed, "test/req", "Mermaid Test");
         prop_assert!(
             output.contains(&mermaid),
             "output missing mermaid block: {:?}",
@@ -117,7 +117,7 @@ proptest! {
     fn prop_13_front_matter_round_trip(
         parsed in arb_parsed_requirements(),
     ) {
-        let doc_id = "req/test-feature";
+        let doc_id = "test-feature/req";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
@@ -173,7 +173,7 @@ proptest! {
     fn prop_14_acceptance_criteria_structure(
         parsed in arb_parsed_requirements(),
     ) {
-        let doc_id = "req/test-feature";
+        let doc_id = "test-feature/req";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let (output, _) = emit_requirements_md(&parsed, doc_id, title);
 
@@ -241,8 +241,8 @@ proptest! {
     fn prop_15_design_implements_with_requirements(
         parsed in arb_parsed_design(),
     ) {
-        let doc_id = "design/test-feature";
-        let req_doc_id = "req/test-feature";
+        let doc_id = "test-feature/design";
+        let req_doc_id = "test-feature/req";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let empty_reqs = ParsedRequirements { title: None, introduction: String::new(), glossary: None, requirements: vec![] };
         let req_index = RequirementIndex::new(&empty_reqs);
@@ -273,7 +273,7 @@ proptest! {
     fn prop_15_design_implements_without_requirements(
         parsed in arb_parsed_design(),
     ) {
-        let doc_id = "design/test-feature";
+        let doc_id = "test-feature/design";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
 
         let (output, ambiguity_count, _) = emit_design_md(
@@ -342,7 +342,7 @@ proptest! {
     fn prop_16_task_dependency_chain(
         parsed in arb_parsed_tasks(),
     ) {
-        let doc_id = "tasks/test-feature";
+        let doc_id = "test-feature/tasks";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let (output, _, _) = emit_tasks_md(&parsed, doc_id, None, "", title);
 
@@ -428,7 +428,7 @@ proptest! {
     fn prop_17_task_component_structure(
         parsed in arb_parsed_tasks(),
     ) {
-        let doc_id = "tasks/test-feature";
+        let doc_id = "test-feature/tasks";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
         let (output, _, _) = emit_tasks_md(&parsed, doc_id, None, "", title);
 

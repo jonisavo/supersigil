@@ -75,10 +75,11 @@ that the generated output is easy to trace and re-run.
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
     FOR EACH emitted document, THE importer SHALL generate the document ID as
-    `{prefix}/{type_hint}/{feature_name}` when `id_prefix` is present and as
-    `{type_hint}/{feature_name}` otherwise. IF the configured prefix ends in
-    `/`, THEN the importer SHALL trim the trailing slash before constructing
-    the ID.
+    `{feature_name}/{type_hint}` without prefix, or as
+    `{prefix}/{feature_name}/{type_hint}` when `id_prefix` is present,
+    matching the convention used by `supersigil new`. IF the configured
+    prefix ends in `/`, THEN the importer SHALL trim the trailing slash
+    before constructing the ID.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/ids.rs" />
   </Criterion>
   <Criterion id="req-2-2">

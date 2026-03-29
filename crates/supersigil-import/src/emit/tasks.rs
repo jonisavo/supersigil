@@ -383,7 +383,7 @@ mod tests {
     fn emit_uses_triple_fence_when_no_backticks() {
         let task = simple_task("Do something", vec![]);
         let parsed = parsed_tasks_with(task);
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+        let (output, _, _) = emit_tasks_md(&parsed, "feat/tasks", None, "", "Feature");
 
         assert!(
             output.contains("```supersigil-xml"),
@@ -401,7 +401,7 @@ mod tests {
         let desc = "Use this code:\n```rust\nfn main() {}\n```\nDone.".to_string();
         let task = simple_task("Implement feature", vec![desc]);
         let parsed = parsed_tasks_with(task);
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+        let (output, _, _) = emit_tasks_md(&parsed, "feat/tasks", None, "", "Feature");
 
         // The outer fence must be 4 backticks
         assert!(
@@ -428,7 +428,7 @@ mod tests {
         let desc = "See ```` for details.".to_string();
         let task = simple_task("Use quad backticks", vec![desc]);
         let parsed = parsed_tasks_with(task);
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+        let (output, _, _) = emit_tasks_md(&parsed, "feat/tasks", None, "", "Feature");
 
         assert!(
             output.contains("`````supersigil-xml"),
@@ -458,7 +458,7 @@ mod tests {
             sub_tasks: vec![sub],
         };
         let parsed = parsed_tasks_with(task);
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+        let (output, _, _) = emit_tasks_md(&parsed, "feat/tasks", None, "", "Feature");
 
         assert!(
             output.contains("````supersigil-xml"),
@@ -471,7 +471,7 @@ mod tests {
         // A task title with triple backticks (unusual but must be handled)
         let task = simple_task("Use ```code``` in title", vec![]);
         let parsed = parsed_tasks_with(task);
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/feat", None, "", "Feature");
+        let (output, _, _) = emit_tasks_md(&parsed, "feat/tasks", None, "", "Feature");
 
         assert!(
             output.contains("````supersigil-xml"),

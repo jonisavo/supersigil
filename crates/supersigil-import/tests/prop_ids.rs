@@ -12,15 +12,15 @@ proptest! {
         feature_name in generators::arb_feature_name(),
         type_hint in prop::sample::select(vec!["req", "design", "tasks"]),
     ) {
-        let id = make_document_id(prefix.as_deref(), type_hint, &feature_name);
+        let id = make_document_id(prefix.as_deref(), &feature_name, type_hint);
 
         if let Some(p) = &prefix {
             let stripped = p.trim_end_matches('/');
-            let expected = format!("{stripped}/{type_hint}/{feature_name}");
+            let expected = format!("{stripped}/{feature_name}/{type_hint}");
             prop_assert_eq!(&id, &expected,
                 "With prefix {:?}, expected {:?} but got {:?}", p, expected, id);
         } else {
-            let expected = format!("{type_hint}/{feature_name}");
+            let expected = format!("{feature_name}/{type_hint}");
             prop_assert_eq!(&id, &expected,
                 "Without prefix, expected {:?} but got {:?}", expected, id);
         }

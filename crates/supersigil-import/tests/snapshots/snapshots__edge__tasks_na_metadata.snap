@@ -4,7 +4,7 @@ expression: content
 ---
 ---
 supersigil:
-  id: tasks/na-metadata
+  id: na-metadata/tasks
   type: tasks
   status: draft
 title: "NA Metadata"
@@ -25,7 +25,7 @@ title: "NA Metadata"
 ```
 
 ```supersigil-xml
-<Task id="task-2" status="ready" depends="task-1" implements="req/na-metadata#req-1-1, req/na-metadata#req-1-2">
+<Task id="task-2" status="ready" depends="task-1" implements="na-metadata/req#req-1-1, na-metadata/req#req-1-2">
   Implement core logic
 
   - Write the main algorithm

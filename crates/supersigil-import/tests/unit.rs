@@ -316,7 +316,7 @@ mod edge_tasks_no_subtasks {
         let tasks_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("tasks/"))
+            .find(|d| d.document_id.ends_with("/tasks"))
             .expect("should have a tasks document");
         assert!(tasks_doc.content.contains("<Task id=\"task-1\""));
         assert!(tasks_doc.content.contains("<Task id=\"task-2\""));
@@ -369,7 +369,7 @@ More prose here.
         let design_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("design/"))
+            .find(|d| d.document_id.ends_with("/design"))
             .expect("should have a design document");
         assert!(
             !design_doc.content.contains("<References"),
@@ -423,25 +423,25 @@ Some design rationale between validations.
         let design_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.ends_with("design/validates-scope"))
+            .find(|d| d.document_id.ends_with("validates-scope/design"))
             .expect("should include design document");
 
         assert!(
             design_doc
                 .content
-                .contains("<References refs=\"req/validates-scope#req-1-1\" />"),
+                .contains("<References refs=\"validates-scope/req#req-1-1\" />"),
             "first validates line should map to requirement 1.1 only"
         );
         assert!(
             design_doc
                 .content
-                .contains("<References refs=\"req/validates-scope#req-2-1\" />"),
+                .contains("<References refs=\"validates-scope/req#req-2-1\" />"),
             "second validates line should map to requirement 2.1 only"
         );
         assert!(
             !design_doc
                 .content
-                .contains("req/validates-scope#req-1-1, req/validates-scope#req-2-1"),
+                .contains("validates-scope/req#req-1-1, validates-scope/req#req-2-1"),
             "refs from separate validates lines should not be merged together"
         );
     }
@@ -583,7 +583,7 @@ mod edge_task_metadata {
         let tasks_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("tasks/"))
+            .find(|d| d.document_id.ends_with("/tasks"))
             .expect("should have tasks document");
         assert!(
             tasks_doc.content.contains("implements="),
@@ -621,7 +621,7 @@ mod edge_optional_task_marker {
         let tasks_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("tasks/"))
+            .find(|d| d.document_id.ends_with("/tasks"))
             .unwrap();
         assert!(
             tasks_doc.content.contains("TODO(supersigil-import)"),
@@ -710,12 +710,12 @@ mod edge_file_writing {
         let docs = vec![
             PlannedDocument {
                 output_path: good_path.clone(),
-                document_id: "req/good".to_string(),
+                document_id: "good/req".to_string(),
                 content: "good content".to_string(),
             },
             PlannedDocument {
                 output_path: conflict_path.clone(),
-                document_id: "req/conflict".to_string(),
+                document_id: "conflict/req".to_string(),
                 content: "conflict content".to_string(),
             },
         ];
@@ -828,7 +828,7 @@ mod fix_task_id_dedup {
         let tasks_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("tasks/"))
+            .find(|d| d.document_id.ends_with("/tasks"))
             .expect("should have tasks document");
 
         assert!(
@@ -874,7 +874,7 @@ mod fix_task_id_dedup {
         let req_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("req/"))
+            .find(|d| d.document_id.ends_with("/req"))
             .expect("should have requirements document");
 
         assert!(
@@ -936,7 +936,7 @@ mod fix_implements_collision {
         let tasks_doc = plan
             .documents
             .iter()
-            .find(|d| d.document_id.contains("tasks/"))
+            .find(|d| d.document_id.ends_with("/tasks"))
             .expect("should have tasks document");
 
         assert!(
@@ -1186,7 +1186,7 @@ mod fix_task_comment_syntax {
     #[test]
     fn comment_emitted_as_marker_outside_fence() {
         let parsed = make_parsed_tasks_with_comment("test infrastructure");
-        let (output, ambiguity, _) = emit_tasks_md(&parsed, "tasks/test", None, "", "Test");
+        let (output, ambiguity, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
 
         // Must NOT contain JSX/MDX comment syntax
         assert!(
@@ -1214,7 +1214,7 @@ mod fix_task_comment_syntax {
     fn comment_marker_escapes_double_dash() {
         // XML comments must not contain `--`; the emitter should replace it with `- -`.
         let parsed = make_parsed_tasks_with_comment("note -- important");
-        let (output, _, _) = emit_tasks_md(&parsed, "tasks/test", None, "", "Test");
+        let (output, _, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
 
         assert!(
             !output.contains("{/*"),

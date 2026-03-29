@@ -58,7 +58,7 @@ proptest! {
         feature_name in generators::arb_feature_name(),
     ) {
         let requirements = requirements_containing(&refs);
-        let doc_id_base = format!("req/{feature_name}");
+        let doc_id_base = format!("{feature_name}/req");
 
         let index = RequirementIndex::new(&requirements);
         let (resolved, markers) = resolve_refs(&refs, &index, &doc_id_base);
@@ -92,7 +92,7 @@ proptest! {
             glossary: None,
             requirements: Vec::new(),
         };
-        let doc_id_base = "req/test-feature";
+        let doc_id_base = "test-feature/req";
 
         let index = RequirementIndex::new(&empty_reqs);
         let (resolved, markers) = resolve_refs(&refs, &index, doc_id_base);
@@ -119,7 +119,7 @@ proptest! {
         unresolvable_idx in generators::arb_criterion_index(),
     ) {
         let requirements = requirements_containing(&resolvable);
-        let doc_id_base = "req/mixed-feature";
+        let doc_id_base = "mixed-feature/req";
 
         // Create an unresolvable ref with a requirement number that doesn't exist.
         let bad_ref = RawRef {
@@ -157,7 +157,7 @@ proptest! {
             requirement_number: req_num.clone(),
             criterion_index: good_idx.clone(),
         }]);
-        let doc_id_base = "req/idx-test";
+        let doc_id_base = "idx-test/req";
 
         // Try to resolve a ref with the right requirement but a non-existent criterion.
         let bad_ref = RawRef {

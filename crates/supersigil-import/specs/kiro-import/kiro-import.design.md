@@ -77,8 +77,9 @@ graph TD
 2. For each discovered feature, read whichever of `requirements.md`,
    `design.md`, and `tasks.md` are present.
 3. Parse each present source file into a lightweight internal representation.
-4. Build document IDs as `req/{feature}`, `design/{feature}`, and
-   `tasks/{feature}`, or prefix them as `{prefix}/req/{feature}` and so on.
+4. Build document IDs as `{feature}/req`, `{feature}/design`, and
+   `{feature}/tasks`, or prefix them as `{prefix}/{feature}/req` and so on,
+   matching the convention used by `supersigil new`.
 5. Choose one feature title in precedence order:
    requirements title, then design title, then tasks title, then feature name.
 6. Emit requirements, design, and tasks spec documents for the files that were

@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
-/// Construct a document ID from an optional prefix, type hint, and feature name.
+/// Construct a document ID from an optional prefix, feature name, and type hint.
 ///
-/// With prefix: `{prefix}/{type_hint}/{feature_name}` (trailing slashes stripped from prefix).
-/// Without prefix: `{type_hint}/{feature_name}`.
+/// Without prefix: `{feature_name}/{type_hint}`.
+/// With prefix: `{prefix}/{feature_name}/{type_hint}` (trailing slashes stripped from prefix).
 #[must_use]
-pub fn make_document_id(id_prefix: Option<&str>, type_hint: &str, feature_name: &str) -> String {
+pub fn make_document_id(id_prefix: Option<&str>, feature_name: &str, type_hint: &str) -> String {
     let prefix = id_prefix
         .map(|p| p.trim_end_matches('/'))
         .filter(|s| !s.is_empty());
     match prefix {
-        Some(p) => format!("{p}/{type_hint}/{feature_name}"),
-        None => format!("{type_hint}/{feature_name}"),
+        Some(p) => format!("{p}/{feature_name}/{type_hint}"),
+        None => format!("{feature_name}/{type_hint}"),
     }
 }
 

@@ -161,9 +161,9 @@ fn process_feature(
         .map(|c| parse::tasks::parse_tasks(&c));
 
     // Build document IDs
-    let req_doc_id = ids::make_document_id(prefix_str, "req", feature);
-    let design_doc_id = ids::make_document_id(prefix_str, "design", feature);
-    let tasks_doc_id = ids::make_document_id(prefix_str, "tasks", feature);
+    let req_doc_id = ids::make_document_id(prefix_str, feature, "req");
+    let design_doc_id = ids::make_document_id(prefix_str, feature, "design");
+    let tasks_doc_id = ids::make_document_id(prefix_str, feature, "tasks");
 
     // Determine feature title (prefer requirements → design → tasks → feature name)
     let feature_title = parsed_reqs

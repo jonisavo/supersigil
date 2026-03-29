@@ -38,7 +38,7 @@ fn plan_single_real_feature(feature_name: &str) -> supersigil_import::ImportPlan
 }
 
 /// Snapshot a single document from a plan, identified by a suffix in its
-/// `document_id` (e.g., `"req/parser-and-config"`).
+/// `document_id` (e.g., `"parser-and-config/req"`).
 fn snapshot_doc<'a>(plan: &'a supersigil_import::ImportPlan, id_suffix: &str) -> &'a str {
     let doc = plan
         .documents
@@ -54,42 +54,42 @@ fn snapshot_doc<'a>(plan: &'a supersigil_import::ImportPlan, id_suffix: &str) ->
 #[test]
 fn snapshot_parser_and_config_req() {
     let plan = plan_single_real_feature("parser-and-config");
-    let content = snapshot_doc(&plan, "req/parser-and-config");
+    let content = snapshot_doc(&plan, "parser-and-config/req");
     insta::assert_snapshot!("parser_and_config__req", content);
 }
 
 #[test]
 fn snapshot_parser_and_config_design() {
     let plan = plan_single_real_feature("parser-and-config");
-    let content = snapshot_doc(&plan, "design/parser-and-config");
+    let content = snapshot_doc(&plan, "parser-and-config/design");
     insta::assert_snapshot!("parser_and_config__design", content);
 }
 
 #[test]
 fn snapshot_parser_and_config_tasks() {
     let plan = plan_single_real_feature("parser-and-config");
-    let content = snapshot_doc(&plan, "tasks/parser-and-config");
+    let content = snapshot_doc(&plan, "parser-and-config/tasks");
     insta::assert_snapshot!("parser_and_config__tasks", content);
 }
 
 #[test]
 fn snapshot_document_graph_req() {
     let plan = plan_single_real_feature("document-graph");
-    let content = snapshot_doc(&plan, "req/document-graph");
+    let content = snapshot_doc(&plan, "document-graph/req");
     insta::assert_snapshot!("document_graph__req", content);
 }
 
 #[test]
 fn snapshot_document_graph_design() {
     let plan = plan_single_real_feature("document-graph");
-    let content = snapshot_doc(&plan, "design/document-graph");
+    let content = snapshot_doc(&plan, "document-graph/design");
     insta::assert_snapshot!("document_graph__design", content);
 }
 
 #[test]
 fn snapshot_document_graph_tasks() {
     let plan = plan_single_real_feature("document-graph");
-    let content = snapshot_doc(&plan, "tasks/document-graph");
+    let content = snapshot_doc(&plan, "document-graph/tasks");
     insta::assert_snapshot!("document_graph__tasks", content);
 }
 
@@ -133,7 +133,7 @@ The output is always non-empty.
 
     let config = config_for(&specs_dir, &tmp.path().join("out"));
     let plan = plan_kiro_import(&config).unwrap();
-    let content = snapshot_doc(&plan, "design/design-only");
+    let content = snapshot_doc(&plan, "design-only/design");
     insta::assert_snapshot!("edge__design_only", content);
 }
 
@@ -185,7 +185,7 @@ fn snapshot_edge_tasks_na_metadata() {
 
     let config = config_for(&specs_dir, &tmp.path().join("out"));
     let plan = plan_kiro_import(&config).unwrap();
-    let content = snapshot_doc(&plan, "tasks/na-metadata");
+    let content = snapshot_doc(&plan, "na-metadata/tasks");
     insta::assert_snapshot!("edge__tasks_na_metadata", content);
 }
 
@@ -218,7 +218,7 @@ fn snapshot_edge_tasks_optional_marker() {
 
     let config = config_for(&specs_dir, &tmp.path().join("out"));
     let plan = plan_kiro_import(&config).unwrap();
-    let content = snapshot_doc(&plan, "tasks/optional-tasks");
+    let content = snapshot_doc(&plan, "optional-tasks/tasks");
     insta::assert_snapshot!("edge__tasks_optional_marker", content);
 }
 
@@ -288,6 +288,6 @@ This one is normal.
 
     let config = config_for(&specs_dir, &tmp.path().join("out"));
     let plan = plan_kiro_import(&config).unwrap();
-    let content = snapshot_doc(&plan, "design/mixed-validates");
+    let content = snapshot_doc(&plan, "mixed-validates/design");
     insta::assert_snapshot!("edge__non_requirement_validates", content);
 }

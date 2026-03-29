@@ -4,7 +4,7 @@ expression: content
 ---
 ---
 supersigil:
-  id: req/parser-and-config
+  id: parser-and-config/req
   type: requirements
   status: draft
 title: "Parser and Config"
