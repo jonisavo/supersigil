@@ -1,6 +1,6 @@
 ---
 title: Editor Setup
-description: Install the VS Code extension for live diagnostics, completions, and hover documentation in Supersigil spec files.
+description: Set up VS Code or IntelliJ IDEA with live diagnostics, completions, and hover documentation for Supersigil spec files.
 supersigil:
   id: website/editor-setup
   type: documentation
@@ -8,7 +8,7 @@ supersigil:
 
 import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
 
-The Supersigil VS Code extension connects to the `supersigil-lsp` language server, giving you live diagnostics, go-to-definition, autocomplete, and hover documentation directly in your editor.
+Supersigil provides editor extensions that connect to the `supersigil-lsp` language server, giving you live diagnostics, go-to-definition, autocomplete, and hover documentation directly in your editor.
 
 ## What you get
 
@@ -16,63 +16,113 @@ The Supersigil VS Code extension connects to the `supersigil-lsp` language serve
 - **Go-to-definition** — jump from a ref like `auth/req#req-1-1` to the criterion's source location.
 - **Autocomplete** — document IDs, criterion IDs, component names with attribute snippets, and context-sensitive `status`/`strategy` values.
 - **Hover documentation** — hover over a ref to see the target's title, body text, and a clickable link to navigate there.
+- **Spec Explorer** — a sidebar tree view showing all spec documents grouped by feature area, with status indicators and click-to-open navigation.
 
 ## Installation
 
-<Steps>
+All editors require the `supersigil-lsp` binary:
 
-1. **Install the LSP server**
+```bash
+cargo install supersigil-lsp
+```
 
-   The extension needs the `supersigil-lsp` binary. Install it with Cargo:
+Then install the extension for your editor:
 
-   ```bash
-   cargo install supersigil-lsp
-   ```
+<Tabs>
+<TabItem label="VS Code">
 
-2. **Install the VS Code extension**
+Build and install the extension from the repository:
 
-   Build and install from the repository:
+```bash
+cd editors/vscode
+pnpm install
+pnpm run package
+code --install-extension supersigil-0.1.0.vsix
+```
 
-   ```bash
-   cd editors/vscode
-   pnpm install
-   pnpm run package
-   code --install-extension supersigil-0.1.0.vsix
-   ```
+<Aside>
+  The extension will be published to the VS Code Marketplace in a future release. For now, install from the built `.vsix` file.
+</Aside>
 
-   <Aside>
-     The extension will be published to the VS Code Marketplace in a future release. For now, install from the built `.vsix` file.
-   </Aside>
+Open any folder containing a `supersigil.toml`. The extension activates automatically and starts the language server. You should see **Supersigil** in the status bar.
 
-3. **Open a Supersigil project**
+</TabItem>
+<TabItem label="IntelliJ IDEA">
 
-   Open any folder containing a `supersigil.toml`. The extension activates automatically and starts the language server. You should see **Supersigil** in the status bar.
+Build and install the plugin from the repository:
 
-</Steps>
+```bash
+cd editors/intellij
+./gradlew buildPlugin
+```
+
+Then in IntelliJ: **Settings > Plugins > gear icon > Install Plugin from Disk...** and select `build/distributions/supersigil-intellij-0.1.0.zip`. Restart when prompted.
+
+<Aside>
+  The plugin will be published to the JetBrains Marketplace in a future release. For now, install from the built `.zip` file.
+</Aside>
+
+Open any project containing a `supersigil.toml` and open a `.md` or `.mdx` file. The plugin starts the language server automatically. The **Supersigil** tool window appears in the right sidebar.
+
+The plugin requires IntelliJ IDEA 2025.3 or later (the unified distribution). It works with all IntelliJ-based IDEs that include the LSP client module.
+
+</TabItem>
+</Tabs>
 
 ## Configuration
 
-The extension has one setting:
+Both extensions have one setting for the LSP server binary path:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `supersigil.lsp.serverPath` | `null` | Absolute path to the `supersigil-lsp` binary. When null, searches `$PATH` and common install locations (`~/.cargo/bin`, `~/.local/bin`). |
+| Editor | Setting | Default | Description |
+|--------|---------|---------|-------------|
+| VS Code | `supersigil.lsp.serverPath` | `null` | Absolute path to `supersigil-lsp`. |
+| IntelliJ | Settings > Tools > Supersigil | empty | Absolute path to `supersigil-lsp`. |
 
-If the server binary is not found, the extension shows a notification with install instructions.
+When not set, the extension searches `$PATH` and common install locations (`~/.cargo/bin`, `~/.local/bin`). If the server binary is not found, a notification appears with install instructions.
 
-## Multi-root workspaces
+## Features by editor
 
-The extension supports VS Code multi-root workspaces. Each workspace folder with a `supersigil.toml` gets its own LSP server instance. This means you can work with a main project and a git worktree side by side, each with independent diagnostics and completions.
+Both extensions provide the full LSP feature set. A few features differ by editor:
 
-The status bar shows the instance count (e.g. "Supersigil (2)") when multiple roots are active. Click it to see per-root status and actions.
+| Feature | VS Code | IntelliJ |
+|---------|---------|----------|
+| Diagnostics | On type + save | On save |
+| Completions | Yes | Yes |
+| Hover | Yes | Yes |
+| Go-to-definition | Yes | Yes |
+| Find references | Yes | Yes |
+| Rename | Yes | Yes |
+| Document symbols | Yes | Yes (Structure view) |
+| Code actions | Yes | Yes |
+| Code lens | Yes | Yes (2026.1+) |
+| Spec Explorer | Sidebar tree view | Tool window |
+| Verify command | Command palette | Tools menu + toolbar |
+| Status bar | Server status widget | Built-in LSP widget |
+| Syntax highlighting | `supersigil-xml` blocks | `supersigil-xml` blocks |
 
-## Commands
+## VS Code-specific features
+
+### Multi-root workspaces
+
+The VS Code extension supports multi-root workspaces. Each workspace folder with a `supersigil.toml` gets its own LSP server instance. The status bar shows the instance count (e.g. "Supersigil (2)") when multiple roots are active. Click it to see per-root status and actions.
+
+### Commands
 
 | Command | Description |
 |---------|-------------|
-| **Supersigil: Verify** | Run the verification pipeline and publish diagnostics. Routes to the server for the active file. |
+| **Supersigil: Verify** | Run the verification pipeline and publish diagnostics. |
 | **Supersigil: Restart Server** | Stop and restart all LSP server instances. |
-| **Supersigil: Show Status** | Open a status menu showing per-root server state, diagnostic counts, and actions. |
+| **Supersigil: Show Status** | Open a status menu showing per-root server state and actions. |
+
+## IntelliJ-specific features
+
+### Spec Explorer tool window
+
+The Supersigil tool window in the right sidebar shows all spec documents grouped by project and feature prefix. Click a document to open it. The toolbar includes a verify button.
+
+### Verify action
+
+Available from **Tools > Supersigil: Verify** or the Spec Explorer toolbar button.
 
 ## Diagnostics tier
 

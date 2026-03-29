@@ -1,0 +1,50 @@
+<idea-plugin>
+    <id>org.supersigil.ij</id>
+    <name>Supersigil</name>
+    <vendor>supersigil</vendor>
+    <description><![CDATA[
+        Language support for Supersigil spec documents.
+        Connects to the supersigil-lsp language server to provide diagnostics,
+        completions, hover, navigation, and more for Markdown spec files.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lsp</depends>
+    <depends>org.intellij.plugins.markdown</depends>
+
+    <extensions defaultExtensionNs="org.intellij.markdown">
+        <fenceLanguageProvider
+                implementation="org.supersigil.intellij.SupersigilCodeFenceLanguageProvider"/>
+    </extensions>
+
+    <actions>
+        <action id="org.supersigil.ij.verify"
+                class="org.supersigil.intellij.VerifyAction"
+                text="Supersigil: Verify"
+                description="Run Supersigil verification"
+                icon="AllIcons.General.InspectionsOK">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Supersigil"
+                    anchor="right"
+                    icon="/icons/supersigil.svg"
+                    factoryClass="org.supersigil.intellij.SpecExplorerToolWindowFactory"/>
+
+        <platform.lsp.serverSupportProvider
+                implementation="org.supersigil.intellij.SupersigilLspServerSupportProvider"/>
+
+        <notificationGroup id="Supersigil"
+                           displayType="BALLOON"/>
+
+        <applicationConfigurable
+                parentId="tools"
+                instance="org.supersigil.intellij.SupersigilSettingsConfigurable"
+                id="org.supersigil.ij.settings"
+                displayName="Supersigil"/>
+        <applicationService
+                serviceImplementation="org.supersigil.intellij.SupersigilSettings"/>
+    </extensions>
+</idea-plugin>

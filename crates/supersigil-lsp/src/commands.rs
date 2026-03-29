@@ -7,6 +7,15 @@ use crate::parse_tier;
 /// The command name for the supersigil verify command.
 pub const VERIFY_COMMAND: &str = "supersigil.verify";
 
+/// The command name for the document list command.
+///
+/// Returns the full document list from the loaded graph. This
+/// duplicates the `supersigil/documentList` custom request but is
+/// also available via `workspace/executeCommand` for LSP clients
+/// that cannot send custom JSON-RPC requests (e.g. `IntelliJ`'s
+/// built-in LSP client).
+pub const DOCUMENT_LIST_COMMAND: &str = "supersigil.documentList";
+
 /// The command name for the interactive create-document command.
 ///
 /// Used when the target project is ambiguous (multi-project mode) and the

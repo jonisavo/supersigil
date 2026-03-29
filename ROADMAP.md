@@ -1,7 +1,7 @@
 # Roadmap / Open Questions
 
-- **Editor extensions**: Neovim, JetBrains, and Zed extensions that
-  surface the full LSP feature set. VS Code extension is implemented.
+- **Editor extensions**: Neovim and Zed extensions that
+  surface the full LSP feature set. VS Code and IntelliJ extensions are implemented.
 
 - **Watch mode**: `supersigil verify --watch` for continuous feedback
   during authoring. Requires file watching and incremental verification

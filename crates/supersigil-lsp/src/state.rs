@@ -15,7 +15,8 @@ use lsp_types::{
     GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location,
     MessageType, NumberOrString, PositionEncodingKind, ProgressParams, ProgressParamsValue,
     PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    TextDocumentSyncKind, TextDocumentSyncOptions, Url, WorkDoneProgress,
+    WorkDoneProgressBegin, WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
@@ -617,12 +618,19 @@ impl LanguageServer for SupersigilLsp {
             .and_then(|r| find_config(r).ok().flatten())
             .is_some();
 
+        let text_sync = Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::FULL),
+                save: Some(lsp_types::TextDocumentSyncSaveOptions::Supported(true)),
+                ..TextDocumentSyncOptions::default()
+            },
+        ));
+
         let capabilities = if has_config {
             ServerCapabilities {
                 position_encoding: Some(PositionEncodingKind::UTF16),
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
+                text_document_sync: text_sync,
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec!["<".to_owned(), "#".to_owned(), "\"".to_owned()]),
                     ..CompletionOptions::default()
@@ -655,9 +663,7 @@ impl LanguageServer for SupersigilLsp {
             }
         } else {
             ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
+                text_document_sync: text_sync,
                 ..ServerCapabilities::default()
             }
         };
@@ -1148,6 +1154,16 @@ impl LanguageServer for SupersigilLsp {
 
         if params.command == commands::CREATE_DOCUMENT_COMMAND {
             return self.execute_create_document(&params.arguments);
+        }
+
+        if params.command == commands::DOCUMENT_LIST_COMMAND {
+            let graph = Arc::clone(&self.graph);
+            let project_root = self.project_root.clone().unwrap_or_default();
+            let documents = crate::document_list::build_document_entries(&graph, &project_root);
+            let result = crate::document_list::DocumentListResult { documents };
+            return Box::pin(
+                async move { Ok(Some(serde_json::to_value(result).unwrap_or_default())) },
+            );
         }
 
         Box::pin(async { Ok(None) })
