@@ -199,7 +199,7 @@ export function groupDocuments(
     >();
 
     for (const doc of documents) {
-      const project = doc.project;
+      const project = doc.project ?? null;
       if (!projects.has(project)) {
         projects.set(project, new Map());
       }
