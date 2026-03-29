@@ -143,7 +143,7 @@ fn init_prints_skill_count() {
     let combined = String::from_utf8_lossy(&output.stdout).to_string()
         + &String::from_utf8_lossy(&output.stderr);
     assert!(
-        combined.contains("4 skills"),
+        combined.contains("6 skills"),
         "should print skill count: {combined}"
     );
 }

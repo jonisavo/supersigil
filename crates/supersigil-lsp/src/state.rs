@@ -15,8 +15,8 @@ use lsp_types::{
     GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location,
     MessageType, NumberOrString, PositionEncodingKind, ProgressParams, ProgressParamsValue,
     PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, Url, WorkDoneProgress,
-    WorkDoneProgressBegin, WorkDoneProgressEnd,
+    TextDocumentSyncKind, TextDocumentSyncOptions, Url, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd,
 };
 
 use supersigil_core::{

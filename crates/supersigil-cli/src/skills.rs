@@ -8,8 +8,12 @@ use include_dir::{Dir, include_dir};
 /// Default directory for installed skills.
 pub const DEFAULT_SKILLS_PATH: &str = ".agents/skills";
 
-/// The four supersigil agent skills, embedded at compile time.
+/// The supersigil agent skills, embedded at compile time.
 const SKILL_DIRS: &[(&str, Dir<'_>)] = &[
+    (
+        "ci-review",
+        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/ci-review"),
+    ),
     (
         "feature-development",
         include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/feature-development"),
@@ -17,6 +21,10 @@ const SKILL_DIRS: &[(&str, Dir<'_>)] = &[
     (
         "feature-specification",
         include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/feature-specification"),
+    ),
+    (
+        "refactoring",
+        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/refactoring"),
     ),
     (
         "retroactive-specification",
@@ -74,9 +82,11 @@ mod tests {
         let dir = tmp.path().join(".agents/skills");
         let count = write_skills(&dir).unwrap();
 
-        assert_eq!(count, 4, "should write 4 skills");
+        assert_eq!(count, 6, "should write 6 skills");
+        assert!(dir.join("ci-review/SKILL.md").exists());
         assert!(dir.join("feature-development/SKILL.md").exists());
         assert!(dir.join("feature-specification/SKILL.md").exists());
+        assert!(dir.join("refactoring/SKILL.md").exists());
         assert!(dir.join("retroactive-specification/SKILL.md").exists());
         assert!(dir.join("spec-driven-development/SKILL.md").exists());
     }
