@@ -14,7 +14,7 @@ and wants to capture decisions as verifiable supersigil documents.
 
 **What it adds:** The supersigil document format, component grammar, ID
 conventions, and the lint-based feedback loop. Teaches agents how to author
-valid requirement, property, design, and tasks documents. Does not prescribe
+valid requirement, design, and tasks documents. Does not prescribe
 how to brainstorm or plan — it picks up after that and gives the output a
 durable, verifiable home.
 
@@ -60,7 +60,7 @@ spec-driven development experience: idea → verified spec → implementation.
 This is the replacement for Kiro's spec workflow.
 
 **What it adds:** Owns the entire lifecycle. Walks the agent through
-requirements elicitation, criteria authoring, property derivation, design,
+requirements elicitation, criteria authoring, design,
 task planning, and implementation — all producing supersigil documents
 verified at each step. Opinionated and sequential.
 
@@ -70,10 +70,56 @@ feature-specification and feature-development internally, composing them
 into a single coherent flow.
 
 **Composition:** Uses `feature-specification` for the spec authoring phase
-(requirements → properties → design → tasks), then transitions to
+(requirements → design → tasks), then transitions to
 `feature-development` for the implementation phase (plan → implement →
 verify). The agent should make this transition explicit to the user:
 "Specs are complete and verified. Switching to implementation."
+
+---
+
+### `refactoring`
+
+**Augments:** implementation and code-quality workflows.
+
+**When to use:** Specs exist and tests pass. The user wants to restructure
+code (extract modules, rename abstractions, reorganize files) without
+changing behavior.
+
+**What it adds:** A verification-preserving refactoring loop. Teaches
+agents to snapshot the current `verify` state, make structural changes in
+small steps, update `TrackedFiles` and `VerifiedBy` paths as code moves,
+and confirm the spec graph stays green throughout. Does not change criteria,
+requirements, or design intent.
+
+**Stance:** Augmenting. Works alongside whatever refactoring or code-quality
+skills the user already has installed.
+
+**Handoff:** If the refactoring reveals missing or wrong specs, suggest
+`retroactive-specification` or `feature-specification`. If the refactoring
+is preparation for a new feature, suggest `feature-development` or
+`spec-driven-development`.
+
+---
+
+### `ci-review`
+
+**Augments:** CI pipeline and code review workflows.
+
+**When to use:** The user wants to integrate Supersigil verification into
+CI pipelines, review PRs against spec coverage, or interpret verification
+output in automated contexts.
+
+**What it adds:** Patterns for using `supersigil verify`, `affected`, and
+`status` in CI gates and PR reviews. Teaches agents how to scope
+verification to PR changes, interpret finding severities, generate coverage
+reports, and flag spec drift before it reaches the main branch.
+
+**Stance:** Augmenting. Works alongside whatever CI or review skills the
+user already has installed.
+
+**Handoff:** If CI reveals broken specs, suggest `feature-specification`
+or `retroactive-specification`. If CI reveals implementation gaps, suggest
+`feature-development`.
 
 ---
 
@@ -86,7 +132,8 @@ workflows.
 supersigil specs. The user wants to create verified specifications that
 capture the current behavior — either to document what exists, to
 establish a baseline before refactoring, or to bring an existing codebase
-under spec-driven governance.
+under spec-driven governance. Also use when existing specs have gone stale
+and need to be reconciled with the current codebase.
 
 **What it adds:** A structured, incremental approach to reverse-engineering
 specifications from existing code. The agent:
@@ -137,7 +184,8 @@ because it exists in code.
 **Handoff:** Once a set of specs is drafted and reviewed, suggest
 `feature-development` for ongoing work against those specs. If the user
 wants to refactor or fix issues discovered during specification, suggest
-`spec-driven-development` for the fix/refactor cycle.
+`spec-driven-development` for the fix/refactor cycle, or `refactoring`
+if the change is purely structural.
 
 ---
 
@@ -171,14 +219,18 @@ wants to refactor or fix issues discovered during specification, suggest
 
 ```
 skills/
-├── skills.md                        # This file (moved here later)
+├── skills.md                        # This file
 ├── feature-specification/
 │   └── SKILL.md
 ├── feature-development/
 │   └── SKILL.md
 ├── spec-driven-development/
 │   └── SKILL.md
-└── retroactive-specification/
+├── retroactive-specification/
+│   └── SKILL.md
+├── refactoring/
+│   └── SKILL.md
+└── ci-review/
     └── SKILL.md
 ```
 

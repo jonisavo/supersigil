@@ -1,6 +1,6 @@
 ---
 name: retroactive-specification
-description: Recover Supersigil specs from existing code for one bounded area of a brownfield project. Use when working code exists without Supersigil docs and the user wants to document current behavior, baseline a refactor, or expose specification and test coverage gaps.
+description: Recover or refresh Supersigil specs from existing code for one bounded area. Use when working code exists without Supersigil docs and the user wants to document current behavior, baseline a refactor, or expose specification and test coverage gaps. Also use when existing specs have gone stale and need to be reconciled with the current codebase.
 ---
 
 # Retroactive Specification
@@ -48,7 +48,7 @@ Use [references/source-gathering.md](references/source-gathering.md) for the evi
 5. Draft the spec graph incrementally.
    Start with `supersigil new` when scaffolding helps.
    Keep every authored document in `status: draft`.
-   Produce requirement docs first, then add property, design, and tasks docs only where they clarify the scoped area.
+   Produce requirement docs first, then add design and tasks docs only where they clarify the scoped area.
 
 6. Reconnect existing evidence to the graph.
    Use `VerifiedBy strategy="tag"` or `strategy="file-glob"` to connect real tests.
@@ -83,3 +83,38 @@ Use [references/source-gathering.md](references/source-gathering.md) for the evi
 
 If the user wants to continue implementing against the recovered specs, suggest `feature-development`.
 If the recovered work reveals a planned refactor or behavior change, suggest `spec-driven-development`.
+If the change is purely structural (reorganize code, no behavior change), suggest `refactoring`.
+
+## Stale Spec Refresh
+
+Use this mode when specs already exist but may have drifted from the code.
+This is not greenfield recovery — it is reconciliation.
+
+1. Identify stale documents.
+   Run `supersigil affected --since <ref>` to find docs whose tracked files
+   have changed since the last known-good state.
+   Run `supersigil status <id>` on each affected doc to see current health.
+   Run `supersigil verify` to surface coverage gaps and status inconsistencies.
+
+2. Triage the affected set.
+   For each affected document, determine whether:
+   - The spec is still accurate and only `TrackedFiles` timestamps changed.
+   - The spec needs minor updates (new criteria, updated globs, evidence repair).
+   - The spec is materially wrong and needs a full re-examination.
+
+3. Update incrementally.
+   For minor updates, edit the existing docs in place. Keep them at their
+   current status unless the change is structural enough to warrant a
+   demotion back to `draft`.
+   For material changes, demote to `status: draft`, apply the standard
+   recovery workflow (steps 2–7 above) scoped to the affected area, and
+   re-verify.
+
+4. Ask about intent changes.
+   When code changes contradict existing criteria, ask the user whether the
+   spec or the code is authoritative. Do not silently update the spec to
+   match the code.
+
+5. End with a reconciliation summary.
+   Report which docs were updated, which were left unchanged, which have
+   unresolved intent questions, and the current `supersigil verify` state.

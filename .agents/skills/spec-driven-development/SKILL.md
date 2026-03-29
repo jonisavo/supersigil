@@ -12,11 +12,29 @@ Use this skill only when the user explicitly wants the full guided Supersigil wo
 Treat this as a directive wrapper over a conditional planning round plus the two lower-level Supersigil skills:
 
 - a structured planning round in the conversation when the starting request is underspecified, or whenever the user explicitly asks for planning
-- `feature-specification` for requirements, properties, design, and tasks
+- `feature-specification` for requirements, design, and tasks
 - `feature-development` for implementation against the finished spec graph
 
 If those skills are not available, fall back to the embedded summaries below instead of failing.
 Do not author requirements or design from guessed intent when the planning round is required.
+
+## Skill Composition
+
+This skill delegates to the lower-level skills at explicit phase boundaries:
+
+1. **Planning phase** — owned by this skill directly (conversational).
+2. **Specification phase** — delegate to `feature-specification`.
+   Follow its full workflow: inspect state, scaffold, author requirements,
+   pause for feedback, author design, pause for feedback, author tasks,
+   pause for feedback. Run `supersigil lint` and `supersigil verify` as
+   that skill prescribes.
+3. **Implementation phase** — delegate to `feature-development`.
+   Follow its full workflow: read plan, pick a slice, implement with TDD,
+   add evidence, update task statuses, run verify.
+
+When delegating, follow the target skill's workflow steps, authoring rules,
+and failure modes. This skill adds the planning phase and the phase
+transitions — it does not override the lower-level skill's internal logic.
 
 ## Workflow
 
@@ -40,7 +58,7 @@ Do not author requirements or design from guessed intent when the planning round
    Get explicit user confirmation or corrections before authoring requirements.
 
 4. Run the specification phase first.
-   Use the `feature-specification` workflow to produce or repair the requirement, property, design, and tasks docs.
+   Use the `feature-specification` workflow to produce or repair the requirement, design, and tasks docs.
    Derive requirement criteria from the approved planning brief when one exists.
    Derive design from the reviewed requirement shape plus the confirmed constraints, risks, and verification strategy.
    Keep docs at `status: draft` while the graph is still moving.

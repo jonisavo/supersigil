@@ -34,33 +34,6 @@ Describe the user-facing requirement in plain language.
 </AcceptanceCriteria>
 ```
 
-## Property
-
-```mdx
----
-supersigil:
-  id: auth/property
-  type: property
-  status: draft
-title: "Login Verification"
----
-
-<Validates refs="auth/req#req-1-1, auth/req#req-1-2" />
-
-Explain the invariant or behavior this document validates.
-
-<VerifiedBy strategy="tag" tag="auth-login" />
-```
-
-Use `strategy="tag"` when tests are annotated with `supersigil: auth-login`.
-Use `strategy="file-glob"` when concrete test paths are known but tags are not:
-
-```mdx
-<VerifiedBy strategy="file-glob" paths="tests/auth/login_test.rs" />
-```
-
-Omit `<VerifiedBy>` entirely until you have a real tag or path. Do not leave empty placeholder attributes behind.
-
 ## Design
 
 ```mdx
@@ -73,7 +46,6 @@ title: "Login Flow"
 ---
 
 <Implements refs="auth/req" />
-<DependsOn refs="auth/property" />
 <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
 
 Describe the implementation approach, boundaries, and tradeoffs.
@@ -118,16 +90,82 @@ Track the implementation sequence for this feature.
 
 Use `depends` for task ordering inside the same tasks document. Use `implements` for criterion refs only.
 
+## ADR (Architectural Decision Record)
+
+```mdx
+---
+supersigil:
+  id: infra/adr
+  type: adr
+  status: draft
+title: "Use PostgreSQL"
+---
+
+# Use PostgreSQL as the Primary Data Store
+
+<Decision id="use-postgres">
+  Use PostgreSQL for all persistent storage.
+
+  <References refs="infra/req#req-1-1" />
+
+  <Rationale>
+    Mature ecosystem, strong JSONB support, team expertise.
+  </Rationale>
+</Decision>
+
+<Decision id="reject-mysql" standalone="Evaluated as part of use-postgres">
+  <Alternative id="use-mysql" status="rejected">
+    MySQL was considered but lacks some PostgreSQL extensions we rely on.
+  </Alternative>
+</Decision>
+```
+
+ADR statuses are `draft`, `review`, `accepted`, `superseded`.
+Use `<References>` inside a `<Decision>` to link to requirement criteria.
+Use `standalone="..."` when a decision has no corresponding requirement.
+Use `<Alternative>` with `status="rejected"` or `status="deferred"` for considered options.
+
+## Example (Executable)
+
+```mdx
+---
+supersigil:
+  id: auth/examples
+  type: documentation
+  status: draft
+title: "Login Examples"
+---
+
+<Example id="login-curl" lang="bash" runner="sh" verifies="auth/req#req-1-1">
+```bash
+curl -X POST /api/login -d '{"user":"admin","pass":"secret"}'
+```
+<Expected status="0" format="json">
+{"token": "..."}
+</Expected>
+</Example>
+```
+
+Use `verifies` to link an example to criteria it demonstrates.
+Use `references` for informational links that do not satisfy coverage.
+The `runner` attribute determines how the example is executed. Built-in
+runners are `sh`, `cargo-test`, and `http`. Custom runners can be defined
+in config.
+
 ## Quick Reference
 
 - `<AcceptanceCriteria>`: wrapper for `<Criterion>` entries in requirement docs
 - `<Criterion id="...">`: a single acceptance criterion
-- `<Validates refs="doc#criterion">`: property or design doc points at requirement criteria
 - `<VerifiedBy strategy="tag" tag="...">`: automated verification via tagged tests
 - `<VerifiedBy strategy="file-glob" paths="...">`: automated verification via concrete test files
 - `<Implements refs="doc">`: design doc points at the spec it implements
-- `<Illustrates refs="doc#criterion">`: example doc points at criteria without satisfying coverage
+- `<References refs="doc#criterion">`: informational traceability link (no verification semantics)
 - `<Task id="..." status="..." depends="..." implements="...">`: task entry in a tasks doc
 - `<DependsOn refs="doc">`: document-level dependency
 - `<TrackedFiles paths="glob">`: source files related to the doc
+- `<Decision id="..." standalone="...">`: architectural decision in an ADR doc
+- `<Rationale>`: reasoning behind a decision (child of `<Decision>`)
+- `<Alternative id="..." status="...">`: considered alternative (child of `<Decision>`)
+- `<Example id="..." runner="..." verifies="...">`: executable code example
+- `<Expected status="..." format="...">`: expected output (child of `<Example>`)
 - Write list attributes as quoted strings, not JSX expressions

@@ -1,6 +1,6 @@
 ---
 name: feature-development
-description: Implement or refine a bounded feature against existing Supersigil specs. Use when requirement, property, design, or tasks documents already exist and the user wants to code, test, update task status, repair coverage, or bring the feature to a verify-clean, implementation-ready state.
+description: Implement or refine a bounded feature against existing Supersigil specs. Use when requirement, design, or tasks documents already exist and the user wants to code, test, update task status, repair coverage, or bring the feature to a verify-clean, implementation-ready state.
 ---
 
 # Feature Development
@@ -23,6 +23,7 @@ supersigil lint
 
 Use [references/implementation-loop.md](references/implementation-loop.md) for the concrete command loop.
 Use [references/test-tagging.md](references/test-tagging.md) when adding or repairing `VerifiedBy` evidence.
+Use [references/status-lifecycle.md](references/status-lifecycle.md) for document and task status promotion rules.
 
 If the spec graph is missing, broken, or obviously incomplete, stop and hand the job back to `feature-specification` instead of improvising new structure during implementation.
 
@@ -82,7 +83,7 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
 - Update task statuses honestly: `draft` for not-ready work, `ready` for actionable work, `in-progress` for active work, `done` only after implementation and supporting evidence both exist.
 - Prefer criterion-level progress over "done enough" prose summaries.
 - Add `supersigil: {tag}` comments only in comment styles the scanner understands today. See [references/test-tagging.md](references/test-tagging.md).
-- Do not promote requirement or property statuses based only on code changes; use `verify`, `status`, and human review to justify status changes.
+- Do not promote requirement statuses based only on code changes; use `verify`, `status`, and human review to justify status changes.
 
 ## Failure Modes
 
