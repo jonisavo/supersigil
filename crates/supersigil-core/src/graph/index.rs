@@ -1,6 +1,6 @@
 //! Document and referenceable component indexing (pipeline stages 1–2).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
@@ -22,7 +22,7 @@ pub(super) fn build_doc_index(
     documents: Vec<SpecDocument>,
 ) -> (HashMap<String, SpecDocument>, Vec<GraphError>) {
     let mut errors = Vec::new();
-    let mut path_tracker: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    let mut path_tracker: HashMap<String, BTreeSet<PathBuf>> = HashMap::new();
     let mut index: HashMap<String, SpecDocument> = HashMap::new();
 
     for doc in documents {
@@ -30,7 +30,7 @@ pub(super) fn build_doc_index(
         path_tracker
             .entry(id.clone())
             .or_default()
-            .push(doc.path.clone());
+            .insert(doc.path.clone());
         // Keep the first occurrence; duplicates are reported as errors.
         index.entry(id).or_insert(doc);
     }
@@ -39,7 +39,7 @@ pub(super) fn build_doc_index(
         if paths.len() > 1 {
             errors.push(GraphError::DuplicateId {
                 id: id.clone(),
-                paths: paths.clone(),
+                paths: paths.iter().cloned().collect(),
             });
         }
     }

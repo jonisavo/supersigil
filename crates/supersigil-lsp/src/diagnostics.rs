@@ -392,6 +392,11 @@ pub(crate) fn graph_error_to_diagnostic(err: &GraphError) -> Vec<(Url, Diagnosti
                     .enumerate()
                     .find(|(j, _)| *j != i)
                     .map_or_else(String::new, |(_, p)| p.display().to_string());
+                let message = if other_path.is_empty() {
+                    format!("duplicate document ID `{id}`")
+                } else {
+                    format!("duplicate document ID `{id}` (also in {other_path})")
+                };
                 let data = DiagnosticData {
                     source: DiagnosticSource::Graph(GraphDiagnosticKind::DuplicateDocumentId),
                     doc_id: Some(id.clone()),
@@ -404,7 +409,7 @@ pub(crate) fn graph_error_to_diagnostic(err: &GraphError) -> Vec<(Url, Diagnosti
                     range: zero_range(raw_to_lsp(0, 0)),
                     severity: Some(DiagnosticSeverity::ERROR),
                     source: Some(DIAGNOSTIC_SOURCE.to_string()),
-                    message: format!("duplicate document ID `{id}`"),
+                    message,
                     data: Some(diagnostic_data_to_value(&data)),
                     ..Diagnostic::default()
                 };
