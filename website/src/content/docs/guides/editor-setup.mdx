@@ -15,7 +15,7 @@ Supersigil provides editor extensions that connect to the `supersigil-lsp` langu
 - **Live diagnostics** — parse errors, broken refs, missing coverage, and structural issues appear as you type and save.
 - **Go-to-definition** — jump from a ref like `auth/req#req-1-1` to the criterion's source location.
 - **Autocomplete** — document IDs, criterion IDs, component names with attribute snippets, and context-sensitive `status`/`strategy` values.
-- **Hover documentation** — hover over a ref to see the target's title, body text, and a clickable link to navigate there.
+- **Hover documentation** — hover over a ref to see the target's title, body text, and a link to the source location.
 - **Spec Explorer** — a sidebar tree view showing all spec documents grouped by feature area, with status indicators and click-to-open navigation.
 
 ## Installation
@@ -82,23 +82,25 @@ When not set, the extension searches `$PATH` and common install locations (`~/.c
 
 ## Features by editor
 
-Both extensions provide the full LSP feature set. A few features differ by editor:
-
 | Feature | VS Code | IntelliJ |
 |---------|---------|----------|
 | Diagnostics | On type + save | On save |
 | Completions | Yes | Yes |
-| Hover | Yes | Yes |
+| Hover | Yes | Yes (without link navigation) |
 | Go-to-definition | Yes | Yes |
-| Find references | Yes | Yes |
-| Rename | Yes | Yes |
+| Find references | Yes | Not yet |
+| Rename | Yes | Not yet |
 | Document symbols | Yes | Yes (Structure view) |
 | Code actions | Yes | Yes |
-| Code lens | Yes | Yes (2026.1+) |
+| Code lens | Yes (clickable) | Display only (2026.1+) |
 | Spec Explorer | Sidebar tree view | Tool window |
 | Verify command | Command palette | Tools menu + toolbar |
 | Status bar | Server status widget | Built-in LSP widget |
 | Syntax highlighting | `supersigil-xml` blocks | `supersigil-xml` blocks |
+
+<Aside>
+  Find References, Rename, clickable code lenses, and hover link navigation are not yet available in IntelliJ. These features work in VS Code and other LSP clients that support them.
+</Aside>
 
 ## VS Code-specific features
 
