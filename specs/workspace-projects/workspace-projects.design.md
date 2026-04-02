@@ -8,7 +8,7 @@ title: "Workspace Projects"
 
 ```supersigil-xml
 <Implements refs="workspace-projects/req" />
-<TrackedFiles paths="supersigil.toml, crates/supersigil-core/src/config.rs, crates/supersigil-core/src/graph/index.rs, crates/supersigil-core/src/graph/resolve.rs, crates/supersigil-cli/src/commands.rs, crates/supersigil-cli/src/commands/ls.rs, crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-cli/src/commands/new.rs, crates/supersigil-verify/src/lib.rs, crates/supersigil-core/tests/config_unit_tests.rs, crates/supersigil-core/tests/config_property_tests.rs, crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs, crates/supersigil-core/src/graph/tests/prop_task_implements.rs, crates/supersigil-verify/src/lib.rs, crates/supersigil-cli/tests/clap_parse.rs" />
+<TrackedFiles paths="supersigil.toml, crates/supersigil-core/src/config.rs, crates/supersigil-core/src/graph/index.rs, crates/supersigil-core/src/graph/resolve.rs, crates/supersigil-cli/src/commands.rs, crates/supersigil-cli/src/commands/ls.rs, crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-cli/src/commands/new.rs, crates/supersigil-verify/src/lib.rs, crates/supersigil-core/tests/config_deserialization_tests.rs, crates/supersigil-core/tests/config_validation_tests.rs, crates/supersigil-core/tests/config_ecosystem_tests.rs, crates/supersigil-core/tests/config_feature_tests.rs, crates/supersigil-core/tests/config_property_tests.rs, crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs, crates/supersigil-core/src/graph/tests/prop_task_implements.rs, crates/supersigil-verify/src/lib.rs, crates/supersigil-cli/tests/clap_parse.rs" />
 ```
 
 ## Overview
@@ -157,8 +157,9 @@ family a project-sized domain of its own.
 
 ## Testing Strategy
 
-- `crates/supersigil-core/tests/config_unit_tests.rs`
-  covers config shapes, defaults, and validation failures.
+- `crates/supersigil-core/tests/config_*_tests.rs` (deserialization,
+  validation, ecosystem, feature) cover config shapes, defaults, and
+  validation failures.
 - `crates/supersigil-core/tests/config_property_tests.rs`
   covers round-tripping and mode-validity invariants.
 - `crates/supersigil-core/src/graph/tests/prop_ref_resolution.rs`
