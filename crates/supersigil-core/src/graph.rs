@@ -125,6 +125,12 @@ pub struct DocumentGraph {
     /// Resolved task implements: `(doc_id, task_id)` → `Vec<(target_doc_id, target_id)>`.
     task_implements: HashMap<(String, String), Vec<(String, String)>>,
 
+    /// Secondary index: doc_id → keys into `resolved_refs` originating from that document.
+    resolved_refs_by_doc: HashMap<String, Vec<(String, Vec<usize>)>>,
+
+    /// Secondary index: doc_id → keys into `task_implements` originating from that document.
+    task_implements_by_doc: HashMap<String, Vec<(String, String)>>,
+
     /// Project membership: document ID → project name (`None` for single-project).
     doc_project: HashMap<String, Option<String>>,
 
@@ -240,10 +246,14 @@ impl DocumentGraph {
         &self,
         doc_id: &str,
     ) -> impl Iterator<Item = (&[usize], &[ResolvedRef])> {
-        self.resolved_refs
-            .iter()
-            .filter_map(move |((src_doc, path), refs)| {
-                (src_doc == doc_id).then_some((path.as_slice(), refs.as_slice()))
+        self.resolved_refs_by_doc
+            .get(doc_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| {
+                self.resolved_refs
+                    .get(key)
+                    .map(|refs| (key.1.as_slice(), refs.as_slice()))
             })
     }
 
@@ -255,10 +265,14 @@ impl DocumentGraph {
         &self,
         doc_id: &str,
     ) -> impl Iterator<Item = (&str, &[(String, String)])> {
-        self.task_implements
-            .iter()
-            .filter_map(move |((src_doc, task_id), targets)| {
-                (src_doc == doc_id).then_some((task_id.as_str(), targets.as_slice()))
+        self.task_implements_by_doc
+            .get(doc_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| {
+                self.task_implements
+                    .get(key)
+                    .map(|targets| (key.1.as_str(), targets.as_slice()))
             })
     }
 
@@ -460,6 +474,10 @@ pub fn build_graph(
     // Stage 9: TrackedFiles indexing
     let tracked_files_index = index::build_tracked_files_index(&doc_index);
 
+    // Stage 10: Secondary per-doc indexes for O(1) doc-scoped lookups
+    let resolved_refs_by_doc = build_resolved_refs_by_doc(&resolved_refs);
+    let task_implements_by_doc = build_task_implements_by_doc(&task_implements);
+
     Ok(DocumentGraph {
         doc_index,
         component_index,
@@ -471,6 +489,8 @@ pub fn build_graph(
         doc_topo_order,
         tracked_files_index,
         task_implements,
+        resolved_refs_by_doc,
+        task_implements_by_doc,
         doc_project,
         component_defs,
     })
@@ -535,6 +555,28 @@ fn collect_depends_on_edges_recursive<'a>(
             );
         }
     }
+}
+
+/// Build a secondary index mapping doc_id → keys into `resolved_refs`.
+fn build_resolved_refs_by_doc(
+    resolved_refs: &HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
+) -> HashMap<String, Vec<(String, Vec<usize>)>> {
+    let mut by_doc: HashMap<String, Vec<(String, Vec<usize>)>> = HashMap::new();
+    for key in resolved_refs.keys() {
+        by_doc.entry(key.0.clone()).or_default().push(key.clone());
+    }
+    by_doc
+}
+
+/// Build a secondary index mapping doc_id → keys into `task_implements`.
+fn build_task_implements_by_doc(
+    task_implements: &HashMap<(String, String), Vec<(String, String)>>,
+) -> HashMap<String, Vec<(String, String)>> {
+    let mut by_doc: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for key in task_implements.keys() {
+        by_doc.entry(key.0.clone()).or_default().push(key.clone());
+    }
+    by_doc
 }
 
 /// Build a map of project name → isolated flag from config.
