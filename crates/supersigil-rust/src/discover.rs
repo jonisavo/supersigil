@@ -489,10 +489,14 @@ fn process_macro(
 /// Extract `VerifiableRef` targets from `#[verifies(...)]` attributes.
 ///
 /// Returns `None` if no matching attribute is found.
-/// Returns the set of criterion refs and the span of the attribute.
+/// Accumulates targets from all `#[verifies(...)]` attributes on the item,
+/// so multiple stacked attributes are supported.
 fn extract_verifies_targets(
     attrs: &[syn::Attribute],
 ) -> Result<Option<(VerificationTargets, proc_macro2::Span)>, VerifiesParseError> {
+    let mut all_targets = BTreeSet::new();
+    let mut first_span = None;
+
     for attr in attrs {
         let path = attr.path();
         let is_verifies = path.is_ident("verifies")
@@ -501,6 +505,7 @@ fn extract_verifies_targets(
                 && path.segments[1].ident == "verifies");
         if is_verifies {
             let span = attr.span();
+            first_span.get_or_insert(span);
 
             let syn::Meta::List(meta_list) = &attr.meta else {
                 return Err(VerifiesParseError {
@@ -525,21 +530,23 @@ fn extract_verifies_targets(
                 });
             }
 
-            let mut targets = BTreeSet::new();
             for lit_str in &lit_strs {
                 let value = lit_str.value();
                 let Some(verifiable_ref) = VerifiableRef::parse(&value) else {
                     return Err(invalid_verifies_ref(span, &value));
                 };
-                targets.insert(verifiable_ref);
+                all_targets.insert(verifiable_ref);
             }
-
-            let targets = VerificationTargets::new(targets)
-                .expect("at least one valid criterion ref should yield a non-empty target set");
-            return Ok(Some((targets, span)));
         }
     }
-    Ok(None)
+
+    if let Some(span) = first_span {
+        let targets = VerificationTargets::new(all_targets)
+            .expect("at least one valid criterion ref should yield a non-empty target set");
+        Ok(Some((targets, span)))
+    } else {
+        Ok(None)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -853,6 +860,32 @@ mod tests {
         ]);
         assert_eq!(record.targets, expected_targets);
         assert_eq!(record.kind(), Some(EvidenceKind::RustAttribute));
+    }
+
+    // -----------------------------------------------------------------------
+    // Stacked #[verifies] attributes (multiple attributes on one function)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn discovers_stacked_verifies_attributes() {
+        let records = discover_file(&fixture("stacked_verifies.rs")).unwrap();
+
+        assert_eq!(records.len(), 1, "expected exactly one evidence record");
+        let record = &records[0];
+
+        assert_eq!(record.test.name, "test_with_stacked_verifies");
+
+        let expected_targets: BTreeSet<VerifiableRef> = BTreeSet::from([
+            VerifiableRef {
+                doc_id: "req/auth".to_string(),
+                target_id: "crit-1".to_string(),
+            },
+            VerifiableRef {
+                doc_id: "req/security".to_string(),
+                target_id: "crit-2".to_string(),
+            },
+        ]);
+        assert_eq!(record.targets, expected_targets);
     }
 
     // -----------------------------------------------------------------------
