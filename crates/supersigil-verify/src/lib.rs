@@ -7,6 +7,7 @@ pub(crate) mod examples;
 pub(crate) mod explicit_evidence;
 pub mod git;
 pub(crate) mod hooks;
+mod plugins;
 mod report;
 mod rules;
 mod scan;
@@ -32,6 +33,9 @@ pub use examples::types::{
 };
 pub use explicit_evidence::extract_explicit_evidence;
 pub use hooks::run_hooks;
+pub use plugins::{
+    PluginEvidenceResult, assemble_plugins, build_evidence, collect_plugin_evidence,
+};
 pub use report::{
     EvidenceReportEntry, EvidenceSummary, Finding, FindingDetails, ReportSeverity, ResultStatus,
     RuleName, Summary, TargetCoverage, VerificationReport, format_json, format_markdown,

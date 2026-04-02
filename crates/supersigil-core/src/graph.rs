@@ -125,10 +125,10 @@ pub struct DocumentGraph {
     /// Resolved task implements: `(doc_id, task_id)` → `Vec<(target_doc_id, target_id)>`.
     task_implements: HashMap<(String, String), Vec<(String, String)>>,
 
-    /// Secondary index: doc_id → keys into `resolved_refs` originating from that document.
+    /// Secondary index: `doc_id` → keys into `resolved_refs` originating from that document.
     resolved_refs_by_doc: HashMap<String, Vec<(String, Vec<usize>)>>,
 
-    /// Secondary index: doc_id → keys into `task_implements` originating from that document.
+    /// Secondary index: `doc_id` → keys into `task_implements` originating from that document.
     task_implements_by_doc: HashMap<String, Vec<(String, String)>>,
 
     /// Project membership: document ID → project name (`None` for single-project).
@@ -557,7 +557,7 @@ fn collect_depends_on_edges_recursive<'a>(
     }
 }
 
-/// Build a secondary index mapping doc_id → keys into `resolved_refs`.
+/// Build a secondary index mapping `doc_id` → keys into `resolved_refs`.
 fn build_resolved_refs_by_doc(
     resolved_refs: &HashMap<(String, Vec<usize>), Vec<ResolvedRef>>,
 ) -> HashMap<String, Vec<(String, Vec<usize>)>> {
@@ -568,7 +568,7 @@ fn build_resolved_refs_by_doc(
     by_doc
 }
 
-/// Build a secondary index mapping doc_id → keys into `task_implements`.
+/// Build a secondary index mapping `doc_id` → keys into `task_implements`.
 fn build_task_implements_by_doc(
     task_implements: &HashMap<(String, String), Vec<(String, String)>>,
 ) -> HashMap<String, Vec<(String, String)>> {

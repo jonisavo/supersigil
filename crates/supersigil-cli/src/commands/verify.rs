@@ -28,7 +28,6 @@ use crate::commands::{VerifyArgs, VerifyFormat};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, ExitStatus};
 use crate::loader;
-use crate::plugins;
 
 /// Run the `verify` command: cross-document verification.
 ///
@@ -68,7 +67,7 @@ pub fn run(
     // -- Phase 1: Plugin evidence + structural checks --
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
 
-    let (artifact_graph, plugin_findings) = plugins::build_evidence(
+    let (artifact_graph, plugin_findings) = supersigil_verify::build_evidence(
         &config,
         &graph,
         project_root,

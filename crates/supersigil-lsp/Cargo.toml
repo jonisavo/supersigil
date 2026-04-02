@@ -19,7 +19,6 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 supersigil-core.workspace = true
 supersigil-evidence.workspace = true
 supersigil-parser.workspace = true
-supersigil-rust.workspace = true
 supersigil-verify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,6 +27,7 @@ glob.workspace = true
 [dev-dependencies]
 insta = { version = "1.46.3", features = ["yaml"] }
 supersigil-core = { workspace = true, features = ["test-helpers"] }
+supersigil-rust.workspace = true
 supersigil-rust-macros.workspace = true
 tempfile.workspace = true
 yaml_serde.workspace = true
