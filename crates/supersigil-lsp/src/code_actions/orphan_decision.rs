@@ -1,9 +1,10 @@
 //! Code action provider for orphan Decision components (no References child).
 
 use lsp_types::{CodeAction, Diagnostic, Range, TextEdit};
+use supersigil_core::{IMPLEMENTS, REFERENCES};
 use supersigil_verify::RuleName;
 
-use crate::code_actions::{ActionRequestContext, CodeActionProvider, find_closing_decision_tag};
+use crate::code_actions::{ActionRequestContext, CodeActionProvider, find_closing_tag};
 use crate::diagnostics::{DiagnosticData, DiagnosticSource};
 
 // ---------------------------------------------------------------------------
@@ -29,9 +30,11 @@ impl CodeActionProvider for OrphanDecisionProvider {
         _data: &DiagnosticData,
         ctx: &ActionRequestContext,
     ) -> Vec<CodeAction> {
-        let Some((insert_pos, indent)) =
-            find_closing_decision_tag(ctx.file_content, &diagnostic.range)
-        else {
+        let Some((insert_pos, indent)) = find_closing_tag(
+            ctx.file_content,
+            diagnostic.range.start.line as usize,
+            "Decision",
+        ) else {
             return vec![];
         };
 
@@ -69,12 +72,12 @@ fn infer_refs_target(ctx: &ActionRequestContext) -> String {
     // Prefer Implements (design docs), fall back to top-level References (ADRs).
     let mut fallback_refs: Option<&str> = None;
     for component in &doc.components {
-        if component.name == "Implements"
+        if component.name == IMPLEMENTS
             && let Some(refs) = component.attributes.get("refs")
         {
             return refs.clone();
         }
-        if component.name == "References"
+        if component.name == REFERENCES
             && let Some(refs) = component.attributes.get("refs")
             && fallback_refs.is_none()
         {

@@ -178,6 +178,39 @@ fn reject_unsupported(content: &str, path: &Path) -> Result<(), ParseError> {
 }
 
 // ---------------------------------------------------------------------------
+// Shared element-head parsing
+// ---------------------------------------------------------------------------
+
+/// Decoded element head: tag name, attributes, and file-absolute byte offset.
+struct ElementHead {
+    tag_name: String,
+    attributes: Vec<(String, String)>,
+    file_offset: usize,
+}
+
+/// Decode, validate, and extract attributes from an element-opening event
+/// (`Start` or `Empty`).
+fn parse_element_head(
+    event: &quick_xml::events::BytesStart<'_>,
+    event_pos: u64,
+    content: &str,
+    fence_offset: usize,
+    root_tag_len: u64,
+    path: &Path,
+) -> Result<ElementHead, ParseError> {
+    let offset_in_content = content_offset(event_pos, root_tag_len);
+    let file_offset = fence_offset + offset_in_content;
+    let tag_name = decode_name(event.name().as_ref(), content, offset_in_content, path)?;
+    validate_element_name(&tag_name, content, offset_in_content, path)?;
+    let attributes = parse_attributes(event, content, offset_in_content, path)?;
+    Ok(ElementHead {
+        tag_name,
+        attributes,
+        file_offset,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Recursive event-driven parser
 // ---------------------------------------------------------------------------
 
@@ -247,17 +280,15 @@ fn parse_children(
                     is_top_level,
                 );
 
-                let offset_in_content = content_offset(event_pos, root_tag_len);
-                let file_offset = fence_offset + offset_in_content;
-
-                let tag_name = decode_name(e.name().as_ref(), content, offset_in_content, path)?;
-                validate_element_name(&tag_name, content, offset_in_content, path)?;
-                let attributes = parse_attributes(e, content, offset_in_content, path)?;
+                let ElementHead {
+                    tag_name,
+                    attributes,
+                    file_offset,
+                } = parse_element_head(e, event_pos, content, fence_offset, root_tag_len, path)?;
 
                 let children =
                     parse_children(reader, &tag_name, content, fence_offset, root_tag_len, path)?;
 
-                // After parse_children returns, reader is past the closing `>`.
                 let end_in_content = content_offset(reader.buffer_position(), root_tag_len);
                 let file_end_offset = fence_offset + end_in_content;
 
@@ -279,14 +310,12 @@ fn parse_children(
                     is_top_level,
                 );
 
-                let offset_in_content = content_offset(event_pos, root_tag_len);
-                let file_offset = fence_offset + offset_in_content;
+                let ElementHead {
+                    tag_name,
+                    attributes,
+                    file_offset,
+                } = parse_element_head(e, event_pos, content, fence_offset, root_tag_len, path)?;
 
-                let tag_name = decode_name(e.name().as_ref(), content, offset_in_content, path)?;
-                validate_element_name(&tag_name, content, offset_in_content, path)?;
-                let attributes = parse_attributes(e, content, offset_in_content, path)?;
-
-                // After reading Empty event, reader is past the closing `/>`.
                 let end_in_content = content_offset(reader.buffer_position(), root_tag_len);
                 let file_end_offset = fence_offset + end_in_content;
 

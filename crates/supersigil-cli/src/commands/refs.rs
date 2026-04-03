@@ -7,7 +7,9 @@ use supersigil_core::CRITERION;
 
 use crate::commands::RefsArgs;
 use crate::error::CliError;
-use crate::format::{COL_GAP, ColorConfig, OutputFormat, Token, write_json};
+use crate::format::{
+    COL_GAP, ColorConfig, OutputFormat, Token, column_width, write_cell, write_json,
+};
 use crate::loader;
 use crate::scope;
 
@@ -109,16 +111,11 @@ fn write_terminal_table(
     }
 
     // Compute column width for ref strings.
-    let ref_width = entries
-        .iter()
-        .map(|e| e.ref_string.len())
-        .max()
-        .unwrap_or(0);
+    let ref_width = column_width(entries, "", |e| e.ref_string.len());
 
     for entry in entries {
-        let ref_painted = color.paint(Token::DocId, &entry.ref_string);
-        let ref_pad = ref_width.saturating_sub(entry.ref_string.len());
-        write!(out, "{ref_painted}{:>pad$}{COL_GAP}", "", pad = ref_pad)?;
+        write_cell(out, color, Token::DocId, &entry.ref_string, ref_width)?;
+        write!(out, "{COL_GAP}")?;
         match &entry.body_text {
             Some(text) => {
                 let truncated = truncate_body(text, MAX_BODY_LEN);

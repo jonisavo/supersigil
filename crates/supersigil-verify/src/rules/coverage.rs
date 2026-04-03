@@ -47,31 +47,21 @@ pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<F
 
 /// Collect all `(doc_id, criterion_id)` pairs targeted by `<Example verifies="...">`
 /// components across the entire graph.
-fn collect_example_targets(graph: &DocumentGraph) -> HashSet<(String, String)> {
+fn collect_example_targets(graph: &DocumentGraph) -> HashSet<(&str, &str)> {
     let mut targets = HashSet::new();
     for (_doc_id, doc) in graph.documents() {
-        collect_example_targets_from(&doc.components, &mut targets);
-    }
-    targets
-}
-
-fn collect_example_targets_from(
-    components: &[supersigil_core::ExtractedComponent],
-    targets: &mut HashSet<(String, String)>,
-) {
-    for component in components {
-        if component.name == EXAMPLE
-            && let Some(verifies) = component.attributes.get("verifies")
-        {
-            for ref_str in verifies.split(',') {
-                let ref_str = ref_str.trim();
-                if let Some((doc_id, criterion_id)) = split_criterion_ref(ref_str) {
-                    targets.insert((doc_id.to_owned(), criterion_id.to_owned()));
+        for example in super::find_components(&doc.components, EXAMPLE) {
+            if let Some(verifies) = example.attributes.get("verifies") {
+                for ref_str in verifies.split(',') {
+                    let ref_str = ref_str.trim();
+                    if let Some((doc_id, criterion_id)) = split_criterion_ref(ref_str) {
+                        targets.insert((doc_id, criterion_id));
+                    }
                 }
             }
         }
-        collect_example_targets_from(&component.children, targets);
     }
+    targets
 }
 
 fn for_each_criterion(
@@ -79,7 +69,7 @@ fn for_each_criterion(
     doc_id: &str,
     artifact_graph: &ArtifactGraph<'_>,
     suggestable: &HashSet<(&str, &str)>,
-    example_targets: &HashSet<(String, String)>,
+    example_targets: &HashSet<(&str, &str)>,
     findings: &mut Vec<Finding>,
 ) {
     for component in components {
@@ -88,8 +78,7 @@ fn for_each_criterion(
         {
             let has_evidence = artifact_graph.has_evidence(doc_id, criterion_id);
             if !has_evidence {
-                let example_coverable =
-                    example_targets.contains(&(doc_id.to_owned(), criterion_id.to_owned()));
+                let example_coverable = example_targets.contains(&(doc_id, criterion_id.as_str()));
 
                 let mut message =
                     format!("criterion `{criterion_id}` has no verification evidence");

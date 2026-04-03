@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
+
 use supersigil_core::{
     ALTERNATIVE, CRITERION, ComponentDefs, Config, DECISION, DEPENDS_ON, DocumentGraph, EXAMPLE,
     EXPECTED, ExtractedComponent, IMPLEMENTS, RATIONALE, REFERENCES, SourcePosition, SpecDocument,
@@ -73,7 +75,7 @@ pub fn check_id_pattern(graph: &DocumentGraph, config: &Config) -> Vec<Finding> 
 /// Check each document for incoming or outgoing refs. Documents with neither
 /// are flagged as isolated.
 pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
-    let (task_level_outgoing, task_level_incoming) = collect_task_level_doc_refs(graph);
+    let task_level_connected = collect_task_level_connected_docs(graph);
     let mut findings = Vec::new();
     for (doc_id, doc) in graph.documents() {
         // Check outgoing refs (document has ref components)
@@ -86,10 +88,9 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
             || !graph.implements(doc_id).is_empty()
             || !graph.depends_on(doc_id).is_empty();
 
-        let has_task_level_refs = task_level_outgoing.contains(doc_id);
-        let has_incoming_task_refs = task_level_incoming.contains(doc_id);
+        let has_task_level_refs = task_level_connected.contains(doc_id);
 
-        if !has_outgoing && !has_incoming && !has_task_level_refs && !has_incoming_task_refs {
+        if !has_outgoing && !has_incoming && !has_task_level_refs {
             findings.push(Finding::new(
                 RuleName::IsolatedDocument,
                 Some(doc_id.to_owned()),
@@ -101,14 +102,10 @@ pub fn check_isolated(graph: &DocumentGraph) -> Vec<Finding> {
     findings
 }
 
-fn collect_task_level_doc_refs(
-    graph: &DocumentGraph,
-) -> (
-    std::collections::HashSet<&str>,
-    std::collections::HashSet<&str>,
-) {
-    let mut outgoing = std::collections::HashSet::new();
-    let mut incoming = std::collections::HashSet::new();
+/// Collect all document IDs that participate in cross-document task-level
+/// implements relationships (both source and target).
+fn collect_task_level_connected_docs(graph: &DocumentGraph) -> HashSet<&str> {
+    let mut connected = HashSet::new();
 
     for (doc_id, _) in graph.documents() {
         let Some(task_order) = graph.task_order(doc_id) else {
@@ -122,14 +119,14 @@ fn collect_task_level_doc_refs(
 
             for (target_doc, _) in implementations {
                 if target_doc != doc_id {
-                    outgoing.insert(doc_id);
-                    incoming.insert(target_doc.as_str());
+                    connected.insert(doc_id);
+                    connected.insert(target_doc.as_str());
                 }
             }
         }
     }
 
-    (outgoing, incoming)
+    connected
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +138,7 @@ fn collect_task_level_doc_refs(
 /// `tag_matches` should be pre-computed via [`crate::scan::scan_all_tags`].
 pub fn check_orphan_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Vec<Finding> {
     // Collect declared tags from VerifiedBy components
-    let mut declared_tags: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut declared_tags: HashSet<&str> = HashSet::new();
     for doc in docs {
         for vb in find_components(&doc.components, VERIFIED_BY) {
             if vb.attributes.get("strategy").map(String::as_str) == Some("tag")
@@ -153,7 +150,7 @@ pub fn check_orphan_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Ve
     }
 
     let mut findings = Vec::new();
-    let mut seen_orphans: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut seen_orphans: HashSet<&str> = HashSet::new();
     for m in tag_matches {
         if !declared_tags.contains(m.tag.as_str()) && seen_orphans.insert(m.tag.as_str()) {
             findings.push(Finding::new(
@@ -598,8 +595,7 @@ fn collect_sequential_order_findings(
 ) {
     // Group sequential IDs by (prefix, arity), preserving declaration order.
     // One-level and two-level IDs in the same prefix are ordered independently.
-    let mut last_key: std::collections::HashMap<(&str, u8), (NumericKey, &str)> =
-        std::collections::HashMap::new();
+    let mut last_key: HashMap<(&str, u8), (NumericKey, &str)> = HashMap::new();
 
     for occurrence in occurrences {
         let group = (occurrence.prefix, occurrence.key.arity());
@@ -637,8 +633,7 @@ fn collect_sequential_gap_findings(
     occurrences: &[SequentialOccurrence<'_>],
     findings: &mut Vec<Finding>,
 ) {
-    let mut by_prefix: std::collections::HashMap<&str, Vec<NumericKey>> =
-        std::collections::HashMap::new();
+    let mut by_prefix: HashMap<&str, Vec<NumericKey>> = HashMap::new();
 
     for occurrence in occurrences {
         by_prefix
@@ -663,7 +658,7 @@ fn check_contiguity(doc_id: &str, prefix: &str, keys: &[NumericKey], findings: &
 
     if has_two_level && !has_one_level {
         // Two-level: check first-level N contiguity, then per-N M contiguity.
-        let mut by_n: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+        let mut by_n: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         for key in keys {
             if let NumericKey::Two(n, m) = key {
                 by_n.entry(*n).or_default().push(*m);

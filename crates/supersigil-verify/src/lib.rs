@@ -136,8 +136,11 @@ pub fn verify_structural(
     let mut findings = Vec::new();
 
     // Test mapping
-    findings.extend(rules::tests_rule::check_file_globs(&docs, project_root));
-    findings.extend(rules::tests_rule::check_tags(&docs, &inputs.tag_matches));
+    findings.extend(rules::tests_rule::check(
+        &docs,
+        project_root,
+        &inputs.tag_matches,
+    ));
 
     // Tracked files
     findings.extend(rules::tracked::check_empty_globs(graph, project_root));

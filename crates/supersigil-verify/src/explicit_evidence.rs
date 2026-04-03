@@ -5,7 +5,7 @@
 //! *existence*) with the new evidence model (which produces normalized records
 //! for merging in the `ArtifactGraph`).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use supersigil_core::{CRITERION, DocumentGraph, VERIFIED_BY, split_list_attribute};
@@ -40,7 +40,6 @@ pub fn extract_explicit_evidence(
     project_root: &Path,
 ) -> Vec<VerificationEvidenceRecord> {
     let mut records = Vec::new();
-    let mut next_id: usize = 0;
 
     let mut tag_index: HashMap<&str, Vec<&TagMatch>> = HashMap::new();
     for m in tag_matches {
@@ -50,14 +49,13 @@ pub fn extract_explicit_evidence(
     for (_id, doc) in graph.documents() {
         let doc_id = &doc.frontmatter.id;
 
-        // 1. Contextual VerifiedBy (nested inside Criterion) — preferred path
+        // Contextual VerifiedBy (nested inside Criterion) — preferred path
         collect_criterion_evidence(
             doc_id,
             &doc.components,
             &tag_index,
             project_root,
             &mut records,
-            &mut next_id,
         );
     }
 
@@ -65,6 +63,9 @@ pub fn extract_explicit_evidence(
 }
 
 /// Process a single `<VerifiedBy>` component into evidence records.
+///
+/// Records are assigned placeholder IDs here; `build_artifact_graph` reassigns
+/// sequential IDs after merging.
 fn process_verified_by(
     comp: &supersigil_core::ExtractedComponent,
     doc_id: &str,
@@ -72,7 +73,6 @@ fn process_verified_by(
     tag_index: &HashMap<&str, Vec<&TagMatch>>,
     project_root: &Path,
     records: &mut Vec<VerificationEvidenceRecord>,
-    next_id: &mut usize,
 ) {
     let strategy = comp.attributes.get("strategy").map(String::as_str);
 
@@ -86,7 +86,7 @@ fn process_verified_by(
 
             for m in matches {
                 records.push(VerificationEvidenceRecord {
-                    id: EvidenceId::new(*next_id),
+                    id: EvidenceId::new(0),
                     targets: targets.clone(),
                     test: TestIdentity {
                         file: m.file.clone(),
@@ -102,9 +102,8 @@ fn process_verified_by(
                         doc_id: doc_id.to_owned(),
                         tag: tag.clone(),
                     }],
-                    metadata: std::collections::BTreeMap::new(),
+                    metadata: BTreeMap::new(),
                 });
-                *next_id += 1;
             }
         }
         Some("file-glob") => {
@@ -128,7 +127,7 @@ fn process_verified_by(
 
             for file in matched_files {
                 records.push(VerificationEvidenceRecord {
-                    id: EvidenceId::new(*next_id),
+                    id: EvidenceId::new(0),
                     targets: targets.clone(),
                     test: TestIdentity {
                         file: file.clone(),
@@ -144,9 +143,8 @@ fn process_verified_by(
                         doc_id: doc_id.to_owned(),
                         paths: vec![paths_attr.clone()],
                     }],
-                    metadata: std::collections::BTreeMap::new(),
+                    metadata: BTreeMap::new(),
                 });
-                *next_id += 1;
             }
         }
         _ => {}
@@ -161,7 +159,6 @@ fn collect_criterion_evidence(
     tag_index: &HashMap<&str, Vec<&TagMatch>>,
     project_root: &Path,
     records: &mut Vec<VerificationEvidenceRecord>,
-    next_id: &mut usize,
 ) {
     for component in components {
         if component.name == CRITERION
@@ -175,15 +172,7 @@ fn collect_criterion_evidence(
 
             for child in &component.children {
                 if child.name == VERIFIED_BY {
-                    process_verified_by(
-                        child,
-                        doc_id,
-                        &targets,
-                        tag_index,
-                        project_root,
-                        records,
-                        next_id,
-                    );
+                    process_verified_by(child, doc_id, &targets, tag_index, project_root, records);
                 }
             }
         }
@@ -194,7 +183,6 @@ fn collect_criterion_evidence(
             tag_index,
             project_root,
             records,
-            next_id,
         );
     }
 }

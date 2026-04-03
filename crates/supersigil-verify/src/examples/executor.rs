@@ -6,7 +6,7 @@
 //! - [`results_to_evidence`]: convert passing results (with verifies) to evidence records.
 //! - [`results_to_findings`]: convert failing/erroring/timeout results to findings.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use supersigil_core::{DocumentGraph, EXAMPLE, EXPECTED, ExamplesConfig};
@@ -44,33 +44,14 @@ pub fn collect_examples(graph: &DocumentGraph, config: &ExamplesConfig) -> Vec<E
     let mut specs = Vec::new();
 
     for (doc_id, doc) in graph.documents() {
-        for component in &doc.components {
-            collect_from_component(component, doc_id, doc, config, &mut specs);
+        for component in crate::rules::find_components(&doc.components, EXAMPLE) {
+            if let Some(spec) = build_example_spec(component, doc_id, doc, config) {
+                specs.push(spec);
+            }
         }
     }
 
     specs
-}
-
-/// Recursively collect `Example` components from a component tree.
-fn collect_from_component(
-    component: &supersigil_core::ExtractedComponent,
-    doc_id: &str,
-    doc: &supersigil_core::SpecDocument,
-    config: &ExamplesConfig,
-    specs: &mut Vec<ExampleSpec>,
-) {
-    if component.name == EXAMPLE
-        && let Some(spec) = build_example_spec(component, doc_id, doc, config)
-    {
-        specs.push(spec);
-    }
-
-    // Recurse into children regardless of the component name, so we find
-    // nested Example components.
-    for child in &component.children {
-        collect_from_component(child, doc_id, doc, config, specs);
-    }
 }
 
 /// Build an `ExampleSpec` from an `Example` component.
@@ -330,8 +311,7 @@ pub fn results_to_evidence(results: &[ExampleResult]) -> Vec<VerificationEvidenc
             continue;
         }
 
-        let targets_set: std::collections::BTreeSet<VerifiableRef> =
-            verifies.iter().cloned().collect();
+        let targets_set: BTreeSet<VerifiableRef> = verifies.iter().cloned().collect();
 
         let Some(targets) = VerificationTargets::new(targets_set) else {
             continue;

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
 
@@ -413,8 +414,6 @@ pub fn write_dependency_graph(
     renderer.render_all(out)
 }
 
-use std::collections::{HashMap, HashSet};
-
 struct GraphRenderer<'a> {
     forward: HashMap<&'a str, Vec<&'a str>>,
     back: HashMap<&'a str, Vec<&'a str>>,
@@ -598,6 +597,13 @@ impl<'a> GraphRenderer<'a> {
 /// Column gap used between table columns in terminal output.
 pub const COL_GAP: &str = "  ";
 
+/// Compute the display width for a table column: the maximum of `header`
+/// length and the widest value produced by `field` across all `items`.
+#[must_use]
+pub fn column_width<T>(items: &[T], header: &str, field: impl Fn(&T) -> usize) -> usize {
+    items.iter().map(field).max().unwrap_or(0).max(header.len())
+}
+
 /// Write a colored, padded table cell. Paints `text` with `token`, then pads
 /// with trailing spaces to reach `width`.
 ///
@@ -613,9 +619,7 @@ pub fn write_cell(
 ) -> io::Result<()> {
     write!(out, "{}", color.paint(token, text))?;
     let pad = width.saturating_sub(text.len());
-    for _ in 0..pad {
-        write!(out, " ")?;
-    }
+    write!(out, "{:pad$}", "")?;
     Ok(())
 }
 

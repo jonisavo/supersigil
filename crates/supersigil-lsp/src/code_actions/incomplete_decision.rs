@@ -3,7 +3,7 @@
 use lsp_types::{CodeAction, Diagnostic, Range, TextEdit};
 use supersigil_verify::RuleName;
 
-use crate::code_actions::{ActionRequestContext, CodeActionProvider, find_closing_decision_tag};
+use crate::code_actions::{ActionRequestContext, CodeActionProvider, find_closing_tag};
 use crate::diagnostics::{DiagnosticData, DiagnosticSource};
 
 // ---------------------------------------------------------------------------
@@ -29,9 +29,11 @@ impl CodeActionProvider for IncompleteDecisionProvider {
         _data: &DiagnosticData,
         ctx: &ActionRequestContext,
     ) -> Vec<CodeAction> {
-        let Some((insert_pos, indent)) =
-            find_closing_decision_tag(ctx.file_content, &diagnostic.range)
-        else {
+        let Some((insert_pos, indent)) = find_closing_tag(
+            ctx.file_content,
+            diagnostic.range.start.line as usize,
+            "Decision",
+        ) else {
             return vec![];
         };
 

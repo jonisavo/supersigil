@@ -1,5 +1,6 @@
 //! Convert supersigil errors and findings to LSP diagnostics.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Url};
@@ -189,21 +190,7 @@ pub fn parse_error_to_diagnostic(
             target,
             content_offset,
         } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
+            let sp = offset_to_source_position(*content_offset, buffer);
             (
                 path,
                 sp_to_lsp(&sp, path, buffer),
@@ -224,21 +211,7 @@ pub fn parse_error_to_diagnostic(
             target,
             content_offset,
         } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
+            let sp = offset_to_source_position(*content_offset, buffer);
             (
                 path,
                 sp_to_lsp(&sp, path, buffer),
@@ -280,21 +253,7 @@ pub fn parse_warning_to_diagnostic(
             target,
             content_offset,
         } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
+            let sp = offset_to_source_position(*content_offset, buffer);
             (
                 path,
                 sp_to_lsp(&sp, path, buffer),
@@ -313,21 +272,7 @@ pub fn parse_warning_to_diagnostic(
             target,
             content_offset,
         } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
+            let sp = offset_to_source_position(*content_offset, buffer);
             (
                 path,
                 sp_to_lsp(&sp, path, buffer),
@@ -354,6 +299,31 @@ pub fn parse_warning_to_diagnostic(
         ..Diagnostic::default()
     };
     Some((url, diagnostic))
+}
+
+/// Compute a [`SourcePosition`] from a byte offset and optional buffer.
+///
+/// When `buffer` is provided, derives line/column by scanning the content.
+/// Otherwise falls back to line 1, column 1.
+fn offset_to_source_position(
+    content_offset: usize,
+    buffer: Option<&str>,
+) -> supersigil_core::SourcePosition {
+    let (line, column) = if let Some(buf) = buffer {
+        let offset = content_offset.min(buf.len());
+        let before = &buf[..offset];
+        let line = before.chars().filter(|&c| c == '\n').count() + 1;
+        let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
+        let column = offset - last_nl + 1;
+        (line, column)
+    } else {
+        (1, 1)
+    };
+    supersigil_core::SourcePosition {
+        byte_offset: content_offset,
+        line,
+        column,
+    }
 }
 
 /// Convert a [`SourcePosition`] using buffer content if available,
@@ -785,10 +755,8 @@ pub fn finding_to_diagnostic(
 
 /// Group a flat list of `(Url, Diagnostic)` pairs into a map keyed by URL.
 #[must_use]
-pub fn group_by_url(
-    pairs: Vec<(Url, Diagnostic)>,
-) -> std::collections::HashMap<Url, Vec<Diagnostic>> {
-    let mut map: std::collections::HashMap<Url, Vec<Diagnostic>> = std::collections::HashMap::new();
+pub fn group_by_url(pairs: Vec<(Url, Diagnostic)>) -> HashMap<Url, Vec<Diagnostic>> {
+    let mut map: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
     for (url, diag) in pairs {
         map.entry(url).or_default().push(diag);
     }

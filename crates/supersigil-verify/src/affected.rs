@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -40,8 +40,8 @@ pub fn affected(
     let mut results = Vec::new();
 
     for (doc_id, globs) in graph.all_tracked_files() {
-        let mut matched_globs = Vec::new();
-        let mut matched_files = Vec::new();
+        let mut matched_glob_set = HashSet::new();
+        let mut matched_file_set = HashSet::new();
 
         for glob_pattern in globs {
             let pattern_str = project_root
@@ -55,17 +55,17 @@ pub fn affected(
             for changed_file in &changed {
                 let full = project_root.join(changed_file);
                 if pattern.matches_path(&full) {
-                    if !matched_globs.contains(glob_pattern) {
-                        matched_globs.push(glob_pattern.clone());
-                    }
-                    if !matched_files.contains(changed_file) {
-                        matched_files.push(changed_file.clone());
-                    }
+                    matched_glob_set.insert(glob_pattern.clone());
+                    matched_file_set.insert(changed_file.clone());
                 }
             }
         }
 
-        if !matched_globs.is_empty() {
+        if !matched_glob_set.is_empty() {
+            let mut matched_globs: Vec<_> = matched_glob_set.into_iter().collect();
+            matched_globs.sort();
+            let mut matched_files: Vec<_> = matched_file_set.into_iter().collect();
+            matched_files.sort();
             let doc = graph.document(doc_id).expect("doc exists in graph");
             let path = doc
                 .path
@@ -88,6 +88,7 @@ pub fn affected(
     let direct_ids: BTreeSet<&str> = results.iter().map(|d| d.id.as_str()).collect();
 
     let mut transitive = Vec::new();
+    let mut seen_transitive: HashSet<String> = HashSet::new();
     for direct_doc in &results {
         for referencing_id in graph.references(&direct_doc.id, None) {
             if direct_ids.contains(referencing_id.as_str()) {
@@ -95,10 +96,7 @@ pub fn affected(
             }
             // Avoid duplicate transitive entries (a doc may reference multiple
             // directly affected docs — keep only the first association).
-            if transitive
-                .iter()
-                .any(|t: &AffectedDocument| t.id == *referencing_id)
-            {
+            if !seen_transitive.insert(referencing_id.clone()) {
                 continue;
             }
             let doc = graph

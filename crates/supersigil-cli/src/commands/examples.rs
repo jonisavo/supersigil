@@ -7,7 +7,9 @@ use supersigil_verify::{ExampleSpec, collect_examples};
 
 use crate::commands::ExamplesArgs;
 use crate::error::CliError;
-use crate::format::{COL_GAP, ColorConfig, OutputFormat, Token, write_cell, write_json};
+use crate::format::{
+    COL_GAP, ColorConfig, OutputFormat, Token, column_width, write_cell, write_json,
+};
 use crate::loader;
 use crate::scope;
 
@@ -73,30 +75,10 @@ fn write_terminal_table(
     }
 
     // Compute column widths.
-    let doc_w = entries
-        .iter()
-        .map(|e| e.doc_id.len())
-        .max()
-        .unwrap_or(0)
-        .max("DOCUMENT".len());
-    let ex_w = entries
-        .iter()
-        .map(|e| e.example_id.len())
-        .max()
-        .unwrap_or(0)
-        .max("EXAMPLE".len());
-    let lang_w = entries
-        .iter()
-        .map(|e| e.lang.len())
-        .max()
-        .unwrap_or(0)
-        .max("LANG".len());
-    let runner_w = entries
-        .iter()
-        .map(|e| e.runner.len())
-        .max()
-        .unwrap_or(0)
-        .max("RUNNER".len());
+    let doc_w = column_width(entries, "DOCUMENT", |e| e.doc_id.len());
+    let ex_w = column_width(entries, "EXAMPLE", |e| e.example_id.len());
+    let lang_w = column_width(entries, "LANG", |e| e.lang.len());
+    let runner_w = column_width(entries, "RUNNER", |e| e.runner.len());
 
     // Header.
     write_cell(out, color, Token::Header, "DOCUMENT", doc_w)?;

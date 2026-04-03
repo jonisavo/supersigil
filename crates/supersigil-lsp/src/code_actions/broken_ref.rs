@@ -12,7 +12,7 @@ use supersigil_core::scaffold::{generate_template, is_known_doc_type, type_full_
 use crate::code_actions::{ActionRequestContext, CodeActionProvider};
 use crate::commands;
 use crate::diagnostics::{ActionContext, DiagnosticData, DiagnosticSource, GraphDiagnosticKind};
-use crate::position::utf16_col;
+use crate::position::byte_range_to_lsp;
 
 // ---------------------------------------------------------------------------
 // BrokenRefProvider
@@ -140,11 +140,12 @@ fn find_and_remove_ref(
             let new_value = new_refs.join(", ");
 
             #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
-            let line = line_idx as u32;
-            let start_col = utf16_col(line_text, value_start_byte);
-            let end_col = utf16_col(line_text, value_start_byte + closing_quote);
-
-            let range = Range::new(Position::new(line, start_col), Position::new(line, end_col));
+            let range = byte_range_to_lsp(
+                line_text,
+                line_idx as u32,
+                value_start_byte,
+                value_start_byte + closing_quote,
+            );
 
             return Some((range, new_value));
         }

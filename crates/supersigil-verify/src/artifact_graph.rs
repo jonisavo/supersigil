@@ -185,17 +185,23 @@ pub fn build_artifact_graph(
 
     for record in &merged_evidence {
         for crit in &record.targets {
-            evidence_by_target
-                .entry(crit.doc_id.clone())
-                .or_default()
-                .entry(crit.target_id.clone())
-                .or_default()
-                .push(record.id);
+            // Avoid cloning doc_id/target_id when the key already exists.
+            let inner = if let Some(inner) = evidence_by_target.get_mut(crit.doc_id.as_str()) {
+                inner
+            } else {
+                evidence_by_target.entry(crit.doc_id.clone()).or_default()
+            };
+            if let Some(ids) = inner.get_mut(crit.target_id.as_str()) {
+                ids.push(record.id);
+            } else {
+                inner.insert(crit.target_id.clone(), vec![record.id]);
+            }
         }
-        evidence_by_test
-            .entry(record.test.clone())
-            .or_default()
-            .push(record.id);
+        if let Some(ids) = evidence_by_test.get_mut(&record.test) {
+            ids.push(record.id);
+        } else {
+            evidence_by_test.insert(record.test.clone(), vec![record.id]);
+        }
     }
 
     ArtifactGraph {

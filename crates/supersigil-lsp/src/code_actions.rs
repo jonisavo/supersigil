@@ -30,23 +30,23 @@ use crate::diagnostics::DiagnosticData;
 // Shared utilities
 // ---------------------------------------------------------------------------
 
-/// Search forward from the diagnostic line for a `</Decision>` closing tag.
+/// Search forward from `start_line` for a closing tag `</tag_name>`.
 ///
 /// Returns the insertion position (beginning of the closing-tag line) and the
 /// indentation string to use for inserted content.
-pub(crate) fn find_closing_decision_tag(
+pub(crate) fn find_closing_tag(
     content: &str,
-    diag_range: &lsp_types::Range,
+    start_line: usize,
+    tag_name: &str,
 ) -> Option<(lsp_types::Position, String)> {
-    let start_line = diag_range.start.line as usize;
+    let close_prefix = format!("</{tag_name}>");
 
     for (line_idx, line_text) in content.lines().enumerate().skip(start_line) {
         let trimmed = line_text.trim_start();
-        if trimmed.starts_with("</Decision>") {
+        if trimmed.starts_with(&close_prefix) {
             let indent_len = line_text.len() - trimmed.len();
             let indent: String = line_text[..indent_len].to_string();
 
-            // Insert just before this line — position is at the start of this line.
             #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
             let pos = lsp_types::Position::new(line_idx as u32, 0);
             return Some((pos, indent));

@@ -2,11 +2,11 @@
 
 use std::collections::HashSet;
 
-use lsp_types::{CodeAction, Diagnostic, Position, Range, TextEdit};
+use lsp_types::{CodeAction, Diagnostic, Range, TextEdit};
 
 use crate::code_actions::{ActionRequestContext, CodeActionProvider};
 use crate::diagnostics::{ActionContext, DiagnosticData, DiagnosticSource, GraphDiagnosticKind};
-use crate::position::utf16_col;
+use crate::position::byte_range_to_lsp;
 use crate::supersigil_fence_regions;
 
 // ---------------------------------------------------------------------------
@@ -168,13 +168,11 @@ fn find_frontmatter_id(content: &str, id: &str) -> Option<Range> {
             leading_spaces + 3 + (after_key.len() - value_part.len()) + quote_offset;
 
         #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
-        let line = line_idx as u32;
-        let start_col = utf16_col(line_text, value_offset_in_line);
-        let end_col = utf16_col(line_text, value_offset_in_line + id.len());
-
-        return Some(Range::new(
-            Position::new(line, start_col),
-            Position::new(line, end_col),
+        return Some(byte_range_to_lsp(
+            line_text,
+            line_idx as u32,
+            value_offset_in_line,
+            value_offset_in_line + id.len(),
         ));
     }
     None
@@ -217,13 +215,11 @@ fn search_for_id_needle(
         let value_end = value_start + id.len();
 
         #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
-        let line = offset as u32;
-        let start_col = utf16_col(line_text, value_start);
-        let end_col = utf16_col(line_text, value_end);
-
-        return Some(Range::new(
-            Position::new(line, start_col),
-            Position::new(line, end_col),
+        return Some(byte_range_to_lsp(
+            line_text,
+            offset as u32,
+            value_start,
+            value_end,
         ));
     }
     None

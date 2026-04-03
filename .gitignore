@@ -4,4 +4,8 @@
 .idea
 .junie
 .superpowers
+.worktrees
 website/public/explore/graph.json
+
+.DS_Store
+

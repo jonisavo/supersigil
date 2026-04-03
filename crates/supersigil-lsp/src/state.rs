@@ -295,6 +295,59 @@ impl SupersigilLsp {
         }
     }
 
+    /// Snapshot URIs with graph diagnostics that are not currently open.
+    /// Used to clear stale diagnostics after a graph rebuild.
+    fn snapshot_closed_diagnostic_uris(&self) -> Vec<Url> {
+        self.graph_diagnostics
+            .keys()
+            .filter(|u| !self.open_files.contains_key(*u))
+            .cloned()
+            .collect()
+    }
+
+    /// Clear diagnostics for previously-closed URIs that no longer have issues
+    /// after a graph rebuild.
+    fn clear_stale_closed_diagnostics(&self, prev_closed_uris: &[Url]) {
+        for uri in prev_closed_uris {
+            if !self.graph_diagnostics.contains_key(uri) {
+                self.publish_merged_diagnostics(uri);
+            }
+        }
+    }
+
+    /// Rebuild the document graph from `docs` and update diagnostics.
+    ///
+    /// On success: replaces the graph, clears graph diagnostics, and runs
+    /// the verify pipeline. On failure: logs the error and publishes graph
+    /// error diagnostics while retaining the last-good graph.
+    fn rebuild_graph(&mut self, docs: Vec<SpecDocument>, config: &Config) {
+        match build_graph(docs, config) {
+            Ok(graph) => {
+                self.graph = Arc::new(graph);
+                self.graph_diagnostics.clear();
+                let tier = self.diagnostics_tier;
+                self.run_verify_and_publish(tier);
+            }
+            Err(errors) => {
+                tracing::warn!(error_count = errors.len(), "graph rebuild failed");
+                self.graph_diagnostics.clear();
+                let id_to_path = self.build_id_to_path();
+                let pairs: Vec<(Url, Diagnostic)> = errors
+                    .iter()
+                    .flat_map(|e| {
+                        graph_error_to_diagnostic_with_lookup(e, |doc_id| {
+                            id_to_path.get(doc_id).cloned()
+                        })
+                    })
+                    .collect();
+                let grouped = group_by_url(pairs);
+                for (uri, diags) in grouped {
+                    self.graph_diagnostics.insert(uri, diags);
+                }
+            }
+        }
+    }
+
     fn run_verify_and_publish(&mut self, tier: DiagnosticsTier) {
         if tier < DiagnosticsTier::Verify {
             return;
@@ -312,12 +365,11 @@ impl SupersigilLsp {
         // ecosystem plugins (e.g. Rust #[verifies] macros), matching the
         // CLI's full evidence pipeline.
         let inputs = VerifyInputs::resolve(config, &project_root);
-        let (artifact_graph, plugin_findings) =
+        let (mut artifact_graph, plugin_findings) =
             supersigil_verify::build_evidence(config, &self.graph, &project_root, None, &inputs);
         for f in &plugin_findings {
             tracing::warn!("{}", f.message);
         }
-        self.evidence_by_target = Some(Arc::new(artifact_graph.evidence_by_target.clone()));
 
         match verify(
             &self.graph,
@@ -384,6 +436,12 @@ impl SupersigilLsp {
                 tracing::warn!(error = %err, "verify pipeline failed");
             }
         }
+
+        // Extract the evidence index after verify is done borrowing the
+        // artifact graph, avoiding a full HashMap clone.
+        self.evidence_by_target = Some(Arc::new(std::mem::take(
+            &mut artifact_graph.evidence_by_target,
+        )));
     }
 
     fn handle_document_list(
@@ -789,57 +847,13 @@ impl LanguageServer for SupersigilLsp {
         &mut self,
         _params: DidSaveTextDocumentParams,
     ) -> ControlFlow<async_lsp::Result<()>> {
-        if let Some(config) = &self.config {
-            let prev_closed_uris: Vec<Url> = self
-                .graph_diagnostics
-                .keys()
-                .filter(|u| !self.open_files.contains_key(*u))
-                .cloned()
-                .collect();
-
+        if let Some(config) = self.config.clone() {
+            let prev_closed_uris = self.snapshot_closed_diagnostic_uris();
             let docs: Vec<SpecDocument> = self.file_parses.values().cloned().collect();
-
-            match build_graph(docs, config) {
-                Ok(graph) => {
-                    self.graph = Arc::new(graph);
-                    self.graph_diagnostics.clear();
-
-                    let tier = self.diagnostics_tier;
-                    self.run_verify_and_publish(tier);
-                }
-                Err(errors) => {
-                    tracing::warn!(
-                        error_count = errors.len(),
-                        "graph rebuild failed, retaining last-good graph"
-                    );
-                    self.graph_diagnostics.clear();
-
-                    let id_to_path = self.build_id_to_path();
-                    let pairs: Vec<(lsp_types::Url, Diagnostic)> = errors
-                        .iter()
-                        .flat_map(|e| {
-                            graph_error_to_diagnostic_with_lookup(e, |doc_id| {
-                                id_to_path.get(doc_id).cloned()
-                            })
-                        })
-                        .collect();
-                    let grouped = group_by_url(pairs);
-
-                    for (uri, diags) in grouped {
-                        self.graph_diagnostics.insert(uri.clone(), diags);
-                    }
-                }
-            }
-
+            self.rebuild_graph(docs, &config);
             self.republish_all_diagnostics();
             self.notify_documents_changed();
-
-            // Clear stale diagnostics for closed files that no longer have issues.
-            for uri in &prev_closed_uris {
-                if !self.graph_diagnostics.contains_key(uri) {
-                    self.publish_merged_diagnostics(uri);
-                }
-            }
+            self.clear_stale_closed_diagnostics(&prev_closed_uris);
         }
 
         ControlFlow::Continue(())
@@ -916,10 +930,10 @@ impl LanguageServer for SupersigilLsp {
             self.config = Some(new_config);
         }
 
-        let config = self.config.as_ref().unwrap();
+        let config = self.config.clone().unwrap();
 
         // Re-discover and re-parse all files, then rebuild the graph.
-        let files = discover_files(config, project_root);
+        let files = discover_files(&config, project_root);
         let (parses, _errors) = parse_all_files(&files, &self.component_defs);
         let parses: HashMap<PathBuf, SpecDocument> = parses
             .into_iter()
@@ -969,34 +983,7 @@ impl LanguageServer for SupersigilLsp {
         }
 
         let docs: Vec<SpecDocument> = merged.values().cloned().collect();
-        match build_graph(docs, config) {
-            Ok(graph) => {
-                self.graph = Arc::new(graph);
-                self.graph_diagnostics.clear();
-                let tier = self.diagnostics_tier;
-                self.run_verify_and_publish(tier);
-            }
-            Err(errors) => {
-                tracing::warn!(
-                    error_count = errors.len(),
-                    "graph rebuild failed after file watch event"
-                );
-                self.graph_diagnostics.clear();
-                let id_to_path = self.build_id_to_path();
-                let pairs: Vec<(Url, Diagnostic)> = errors
-                    .iter()
-                    .flat_map(|e| {
-                        graph_error_to_diagnostic_with_lookup(e, |doc_id| {
-                            id_to_path.get(doc_id).cloned()
-                        })
-                    })
-                    .collect();
-                let grouped = group_by_url(pairs);
-                for (uri, diags) in grouped {
-                    self.graph_diagnostics.insert(uri, diags);
-                }
-            }
-        }
+        self.rebuild_graph(docs, &config);
 
         self.file_parses = merged;
         self.partial_file_parses = partial_parses;
@@ -1085,23 +1072,12 @@ impl LanguageServer for SupersigilLsp {
             let tier =
                 commands::parse_verify_tier(&params.arguments).unwrap_or(self.diagnostics_tier);
 
-            let prev_closed_uris: Vec<Url> = self
-                .graph_diagnostics
-                .keys()
-                .filter(|u| !self.open_files.contains_key(*u))
-                .cloned()
-                .collect();
-
+            let prev_closed_uris = self.snapshot_closed_diagnostic_uris();
             self.graph_diagnostics.clear();
             self.run_verify_and_publish(tier);
             self.republish_all_diagnostics();
             self.notify_documents_changed();
-
-            for uri in &prev_closed_uris {
-                if !self.graph_diagnostics.contains_key(uri) {
-                    self.publish_merged_diagnostics(uri);
-                }
-            }
+            self.clear_stale_closed_diagnostics(&prev_closed_uris);
             return Box::pin(async { Ok(None) });
         }
 
