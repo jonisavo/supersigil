@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/design
   type: design
-  status: draft
+  status: approved
 title: "Visual Graph Explorer"
 ---
 

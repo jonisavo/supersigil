@@ -1,0 +1,585 @@
+/* ---------------------------------------------------------------------------
+ * Supersigil Preview - CSS Custom Properties & Component Styles
+ *
+ * All theme-sensitive values use CSS custom properties so hosts (VS Code,
+ * IntelliJ, Starlight) can override them.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  --supersigil-verified: #22c55e;
+  --supersigil-unverified: #94a3b8;
+  --supersigil-partial: #f59e0b;
+  --supersigil-failing: #ef4444;
+  --supersigil-bg: transparent;
+  --supersigil-border: #e2e8f0;
+  --supersigil-text: inherit;
+  --supersigil-text-muted: #64748b;
+  --supersigil-font-mono: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+ * Block container
+ * --------------------------------------------------------------------------- */
+
+.supersigil-block {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--supersigil-border);
+  border-radius: 6px;
+  background: var(--supersigil-bg);
+  color: var(--supersigil-text);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.supersigil-block > * + * {
+  margin-top: 0.5rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Inline code
+ * --------------------------------------------------------------------------- */
+
+.supersigil-inline-code {
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.85em;
+}
+
+/* ---------------------------------------------------------------------------
+ * Badge
+ * --------------------------------------------------------------------------- */
+
+.supersigil-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #fff;
+  cursor: default;
+}
+
+.supersigil-badge--verified {
+  background: var(--supersigil-verified);
+}
+
+.supersigil-badge--unverified {
+  background: var(--supersigil-unverified);
+}
+
+.supersigil-badge--partial {
+  background: var(--supersigil-partial);
+  color: #000;
+}
+
+.supersigil-badge--failing {
+  background: var(--supersigil-failing);
+}
+
+/* ---------------------------------------------------------------------------
+ * Criterion
+ * --------------------------------------------------------------------------- */
+
+.supersigil-criterion {
+  padding: 0.5rem;
+  border-left: 3px solid var(--supersigil-border);
+}
+
+.supersigil-criterion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.supersigil-criterion-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-criterion-body {
+  margin: 0.25rem 0 0;
+  color: var(--supersigil-text);
+}
+
+/* ---------------------------------------------------------------------------
+ * Evidence
+ * --------------------------------------------------------------------------- */
+
+.supersigil-evidence {
+  margin-top: 0.375rem;
+}
+
+.supersigil-evidence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--supersigil-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.supersigil-evidence-toggle:hover {
+  color: var(--supersigil-text);
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.supersigil-evidence-toggle::before {
+  content: "\25b6"; /* right-pointing triangle */
+  font-size: 0.625rem;
+  transition: transform 0.15s ease;
+}
+
+.supersigil-evidence-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.supersigil-evidence-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.supersigil-evidence-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  padding: 0.1875rem 0;
+  font-size: 0.75rem;
+}
+
+.supersigil-evidence-link {
+  color: var(--supersigil-text);
+  text-decoration: none;
+}
+
+.supersigil-evidence-link:hover {
+  text-decoration: underline;
+}
+
+.supersigil-evidence-link code {
+  font-family: var(--supersigil-font-mono);
+}
+
+.supersigil-evidence-meta {
+  display: flex;
+  gap: 0.375rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-test-kind,
+.supersigil-evidence-kind {
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--supersigil-bg);
+  border: 1px solid var(--supersigil-border);
+  font-size: 0.6875rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Decision
+ * --------------------------------------------------------------------------- */
+
+.supersigil-decision {
+  padding: 0.5rem;
+  border-left: 3px solid var(--supersigil-border);
+}
+
+.supersigil-decision-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.supersigil-decision-label {
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.supersigil-decision-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-decision-body {
+  margin: 0.25rem 0;
+  color: var(--supersigil-text);
+}
+
+.supersigil-rationale {
+  margin-top: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--supersigil-bg);
+  border: 1px solid var(--supersigil-border);
+  border-radius: 4px;
+}
+
+.supersigil-rationale-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--supersigil-text-muted);
+  margin-bottom: 0.125rem;
+}
+
+.supersigil-rationale p {
+  margin: 0;
+}
+
+.supersigil-alternative {
+  margin-top: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--supersigil-border);
+  border-radius: 4px;
+}
+
+.supersigil-alternative-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.supersigil-alternative-label {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-alternative-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-alternative-status {
+  font-size: 0.6875rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  border: 1px solid var(--supersigil-border);
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-alternative p {
+  margin: 0.125rem 0 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Example
+ * --------------------------------------------------------------------------- */
+
+.supersigil-example {
+  padding: 0.5rem;
+  border-left: 3px solid var(--supersigil-border);
+}
+
+.supersigil-example-header {
+  margin-bottom: 0.25rem;
+}
+
+.supersigil-example-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-example-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.supersigil-label {
+  font-weight: 600;
+  color: var(--supersigil-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * AcceptanceCriteria wrapper
+ * --------------------------------------------------------------------------- */
+
+.supersigil-acceptance-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Link pills
+ * --------------------------------------------------------------------------- */
+
+.supersigil-link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.supersigil-link-pill-label {
+  padding: 0.0625rem 0.375rem;
+  border-radius: 4px 0 0 4px;
+  background: var(--supersigil-border);
+  color: var(--supersigil-text-muted);
+  font-weight: 600;
+}
+
+.supersigil-link-pill-ref {
+  padding: 0.0625rem 0.375rem;
+  border-radius: 0 4px 4px 0;
+  border: 1px solid var(--supersigil-border);
+  color: var(--supersigil-text);
+  text-decoration: none;
+  font-family: var(--supersigil-font-mono);
+}
+
+.supersigil-link-pill-ref:hover {
+  text-decoration: underline;
+}
+
+.supersigil-link-pill + .supersigil-link-pill {
+  margin-left: 0.25rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Task
+ * --------------------------------------------------------------------------- */
+
+.supersigil-task {
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--supersigil-border);
+  margin: 0.25rem 0;
+}
+
+.supersigil-task-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.supersigil-task-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.supersigil-task-status {
+  display: inline-block;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.supersigil-task-status--done {
+  background: var(--supersigil-verified);
+  color: #fff;
+}
+
+.supersigil-task-status--in-progress {
+  background: var(--supersigil-partial);
+  color: #fff;
+}
+
+.supersigil-task-status--draft,
+.supersigil-task-status--ready {
+  background: var(--supersigil-unverified);
+  color: #fff;
+}
+
+.supersigil-task-body {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.supersigil-task-implements,
+.supersigil-task-depends {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-task-implements-label,
+.supersigil-task-depends-label {
+  font-weight: 600;
+}
+
+.supersigil-task-ref {
+  color: var(--supersigil-text);
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.supersigil-task-ref:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+ * VerifiedBy
+ * --------------------------------------------------------------------------- */
+
+.supersigil-verified-by {
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-verified-by-label {
+  font-weight: 600;
+}
+
+.supersigil-verified-by-strategy {
+  padding: 0.0625rem 0.25rem;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  font-size: 0.75rem;
+}
+
+.supersigil-verified-by-path {
+  color: var(--supersigil-text);
+  text-decoration: none;
+}
+
+.supersigil-verified-by-path:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+ * TrackedFiles
+ * --------------------------------------------------------------------------- */
+
+.supersigil-tracked-files {
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-tracked-files-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.supersigil-tracked-files-summary::-webkit-details-marker {
+  display: none;
+}
+
+.supersigil-tracked-files-summary::before {
+  content: "▸ ";
+}
+
+details[open].supersigil-tracked-files > .supersigil-tracked-files-summary::before {
+  content: "▾ ";
+}
+
+.supersigil-tracked-files-label {
+  font-weight: 600;
+}
+
+.supersigil-tracked-files-count {
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-tracked-files-list {
+  margin: 0.25rem 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.supersigil-tracked-files-list li {
+  padding: 0.0625rem 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Edges section
+ * --------------------------------------------------------------------------- */
+
+.supersigil-edges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border-top: 1px solid var(--supersigil-border);
+}
+
+.supersigil-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--supersigil-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  text-decoration: none;
+  color: var(--supersigil-text);
+}
+
+.supersigil-edge:hover {
+  border-color: var(--supersigil-text-muted);
+}
+
+.supersigil-edge-kind {
+  color: var(--supersigil-text-muted);
+  font-weight: 600;
+}
+
+.supersigil-edge-target {
+  font-family: var(--supersigil-font-mono);
+}
+
+/* ---------------------------------------------------------------------------
+ * Generic component fallback
+ * --------------------------------------------------------------------------- */
+
+.supersigil-component {
+  padding: 0.5rem;
+  border-left: 3px solid var(--supersigil-border);
+}
+
+.supersigil-component-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.supersigil-component-kind {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--supersigil-text-muted);
+}
+
+.supersigil-component-id {
+  font-family: var(--supersigil-font-mono);
+  font-size: 0.8125rem;
+  color: var(--supersigil-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Loading / stale indicators
+ * --------------------------------------------------------------------------- */
+
+.supersigil-loading {
+  padding: 0.5rem;
+  color: var(--supersigil-text-muted);
+  font-style: italic;
+}
+
+.supersigil-stale {
+  opacity: 0.6;
+}

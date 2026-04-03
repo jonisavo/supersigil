@@ -28,7 +28,8 @@ are checked by CI.
   orphans, and coverage gaps surface as warnings and errors.
 
 - **Workflow-agnostic.** Write requirements first, or design first, or
-  start with the criterion you care about.
+  start with the criterion you care about. The tool tells you what's
+  missing — it doesn't prescribe an order.
 
 ## Quick start
 
@@ -37,7 +38,7 @@ are checked by CI.
 supersigil init
 
 # Scaffold a requirements doc
-supersigil new requirements my-feature
+supersigil new requirements my-feature/req/login
 
 # Verify everything
 supersigil verify
@@ -149,5 +150,4 @@ crates/
   supersigil-cli/          # CLI entry point
 editors/
   vscode/                  # VS Code extension
-  intellij/                # IntelliJ plugin
 ```

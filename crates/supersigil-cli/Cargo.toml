@@ -24,6 +24,7 @@ supersigil-evidence.workspace = true
 supersigil-parser.workspace = true
 supersigil-import.workspace = true
 supersigil-rust.workspace = true
+supersigil-lsp.workspace = true
 supersigil-verify.workspace = true
 include_dir.workspace = true
 open.workspace = true

@@ -14,7 +14,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "workspaceContains:**/supersigil.toml"
+    "workspaceContains:**/supersigil.toml",
+    "onUri"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -34,7 +35,18 @@
       {
         "command": "supersigil.init",
         "title": "Supersigil: Initialize Project"
+      },
+      {
+        "command": "supersigil.goToCriterion",
+        "title": "Supersigil: Go to Criterion"
       }
+    ],
+    "markdown.markdownItPlugins": true,
+    "markdown.previewStyles": [
+      "./media/supersigil-preview.css"
+    ],
+    "markdown.previewScripts": [
+      "./media/supersigil-preview.js"
     ],
     "viewsContainers": {
       "activitybar": [

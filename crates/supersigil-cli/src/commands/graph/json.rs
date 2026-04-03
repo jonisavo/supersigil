@@ -23,6 +23,8 @@ pub struct DocumentNode {
     pub doc_type: Option<String>,
     pub status: Option<String>,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     pub components: Vec<Component>,
 }
 
@@ -54,7 +56,7 @@ pub struct Edge {
 pub fn build_graph_json(graph: &DocumentGraph) -> GraphJson {
     let mut documents: Vec<DocumentNode> = graph
         .documents()
-        .map(|(id, doc)| build_document_node(id, doc))
+        .map(|(id, doc)| build_document_node(id, doc, graph))
         .collect();
 
     // Sort for deterministic output.
@@ -79,7 +81,7 @@ pub fn build_graph_json(graph: &DocumentGraph) -> GraphJson {
     GraphJson { documents, edges }
 }
 
-fn build_document_node(id: &str, doc: &SpecDocument) -> DocumentNode {
+fn build_document_node(id: &str, doc: &SpecDocument, graph: &DocumentGraph) -> DocumentNode {
     let title = doc
         .extra
         .get("title")
@@ -87,12 +89,14 @@ fn build_document_node(id: &str, doc: &SpecDocument) -> DocumentNode {
         .map_or_else(|| id.to_owned(), str::to_owned);
 
     let components = doc.components.iter().map(build_component).collect();
+    let project = graph.doc_project(id).map(str::to_owned);
 
     DocumentNode {
         id: id.to_owned(),
         doc_type: doc.frontmatter.doc_type.clone(),
         status: doc.frontmatter.status.clone(),
         title,
+        project,
         components,
     }
 }
@@ -122,11 +126,7 @@ fn build_component(comp: &ExtractedComponent) -> Component {
 }
 
 fn edge_kind_label(kind: EdgeKind) -> String {
-    match kind {
-        EdgeKind::Implements => "Implements".to_owned(),
-        EdgeKind::DependsOn => "DependsOn".to_owned(),
-        EdgeKind::References => "References".to_owned(),
-    }
+    kind.as_str().to_owned()
 }
 
 /// Write the JSON graph to `out`. Returns the edge count.

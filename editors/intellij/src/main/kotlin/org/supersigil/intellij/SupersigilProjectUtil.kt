@@ -8,6 +8,7 @@ import com.intellij.platform.lsp.api.LspServerState
 
 const val COMMAND_VERIFY = "supersigil.verify"
 const val COMMAND_DOCUMENT_LIST = "supersigil.documentList"
+const val COMMAND_DOCUMENT_COMPONENTS = "supersigil.documentComponents"
 
 fun hasSupersigilConfig(project: Project): Boolean {
     val basePath = project.basePath ?: return false

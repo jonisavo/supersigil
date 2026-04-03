@@ -55,12 +55,12 @@ behavior.
   <Criterion id="req-1-2">
     WHEN file content begins with a UTF-8 BOM, THE Parser SHALL strip it before
     front matter detection.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/preprocess_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     THE Parser SHALL normalize every `\r\n` sequence to `\n` while preserving
     bare `\r` characters.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/preprocess_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -76,18 +76,18 @@ from ordinary Markdown files, so that non-spec files can be skipped cleanly.
     WHEN the first line of the preprocessed file is `---`, optionally followed
     by trailing whitespace, THE Parser SHALL treat the following lines up to
     the next delimiter line as Front_Matter.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-2-2">
     IF the opening delimiter has no matching closing delimiter, THEN front
     matter extraction SHALL return `ParseError::UnclosedFrontMatter`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-2-3">
     WHEN the file does not begin with an opening delimiter, THE Parser SHALL
     treat the file as not supersigil content rather than as malformed front
     matter.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -109,22 +109,22 @@ identity survives parsing.
   <Criterion id="req-3-2">
     WHEN the `supersigil:` key is absent, or the front matter is empty, THE
     Parser SHALL return `FrontMatterResult::NotSupersigil`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-3">
     IF the `supersigil:` mapping is present but missing `id`, THEN
     deserialization SHALL return `ParseError::MissingId`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     IF the YAML is malformed, or the `supersigil:` value is not a mapping, THEN
     deserialization SHALL return `ParseError::InvalidYaml`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-5">
     THE Parser SHALL preserve all non-`supersigil:` front-matter keys as
     opaque extra metadata on the parsed document.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/frontmatter_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -263,13 +263,13 @@ parse, so that obvious authoring mistakes are caught before graph building.
   <Criterion id="req-6-2">
     THE Parser SHALL emit `ParseError::MissingRequiredAttribute` when a known
     component is missing an attribute marked `required = true`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/validation_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-6-3">
     THE Parser SHALL perform this validation using the Component_Defs supplied
     by the caller. When the caller uses built-in defaults, validation SHALL be
     limited to the built-in component set.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/validation_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -291,14 +291,14 @@ CLI and graph loader can handle them deterministically.
   <Criterion id="req-7-2">
     WHEN the file has no supersigil front matter, or front matter without the
     `supersigil:` key, THE Parser SHALL return `ParseResult::NotSupersigil`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/parsing_pipeline_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-7-3">
     THE Parser SHALL stop the pipeline after fatal front matter errors and
     after XML syntax errors. Within component extraction, code content
     resolution, and lint-time validation, independent parse errors SHALL be
     accumulated into one `Vec&lt;ParseError&gt;`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/parsing_pipeline_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

@@ -2,12 +2,12 @@
 
 use std::collections::HashMap;
 
-use lsp_types::{CodeAction, Diagnostic, Range, TextEdit};
+use lsp_types::{CodeAction, Diagnostic, Position, Range, TextEdit};
 use supersigil_verify::RuleName;
 
 use crate::code_actions::{ActionRequestContext, CodeActionProvider};
 use crate::diagnostics::{DiagnosticData, DiagnosticSource};
-use crate::position::byte_range_to_lsp;
+use crate::position::utf16_col;
 use crate::{FenceRegion, supersigil_fence_regions};
 
 // ---------------------------------------------------------------------------
@@ -179,12 +179,14 @@ fn find_depends_edits(
                 if any_renamed {
                     let new_value = new_parts.join(", ");
                     #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
+                    let line = line_idx as u32;
+                    let start_col = utf16_col(line_text, value_start);
+                    let end_col = utf16_col(line_text, value_end);
+
                     edits.push(TextEdit {
-                        range: byte_range_to_lsp(
-                            line_text,
-                            line_idx as u32,
-                            value_start,
-                            value_end,
+                        range: Range::new(
+                            Position::new(line, start_col),
+                            Position::new(line, end_col),
                         ),
                         new_text: new_value,
                     });
@@ -224,14 +226,16 @@ fn find_sequential_ids(content: &str, regions: &[FenceRegion]) -> Vec<IdOccurren
 
                 if let Some((prefix, number)) = parse_sequential_id(id_value) {
                     #[allow(clippy::cast_possible_truncation, reason = "line count fits u32")]
+                    let line = line_idx as u32;
+                    let start_col = utf16_col(line_text, value_start);
+                    let end_col = utf16_col(line_text, value_end);
+
                     occurrences.push(IdOccurrence {
                         prefix,
                         number,
-                        range: byte_range_to_lsp(
-                            line_text,
-                            line_idx as u32,
-                            value_start,
-                            value_end,
+                        range: Range::new(
+                            Position::new(line, start_col),
+                            Position::new(line, end_col),
                         ),
                     });
                 }

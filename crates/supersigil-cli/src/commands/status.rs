@@ -10,6 +10,7 @@ use crate::commands::StatusArgs;
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, status_token, write_json};
 use crate::loader;
+use crate::plugins;
 use crate::scope;
 
 #[derive(Debug, Serialize)]
@@ -64,8 +65,8 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
     let project_root = loader::project_root(config_path);
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
     let (artifact_graph, plugin_findings) =
-        supersigil_verify::build_evidence(&config, &graph, project_root, None, &inputs);
-    crate::plugins::warn_plugin_findings(&plugin_findings, color);
+        plugins::build_evidence(&config, &graph, project_root, None, &inputs);
+    plugins::warn_plugin_findings(&plugin_findings, color);
 
     match &args.id {
         None => run_project_wide(None, &args.format, &graph, &artifact_graph, color),

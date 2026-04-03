@@ -1,7 +1,6 @@
 //! Code action provider for misplaced components (Rationale, Alternative, Expected).
 
 use lsp_types::{CodeAction, Diagnostic, Position, Range, TextEdit};
-use supersigil_core::{ALTERNATIVE, DECISION, EXAMPLE, EXPECTED, RATIONALE};
 use supersigil_verify::RuleName;
 
 use crate::code_actions::{ActionRequestContext, CodeActionProvider};
@@ -41,12 +40,14 @@ impl CodeActionProvider for InvalidPlacementProvider {
         };
 
         let (child_name, parent_tag_open, parent_tag_close) = match rule {
-            RuleName::InvalidRationalePlacement => (RATIONALE, "<Decision id=\"\">", "</Decision>"),
+            RuleName::InvalidRationalePlacement => {
+                ("Rationale", "<Decision id=\"\">", "</Decision>")
+            }
             RuleName::InvalidAlternativePlacement => {
-                (ALTERNATIVE, "<Decision id=\"\">", "</Decision>")
+                ("Alternative", "<Decision id=\"\">", "</Decision>")
             }
             RuleName::InvalidExpectedPlacement => {
-                (EXPECTED, "<Example id=\"\" runner=\"\">", "</Example>")
+                ("Expected", "<Example id=\"\" runner=\"\">", "</Example>")
             }
             _ => return vec![],
         };
@@ -58,8 +59,10 @@ impl CodeActionProvider for InvalidPlacementProvider {
         };
 
         let parent_name = match rule {
-            RuleName::InvalidRationalePlacement | RuleName::InvalidAlternativePlacement => DECISION,
-            RuleName::InvalidExpectedPlacement => EXAMPLE,
+            RuleName::InvalidRationalePlacement | RuleName::InvalidAlternativePlacement => {
+                "Decision"
+            }
+            RuleName::InvalidExpectedPlacement => "Example",
             _ => return vec![],
         };
 

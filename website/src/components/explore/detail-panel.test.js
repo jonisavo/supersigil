@@ -6,6 +6,7 @@ import {
   clearDetail,
   renderClusterDetail,
   renderDetail,
+  renderEmpty,
 } from './detail-panel.js';
 
 describe('buildEdgeGroups', () => {
@@ -103,7 +104,7 @@ describe('renderDetail', () => {
       title: 'Parser Requirements',
       components: [],
     };
-    renderDetail(container, node, []);
+    renderDetail(container, node, [], [], '');
     expect(container.innerHTML).toContain('parser/parser.req');
   });
 
@@ -116,7 +117,7 @@ describe('renderDetail', () => {
       title: 'A',
       components: [],
     };
-    renderDetail(container, node, []);
+    renderDetail(container, node, [], [], '');
     expect(container.innerHTML).toContain('detail-panel-trace-btn');
     expect(container.innerHTML).toContain('data-doc-id="doc/a"');
     expect(container.innerHTML).toContain('Trace impact');
@@ -131,7 +132,7 @@ describe('renderDetail', () => {
       title: 'A',
       components: [],
     };
-    renderDetail(container, node, []);
+    renderDetail(container, node, [], [], '');
     expect(container.innerHTML).toContain('badge-type-design');
     expect(container.innerHTML).toContain('badge-status-draft');
   });
@@ -146,7 +147,7 @@ describe('renderDetail', () => {
       components: [],
     };
     const edges = [{ from: 'doc/a', to: 'doc/b', kind: 'Implements' }];
-    renderDetail(container, node, edges);
+    renderDetail(container, node, edges, [], '');
     expect(container.innerHTML).toContain('\u2190');
     expect(container.innerHTML).toContain('doc/a');
     expect(container.innerHTML).toContain('Implements');
@@ -162,13 +163,13 @@ describe('renderDetail', () => {
       components: [],
     };
     const edges = [{ from: 'doc/b', to: 'doc/c', kind: 'DependsOn' }];
-    renderDetail(container, node, edges);
+    renderDetail(container, node, edges, [], '');
     expect(container.innerHTML).toContain('\u2192');
     expect(container.innerHTML).toContain('doc/c');
     expect(container.innerHTML).toContain('DependsOn');
   });
 
-  it('renders component list with kind labels', () => {
+  it('renders coverage when render data is provided', () => {
     const container = makeContainer();
     const node = {
       id: 'doc/a',
@@ -180,11 +181,42 @@ describe('renderDetail', () => {
         { id: 'task-1', kind: 'Task', body: 'Implement' },
       ],
     };
-    renderDetail(container, node, []);
-    expect(container.innerHTML).toContain('Criterion');
-    expect(container.innerHTML).toContain('Task');
-    expect(container.innerHTML).toContain('req-1');
-    expect(container.innerHTML).toContain('task-1');
+    const renderData = [
+      {
+        document_id: 'doc/a',
+        fences: [
+          {
+            components: [
+              { kind: 'Criterion', verification: { state: 'verified' } },
+              { kind: 'Criterion', verification: { state: 'unverified' } },
+            ],
+          },
+        ],
+        edges: [],
+      },
+    ];
+    renderDetail(container, node, [], renderData, '');
+    expect(container.innerHTML).toContain('1/2 criteria verified');
+    expect(container.innerHTML).toContain('50%');
+  });
+
+  it('renders without coverage when no render data matches', () => {
+    const container = makeContainer();
+    const node = {
+      id: 'doc/a',
+      doc_type: 'requirements',
+      status: 'approved',
+      title: 'A',
+      components: [],
+    };
+    renderDetail(container, node, [], [], '');
+    expect(container.innerHTML).not.toContain('criteria verified');
+  });
+
+  it('renders empty state with instructions', () => {
+    const container = makeContainer();
+    renderEmpty(container);
+    expect(container.innerHTML).toContain('Select a document');
   });
 
   it('adds open class to container', () => {
@@ -196,7 +228,7 @@ describe('renderDetail', () => {
       title: 'A',
       components: [],
     };
-    renderDetail(container, node, []);
+    renderDetail(container, node, [], [], '');
     expect(container.classList.contains('open')).toBe(true);
   });
 });

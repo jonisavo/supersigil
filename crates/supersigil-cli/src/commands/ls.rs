@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::commands::LsArgs;
 use crate::error::CliError;
 use crate::format::{
-    COL_GAP, ColorConfig, OutputFormat, Token, column_width, status_token, write_cell, write_json,
+    COL_GAP, ColorConfig, OutputFormat, Token, status_token, write_cell, write_json,
 };
 use crate::loader;
 
@@ -97,22 +97,50 @@ fn write_table(
 
     // Column widths (padded columns; last column is unpadded)
     let w = [
-        column_width(entries, HEADERS[0], |e| e.id.len()),
-        column_width(entries, HEADERS[1], |e| {
-            e.doc_type.as_deref().unwrap_or("-").len()
-        }),
-        column_width(entries, HEADERS[2], |e| {
-            e.status.as_deref().unwrap_or("-").len()
-        }),
-        column_width(&rel_paths, HEADERS[3], String::len),
+        entries
+            .iter()
+            .map(|e| e.id.len())
+            .max()
+            .unwrap_or(0)
+            .max(HEADERS[0].len()),
+        entries
+            .iter()
+            .map(|e| e.doc_type.as_deref().unwrap_or("-").len())
+            .max()
+            .unwrap_or(0)
+            .max(HEADERS[1].len()),
+        entries
+            .iter()
+            .map(|e| e.status.as_deref().unwrap_or("-").len())
+            .max()
+            .unwrap_or(0)
+            .max(HEADERS[2].len()),
+        rel_paths
+            .iter()
+            .map(String::len)
+            .max()
+            .unwrap_or(0)
+            .max(HEADERS[3].len()),
     ];
 
     // Header
-    write_cell(out, color, Token::Header, HEADERS[0], w[0])?;
+    write!(
+        out,
+        "{}",
+        color.paint(Token::Header, &format!("{:<w0$}", HEADERS[0], w0 = w[0]))
+    )?;
     write!(out, "{COL_GAP}")?;
-    write_cell(out, color, Token::Header, HEADERS[1], w[1])?;
+    write!(
+        out,
+        "{}",
+        color.paint(Token::Header, &format!("{:<w1$}", HEADERS[1], w1 = w[1]))
+    )?;
     write!(out, "{COL_GAP}")?;
-    write_cell(out, color, Token::Header, HEADERS[2], w[2])?;
+    write!(
+        out,
+        "{}",
+        color.paint(Token::Header, &format!("{:<w2$}", HEADERS[2], w2 = w[2]))
+    )?;
     write!(out, "{COL_GAP}")?;
     writeln!(out, "{}", color.paint(Token::Header, HEADERS[3]))?;
 

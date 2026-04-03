@@ -1,0 +1,5 @@
+# Copied from packages/preview/dist/ at build time
+render.js
+render-iife.js
+supersigil-preview.css
+supersigil-preview.js

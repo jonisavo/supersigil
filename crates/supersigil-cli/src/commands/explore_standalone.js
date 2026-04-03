@@ -483,7 +483,32 @@ var SupersigilExplorer = (() => {
     const statusValue = value ?? "draft";
     return `badge badge-status-${statusValue}`;
   }
-  function renderDetail(container, node, edges) {
+  function countCriteria(fences) {
+    let total = 0;
+    let verified = 0;
+    function visit(components) {
+      for (const comp of components) {
+        if (comp.kind === "Criterion") {
+          total++;
+          const state = comp.verification?.state ?? "unverified";
+          if (state === "verified") verified++;
+        }
+        if (comp.children) visit(comp.children);
+      }
+    }
+    for (const fence of fences) {
+      if (fence.components) visit(fence.components);
+    }
+    return { total, verified };
+  }
+  function createExplorerLinkResolver(repositoryUrl) {
+    return {
+      evidenceLink: (file, line) => `${repositoryUrl}/blob/main/${file}#L${line}`,
+      documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
+      criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`
+    };
+  }
+  function renderDetail(container, node, edges, renderData, repositoryUrl) {
     cancelPendingClear(container);
     const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
     let edgesHtml = "";
@@ -497,21 +522,36 @@ var SupersigilExplorer = (() => {
       }
       edgesHtml = `<div class="detail-section"><div class="detail-section-label">Edges</div><ul class="edge-list">${edgeItems.join("")}</ul></div>`;
     }
-    let componentsHtml = "";
-    if (node.components.length > 0) {
-      const compItems = node.components.filter((c) => c.id).map(
-        (c) => `<li class="component-item"><span class="component-item-kind" style="border-color: ${componentColor(c.kind)}; color: ${componentColor(c.kind)}">${escHtml(c.kind)}</span><span class="component-item-id">${escHtml(c.id)}</span></li>`
-      );
-      if (compItems.length > 0) {
-        componentsHtml = `<div class="detail-section"><div class="detail-section-label">Components</div><ul class="component-list">${compItems.join("")}</ul></div>`;
-      }
-    }
     const typeClass = buildBadgeClass("type", node.doc_type);
     const statusClass = buildBadgeClass("status", node.status);
     const typeLabel = node.doc_type ?? "unknown";
     const statusLabel = node.status ?? "draft";
+    const renderDoc = renderData?.find((d) => d.document_id === node.id);
+    let coverageHtml = "";
+    if (renderDoc) {
+      const { total, verified } = countCriteria(renderDoc.fences);
+      if (total > 0) {
+        const pct = Math.round(verified / total * 100);
+        coverageHtml = `<div class="detail-section"><div class="detail-coverage"><span class="detail-coverage-bar"><span class="detail-coverage-bar-fill" style="width: ${pct}%"></span></span><span class="detail-coverage-text">${verified}/${total} criteria verified (${pct}%)</span></div></div>`;
+      }
+    }
     const traceBtn = `<div class="detail-section"><button class="detail-panel-trace-btn" data-doc-id="${escHtml(node.id)}">Trace impact</button></div>`;
-    container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div><button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${traceBtn}${edgesHtml}${componentsHtml}</div>`;
+    let specContentHtml = "";
+    if (renderDoc && typeof window !== "undefined" && window.__supersigilRender) {
+      const linkResolver = createExplorerLinkResolver(repositoryUrl);
+      try {
+        specContentHtml = window.__supersigilRender.renderComponentTree(
+          renderDoc.fences,
+          renderDoc.edges,
+          linkResolver
+        );
+      } catch (err) {
+        console.error("Failed to render spec content:", err);
+        specContentHtml = '<p class="detail-spec-empty">Failed to render spec content.</p>';
+      }
+    }
+    const specSection = specContentHtml ? `<div class="detail-spec-content">${specContentHtml}</div>` : "";
+    container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div><button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${coverageHtml}${traceBtn}${edgesHtml}${specSection}</div>`;
     container.classList.add("open");
   }
   function buildClusterEdgeGroups(edges, clusterDocIds) {
@@ -609,19 +649,97 @@ var SupersigilExplorer = (() => {
   function clearDetail(container) {
     cancelPendingClear(container);
     container.classList.remove("open");
-    function onEnd(_event) {
-      container.removeEventListener("transitionend", onEnd);
-      container._clearHandler = null;
-      container.innerHTML = "";
+    container.innerHTML = "";
+  }
+  function renderEmpty(container, graphData, renderData) {
+    if (!graphData || !graphData.documents || graphData.documents.length === 0) {
+      container.innerHTML = `<div class="detail-spec-empty"><div>Select a document in the graph<br/>to view its specification</div><div class="detail-spec-empty-hint">Click a node or use / to search</div></div>`;
+      return;
     }
-    container._clearHandler = onEnd;
-    container.addEventListener("transitionend", onEnd);
-    container._clearTimer = setTimeout(() => {
-      container.removeEventListener("transitionend", onEnd);
-      container._clearHandler = null;
-      container._clearTimer = null;
-      container.innerHTML = "";
-    }, 350);
+    const coverageMap = /* @__PURE__ */ new Map();
+    if (renderData) {
+      for (const doc of renderData) {
+        const cov = countCriteria(doc.fences || []);
+        if (cov.total > 0) {
+          coverageMap.set(doc.document_id, cov);
+        }
+      }
+    }
+    const isMultiProject = graphData.documents.some((d) => d.project);
+    const typeOrder = { requirements: 0, design: 1, tasks: 2, adr: 3, documentation: 4 };
+    function docPrefix(id) {
+      const slashIdx = id.indexOf("/");
+      return slashIdx > 0 ? id.substring(0, slashIdx) : id;
+    }
+    function docSuffix(id) {
+      const slashIdx = id.indexOf("/");
+      return slashIdx > 0 ? id.substring(slashIdx + 1) : id;
+    }
+    const tree = /* @__PURE__ */ new Map();
+    for (const doc of graphData.documents) {
+      const project = isMultiProject ? doc.project || "(ungrouped)" : "(all)";
+      const prefix = docPrefix(doc.id);
+      if (!tree.has(project)) tree.set(project, /* @__PURE__ */ new Map());
+      const prefixMap = tree.get(project);
+      if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
+      prefixMap.get(prefix).push(doc);
+    }
+    const sortedProjects = [...tree.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    let globalTotal = 0;
+    let globalVerified = 0;
+    for (const { total, verified } of coverageMap.values()) {
+      globalTotal += total;
+      globalVerified += verified;
+    }
+    const globalPct = globalTotal > 0 ? Math.round(globalVerified / globalTotal * 100) : 0;
+    let html = `<div class="detail-panel-header"><div class="detail-panel-title">Spec Index</div></div>`;
+    html += `<div class="detail-panel-body">`;
+    if (globalTotal > 0) {
+      html += `<div class="detail-index-coverage">${globalVerified}/${globalTotal} criteria verified (${globalPct}%)<div class="detail-coverage-bar"><div class="detail-coverage-fill" style="width:${globalPct}%"></div></div></div>`;
+    }
+    html += `<div class="detail-index-hint">Click a document to view its specification</div>`;
+    function renderDocList(docs) {
+      let out = "";
+      docs.sort((a, b) => {
+        const ta = typeOrder[a.doc_type] ?? 5;
+        const tb = typeOrder[b.doc_type] ?? 5;
+        return ta !== tb ? ta - tb : a.id.localeCompare(b.id);
+      });
+      for (const doc of docs) {
+        const cov = coverageMap.get(doc.id);
+        const covLabel = cov ? ` ${cov.verified}/${cov.total}` : "";
+        const typeLabel = doc.doc_type || "";
+        const statusLabel = doc.status || "";
+        out += `<a href="#/doc/${encodeURIComponent(doc.id)}" class="detail-index-doc">`;
+        out += `<span class="detail-index-doc-id">${escHtml(docSuffix(doc.id))}</span>`;
+        out += `<span class="detail-index-doc-meta">`;
+        if (typeLabel) out += `<span class="detail-badge detail-badge-type-${escHtml(typeLabel)}">${escHtml(typeLabel)}</span>`;
+        if (statusLabel) out += `<span class="detail-badge detail-badge-status">${escHtml(statusLabel)}</span>`;
+        if (covLabel) out += `<span class="detail-index-doc-cov">${covLabel}</span>`;
+        out += `</span>`;
+        out += `</a>`;
+      }
+      return out;
+    }
+    for (const [project, prefixMap] of sortedProjects) {
+      const sortedPrefixes = [...prefixMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      const totalDocs = [...prefixMap.values()].reduce((n, d) => n + d.length, 0);
+      if (isMultiProject) {
+        html += `<details class="detail-index-project" open>`;
+        html += `<summary class="detail-index-project-title">${escHtml(project)} <span class="detail-index-group-count">${totalDocs}</span></summary>`;
+      }
+      for (const [prefix, docs] of sortedPrefixes) {
+        html += `<details class="detail-index-group" open>`;
+        html += `<summary class="detail-index-group-title">${escHtml(prefix)} <span class="detail-index-group-count">${docs.length}</span></summary>`;
+        html += renderDocList(docs);
+        html += `</details>`;
+      }
+      if (isMultiProject) {
+        html += `</details>`;
+      }
+    }
+    html += `</div>`;
+    container.innerHTML = html;
   }
 
   // src/components/explore/impact-trace.js
@@ -794,6 +912,8 @@ var SupersigilExplorer = (() => {
   }
   function computeClusters(documents) {
     const groups = /* @__PURE__ */ new Map();
+    const prefixProjects = /* @__PURE__ */ new Map();
+    const isMultiProject = documents.some((d) => d.project);
     for (const doc of documents) {
       const slashIdx = doc.id.lastIndexOf("/");
       const prefix = slashIdx === -1 ? doc.id : doc.id.slice(0, slashIdx);
@@ -803,10 +923,15 @@ var SupersigilExplorer = (() => {
       } else {
         groups.set(prefix, [doc.id]);
       }
+      if (isMultiProject && doc.project) {
+        prefixProjects.set(prefix, doc.project);
+      }
     }
     const clusters = [];
-    for (const [name, docIds] of groups) {
-      clusters.push({ name, docIds });
+    for (const [prefix, docIds] of groups) {
+      const project = prefixProjects.get(prefix);
+      const name = isMultiProject && project ? `${project} / ${prefix}` : prefix;
+      clusters.push({ name, docIds, project: project || null });
     }
     return clusters;
   }
@@ -900,9 +1025,10 @@ var SupersigilExplorer = (() => {
     const slashIdx = id.lastIndexOf("/");
     return slashIdx === -1 ? id : id.slice(slashIdx + 1);
   }
-  function mount(container, data) {
+  function mount(container, data, renderData) {
     const { documents, edges } = data;
     if (!container || typeof container.getBoundingClientRect !== "function") return;
+    const repositoryUrl = "https://github.com/supersigil/supersigil";
     function edgeEndpointId(endpoint) {
       return typeof endpoint === "string" ? endpoint : endpoint.id;
     }
@@ -1151,9 +1277,56 @@ var SupersigilExplorer = (() => {
     });
     container.classList.add("explorer");
     container.prepend(explorerBar);
+    const splitContainer = document.createElement("div");
+    splitContainer.className = "explorer-split";
+    container.appendChild(splitContainer);
+    const graphPane = document.createElement("div");
+    graphPane.className = "explorer-split-graph";
+    splitContainer.appendChild(graphPane);
+    const divider = document.createElement("div");
+    divider.className = "explorer-split-divider";
+    splitContainer.appendChild(divider);
+    const specPane = document.createElement("div");
+    specPane.className = "explorer-split-panel";
+    splitContainer.appendChild(specPane);
+    const SPLIT_KEY = "supersigil-explorer-split";
+    const savedSplit = localStorage.getItem(SPLIT_KEY);
+    if (savedSplit) {
+      const pct = Number.parseFloat(savedSplit);
+      if (pct > 10 && pct < 90) {
+        graphPane.style.flex = `0 0 ${pct}%`;
+        specPane.style.width = `${100 - pct}%`;
+      }
+    }
+    let isDragging = false;
+    divider.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      isDragging = true;
+      divider.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    document.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const splitRect = splitContainer.getBoundingClientRect();
+      const x = e.clientX - splitRect.left;
+      const totalWidth = splitRect.width;
+      const pct = x / totalWidth * 100;
+      const clamped = Math.max(20, Math.min(80, pct));
+      graphPane.style.flex = `0 0 ${clamped}%`;
+      specPane.style.width = `${100 - clamped}%`;
+      localStorage.setItem(SPLIT_KEY, String(clamped));
+    });
+    document.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+      divider.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    });
     const canvasDiv = document.createElement("div");
     canvasDiv.className = "explorer-canvas";
-    container.appendChild(canvasDiv);
+    graphPane.appendChild(canvasDiv);
     const rect = canvasDiv.getBoundingClientRect();
     const screenWidth = rect.width || 800;
     const screenHeight = rect.height || 600;
@@ -1167,6 +1340,7 @@ var SupersigilExplorer = (() => {
         docClusterMap.set(docId, cluster.name);
       }
     }
+    const isMultiProject = documents.some((d) => d.project);
     const nodes = documents.map((doc) => ({
       ...doc,
       radius: nodeRadius(doc),
@@ -1203,8 +1377,29 @@ var SupersigilExplorer = (() => {
     let nodeGroups = nodesGroup.selectAll("g.node").data(nodes).join("g").attr("class", "node").style("cursor", "grab");
     nodeGroups.append("circle").attr("r", (d) => d.radius).attr("fill", "var(--bg-card)").attr("stroke", (d) => nodeStrokeColor(d)).attr("stroke-width", 2);
     nodeGroups.append("text").attr("fill", "var(--text)").attr("font-size", 11).attr("font-family", "var(--font-body)").attr("text-anchor", "middle").attr("dy", (d) => d.radius + 14).text((d) => shortLabel(d.id));
-    const clusterRects = clustersGroup.selectAll("rect.cluster").data(clusters).join("rect").attr("class", "cluster").attr("fill", "none").attr("stroke", "var(--gold-dim)").attr("stroke-width", 1.5).attr("stroke-dasharray", "6 4").attr("rx", 8).attr("ry", 8);
-    const clusterLabels = clustersGroup.selectAll("text.cluster-label").data(clusters).join("text").attr("class", "cluster-label").attr("fill", "var(--text-muted)").attr("font-size", 10).attr("font-family", "var(--font-mono)").text((d) => d.name);
+    const projectColors = {};
+    const palette = [
+      "var(--gold-dim)",
+      "var(--teal)",
+      "#8b5cf6",
+      "#f59e0b",
+      "#ec4899",
+      "#06b6d4",
+      "#84cc16",
+      "#f97316"
+    ];
+    let colorIdx = 0;
+    for (const c of clusters) {
+      if (c.project && !projectColors[c.project]) {
+        projectColors[c.project] = palette[colorIdx % palette.length];
+        colorIdx++;
+      }
+    }
+    function clusterColor(d) {
+      return d.project ? projectColors[d.project] || "var(--gold-dim)" : "var(--gold-dim)";
+    }
+    const clusterRects = clustersGroup.selectAll("rect.cluster").data(clusters).join("rect").attr("class", "cluster").attr("fill", "none").attr("stroke", clusterColor).attr("stroke-width", 1.5).attr("stroke-dasharray", "6 4").attr("rx", 8).attr("ry", 8);
+    const clusterLabels = clustersGroup.selectAll("text.cluster-label").data(clusters).join("text").attr("class", "cluster-label").attr("fill", clusterColor).attr("font-size", 10).attr("font-family", "var(--font-mono)").text((d) => d.name);
     function applyFilters() {
       const visibleSet = filterDocuments(documents, filterState);
       nodesGroup.selectAll("g.node").attr("opacity", (d) => {
@@ -1490,7 +1685,8 @@ var SupersigilExplorer = (() => {
     nodeGroups.on("dblclick", handleDblClick);
     const detailPanel = document.createElement("div");
     detailPanel.className = "detail-panel";
-    container.appendChild(detailPanel);
+    specPane.appendChild(detailPanel);
+    renderEmpty(detailPanel, data, renderData);
     let selectedNodeId = null;
     let selectedClusterName = null;
     function showEdgeLabelsFor(nodeId) {
@@ -1517,6 +1713,7 @@ var SupersigilExplorer = (() => {
         d32.select(this).style("opacity", null).style("stroke-width", null);
       });
       clearDetail(detailPanel);
+      renderEmpty(detailPanel, data, renderData);
       selectedClusterName = null;
     }
     function clearSelection() {
@@ -1530,16 +1727,15 @@ var SupersigilExplorer = (() => {
         nodesGroup.selectAll("g.node").classed("node-selected", false);
         showEdgeLabelsFor(null);
         clearDetail(detailPanel);
+        renderEmpty(detailPanel, data, renderData);
         selectedNodeId = null;
         syncHashToUrl();
       }
     }
     function panToPoint(x, y, targetScale) {
       const isMobile = screenWidth < 600;
-      const sidebarFraction = isMobile ? 0 : 300 / screenWidth;
-      const panelFraction = isMobile ? 0.45 : 0;
-      const cx = width * (1 - sidebarFraction) / 2;
-      const cy = height * (1 - panelFraction) / 2;
+      const cx = width / 2;
+      const cy = isMobile ? height * 0.55 / 2 : height / 2;
       const tx = cx - x * targetScale;
       const ty = cy - y * targetScale;
       svg.transition().duration(400).call(
@@ -1564,7 +1760,7 @@ var SupersigilExplorer = (() => {
       )).classed("node-selected", true);
       showEdgeLabelsFor(d.id);
       centerOnNode(d);
-      renderDetail(detailPanel, d, edges);
+      renderDetail(detailPanel, d, edges, renderData ?? [], repositoryUrl);
       selectedNodeId = d.id;
       syncHashToUrl();
     }
@@ -1602,6 +1798,22 @@ var SupersigilExplorer = (() => {
         if (docId) {
           const simNode = nodes.find((n) => n.id === docId);
           if (simNode) {
+            selectNode(simNode);
+          }
+        }
+      }
+      const anchor = target.closest('a[href^="#/doc/"]');
+      if (anchor) {
+        event.preventDefault();
+        const href = (
+          /** @type {HTMLAnchorElement} */
+          anchor.getAttribute("href")
+        );
+        if (href) {
+          const docId = decodeURIComponent(href.replace("#/doc/", ""));
+          const simNode = nodes.find((n) => n.id === docId);
+          if (simNode) {
+            clearTrace();
             selectNode(simNode);
           }
         }

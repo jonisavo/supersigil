@@ -16,17 +16,19 @@ mod xml;
 pub use component_defs::ComponentDefs;
 pub use config::{
     AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentsConfig,
-    EcosystemConfig, ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, ProjectConfig,
-    RunnerConfig, RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity,
-    SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
+    EcosystemConfig, ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, LspConfig,
+    ProjectConfig, RunnerConfig, RustEcosystemConfig, RustProjectScope, RustValidationPolicy,
+    Severity, SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
 };
-pub use error::{ComponentDefError, ConfigError, ParseError, ParseWarning, split_list_attribute};
+pub use error::{
+    ComponentDefError, ConfigError, ListSplitError, ParseError, ParseWarning, split_list_attribute,
+};
 pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};
 pub use locate::{CONFIG_FILENAME, find_config};
 pub use refs::{is_valid_criterion_ref, split_criterion_ref};
 pub use rust_scope::{RustProjectResolutionError, match_rust_project_scope, resolve_rust_project};
 pub use rust_validation_inputs::{
-    RustValidationInputResolutionError, resolve_project_validation_inputs,
+    RustValidationInputResolutionError, RustValidationInputs, resolve_project_validation_inputs,
     resolve_workspace_validation_inputs,
 };
 pub use types::{
@@ -42,6 +44,6 @@ pub use graph::{
     ACCEPTANCE_CRITERIA, ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION,
     DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, EXPECTED_FRAGMENT,
     EdgeKind, GraphError, IMPLEMENTS, LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery,
-    QueryError, RATIONALE, REFERENCES, SUPERSIGIL_XML_LANG, TASK, TRACKED_FILES, TargetContext,
-    TaskInfo, VERIFIED_BY, build_graph, decision_references_target, glob_prefix,
+    QueryError, RATIONALE, REFERENCES, ResolvedRef, SUPERSIGIL_XML_LANG, TASK, TRACKED_FILES,
+    TargetContext, TaskInfo, VERIFIED_BY, build_graph, decision_references_target, glob_prefix,
 };

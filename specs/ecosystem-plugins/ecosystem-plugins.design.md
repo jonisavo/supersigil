@@ -9,7 +9,7 @@ title: "Ecosystem Plugins"
 ```supersigil-xml
 <Implements refs="ecosystem-plugins/req" />
 <DependsOn refs="workspace-projects/design, cli-runtime/design, verification-engine/design, config/design, evidence-contract/design, rust-plugin/design, verifies-macro/design" />
-<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-core/src/rust_validation_inputs.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-evidence/src/plugin.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_ecosystem_tests.rs" />
+<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/rust_scope.rs, crates/supersigil-core/src/rust_validation_inputs.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-evidence/src/plugin.rs, crates/supersigil-rust/src/discover.rs, crates/supersigil-rust/src/build_support.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-core/tests/config_unit_tests.rs" />
 ```
 
 ## Overview
@@ -143,9 +143,9 @@ project.
 
 ## Testing Strategy
 
-- `crates/supersigil-core/tests/config_ecosystem_tests.rs` and
-  `config_feature_tests.rs` cover plugin defaults, explicit disabling,
-  unknown-plugin rejection, and Rust ecosystem policy parsing.
+- `crates/supersigil-core/tests/config_unit_tests.rs`
+  covers plugin defaults, explicit disabling, unknown-plugin rejection, and
+  Rust ecosystem policy parsing.
 - `crates/supersigil-cli/src/plugins.rs`
   covers built-in plugin assembly, plugin-orchestration behavior,
   plugin-failure and plugin-diagnostic findings, and end-to-end

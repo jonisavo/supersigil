@@ -142,7 +142,7 @@ without hiding unresolved cases.
     unresolved refs, partially resolved refs, or non-modelable Kiro metadata
     are encountered, THEN the importer SHALL preserve graph-safe output and
     SHALL emit Ambiguity_Markers or inline comments rather than silent loss.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/edge_case_tests.rs, crates/supersigil-import/tests/regression_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/unit.rs" />
   </Criterion>
   <Criterion id="req-3-5">
     THE reported `ambiguity_count` in an Import_Plan or Import_Result SHALL

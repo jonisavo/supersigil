@@ -9,7 +9,7 @@ title: "Config"
 ```supersigil-xml
 <Implements refs="config/req" />
 <DependsOn refs="workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/component_defs.rs, crates/supersigil-core/src/error.rs, crates/supersigil-core/tests/config_deserialization_tests.rs, crates/supersigil-core/tests/config_validation_tests.rs, crates/supersigil-core/tests/config_ecosystem_tests.rs, crates/supersigil-core/tests/config_feature_tests.rs, crates/supersigil-core/tests/config_property_tests.rs, crates/supersigil-core/tests/component_defs_unit_tests.rs, crates/supersigil-core/tests/list_split_unit_tests.rs, crates/supersigil-core/tests/list_split_property_tests.rs" />
+<TrackedFiles paths="crates/supersigil-core/src/config.rs, crates/supersigil-core/src/component_defs.rs, crates/supersigil-core/src/error.rs, crates/supersigil-core/tests/config_unit_tests.rs, crates/supersigil-core/tests/config_property_tests.rs, crates/supersigil-core/tests/component_defs_unit_tests.rs, crates/supersigil-core/tests/list_split_unit_tests.rs, crates/supersigil-core/tests/list_split_property_tests.rs" />
 ```
 
 ## Overview
@@ -108,9 +108,8 @@ verifiable if they satisfy the merge-time invariants.
 
 ## Testing Strategy
 
-- `crates/supersigil-core/tests/config_deserialization_tests.rs`,
-  `config_validation_tests.rs`, `config_ecosystem_tests.rs`, and
-  `config_feature_tests.rs` cover config shape, defaults, and loader validation.
+- `crates/supersigil-core/tests/config_unit_tests.rs`
+  covers config shape, defaults, and loader validation.
 - `crates/supersigil-core/tests/config_property_tests.rs`
   covers round-trip behavior and mode invariants.
 - `crates/supersigil-core/tests/component_defs_unit_tests.rs`

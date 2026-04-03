@@ -84,4 +84,28 @@ tasks {
         dependsOn(patchChangelog)
     }
 
+    // Build the preview kit if dist/ is missing (clean checkout / CI).
+    val buildPreviewKit by registering(Exec::class) {
+        workingDir = file("../../packages/preview")
+        commandLine("pnpm", "run", "build")
+        val marker = layout.projectDirectory.file("../../packages/preview/dist/render-iife.js")
+        onlyIf { !marker.asFile.exists() }
+    }
+
+    // Copy shared presentation kit assets from packages/preview/dist/
+    // into plugin resources before building the JAR.
+    val copyPreviewAssets by registering(Copy::class) {
+        dependsOn(buildPreviewKit)
+        from("../../packages/preview/dist") {
+            include("supersigil-preview.css")
+            include("supersigil-preview.js")
+            include("render.js")
+            include("render-iife.js")
+        }
+        into("src/main/resources/supersigil-preview")
+    }
+
+    processResources {
+        dependsOn(copyPreviewAssets)
+    }
 }

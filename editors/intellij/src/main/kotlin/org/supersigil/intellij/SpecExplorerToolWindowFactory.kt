@@ -199,7 +199,7 @@ private fun fetchTreeRoot(project: Project): DefaultMutableTreeNode {
  * since the executeCommand response type is `Object`.
  */
 @Suppress("UNCHECKED_CAST")
-private fun parseDocumentListResponse(result: Any?): List<DocumentEntry> {
+internal fun parseDocumentListResponse(result: Any?): List<DocumentEntry> {
     val map = result as? Map<*, *> ?: return emptyList()
     val documents = map["documents"] as? List<*> ?: return emptyList()
     return documents.mapNotNull { entry ->

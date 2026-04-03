@@ -4,8 +4,9 @@
 .idea
 .junie
 .superpowers
-.worktrees
 website/public/explore/graph.json
-
+website/public/explore/render-data.json
+website/public/explore/render-iife.js
+website/public/explore/supersigil-preview.css
+website/public/explore/supersigil-preview.js
 .DS_Store
-

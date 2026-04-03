@@ -1,6 +1,7 @@
 /**
  * @module detail-panel
  * Sidebar rendering for document and component detail views.
+ * Now includes full spec content via the preview kit's renderComponentTree.
  */
 
 import { componentColor } from './graph-data.js';
@@ -78,14 +79,57 @@ export function buildBadgeClass(category, value) {
 }
 
 /**
- * Render the detail panel for the given document node.
+ * Count criteria and their verification states from render data fences.
+ *
+ * @param {any[]} fences
+ * @returns {{ total: number, verified: number }}
+ */
+function countCriteria(fences) {
+  let total = 0;
+  let verified = 0;
+
+  function visit(components) {
+    for (const comp of components) {
+      if (comp.kind === 'Criterion') {
+        total++;
+        const state = comp.verification?.state ?? 'unverified';
+        if (state === 'verified') verified++;
+      }
+      if (comp.children) visit(comp.children);
+    }
+  }
+
+  for (const fence of fences) {
+    if (fence.components) visit(fence.components);
+  }
+  return { total, verified };
+}
+
+/**
+ * Create the explorer link resolver for in-panel document navigation.
+ *
+ * @param {string} repositoryUrl
+ * @returns {Object}
+ */
+function createExplorerLinkResolver(repositoryUrl) {
+  return {
+    evidenceLink: (file, line) => `${repositoryUrl}/blob/main/${file}#L${line}`,
+    documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
+    criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`,
+  };
+}
+
+/**
+ * Render the detail panel for the given document node with full spec content.
  *
  * @param {HTMLElement} container - The sidebar element to render into.
  * @param {DocumentNode} node - The document node to display.
  * @param {Edge[]} edges - All edges in the graph.
+ * @param {any[]} renderData - The render data array from render-data.json.
+ * @param {string} repositoryUrl - The base repository URL for evidence links.
  * @returns {void}
  */
-export function renderDetail(container, node, edges) {
+export function renderDetail(container, node, edges, renderData, repositoryUrl) {
   cancelPendingClear(container);
   const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
 
@@ -102,30 +146,47 @@ export function renderDetail(container, node, edges) {
     edgesHtml = `<div class="detail-section"><div class="detail-section-label">Edges</div><ul class="edge-list">${edgeItems.join('')}</ul></div>`;
   }
 
-  // Build components HTML
-  let componentsHtml = '';
-  if (node.components.length > 0) {
-    const compItems = node.components
-      .filter((c) => c.id)
-      .map(
-        (c) =>
-          `<li class="component-item"><span class="component-item-kind" style="border-color: ${componentColor(c.kind)}; color: ${componentColor(c.kind)}">${escHtml(c.kind)}</span><span class="component-item-id">${escHtml(c.id)}</span></li>`,
-      );
-    if (compItems.length > 0) {
-      componentsHtml = `<div class="detail-section"><div class="detail-section-label">Components</div><ul class="component-list">${compItems.join('')}</ul></div>`;
-    }
-  }
-
   // Build badge row
   const typeClass = buildBadgeClass('type', node.doc_type);
   const statusClass = buildBadgeClass('status', node.status);
   const typeLabel = node.doc_type ?? 'unknown';
   const statusLabel = node.status ?? 'draft';
 
+  // Coverage from render data
+  const renderDoc = renderData?.find((d) => d.document_id === node.id);
+  let coverageHtml = '';
+  if (renderDoc) {
+    const { total, verified } = countCriteria(renderDoc.fences);
+    if (total > 0) {
+      const pct = Math.round((verified / total) * 100);
+      coverageHtml = `<div class="detail-section"><div class="detail-coverage"><span class="detail-coverage-bar"><span class="detail-coverage-bar-fill" style="width: ${pct}%"></span></span><span class="detail-coverage-text">${verified}/${total} criteria verified (${pct}%)</span></div></div>`;
+    }
+  }
+
   // Trace impact button
   const traceBtn = `<div class="detail-section"><button class="detail-panel-trace-btn" data-doc-id="${escHtml(node.id)}">Trace impact</button></div>`;
 
-  container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div><button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${traceBtn}${edgesHtml}${componentsHtml}</div>`;
+  // Render spec content using the preview kit
+  let specContentHtml = '';
+  if (renderDoc && typeof window !== 'undefined' && window.__supersigilRender) {
+    const linkResolver = createExplorerLinkResolver(repositoryUrl);
+    try {
+      specContentHtml = window.__supersigilRender.renderComponentTree(
+        renderDoc.fences,
+        renderDoc.edges,
+        linkResolver,
+      );
+    } catch (err) {
+      console.error('Failed to render spec content:', err);
+      specContentHtml = '<p class="detail-spec-empty">Failed to render spec content.</p>';
+    }
+  }
+
+  const specSection = specContentHtml
+    ? `<div class="detail-spec-content">${specContentHtml}</div>`
+    : '';
+
+  container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div><button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${coverageHtml}${traceBtn}${edgesHtml}${specSection}</div>`;
 
   container.classList.add('open');
 }
@@ -286,21 +347,134 @@ function cancelPendingClear(container) {
 export function clearDetail(container) {
   cancelPendingClear(container);
   container.classList.remove('open');
+  container.innerHTML = '';
+}
 
-  /** @param {Event} _event */
-  function onEnd(_event) {
-    container.removeEventListener('transitionend', onEnd);
-    /** @type {any} */ (container)._clearHandler = null;
-    container.innerHTML = '';
+/**
+ * Render the empty state for the spec panel.
+ *
+ * @param {HTMLElement} container
+ * @returns {void}
+ */
+/**
+ * Render the default panel showing the document index grouped by project.
+ * Falls back to a hint message if no data is provided.
+ */
+export function renderEmpty(container, graphData, renderData) {
+  if (!graphData || !graphData.documents || graphData.documents.length === 0) {
+    container.innerHTML = `<div class="detail-spec-empty"><div>Select a document in the graph<br/>to view its specification</div><div class="detail-spec-empty-hint">Click a node or use / to search</div></div>`;
+    return;
   }
-  /** @type {any} */ (container)._clearHandler = onEnd;
-  container.addEventListener('transitionend', onEnd);
 
-  // Fallback: clear after a short delay if transitionend never fires
-  /** @type {any} */ (container)._clearTimer = setTimeout(() => {
-    container.removeEventListener('transitionend', onEnd);
-    /** @type {any} */ (container)._clearHandler = null;
-    /** @type {any} */ (container)._clearTimer = null;
-    container.innerHTML = '';
-  }, 350);
+  // Build coverage map from render data (reuses countCriteria)
+  const coverageMap = new Map();
+  if (renderData) {
+    for (const doc of renderData) {
+      const cov = countCriteria(doc.fences || []);
+      if (cov.total > 0) {
+        coverageMap.set(doc.document_id, cov);
+      }
+    }
+  }
+
+  // Detect multi-project: any document has a project field
+  const isMultiProject = graphData.documents.some((d) => d.project);
+
+  // Group documents: Project → Prefix → Documents
+  // In single-project mode, skip the project layer.
+  const typeOrder = { requirements: 0, design: 1, tasks: 2, adr: 3, documentation: 4 };
+
+  function docPrefix(id) {
+    const slashIdx = id.indexOf('/');
+    return slashIdx > 0 ? id.substring(0, slashIdx) : id;
+  }
+
+  function docSuffix(id) {
+    const slashIdx = id.indexOf('/');
+    return slashIdx > 0 ? id.substring(slashIdx + 1) : id;
+  }
+
+  // Build nested structure: Map<project, Map<prefix, doc[]>>
+  const tree = new Map();
+  for (const doc of graphData.documents) {
+    const project = isMultiProject ? (doc.project || '(ungrouped)') : '(all)';
+    const prefix = docPrefix(doc.id);
+    if (!tree.has(project)) tree.set(project, new Map());
+    const prefixMap = tree.get(project);
+    if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
+    prefixMap.get(prefix).push(doc);
+  }
+
+  // Sort projects
+  const sortedProjects = [...tree.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  // Global stats
+  let globalTotal = 0;
+  let globalVerified = 0;
+  for (const { total, verified } of coverageMap.values()) {
+    globalTotal += total;
+    globalVerified += verified;
+  }
+  const globalPct = globalTotal > 0 ? Math.round((globalVerified / globalTotal) * 100) : 0;
+
+  let html = `<div class="detail-panel-header"><div class="detail-panel-title">Spec Index</div></div>`;
+  html += `<div class="detail-panel-body">`;
+
+  // Global coverage
+  if (globalTotal > 0) {
+    html += `<div class="detail-index-coverage">${globalVerified}/${globalTotal} criteria verified (${globalPct}%)<div class="detail-coverage-bar"><div class="detail-coverage-fill" style="width:${globalPct}%"></div></div></div>`;
+  }
+
+  html += `<div class="detail-index-hint">Click a document to view its specification</div>`;
+
+  function renderDocList(docs) {
+    let out = '';
+    docs.sort((a, b) => {
+      const ta = typeOrder[a.doc_type] ?? 5;
+      const tb = typeOrder[b.doc_type] ?? 5;
+      return ta !== tb ? ta - tb : a.id.localeCompare(b.id);
+    });
+    for (const doc of docs) {
+      const cov = coverageMap.get(doc.id);
+      const covLabel = cov ? ` ${cov.verified}/${cov.total}` : '';
+      const typeLabel = doc.doc_type || '';
+      const statusLabel = doc.status || '';
+
+      out += `<a href="#/doc/${encodeURIComponent(doc.id)}" class="detail-index-doc">`;
+      out += `<span class="detail-index-doc-id">${escHtml(docSuffix(doc.id))}</span>`;
+      out += `<span class="detail-index-doc-meta">`;
+      if (typeLabel) out += `<span class="detail-badge detail-badge-type-${escHtml(typeLabel)}">${escHtml(typeLabel)}</span>`;
+      if (statusLabel) out += `<span class="detail-badge detail-badge-status">${escHtml(statusLabel)}</span>`;
+      if (covLabel) out += `<span class="detail-index-doc-cov">${covLabel}</span>`;
+      out += `</span>`;
+      out += `</a>`;
+    }
+    return out;
+  }
+
+  for (const [project, prefixMap] of sortedProjects) {
+    const sortedPrefixes = [...prefixMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const totalDocs = [...prefixMap.values()].reduce((n, d) => n + d.length, 0);
+
+    if (isMultiProject) {
+      // Project level
+      html += `<details class="detail-index-project" open>`;
+      html += `<summary class="detail-index-project-title">${escHtml(project)} <span class="detail-index-group-count">${totalDocs}</span></summary>`;
+    }
+
+    // Prefix groups within the project
+    for (const [prefix, docs] of sortedPrefixes) {
+      html += `<details class="detail-index-group" open>`;
+      html += `<summary class="detail-index-group-title">${escHtml(prefix)} <span class="detail-index-group-count">${docs.length}</span></summary>`;
+      html += renderDocList(docs);
+      html += `</details>`;
+    }
+
+    if (isMultiProject) {
+      html += `</details>`;
+    }
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use supersigil_core::{DocumentGraph, TASK};
+use supersigil_core::{DocumentGraph, ExtractedComponent, TASK};
 
 use crate::report::{Finding, FindingDetails, RuleName};
 
@@ -37,18 +37,15 @@ fn check_tasks_docs<'a>(
             continue;
         }
 
-        let task_components = super::find_components(&doc.components, TASK);
-        if task_components.is_empty() {
+        let mut tasks = Vec::new();
+        collect_tasks(&doc.components, &mut tasks);
+        if tasks.is_empty() {
             continue;
         }
 
         let doc_status = doc.frontmatter.status.as_deref().unwrap_or("draft");
-        let statuses: Vec<&str> = task_components
-            .iter()
-            .map(|c| c.attributes.get("status").map_or("draft", String::as_str))
-            .collect();
-        let any_done = statuses.contains(&"done");
-        let all_done = statuses.iter().all(|s| *s == "done");
+        let any_done = tasks.contains(&"done");
+        let all_done = tasks.iter().all(|s| *s == "done");
 
         if any_done && !all_done && doc_status == "draft" {
             findings.push(
@@ -152,6 +149,20 @@ fn check_sibling_docs(
             }
             _ => {}
         }
+    }
+}
+
+/// Recursively collect task statuses from all Task components.
+fn collect_tasks<'a>(components: &'a [ExtractedComponent], out: &mut Vec<&'a str>) {
+    for comp in components {
+        if comp.name == TASK {
+            let status = comp
+                .attributes
+                .get("status")
+                .map_or("draft", String::as_str);
+            out.push(status);
+        }
+        collect_tasks(&comp.children, out);
     }
 }
 

@@ -5,12 +5,6 @@ use serde_json::Value;
 
 use super::types::{ExpectedSpec, MatchCheck, MatchFailure, MatchFormat};
 
-// JSON wildcard placeholders recognised in Expected bodies.
-const WILDCARD_ANY_STRING: &str = "<any-string>";
-const WILDCARD_ANY_NUMBER: &str = "<any-number>";
-const WILDCARD_ANY_UUID: &str = "<any-uuid>";
-const WILDCARD_ANY_ISO8601: &str = "<any-iso8601>";
-
 static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
         .expect("UUID regex is valid")
@@ -140,46 +134,46 @@ fn compare_json(
     // Check wildcards first (expected side only)
     if let Value::String(s) = expected {
         match s.as_str() {
-            WILDCARD_ANY_STRING => {
+            "<any-string>" => {
                 if !actual.is_string() {
                     diffs.push((
                         path.to_owned(),
-                        WILDCARD_ANY_STRING.to_owned(),
+                        "<any-string>".to_owned(),
                         format_value(actual),
                     ));
                 }
                 return;
             }
-            WILDCARD_ANY_NUMBER => {
+            "<any-number>" => {
                 if !actual.is_number() {
                     diffs.push((
                         path.to_owned(),
-                        WILDCARD_ANY_NUMBER.to_owned(),
+                        "<any-number>".to_owned(),
                         format_value(actual),
                     ));
                 }
                 return;
             }
-            WILDCARD_ANY_UUID => {
+            "<any-uuid>" => {
                 match actual.as_str() {
                     Some(val) if is_uuid(val) => {}
                     _ => {
                         diffs.push((
                             path.to_owned(),
-                            WILDCARD_ANY_UUID.to_owned(),
+                            "<any-uuid>".to_owned(),
                             format_value(actual),
                         ));
                     }
                 }
                 return;
             }
-            WILDCARD_ANY_ISO8601 => {
+            "<any-iso8601>" => {
                 match actual.as_str() {
                     Some(val) if is_iso8601(val) => {}
                     _ => {
                         diffs.push((
                             path.to_owned(),
-                            WILDCARD_ANY_ISO8601.to_owned(),
+                            "<any-iso8601>".to_owned(),
                             format_value(actual),
                         ));
                     }

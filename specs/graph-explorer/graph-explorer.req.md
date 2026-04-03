@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/req
   type: requirements
-  status: draft
+  status: implemented
 title: "Visual Graph Explorer"
 ---
 
@@ -62,6 +62,7 @@ downstream tools.
   <Criterion id="req-1-5">
     Graph_JSON SHALL be written to stdout. Summary output SHALL go to stderr,
     consistent with the existing mermaid and dot formats.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/graph/json.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -97,10 +98,12 @@ alongside documentation.
   <Criterion id="req-3-1">
     THE Astro site SHALL include a page at `/explore/` hosting the same
     visualization module used by the standalone explorer.
+    <VerifiedBy strategy="file-glob" paths="website/src/pages/explore.astro" />
   </Criterion>
   <Criterion id="req-3-2">
     Graph data SHALL be generated at build time via a prebuild script running
     `supersigil graph --format json` and writing to a static JSON file.
+    <VerifiedBy strategy="file-glob" paths="website/src/pages/explore.astro" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -117,19 +120,23 @@ relationships spatially.
     THE Explorer_View SHALL render documents as nodes in a clustered
     force-directed layout. Nodes SHALL be visually grouped into
     Document_Clusters with dashed borders.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
   <Criterion id="req-4-2">
     Document-level edges (Implements, DependsOn, References) SHALL be
     rendered as lines between document nodes, with edge kind as the label.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
   <Criterion id="req-4-3">
     THE Explorer_View SHALL support pan (drag background), zoom (scroll),
     and drag (reposition individual nodes) interactions.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
   <Criterion id="req-4-4">
     Double-clicking a Document_Cluster SHALL expand it to reveal its
     internal components (Criteria, Tasks, Decisions with Alternatives and
     Rationale). Double-clicking again SHALL collapse it.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -145,10 +152,12 @@ I can inspect type, status, edges, and components without leaving the graph.
     Clicking a document node SHALL open a detail sidebar showing: document
     ID, doc type badge, status badge, list of edges (incoming and outgoing),
     and list of components with kind-colored indicators.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/detail-panel.js" />
   </Criterion>
   <Criterion id="req-5-2">
     The selected node SHALL receive a gold highlight ring. Clicking the same
     node or pressing Escape SHALL close the sidebar.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/detail-panel.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -164,14 +173,17 @@ that I can focus on the specs relevant to my current work.
     THE Explorer_View SHALL provide toggle chips for document types (at
     minimum: requirements, design, adr, tasks). Active filters SHALL use
     gold styling; inactive SHALL be dimmed.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-data.js" />
   </Criterion>
   <Criterion id="req-6-2">
     THE Explorer_View SHALL provide a status filter (all, draft, approved,
     implemented, deprecated, or other statuses present in the data).
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-data.js" />
   </Criterion>
   <Criterion id="req-6-3">
     Filtered-out nodes SHALL fade to near-invisible rather than being removed,
     maintaining spatial context for visible nodes.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-data.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -187,11 +199,13 @@ that I can understand what would be affected before modifying a document.
     THE Explorer_View SHALL provide an impact trace action (via detail panel
     button or right-click context menu) that highlights all documents
     transitively downstream from the selected node.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/impact-trace.js" />
   </Criterion>
   <Criterion id="req-7-2">
     During an active Impact_Trace, the traced subgraph SHALL render at full
     opacity with gold edge highlights. All other nodes and edges SHALL dim.
     Clicking the background SHALL clear the trace.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/impact-trace.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -206,10 +220,12 @@ it in the graph, so that I can quickly navigate large spec graphs.
   <Criterion id="req-8-1">
     THE Explorer_View SHALL include a search input that filters nodes by
     fuzzy match on document ID and title as the user types.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
   <Criterion id="req-8-2">
     Selecting a search result SHALL zoom to the matching node and open its
     detail sidebar. The `/` key SHALL focus the search input.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -226,11 +242,13 @@ teammates can see the same node selection, trace, or filter state.
     view state. At minimum: `#/doc/{id}` for node selection,
     `#/doc/{id}/trace` for active impact trace, and `#/filter/{params}`
     for filter state.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/url-router.js" />
   </Criterion>
   <Criterion id="req-9-2">
     THE URL hash SHALL update on interaction so views are
     shareable and bookmarkable. Loading a URL with a hash SHALL restore
     the encoded view state.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/url-router.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -247,11 +265,13 @@ like a native part of the site, so that the experience is cohesive.
     (CSS custom properties from landing-tokens.css) for all colors,
     typography, and spacing. It SHALL support both dark and light themes
     via Starlight's theme toggle.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/styles.css" />
   </Criterion>
   <Criterion id="req-10-2">
     Node stroke colors SHALL differentiate document types: teal for
     requirements, green for design, gold for ADR. Node size SHALL scale
     with component count.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/styles.css" />
   </Criterion>
 </AcceptanceCriteria>
 ```

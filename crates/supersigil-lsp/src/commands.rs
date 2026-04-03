@@ -16,6 +16,14 @@ pub const VERIFY_COMMAND: &str = "supersigil.verify";
 /// built-in LSP client).
 pub const DOCUMENT_LIST_COMMAND: &str = "supersigil.documentList";
 
+/// The command name for the document components command.
+///
+/// Returns the component tree for a single document with verification
+/// status. This duplicates the `supersigil/documentComponents` custom
+/// request but is also available via `workspace/executeCommand` for LSP
+/// clients that cannot send custom JSON-RPC requests.
+pub const DOCUMENT_COMPONENTS_COMMAND: &str = "supersigil.documentComponents";
+
 /// The command name for the interactive create-document command.
 ///
 /// Used when the target project is ambiguous (multi-project mode) and the

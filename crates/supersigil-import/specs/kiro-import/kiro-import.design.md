@@ -9,7 +9,7 @@ title: "Kiro Import"
 ```supersigil-xml
 <Implements refs="kiro-import/req" />
 <DependsOn refs="cli-runtime/design, parser-pipeline/design, document-graph/design, workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/real_world_tests.rs, crates/supersigil-import/tests/edge_case_tests.rs, crates/supersigil-import/tests/regression_tests.rs, crates/supersigil-import/tests/feature_tests.rs, crates/supersigil-cli/tests/cmd_import.rs" />
+<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/unit.rs, crates/supersigil-cli/tests/cmd_import.rs" />
 ```
 
 ## Overview
@@ -174,7 +174,7 @@ only at the compatibility boundary.
   covers conflict handling, force overwrites, and directory creation.
 - `crates/supersigil-import/tests/serialize_import.rs`
   covers JSON serialization of the planning surface.
-- `crates/supersigil-import/tests/{real_world,edge_case,regression,feature}_tests.rs`
+- `crates/supersigil-import/tests/unit.rs`
   covers edge cases like empty requirements, optional tasks, duplicate IDs,
   and output filename shape.
 - `crates/supersigil-cli/tests/cmd_import.rs`

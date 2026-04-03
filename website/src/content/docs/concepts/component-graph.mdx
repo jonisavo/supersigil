@@ -50,7 +50,7 @@ Multi-value references use comma-separated strings:
 ```
 
 <Aside type="caution">
-  All attributes must be plain string literals.
+  All attributes must be plain string literals. JSX expression attributes (`{...}`) are rejected as hard lint errors. This is intentional -- string-only attributes are trivially parseable and unambiguous.
 </Aside>
 
 ## Edge Types

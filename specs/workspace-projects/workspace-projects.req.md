@@ -63,7 +63,7 @@ the same toolchain.
     to `false`.
     <VerifiedBy
       strategy="file-glob"
-      paths="crates/supersigil-core/tests/config_*_tests.rs"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
     />
   </Criterion>
   <Criterion id="req-1-3">
@@ -72,7 +72,7 @@ the same toolchain.
     errors for the conflicting keys.
     <VerifiedBy
       strategy="file-glob"
-      paths="crates/supersigil-core/tests/config_*_tests.rs"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
     />
   </Criterion>
   <Criterion id="req-1-4">
@@ -81,13 +81,13 @@ the same toolchain.
     report an error.
     <VerifiedBy
       strategy="file-glob"
-      paths="crates/supersigil-core/tests/config_*_tests.rs"
+      paths="crates/supersigil-core/tests/config_unit_tests.rs"
     />
   </Criterion>
   <Criterion id="req-1-5">
     Shared_Workspace_Config SHALL remain top-level in both modes and SHALL NOT
     move under individual Project_Config entries.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_*_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 

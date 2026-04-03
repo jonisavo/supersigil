@@ -1,11 +1,18 @@
-//! Generate a self-contained HTML graph explorer and open it in the browser.
+//! Generate a self-contained HTML spec explorer and open it in the browser.
 
+use std::io;
 use std::path::Path;
+
+use supersigil_core::{Config, DocumentGraph};
+use supersigil_lsp::document_components::{
+    BuildComponentsInput, DocumentComponentsResult, build_document_components,
+};
 
 use crate::commands::ExploreArgs;
 use crate::error::CliError;
 use crate::format::ColorConfig;
 use crate::loader;
+use crate::plugins;
 
 use super::graph::json::build_graph_json;
 
@@ -13,18 +20,81 @@ const TEMPLATE_HTML: &str = include_str!("explore_template.html");
 const TOKENS_CSS: &str = include_str!("../../../../website/src/styles/landing-tokens.css");
 const STYLES_CSS: &str = include_str!("../../../../website/src/components/explore/styles.css");
 const EXPLORER_JS: &str = include_str!("explore_standalone.js");
+const PREVIEW_CSS: &str =
+    include_str!("../../../../packages/preview/styles/supersigil-preview.css");
+const PREVIEW_JS: &str = include_str!("../../../../packages/preview/scripts/supersigil-preview.js");
+const RENDER_IIFE_JS: &str = include_str!("../../../../packages/preview/dist/render-iife.js");
 
-/// Build the self-contained HTML string for the graph explorer.
-pub(crate) fn build_html(graph: &supersigil_core::DocumentGraph) -> Result<String, CliError> {
+/// Build render data (component trees with verification) for all documents.
+fn build_render_data(
+    config: &Config,
+    graph: &DocumentGraph,
+    project_root: &Path,
+) -> Result<Vec<DocumentComponentsResult>, CliError> {
+    let inputs = supersigil_verify::VerifyInputs::resolve(config, project_root);
+    let (artifact_graph, _plugin_findings) =
+        plugins::build_evidence(config, graph, project_root, None, &inputs);
+
+    let evidence_index = &artifact_graph.evidence_by_target;
+
+    let mut results: Vec<DocumentComponentsResult> = Vec::new();
+
+    for (_doc_id, doc) in graph.documents() {
+        let file_path = project_root.join(&doc.path);
+        let content = std::fs::read_to_string(&file_path).map_err(|e| {
+            CliError::Io(io::Error::new(
+                e.kind(),
+                format!("failed to read {}: {e}", file_path.display()),
+            ))
+        })?;
+
+        let result = build_document_components(&BuildComponentsInput {
+            doc,
+            stale: false,
+            content: &content,
+            graph,
+            evidence_by_target: if evidence_index.is_empty() {
+                None
+            } else {
+                Some(evidence_index)
+            },
+            evidence_records: if artifact_graph.evidence.is_empty() {
+                None
+            } else {
+                Some(&artifact_graph.evidence)
+            },
+            project_root,
+        });
+
+        results.push(result);
+    }
+
+    results.sort_by(|a, b| a.document_id.cmp(&b.document_id));
+    Ok(results)
+}
+
+/// Build the self-contained HTML string for the spec explorer.
+pub(crate) fn build_html(
+    graph: &DocumentGraph,
+    render_data: &[DocumentComponentsResult],
+) -> Result<String, CliError> {
     let graph_json = build_graph_json(graph);
     let json_str = serde_json::to_string_pretty(&graph_json)
+        .map_err(std::io::Error::other)?
+        .replace("</", "<\\/");
+
+    let render_json = serde_json::to_string_pretty(render_data)
         .map_err(std::io::Error::other)?
         .replace("</", "<\\/");
 
     let html = TEMPLATE_HTML
         .replace("{{TOKENS}}", TOKENS_CSS)
         .replace("{{STYLES}}", STYLES_CSS)
+        .replace("{{PREVIEW_CSS}}", PREVIEW_CSS)
+        .replace("{{RENDER_IIFE_JS}}", RENDER_IIFE_JS)
+        .replace("{{PREVIEW_JS}}", PREVIEW_JS)
         .replace("{{GRAPH_DATA}}", &json_str)
+        .replace("{{RENDER_DATA}}", &render_json)
         .replace("{{EXPLORER_JS}}", EXPLORER_JS);
 
     Ok(html)
@@ -36,8 +106,10 @@ pub(crate) fn build_html(graph: &supersigil_core::DocumentGraph) -> Result<Strin
 ///
 /// Returns `CliError` if loading fails or the file cannot be written/opened.
 pub fn run(args: &ExploreArgs, config_path: &Path, _color: ColorConfig) -> Result<(), CliError> {
-    let (_config, graph) = loader::load_graph(config_path)?;
-    let html = build_html(&graph)?;
+    let (config, graph) = loader::load_graph(config_path)?;
+    let project_root = loader::project_root(config_path);
+    let render_data = build_render_data(&config, &graph, project_root)?;
+    let html = build_html(&graph, &render_data)?;
 
     if let Some(output_path) = &args.output {
         std::fs::write(output_path, &html)?;
@@ -82,7 +154,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_doctype() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         assert!(html.starts_with("<!DOCTYPE html>"));
     }
 
@@ -90,7 +162,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_graph_json_inline() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         assert!(html.contains("\"req/auth\""));
         assert!(html.contains("\"design/auth\""));
         // Graph data is inlined directly in the template's <script> tag
@@ -101,7 +173,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_d3_cdn() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         assert!(html.contains("https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"));
     }
 
@@ -109,7 +181,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_explorer_js() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         assert!(html.contains("SupersigilExplorer"));
     }
 
@@ -117,7 +189,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_styles() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         // Check for landing tokens
         assert!(html.contains("--bg-deep"));
         assert!(html.contains("--gold"));
@@ -130,7 +202,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_is_self_contained() {
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         // Should contain <script> tags
         assert!(html.contains("<script>"));
         assert!(html.contains("</script>"));
@@ -142,6 +214,34 @@ mod tests {
         assert!(!html.contains("{{STYLES}}"));
         assert!(!html.contains("{{GRAPH_DATA}}"));
         assert!(!html.contains("{{EXPLORER_JS}}"));
+        assert!(!html.contains("{{PREVIEW_CSS}}"));
+        assert!(!html.contains("{{RENDER_IIFE_JS}}"));
+        assert!(!html.contains("{{PREVIEW_JS}}"));
+        assert!(!html.contains("{{RENDER_DATA}}"));
+    }
+
+    #[test]
+    #[verifies("graph-explorer/req#req-2-1")]
+    fn html_contains_preview_assets() {
+        let graph = sample_graph();
+        let html = build_html(&graph, &[]).unwrap();
+        // Preview CSS
+        assert!(html.contains("--supersigil-verified"));
+        assert!(html.contains(".supersigil-block"));
+        // Render IIFE
+        assert!(html.contains("__supersigilRender"));
+        assert!(html.contains("renderComponentTree"));
+        // Preview JS (interactivity)
+        assert!(html.contains("supersigil-evidence-toggle"));
+    }
+
+    #[test]
+    #[verifies("graph-explorer/req#req-2-1")]
+    fn html_contains_render_data() {
+        let graph = sample_graph();
+        let html = build_html(&graph, &[]).unwrap();
+        // Render data should be inlined as an empty JSON array
+        assert!(html.contains("var renderData = []"));
     }
 
     #[test]
@@ -149,7 +249,7 @@ mod tests {
     fn output_flag_writes_to_file() {
         // This test verifies the --output path writes successfully
         let graph = sample_graph();
-        let html = build_html(&graph).unwrap();
+        let html = build_html(&graph, &[]).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let output_path = dir.path().join("explore.html");
         std::fs::write(&output_path, &html).unwrap();

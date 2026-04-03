@@ -52,7 +52,7 @@ that plugin-backed evidence can be enabled, disabled, and scoped predictably.
     THE config model SHALL expose the current Rust-specific ecosystem policy
     surface under `ecosystem.rust`, including `validation` and
     `project_scope`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_*_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

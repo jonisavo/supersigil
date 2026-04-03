@@ -10,6 +10,7 @@ pub mod ls;
 pub mod new;
 pub mod plan;
 pub mod refs;
+pub mod render;
 pub mod schema;
 pub mod skills;
 pub mod status;
@@ -55,6 +56,8 @@ pub enum Command {
     Skills(SkillsArgs),
     /// Open an interactive graph explorer in the browser
     Explore(ExploreArgs),
+    /// Render component trees with verification data for all documents
+    Render(RenderArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -289,6 +292,19 @@ pub struct ExploreArgs {
     /// Write to this path instead of opening in browser
     #[arg(long)]
     pub output: Option<PathBuf>,
+}
+
+/// Render output format.
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum RenderFormat {
+    Json,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct RenderArgs {
+    /// Output format
+    #[arg(long, default_value = "json")]
+    pub format: RenderFormat,
 }
 
 fn parse_import_prefix(raw: &str) -> Result<String, String> {

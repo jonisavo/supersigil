@@ -6,7 +6,7 @@
 
 import * as d3 from 'd3';
 import forceInABox from 'force-in-a-box';
-import { clearDetail, renderClusterDetail, renderDetail } from './detail-panel.js';
+import { clearDetail, renderClusterDetail, renderDetail, renderEmpty } from './detail-panel.js';
 import {
   componentColor,
   extractFilterOptions,
@@ -102,6 +102,7 @@ export function nodeStrokeColor(doc) {
 /**
  * Group documents into clusters by their ID prefix (everything before the last `/`).
  * Documents with no `/` in their ID form their own single-document cluster.
+ * In multi-project workspaces, cluster labels include the project name.
  *
  * @param {DocumentNode[]} documents
  * @returns {Cluster[]}
@@ -109,6 +110,10 @@ export function nodeStrokeColor(doc) {
 export function computeClusters(documents) {
   /** @type {Map<string, string[]>} */
   const groups = new Map();
+  /** @type {Map<string, string>} prefix -> project name */
+  const prefixProjects = new Map();
+
+  const isMultiProject = documents.some((d) => d.project);
 
   for (const doc of documents) {
     const slashIdx = doc.id.lastIndexOf('/');
@@ -119,12 +124,17 @@ export function computeClusters(documents) {
     } else {
       groups.set(prefix, [doc.id]);
     }
+    if (isMultiProject && doc.project) {
+      prefixProjects.set(prefix, doc.project);
+    }
   }
 
   /** @type {Cluster[]} */
   const clusters = [];
-  for (const [name, docIds] of groups) {
-    clusters.push({ name, docIds });
+  for (const [prefix, docIds] of groups) {
+    const project = prefixProjects.get(prefix);
+    const name = isMultiProject && project ? `${project} / ${prefix}` : prefix;
+    clusters.push({ name, docIds, project: project || null });
   }
   return clusters;
 }
@@ -295,11 +305,14 @@ function shortLabel(id) {
  *
  * @param {HTMLElement} container - The DOM element to render the explorer into.
  * @param {GraphJSON} data - The graph data to visualise.
+ * @param {any[]} [renderData] - The render data array from render-data.json.
  * @returns {void}
  */
-export function mount(container, data) {
+export function mount(container, data, renderData) {
   const { documents, edges } = data;
   if (!container || typeof container.getBoundingClientRect !== 'function') return;
+
+  const repositoryUrl = 'https://github.com/supersigil/supersigil';
 
   /** @param {any} endpoint @returns {string} */
   function edgeEndpointId(endpoint) {
@@ -634,10 +647,69 @@ export function mount(container, data) {
   container.classList.add('explorer');
   container.prepend(explorerBar);
 
+  // ===== Resizable split pane layout =====
+  const splitContainer = document.createElement('div');
+  splitContainer.className = 'explorer-split';
+  container.appendChild(splitContainer);
+
+  const graphPane = document.createElement('div');
+  graphPane.className = 'explorer-split-graph';
+  splitContainer.appendChild(graphPane);
+
+  const divider = document.createElement('div');
+  divider.className = 'explorer-split-divider';
+  splitContainer.appendChild(divider);
+
+  const specPane = document.createElement('div');
+  specPane.className = 'explorer-split-panel';
+  splitContainer.appendChild(specPane);
+
+  // Restore saved split position from localStorage
+  const SPLIT_KEY = 'supersigil-explorer-split';
+  const savedSplit = localStorage.getItem(SPLIT_KEY);
+  if (savedSplit) {
+    const pct = Number.parseFloat(savedSplit);
+    if (pct > 10 && pct < 90) {
+      graphPane.style.flex = `0 0 ${pct}%`;
+      specPane.style.width = `${100 - pct}%`;
+    }
+  }
+
+  // Resizable divider drag logic
+  let isDragging = false;
+  divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    isDragging = true;
+    divider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const splitRect = splitContainer.getBoundingClientRect();
+    const x = e.clientX - splitRect.left;
+    const totalWidth = splitRect.width;
+    const pct = (x / totalWidth) * 100;
+    // Clamp between 20% and 80%
+    const clamped = Math.max(20, Math.min(80, pct));
+    graphPane.style.flex = `0 0 ${clamped}%`;
+    specPane.style.width = `${100 - clamped}%`;
+    localStorage.setItem(SPLIT_KEY, String(clamped));
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+
   // Wrap SVG in a canvas container for proper flex layout
   const canvasDiv = document.createElement('div');
   canvasDiv.className = 'explorer-canvas';
-  container.appendChild(canvasDiv);
+  graphPane.appendChild(canvasDiv);
 
   const rect = canvasDiv.getBoundingClientRect();
   const screenWidth = rect.width || 800;
@@ -661,7 +733,10 @@ export function mount(container, data) {
     }
   }
 
-  // Build simulation nodes with radius pre-computed and group for forceInABox
+  const isMultiProject = documents.some((d) => d.project);
+
+  // Build simulation nodes with radius pre-computed and group for forceInABox.
+  // Group by prefix cluster name so forceInABox creates tight prefix groups.
   /** @type {(DocumentNode & d3.SimulationNodeDatum & {radius: number, group: string})[]} */
   const nodes = documents.map((doc) => ({
     ...doc,
@@ -765,13 +840,30 @@ export function mount(container, data) {
     .text((d) => shortLabel(d.id));
 
   // Cluster rects and labels (will be updated on tick)
+  // Project color palette for cluster stroke/label in multi-project mode
+  const projectColors = {};
+  const palette = [
+    'var(--gold-dim)', 'var(--teal)', '#8b5cf6', '#f59e0b',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316',
+  ];
+  let colorIdx = 0;
+  for (const c of clusters) {
+    if (c.project && !projectColors[c.project]) {
+      projectColors[c.project] = palette[colorIdx % palette.length];
+      colorIdx++;
+    }
+  }
+  function clusterColor(d) {
+    return d.project ? (projectColors[d.project] || 'var(--gold-dim)') : 'var(--gold-dim)';
+  }
+
   const clusterRects = clustersGroup
     .selectAll('rect.cluster')
     .data(clusters)
     .join('rect')
     .attr('class', 'cluster')
     .attr('fill', 'none')
-    .attr('stroke', 'var(--gold-dim)')
+    .attr('stroke', clusterColor)
     .attr('stroke-width', 1.5)
     .attr('stroke-dasharray', '6 4')
     .attr('rx', 8)
@@ -782,10 +874,13 @@ export function mount(container, data) {
     .data(clusters)
     .join('text')
     .attr('class', 'cluster-label')
-    .attr('fill', 'var(--text-muted)')
+    .attr('fill', clusterColor)
     .attr('font-size', 10)
     .attr('font-family', 'var(--font-mono)')
     .text((d) => d.name);
+
+  // Project-level visual grouping: labels and colors only (no enclosing rects,
+  // as force-based project separation doesn't produce clean non-overlapping regions).
 
   // ===== Filter application =====
 
@@ -928,6 +1023,7 @@ export function mount(container, data) {
         d3.select(this).attr('visibility', 'hidden');
       }
     });
+
   }
 
   // Zoom behavior
@@ -1178,10 +1274,13 @@ export function mount(container, data) {
 
   // ===== Detail sidebar (single-click selection) =====
 
-  // Create the detail panel container inside the explorer container
+  // Create the detail panel container inside the spec pane
   const detailPanel = document.createElement('div');
   detailPanel.className = 'detail-panel';
-  container.appendChild(detailPanel);
+  specPane.appendChild(detailPanel);
+
+  // Show the empty state by default
+  renderEmpty(detailPanel, data, renderData);
 
   /** @type {string|null} Currently selected node ID */
   let selectedNodeId = null;
@@ -1225,11 +1324,12 @@ export function mount(container, data) {
       d3.select(this).style('opacity', null).style('stroke-width', null);
     });
     clearDetail(detailPanel);
+    renderEmpty(detailPanel, data, renderData);
     selectedClusterName = null;
   }
 
   /**
-   * Clear the current selection (node or cluster): remove highlights, close sidebar.
+   * Clear the current selection (node or cluster): remove highlights, show empty state.
    */
   function clearSelection() {
     if (selectedClusterName) {
@@ -1242,6 +1342,7 @@ export function mount(container, data) {
       nodesGroup.selectAll('g.node').classed('node-selected', false);
       showEdgeLabelsFor(null);
       clearDetail(detailPanel);
+      renderEmpty(detailPanel, data, renderData);
       selectedNodeId = null;
       syncHashToUrl();
     }
@@ -1269,11 +1370,9 @@ export function mount(container, data) {
     // So: tx = viewBox_visible_center_x - x * k
     const isMobile = screenWidth < 600;
 
-    // Visible center in viewBox coords, accounting for sidebar/panel
-    const sidebarFraction = isMobile ? 0 : 300 / screenWidth;
-    const panelFraction = isMobile ? 0.45 : 0;
-    const cx = (width * (1 - sidebarFraction)) / 2;
-    const cy = (height * (1 - panelFraction)) / 2;
+    // Visible center in viewBox coords (the graph pane takes up the left portion)
+    const cx = width / 2;
+    const cy = isMobile ? (height * 0.55) / 2 : height / 2;
 
     const tx = cx - x * targetScale;
     const ty = cy - y * targetScale;
@@ -1322,7 +1421,7 @@ export function mount(container, data) {
     // Center the view on the selected node
     centerOnNode(d);
 
-    renderDetail(detailPanel, d, edges);
+    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryUrl);
     selectedNodeId = d.id;
     syncHashToUrl();
   }
@@ -1355,6 +1454,21 @@ export function mount(container, data) {
       if (docId) {
         const simNode = nodes.find((n) => n.id === docId);
         if (simNode) {
+          selectNode(simNode);
+        }
+      }
+    }
+
+    // Intercept document links in the spec content (#/doc/...)
+    const anchor = target.closest('a[href^="#/doc/"]');
+    if (anchor) {
+      event.preventDefault();
+      const href = /** @type {HTMLAnchorElement} */ (anchor).getAttribute('href');
+      if (href) {
+        const docId = decodeURIComponent(href.replace('#/doc/', ''));
+        const simNode = nodes.find((n) => n.id === docId);
+        if (simNode) {
+          clearTrace();
           selectNode(simNode);
         }
       }

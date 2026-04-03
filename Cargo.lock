@@ -1364,6 +1364,7 @@ dependencies = [
  "supersigil-core",
  "supersigil-evidence",
  "supersigil-import",
+ "supersigil-lsp",
  "supersigil-parser",
  "supersigil-rust",
  "supersigil-verify",

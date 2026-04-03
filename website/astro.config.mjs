@@ -32,7 +32,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Introduction', slug: 'introduction' },
         {
-          label: 'Explore Graph',
+          label: 'Spec Explorer',
           link: '/explore/',
           attrs: { target: '_blank', class: 'external-link' },
         },

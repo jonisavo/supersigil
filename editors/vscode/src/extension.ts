@@ -7,15 +7,28 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  State,
   TransportKind,
 } from "vscode-languageclient/node";
-import { METHOD_DOCUMENTS_CHANGED, SpecExplorerProvider } from "./specExplorer";
+import {
+  METHOD_DOCUMENT_LIST,
+  METHOD_DOCUMENTS_CHANGED,
+  SpecExplorerProvider,
+  DocumentEntry,
+} from "./specExplorer";
+import { PreviewCache } from "./previewCache";
 
 const clients = new Map<string, LanguageClient>();
 let statusBarItem: vscode.StatusBarItem;
 let specExplorer: SpecExplorerProvider;
+let previewCache: PreviewCache;
 let notFoundShown = false;
+let outputChannel: vscode.OutputChannel;
+
+/** Shared cache for documentList results, keyed by document ID. */
+const documentListCache = new Map<string, DocumentEntry>();
+
+/** Track fence index per-document during a single markdown-it render pass. */
+const fenceIndexByUri = new Map<string, number>();
 
 function resolveServerBinary(): string | undefined {
   const config = vscode.workspace.getConfiguration("supersigil.lsp");
@@ -193,9 +206,23 @@ async function startClientForFolder(
 
   client.onDidChangeState(() => updateStatusBar());
 
-  // Refresh the Spec Explorer tree when the LSP re-indexes.
+  // Refresh the Spec Explorer tree and preview cache when the LSP re-indexes.
   client.onNotification(METHOD_DOCUMENTS_CHANGED, () => {
     specExplorer?.refresh();
+    previewCache?.invalidateAll();
+
+    // Populate the shared documentListCache so link resolution and
+    // goToCriterion work even before the tree view is expanded.
+    if (client.isRunning()) {
+      client
+        .sendRequest<{ documents: DocumentEntry[] }>(METHOD_DOCUMENT_LIST)
+        .then((result) => {
+          previewCache?.updateDocumentList(result.documents);
+        })
+        .catch(() => {
+          // Best-effort; tree view will also populate on expand.
+        });
+    }
   });
 
   clients.set(key, client);
@@ -300,15 +327,186 @@ async function showStatusMenu(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Criterion navigation command
+// ---------------------------------------------------------------------------
+
+async function goToCriterion(
+  docId: string,
+  criterionId: string,
+): Promise<void> {
+  // Look up the target document's file path from the documentList cache
+  const entry = documentListCache.get(docId);
+  if (!entry) {
+    vscode.window.showWarningMessage(
+      `Document "${docId}" not found in the spec index.`,
+    );
+    return;
+  }
+
+  // Find the workspace folder for this document
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  let targetUri: vscode.Uri | undefined;
+  for (const folder of folders) {
+    const candidate = vscode.Uri.joinPath(folder.uri, entry.path);
+    if (existsSync(candidate.fsPath)) {
+      targetUri = candidate;
+      break;
+    }
+  }
+
+  if (!targetUri) {
+    vscode.window.showWarningMessage(
+      `Could not resolve file path for document "${docId}".`,
+    );
+    return;
+  }
+
+  // Open beside with preserveFocus so the Markdown preview stays on the source
+  const doc = await vscode.workspace.openTextDocument(targetUri);
+  const editor = await vscode.window.showTextDocument(doc, {
+    viewColumn: vscode.ViewColumn.Beside,
+    preserveFocus: true,
+    preview: true,
+  });
+
+  // Search for the criterion ID in the document text to navigate to it
+  const text = doc.getText();
+  const searchPattern = `id="${criterionId}"`;
+  const idx = text.indexOf(searchPattern);
+  if (idx >= 0) {
+    const pos = doc.positionAt(idx);
+    const range = new vscode.Range(pos, pos);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown-it plugin: extendMarkdownIt
+// ---------------------------------------------------------------------------
+
+interface MarkdownItToken {
+  type: string;
+  info: string;
+  content: string;
+  map: [number, number] | null;
+}
+
+interface MarkdownItEnv {
+  currentDocument?: vscode.Uri;
+  [key: string]: unknown;
+}
+
+/**
+ * Create the `extendMarkdownIt` return value for VS Code's
+ * markdown.markdownItPlugins contribution.
+ */
+function createMarkdownItExtender(cache: PreviewCache) {
+  return {
+    extendMarkdownIt(md: {
+      renderer: {
+        rules: {
+          fence: (
+            tokens: MarkdownItToken[],
+            idx: number,
+            options: unknown,
+            env: MarkdownItEnv,
+            self: unknown,
+          ) => string;
+        };
+      };
+    }) {
+      const defaultFence = md.renderer.rules.fence.bind(md.renderer.rules);
+
+      md.renderer.rules.fence = (
+        tokens: MarkdownItToken[],
+        idx: number,
+        options: unknown,
+        env: MarkdownItEnv,
+        self: unknown,
+      ): string => {
+        const token = tokens[idx];
+        if (token.info.trim() === "supersigil-xml") {
+          // Determine the document URI from the env
+          const documentUri = resolveDocumentUri(env);
+          if (!documentUri) {
+            return defaultFence(tokens, idx, options, env, self);
+          }
+
+          // Track fence index for document-order correlation
+          const uriStr = documentUri;
+          const fenceIdx = fenceIndexByUri.get(uriStr) ?? 0;
+          fenceIndexByUri.set(uriStr, fenceIdx + 1);
+
+          // Render the fence from cached data
+          const html = cache.renderFence(fenceIdx, documentUri);
+
+          // Check if this is the last supersigil-xml fence; if so,
+          // append edges and reset the fence index counter
+          const remaining = countRemainingFences(tokens, idx + 1);
+          if (remaining === 0) {
+            const edgeHtml = cache.renderEdges(documentUri);
+            fenceIndexByUri.delete(uriStr);
+            return html + edgeHtml;
+          }
+
+          return html;
+        }
+        return defaultFence(tokens, idx, options, env, self);
+      };
+
+      return md;
+    },
+  };
+}
+
+/** Extract the document URI from the markdown-it env object. */
+function resolveDocumentUri(env: MarkdownItEnv): string | undefined {
+  // VS Code's built-in Markdown preview sets `env.currentDocument`
+  // directly as a vscode.Uri, not { uri: vscode.Uri }.
+  if (env.currentDocument) {
+    return env.currentDocument.toString();
+  }
+  return undefined;
+}
+
+/** Count remaining supersigil-xml fence tokens after the given index. */
+function countRemainingFences(
+  tokens: MarkdownItToken[],
+  startIdx: number,
+): number {
+  let count = 0;
+  for (let i = startIdx; i < tokens.length; i++) {
+    if (
+      tokens[i].type === "fence" &&
+      tokens[i].info.trim() === "supersigil-xml"
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Activation
+// ---------------------------------------------------------------------------
+
 export async function activate(
   context: vscode.ExtensionContext,
-): Promise<void> {
+): Promise<ReturnType<typeof createMarkdownItExtender>> {
+  outputChannel = vscode.window.createOutputChannel("Supersigil");
+  context.subscriptions.push(outputChannel);
+
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     10,
   );
   statusBarItem.command = "supersigil.showStatus";
   context.subscriptions.push(statusBarItem);
+
+  // Initialize preview cache
+  previewCache = new PreviewCache(clients, documentListCache, outputChannel);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("supersigil.showStatus", () =>
@@ -363,6 +561,58 @@ export async function activate(
     }),
   );
 
+  // Criterion navigation command
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "supersigil.goToCriterion",
+      async (docId: string, criterionId: string) => {
+        await goToCriterion(docId, criterionId);
+      },
+    ),
+  );
+
+  // URI handler for vscode://savolainen.supersigil/... links.
+  // Used by the Markdown preview where command: URIs are blocked.
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      async handleUri(uri: vscode.Uri) {
+        outputChannel.appendLine(`[uri] Handling: ${uri.toString()}`);
+        const params = new URLSearchParams(uri.query);
+
+        switch (uri.path) {
+          case "/open-file": {
+            const filePath = params.get("path");
+            if (!filePath) return;
+            const line = parseInt(params.get("line") ?? "1", 10);
+            const fileUri = vscode.Uri.file(filePath);
+            const doc = await vscode.workspace.openTextDocument(fileUri);
+            const selection = new vscode.Range(
+              Math.max(0, line - 1), 0,
+              Math.max(0, line - 1), 0,
+            );
+            await vscode.window.showTextDocument(doc, {
+              selection,
+              viewColumn: vscode.ViewColumn.Beside,
+              preserveFocus: true,
+              preview: true,
+            });
+            break;
+          }
+          case "/open-criterion": {
+            const docId = params.get("doc");
+            const criterionId = params.get("criterion");
+            if (docId && criterionId) {
+              await goToCriterion(docId, criterionId);
+            }
+            break;
+          }
+          default:
+            outputChannel.appendLine(`[uri] Unknown path: ${uri.path}`);
+        }
+      },
+    }),
+  );
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(async (e) => {
       for (const removed of e.removed) {
@@ -390,6 +640,9 @@ export async function activate(
 
   await startAllClients(context);
   updateNoRootsContext();
+
+  // Return the markdown-it plugin for VS Code's built-in Markdown preview
+  return createMarkdownItExtender(previewCache);
 }
 
 export async function deactivate(): Promise<void> {

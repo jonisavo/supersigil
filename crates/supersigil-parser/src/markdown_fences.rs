@@ -29,8 +29,15 @@ pub struct MarkdownFences {
 pub struct XmlFence {
     /// The raw content between the fences.
     pub content: String,
-    /// Byte offset of the fence start in the normalized source.
+    /// Byte offset of the content start in the normalized source (after the
+    /// opening delimiter line).
     pub content_offset: usize,
+    /// Byte offset of the opening fence delimiter (`` ``` `` line) in the
+    /// normalized source.
+    pub fence_start: usize,
+    /// Byte offset of the end of the closing fence delimiter in the normalized
+    /// source.
+    pub fence_end: usize,
 }
 
 /// A fenced code block carrying a `supersigil-ref=<target>` meta token.
@@ -117,19 +124,27 @@ fn collect_fences(node: &mdast::Node, body: &str, body_offset: usize, fences: &m
             // `pos.start.offset` points to the opening fence delimiter (``` line).
             // The actual content begins on the next line, so we advance past the
             // first newline to get the byte offset of the code block content.
-            let offset = code.position.as_ref().map_or(0, |pos| {
-                let fence_start = pos.start.offset;
-                body[fence_start..]
-                    .find('\n')
-                    .map_or(body_offset + fence_start, |nl| {
-                        body_offset + fence_start + nl + 1
-                    })
-            });
+            let (offset, fence_start_abs, fence_end_abs) =
+                code.position.as_ref().map_or((0, 0, 0), |pos| {
+                    let fence_start = pos.start.offset;
+                    let content_offset = body[fence_start..]
+                        .find('\n')
+                        .map_or(body_offset + fence_start, |nl| {
+                            body_offset + fence_start + nl + 1
+                        });
+                    (
+                        content_offset,
+                        body_offset + fence_start,
+                        body_offset + pos.end.offset,
+                    )
+                });
 
             if code.lang.as_deref() == Some(SUPERSIGIL_XML_LANG) {
                 fences.xml_fences.push(XmlFence {
                     content: code.value.clone(),
                     content_offset: offset,
+                    fence_start: fence_start_abs,
+                    fence_end: fence_end_abs,
                 });
             } else if let Some(ref meta) = code.meta
                 && let Some((target, fragment)) = parse_ref_meta(meta)

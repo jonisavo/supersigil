@@ -147,9 +147,16 @@ fn has_decision_referencing(
     components: &[supersigil_core::ExtractedComponent],
     target_doc_id: &str,
 ) -> bool {
-    super::find_components(components, DECISION)
-        .iter()
-        .any(|comp| decision_references_target(&comp.children, target_doc_id))
+    for comp in components {
+        if comp.name == DECISION && decision_references_target(&comp.children, target_doc_id) {
+            return true;
+        }
+        // Recurse into children
+        if has_decision_referencing(&comp.children, target_doc_id) {
+            return true;
+        }
+    }
+    false
 }
 
 // ===========================================================================

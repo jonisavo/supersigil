@@ -8,7 +8,7 @@ import '../components/explore/styles.css';
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Interactive graph explorer for the supersigil component graph." />
+  <meta name="description" content="Interactive spec explorer for the supersigil component graph." />
   <meta name="theme-color" content="#08080c" />
   <script is:inline>
     (function() {
@@ -19,11 +19,12 @@ import '../components/explore/styles.css';
       });
     })();
   </script>
-  <title>Supersigil — Graph Explorer</title>
+  <title>Supersigil — Spec Explorer</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/supersigil/explore/supersigil-preview.css" />
 </head>
 
 <body>
@@ -38,6 +39,10 @@ import '../components/explore/styles.css';
   </a>
 
   <div id="explorer" class="explorer" style="height: 100vh;"></div>
+
+  <!-- Preview kit: render-iife must load before detail-panel uses it -->
+  <script is:inline src="/supersigil/explore/render-iife.js"></script>
+  <script is:inline src="/supersigil/explore/supersigil-preview.js"></script>
 
   <style>
     html, body {
@@ -88,14 +93,18 @@ import '../components/explore/styles.css';
 
   async function init() {
     try {
-      const response = await fetch('/supersigil/explore/graph.json');
-      if (!response.ok) {
-        throw new Error(`Failed to load graph data: ${response.status} ${response.statusText}`);
+      const [graphResponse, renderResponse] = await Promise.all([
+        fetch('/supersigil/explore/graph.json'),
+        fetch('/supersigil/explore/render-data.json'),
+      ]);
+      if (!graphResponse.ok) {
+        throw new Error(`Failed to load graph data: ${graphResponse.status} ${graphResponse.statusText}`);
       }
-      const data = await response.json();
-      mount(container, data);
+      const graphData = await graphResponse.json();
+      const renderData = renderResponse.ok ? await renderResponse.json() : [];
+      mount(container, graphData, renderData);
     } catch (err) {
-      console.error('Graph explorer failed to load:', err);
+      console.error('Spec explorer failed to load:', err);
       if (container) {
         container.innerHTML = `<div class="explorer-error">
           <p>Unable to load graph data.</p>

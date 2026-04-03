@@ -8,9 +8,7 @@ title: "ADR: Structured Rationale in the Specification Graph"
 
 ```supersigil-xml
 <References refs="decision-components/req" />
-```
 
-```supersigil-xml
 <Decision id="structured-rationale">
   Supersigil captures architectural rationale as typed, referenceable
   components in the specification graph rather than as freeform prose in

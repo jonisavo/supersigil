@@ -11,6 +11,7 @@ use crate::format::{
     write_json, write_tasks,
 };
 use crate::loader;
+use crate::plugins;
 
 /// Run the `plan` command: show outstanding work for a document, prefix,
 /// or the whole project.
@@ -37,8 +38,8 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
     // evidence in the ArtifactGraph are no longer outstanding.
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
     let (artifact_graph, plugin_findings) =
-        supersigil_verify::build_evidence(&config, &graph, project_root, None, &inputs);
-    crate::plugins::warn_plugin_findings(&plugin_findings, color);
+        plugins::build_evidence(&config, &graph, project_root, None, &inputs);
+    plugins::warn_plugin_findings(&plugin_findings, color);
     plan.outstanding_targets
         .retain(|c| !artifact_graph.has_evidence(&c.doc_id, &c.target_id));
     let plan = plan;
