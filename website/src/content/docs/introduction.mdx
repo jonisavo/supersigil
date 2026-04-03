@@ -1,6 +1,6 @@
 ---
 title: What is Supersigil?
-description: Supersigil turns Markdown spec files into a verifiable graph — so specifications stay honest as code evolves.
+description: Supersigil turns Markdown spec files into a verifiable graph so specifications stay honest as code evolves.
 supersigil:
   id: website/introduction
   type: documentation
@@ -8,7 +8,10 @@ supersigil:
 
 import { Aside } from '@astrojs/starlight/components';
 
-Supersigil is an open-source CLI tool that turns specification documents into a **verifiable directed graph**. You write specs as Markdown files with typed components in `supersigil-xml` fenced code blocks — criteria, test mappings, design links, tracked files — and Supersigil checks every edge in the graph: broken references, uncovered criteria, dependency cycles, stale evidence. Run it locally or in CI, same as a linter or test suite.
+Supersigil is an open-source CLI tool that turns specification documents into a **verifiable directed graph**.
+You write specs as Markdown files with typed components in `supersigil-xml` fenced code blocks — criteria,
+test mappings, design links, tracked files — and Supersigil checks every edge in the graph: broken references,
+uncovered criteria, dependency cycles, stale evidence. Run it locally or in CI, same as a linter or test suite.
 
 ```bash
 cargo install supersigil
@@ -18,9 +21,13 @@ supersigil verify
 
 ## The problem
 
-Most software teams have specifications somewhere — wikis, Notion pages, Google Docs, Jira tickets. These artifacts share a fundamental weakness: **nothing connects them to the code they describe**, so they drift the moment someone pushes a commit. Tests run green, but nobody knows which requirements those tests actually prove.
+Most software teams have specifications somewhere — wikis, Notion pages, Google Docs, Jira tickets.
+These artifacts share a fundamental weakness: **nothing connects them to the code they describe**,
+so they drift the moment someone pushes a commit. Tests run green, but nobody knows which requirements those tests actually prove.
 
-AI coding agents make this worse. An agent can plan and implement a feature in minutes, but without a verifiable spec layer it has no contract to work against. It hallucinates scope, skips edge cases, and produces code that passes tests but doesn't match intent.
+AI coding agents make this worse. An agent can plan and implement a feature in minutes,
+but without a verifiable spec layer it has no contract to work against. It hallucinates scope, skips edge cases,
+and produces code that passes tests but doesn't match intent.
 
 ## How Supersigil solves it
 
@@ -36,14 +43,16 @@ Specs live in your repository as Markdown files. Each file declares typed compon
 ```
 ````
 
-Components form a **directed graph** — criteria point to evidence, designs point to requirements, tasks point to criteria. Supersigil traverses this graph during verification and reports exactly what is missing, broken, or stale.
+Components form a **directed graph** — criteria point to evidence, designs point to requirements,
+tasks point to criteria. Supersigil traverses this graph during verification and reports exactly what is missing, broken, or stale.
 
 - **Structural checks** catch broken refs, duplicate IDs, and dependency cycles.
 - **Coverage analysis** finds criteria without test evidence.
 - **Staleness detection** flags specs whose tracked source files have changed.
 - **Executable examples** run embedded code samples as tests during verification.
 
-Everything outputs as JSON for agent consumption. `supersigil context auth/req/login` gives an agent the full picture of a document and its relationships in one call.
+Everything outputs as JSON for agent consumption. `supersigil context auth/req/login` gives an agent the full picture
+of a document and its relationships in one call.
 
 ## Choose a path
 
