@@ -42,6 +42,16 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  eval:
+    dependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+    devDependencies:
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.2)
+
   packages/preview:
     devDependencies:
       esbuild:

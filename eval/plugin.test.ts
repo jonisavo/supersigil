@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   extractSupersigilSubcommand,
   resolveSupersigilBinaryPath,
@@ -405,8 +406,9 @@ esac
   });
 
   test("repo wrapper bootstraps the release binary before exec", async () => {
-    const shellWrapper = await readFile(join(import.meta.dir, "bin", "supersigil"), "utf-8");
-    const cmdWrapper = await readFile(join(import.meta.dir, "bin", "supersigil.cmd"), "utf-8");
+    const evalDir = dirname(fileURLToPath(import.meta.url));
+    const shellWrapper = await readFile(join(evalDir, "bin", "supersigil"), "utf-8");
+    const cmdWrapper = await readFile(join(evalDir, "bin", "supersigil.cmd"), "utf-8");
 
     expect(shellWrapper).toContain("target/release/supersigil");
     expect(shellWrapper).toContain("cargo build");

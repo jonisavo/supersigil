@@ -1,10 +1,13 @@
 {
   "name": "eval",
   "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "catalog:"
   }
 }

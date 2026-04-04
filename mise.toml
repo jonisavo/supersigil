@@ -2,8 +2,8 @@
 description = "Set up the development environment."
 run = [
     "pnpm install",
-    "lefthook install",
     "cargo build --workspace",
+    "lefthook install"
 ]
 
 [tasks.format]
