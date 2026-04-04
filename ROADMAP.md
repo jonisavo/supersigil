@@ -20,10 +20,6 @@
   stdin/stdout hooks, WASM plugins (via Extism or similar) could
   provide sandboxed, cross-language extensibility. Not planned for v1.
 
-- **Spec rendering**: Render spec documents as browsable
-  documentation (e.g., an Astro/Starlight integration that shows
-  criteria, coverage badges, and graph relationships inline).
-
 - **CI integrations**: First-party GitHub Action
   (`supersigil/setup-action`) and GitLab CI docker image for
   streamlined CI setup. Structured output formats for GitHub
@@ -38,9 +34,3 @@
 - **Lint auto-fix**: `supersigil lint --fix` to automatically
   correct simple structural issues (missing attributes, ID
   formatting).
-
-- **Distribution** (in progress): Homebrew tap, AUR package,
-  pre-built binaries for Linux and macOS, and automated
-  publishing of VS Code and IntelliJ extensions. Includes CI
-  pipeline and conventional commit enforcement. npm wrapper
-  package deferred to a later iteration.
