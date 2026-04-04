@@ -46,7 +46,7 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
         run: |
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/jonisavo/homebrew-supersigil.git /tmp/tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/jonisavo/homebrew-supersigil.git" /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp /tmp/supersigil.rb /tmp/tap/Formula/supersigil.rb
           cd /tmp/tap

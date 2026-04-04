@@ -44,6 +44,6 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
-        run: pnpm dlx ovsx publish *.vsix
+        run: pnpm dlx ovsx publish ./*.vsix
         env:
           OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
