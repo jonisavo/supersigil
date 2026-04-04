@@ -311,7 +311,7 @@ pub fn finalize_example_findings(
     if let Some(skip_reason) = skip_reason {
         let message = match skip_reason {
             ExampleSkipReason::StructuralErrors => {
-                "example execution skipped due to structural errors in phase 1"
+                "example execution skipped because verify found errors (fix errors to run examples)"
             }
             ExampleSkipReason::ExplicitSkip => "example execution skipped via --skip-examples",
         };
@@ -693,7 +693,7 @@ mod verify_tests {
         assert_eq!(findings[0].effective_severity, ReportSeverity::Info);
         assert_eq!(findings[0].raw_severity, ReportSeverity::Info);
         assert!(
-            findings[0].message.contains("structural errors"),
+            findings[0].message.contains("verify found errors"),
             "skip finding should explain why examples were skipped: {:?}",
             findings[0],
         );

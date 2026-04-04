@@ -1,7 +1,7 @@
 use supersigil_core::{Config, DocumentGraph};
 use supersigil_evidence::VerificationEvidenceRecord;
 use supersigil_verify::{
-    ArtifactGraph, ExampleSkipReason, Finding, ReportSeverity, VerificationReport,
+    ArtifactGraph, ExampleSkipReason, Finding, ReportSeverity, RuleName, VerificationReport,
     artifact_conflict_findings, empty_project_finding, filter_findings_to_doc_ids,
     finalize_example_findings, finalize_report, resolve_finding_severities, verify_coverage,
 };
@@ -78,6 +78,10 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> PreparedReport {
     all_findings.extend(conflict_findings);
     all_findings.extend(example_findings);
 
+    if example_skip_reason.is_some() {
+        annotate_example_coverable_findings(&mut all_findings);
+    }
+
     if let Some(finding) = empty_project_finding(config, doc_count) {
         all_findings.push(finding);
     }
@@ -87,6 +91,25 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> PreparedReport {
         example_summary,
         example_progress_display,
         example_skip_reason,
+    }
+}
+
+/// Append "(has example, skipped)" to `MissingVerificationEvidence` findings whose
+/// criterion is targeted by an `<Example verifies="...">` component. This tells the
+/// user the finding is a downstream consequence of examples being skipped, not a
+/// genuine coverage gap.
+fn annotate_example_coverable_findings(findings: &mut [Finding]) {
+    for finding in findings {
+        if finding.rule != RuleName::MissingVerificationEvidence {
+            continue;
+        }
+        let is_example_coverable = finding
+            .details
+            .as_ref()
+            .is_some_and(|d| d.example_coverable);
+        if is_example_coverable {
+            finding.message.push_str(" (has example, skipped)");
+        }
     }
 }
 

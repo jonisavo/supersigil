@@ -458,15 +458,11 @@ impl SupersigilLsp {
 
         // Get document content for fence extraction.
         // Prefer in-memory content for open files; fall back to disk for unopened ones.
-        let content = self
-            .open_files
-            .get(&uri)
-            .cloned()
-            .unwrap_or_else(|| {
-                let path = uri.to_file_path().ok();
-                let text = path.and_then(|p| std::fs::read_to_string(p).ok());
-                Arc::new(text.unwrap_or_default())
-            });
+        let content = self.open_files.get(&uri).cloned().unwrap_or_else(|| {
+            let path = uri.to_file_path().ok();
+            let text = path.and_then(|p| std::fs::read_to_string(p).ok());
+            Arc::new(text.unwrap_or_default())
+        });
 
         let graph = Arc::clone(&self.graph);
         let evidence = self.evidence_by_target.clone();
