@@ -10,3 +10,5 @@ website/public/explore/render-iife.js
 website/public/explore/supersigil-preview.css
 website/public/explore/supersigil-preview.js
 .DS_Store
+
+node_modules
