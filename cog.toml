@@ -1,0 +1,13 @@
+# Keep in sync with cliff.toml commit_parsers
+[commit_types]
+feat = { changelog_title = "Features" }
+fix = { changelog_title = "Bug Fixes" }
+refactor = { changelog_title = "Refactoring" }
+perf = { changelog_title = "Performance" }
+docs = { changelog_title = "Documentation" }
+test = { changelog_title = "Testing" }
+ci = { changelog_title = "CI/CD" }
+build = { changelog_title = "Build" }
+chore = { changelog_title = "Miscellaneous" }
+style = { changelog_title = "Styling" }
+revert = { changelog_title = "Reverts" }

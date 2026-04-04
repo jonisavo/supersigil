@@ -1,0 +1,17 @@
+# Maintainer: Joni Savolainen <joni@savolainen.io>
+pkgname=supersigil-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="CLI tool and verification framework for spec-driven development"
+arch=('x86_64')
+url="https://github.com/jonisavo/supersigil"
+license=('MIT')
+provides=('supersigil')
+conflicts=('supersigil')
+source=("${url}/releases/download/v${pkgver}/supersigil-${pkgver}-x86_64-unknown-linux-musl.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    install -Dm755 supersigil "${pkgdir}/usr/bin/supersigil"
+    install -Dm755 supersigil-lsp "${pkgdir}/usr/bin/supersigil-lsp"
+}

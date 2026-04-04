@@ -1,5 +1,6 @@
 {
   "name": "supersigil",
+  "packageManager": "pnpm@10.33.0",
   "displayName": "Supersigil",
   "description": "Language Server for Supersigil",
   "version": "0.1.0",

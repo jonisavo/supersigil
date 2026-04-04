@@ -1,0 +1,40 @@
+name: Publish AUR
+
+on:
+  workflow_call:
+    secrets:
+      AUR_SSH_KEY:
+        required: true
+  workflow_dispatch:
+
+jobs:
+  aur:
+    name: Update AUR package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release download "v${VERSION}" --pattern "SHA256SUMS" --dir /tmp
+
+      - name: Update PKGBUILD
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA256=$(grep x86_64-unknown-linux-musl /tmp/SHA256SUMS | cut -d' ' -f1)
+
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" dist/aur/supersigil-bin/PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${SHA256}')/" dist/aur/supersigil-bin/PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@abe8ac26b51011c88be58c8809fd2ac674068ea5 #v4.1.2
+        with:
+          pkgname: supersigil-bin
+          pkgbuild: dist/aur/supersigil-bin/PKGBUILD
+          commit_username: "Joni Savolainen"
+          commit_email: "joni@savolainen.io"
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}

@@ -1,3 +1,11 @@
+[tasks.setup]
+description = "Set up the development environment."
+run = [
+    "pnpm install",
+    "lefthook install",
+    "cargo build --workspace",
+]
+
 [tasks.format]
 description = "Format the workspace."
 run = "cargo fmt --all"
@@ -5,7 +13,7 @@ run = "cargo fmt --all"
 [tasks.lint]
 description = "Lint the workspace."
 run = [
-    "cargo clippy --workspace --all-targets",
+    "cargo clippy --workspace --all-targets --all-features",
     "cargo run -p supersigil-cli lint"
 ]
 
@@ -60,3 +68,39 @@ depends = "qa"
 [tasks.install-all]
 description = "Install all binaries locally"
 run = ["mise bundle-explore", "mise install-cli", "mise install-lsp"]
+
+[tasks.release]
+description = "Prepare a release: bump versions, commit, and tag."
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="${1:?Usage: mise release <version>}"
+
+# Strip leading 'v' if present
+VERSION="${VERSION#v}"
+
+echo "Preparing release v${VERSION}..."
+
+# Update Cargo.toml versions
+sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" crates/supersigil-cli/Cargo.toml
+sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" crates/supersigil-lsp/Cargo.toml
+
+# Update VS Code extension version
+sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" editors/vscode/package.json
+
+# Update IntelliJ plugin version
+sed -i'' -e "s/^pluginVersion = .*/pluginVersion = ${VERSION}/" editors/intellij/gradle.properties
+
+# Update Cargo.lock
+cargo generate-lockfile
+
+echo "Updated versions to ${VERSION}. Review the changes:"
+git diff --stat
+
+echo ""
+echo "To finish the release:"
+echo "  git add -A && git commit -m 'chore(release): prepare v${VERSION}'"
+echo "  git tag v${VERSION}"
+echo "  git push && git push --tags"
+"""

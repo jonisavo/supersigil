@@ -1,0 +1,35 @@
+class Supersigil < Formula
+  desc "CLI tool and verification framework for spec-driven development"
+  homepage "https://github.com/jonisavo/supersigil"
+  version "@@VERSION@@"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-aarch64-apple-darwin.tar.gz"
+      sha256 "@@SHA256_AARCH64_APPLE@@"
+    else
+      url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-x86_64-apple-darwin.tar.gz"
+      sha256 "@@SHA256_X86_64_APPLE@@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "@@SHA256_AARCH64_LINUX@@"
+    else
+      url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "@@SHA256_X86_64_LINUX@@"
+    end
+  end
+
+  def install
+    bin.install "supersigil"
+    bin.install "supersigil-lsp"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/supersigil --version")
+  end
+end

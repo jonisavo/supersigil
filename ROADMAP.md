@@ -39,6 +39,8 @@
   correct simple structural issues (missing attributes, ID
   formatting).
 
-- **Distribution**: Homebrew tap, npm wrapper package, and
-  pre-built binaries for Linux and macOS to complement
-  `cargo install`.
+- **Distribution** (in progress): Homebrew tap, AUR package,
+  pre-built binaries for Linux and macOS, and automated
+  publishing of VS Code and IntelliJ extensions. Includes CI
+  pipeline and conventional commit enforcement. npm wrapper
+  package deferred to a later iteration.

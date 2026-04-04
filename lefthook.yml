@@ -1,0 +1,10 @@
+commit-msg:
+  commands:
+    cocogitto:
+      run: >-
+        cog verify "$(cat {1})"
+
+pre-push:
+  commands:
+    qa:
+      run: mise qa
