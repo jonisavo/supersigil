@@ -140,6 +140,13 @@ jobs:
             artifacts/supersigil-*.tar.gz
             artifacts/SHA256SUMS
 
+  publish-crates:
+    name: Publish crates.io
+    needs: release
+    uses: ./.github/workflows/publish-crates.yml
+    secrets:
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
   publish-homebrew:
     name: Publish Homebrew
     needs: release

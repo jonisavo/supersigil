@@ -82,9 +82,13 @@ VERSION="${VERSION#v}"
 
 echo "Preparing release v${VERSION}..."
 
-# Update Cargo.toml versions
-sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" crates/supersigil-cli/Cargo.toml
-sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" crates/supersigil-lsp/Cargo.toml
+# Update all crate versions
+for crate in crates/*/Cargo.toml; do
+  sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" "$crate"
+done
+
+# Update workspace dependency version specifiers
+sed -i'' -e "s/version = \"=[0-9]*\.[0-9]*\.[0-9]*\"/version = \"=${VERSION}\"/" Cargo.toml
 
 # Update VS Code extension version
 sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" editors/vscode/package.json

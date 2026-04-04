@@ -1,0 +1,31 @@
+name: Publish Crates
+
+on:
+  workflow_call:
+    secrets:
+      CRATES_IO_TOKEN:
+        required: true
+  workflow_dispatch:
+
+jobs:
+  crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master, "Add 1.94.1 patch release"
+        with:
+          toolchain: stable
+
+      - name: Install cargo-workspaces
+        uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
+        with:
+          tool: cargo-workspaces@73a9f77bc80c0459dd725bbfc6601f2e375aeac1 # v0.4.2
+
+      - name: Publish
+        run: cargo ws publish --from-git --publish-interval 15 --yes
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

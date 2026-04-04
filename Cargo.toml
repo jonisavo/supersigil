@@ -30,14 +30,14 @@ markdown = "1.0.0"
 proptest = "1.10.0"
 tempfile = "3.27.0"
 serde_json = "1.0.149"
-supersigil-core = { path = "crates/supersigil-core" }
-supersigil-evidence = { path = "crates/supersigil-evidence" }
-supersigil-rust = { path = "crates/supersigil-rust" }
-supersigil-rust-macros = { path = "crates/supersigil-rust-macros" }
-supersigil-parser = { path = "crates/supersigil-parser" }
-supersigil-import = { path = "crates/supersigil-import" }
-supersigil-verify = { path = "crates/supersigil-verify" }
-supersigil-lsp = { path = "crates/supersigil-lsp" }
+supersigil-core = { path = "crates/supersigil-core", version = "=0.1.0" }
+supersigil-evidence = { path = "crates/supersigil-evidence", version = "=0.1.0" }
+supersigil-rust = { path = "crates/supersigil-rust", version = "=0.1.0" }
+supersigil-rust-macros = { path = "crates/supersigil-rust-macros", version = "=0.1.0" }
+supersigil-parser = { path = "crates/supersigil-parser", version = "=0.1.0" }
+supersigil-import = { path = "crates/supersigil-import", version = "=0.1.0" }
+supersigil-verify = { path = "crates/supersigil-verify", version = "=0.1.0" }
+supersigil-lsp = { path = "crates/supersigil-lsp", version = "=0.1.0" }
 glob = "0.3.3"
 libc = "0.2"
 ureq = "3.2.0"
