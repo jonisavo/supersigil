@@ -53,7 +53,7 @@ var SupersigilExplorer = (() => {
   });
   var d32 = __toESM(require_d3_global(), 1);
 
-  // node_modules/.pnpm/force-in-a-box@1.0.2/node_modules/force-in-a-box/dist/forceInABox.esm.js
+  // ../node_modules/.pnpm/force-in-a-box@1.0.2/node_modules/force-in-a-box/dist/forceInABox.esm.js
   var d3 = __toESM(require_d3_global(), 1);
   function forceInABox() {
     function constant(_) {
@@ -1028,7 +1028,7 @@ var SupersigilExplorer = (() => {
   function mount(container, data, renderData) {
     const { documents, edges } = data;
     if (!container || typeof container.getBoundingClientRect !== "function") return;
-    const repositoryUrl = "https://github.com/supersigil/supersigil";
+    const repositoryUrl = "https://github.com/jonisavo/supersigil";
     function edgeEndpointId(endpoint) {
       return typeof endpoint === "string" ? endpoint : endpoint.id;
     }

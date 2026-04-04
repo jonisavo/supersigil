@@ -15,7 +15,7 @@ resolver = "3"
 [workspace.package]
 description = "A CLI tool and verification framework for spec-driven software development"
 license = "MIT"
-repository = "https://github.com/example/supersigil"
+repository = "https://github.com/jonisavo/supersigil"
 readme = "README.md"
 keywords = ["specification", "verification", "mdx", "traceability", "ai-agents"]
 categories = ["command-line-utilities", "development-tools"]

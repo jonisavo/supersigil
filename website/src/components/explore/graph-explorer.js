@@ -312,7 +312,7 @@ export function mount(container, data, renderData) {
   const { documents, edges } = data;
   if (!container || typeof container.getBoundingClientRect !== 'function') return;
 
-  const repositoryUrl = 'https://github.com/supersigil/supersigil';
+  const repositoryUrl = 'https://github.com/jonisavo/supersigil';
 
   /** @param {any} endpoint @returns {string} */
   function edgeEndpointId(endpoint) {

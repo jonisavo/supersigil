@@ -21,7 +21,7 @@ goal: |
 
 template:
   type: git
-  repo: git@git.savolainen.io:joni/supersigil.git
+  repo: git@github.com:jonisavo/supersigil.git
   ref: d816d0a820f060e08208bb02b71cd889bc8c8adb
 timeout: 1800000
 source_path: ../../

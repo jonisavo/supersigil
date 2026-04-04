@@ -27,7 +27,7 @@ export default defineConfig({
         replacesTitle: false,
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/supersigil/supersigil' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/jonisavo/supersigil' },
       ],
       sidebar: [
         { label: 'Introduction', slug: 'introduction' },
