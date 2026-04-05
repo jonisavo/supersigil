@@ -2,6 +2,7 @@
 
 pub mod affected;
 pub(crate) mod artifact_graph;
+pub mod document_components;
 mod error;
 pub(crate) mod examples;
 pub(crate) mod explicit_evidence;

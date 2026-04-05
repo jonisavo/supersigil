@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use supersigil_lsp::document_components::{
+use supersigil_verify::document_components::{
     BuildComponentsInput, DocumentComponentsResult, build_document_components,
 };
 

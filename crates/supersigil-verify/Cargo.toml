@@ -17,6 +17,8 @@ serde.workspace = true
 serde_json.workspace = true
 supersigil-core.workspace = true
 supersigil-evidence.workspace = true
+supersigil-parser.workspace = true
+supersigil-rust.workspace = true
 thiserror.workspace = true
 ureq.workspace = true
 
@@ -32,7 +34,7 @@ workspace = true
 [dev-dependencies]
 proptest.workspace = true
 supersigil-core = { path = "../supersigil-core", features = ["test-helpers"] }
-supersigil-rust.workspace = true
+supersigil-rust-macros.workspace = true
 
 [lints]
 workspace = true

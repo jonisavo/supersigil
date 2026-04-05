@@ -5,7 +5,7 @@ use std::path::Path;
 
 use supersigil_core::{Config, DocumentGraph};
 use supersigil_evidence::RepositoryInfo;
-use supersigil_lsp::document_components::{
+use supersigil_verify::document_components::{
     BuildComponentsInput, DocumentComponentsResult, build_document_components,
 };
 
