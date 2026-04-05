@@ -23,10 +23,8 @@ use supersigil_core::{
     ComponentDefs, Config, DiagnosticsTier, DocumentGraph, ParseResult, SpecDocument, build_graph,
     expand_globs, find_config, load_config,
 };
-use supersigil_evidence::{EcosystemPlugin, EvidenceId, ProjectScope, VerificationEvidenceRecord};
-use supersigil_verify::{
-    VerifyInputs, VerifyOptions, build_artifact_graph, extract_explicit_evidence, verify,
-};
+use supersigil_evidence::{EvidenceId, VerificationEvidenceRecord};
+use supersigil_verify::{VerifyInputs, VerifyOptions, verify};
 
 use crate::code_actions::{ActionRequestContext, CodeActionProvider};
 use crate::commands;
@@ -320,15 +318,13 @@ impl SupersigilLsp {
         // ecosystem plugins (e.g. Rust #[verifies] macros), matching the
         // CLI's full evidence pipeline.
         let inputs = VerifyInputs::resolve(config, &project_root);
-        let plugins = assemble_plugins(config);
-        let scope = ProjectScope {
-            project: None,
-            project_root: project_root.clone(),
-        };
-        let plugin_evidence =
-            collect_plugin_evidence(&plugins, &inputs.test_files, &scope, &self.graph);
-        let explicit = extract_explicit_evidence(&self.graph, &inputs.tag_matches, &project_root);
-        let artifact_graph = build_artifact_graph(&self.graph, explicit, plugin_evidence.evidence);
+        let (artifact_graph, _plugin_findings) = supersigil_verify::plugins::build_evidence(
+            config,
+            &self.graph,
+            &project_root,
+            None,
+            &inputs,
+        );
         self.evidence_by_target = Some(Arc::new(artifact_graph.evidence_by_target.clone()));
         self.evidence_records = Some(Arc::new(artifact_graph.evidence.clone()));
 
@@ -622,47 +618,6 @@ impl SupersigilLsp {
             Ok(None)
         })
     }
-}
-
-// ---------------------------------------------------------------------------
-// Plugin evidence helpers (mirrors supersigil-cli/src/plugins.rs)
-// ---------------------------------------------------------------------------
-
-/// Assemble the enabled ecosystem plugin instances from the config.
-fn assemble_plugins(config: &Config) -> Vec<Box<dyn EcosystemPlugin>> {
-    let mut plugins: Vec<Box<dyn EcosystemPlugin>> = Vec::new();
-    for name in &config.ecosystem.plugins {
-        if name == "rust" {
-            plugins.push(Box::new(supersigil_rust::RustPlugin));
-        }
-    }
-    plugins
-}
-
-/// Collect evidence from all enabled plugins.
-fn collect_plugin_evidence(
-    plugins: &[Box<dyn EcosystemPlugin>],
-    test_files: &[PathBuf],
-    scope: &ProjectScope,
-    documents: &DocumentGraph,
-) -> PluginEvidenceResult {
-    let mut evidence = Vec::new();
-    for plugin in plugins {
-        let files = plugin.plan_discovery_inputs(test_files, scope);
-        match plugin.discover(&files, scope, documents) {
-            Ok(result) => {
-                evidence.extend(result.evidence);
-            }
-            Err(err) => {
-                tracing::warn!(plugin = plugin.name(), error = %err, "plugin discovery failed");
-            }
-        }
-    }
-    PluginEvidenceResult { evidence }
-}
-
-struct PluginEvidenceResult {
-    evidence: Vec<supersigil_evidence::VerificationEvidenceRecord>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1773,21 +1728,19 @@ mod tests {
 
         // Run the same pipeline as run_verify_and_publish
         let inputs = VerifyInputs::resolve(&config, &project_root);
-        let plugins = assemble_plugins(&config);
-        let scope = ProjectScope {
-            project: None,
-            project_root: project_root.clone(),
-        };
-        let plugin_result = collect_plugin_evidence(&plugins, &inputs.test_files, &scope, &graph);
+        let (artifact_graph, _plugin_findings) = supersigil_verify::plugins::build_evidence(
+            &config,
+            &graph,
+            &project_root,
+            None,
+            &inputs,
+        );
 
         // Plugin should find evidence from the #[verifies] attribute
         assert!(
-            !plugin_result.evidence.is_empty(),
+            !artifact_graph.evidence.is_empty(),
             "Rust plugin should discover evidence from #[verifies] attribute"
         );
-
-        let explicit = extract_explicit_evidence(&graph, &inputs.tag_matches, &project_root);
-        let artifact_graph = build_artifact_graph(&graph, explicit, plugin_result.evidence);
 
         // The criterion should be covered via plugin evidence
         assert!(

@@ -8,6 +8,7 @@ pub(crate) mod examples;
 pub(crate) mod explicit_evidence;
 pub mod git;
 pub(crate) mod hooks;
+pub mod plugins;
 mod report;
 mod rules;
 mod scan;
