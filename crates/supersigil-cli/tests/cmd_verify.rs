@@ -1277,3 +1277,131 @@ echo hello
         .stdout(predicate::str::contains("code_ref_conflict"))
         .stdout(predicate::str::contains("orphan"));
 }
+
+// -----------------------------------------------------------------------
+// JS plugin end-to-end
+// -----------------------------------------------------------------------
+
+fn setup_js_plugin_fixture(root: &Path) {
+    common::setup_project_with_js_plugin(root);
+    common::write_spec_doc(
+        root,
+        "specs/auth.md",
+        "auth/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="login-succeeds">
+    User can log in with valid credentials.
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("tests/auth.test.ts"),
+        r"import { verifies } from '@supersigil/vitest'
+import { test } from 'vitest'
+
+test('login succeeds', verifies('auth/req#login-succeeds'), () => {
+  // test body
+})
+",
+    )
+    .unwrap();
+}
+
+#[test]
+fn verify_js_plugin_discovers_verifies_evidence() {
+    let tmp = TempDir::new().unwrap();
+    setup_js_plugin_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify should exit cleanly when JS evidence covers the criterion: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    // The evidence summary should contain a record with JS provenance.
+    let records = report["evidence_summary"]["records"]
+        .as_array()
+        .expect("evidence_summary.records should be present");
+    assert!(
+        !records.is_empty(),
+        "expected at least one evidence record, got: {report}",
+    );
+
+    let js_record = records
+        .iter()
+        .find(|record| {
+            record["provenance"]
+                .as_array()
+                .is_some_and(|provenance| provenance.iter().any(|entry| entry == "plugin:js"))
+        })
+        .expect("expected a record with plugin:js provenance");
+
+    assert_eq!(js_record["test_name"], "login succeeds");
+    assert_eq!(js_record["evidence_kind"], "js-verifies");
+    assert!(
+        js_record["targets"]
+            .as_array()
+            .is_some_and(|targets| targets.iter().any(|t| t == "auth/req#login-succeeds")),
+        "expected target auth/req#login-succeeds in JS evidence record, got: {js_record}",
+    );
+
+    // No findings (errors/warnings) should be present.
+    assert_eq!(report["summary"]["error_count"], 0);
+    assert_eq!(report["summary"]["warning_count"], 0);
+}
+
+#[test]
+fn verify_js_plugin_missing_evidence_exits_nonzero() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project_with_js_plugin(tmp.path());
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/auth.md",
+        "auth/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"<AcceptanceCriteria>
+  <Criterion id="login-succeeds">
+    User can log in with valid credentials.
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+    // Test file exists but has no verifies() annotation.
+    fs::create_dir_all(tmp.path().join("tests")).unwrap();
+    fs::write(
+        tmp.path().join("tests/auth.test.ts"),
+        r"import { test } from 'vitest'
+
+test('login succeeds', () => {
+  // no verifies() annotation
+})
+",
+    )
+    .unwrap();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "verify should fail when JS evidence is missing: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}

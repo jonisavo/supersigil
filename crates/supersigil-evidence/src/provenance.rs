@@ -20,6 +20,7 @@ pub enum PluginProvenance {
     VerifiedByFileGlob { doc_id: String, paths: Vec<String> },
     RustAttribute { attribute_span: SourceLocation },
     Example { doc_id: String, example_id: String },
+    JsVerifies { annotation_span: SourceLocation },
 }
 
 impl PluginProvenance {
@@ -31,6 +32,7 @@ impl PluginProvenance {
             Self::VerifiedByFileGlob { .. } => EvidenceKind::FileGlob,
             Self::RustAttribute { .. } => EvidenceKind::RustAttribute,
             Self::Example { .. } => EvidenceKind::Example,
+            Self::JsVerifies { .. } => EvidenceKind::JsVerifies,
         }
     }
 }

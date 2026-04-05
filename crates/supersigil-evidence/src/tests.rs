@@ -140,6 +140,7 @@ fn evidence_kind_as_str() {
     assert_eq!(EvidenceKind::FileGlob.as_str(), "file-glob");
     assert_eq!(EvidenceKind::RustAttribute.as_str(), "rust-attribute");
     assert_eq!(EvidenceKind::Example.as_str(), "example");
+    assert_eq!(EvidenceKind::JsVerifies.as_str(), "js-verifies");
 }
 
 // ===========================================================================
@@ -193,6 +194,37 @@ fn plugin_provenance_rust_attribute() {
         }
         _ => panic!("expected RustAttribute variant"),
     }
+}
+
+#[test]
+fn plugin_provenance_js_verifies() {
+    let prov = PluginProvenance::JsVerifies {
+        annotation_span: SourceLocation {
+            file: PathBuf::from("tests/auth.test.ts"),
+            line: 12,
+            column: 3,
+        },
+    };
+    match &prov {
+        PluginProvenance::JsVerifies { annotation_span } => {
+            assert_eq!(annotation_span.file, PathBuf::from("tests/auth.test.ts"));
+            assert_eq!(annotation_span.line, 12);
+            assert_eq!(annotation_span.column, 3);
+        }
+        _ => panic!("expected JsVerifies variant"),
+    }
+}
+
+#[test]
+fn plugin_provenance_js_verifies_kind() {
+    let prov = PluginProvenance::JsVerifies {
+        annotation_span: SourceLocation {
+            file: PathBuf::from("tests/auth.test.ts"),
+            line: 12,
+            column: 3,
+        },
+    };
+    assert_eq!(prov.kind(), EvidenceKind::JsVerifies);
 }
 
 #[test]

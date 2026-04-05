@@ -161,6 +161,34 @@ pub struct RustEcosystemConfig {
     pub project_scope: Vec<RustProjectScope>,
 }
 
+// ---------------------------------------------------------------------------
+// JsEcosystemConfig
+// ---------------------------------------------------------------------------
+
+fn default_js_test_patterns() -> Vec<String> {
+    vec![
+        "**/*.test.{ts,tsx,js,jsx}".to_string(),
+        "**/*.spec.{ts,tsx,js,jsx}".to_string(),
+    ]
+}
+
+/// Per-plugin configuration for the JS/TS ecosystem plugin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JsEcosystemConfig {
+    /// Glob patterns for discovering JS/TS test files.
+    #[serde(default = "default_js_test_patterns")]
+    pub test_patterns: Vec<String>,
+}
+
+impl Default for JsEcosystemConfig {
+    fn default() -> Self {
+        Self {
+            test_patterns: default_js_test_patterns(),
+        }
+    }
+}
+
 /// Ecosystem plugin declarations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,6 +198,9 @@ pub struct EcosystemConfig {
     /// Per-plugin configuration for the Rust ecosystem plugin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rust: Option<RustEcosystemConfig>,
+    /// Per-plugin configuration for the JS/TS ecosystem plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub js: Option<JsEcosystemConfig>,
 }
 
 impl Default for EcosystemConfig {
@@ -177,6 +208,7 @@ impl Default for EcosystemConfig {
         Self {
             plugins: default_plugins(),
             rust: None,
+            js: None,
         }
     }
 }
@@ -456,7 +488,7 @@ pub struct Config {
 // ---------------------------------------------------------------------------
 
 /// The set of known built-in ecosystem plugin identifiers.
-pub const KNOWN_PLUGINS: &[&str] = &["rust"];
+pub const KNOWN_PLUGINS: &[&str] = &["rust", "js"];
 
 // ---------------------------------------------------------------------------
 // Known verification rule names

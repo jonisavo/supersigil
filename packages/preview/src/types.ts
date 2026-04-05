@@ -19,14 +19,16 @@ export type EvidenceKindLabel =
   | "tag"
   | "file-glob"
   | "rust-attribute"
-  | "example";
+  | "example"
+  | "js-verifies";
 
 /** A tagged union describing how a piece of evidence was discovered. */
 export type ProvenanceEntry =
   | { kind: "verified-by-tag"; tag: string }
   | { kind: "verified-by-file-glob"; paths: string[] }
   | { kind: "rust-attribute"; file: string; line: number }
-  | { kind: "example"; example_id: string };
+  | { kind: "example"; example_id: string }
+  | { kind: "js-verifies"; file: string; line: number };
 
 /** A single evidence entry linking a criterion to a test. */
 export interface EvidenceEntry {

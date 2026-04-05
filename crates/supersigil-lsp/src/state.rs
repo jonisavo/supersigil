@@ -1715,6 +1715,7 @@ mod tests {
             ecosystem: EcosystemConfig {
                 plugins: vec!["rust".into()],
                 rust: None,
+                js: None,
             },
             ..Config::default()
         };

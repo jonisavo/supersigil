@@ -398,6 +398,7 @@ impl EvidenceSummary {
                         PluginProvenance::Example { doc_id, example_id } => {
                             format!("example:{doc_id}:{example_id}")
                         }
+                        PluginProvenance::JsVerifies { .. } => "plugin:js".to_string(),
                     })
                     .collect();
                 EvidenceReportEntry {

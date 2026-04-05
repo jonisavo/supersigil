@@ -1,0 +1,4 @@
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["js"]

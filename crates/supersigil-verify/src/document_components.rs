@@ -166,6 +166,8 @@ pub enum EvidenceKindLabel {
     RustAttribute,
     #[serde(rename = "example")]
     Example,
+    #[serde(rename = "js-verifies")]
+    JsVerifies,
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +192,9 @@ pub enum ProvenanceEntry {
     /// Evidence from an `<Example>` component.
     #[serde(rename = "example")]
     Example { example_id: String },
+    /// Evidence from a JS/TS `verifies()` call or `meta.verifies` object.
+    #[serde(rename = "js-verifies")]
+    JsVerifies { file: String, line: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +481,7 @@ fn map_evidence_kind(kind: supersigil_evidence::EvidenceKind) -> EvidenceKindLab
         supersigil_evidence::EvidenceKind::FileGlob => EvidenceKindLabel::FileGlob,
         supersigil_evidence::EvidenceKind::RustAttribute => EvidenceKindLabel::RustAttribute,
         supersigil_evidence::EvidenceKind::Example => EvidenceKindLabel::Example,
+        supersigil_evidence::EvidenceKind::JsVerifies => EvidenceKindLabel::JsVerifies,
     }
 }
 
@@ -493,6 +499,10 @@ fn map_provenance(prov: &PluginProvenance, project_root: &Path) -> ProvenanceEnt
         },
         PluginProvenance::Example { example_id, .. } => ProvenanceEntry::Example {
             example_id: example_id.clone(),
+        },
+        PluginProvenance::JsVerifies { annotation_span } => ProvenanceEntry::JsVerifies {
+            file: relativize(&annotation_span.file, project_root),
+            line: annotation_span.line,
         },
     }
 }

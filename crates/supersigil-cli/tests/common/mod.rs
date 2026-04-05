@@ -84,6 +84,16 @@ pub fn write_spec_doc(
     fs::write(path, content).unwrap();
 }
 
+/// Set up a project with the JS ecosystem plugin enabled.
+pub fn setup_project_with_js_plugin(dir: &Path) {
+    fs::write(
+        dir.join("supersigil.toml"),
+        "paths = [\"specs/**/*.md\"]\n\n[ecosystem]\nplugins = [\"js\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("specs")).unwrap();
+}
+
 /// Wrap XML component content in `supersigil-xml` fenced code blocks.
 ///
 /// Detects XML tags (`<PascalCase`) in the body and wraps contiguous XML

@@ -4,6 +4,7 @@ members = [
     "crates/supersigil-parser",
     "crates/supersigil-import",
     "crates/supersigil-evidence",
+    "crates/supersigil-js",
     "crates/supersigil-rust",
     "crates/supersigil-rust-macros",
     "crates/supersigil-verify",
@@ -32,6 +33,7 @@ tempfile = "3.27.0"
 serde_json = "1.0.149"
 supersigil-core = { path = "crates/supersigil-core", version = "=0.1.0" }
 supersigil-evidence = { path = "crates/supersigil-evidence", version = "=0.1.0" }
+supersigil-js = { path = "crates/supersigil-js", version = "=0.1.0" }
 supersigil-rust = { path = "crates/supersigil-rust", version = "=0.1.0" }
 supersigil-rust-macros = { path = "crates/supersigil-rust-macros", version = "=0.1.0" }
 supersigil-parser = { path = "crates/supersigil-parser", version = "=0.1.0" }

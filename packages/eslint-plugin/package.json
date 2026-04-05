@@ -1,0 +1,40 @@
+{
+  "name": "@supersigil/eslint-plugin",
+  "version": "0.0.1",
+  "description": "ESLint plugin for validating Supersigil criterion refs",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "node esbuild.mjs && tsc --emitDeclarationOnly --noEmit false --outDir dist",
+    "prepack": "pnpm build",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@supersigil/vitest": "workspace:*",
+    "@types/node": "^22.0.0",
+    "esbuild": "catalog:",
+    "eslint": "^9.27.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts"
+      }
+    }
+  }
+}

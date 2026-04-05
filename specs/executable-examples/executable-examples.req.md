@@ -489,6 +489,7 @@ fn fixture_examples_json_from_rust() {
   id="fixture-cargo-test-examples-json"
   lang="rust"
   runner="cargo-test"
+  timeout="120"
   setup="tests/fixtures/example-project/setup-workspace-links.sh"
   verifies="executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-5-1, executable-examples/req#req-5-3"
 >
@@ -527,6 +528,7 @@ fn fixture_verify_from_rust() {
   id="fixture-cargo-test-verify"
   lang="rust"
   runner="cargo-test"
+  timeout="120"
   setup="tests/fixtures/example-project/setup-workspace-links.sh"
   verifies="executable-examples/req#req-2-3, executable-examples/req#req-2-6, executable-examples/req#req-4-1"
 >
@@ -565,6 +567,7 @@ cargo run -q -p supersigil-cli -- verify --format json
   id="fixture-verify"
   lang="sh"
   runner="sh"
+  timeout="120"
   setup="tests/fixtures/example-project/setup-workspace-links.sh"
   verifies="executable-examples/req#req-4-1"
 >

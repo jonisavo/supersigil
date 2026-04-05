@@ -149,6 +149,7 @@ fn arb_ecosystem_config() -> impl Strategy<Value = EcosystemConfig> {
     prop::collection::vec(arb_ident(), 0..4).prop_map(|plugins| EcosystemConfig {
         plugins,
         rust: None,
+        js: None,
     })
 }
 

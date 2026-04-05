@@ -27,13 +27,14 @@ use crate::report::{Finding, FindingDetails, RuleName};
 pub fn assemble_plugins(config: &Config) -> Vec<Box<dyn EcosystemPlugin>> {
     let mut plugins: Vec<Box<dyn EcosystemPlugin>> = Vec::new();
     for name in &config.ecosystem.plugins {
-        // Use match rather than if-else to make it easy to add new plugins.
-        #[allow(
-            clippy::single_match_else,
-            reason = "match is clearer for future plugin arms"
-        )]
         match name.as_str() {
             "rust" => plugins.push(Box::new(supersigil_rust::RustPlugin)),
+            "js" => {
+                let js_config = config.ecosystem.js.clone().unwrap_or_default();
+                plugins.push(Box::new(supersigil_js::JsPlugin::new(
+                    &js_config.test_patterns,
+                )));
+            }
             _ => {
                 // Unknown plugins are rejected at config load time.
                 // If we get here, it means a new plugin was added to the

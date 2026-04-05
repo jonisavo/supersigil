@@ -76,13 +76,14 @@ shape, so that explicit and plugin-derived evidence can be merged uniformly.
   </Criterion>
   <Criterion id="req-2-2">
     `supersigil-evidence` SHALL define stable `EvidenceKind` string surfaces
-    for the current built-in kinds `tag`, `file-glob`, and `rust-attribute`.
+    for the current built-in kinds `tag`, `file-glob`, `rust-attribute`, and
+    `js-verifies`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/src/tests.rs" />
   </Criterion>
   <Criterion id="req-2-3">
     `supersigil-evidence` SHALL define `PluginProvenance` variants for
     authored `VerifiedBy` tag evidence, authored `VerifiedBy` file-glob
-    evidence, and Rust attribute evidence.
+    evidence, Rust attribute evidence, and JS verifies evidence.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/src/tests.rs" />
   </Criterion>
   <Criterion id="req-2-4">

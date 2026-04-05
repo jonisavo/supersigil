@@ -8,7 +8,7 @@ mod code_refs;
 mod frontmatter;
 mod markdown_fences;
 mod preprocess;
-mod util;
+pub mod util;
 mod xml_extract;
 mod xml_parser;
 

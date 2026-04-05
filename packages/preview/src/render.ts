@@ -116,6 +116,14 @@ function renderProvenanceEntry(
     }
     case "example":
       return `<span class="supersigil-provenance-entry">Example: ${esc(entry.example_id)}</span>`;
+    case "js-verifies": {
+      const link = linkResolver.evidenceLink(entry.file, entry.line);
+      const label = `${esc(entry.file)}:${entry.line}`;
+      if (link) {
+        return `<a href="${esc(link)}" class="supersigil-provenance-entry">${label}</a>`;
+      }
+      return `<span class="supersigil-provenance-entry">${label}</span>`;
+    }
   }
 }
 

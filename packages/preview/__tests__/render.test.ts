@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { verifies } from "@supersigil/vitest";
 import { renderComponentTree } from "../src/render.js";
 import type {
   FenceData,
@@ -60,7 +61,7 @@ function criterion(
 // ---------------------------------------------------------------------------
 
 describe("renderComponentTree", () => {
-  it("returns empty string for empty fences", () => {
+  it("returns empty string for empty fences", verifies("spec-rendering/req#req-2-1"), () => {
     const html = renderComponentTree([], [], mockLinkResolver());
     expect(html).toBe("");
   });
@@ -80,7 +81,7 @@ describe("renderComponentTree", () => {
   // ---------------------------------------------------------------------------
 
   describe("Criterion component", () => {
-    it("renders with the correct CSS class", () => {
+    it("renders with the correct CSS class", verifies("spec-rendering/req#req-2-2"), () => {
       const fences: FenceData[] = [
         {
           byte_range: [0, 100],
@@ -91,7 +92,7 @@ describe("renderComponentTree", () => {
       expect(html).toContain('class="supersigil-criterion"');
     });
 
-    it("renders criterion id as data attribute", () => {
+    it("renders criterion id as data attribute", verifies("spec-rendering/req#req-2-2"), () => {
       const fences: FenceData[] = [
         {
           byte_range: [0, 100],
@@ -384,7 +385,7 @@ describe("renderComponentTree", () => {
       };
     }
 
-    it("renders with the correct CSS class", () => {
+    it("renders with the correct CSS class", verifies("spec-rendering/req#req-2-3"), () => {
       const fences: FenceData[] = [
         { byte_range: [0, 100], components: [decision()] },
       ];
@@ -392,7 +393,7 @@ describe("renderComponentTree", () => {
       expect(html).toContain('class="supersigil-decision"');
     });
 
-    it("renders Decision label and id", () => {
+    it("renders Decision label and id", verifies("spec-rendering/req#req-2-3"), () => {
       const fences: FenceData[] = [
         { byte_range: [0, 100], components: [decision()] },
       ];
@@ -454,7 +455,7 @@ describe("renderComponentTree", () => {
       };
     }
 
-    it("renders with the correct CSS class", () => {
+    it("renders with the correct CSS class", verifies("spec-rendering/req#req-2-4"), () => {
       const fences: FenceData[] = [
         { byte_range: [0, 100], components: [example()] },
       ];

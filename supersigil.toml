@@ -31,6 +31,7 @@ paths = [
   "crates/supersigil-evidence/specs/**/*.md",
   "crates/supersigil-rust/specs/**/*.md",
   "crates/supersigil-rust-macros/specs/**/*.md",
+  "crates/supersigil-js/specs/**/*.md",
 ]
 
 # VS Code extension and editor-side features.
@@ -44,6 +45,12 @@ paths = ["editors/intellij/specs/**/*.md"]
 # The documentation site.
 [projects.website]
 paths = ["website/src/content/docs/**/*.mdx"]
+
+[ecosystem]
+plugins = ["rust", "js"]
+
+[ecosystem.js]
+test_patterns = ["packages/**/*.test.ts"]
 
 [ecosystem.rust]
 validation = "dev"

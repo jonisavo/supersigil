@@ -5,8 +5,8 @@
 
 use serde::Deserialize;
 use supersigil_core::{
-    Config, DocumentationConfig, EcosystemConfig, ExamplesConfig, HooksConfig, Severity,
-    VerifyConfig,
+    Config, DocumentationConfig, EcosystemConfig, ExamplesConfig, HooksConfig, JsEcosystemConfig,
+    Severity, VerifyConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -1587,4 +1587,253 @@ repo = "jonisavo/supersigil"
         .expect("repository should survive round-trip");
     assert_eq!(repo.provider, supersigil_core::RepositoryProvider::GitHub);
     assert_eq!(repo.repo, "jonisavo/supersigil");
+}
+
+// ===========================================================================
+// Task 1: JS ecosystem config surface (ecosystem-plugins/req#req-1-5)
+// TDD: tests written before implementation
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 1. KNOWN_PLUGINS includes both "rust" and "js"
+// ---------------------------------------------------------------------------
+
+#[test]
+fn known_plugins_includes_js() {
+    assert!(
+        supersigil_core::KNOWN_PLUGINS.contains(&"js"),
+        "KNOWN_PLUGINS should include \"js\", got: {:?}",
+        supersigil_core::KNOWN_PLUGINS
+    );
+    assert!(
+        supersigil_core::KNOWN_PLUGINS.contains(&"rust"),
+        "KNOWN_PLUGINS should still include \"rust\""
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 2. plugins = ["js"] is accepted by load_config (no unknown-plugin error)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_js_plugin_accepted() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["js"]
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    assert_eq!(config.ecosystem.plugins, vec!["js".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// 3. plugins = ["rust", "js"] both accepted
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_and_js_plugins_accepted() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["rust", "js"]
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    assert_eq!(
+        config.ecosystem.plugins,
+        vec!["rust".to_string(), "js".to_string()]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4. Unknown plugin rejection still works with "js" known
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_unknown_plugin_still_rejected_with_js_known() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["js", "python"]
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin } if plugin == "python")),
+        "expected UnknownPlugin error for 'python', got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. JsEcosystemConfig default test_patterns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn js_ecosystem_config_default_test_patterns() {
+    let default = JsEcosystemConfig::default();
+    assert_eq!(
+        default.test_patterns,
+        vec![
+            "**/*.test.{ts,tsx,js,jsx}".to_string(),
+            "**/*.spec.{ts,tsx,js,jsx}".to_string(),
+        ],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 6. [ecosystem.js] section parses with default test_patterns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_js_section_defaults() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem.js]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let js = config.ecosystem.js.expect("ecosystem.js should be present");
+    assert_eq!(
+        js.test_patterns,
+        vec![
+            "**/*.test.{ts,tsx,js,jsx}".to_string(),
+            "**/*.spec.{ts,tsx,js,jsx}".to_string(),
+        ],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. [ecosystem.js] with custom test_patterns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_js_custom_test_patterns() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem.js]
+test_patterns = ["src/**/*.test.ts", "tests/**/*.spec.js"]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let js = config.ecosystem.js.expect("ecosystem.js should be present");
+    assert_eq!(
+        js.test_patterns,
+        vec![
+            "src/**/*.test.ts".to_string(),
+            "tests/**/*.spec.js".to_string(),
+        ],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. No [ecosystem.js] section → js is None
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_js_absent_is_none() {
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.ecosystem.js.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 9. Unknown field in [ecosystem.js] is rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_js_unknown_field_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem.js]
+test_patterns = ["**/*.test.ts"]
+unknown = "bad"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ---------------------------------------------------------------------------
+// 10. [ecosystem.js] via load_config
+// ---------------------------------------------------------------------------
+
+#[test]
+fn load_config_ecosystem_js_section() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["js"]
+
+[ecosystem.js]
+test_patterns = ["src/**/*.test.ts"]
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let js = config
+        .ecosystem
+        .js
+        .expect("ecosystem.js should be present via load_config");
+    assert_eq!(js.test_patterns, vec!["src/**/*.test.ts".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// 11. Both ecosystem.rust and ecosystem.js can coexist
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ecosystem_rust_and_js_coexist() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["rust", "js"]
+
+[ecosystem.rust]
+validation = "all"
+
+[ecosystem.js]
+test_patterns = ["tests/**/*.spec.ts"]
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let rust = config
+        .ecosystem
+        .rust
+        .expect("ecosystem.rust should be present");
+    assert_eq!(rust.validation, RustValidationPolicy::All);
+
+    let js = config.ecosystem.js.expect("ecosystem.js should be present");
+    assert_eq!(js.test_patterns, vec!["tests/**/*.spec.ts".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// 12. JsEcosystemConfig round-trip serialization
+// ---------------------------------------------------------------------------
+
+#[test]
+fn js_ecosystem_config_round_trip() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem.js]
+test_patterns = ["custom/**/*.test.ts"]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let serialized = toml::to_string(&config).unwrap();
+    let deserialized: Config = toml::from_str(&serialized).unwrap();
+    let js = deserialized
+        .ecosystem
+        .js
+        .expect("ecosystem.js should survive round-trip");
+    assert_eq!(js.test_patterns, vec!["custom/**/*.test.ts".to_string()]);
 }

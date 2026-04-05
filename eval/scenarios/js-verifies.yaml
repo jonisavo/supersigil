@@ -1,0 +1,64 @@
+version: 1
+name: js-verifies
+description: |
+  Link an existing JS/TS test to a Supersigil criterion using the verifies()
+  helper from @supersigil/vitest, then inspect the project with supersigil verify.
+
+plugins:
+  - git
+  - ../plugin.ts
+
+goal: |
+  You are working in a small JS/TS project that already contains Supersigil specs and
+  an unannotated Vitest test.
+
+  Your task is to connect the existing test to the existing Supersigil criterion using
+  the `verifies()` helper from `@supersigil/vitest`, then inspect the project with
+  `supersigil verify`.
+
+  Requirements:
+  1. Find the criterion in the spec docs that describes successful login.
+  2. Update `tests/auth.test.ts` so the existing test is annotated with the exact
+     criterion ref using `verifies('...')`.
+  3. Run `supersigil verify --format json` from the project root.
+
+  Do not rename files or change the criterion id.
+
+template:
+  type: local
+  path: ../templates/js-verifies
+timeout: 180000
+source_path: ../
+
+reviewer_context: |
+  This scenario evaluates Supersigil's JS ecosystem plugin workflow at the source level.
+
+  Focus on:
+  - Whether the agent can discover the correct criterion ref from the specs.
+  - Whether the `verifies()` usage follows the @supersigil/vitest API pattern.
+  - Whether `supersigil verify` is a natural next step for inspecting the result.
+  - Whether the CLI and project layout make the evidence model understandable.
+
+  Common failure modes:
+  - Using a fragmentless doc ref instead of a criterion ref.
+  - Inventing a criterion id that does not exist in the specs.
+  - Editing the spec id instead of annotating the JS test.
+  - Running unrelated npm/vitest commands instead of `supersigil verify`.
+
+success_criteria:
+  - type: file_contains
+    path: tests/auth.test.ts
+    contains: "verifies('auth/req#login-succeeds')"
+
+  - type: supersigil_verify_clean
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+
+  - type: supersigil_exit_code
+    command:
+      subcommand: verify
+      args_contains: ["--format", "json"]
+      occurrence: last
+    equals: 0

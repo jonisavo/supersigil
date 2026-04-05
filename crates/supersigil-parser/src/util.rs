@@ -1,7 +1,8 @@
 //! Shared utility functions for the parser crate.
 
 /// Compute 1-based (line, column) from a byte offset in `content`.
-pub(crate) fn line_col(content: &str, byte_offset: usize) -> (usize, usize) {
+#[must_use]
+pub fn line_col(content: &str, byte_offset: usize) -> (usize, usize) {
     let pos = byte_offset.min(content.len());
     let mut line = 1;
     let mut col = 1;

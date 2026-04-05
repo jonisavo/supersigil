@@ -49,9 +49,14 @@ that plugin-backed evidence can be enabled, disabled, and scoped predictably.
     before CLI plugin assembly runs.
   </Criterion>
   <Criterion id="req-1-4">
-    THE config model SHALL expose the current Rust-specific ecosystem policy
-    surface under `ecosystem.rust`, including `validation` and
-    `project_scope`.
+    THE config model SHALL expose the Rust-specific ecosystem policy surface
+    under `ecosystem.rust`, including `validation` and `project_scope`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
+  </Criterion>
+  <Criterion id="req-1-5">
+    THE config model SHALL expose the JS-specific ecosystem policy surface
+    under `ecosystem.js`, including `test_patterns`. The known built-in plugin
+    set SHALL include both `"rust"` and `"js"`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
@@ -66,8 +71,8 @@ pipeline, so that verification and query surfaces see one merged evidence view.
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
     THE CLI plugin layer SHALL assemble built-in plugin instances from the
-    Enabled_Plugin_Set and SHALL currently instantiate the Rust plugin for the
-    built-in `"rust"` identifier.
+    Enabled_Plugin_Set and SHALL instantiate the Rust plugin for the built-in
+    `"rust"` identifier and the JS plugin for the built-in `"js"` identifier.
   </Criterion>
   <Criterion id="req-2-2">
     THE Plugin_Evidence_Pipeline SHALL resolve shared test files once for

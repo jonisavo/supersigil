@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 supersigil-core.workspace = true
 supersigil-evidence.workspace = true
+supersigil-js.workspace = true
 supersigil-parser.workspace = true
 supersigil-rust.workspace = true
 thiserror.workspace = true
