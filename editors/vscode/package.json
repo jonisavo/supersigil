@@ -6,6 +6,10 @@
   "version": "0.1.0",
   "publisher": "savolainen",
   "license": "(MIT OR Apache-2.0)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonisavo/supersigil"
+  },
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.74.0"
