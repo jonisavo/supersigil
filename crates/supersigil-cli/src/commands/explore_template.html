@@ -50,8 +50,9 @@
       var container = document.getElementById('explorer');
       var data = {{GRAPH_DATA}};
       var renderData = {{RENDER_DATA}};
+      var repositoryInfo = {{REPOSITORY_INFO}};
       if (container && SupersigilExplorer && SupersigilExplorer.mount) {
-        SupersigilExplorer.mount(container, data, renderData);
+        SupersigilExplorer.mount(container, data, renderData, repositoryInfo);
       }
     })();
   </script>

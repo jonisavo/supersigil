@@ -312,6 +312,53 @@ for visual consistency with the landing page.
   transform layer is where correctness matters and is fully testable
   without a browser.
 
+## Evidence Source Links
+
+### Repository Info Injection
+
+The `explore` command resolves repository info before building the HTML:
+
+1. Check `config.documentation.repository` — if present, convert to
+   `RepositoryInfo` (applying per-provider host defaults, defaulting
+   `main_branch` to `"main"`).
+2. Otherwise, iterate enabled plugins calling `workspace_metadata()`.
+   Use the first `Some` repository. Log `Err` results as warnings.
+3. If still `None`, proceed without repository info.
+
+The resolved `Option<RepositoryInfo>` is serialized as JSON and injected
+into the HTML template via a `{{REPOSITORY_INFO}}` placeholder. The
+template passes it to the `mount()` call.
+
+### mount() Signature
+
+```javascript
+export function mount(container, data, renderData, repositoryInfo)
+```
+
+`repositoryInfo` is `{ provider, repo, host, mainBranch } | null`.
+
+### Link Resolution
+
+`createExplorerLinkResolver()` in `detail-panel.js` uses the provider and
+host to construct source links per provider:
+
+| Provider   | Pattern                                                         |
+|------------|-----------------------------------------------------------------|
+| GitHub     | `https://{host}/{repo}/blob/{branch}/{file}#L{line}`           |
+| GitLab     | `https://{host}/{repo}/-/blob/{branch}/{file}#L{line}`         |
+| Bitbucket  | `https://{host}/{repo}/src/{branch}/{file}#lines-{line}`       |
+| Gitea      | `https://{host}/{repo}/src/branch/{branch}/{file}#L{line}`     |
+
+When `repositoryInfo` is `null`, evidence source locations render as plain
+text (`path/to/file.rs:42`) without `<a>` tags. No warnings — this is a
+valid state.
+
+### Website Explorer
+
+The Astro page at `/explore/` passes repository info to `mount()` as a
+parameter. For the supersigil website itself this is the known info. Other
+projects hosting their own explorer configure it in their build.
+
 ## Alternatives Considered
 
 See `graph-explorer/adr` for the full decision record covering

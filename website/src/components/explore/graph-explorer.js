@@ -306,13 +306,12 @@ function shortLabel(id) {
  * @param {HTMLElement} container - The DOM element to render the explorer into.
  * @param {GraphJSON} data - The graph data to visualise.
  * @param {any[]} [renderData] - The render data array from render-data.json.
+ * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} [repositoryInfo] - Repository info for evidence links.
  * @returns {void}
  */
-export function mount(container, data, renderData) {
+export function mount(container, data, renderData, repositoryInfo) {
   const { documents, edges } = data;
   if (!container || typeof container.getBoundingClientRect !== 'function') return;
-
-  const repositoryUrl = 'https://github.com/jonisavo/supersigil';
 
   /** @param {any} endpoint @returns {string} */
   function edgeEndpointId(endpoint) {
@@ -1421,7 +1420,7 @@ export function mount(container, data, renderData) {
     // Center the view on the selected node
     centerOnNode(d);
 
-    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryUrl);
+    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryInfo ?? null);
     selectedNodeId = d.id;
     syncHashToUrl();
   }

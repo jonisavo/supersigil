@@ -77,7 +77,7 @@ export interface EdgeData {
 
 /** Host-provided link resolver for navigation targets. */
 export interface LinkResolver {
-  evidenceLink(file: string, line: number): string;
+  evidenceLink(file: string, line: number): string | null;
   documentLink(docId: string): string;
   criterionLink(docId: string, criterionId: string): string;
 }

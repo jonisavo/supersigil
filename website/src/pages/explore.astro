@@ -102,7 +102,13 @@ import '../components/explore/styles.css';
       }
       const graphData = await graphResponse.json();
       const renderData = renderResponse.ok ? await renderResponse.json() : [];
-      mount(container, graphData, renderData);
+      const repositoryInfo = {
+        provider: 'github',
+        repo: 'jonisavo/supersigil',
+        host: 'github.com',
+        mainBranch: 'main',
+      };
+      mount(container, graphData, renderData, repositoryInfo);
     } catch (err) {
       console.error('Spec explorer failed to load:', err);
       if (container) {

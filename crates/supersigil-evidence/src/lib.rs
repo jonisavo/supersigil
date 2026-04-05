@@ -6,6 +6,7 @@
 
 mod plugin;
 mod provenance;
+mod repository;
 mod types;
 
 #[cfg(test)]
@@ -15,6 +16,9 @@ pub use plugin::{
     EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError, PluginErrorDetails,
 };
 pub use provenance::{EvidenceConflict, PluginProvenance};
+pub use repository::{RepositoryInfo, WorkspaceMetadata, parse_repository_url};
+// Re-export from supersigil-core so downstream crates can use a single import path.
+pub use supersigil_core::RepositoryProvider;
 pub use types::{
     EvidenceId, EvidenceKind, ProjectScope, SourceLocation, TestIdentity, TestKind, VerifiableRef,
     VerificationEvidenceRecord, VerificationTargets,

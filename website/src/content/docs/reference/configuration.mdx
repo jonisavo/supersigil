@@ -153,6 +153,31 @@ findings = { required = false, list = true }
 
 Custom components participate in lint checking (known component names, required attributes) but do not create graph edges unless configured via hooks.
 
+## Documentation
+
+Configure how supersigil links evidence to source code in documentation surfaces like the graph explorer.
+
+```toml title="supersigil.toml"
+[documentation.repository]
+provider = "github"
+repo = "myorg/myproject"
+# host = "github.example.com"    # optional, defaults per provider
+# main_branch = "master"          # optional, defaults to "main"
+```
+
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `provider` | `"github"` \| `"gitlab"` \| `"bitbucket"` \| `"gitea"` | yes | -- | Git hosting provider |
+| `repo` | string | yes | -- | Repository path (`owner/repo` for most providers, `group/subgroup/project` for GitLab) |
+| `host` | string | no | Provider default | Hostname (defaults to `github.com`, `gitlab.com`, `bitbucket.org`). Required for Gitea. |
+| `main_branch` | string | no | `"main"` | Branch used in source links |
+
+When configured, evidence source locations in the graph explorer become clickable links to the repository. When omitted, the Rust ecosystem plugin attempts to infer this from `Cargo.toml`'s `repository` field. If neither is available, evidence locations render as plain text.
+
+<Aside type="tip">
+  For Rust projects with a `repository` field in `Cargo.toml`, this section is often unnecessary — the Rust plugin infers it automatically.
+</Aside>
+
 ## Ecosystem Plugins
 
 Declare ecosystem plugins. Currently only `rust` is supported:
@@ -258,6 +283,10 @@ status = ["draft", "review", "approved"]
 
 [documents.types.tasks]
 status = ["draft", "ready", "in-progress", "done"]
+
+[documentation.repository]
+provider = "github"
+repo = "myorg/myproject"
 
 [ecosystem]
 plugins = ["rust"]

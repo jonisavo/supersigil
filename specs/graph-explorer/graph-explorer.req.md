@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/req
   type: requirements
-  status: implemented
+  status: approved
 title: "Visual Graph Explorer"
 ---
 
@@ -272,6 +272,33 @@ like a native part of the site, so that the experience is cohesive.
     requirements, green for design, gold for ADR. Node size SHALL scale
     with component count.
     <VerifiedBy strategy="file-glob" paths="website/src/components/explore/styles.css" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 11: Evidence Source Links
+
+As a developer viewing evidence in the detail sidebar, I want evidence source
+locations to link to the repository when configured, so that I can navigate
+directly to the relevant code.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-11-1">
+    THE `explore` command SHALL resolve repository info from config or plugin
+    metadata and inject it into the explorer HTML. The `mount()` function SHALL
+    accept repository info as a parameter.
+  </Criterion>
+  <Criterion id="req-11-2">
+    WHEN repository info is available, evidence source locations in the detail
+    sidebar SHALL render as clickable links using the provider-specific URL
+    format for the configured host and branch.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/detail-panel.js" />
+  </Criterion>
+  <Criterion id="req-11-3">
+    WHEN repository info is not available, evidence source locations SHALL
+    render as plain text without links.
+    <VerifiedBy strategy="file-glob" paths="packages/preview/src/render.ts" />
   </Criterion>
 </AcceptanceCriteria>
 ```

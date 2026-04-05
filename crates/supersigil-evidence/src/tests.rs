@@ -581,6 +581,18 @@ fn ecosystem_plugin_trait_object_dispatches_plan_discovery_inputs_override() {
     );
 }
 
+#[test]
+fn ecosystem_plugin_default_workspace_metadata_returns_empty() {
+    let plugin = MockPlugin;
+    let meta = plugin
+        .workspace_metadata(std::path::Path::new("/nonexistent"))
+        .unwrap();
+    assert!(
+        meta.repository.is_none(),
+        "default workspace_metadata should return None repository"
+    );
+}
+
 // NOTE: Full discover() tests require a DocumentGraph instance, which depends
 // on supersigil-core graph construction. We verify the trait is implementable
 // and the mock compiles correctly here. Integration tests with real

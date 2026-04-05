@@ -1,11 +1,12 @@
 //! `EcosystemPlugin` trait and plugin discovery error/diagnostic surfaces.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use supersigil_core::DocumentGraph;
 use thiserror::Error;
 
+use crate::repository::WorkspaceMetadata;
 use crate::types::{ProjectScope, VerificationEvidenceRecord};
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,20 @@ pub trait EcosystemPlugin {
         _scope: &ProjectScope,
     ) -> Cow<'a, [PathBuf]> {
         Cow::Borrowed(test_files)
+    }
+
+    /// Extract workspace-level metadata from the ecosystem manifest at the given root.
+    ///
+    /// The default implementation returns empty metadata. Plugins that can
+    /// read repository URLs or other workspace-wide information from their
+    /// manifest files should override this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PluginError` if the manifest file exists but cannot be parsed.
+    fn workspace_metadata(&self, workspace_root: &Path) -> Result<WorkspaceMetadata, PluginError> {
+        let _ = workspace_root;
+        Ok(WorkspaceMetadata { repository: None })
     }
 
     /// Discover evidence records from the given source files.

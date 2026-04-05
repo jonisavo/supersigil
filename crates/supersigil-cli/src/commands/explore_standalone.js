@@ -501,14 +501,40 @@ var SupersigilExplorer = (() => {
     }
     return { total, verified };
   }
-  function createExplorerLinkResolver(repositoryUrl) {
+  function createExplorerLinkResolver(repositoryInfo) {
+    if (!repositoryInfo) {
+      return {
+        evidenceLink: () => null,
+        documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
+        criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`
+      };
+    }
+    const { provider, repo, host, mainBranch } = repositoryInfo;
+    const base = `https://${host}/${repo}`;
+    let evidenceLink;
+    switch (provider) {
+      case "github":
+        evidenceLink = (file, line) => `${base}/blob/${mainBranch}/${file}#L${line}`;
+        break;
+      case "gitlab":
+        evidenceLink = (file, line) => `${base}/-/blob/${mainBranch}/${file}#L${line}`;
+        break;
+      case "bitbucket":
+        evidenceLink = (file, line) => `${base}/src/${mainBranch}/${file}#lines-${line}`;
+        break;
+      case "gitea":
+        evidenceLink = (file, line) => `${base}/src/branch/${mainBranch}/${file}#L${line}`;
+        break;
+      default:
+        evidenceLink = () => null;
+    }
     return {
-      evidenceLink: (file, line) => `${repositoryUrl}/blob/main/${file}#L${line}`,
+      evidenceLink,
       documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
       criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`
     };
   }
-  function renderDetail(container, node, edges, renderData, repositoryUrl) {
+  function renderDetail(container, node, edges, renderData, repositoryInfo) {
     cancelPendingClear(container);
     const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
     let edgesHtml = "";
@@ -538,7 +564,7 @@ var SupersigilExplorer = (() => {
     const traceBtn = `<div class="detail-section"><button class="detail-panel-trace-btn" data-doc-id="${escHtml(node.id)}">Trace impact</button></div>`;
     let specContentHtml = "";
     if (renderDoc && typeof window !== "undefined" && window.__supersigilRender) {
-      const linkResolver = createExplorerLinkResolver(repositoryUrl);
+      const linkResolver = createExplorerLinkResolver(repositoryInfo);
       try {
         specContentHtml = window.__supersigilRender.renderComponentTree(
           renderDoc.fences,
@@ -1025,10 +1051,9 @@ var SupersigilExplorer = (() => {
     const slashIdx = id.lastIndexOf("/");
     return slashIdx === -1 ? id : id.slice(slashIdx + 1);
   }
-  function mount(container, data, renderData) {
+  function mount(container, data, renderData, repositoryInfo) {
     const { documents, edges } = data;
     if (!container || typeof container.getBoundingClientRect !== "function") return;
-    const repositoryUrl = "https://github.com/jonisavo/supersigil";
     function edgeEndpointId(endpoint) {
       return typeof endpoint === "string" ? endpoint : endpoint.id;
     }
@@ -1760,7 +1785,7 @@ var SupersigilExplorer = (() => {
       )).classed("node-selected", true);
       showEdgeLabelsFor(d.id);
       centerOnNode(d);
-      renderDetail(detailPanel, d, edges, renderData ?? [], repositoryUrl);
+      renderDetail(detailPanel, d, edges, renderData ?? [], repositoryInfo ?? null);
       selectedNodeId = d.id;
       syncHashToUrl();
     }

@@ -2,7 +2,7 @@
 supersigil:
   id: ecosystem-plugins/req
   type: requirements
-  status: implemented
+  status: approved
 title: "Ecosystem Plugins"
 ---
 
@@ -138,6 +138,33 @@ format.
     so that future ecosystem plugins can implement the same trait surface
     without depending on the Rust toolchain.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/Cargo.toml" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 5: Workspace Metadata
+
+As a documentation surface, I want plugins to provide workspace-level metadata
+such as the source repository, so that tooling can link evidence to source code
+without hardcoded URLs.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    THE `EcosystemPlugin` trait SHALL expose a `workspace_metadata` method that
+    accepts a workspace root path and returns a `WorkspaceMetadata` value. The
+    default implementation SHALL return empty metadata.
+  </Criterion>
+  <Criterion id="req-5-2">
+    `WorkspaceMetadata` SHALL include an optional `RepositoryInfo` containing
+    a `RepositoryProvider` enum (GitHub, GitLab, Bitbucket, Gitea), a
+    repository path string, a host string, and a main branch string.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-evidence/src/repository.rs" />
+  </Criterion>
+  <Criterion id="req-5-3">
+    A shared `parse_repository_url` utility SHALL parse HTTPS and SSH
+    repository URLs into `RepositoryInfo`, inferring the provider from the
+    hostname and recording the host. Unrecognized hosts SHALL return `None`.
   </Criterion>
 </AcceptanceCriteria>
 ```

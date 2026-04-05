@@ -118,6 +118,38 @@ verifiable if they satisfy the merge-time invariants.
   and `list_split_property_tests.rs`
   cover the shared comma-splitting helper.
 
+## Documentation Config
+
+An optional `[documentation.repository]` section provides repository metadata
+used by documentation surfaces such as the spec explorer:
+
+```rust
+pub struct DocumentationConfig {
+    pub repository: Option<RepositoryConfig>,
+}
+
+pub struct RepositoryConfig {
+    pub provider: RepositoryProvider,
+    pub repo: String,
+    pub host: Option<String>,
+    pub main_branch: Option<String>,
+}
+```
+
+- `provider` is required and must be one of `github`, `gitlab`, `bitbucket`,
+  `gitea`. Unknown values are rejected by `load_config`.
+- `repo` is required. Format varies by provider: `owner/repo` for
+  GitHub/Bitbucket/Gitea, `group/[subgroups/]project` for GitLab.
+- `host` is optional and defaults per provider (`github.com`, `gitlab.com`,
+  `bitbucket.org`). Expected for Gitea (no canonical host) and common for
+  self-hosted GitLab.
+- `main_branch` is optional and defaults to `"main"`.
+
+`RepositoryProvider` is defined in `supersigil-evidence` alongside the shared
+`RepositoryInfo` type. The config layer uses `RepositoryProvider` for
+deserialization and validation, and the CLI converts `RepositoryConfig` to
+`RepositoryInfo` at resolution time.
+
 ## Current Gaps
 
 - The config domain now includes Rust ecosystem plugin settings that were not

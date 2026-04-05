@@ -338,6 +338,68 @@ pub struct LspConfig {
 }
 
 // ---------------------------------------------------------------------------
+// RepositoryProvider (config-level)
+// ---------------------------------------------------------------------------
+
+/// Well-known Git hosting providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepositoryProvider {
+    GitHub,
+    GitLab,
+    Bitbucket,
+    Gitea,
+}
+
+impl RepositoryProvider {
+    /// Canonical hostname for this provider, if one exists.
+    ///
+    /// Returns `None` for Gitea since it has no single canonical host.
+    #[must_use]
+    pub fn default_host(self) -> Option<&'static str> {
+        match self {
+            Self::GitHub => Some("github.com"),
+            Self::GitLab => Some("gitlab.com"),
+            Self::Bitbucket => Some("bitbucket.org"),
+            Self::Gitea => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DocumentationConfig
+// ---------------------------------------------------------------------------
+
+/// Documentation configuration, currently supporting repository metadata.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentationConfig {
+    /// Optional repository metadata for source linking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<RepositoryConfig>,
+}
+
+// ---------------------------------------------------------------------------
+// RepositoryConfig
+// ---------------------------------------------------------------------------
+
+/// Repository metadata for documentation source links.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryConfig {
+    /// Git hosting provider.
+    pub provider: RepositoryProvider,
+    /// Repository path, e.g. `"owner/repo"`.
+    pub repo: String,
+    /// Optional custom hostname (for self-hosted instances).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Optional main branch override (defaults vary by provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_branch: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -381,6 +443,9 @@ pub struct Config {
     /// Agent skills configuration.
     #[serde(default)]
     pub skills: SkillsConfig,
+    /// Documentation configuration (repository metadata, etc.).
+    #[serde(default)]
+    pub documentation: DocumentationConfig,
     /// LSP server configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lsp: Option<LspConfig>,

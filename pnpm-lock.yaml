@@ -45,7 +45,7 @@ importers:
   eval:
     dependencies:
       typescript:
-        specifier: ^5
+        specifier: 'catalog:'
         version: 5.9.3
     devDependencies:
       vitest:

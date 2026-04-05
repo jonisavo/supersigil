@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/tasks
   type: tasks
-  status: done
+  status: in-progress
 title: "Visual Graph Explorer"
 ---
 
@@ -100,5 +100,28 @@ command). Tasks are dependency-ordered so each builds on the previous.
   Implement the `explore` CLI command. Embed the HTML template and JS module
   via `include_str!`. Inline Graph_JSON into the template. Write to temp file
   or `--output` path. Open with `open::that()`. Add clap parsing and tests.
+</Task>
+
+<Task id="task-14" status="pending" implements="graph-explorer/req#req-11-1">
+  Update `build_html` to accept optional `RepositoryInfo`, serialize it as
+  JSON, and inject it via a `REPOSITORY_INFO` placeholder in the HTML
+  template. Update the template to pass repository info to the `mount()` call.
+  Update the `explore` command `run` function to resolve repository info from
+  config and plugins before calling `build_html`. Tests for HTML output with
+  and without repository info.
+</Task>
+
+<Task id="task-15" status="pending" depends="task-14" implements="graph-explorer/req#req-11-1, graph-explorer/req#req-11-2, graph-explorer/req#req-11-3">
+  Update `mount()` in `graph-explorer.js` to accept `repositoryInfo` as a
+  fourth parameter and pass it to `renderDetail`. Update
+  `createExplorerLinkResolver` in `detail-panel.js` to use provider-specific
+  URL templates when `repositoryInfo` is present. When `null`, render evidence
+  locations as plain text. Remove hardcoded repository URL from
+  `graph-explorer.js`. Rebuild `explore_standalone.js`.
+</Task>
+
+<Task id="task-16" status="pending" depends="task-15" implements="graph-explorer/req#req-11-1">
+  Update the Astro page at `website/src/pages/explore.astro` to pass
+  repository info to `mount()`.
 </Task>
 ```

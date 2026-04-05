@@ -15,10 +15,11 @@ mod xml;
 
 pub use component_defs::ComponentDefs;
 pub use config::{
-    AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentsConfig,
-    EcosystemConfig, ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES, LspConfig,
-    ProjectConfig, RunnerConfig, RustEcosystemConfig, RustProjectScope, RustValidationPolicy,
-    Severity, SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
+    AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentationConfig,
+    DocumentsConfig, EcosystemConfig, ExamplesConfig, HooksConfig, KNOWN_PLUGINS, KNOWN_RULES,
+    LspConfig, ProjectConfig, RepositoryConfig, RepositoryProvider, RunnerConfig,
+    RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity, SkillsConfig,
+    TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{
     ComponentDefError, ConfigError, ListSplitError, ParseError, ParseWarning, split_list_attribute,

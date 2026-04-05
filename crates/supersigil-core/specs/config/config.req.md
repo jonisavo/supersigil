@@ -148,6 +148,13 @@ toolchain.
     SHALL default both lists to empty when omitted.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
+  <Criterion id="req-3-6">
+    THE Config_Loader SHALL parse an optional `[documentation.repository]`
+    section with required `provider` (one of: github, gitlab, bitbucket, gitea)
+    and `repo` fields, plus optional `host` and `main_branch` fields. Unknown
+    provider values SHALL be rejected during config loading.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
+  </Criterion>
 </AcceptanceCriteria>
 ```
 

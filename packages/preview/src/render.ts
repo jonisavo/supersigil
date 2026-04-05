@@ -108,7 +108,11 @@ function renderProvenanceEntry(
       return `<span class="supersigil-provenance-entry">File glob: ${esc(entry.paths.join(", "))}</span>`;
     case "rust-attribute": {
       const link = linkResolver.evidenceLink(entry.file, entry.line);
-      return `<a href="${esc(link)}" class="supersigil-provenance-entry">${esc(entry.file)}:${entry.line}</a>`;
+      const label = `${esc(entry.file)}:${entry.line}`;
+      if (link) {
+        return `<a href="${esc(link)}" class="supersigil-provenance-entry">${label}</a>`;
+      }
+      return `<span class="supersigil-provenance-entry">${label}</span>`;
     }
     case "example":
       return `<span class="supersigil-provenance-entry">Example: ${esc(entry.example_id)}</span>`;
@@ -142,9 +146,15 @@ function renderEvidenceSection(
   for (const entry of evidence) {
     const link = linkResolver.evidenceLink(entry.test_file, entry.source_line);
     html += `<li class="supersigil-evidence-item">`;
-    html += `<a href="${esc(link)}" class="supersigil-evidence-link">`;
-    html += `<code>${esc(entry.test_name)}</code>`;
-    html += `</a>`;
+    if (link) {
+      html += `<a href="${esc(link)}" class="supersigil-evidence-link">`;
+      html += `<code>${esc(entry.test_name)}</code>`;
+      html += `</a>`;
+    } else {
+      html += `<span class="supersigil-evidence-link">`;
+      html += `<code>${esc(entry.test_name)}</code>`;
+      html += `</span>`;
+    }
     html += `<span class="supersigil-evidence-meta">`;
     html += `<span class="supersigil-test-kind">${esc(entry.test_kind)}</span>`;
     html += `<span class="supersigil-evidence-kind">${esc(entry.evidence_kind)}</span>`;
@@ -311,7 +321,11 @@ function renderVerifiedBy(
     for (let i = 0; i < pathList.length; i++) {
       if (i > 0) html += ", ";
       const url = linkResolver.evidenceLink(pathList[i], 1);
-      html += `<a href="${esc(url)}" class="supersigil-verified-by-path"><code class="supersigil-inline-code">${esc(pathList[i])}</code></a>`;
+      if (url) {
+        html += `<a href="${esc(url)}" class="supersigil-verified-by-path"><code class="supersigil-inline-code">${esc(pathList[i])}</code></a>`;
+      } else {
+        html += `<code class="supersigil-inline-code">${esc(pathList[i])}</code>`;
+      }
     }
   } else if (strategy) {
     html += `<span class="supersigil-verified-by-strategy">${esc(strategy)}</span>`;

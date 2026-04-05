@@ -115,6 +115,10 @@ fn resolve_project_root() -> Result<Option<PathBuf>, String> {
 
 /// Check whether graph validation should run given the loaded config.
 fn should_validate(config: &supersigil_core::Config) -> bool {
+    should_validate_with_profile(config, &std::env::var("PROFILE").unwrap_or_default())
+}
+
+fn should_validate_with_profile(config: &supersigil_core::Config, profile: &str) -> bool {
     use supersigil_core::RustValidationPolicy;
 
     let policy = config
@@ -126,11 +130,7 @@ fn should_validate(config: &supersigil_core::Config) -> bool {
     match policy {
         RustValidationPolicy::Off => false,
         RustValidationPolicy::All => true,
-        RustValidationPolicy::Dev => {
-            // Skip validation in release builds.
-            let profile = std::env::var("PROFILE").unwrap_or_default();
-            profile != "release"
-        }
+        RustValidationPolicy::Dev => profile != "release",
     }
 }
 
@@ -463,22 +463,18 @@ mod tests {
 
     #[test]
     fn should_validate_dev_validates_in_debug() {
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::set_var("PROFILE", "debug") };
         let config = config_with_policy(supersigil_core::RustValidationPolicy::Dev);
         assert!(
-            should_validate(&config),
+            should_validate_with_profile(&config, "debug"),
             "policy=dev must validate when PROFILE=debug"
         );
     }
 
     #[test]
     fn should_validate_dev_skips_in_release() {
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::set_var("PROFILE", "release") };
         let config = config_with_policy(supersigil_core::RustValidationPolicy::Dev);
         assert!(
-            !should_validate(&config),
+            !should_validate_with_profile(&config, "release"),
             "policy=dev must skip validation when PROFILE=release"
         );
     }
@@ -487,16 +483,12 @@ mod tests {
     fn should_validate_default_is_dev() {
         // When no rust config is provided, the default policy is Dev.
         let config = supersigil_core::Config::default();
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::set_var("PROFILE", "debug") };
         assert!(
-            should_validate(&config),
+            should_validate_with_profile(&config, "debug"),
             "default policy (dev) must validate in debug"
         );
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::set_var("PROFILE", "release") };
         assert!(
-            !should_validate(&config),
+            !should_validate_with_profile(&config, "release"),
             "default policy (dev) must skip validation in release"
         );
     }

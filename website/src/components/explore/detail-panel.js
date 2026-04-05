@@ -108,12 +108,44 @@ function countCriteria(fences) {
 /**
  * Create the explorer link resolver for in-panel document navigation.
  *
- * @param {string} repositoryUrl
+ * When `repositoryInfo` is `null`, evidence links resolve to `null` and are
+ * rendered as plain text by the preview kit.
+ *
+ * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} repositoryInfo
  * @returns {Object}
  */
-function createExplorerLinkResolver(repositoryUrl) {
+function createExplorerLinkResolver(repositoryInfo) {
+  if (!repositoryInfo) {
+    return {
+      evidenceLink: () => null,
+      documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
+      criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`,
+    };
+  }
+
+  const { provider, repo, host, mainBranch } = repositoryInfo;
+  const base = `https://${host}/${repo}`;
+
+  let evidenceLink;
+  switch (provider) {
+    case 'github':
+      evidenceLink = (file, line) => `${base}/blob/${mainBranch}/${file}#L${line}`;
+      break;
+    case 'gitlab':
+      evidenceLink = (file, line) => `${base}/-/blob/${mainBranch}/${file}#L${line}`;
+      break;
+    case 'bitbucket':
+      evidenceLink = (file, line) => `${base}/src/${mainBranch}/${file}#lines-${line}`;
+      break;
+    case 'gitea':
+      evidenceLink = (file, line) => `${base}/src/branch/${mainBranch}/${file}#L${line}`;
+      break;
+    default:
+      evidenceLink = () => null;
+  }
+
   return {
-    evidenceLink: (file, line) => `${repositoryUrl}/blob/main/${file}#L${line}`,
+    evidenceLink,
     documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
     criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`,
   };
@@ -126,10 +158,10 @@ function createExplorerLinkResolver(repositoryUrl) {
  * @param {DocumentNode} node - The document node to display.
  * @param {Edge[]} edges - All edges in the graph.
  * @param {any[]} renderData - The render data array from render-data.json.
- * @param {string} repositoryUrl - The base repository URL for evidence links.
+ * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} repositoryInfo - Repository info for evidence links, or null for plain text.
  * @returns {void}
  */
-export function renderDetail(container, node, edges, renderData, repositoryUrl) {
+export function renderDetail(container, node, edges, renderData, repositoryInfo) {
   cancelPendingClear(container);
   const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
 
@@ -169,7 +201,7 @@ export function renderDetail(container, node, edges, renderData, repositoryUrl) 
   // Render spec content using the preview kit
   let specContentHtml = '';
   if (renderDoc && typeof window !== 'undefined' && window.__supersigilRender) {
-    const linkResolver = createExplorerLinkResolver(repositoryUrl);
+    const linkResolver = createExplorerLinkResolver(repositoryInfo);
     try {
       specContentHtml = window.__supersigilRender.renderComponentTree(
         renderDoc.fences,

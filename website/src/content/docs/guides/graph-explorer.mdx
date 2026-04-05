@@ -68,6 +68,22 @@ Hash patterns:
 - `#/doc/{id}/trace` — select and trace
 - `#/filter/type:{types};status:{status}` — filter state
 
+## Evidence Source Links
+
+When a document has verification evidence (from `#[verifies]` annotations or `<VerifiedBy>` declarations), the detail sidebar shows evidence source locations. If repository information is available, these locations are clickable links to the source file in your Git hosting provider.
+
+Repository info is resolved automatically from `Cargo.toml`'s `repository` field for Rust projects. For other setups, or to override the inferred value, add `[documentation.repository]` to your config:
+
+```toml title="supersigil.toml"
+[documentation.repository]
+provider = "github"
+repo = "myorg/myproject"
+```
+
+GitHub, GitLab, Bitbucket, and Gitea are supported. See the [configuration reference](/supersigil/reference/configuration/#documentation) for all options.
+
+When no repository info is configured or inferred, evidence locations display as plain text without links.
+
 ## Docs Site Integration
 
 The explorer is also available as a page on the docs site at [`/explore/`](/supersigil/explore/). Graph data is generated at build time via a prebuild script:

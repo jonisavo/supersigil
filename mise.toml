@@ -2,6 +2,8 @@
 description = "Set up the development environment."
 run = [
     "pnpm install",
+    "mise bundle-explore",
+    "mise bundle-preview",
     "cargo build --workspace",
     "lefthook install"
 ]
@@ -29,10 +31,15 @@ description = "Bundle the standalone graph explorer for use with the CLI."
 run = "pnpm run bundle:standalone"
 dir = "website"
 
+[tasks.bundle-preview]
+description = "Bundle the preview rendering module for use with the CLI."
+run = "pnpm run build"
+dir = "packages/preview"
+
 [tasks.build]
 description = "Build the workspace."
 run = "cargo build --workspace --release"
-depends = ["bundle-explore"]
+depends = ["bundle-explore", "bundle-preview"]
 
 [tasks.test]
 description = "Run workspace tests."
@@ -49,6 +56,7 @@ run = ["mise format", "mise lint", "mise build", "mise test"]
 description = "Install the CLI locally"
 run = "cargo install --path ."
 dir = "crates/supersigil-cli"
+depends = ["bundle-explore", "bundle-preview"]
 
 [tasks."install-cli:safe"]
 description = "Install the CLI locally after QA is OK"
@@ -67,7 +75,7 @@ depends = "qa"
 
 [tasks.install-all]
 description = "Install all binaries locally"
-run = ["mise bundle-explore", "mise install-cli", "mise install-lsp"]
+run = ["mise install-cli", "mise install-lsp"]
 
 [tasks.release]
 description = "Prepare a release: bump versions, commit, and tag."

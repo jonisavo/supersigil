@@ -14,7 +14,8 @@ use supersigil_core::DocumentGraph;
 use supersigil_evidence::{
     EcosystemPlugin, EvidenceId, PluginDiagnostic, PluginDiscoveryResult, PluginError,
     PluginErrorDetails, PluginProvenance, ProjectScope, SourceLocation, TestIdentity, TestKind,
-    VerifiableRef, VerificationEvidenceRecord, VerificationTargets,
+    VerifiableRef, VerificationEvidenceRecord, VerificationTargets, WorkspaceMetadata,
+    parse_repository_url,
 };
 
 const PLUGIN_NAME: &str = "rust";
@@ -104,6 +105,59 @@ fn read_workspace_member_dirs(project_root: &Path) -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// Workspace metadata
+// ---------------------------------------------------------------------------
+
+/// Read workspace-level metadata from `Cargo.toml` at the given root.
+///
+/// Tries `workspace.package.repository` first (workspace manifests), then
+/// falls back to `package.repository` (single-crate projects). Passes the
+/// raw URL through [`parse_repository_url`] for structured info.
+fn read_workspace_metadata(workspace_root: &Path) -> Result<WorkspaceMetadata, PluginError> {
+    let cargo_path = workspace_root.join("Cargo.toml");
+
+    let content = match std::fs::read_to_string(&cargo_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(WorkspaceMetadata { repository: None });
+        }
+        Err(e) => {
+            return Err(PluginError::Io {
+                plugin: PLUGIN_NAME.to_string(),
+                path: cargo_path,
+                source: e,
+            });
+        }
+    };
+
+    let table: toml::Table =
+        content
+            .parse()
+            .map_err(|e: toml::de::Error| PluginError::ParseFailure {
+                plugin: PLUGIN_NAME.to_string(),
+                file: cargo_path.clone(),
+                message: e.to_string(),
+            })?;
+
+    // Try workspace.package.repository first, fall back to package.repository.
+    let url = table
+        .get("workspace")
+        .and_then(|ws| ws.get("package"))
+        .and_then(|pkg| pkg.get("repository"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            table
+                .get("package")
+                .and_then(|pkg| pkg.get("repository"))
+                .and_then(|v| v.as_str())
+        });
+
+    let repository = url.and_then(parse_repository_url);
+
+    Ok(WorkspaceMetadata { repository })
+}
+
+// ---------------------------------------------------------------------------
 // RustPlugin — EcosystemPlugin implementation
 // ---------------------------------------------------------------------------
 
@@ -125,6 +179,10 @@ impl EcosystemPlugin for RustPlugin {
         scope: &ProjectScope,
     ) -> Cow<'a, [PathBuf]> {
         plan_rust_discovery_inputs(test_files, &scope.project_root)
+    }
+
+    fn workspace_metadata(&self, workspace_root: &Path) -> Result<WorkspaceMetadata, PluginError> {
+        read_workspace_metadata(workspace_root)
     }
 
     fn discover(
@@ -678,7 +736,7 @@ fn extract_fn_name_from_macro_tokens(tokens: &proc_macro2::TokenStream) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use supersigil_evidence::EvidenceKind;
+    use supersigil_evidence::{EvidenceKind, RepositoryProvider};
 
     /// Return the path to a fixture file under `tests/fixtures/discover/`.
     fn fixture(name: &str) -> PathBuf {
@@ -1382,5 +1440,141 @@ mod tests {
             matches!(result.unwrap_err(), PluginError::ParseFailure { .. }),
             "expected PluginError::ParseFailure variant"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // workspace_metadata (req-5-1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn workspace_metadata_workspace_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+repository = "https://github.com/acme/toolkit"
+"#,
+        )
+        .unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        let repo = meta.repository.expect("expected repository info");
+        assert_eq!(repo.provider, RepositoryProvider::GitHub);
+        assert_eq!(repo.repo, "acme/toolkit");
+        assert_eq!(repo.host, "github.com");
+    }
+
+    #[test]
+    fn workspace_metadata_single_crate_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "my-crate"
+version = "0.1.0"
+repository = "https://gitlab.com/owner/project"
+"#,
+        )
+        .unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        let repo = meta.repository.expect("expected repository info");
+        assert_eq!(repo.provider, RepositoryProvider::GitLab);
+        assert_eq!(repo.repo, "owner/project");
+    }
+
+    #[test]
+    fn workspace_metadata_missing_repository_field() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "my-crate"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        assert!(
+            meta.repository.is_none(),
+            "expected None when repository field is absent"
+        );
+    }
+
+    #[test]
+    fn workspace_metadata_no_cargo_toml() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        assert!(
+            meta.repository.is_none(),
+            "expected None when Cargo.toml is absent"
+        );
+    }
+
+    #[test]
+    fn workspace_metadata_malformed_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "{{invalid toml").unwrap();
+
+        let result = RustPlugin.workspace_metadata(dir.path());
+        assert!(result.is_err(), "expected Err for malformed TOML");
+        assert!(
+            matches!(result.unwrap_err(), PluginError::ParseFailure { .. }),
+            "expected PluginError::ParseFailure variant"
+        );
+    }
+
+    #[test]
+    fn workspace_metadata_unrecognized_host_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "my-crate"
+version = "0.1.0"
+repository = "https://gitea.internal/org/repo"
+"#,
+        )
+        .unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        assert!(
+            meta.repository.is_none(),
+            "expected None for unrecognized host"
+        );
+    }
+
+    #[test]
+    fn workspace_metadata_workspace_takes_precedence_over_package() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+repository = "https://github.com/acme/workspace-repo"
+
+[package]
+name = "root-crate"
+version = "0.1.0"
+repository = "https://github.com/acme/package-repo"
+"#,
+        )
+        .unwrap();
+
+        let meta = RustPlugin.workspace_metadata(dir.path()).unwrap();
+        let repo = meta.repository.expect("expected repository info");
+        assert_eq!(repo.repo, "acme/workspace-repo");
     }
 }

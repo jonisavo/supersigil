@@ -2,7 +2,7 @@
 supersigil:
   id: ecosystem-plugins/tasks
   type: tasks
-  status: done
+  status: in-progress
 title: "Ecosystem Plugins Tasks"
 ---
 
@@ -63,5 +63,37 @@ the split from the old root monolith into crate-local domains.
   ecosystems. Assert that the plugin activation path accepts unknown plugin
   names gracefully (already tested as rejection), and that the shared
   `evidence-contract` types are not Rust-specific in their interface.
+</Task>
+
+<Task id="task-9" status="pending" implements="ecosystem-plugins/req#req-5-2">
+  Add `RepositoryProvider` enum, `RepositoryInfo` struct, and
+  `WorkspaceMetadata` struct to `supersigil-evidence`. Add
+  `parse_repository_url` utility that parses HTTPS and SSH repository URLs,
+  infers provider from hostname, and records the host. Unit tests for each
+  provider format and unrecognized hosts.
+</Task>
+
+<Task id="task-10" status="pending" depends="task-9" implements="ecosystem-plugins/req#req-5-1">
+  Add `workspace_metadata` method to the `EcosystemPlugin` trait with a
+  default implementation returning empty metadata. Update `RustPlugin` to
+  implement it by reading `Cargo.toml` at the workspace root
+  (`workspace.package.repository` or `package.repository`) and passing the
+  raw URL through `parse_repository_url`. Unit tests for workspace and
+  single-crate manifests, missing repository field, and malformed TOML.
+</Task>
+
+<Task id="task-11" status="pending" depends="task-9" implements="config/req#req-3-6">
+  Add `DocumentationConfig` and `RepositoryConfig` to the `Config` model in
+  `supersigil-core`. Parse `[documentation.repository]` with `provider`,
+  `repo`, optional `host`, and optional `main_branch`. Reject unknown provider
+  values during config loading. Unit tests for valid config, missing optional
+  fields, and unknown provider rejection.
+</Task>
+
+<Task id="task-12" status="pending" depends="task-10, task-11" implements="ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-3">
+  Add CLI resolution function that checks explicit config first, then
+  iterates enabled plugins calling `workspace_metadata`. First `Some` wins.
+  Log `Err` results as warnings. Unit tests for config-wins, plugin-fallback,
+  and no-result cases.
 </Task>
 ```

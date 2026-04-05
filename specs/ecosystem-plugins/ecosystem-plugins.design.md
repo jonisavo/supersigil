@@ -169,6 +169,66 @@ project.
 - `crates/supersigil-verify/src/report.rs`
   covers evidence-summary rendering in JSON and markdown.
 
+## Workspace Metadata
+
+Plugins can provide workspace-level metadata beyond evidence records. The
+`EcosystemPlugin` trait exposes:
+
+```rust
+fn workspace_metadata(
+    &self,
+    workspace_root: &Path,
+) -> Result<WorkspaceMetadata, PluginError> {
+    let _ = workspace_root;
+    Ok(WorkspaceMetadata { repository: None })
+}
+```
+
+`WorkspaceMetadata` carries optional `RepositoryInfo`:
+
+```rust
+pub struct WorkspaceMetadata {
+    pub repository: Option<RepositoryInfo>,
+}
+
+pub struct RepositoryInfo {
+    pub provider: RepositoryProvider,
+    pub repo: String,
+    pub host: String,
+    pub main_branch: String,
+}
+
+pub enum RepositoryProvider {
+    GitHub,
+    GitLab,
+    Bitbucket,
+    Gitea,
+}
+```
+
+These types live in `supersigil-evidence` alongside the plugin trait so that all
+ecosystem plugins share the same metadata contract.
+
+### Shared URL Parser
+
+A `parse_repository_url` utility in `supersigil-evidence` parses raw repository
+URLs (HTTPS and SSH) into `RepositoryInfo`. It infers the provider from the
+hostname (`github.com` -> GitHub, `gitlab.com` -> GitLab, `bitbucket.org` ->
+Bitbucket) and records the host. Unrecognized hosts return `None` — those
+require explicit config. The `main_branch` defaults to `"main"`.
+
+All ecosystem plugins call this shared parser rather than reimplementing URL
+extraction. The Rust plugin reads `Cargo.toml` at the workspace root
+(`workspace.package.repository` or `package.repository`) and passes the raw URL
+through `parse_repository_url`.
+
+### Resolution
+
+The CLI resolves repository info by checking explicit config first
+(`[documentation.repository]` in `supersigil.toml`), then falling through to
+enabled plugins' `workspace_metadata()`. The first `Some` wins. `Err` results
+from plugins are logged as warnings.
+
 ## Current Gaps
 
 - The current pipeline intentionally keeps project filters workspace-wide at

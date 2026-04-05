@@ -7,10 +7,12 @@
 
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{Config, DocumentGraph};
+use supersigil_core::{Config, DocumentGraph, RepositoryConfig};
+
+use crate::format::ColorConfig;
 use supersigil_evidence::{
     EcosystemPlugin, PluginDiagnostic, PluginDiscoveryResult, PluginError, ProjectScope,
-    VerificationEvidenceRecord,
+    RepositoryInfo, VerificationEvidenceRecord,
 };
 use supersigil_verify::extract_explicit_evidence;
 use supersigil_verify::{ArtifactGraph, build_artifact_graph};
@@ -186,6 +188,90 @@ fn format_plugin_location(
         }
     }
     Some(location)
+}
+
+// ---------------------------------------------------------------------------
+// Repository resolution helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a `RepositoryConfig` to a `RepositoryInfo`, resolving defaults.
+///
+/// Returns `None` if the config is for Gitea without a host — the user must
+/// provide a host for Gitea since there is no canonical default.
+fn config_to_repository_info(
+    config: &RepositoryConfig,
+    color: ColorConfig,
+) -> Option<RepositoryInfo> {
+    let host = config
+        .host
+        .clone()
+        .or_else(|| config.provider.default_host().map(str::to_owned));
+
+    let Some(host) = host else {
+        // Gitea with no host configured — config error.
+        eprintln!(
+            "{} repository provider 'gitea' requires an explicit `host` in \
+             [documentation.repository]; skipping repository resolution",
+            color.warn(),
+        );
+        return None;
+    };
+
+    Some(RepositoryInfo {
+        provider: config.provider,
+        repo: config.repo.clone(),
+        host,
+        main_branch: config
+            .main_branch
+            .clone()
+            .unwrap_or_else(|| "main".to_owned()),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// resolve_repository_info
+// ---------------------------------------------------------------------------
+
+/// Resolve repository information from config or plugin metadata.
+///
+/// 1. If `config.documentation.repository` is `Some`, converts it to
+///    `RepositoryInfo` and returns immediately (config wins).
+/// 2. Otherwise, iterates the enabled plugins calling
+///    `workspace_metadata(workspace_root)`. The first `Some` repository wins.
+/// 3. Plugin `Err` results are logged as warnings on stderr.
+/// 4. Returns `None` if nothing is found.
+#[must_use]
+pub fn resolve_repository_info(
+    config: &Config,
+    plugins: &[Box<dyn EcosystemPlugin>],
+    workspace_root: &Path,
+    color: ColorConfig,
+) -> Option<RepositoryInfo> {
+    // 1. Config wins
+    if let Some(repo_config) = &config.documentation.repository {
+        return config_to_repository_info(repo_config, color);
+    }
+
+    // 2. Plugin fallback — first Some wins
+    for plugin in plugins {
+        match plugin.workspace_metadata(workspace_root) {
+            Ok(meta) => {
+                if meta.repository.is_some() {
+                    return meta.repository;
+                }
+            }
+            Err(err) => {
+                eprintln!(
+                    "{} plugin '{}' workspace_metadata failed: {err}",
+                    color.warn(),
+                    plugin.name(),
+                );
+            }
+        }
+    }
+
+    // 3. Nothing found
+    None
 }
 
 /// Build an `ArtifactGraph` from the full evidence pipeline.
@@ -803,4 +889,304 @@ mod tests {
     // -------------------------------------------------------------------
     // 7. Workspace member crate traversal
     // -------------------------------------------------------------------
+
+    // -------------------------------------------------------------------
+    // 8. resolve_repository_info
+    // -------------------------------------------------------------------
+
+    mod resolve_repository {
+        use supersigil_core::{DocumentationConfig, RepositoryProvider};
+        use supersigil_evidence::WorkspaceMetadata;
+        use supersigil_rust::verifies;
+
+        use super::*;
+
+        fn color() -> ColorConfig {
+            ColorConfig::no_color()
+        }
+
+        // Helper: stub plugin returning Some repository info
+        #[derive(Debug)]
+        struct MetadataPlugin {
+            repo_info: Option<RepositoryInfo>,
+        }
+
+        impl supersigil_evidence::EcosystemPlugin for MetadataPlugin {
+            fn name(&self) -> &'static str {
+                "metadata"
+            }
+
+            fn workspace_metadata(
+                &self,
+                _workspace_root: &Path,
+            ) -> Result<WorkspaceMetadata, supersigil_evidence::PluginError> {
+                Ok(WorkspaceMetadata {
+                    repository: self.repo_info.clone(),
+                })
+            }
+
+            fn discover(
+                &self,
+                _files: &[PathBuf],
+                _scope: &ProjectScope,
+                _documents: &DocumentGraph,
+            ) -> Result<supersigil_evidence::PluginDiscoveryResult, supersigil_evidence::PluginError>
+            {
+                Ok(supersigil_evidence::PluginDiscoveryResult::default())
+            }
+        }
+
+        // Helper: stub plugin that returns Err from workspace_metadata
+        #[derive(Debug)]
+        struct FailingMetadataPlugin;
+
+        impl supersigil_evidence::EcosystemPlugin for FailingMetadataPlugin {
+            fn name(&self) -> &'static str {
+                "failing-meta"
+            }
+
+            fn workspace_metadata(
+                &self,
+                _workspace_root: &Path,
+            ) -> Result<WorkspaceMetadata, supersigil_evidence::PluginError> {
+                Err(supersigil_evidence::PluginError::Discovery {
+                    plugin: "failing-meta".into(),
+                    message: "simulated metadata failure".into(),
+                    details: None,
+                })
+            }
+
+            fn discover(
+                &self,
+                _files: &[PathBuf],
+                _scope: &ProjectScope,
+                _documents: &DocumentGraph,
+            ) -> Result<supersigil_evidence::PluginDiscoveryResult, supersigil_evidence::PluginError>
+            {
+                Ok(supersigil_evidence::PluginDiscoveryResult::default())
+            }
+        }
+
+        fn github_config() -> RepositoryConfig {
+            RepositoryConfig {
+                provider: RepositoryProvider::GitHub,
+                repo: "owner/repo".into(),
+                host: None,
+                main_branch: None,
+            }
+        }
+
+        fn github_info() -> RepositoryInfo {
+            RepositoryInfo {
+                provider: RepositoryProvider::GitHub,
+                repo: "plugin/discovered".into(),
+                host: "github.com".into(),
+                main_branch: "main".into(),
+            }
+        }
+
+        // 8a. Config wins over plugins (req-5-3)
+        #[verifies("ecosystem-plugins/req#req-5-3")]
+        #[test]
+        fn config_wins_over_plugins() {
+            let mut config = base_config();
+            config.documentation = DocumentationConfig {
+                repository: Some(github_config()),
+            };
+
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
+                vec![Box::new(MetadataPlugin {
+                    repo_info: Some(github_info()),
+                })];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            let info = result.expect("config should produce Some");
+            assert_eq!(info.provider, RepositoryProvider::GitHub);
+            assert_eq!(
+                info.repo, "owner/repo",
+                "config repo should win, not plugin's"
+            );
+            assert_eq!(info.host, "github.com");
+            assert_eq!(info.main_branch, "main");
+        }
+
+        // 8b. Plugin fallback when config has no repository (req-5-1)
+        #[verifies("ecosystem-plugins/req#req-5-1")]
+        #[test]
+        fn plugin_fallback_when_config_absent() {
+            let config = base_config(); // no documentation.repository
+
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
+                vec![Box::new(MetadataPlugin {
+                    repo_info: Some(github_info()),
+                })];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            let info = result.expect("plugin should produce Some");
+            assert_eq!(info.provider, RepositoryProvider::GitHub);
+            assert_eq!(info.repo, "plugin/discovered");
+        }
+
+        // 8c. No result when config absent and plugins return None
+        #[test]
+        fn no_result_when_nothing_available() {
+            let config = base_config();
+
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> =
+                vec![Box::new(MetadataPlugin { repo_info: None })];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            assert!(result.is_none(), "expected None when nothing available");
+        }
+
+        // 8d. Plugin errors logged as warnings, resolution continues
+        #[verifies("ecosystem-plugins/req#req-5-1")]
+        #[test]
+        fn plugin_error_logged_and_skipped() {
+            let config = base_config();
+
+            // First plugin fails, second succeeds
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> = vec![
+                Box::new(FailingMetadataPlugin),
+                Box::new(MetadataPlugin {
+                    repo_info: Some(github_info()),
+                }),
+            ];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            let info = result.expect("second plugin should produce Some after first fails");
+            assert_eq!(info.repo, "plugin/discovered");
+        }
+
+        // 8e. First plugin with Some wins (first-wins semantics)
+        #[test]
+        fn first_plugin_some_wins() {
+            let config = base_config();
+
+            let first_info = RepositoryInfo {
+                provider: RepositoryProvider::GitLab,
+                repo: "first/plugin".into(),
+                host: "gitlab.com".into(),
+                main_branch: "main".into(),
+            };
+            let second_info = RepositoryInfo {
+                provider: RepositoryProvider::GitHub,
+                repo: "second/plugin".into(),
+                host: "github.com".into(),
+                main_branch: "main".into(),
+            };
+
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> = vec![
+                Box::new(MetadataPlugin {
+                    repo_info: Some(first_info),
+                }),
+                Box::new(MetadataPlugin {
+                    repo_info: Some(second_info),
+                }),
+            ];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            let info = result.expect("first plugin should win");
+            assert_eq!(info.repo, "first/plugin");
+            assert_eq!(info.provider, RepositoryProvider::GitLab);
+        }
+
+        // 8f. Config conversion: defaults resolved for each provider
+        #[test]
+        fn config_defaults_github() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::GitHub,
+                repo: "owner/repo".into(),
+                host: None,
+                main_branch: None,
+            };
+            let info = config_to_repository_info(&config_repo, color()).unwrap();
+            assert_eq!(info.host, "github.com");
+            assert_eq!(info.main_branch, "main");
+        }
+
+        #[test]
+        fn config_defaults_gitlab() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::GitLab,
+                repo: "group/project".into(),
+                host: None,
+                main_branch: None,
+            };
+            let info = config_to_repository_info(&config_repo, color()).unwrap();
+            assert_eq!(info.host, "gitlab.com");
+            assert_eq!(info.provider, RepositoryProvider::GitLab);
+        }
+
+        #[test]
+        fn config_defaults_bitbucket() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::Bitbucket,
+                repo: "team/project".into(),
+                host: None,
+                main_branch: None,
+            };
+            let info = config_to_repository_info(&config_repo, color()).unwrap();
+            assert_eq!(info.host, "bitbucket.org");
+            assert_eq!(info.provider, RepositoryProvider::Bitbucket);
+        }
+
+        #[test]
+        fn config_gitea_with_host() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::Gitea,
+                repo: "owner/repo".into(),
+                host: Some("gitea.example.com".into()),
+                main_branch: Some("develop".into()),
+            };
+            let info = config_to_repository_info(&config_repo, color()).unwrap();
+            assert_eq!(info.host, "gitea.example.com");
+            assert_eq!(info.main_branch, "develop");
+            assert_eq!(info.provider, RepositoryProvider::Gitea);
+        }
+
+        #[test]
+        fn config_gitea_without_host_returns_none() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::Gitea,
+                repo: "owner/repo".into(),
+                host: None,
+                main_branch: None,
+            };
+            let result = config_to_repository_info(&config_repo, color());
+            assert!(
+                result.is_none(),
+                "Gitea without host should return None (config error)"
+            );
+        }
+
+        #[test]
+        fn config_custom_host_overrides_default() {
+            let config_repo = RepositoryConfig {
+                provider: RepositoryProvider::GitHub,
+                repo: "owner/repo".into(),
+                host: Some("github.enterprise.com".into()),
+                main_branch: Some("trunk".into()),
+            };
+            let info = config_to_repository_info(&config_repo, color()).unwrap();
+            assert_eq!(info.host, "github.enterprise.com");
+            assert_eq!(info.main_branch, "trunk");
+        }
+
+        // 8g. Empty plugin list returns None
+        #[test]
+        fn empty_plugins_returns_none() {
+            let config = base_config();
+            let plugins: Vec<Box<dyn supersigil_evidence::EcosystemPlugin>> = vec![];
+
+            let result = resolve_repository_info(&config, &plugins, Path::new("/tmp"), color());
+
+            assert!(result.is_none());
+        }
+    }
 }

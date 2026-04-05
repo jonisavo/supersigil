@@ -5,7 +5,8 @@
 
 use serde::Deserialize;
 use supersigil_core::{
-    Config, EcosystemConfig, ExamplesConfig, HooksConfig, Severity, VerifyConfig,
+    Config, DocumentationConfig, EcosystemConfig, ExamplesConfig, HooksConfig, Severity,
+    VerifyConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -1302,4 +1303,288 @@ paths = ["specs/**/*.md"]
 diagnostics = "full"
 "#;
     toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ===========================================================================
+// Task 11: DocumentationConfig and RepositoryConfig tests
+// Requirements: config/req#req-3-6
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Full [documentation.repository] with all fields
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_full_config() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "github"
+repo = "jonisavo/supersigil"
+host = "github.example.com"
+main_branch = "master"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let repo = config
+        .documentation
+        .repository
+        .expect("repository should be present");
+    assert_eq!(repo.provider, supersigil_core::RepositoryProvider::GitHub);
+    assert_eq!(repo.repo, "jonisavo/supersigil");
+    assert_eq!(repo.host.as_deref(), Some("github.example.com"));
+    assert_eq!(repo.main_branch.as_deref(), Some("master"));
+}
+
+// ---------------------------------------------------------------------------
+// 2. Required fields only (host and main_branch omitted)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_required_fields_only() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "gitlab"
+repo = "org/project"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let repo = config
+        .documentation
+        .repository
+        .expect("repository should be present");
+    assert_eq!(repo.provider, supersigil_core::RepositoryProvider::GitLab);
+    assert_eq!(repo.repo, "org/project");
+    assert!(repo.host.is_none());
+    assert!(repo.main_branch.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 3. All known provider values
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_all_providers() {
+    let cases = [
+        ("github", supersigil_core::RepositoryProvider::GitHub),
+        ("gitlab", supersigil_core::RepositoryProvider::GitLab),
+        ("bitbucket", supersigil_core::RepositoryProvider::Bitbucket),
+        ("gitea", supersigil_core::RepositoryProvider::Gitea),
+    ];
+
+    for (provider_str, expected) in cases {
+        let toml_str = format!(
+            r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "{provider_str}"
+repo = "owner/repo"
+"#
+        );
+        let config: Config = toml::from_str(&toml_str).unwrap();
+        let repo = config
+            .documentation
+            .repository
+            .expect("repository should be present");
+        assert_eq!(
+            repo.provider, expected,
+            "failed for provider {provider_str}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Unknown provider value is rejected by serde
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_unknown_provider_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "sourcehut"
+repo = "owner/repo"
+"#;
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unknown variant"),
+        "error should mention unknown variant: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. Unknown provider rejected via load_config (produces TomlSyntax)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn load_config_documentation_unknown_provider_rejected() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "sourcehut"
+repo = "owner/repo"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ConfigError::TomlSyntax { .. })),
+        "expected TomlSyntax error for unknown provider, got: {errs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 6. No documentation section defaults to empty
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_absent_defaults_to_empty() {
+    let toml_str = r#"paths = ["specs/**/*.md"]"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.documentation.repository.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 7. Empty documentation section defaults to no repository
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_empty_section_defaults_to_no_repository() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.documentation.repository.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 8. Unknown field in [documentation] is rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_unknown_field_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation]
+unknown = "bad"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ---------------------------------------------------------------------------
+// 9. Unknown field in [documentation.repository] is rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_unknown_field_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "github"
+repo = "owner/repo"
+unknown = "bad"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ---------------------------------------------------------------------------
+// 10. DocumentationConfig default trait
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_config_default_is_empty() {
+    let default = DocumentationConfig::default();
+    assert!(default.repository.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 11. Missing required field `provider` is rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_missing_provider_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+repo = "owner/repo"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ---------------------------------------------------------------------------
+// 12. Missing required field `repo` is rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_repository_missing_repo_rejected() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "github"
+"#;
+    toml::from_str::<Config>(toml_str).unwrap_err();
+}
+
+// ---------------------------------------------------------------------------
+// 13. Valid config via load_config with documentation.repository
+// ---------------------------------------------------------------------------
+
+#[test]
+fn load_config_with_documentation_repository() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "github"
+repo = "jonisavo/supersigil"
+host = "github.example.com"
+main_branch = "develop"
+"#,
+    );
+    let config = load_config(Path::new(&path)).unwrap();
+    let repo = config
+        .documentation
+        .repository
+        .expect("repository should be present");
+    assert_eq!(repo.provider, supersigil_core::RepositoryProvider::GitHub);
+    assert_eq!(repo.repo, "jonisavo/supersigil");
+    assert_eq!(repo.host.as_deref(), Some("github.example.com"));
+    assert_eq!(repo.main_branch.as_deref(), Some("develop"));
+}
+
+// ---------------------------------------------------------------------------
+// 14. Round-trip serialization of documentation config
+// ---------------------------------------------------------------------------
+
+#[test]
+fn documentation_config_round_trip() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[documentation.repository]
+provider = "github"
+repo = "jonisavo/supersigil"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let serialized = toml::to_string(&config).unwrap();
+    let deserialized: Config = toml::from_str(&serialized).unwrap();
+    let repo = deserialized
+        .documentation
+        .repository
+        .expect("repository should survive round-trip");
+    assert_eq!(repo.provider, supersigil_core::RepositoryProvider::GitHub);
+    assert_eq!(repo.repo, "jonisavo/supersigil");
 }
