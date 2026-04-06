@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Development"
-  short_description: "Implement features against Supersigil specs"
-  default_prompt: "Use $feature-development to implement a bounded feature against existing Supersigil specs and keep tasks, tests, and verification in sync."
+  short_description: "Fix bugs, add features, and implement against Supersigil specs"
+  default_prompt: "Use $feature-development to implement, fix, or extend code in a project with existing Supersigil specs. Keeps tasks, tests, and verification in sync."

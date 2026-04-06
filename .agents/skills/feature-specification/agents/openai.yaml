@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Specification"
-  short_description: "Author and repair Supersigil feature specs"
-  default_prompt: "Use $feature-specification to author or refine Supersigil requirement, property, design, and tasks docs for one bounded feature."
+  short_description: "Author and repair Supersigil spec documents"
+  default_prompt: "Use $feature-specification to write or repair Supersigil requirements, design docs, tasks, or ADRs for a bounded feature."

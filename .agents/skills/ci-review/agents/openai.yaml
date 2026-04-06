@@ -1,4 +1,4 @@
 interface:
   display_name: "CI & Review"
-  short_description: "Supersigil verification in CI and PR review"
-  default_prompt: "Use $ci-review to integrate Supersigil verification into CI pipelines, review PRs against spec coverage, or interpret verification output."
+  short_description: "Supersigil verification in CI pipelines and PR reviews"
+  default_prompt: "Use $ci-review to set up CI gates, review PRs against spec coverage, or interpret Supersigil verification output."

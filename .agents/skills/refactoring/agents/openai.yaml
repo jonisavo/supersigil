@@ -1,4 +1,4 @@
 interface:
   display_name: "Refactoring"
-  short_description: "Restructure code while keeping Supersigil specs green"
-  default_prompt: "Use $refactoring to restructure code that already has Supersigil specs, keeping all criteria, evidence, and verification intact."
+  short_description: "Restructure code while keeping specs and evidence valid"
+  default_prompt: "Use $refactoring to restructure code that has Supersigil specs without changing behavior. Keeps tracked files, criteria, and verification intact."

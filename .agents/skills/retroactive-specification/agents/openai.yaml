@@ -1,4 +1,4 @@
 interface:
   display_name: "Retroactive Specification"
-  short_description: "Recover Supersigil specs from code"
-  default_prompt: "Use $retroactive-specification to derive Supersigil specs for one bounded area of an existing codebase."
+  short_description: "Derive specs from existing code or refresh stale specs"
+  default_prompt: "Use $retroactive-specification to recover Supersigil specs from existing code, or reconcile specs that have drifted from the codebase."
