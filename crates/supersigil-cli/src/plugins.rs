@@ -546,7 +546,6 @@ mod tests {
                 status: None,
             },
             extra: HashMap::new(),
-            warnings: vec![],
             components: vec![supersigil_core::ExtractedComponent {
                 name: "AcceptanceCriteria".into(),
                 attributes: HashMap::new(),
@@ -593,7 +592,6 @@ mod tests {
                 status: None,
             },
             extra: HashMap::new(),
-            warnings: vec![],
             components: vec![supersigil_core::ExtractedComponent {
                 name: "References".into(),
                 attributes: HashMap::from([("refs".into(), "req/auth#crit-1".into())]),

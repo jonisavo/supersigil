@@ -26,7 +26,7 @@ support, real-time test execution from previews.
 ## Definitions
 
 - **Component tree**: The parsed hierarchy of supersigil-xml
-  components (Criterion, Decision, Example, etc.) from a spec
+  components (Criterion, Decision, Task, etc.) from a spec
   document, enriched with verification status.
 - **Presentation kit**: A shared TypeScript package that converts
   component tree JSON into styled HTML fragments.
@@ -72,7 +72,7 @@ preview can render rich spec blocks without shelling out to the CLI.
     partial, failing) and a list of evidence entries. Each evidence
     entry SHALL include the test name, test file, test kind (unit,
     async, property, snapshot, unknown), evidence kind (tag, file-glob,
-    rust-attribute, example), source line, and provenance chain.
+    rust-attribute, js-verifies), source line, and provenance chain.
   </Criterion>
   <Criterion id="req-1-4">
     WHEN the requested document has not been indexed or has parse
@@ -123,8 +123,9 @@ look and behave consistently across all surfaces.
     <VerifiedBy strategy="file-glob" paths="packages/preview/__tests__/render.test.ts" />
   </Criterion>
   <Criterion id="req-2-4">
-    THE presentation kit SHALL render Example components showing the
-    runner, language, and verification targets.
+    THE presentation kit SHALL render unsupported or otherwise
+    uncustomized component kinds using a generic wrapper that shows
+    the component kind, optional ID, body text, and child components.
     <VerifiedBy strategy="file-glob" paths="packages/preview/__tests__/render.test.ts" />
   </Criterion>
   <Criterion id="req-2-5">

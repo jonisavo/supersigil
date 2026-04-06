@@ -53,14 +53,10 @@ pub enum RuleName {
     StatusInconsistency,
     MissingRequiredComponent,
     InvalidVerifiedByPlacement,
-    InvalidExpectedPlacement,
-    InvalidCodeBlockCardinality,
-    InvalidEnvFormat,
     HookOutput,
     HookFailure,
     PluginDiscoveryFailure,
     PluginDiscoveryWarning,
-    ExampleFailed,
     SequentialIdOrder,
     SequentialIdGap,
     InvalidRationalePlacement,
@@ -71,9 +67,6 @@ pub enum RuleName {
     OrphanDecision,
     MissingDecisionCoverage,
     EmptyProject,
-    MultipleExpectedChildren,
-    InlineExampleWithoutLang,
-    CodeRefConflict,
 }
 
 impl RuleName {
@@ -90,10 +83,6 @@ impl RuleName {
         Self::StatusInconsistency,
         Self::MissingRequiredComponent,
         Self::InvalidVerifiedByPlacement,
-        Self::InvalidExpectedPlacement,
-        Self::InvalidCodeBlockCardinality,
-        Self::InvalidEnvFormat,
-        Self::ExampleFailed,
         Self::PluginDiscoveryFailure,
         Self::PluginDiscoveryWarning,
         Self::SequentialIdOrder,
@@ -106,9 +95,6 @@ impl RuleName {
         Self::OrphanDecision,
         Self::MissingDecisionCoverage,
         Self::EmptyProject,
-        Self::MultipleExpectedChildren,
-        Self::InlineExampleWithoutLang,
-        Self::CodeRefConflict,
     ];
 }
 
@@ -131,14 +117,10 @@ impl RuleName {
             Self::StatusInconsistency => "status_inconsistency",
             Self::MissingRequiredComponent => "missing_required_component",
             Self::InvalidVerifiedByPlacement => "invalid_verified_by_placement",
-            Self::InvalidExpectedPlacement => "invalid_expected_placement",
-            Self::InvalidCodeBlockCardinality => "invalid_code_block_cardinality",
-            Self::InvalidEnvFormat => "invalid_env_format",
             Self::HookOutput => "hook_output",
             Self::HookFailure => "hook_failure",
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
             Self::PluginDiscoveryWarning => "plugin_discovery_warning",
-            Self::ExampleFailed => "example_failed",
             Self::SequentialIdOrder => "sequential_id_order",
             Self::SequentialIdGap => "sequential_id_gap",
             Self::InvalidRationalePlacement => "invalid_rationale_placement",
@@ -149,9 +131,6 @@ impl RuleName {
             Self::OrphanDecision => "orphan_decision",
             Self::MissingDecisionCoverage => "missing_decision_coverage",
             Self::EmptyProject => "empty_project",
-            Self::MultipleExpectedChildren => "multiple_expected_children",
-            Self::InlineExampleWithoutLang => "inline_example_without_lang",
-            Self::CodeRefConflict => "code_ref_conflict",
         }
     }
 
@@ -163,13 +142,7 @@ impl RuleName {
             Self::MissingVerificationEvidence
             | Self::MissingTestFiles
             | Self::HookFailure
-            | Self::InvalidVerifiedByPlacement
-            | Self::InvalidExpectedPlacement
-            | Self::InvalidCodeBlockCardinality
-            | Self::InvalidEnvFormat
-            | Self::ExampleFailed
-            | Self::MultipleExpectedChildren
-            | Self::InlineExampleWithoutLang => ReportSeverity::Error,
+            | Self::InvalidVerifiedByPlacement => ReportSeverity::Error,
 
             Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
 
@@ -191,8 +164,7 @@ impl RuleName {
             | Self::DuplicateRationale
             | Self::InvalidAlternativeStatus
             | Self::IncompleteDecision
-            | Self::OrphanDecision
-            | Self::CodeRefConflict => ReportSeverity::Warning,
+            | Self::OrphanDecision => ReportSeverity::Warning,
         }
     }
 }
@@ -233,10 +205,6 @@ pub struct FindingDetails {
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
-    /// When `true`, this criterion is targeted by at least one `<Example
-    /// verifies="...">` component, so running examples may cover it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub example_coverable: bool,
 }
 
 impl Finding {
@@ -394,9 +362,6 @@ impl EvidenceSummary {
                         }
                         PluginProvenance::VerifiedByFileGlob { doc_id, .. } => {
                             format!("authored:glob({doc_id})")
-                        }
-                        PluginProvenance::Example { doc_id, example_id } => {
-                            format!("example:{doc_id}:{example_id}")
                         }
                         PluginProvenance::JsVerifies { .. } => "plugin:js".to_string(),
                     })
@@ -589,10 +554,6 @@ mod tests {
             (RuleName::MissingTestFiles, ReportSeverity::Error),
             (RuleName::HookFailure, ReportSeverity::Error),
             (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
-            (RuleName::InvalidExpectedPlacement, ReportSeverity::Error),
-            (RuleName::InvalidCodeBlockCardinality, ReportSeverity::Error),
-            (RuleName::InvalidEnvFormat, ReportSeverity::Error),
-            (RuleName::ExampleFailed, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
             (RuleName::StaleTrackedFiles, ReportSeverity::Warning),
@@ -617,9 +578,6 @@ mod tests {
             (RuleName::OrphanDecision, ReportSeverity::Warning),
             (RuleName::MissingDecisionCoverage, ReportSeverity::Off),
             (RuleName::EmptyProject, ReportSeverity::Warning),
-            (RuleName::MultipleExpectedChildren, ReportSeverity::Error),
-            (RuleName::InlineExampleWithoutLang, ReportSeverity::Error),
-            (RuleName::CodeRefConflict, ReportSeverity::Warning),
         ];
         for (rule, severity) in expected {
             assert_eq!(rule.default_severity(), severity, "for {rule:?}");

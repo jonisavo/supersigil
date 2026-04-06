@@ -19,7 +19,7 @@ fn attr(required: bool, list: bool) -> AttributeDef {
 // ComponentDefs::defaults() — 13 built-in components (Req 7.3, 14.4)
 // ---------------------------------------------------------------------------
 
-const BUILTIN_NAMES: [&str; 13] = [
+const BUILTIN_NAMES: [&str; 11] = [
     "AcceptanceCriteria",
     "Criterion",
     "References",
@@ -28,17 +28,15 @@ const BUILTIN_NAMES: [&str; 13] = [
     "Task",
     "TrackedFiles",
     "DependsOn",
-    "Example",
-    "Expected",
     "Decision",
     "Rationale",
     "Alternative",
 ];
 
 #[test]
-fn defaults_returns_exactly_thirteen_components() {
+fn defaults_returns_exactly_eleven_components() {
     let defs = ComponentDefs::defaults();
-    assert_eq!(defs.len(), 13);
+    assert_eq!(defs.len(), 11);
     for name in &BUILTIN_NAMES {
         assert!(defs.is_known(name), "missing built-in: {name}");
     }
@@ -126,13 +124,6 @@ fn depends_on_has_required_list_refs() {
     assert_eq!(d.attributes["refs"], attr(true, true));
     assert!(!d.referenceable);
     assert_eq!(d.target_component, None);
-}
-
-#[test]
-fn example_lang_attribute_is_optional() {
-    let defs = ComponentDefs::defaults();
-    let example = defs.get("Example").unwrap();
-    assert_eq!(example.attributes["lang"], attr(false, false));
 }
 
 // ---------------------------------------------------------------------------
@@ -308,9 +299,9 @@ fn merge_unmentioned_builtins_preserved() {
     );
 
     let merged = ComponentDefs::merge(defaults, user).unwrap();
-    // All 13 built-ins should still be present (Criterion overridden + 12 unchanged)
+    // All 11 built-ins should still be present (Criterion overridden + 10 unchanged)
     // plus no new ones since we only overrode
-    assert_eq!(merged.len(), 13);
+    assert_eq!(merged.len(), 11);
     for name in &BUILTIN_NAMES {
         assert!(merged.is_known(name), "built-in {name} should be preserved");
     }
@@ -344,7 +335,7 @@ fn merge_override_plus_new_component() {
     );
 
     let merged = ComponentDefs::merge(defaults, user).unwrap();
-    assert_eq!(merged.len(), 14); // 13 built-in + 1 new
+    assert_eq!(merged.len(), 12); // 11 built-in + 1 new
     assert!(merged.is_known("NewComp"));
     assert!(merged.is_known("Criterion"));
     // Criterion should be the overridden version
@@ -355,7 +346,7 @@ fn merge_override_plus_new_component() {
 fn merge_empty_user_defs_preserves_all_defaults() {
     let defaults = ComponentDefs::defaults();
     let merged = ComponentDefs::merge(defaults, HashMap::new()).unwrap();
-    assert_eq!(merged.len(), 13);
+    assert_eq!(merged.len(), 11);
     // Verify a sample built-in is intact
     let criterion = merged.get("Criterion").unwrap();
     assert!(criterion.referenceable);

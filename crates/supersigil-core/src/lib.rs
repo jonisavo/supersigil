@@ -16,14 +16,12 @@ mod xml;
 pub use component_defs::ComponentDefs;
 pub use config::{
     AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentationConfig,
-    DocumentsConfig, EcosystemConfig, ExamplesConfig, HooksConfig, JsEcosystemConfig,
-    KNOWN_PLUGINS, KNOWN_RULES, LspConfig, ProjectConfig, RepositoryConfig, RepositoryProvider,
-    RunnerConfig, RustEcosystemConfig, RustProjectScope, RustValidationPolicy, Severity,
-    SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
+    DocumentsConfig, EcosystemConfig, HooksConfig, JsEcosystemConfig, KNOWN_PLUGINS, KNOWN_RULES,
+    LspConfig, ProjectConfig, RepositoryConfig, RepositoryProvider, RustEcosystemConfig,
+    RustProjectScope, RustValidationPolicy, Severity, SkillsConfig, TestResultsConfig,
+    VerifyConfig, load_config,
 };
-pub use error::{
-    ComponentDefError, ConfigError, ListSplitError, ParseError, ParseWarning, split_list_attribute,
-};
+pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};
 pub use locate::{CONFIG_FILENAME, find_config};
 pub use refs::{is_valid_criterion_ref, split_criterion_ref};
@@ -43,8 +41,8 @@ pub mod test_helpers;
 // Graph module re-exports
 pub use graph::{
     ACCEPTANCE_CRITERIA, ALTERNATIVE, AlternativeContext, CRITERION, ContextOutput, DECISION,
-    DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EXAMPLE, EXPECTED, EXPECTED_FRAGMENT,
-    EdgeKind, GraphError, IMPLEMENTS, LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery,
-    QueryError, RATIONALE, REFERENCES, ResolvedRef, SUPERSIGIL_XML_LANG, TASK, TRACKED_FILES,
-    TargetContext, TaskInfo, VERIFIED_BY, build_graph, decision_references_target, glob_prefix,
+    DEPENDS_ON, DecisionContext, DocRef, DocumentGraph, EdgeKind, GraphError, IMPLEMENTS,
+    LinkedDecision, OutstandingTarget, PlanOutput, PlanQuery, QueryError, RATIONALE, REFERENCES,
+    ResolvedRef, SUPERSIGIL_XML_LANG, TASK, TRACKED_FILES, TargetContext, TaskInfo, VERIFIED_BY,
+    build_graph, decision_references_target, glob_prefix,
 };

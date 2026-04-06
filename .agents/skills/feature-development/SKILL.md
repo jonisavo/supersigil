@@ -18,7 +18,7 @@ supersigil plan [<id_or_prefix>] [--format json]
 supersigil verify [--format terminal|json|markdown]
 supersigil status [<id>] [--format json]
 supersigil affected --since <ref> [--format json]
-supersigil lint
+supersigil verify
 ```
 
 Use [references/implementation-loop.md](references/implementation-loop.md) for the concrete command loop.
@@ -50,7 +50,7 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
 5. Keep the spec graph honest while you work.
    Update `<Task status="...">` only when the real state changes.
    Edit spec docs only when the implementation reveals a genuine spec change or missing evidence.
-   Run `supersigil lint` after any spec edit before doing more work.
+   Run `supersigil verify` after any spec edit before doing more work.
 
 6. Add or repair verification evidence as part of the implementation.
    Prefer `VerifiedBy strategy="tag"` when you can add `supersigil: {tag}` comments to tests.

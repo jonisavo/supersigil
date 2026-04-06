@@ -38,7 +38,6 @@ pub fn make_doc_with_status(
         },
         extra: HashMap::new(),
         components,
-        warnings: Vec::new(),
     }
 }
 
@@ -57,7 +56,6 @@ pub fn make_doc_typed(
         },
         extra: HashMap::new(),
         components,
-        warnings: Vec::new(),
     }
 }
 

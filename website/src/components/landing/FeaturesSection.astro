@@ -1,5 +1,5 @@
 ---
-// FeaturesSection — bento grid of 5 feature cards
+// FeaturesSection — bento grid of feature cards
 ---
 
 <section class="features">
@@ -51,16 +51,7 @@
         </div>
       </div>
 
-      <div class="bento-card bento-examples reveal" style="--reveal-delay: 0.12s">
-        <div class="bento-label">Executable Examples</div>
-        <h3>Use runnable docs when a static snippet is not enough.</h3>
-        <p>Embed shell, HTTP, Rust, or custom-runner examples directly in spec docs. Passing examples can count as evidence inside the same verification pass.</p>
-        <div class="bento-snippet" aria-hidden="true">
-          <code><span class="c-gold">&lt;Example</span> <span class="c-teal">runner</span>=<span class="c-str">"http"</span> <span class="c-teal">verifies</span>=<span class="c-str">"tasks/req/create#due-date"</span><span class="c-gold">&gt;</span></code>
-        </div>
-      </div>
-
-      <div class="bento-card bento-rust reveal" style="--reveal-delay: 0.2s">
+      <div class="bento-card bento-rust reveal" style="--reveal-delay: 0.12s">
         <div class="bento-label">Pluggable Evidence</div>
         <h3>Start simple, then add richer discovery where your stack supports it.</h3>
         <p>Use tags or file globs by default. Add ecosystem integrations such as Rust <code>#[verifies(...)]</code> discovery when you want test evidence to flow into the graph automatically.</p>
@@ -94,13 +85,11 @@
     margin-top: 3rem;
     grid-template-areas:
       "graph ai      verify"
-      "graph examples rust"
-      "editor editor  editor";
+      "graph rust    editor";
   }
   .bento-graph    { grid-area: graph; }
   .bento-ai       { grid-area: ai; }
   .bento-verify   { grid-area: verify; }
-  .bento-examples { grid-area: examples; }
   .bento-rust     { grid-area: rust; }
   .bento-editor   { grid-area: editor; }
 

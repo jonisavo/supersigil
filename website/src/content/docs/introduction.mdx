@@ -41,7 +41,6 @@ Components form a **directed graph** — criteria point to evidence, designs poi
 - **Structural checks** catch broken refs, duplicate IDs, and dependency cycles.
 - **Coverage analysis** finds criteria without test evidence.
 - **Staleness detection** flags specs whose tracked source files have changed.
-- **Executable examples** run embedded code samples as tests during verification.
 - **Ecosystem plugins** discover evidence from Rust (`#[verifies]`) and JavaScript/TypeScript (`verifies()`) test annotations automatically.
 
 Everything outputs as JSON for agent consumption. `supersigil context auth/req/login` gives an agent the full picture of a document and its relationships in one call.

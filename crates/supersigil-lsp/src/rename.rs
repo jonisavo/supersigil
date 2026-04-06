@@ -16,9 +16,7 @@ use crate::hover::component_name_at_position;
 use crate::is_in_supersigil_fence;
 use crate::path_to_url;
 use crate::position::byte_range_to_lsp;
-use crate::references::{
-    extract_id_attribute_on_line, find_supersigil_ref_at_position, is_in_frontmatter,
-};
+use crate::references::{extract_id_attribute_on_line, is_in_frontmatter};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,9 +56,8 @@ pub enum RenameTarget {
 ///
 /// Checks in priority order:
 /// 1. Ref string inside a supersigil-xml fence
-/// 2. `supersigil-ref=<target>` in a code fence info string
-/// 3. Component definition tag with `id` attribute, or cursor on `id` value
-/// 4. YAML frontmatter `id:` value
+/// 2. Component definition tag with `id` attribute, or cursor on `id` value
+/// 3. YAML frontmatter `id:` value
 #[must_use]
 pub fn find_rename_target(
     content: &str,
@@ -78,17 +75,12 @@ pub fn find_rename_target(
         ));
     }
 
-    // 2. supersigil-ref=<target> in a code fence info string.
-    if let Some(target) = try_supersigil_ref(content, line, character, doc_id) {
-        return Some(target);
-    }
-
-    // 3. Component tag with id="..." attribute, or cursor directly on id value.
+    // 2. Component tag with id="..." attribute, or cursor directly on id value.
     if let Some(target) = try_component_id(content, line, character, doc_id) {
         return Some(target);
     }
 
-    // 4. YAML frontmatter id: value.
+    // 3. YAML frontmatter id: value.
     if let Some(target) = try_frontmatter_id(content, line, character, doc_id) {
         return Some(target);
     }
@@ -130,34 +122,6 @@ fn rename_target_from_ref(
             }
         }
     }
-}
-
-/// Try to detect a `supersigil-ref=<target>` rename target.
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "source line byte offsets always fit in u32"
-)]
-fn try_supersigil_ref(
-    content: &str,
-    line: u32,
-    character: u32,
-    doc_id: &str,
-) -> Option<RenameTarget> {
-    let (target, _fragment) = find_supersigil_ref_at_position(content, line, character)?;
-    let line_str = content.lines().nth(line as usize)?;
-    let prefix = "supersigil-ref=";
-    let token_pos = line_str.find(prefix)?;
-    let value_start = token_pos + prefix.len();
-    let target_end = value_start + target.len();
-    Some(RenameTarget::ComponentId {
-        doc_id: doc_id.to_owned(),
-        component_id: target,
-        range: LineRange {
-            line,
-            start: value_start as u32,
-            end: target_end as u32,
-        },
-    })
 }
 
 /// Try to detect a component tag or `id="..."` value rename target.
@@ -375,14 +339,13 @@ fn collect_component_edits(
     {
         let mut edits = Vec::new();
         collect_id_attr_edits(&content, old_id, new_name, &mut edits);
-        collect_supersigil_ref_edits(&content, old_id, new_name, &mut edits);
         if !edits.is_empty() {
             changes.entry(uri).or_default().extend(edits);
         }
     }
 
     // 2. Ref attributes in referencing documents.
-    // references_reverse covers <References> and <Example> components.
+    // references_reverse covers <References> components.
     // implements_reverse covers <Implements> components.
     // task_implements is separate — scan all docs for tasks targeting this fragment.
     let ref_sources = graph.references(doc_id, Some(old_id));
@@ -618,55 +581,6 @@ fn collect_id_attr_edits(content: &str, old_id: &str, new_name: &str, edits: &mu
     }
 }
 
-/// Find and replace `supersigil-ref=old` tokens in code fence info strings.
-///
-/// Only matches on fence opener lines (`` ``` `` or `~~~`) where
-/// `supersigil-ref=` appears as a space-delimited token.
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "source line byte offsets always fit in u32"
-)]
-fn collect_supersigil_ref_edits(
-    content: &str,
-    old_id: &str,
-    new_name: &str,
-    edits: &mut Vec<TextEdit>,
-) {
-    let needle = format!("supersigil-ref={old_id}");
-    let prefix_len = "supersigil-ref=".len();
-    for (line_num, line_str) in content.lines().enumerate() {
-        let trimmed = line_str.trim_start();
-        let fence_len = trimmed.bytes().take_while(|&b| b == b'`').count();
-        let tilde_len = trimmed.bytes().take_while(|&b| b == b'~').count();
-        if fence_len < 3 && tilde_len < 3 {
-            continue;
-        }
-
-        let Some(pos) = line_str.find(&needle) else {
-            continue;
-        };
-
-        if pos > 0 && !line_str.as_bytes()[pos - 1].is_ascii_whitespace() {
-            continue;
-        }
-
-        let after = pos + needle.len();
-        if after < line_str.len() {
-            let next_byte = line_str.as_bytes()[after];
-            if next_byte != b'#' && !next_byte.is_ascii_whitespace() {
-                continue;
-            }
-        }
-
-        let value_start = pos + prefix_len;
-        let value_end = value_start + old_id.len();
-        edits.push(TextEdit {
-            range: byte_range_to_lsp(line_str, line_num as u32, value_start, value_end),
-            new_text: new_name.to_owned(),
-        });
-    }
-}
-
 /// Find and replace a full ref string (e.g. `doc#frag`) in ref attributes.
 fn collect_ref_string_edits(
     content: &str,
@@ -868,50 +782,10 @@ mod tests {
         );
     }
 
-    // -- Priority 2: supersigil-ref -----------------------------------------------
+    // -- Priority 2: Component tag / id attribute ---------------------------------
 
     #[test]
     #[verifies("rename/req#req-1-3")]
-    fn supersigil_ref_yields_component_id() {
-        let content = "---\nsupersigil:\n  id: my/spec\n---\n\n```sh supersigil-ref=echo-test\necho hello\n```";
-        let result = find_rename_target(content, 5, 10, "my/spec").unwrap();
-        assert_eq!(
-            result,
-            RenameTarget::ComponentId {
-                doc_id: "my/spec".to_owned(),
-                component_id: "echo-test".to_owned(),
-                range: LineRange {
-                    line: 5,
-                    start: 21,
-                    end: 30
-                },
-            }
-        );
-    }
-
-    #[test]
-    #[verifies("rename/req#req-1-3")]
-    fn supersigil_ref_with_fragment_uses_target() {
-        let content = "```sh supersigil-ref=my-example#expected\nsome content\n```";
-        let result = find_rename_target(content, 0, 24, "doc").unwrap();
-        assert_eq!(
-            result,
-            RenameTarget::ComponentId {
-                doc_id: "doc".to_owned(),
-                component_id: "my-example".to_owned(),
-                range: LineRange {
-                    line: 0,
-                    start: 21,
-                    end: 31
-                },
-            }
-        );
-    }
-
-    // -- Priority 3: Component tag / id attribute ---------------------------------
-
-    #[test]
-    #[verifies("rename/req#req-1-4")]
     fn component_tag_with_id_yields_component_id() {
         let content = "```supersigil-xml\n<Criterion id=\"login-success\">\nThe user logs in.\n</Criterion>\n```";
         let result = find_rename_target(content, 1, 1, "auth/req").unwrap();
@@ -930,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("rename/req#req-1-4")]
+    #[verifies("rename/req#req-1-3")]
     fn cursor_on_id_value_yields_component_id() {
         let content = "```supersigil-xml\n<Criterion id=\"login-success\">\nThe user logs in.\n</Criterion>\n```";
         // Cursor at position 20, which is inside "login-success"
@@ -950,17 +824,17 @@ mod tests {
     }
 
     #[test]
-    #[verifies("rename/req#req-1-7")]
+    #[verifies("rename/req#req-1-6")]
     fn component_tag_without_id_returns_none() {
         let content = "```supersigil-xml\n<AcceptanceCriteria>\n</AcceptanceCriteria>\n```";
         let result = find_rename_target(content, 1, 1, "doc");
         assert_eq!(result, None);
     }
 
-    // -- Priority 4: Frontmatter -------------------------------------------------
+    // -- Priority 3: Frontmatter -------------------------------------------------
 
     #[test]
-    #[verifies("rename/req#req-1-5")]
+    #[verifies("rename/req#req-1-4")]
     fn frontmatter_id_yields_document_id() {
         let content = "---\nsupersigil:\n  id: my-doc/req\n  type: requirements\n---\n\nSome text.";
         let result = find_rename_target(content, 2, 7, "my-doc/req").unwrap();
@@ -978,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("rename/req#req-1-5")]
+    #[verifies("rename/req#req-1-4")]
     fn frontmatter_non_id_line_returns_none() {
         let content = "---\nsupersigil:\n  id: my-doc/req\n  type: requirements\n---\n\nSome text.";
         let result = find_rename_target(content, 3, 5, "my-doc/req");
@@ -988,7 +862,7 @@ mod tests {
     // -- Priority ordering -------------------------------------------------------
 
     #[test]
-    #[verifies("rename/req#req-1-6")]
+    #[verifies("rename/req#req-1-5")]
     fn ref_takes_priority_over_component_tag() {
         // Cursor on the refs value, which is also on a component with id.
         // <Implements id="impl-1" refs="other/doc#crit" />
@@ -1011,7 +885,7 @@ mod tests {
     // -- Non-renameable positions ------------------------------------------------
 
     #[test]
-    #[verifies("rename/req#req-1-7")]
+    #[verifies("rename/req#req-1-6")]
     fn body_text_returns_none() {
         let content = "---\nsupersigil:\n  id: test\n---\n\nSome text outside.";
         let result = find_rename_target(content, 5, 0, "test");
@@ -1019,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("rename/req#req-1-7")]
+    #[verifies("rename/req#req-1-6")]
     fn inside_fence_no_match_returns_none() {
         let content = "```supersigil-xml\nsome body text\n```";
         let result = find_rename_target(content, 1, 5, "test");
@@ -1187,12 +1061,12 @@ mod tests {
 
     #[test]
     #[verifies("rename/req#req-3-3")]
-    fn all_four_ref_attrs_scanned() {
-        // Verify that the scanner checks refs, implements, depends, verifies.
-        let content = "```supersigil-xml\n<Implements refs=\"doc#old\" />\n<Task implements=\"doc#old\" />\n<DependsOn refs=\"doc#old\" />\n<Example verifies=\"doc#old\" />\n```";
+    fn all_three_ref_attrs_scanned() {
+        // Verify that the scanner checks refs, implements, depends.
+        let content = "```supersigil-xml\n<Implements refs=\"doc#old\" />\n<Task implements=\"doc#old\" />\n<DependsOn depends=\"doc#old\" />\n```";
         let mut edits = Vec::new();
         collect_ref_string_edits(content, "doc#old", "doc#new", &mut edits);
-        assert_eq!(edits.len(), 4, "should find edits in all 4 attributes");
+        assert_eq!(edits.len(), 3, "should find edits in all 3 attributes");
     }
 
     #[test]
@@ -1280,16 +1154,6 @@ mod tests {
         collect_id_attr_edits(content, "only-one", "renamed", &mut edits);
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].new_text, "renamed");
-    }
-
-    #[test]
-    #[verifies("rename/req#req-3-1")]
-    fn supersigil_ref_updated_on_component_rename() {
-        let content = "```sh supersigil-ref=echo-test\necho hello\n```";
-        let mut edits = Vec::new();
-        collect_supersigil_ref_edits(content, "echo-test", "new-test", &mut edits);
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "new-test");
     }
 
     #[test]
@@ -1419,45 +1283,6 @@ mod tests {
             changes.contains_key(&task_uri),
             "task doc with implements should have edits: {changes:?}"
         );
-    }
-
-    // -- P2 regression: supersigil-ref prefix not matched ---------------------
-
-    #[test]
-    fn supersigil_ref_prefix_not_matched() {
-        // Renaming "echo-test" should NOT modify "supersigil-ref=echo-test-extra".
-        let content = "```sh supersigil-ref=echo-test-extra\necho hello\n```";
-        let mut edits = Vec::new();
-        collect_supersigil_ref_edits(content, "echo-test", "new-test", &mut edits);
-        assert!(edits.is_empty(), "should not match prefix: {edits:?}");
-    }
-
-    #[test]
-    fn supersigil_ref_with_hash_still_matched() {
-        // Renaming "echo-test" SHOULD match "supersigil-ref=echo-test#expected".
-        let content = "```sh supersigil-ref=echo-test#expected\necho hello\n```";
-        let mut edits = Vec::new();
-        collect_supersigil_ref_edits(content, "echo-test", "new-test", &mut edits);
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "new-test");
-    }
-
-    #[test]
-    fn supersigil_ref_not_on_fence_line_ignored() {
-        // Body text mentioning supersigil-ref should not be matched.
-        let content = "```sh\nUse supersigil-ref=echo-test for examples\n```";
-        let mut edits = Vec::new();
-        collect_supersigil_ref_edits(content, "echo-test", "new-test", &mut edits);
-        assert!(edits.is_empty(), "non-fence line should be ignored");
-    }
-
-    #[test]
-    fn supersigil_ref_not_at_token_boundary_ignored() {
-        // "notsupersigil-ref=echo-test" should not match.
-        let content = "```sh notsupersigil-ref=echo-test\necho hello\n```";
-        let mut edits = Vec::new();
-        collect_supersigil_ref_edits(content, "echo-test", "new-test", &mut edits);
-        assert!(edits.is_empty(), "non-token-boundary should be ignored");
     }
 
     // -- P3 regression: frontmatter cursor column checked --------------------

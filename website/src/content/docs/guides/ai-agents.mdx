@@ -43,7 +43,7 @@ Supersigil ships four agent skills — structured guides that teach coding agent
 
 The four skills are:
 
-- **`feature-specification`** — How to author requirements, properties, design, and tasks documents using Supersigil's component grammar and the lint/verify feedback loop.
+- **`feature-specification`** — How to author requirements, properties, design, and tasks documents using Supersigil's component grammar and the verify feedback loop.
 - **`feature-development`** — How to implement against existing specs using `plan`, `verify`, and test tagging.
 - **`spec-driven-development`** — The full end-to-end workflow from idea to verified implementation. Composes the specification and development skills.
 - **`retroactive-specification`** — How to reverse-engineer specs from existing code for brownfield projects.
@@ -150,7 +150,7 @@ Runs full graph verification and returns structured results:
 supersigil verify --format json
 ```
 
-The output includes all findings (errors, warnings), coverage information, and example execution results. The exit code tells the agent whether verification passed (0), found errors (1), or found only warnings (2).
+The output includes all findings (errors, warnings) and coverage information. The exit code tells the agent whether verification passed (0), found errors (1), or found only warnings (2).
 
 ## Agent Workflow
 
@@ -176,7 +176,7 @@ Here is the typical loop an agent follows when implementing a feature:
    ```bash
    supersigil verify --format json
    ```
-   The agent checks for broken references, uncovered criteria, and failing examples.
+   The agent checks for broken references and uncovered criteria.
 
 7. **Fix issues** -- If verify reports problems, the agent reads the findings and iterates.
 
@@ -221,6 +221,6 @@ supersigil refs auth/ --format json
 
 **Use `plan` to prioritize.** When an agent has multiple tasks, `plan` shows what is outstanding and what is already done. This prevents duplicate work.
 
-**Run `verify` frequently.** Verification is fast for structural checks. Running it after each significant change catches drift early. Use `--skip-examples` during rapid iteration if example execution is slow.
+**Run `verify` frequently.** Verification is fast for structural checks. Running it after each significant change catches drift early.
 
 **Parse exit codes.** `supersigil verify` exits 0 on success, 1 on errors, and 2 on warnings only. An agent can use the exit code for quick pass/fail without parsing JSON.

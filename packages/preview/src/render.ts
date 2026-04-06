@@ -114,8 +114,6 @@ function renderProvenanceEntry(
       }
       return `<span class="supersigil-provenance-entry">${label}</span>`;
     }
-    case "example":
-      return `<span class="supersigil-provenance-entry">Example: ${esc(entry.example_id)}</span>`;
     case "js-verifies": {
       const link = linkResolver.evidenceLink(entry.file, entry.line);
       const label = `${esc(entry.file)}:${entry.line}`;
@@ -239,40 +237,6 @@ function renderAlternative(component: RenderedComponent): string {
   if (bodyText) {
     html += `<p>${escWithInlineCode(bodyText)}</p>`;
   }
-  html += `</div>`;
-  return html;
-}
-
-function renderExample(component: RenderedComponent): string {
-  const id = component.id ?? "";
-  const runner = component.attributes.runner ?? "";
-  const language = component.attributes.lang ?? "";
-  const targets = component.attributes.verifies ?? "";
-
-  let html = `<div class="supersigil-example"`;
-  if (id) {
-    html += ` data-example-id="${esc(id)}"`;
-  }
-  html += `>`;
-
-  html += `<div class="supersigil-example-header">`;
-  if (id) {
-    html += `<code class="supersigil-example-id">${esc(id)}</code>`;
-  }
-  html += `</div>`;
-
-  html += `<div class="supersigil-example-meta">`;
-  if (runner) {
-    html += `<span class="supersigil-example-runner"><span class="supersigil-label">Runner:</span> ${esc(runner)}</span>`;
-  }
-  if (language) {
-    html += `<span class="supersigil-example-language"><span class="supersigil-label">Language:</span> ${esc(language)}</span>`;
-  }
-  if (targets) {
-    html += `<span class="supersigil-example-targets"><span class="supersigil-label">Targets:</span> ${esc(targets)}</span>`;
-  }
-  html += `</div>`;
-
   html += `</div>`;
   return html;
 }
@@ -475,8 +439,6 @@ function renderComponent(
       return renderCriterion(component, linkResolver);
     case "Decision":
       return renderDecision(component, linkResolver);
-    case "Example":
-      return renderExample(component);
     case "AcceptanceCriteria":
       return renderAcceptanceCriteria(component, linkResolver);
     case "Rationale":

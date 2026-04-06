@@ -14,7 +14,7 @@ Use the current CLI as the source of truth for the spec graph:
 ```bash
 supersigil new <type> <feature>
 supersigil schema [--format json]
-supersigil lint
+supersigil verify
 supersigil ls [--format json]
 supersigil context <id> [--format json]
 supersigil plan [<id_or_prefix>] [--format json]
@@ -53,7 +53,7 @@ Use [references/source-gathering.md](references/source-gathering.md) for the evi
 6. Reconnect existing evidence to the graph.
    Use `VerifiedBy strategy="tag"` or `strategy="file-glob"` to connect real tests.
    Add `TrackedFiles` only when the owning source paths are concrete and helpful.
-   Run `supersigil lint` after every spec write.
+   Run `supersigil verify` after every spec write.
 
 7. Use `supersigil verify` to expose specification debt.
    Coverage gaps, missing test mappings, stale globs, and status inconsistencies are part of the output, not noise to hide.

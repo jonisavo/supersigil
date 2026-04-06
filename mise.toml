@@ -16,15 +16,30 @@ run = "cargo fmt --all"
 description = "Lint the workspace."
 run = [
     "cargo clippy --workspace --all-targets --all-features",
-    "cargo run -p supersigil-cli lint"
+    "mise lint:js",
+    "mise lint:types",
+    "cargo run -p supersigil-cli verify"
 ]
+
+[tasks."lint:js"]
+description = "Lint JS/TS packages."
+run = "pnpm lint:eslint"
+
+[tasks."lint:types"]
+description = "Type-check JS/TS packages."
+run = "pnpm -r check-types"
 
 [tasks.fix]
 description = "Apply fixes in the workspace."
 run = [
     "cargo fmt --all",
     "cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged",
+    "mise fix:js",
 ]
+
+[tasks."fix:js"]
+description = "Apply ESLint fixes to JS/TS packages."
+run = "eslint --fix packages/"
 
 [tasks.bundle-explore]
 description = "Bundle the standalone graph explorer for use with the CLI."
@@ -38,15 +53,55 @@ dir = "packages/preview"
 
 [tasks.build]
 description = "Build the workspace."
-run = "cargo build --workspace --release"
-depends = ["bundle-explore", "bundle-preview"]
+run = ["cargo build --workspace --release", "mise build:vscode", "mise build:intellij"]
+depends = ["bundle-explore", "bundle-preview", "build:js"]
+
+[tasks."build:js"]
+description = "Build JS/TS packages."
+run = ["mise build:eslint-plugin", "mise build:vitest"]
+
+[tasks."build:eslint-plugin"]
+description = "Build eslint-plugin package."
+run = "pnpm build"
+dir = "packages/eslint-plugin"
+
+[tasks."build:vitest"]
+description = "Build vitest helper package."
+run = "pnpm build"
+dir = "packages/vitest"
+
+[tasks."build:vscode"]
+description = "Build the VS Code extension."
+run = "pnpm package"
+dir = "editors/vscode"
+
+[tasks."build:intellij"]
+description = "Build the IntelliJ plugin."
+run = "./gradlew buildPlugin"
+dir = "editors/intellij"
 
 [tasks.test]
 description = "Run workspace tests."
-run = [
-    "cargo nextest run",
-    "cargo run -p supersigil-cli verify"
-]
+run = ["cargo nextest run", "mise test:js"]
+
+[tasks."test:js"]
+description = "Run JS/TS package tests."
+run = ["mise test:eslint-plugin", "mise test:vitest", "mise test:preview"]
+
+[tasks."test:eslint-plugin"]
+description = "Run eslint-plugin tests."
+run = "pnpm test"
+dir = "packages/eslint-plugin"
+
+[tasks."test:vitest"]
+description = "Run vitest helper tests."
+run = "pnpm test"
+dir = "packages/vitest"
+
+[tasks."test:preview"]
+description = "Run preview package tests."
+run = "pnpm test"
+dir = "packages/preview"
 
 [tasks.qa]
 description = "Run all tooling to ensure the repository is squeaky clean."

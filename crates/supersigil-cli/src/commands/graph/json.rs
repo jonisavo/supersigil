@@ -200,7 +200,6 @@ mod tests {
                 yaml_serde::Value::String("Auth System".into()),
             )]),
             components: vec![],
-            warnings: vec![],
         };
         let graph = build_test_graph(vec![doc]);
         let json = build_graph_json(&graph);

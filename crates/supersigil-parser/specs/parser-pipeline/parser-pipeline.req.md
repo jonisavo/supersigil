@@ -16,8 +16,7 @@ This spec defines the single-file parsing behavior implemented by the
 `supersigil-parser` crate. It covers the byte-to-document pipeline:
 preprocessing, front matter extraction, `supersigil:` namespace
 deserialization, Markdown parsing, `supersigil-xml` fence extraction, XML
-component extraction, `supersigil-ref` code content resolution, lint-time
-validation, and `ParseResult` assembly.
+component extraction, lint-time validation, and `ParseResult` assembly.
 
 The format is standard Markdown (`.md`) with YAML front matter and
 `supersigil-xml` fenced code blocks containing an XML subset of structured
@@ -32,8 +31,6 @@ components. See `document-format/adr` for the format rationale.
   yields `Frontmatter`.
 - **Supersigil_Fence**: A Markdown fenced code block with the language
   identifier `supersigil-xml`.
-- **Supersigil_Ref_Fence**: A Markdown fenced code block whose info string
-  meta field contains `supersigil-ref=<target>`.
 - **PascalCase_Component**: An XML element inside a Supersigil_Fence whose
   name starts with an uppercase ASCII letter.
 - **Component_Defs**: The merged runtime component definitions used for
@@ -132,8 +129,7 @@ identity survives parsing.
 ## Requirement 4: Markdown Parsing and Fence Extraction
 
 As a parser consumer, I want the document body parsed as standard Markdown so
-that `supersigil-xml` fences and `supersigil-ref` code fences are identified
-for downstream extraction.
+that `supersigil-xml` fences are identified for downstream extraction.
 
 ```supersigil-xml
 <AcceptanceCriteria>
@@ -147,18 +143,6 @@ for downstream extraction.
     THE Parser SHALL collect all fenced code blocks whose language identifier
     is `supersigil-xml` as Supersigil_Fences. The content of each fence is
     the raw text between the opening and closing fence delimiters.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/markdown_fences.rs" />
-  </Criterion>
-  <Criterion id="req-4-3">
-    THE Parser SHALL collect all fenced code blocks whose info string meta
-    field contains `supersigil-ref=&lt;target&gt;` as Supersigil_Ref_Fences. The
-    `supersigil-ref` value extends from `=` to the next whitespace or end of
-    the meta string. The optional fragment separator is `#`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/markdown_fences.rs" />
-  </Criterion>
-  <Criterion id="req-4-4">
-    THE Parser SHALL record the byte offset, language, and content of each
-    Supersigil_Ref_Fence for code content resolution.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/markdown_fences.rs" />
   </Criterion>
 </AcceptanceCriteria>
@@ -207,42 +191,6 @@ verification logic can operate on typed components instead of raw text.
     nodes within an element, trimming leading and trailing whitespace.
     Self-closing elements, or elements whose content is only child
     elements, SHALL have no body text.
-  </Criterion>
-</AcceptanceCriteria>
-```
-
-## Requirement 8: Code Content Resolution
-
-As a parser consumer, I want `supersigil-ref` code fences linked to their
-target `Example` and `Expected` components, so that executable examples have
-their code content resolved during parsing.
-
-```supersigil-xml
-<AcceptanceCriteria>
-  <Criterion id="req-8-1">
-    AFTER component extraction, THE Parser SHALL resolve each
-    Supersigil_Ref_Fence to its target component by matching the
-    `supersigil-ref` value against component IDs (and the implicit
-    `expected` fragment ID for `Expected` children). Resolution is
-    document-local.
-  </Criterion>
-  <Criterion id="req-8-2">
-    WHEN a Supersigil_Ref_Fence resolves to an `Example` or `Expected`
-    component, THE Parser SHALL store the fence's content, language, and
-    byte offset as the component's code content.
-  </Criterion>
-  <Criterion id="req-8-3">
-    WHEN an `Example` or `Expected` component has inline text content (from
-    its XML body) and no linked Supersigil_Ref_Fence, THE Parser SHALL use
-    the inline text as the component's code content.
-  </Criterion>
-  <Criterion id="req-8-4">
-    IF both inline text and a linked Supersigil_Ref_Fence exist for the
-    same component, THE Parser SHALL report a lint error.
-  </Criterion>
-  <Criterion id="req-8-5">
-    IF a Supersigil_Ref_Fence targets no component in the document, THE
-    Parser SHALL report a lint error.
   </Criterion>
 </AcceptanceCriteria>
 ```

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use supersigil_core::{ComponentDefs, Config, DocumentGraph, VERIFIED_BY};
 use supersigil_verify::{RuleName, VerificationReport};
 
@@ -73,30 +71,4 @@ fn authored_evidence_hint(defs: &ComponentDefs) -> String {
         }
         _ => unreachable!("only the first two examples are used"),
     }
-}
-
-/// Count how many `MissingVerificationEvidence` findings target criteria that
-/// have `<Example verifies="...">` refs, i.e. criteria that would be covered
-/// if examples had been executed.
-pub(crate) fn count_example_pending_criteria(
-    report: &VerificationReport,
-    graph: &DocumentGraph,
-) -> usize {
-    let example_refs = crate::scope::collect_example_verifies_refs(graph);
-    if example_refs.is_empty() {
-        return 0;
-    }
-
-    report
-        .findings
-        .iter()
-        .filter_map(|finding| {
-            (finding.rule == RuleName::MissingVerificationEvidence)
-                .then_some(finding)
-                .and_then(|finding| finding.details.as_ref())
-                .and_then(|details| details.target_ref.as_deref())
-                .filter(|target_ref| example_refs.contains(*target_ref))
-        })
-        .collect::<HashSet<_>>()
-        .len()
 }

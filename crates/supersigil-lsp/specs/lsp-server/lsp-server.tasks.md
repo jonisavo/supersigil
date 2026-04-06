@@ -149,15 +149,4 @@ on the last. Each task is independently testable.
   that makes the LSP server accessible. Requires its own design pass.
 </Task>
 
-<Task
-  id="task-12"
-  status="done"
-  implements="lsp-server/req#req-1-6"
-  depends="task-5"
->
-  Downgrade example-coverable coverage findings to HINT in the LSP and
-  emit a single INFORMATION diagnostic per affected document summarizing
-  how many criteria depend on example execution. Wire plugin evidence
-  into the LSP verify pipeline so coverage matches the CLI.
-</Task>
 ```

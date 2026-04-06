@@ -212,7 +212,6 @@ pub enum EvidenceKind {
     Tag,
     FileGlob,
     RustAttribute,
-    Example,
     JsVerifies,
 }
 
@@ -224,7 +223,6 @@ impl EvidenceKind {
             Self::FileGlob => "file-glob",
             Self::Tag => "tag",
             Self::RustAttribute => "rust-attribute",
-            Self::Example => "example",
             Self::JsVerifies => "js-verifies",
         }
     }

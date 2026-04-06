@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::{ExtractedComponent, SpecDocument};
 
-use super::{DEPENDS_ON, EXAMPLE, IMPLEMENTS, REFERENCES, ResolvedRef};
+use super::{DEPENDS_ON, IMPLEMENTS, REFERENCES, ResolvedRef};
 
 // ---------------------------------------------------------------------------
 // Stage 8: Reverse mappings
@@ -47,9 +47,7 @@ pub(super) fn build_reverse_mappings(
 
         for resolved in refs {
             match component_name {
-                // Both <References> and <Example references="..."> create
-                // informational reference edges with no verification semantics.
-                REFERENCES | EXAMPLE => {
+                REFERENCES => {
                     let key = (resolved.target_doc_id.clone(), resolved.fragment.clone());
                     references_reverse
                         .entry(key)

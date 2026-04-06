@@ -25,7 +25,6 @@ pub(crate) struct ParseAllStats {
     pub config: Config,
     pub documents: Vec<SpecDocument>,
     pub errors: Vec<ParseError>,
-    pub files_checked: usize,
 }
 
 /// Search upward from `start_dir` for `supersigil.toml`.
@@ -66,8 +65,6 @@ pub(crate) fn parse_all_with_stats(config_path: &Path) -> Result<ParseAllStats, 
 
     let globs = collect_globs(&config);
     let file_paths = discover_spec_files(globs, base_dir)?;
-    let files_checked = file_paths.len();
-
     let component_defs = ComponentDefs::merge(ComponentDefs::defaults(), config.components.clone())
         .map_err(CliError::ComponentDef)?;
     let (mut documents, errors) = parse_files(&file_paths, &component_defs);
@@ -77,7 +74,6 @@ pub(crate) fn parse_all_with_stats(config_path: &Path) -> Result<ParseAllStats, 
         config,
         documents,
         errors,
-        files_checked,
     })
 }
 

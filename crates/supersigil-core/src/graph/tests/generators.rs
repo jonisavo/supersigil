@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use proptest::prelude::*;
 
-use crate::graph::{EXAMPLE, TASK, TRACKED_FILES};
+use crate::graph::{TASK, TRACKED_FILES};
 use crate::{Config, ExtractedComponent, Frontmatter, ProjectConfig, SpecDocument};
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,6 @@ pub fn arb_spec_document_with_id(
         frontmatter,
         extra: HashMap::new(),
         components: components.clone(),
-        warnings: Vec::new(),
     })
 }
 
@@ -185,7 +184,6 @@ pub fn make_doc_with_path(
         },
         extra: HashMap::new(),
         components,
-        warnings: Vec::new(),
     }
 }
 
@@ -205,7 +203,6 @@ pub fn make_doc_full(
         },
         extra: HashMap::new(),
         components,
-        warnings: Vec::new(),
     }
 }
 
@@ -319,37 +316,6 @@ pub fn dag_to_task_components(
             make_task(node, None, None, depends.as_deref(), i + 1)
         })
         .collect()
-}
-
-/// Build an `Example` component with optional `references` and `verifies` attributes.
-pub fn make_example(
-    id: &str,
-    runner: &str,
-    references: Option<&str>,
-    verifies: Option<&str>,
-    line: usize,
-) -> ExtractedComponent {
-    let mut attributes = HashMap::from([
-        ("id".to_owned(), id.to_owned()),
-        ("runner".to_owned(), runner.to_owned()),
-    ]);
-    if let Some(r) = references {
-        attributes.insert("references".to_owned(), r.to_owned());
-    }
-    if let Some(v) = verifies {
-        attributes.insert("verifies".to_owned(), v.to_owned());
-    }
-    ExtractedComponent {
-        name: EXAMPLE.to_owned(),
-        attributes,
-        children: Vec::new(),
-        body_text: Some(format!("example {id}")),
-        body_text_offset: None,
-        body_text_end_offset: None,
-        code_blocks: Vec::new(),
-        position: pos(line),
-        end_position: pos(line),
-    }
 }
 
 /// Convert DAG nodes to documents with `DependsOn` components using a dependency map.

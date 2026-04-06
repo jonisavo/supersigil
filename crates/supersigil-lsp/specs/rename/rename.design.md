@@ -96,22 +96,16 @@ Detection priority (same order as `find_reference_target()` in
    `RefPart::Fragment` yields `ComponentId`; `RefPart::DocId` yields
    `DocumentId`. Range from `part_start`/`part_end`.
 
-2. **`supersigil-ref` info string** — via existing
-   `find_supersigil_ref_at_position()`. Always yields `ComponentId`
-   with the current document's ID as `doc_id` and the target value as
-   `component_id`. Range covers the target portion of the token.
-
-3. **Component tag or `id` attribute value** — when the cursor is on a
+2. **Component tag or `id` attribute value** — when the cursor is on a
    component tag name (via `component_name_at_position()`) or directly on
    an `id="..."` attribute value, and the component has an `id` attribute.
    Yields `ComponentId`. Range covers the `id` attribute value.
 
-4. **Frontmatter `id:`** — when the cursor is on the `id:` value line
+3. **Frontmatter `id:`** — when the cursor is on the `id:` value line
    within YAML frontmatter. Yields `DocumentId`. Range covers the value.
 
 `find_rename_target` delegates to the same helper functions as
-`find_reference_target` (`find_ref_at_position`,
-`find_supersigil_ref_at_position`, `component_name_at_position`,
+`find_reference_target` (`find_ref_at_position`, `component_name_at_position`,
 `extract_id_attribute_on_line`, `is_in_frontmatter`) to avoid logic
 duplication.
 
@@ -146,11 +140,9 @@ back to disk reads via `graph.document(doc_id).path` for closed files.
    and replace the value.
 2. **Ref attributes**: for every document referencing `doc_id#component_id`
    (via `graph.references()`), scan file content for `refs`, `implements`,
-   `depends`, `verifies` attributes containing `doc_id#old` and replace
-   the fragment portion after `#`.
-3. **`supersigil-ref=old`**: in the owning document, scan code fence info
-   strings for `supersigil-ref=old` and replace the target portion.
-4. **Task implements**: for documents in `graph.implements(doc_id)`, scan
+   `depends` attributes containing `doc_id#old` and replace the fragment
+   portion after `#`.
+3. **Task implements**: for documents in `graph.implements(doc_id)`, scan
    `task_implements_for_doc` entries matching the fragment and replace.
 
 **DocumentId rename** — rename `doc_id` to `new_name`:
@@ -198,8 +190,7 @@ WorkDoneProgressOptions::default() }))` to `ServerCapabilities`.
 Unit tests in `rename.rs` for each `find_rename_target` cursor detection
 case and for `collect_rename_edits` using constructed `DocumentGraph`
 instances (same `test_graph` helper pattern as `references.rs`). Edge cases:
-no references, unknown targets, validation failures, multi-file edits,
-`supersigil-ref` tokens.
+no references, unknown targets, validation failures, multi-file edits.
 
 ## Decisions
 

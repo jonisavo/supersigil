@@ -5,8 +5,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ParseWarning;
-
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
@@ -45,15 +43,12 @@ pub struct SourcePosition {
 /// Indicates where a code block's content span points in the source file.
 ///
 /// This is relevant for snapshot rewriting: [`XmlInline`](Self::XmlInline)
-/// spans require XML entity escaping when replacing content, while
-/// [`RefFence`](Self::RefFence) spans are written verbatim.
+/// spans require XML entity escaping when replacing content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpanKind {
     /// Content comes from inline XML body text (may contain entity-encoded chars).
     XmlInline,
-    /// Content comes from a `supersigil-ref` fenced code block (verbatim).
-    RefFence,
 }
 
 // ---------------------------------------------------------------------------
@@ -120,12 +115,6 @@ pub struct SpecDocument {
     /// All YAML keys outside the `supersigil:` namespace, preserved as-is.
     pub extra: HashMap<String, yaml_serde::Value>,
     pub components: Vec<ExtractedComponent>,
-    /// Non-fatal parse warnings (e.g. orphan code refs, duplicate code refs).
-    ///
-    /// These issues do not prevent the document from being loaded into the
-    /// graph but should be surfaced by linting and LSP diagnostics.
-    #[serde(skip)]
-    pub warnings: Vec<ParseWarning>,
 }
 
 // ---------------------------------------------------------------------------

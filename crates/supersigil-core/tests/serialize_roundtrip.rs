@@ -18,7 +18,6 @@ fn spec_document_serializes_to_json() {
         },
         extra: HashMap::new(),
         components: vec![],
-        warnings: vec![],
     };
     let json = serde_json::to_value(&doc).expect("serialize SpecDocument");
 
@@ -42,7 +41,6 @@ fn context_output_serializes_to_json() {
             },
             extra: HashMap::new(),
             components: vec![],
-            warnings: vec![],
         },
         criteria: vec![TargetContext {
             id: "c1".into(),

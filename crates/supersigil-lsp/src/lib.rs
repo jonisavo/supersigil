@@ -20,7 +20,7 @@ pub mod references;
 pub mod rename;
 pub mod state;
 
-pub(crate) const REF_ATTRS: &[&str] = &["refs", "implements", "depends", "verifies"];
+pub(crate) const REF_ATTRS: &[&str] = &["refs", "implements", "depends"];
 
 pub(crate) const DIAGNOSTIC_SOURCE: &str = "supersigil";
 

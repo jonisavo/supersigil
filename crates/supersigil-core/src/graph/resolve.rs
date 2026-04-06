@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::error::GraphError;
-use super::{EXAMPLE, ResolvedRef, TASK};
+use super::{ResolvedRef, TASK};
 
 // ---------------------------------------------------------------------------
 // Ref parsing
@@ -245,36 +245,6 @@ fn resolve_components_recursive(
 
             if !resolved.is_empty() {
                 resolved_refs.insert((doc_id.to_owned(), component_path.clone()), resolved);
-            }
-        }
-
-        // Example components may have `references` (informational edges) or
-        // `verifies` (verification edges targeting verifiable components).
-        // Both create reference edges for LSP navigation.
-        if component.name == EXAMPLE {
-            const EXAMPLE_REF_ATTRS: &[(&str, FragmentCheck<'_>)] = &[
-                ("references", FragmentCheck::None),
-                ("verifies", FragmentCheck::Verifiable),
-            ];
-
-            for &(attr, check) in EXAMPLE_REF_ATTRS {
-                if let Some(value) = component.attributes.get(attr) {
-                    let resolved = resolve_single_refs_attribute(
-                        ctx,
-                        doc_id,
-                        value,
-                        component.position,
-                        check,
-                        errors,
-                    );
-
-                    if !resolved.is_empty() {
-                        resolved_refs
-                            .entry((doc_id.to_owned(), component_path.clone()))
-                            .or_default()
-                            .extend(resolved);
-                    }
-                }
             }
         }
 

@@ -24,7 +24,7 @@ If `plan` is empty but the user still expects missing behavior, stop and treat t
 3. If spec docs change, run:
 
 ```bash
-supersigil lint
+supersigil verify
 ```
 
 4. Re-run:
@@ -51,7 +51,7 @@ supersigil status auth/req
 supersigil plan auth
 supersigil context auth/req
 # implement one slice
-supersigil lint
+supersigil verify
 supersigil verify
 supersigil status auth/req
 ```

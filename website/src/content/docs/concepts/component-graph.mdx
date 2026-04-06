@@ -16,7 +16,7 @@ The component graph is the core data structure behind Supersigil. It is what mak
 
 ## Structure
 
-Every Supersigil document produces nodes in the graph. The document itself is a node. Referenceable components inside it (`<Criterion>`, `<Task>`, `<Example>`) are also nodes. References between components form directed edges.
+Every Supersigil document produces nodes in the graph. The document itself is a node. Referenceable components inside it (`<Criterion>`, `<Task>`, `<Decision>`) are also nodes. References between components form directed edges.
 
 ```mermaid
 graph BT
@@ -124,27 +124,6 @@ A trackable work item with its own edges to criteria and other tasks.
 
 - `implements` creates edges from the task to criteria (same fragment syntax as refs).
 - `depends` creates ordering edges between tasks within the same document.
-
-### Example
-
-An executable code sample that can verify criteria. Contains a code block and an optional `<Expected>` child.
-
-````mdx
-<Example id="login-curl" lang="bash" runner="sh" verifies="auth/req/login#login-success">
-
-```bash
-curl -s -X POST http://localhost:8080/api/login \
-  -d '{"user":"admin","pass":"secret"}'
-```
-
-<Expected status="0" format="json">
-{"token": "..."}
-</Expected>
-</Example>
-````
-
-- `verifies` creates evidence edges from the example to criteria.
-- `runner` specifies which configured runner executes the code block.
 
 ## Unidirectional Design
 

@@ -4,7 +4,7 @@ Start with `supersigil new <type> <feature>` when creating a new document set.
 Use these templates when the scaffold is too minimal, when imported docs need to be normalized, or when you need a richer example while editing by hand.
 
 Keep new or actively edited documents at `status: draft` until `supersigil verify` and human review justify promotion.
-Write list attributes as comma-separated string literals like `refs="a, b"` and `paths="x, y"`. Do not use JSX expression attributes like `refs={["a"]}`; `supersigil lint` rejects them.
+Write list attributes as comma-separated string literals like `refs="a, b"` and `paths="x, y"`. Do not use JSX expression attributes like `refs={["a"]}`; `supersigil verify` rejects them.
 
 ## Requirement
 
@@ -125,33 +125,6 @@ Use `<References>` inside a `<Decision>` to link to requirement criteria.
 Use `standalone="..."` when a decision has no corresponding requirement.
 Use `<Alternative>` with `status="rejected"` or `status="deferred"` for considered options.
 
-## Example (Executable)
-
-```mdx
----
-supersigil:
-  id: auth/examples
-  type: documentation
-  status: draft
-title: "Login Examples"
----
-
-<Example id="login-curl" lang="bash" runner="sh" verifies="auth/req#req-1-1">
-```bash
-curl -X POST /api/login -d '{"user":"admin","pass":"secret"}'
-```
-<Expected status="0" format="json">
-{"token": "..."}
-</Expected>
-</Example>
-```
-
-Use `verifies` to link an example to criteria it demonstrates.
-Use `references` for informational links that do not satisfy coverage.
-The `runner` attribute determines how the example is executed. Built-in
-runners are `sh`, `cargo-test`, and `http`. Custom runners can be defined
-in config.
-
 ## Quick Reference
 
 - `<AcceptanceCriteria>`: wrapper for `<Criterion>` entries in requirement docs
@@ -166,6 +139,4 @@ in config.
 - `<Decision id="..." standalone="...">`: architectural decision in an ADR doc
 - `<Rationale>`: reasoning behind a decision (child of `<Decision>`)
 - `<Alternative id="..." status="...">`: considered alternative (child of `<Decision>`)
-- `<Example id="..." runner="..." verifies="...">`: executable code example
-- `<Expected status="..." format="...">`: expected output (child of `<Example>`)
 - Write list attributes as quoted strings, not JSX expressions

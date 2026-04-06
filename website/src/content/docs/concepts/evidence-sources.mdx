@@ -27,7 +27,6 @@ The built-in evidence paths are:
 | Ecosystem plugins | Rust and JavaScript/TypeScript projects | Structured discovery from the code itself |
 | `<VerifiedBy strategy="tag">` | Existing test suites in any language | Explicit mapping with very low setup cost |
 | `<VerifiedBy strategy="file-glob">` | Broad file-level coverage | Fastest way to connect criteria to known test locations |
-| `<Example verifies="...">` | API flows, CLI sessions, runnable docs | Documentation that doubles as evidence |
 
 ## Ecosystem Plugins
 
@@ -128,39 +127,14 @@ you do not need per-test granularity.
   test case inside those files satisfies the criterion.
 </Aside>
 
-## Executable Examples
-
-Examples are ideal when the proof should live in the documentation itself:
-
-````md
-```http supersigil-ref=create-task
-POST /api/v1/tasks
-Content-Type: application/json
-
-{"title": "Buy milk"}
-```
-
-```supersigil-xml
-<Example id="create-task" runner="http" verifies="tasks/req/create#due-date">
-  <Expected status="201" />
-</Example>
-```
-````
-
-Passing examples count as evidence during `supersigil verify`, so the same
-system that checks structural integrity can also run and validate the workflow
-you are documenting.
-
 ## Choosing the Right Source
 
 - Use the **Rust plugin** for Rust projects — `#[verifies]` annotations with compile-time validation.
 - Use the **JS plugin** for JavaScript/TypeScript projects — `verifies()` calls in Vitest tests.
 - Use **tags** for other languages that want explicit criterion-to-test mapping.
 - Use **file globs** when you only need coarse evidence and the test location is stable.
-- Use **executable examples** when the docs themselves should be runnable proof.
 
 ## Related Reading
 
 - [Verification](/supersigil/concepts/verification/) — Rule severities, draft gating, and exit codes.
-- [Executable Examples](/supersigil/guides/executable-examples/) — Runner model and expected output matching.
 - [CLI Commands](/supersigil/reference/cli/) — `context`, `status`, `refs`, and `verify`.

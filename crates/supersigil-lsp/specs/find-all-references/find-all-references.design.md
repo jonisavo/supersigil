@@ -28,26 +28,20 @@ scan time per request for zero changes to the graph construction pipeline.
 ### Cursor Detection
 
 A new `find_reference_target()` function resolves the cursor position to a
-`(doc_id, Option<fragment>)` target. Four detection strategies are tried in
+`(doc_id, Option<fragment>)` target. Three detection strategies are tried in
 priority order:
 
 1. **Ref string** — reuses `find_ref_at_position()` from `definition.rs`.
    Works inside `supersigil-xml` fences, on `refs`/`implements`/`depends`
    attribute values.
 
-2. **`supersigil-ref` info string** — detects code fence opening lines with
-   `supersigil-ref=<target>` metadata. This operates _outside_ supersigil-xml
-   fences (it's a Markdown info string). Parses the target using the same
-   logic as `parse_ref_meta()` from `markdown_fences.rs`, then combines with
-   the current document's ID.
-
-3. **Component definition tag** — extends the pattern from
+2. **Component definition tag** — extends the pattern from
    `component_name_at_position()` in `hover.rs`. When the cursor is on a
    `<Tag` and the same line contains `id="<value>"`, extracts the ID and
    combines with the document ID. Multi-line tags where `id` is on a
    different line than the tag name are not supported (returns None).
 
-4. **Frontmatter** — detects cursor between the first two `---` lines.
+3. **Frontmatter** — detects cursor between the first two `---` lines.
    Uses the document ID passed in by the handler (resolved from `file_parses`
    in `state.rs`).
 
@@ -120,8 +114,8 @@ pub fn collect_references(
 ## Testing Strategy
 
 Unit tests in `references.rs` for each cursor detection case (ref string,
-supersigil-ref, component tag, frontmatter) and for `collect_references`
-using constructed `DocumentGraph` instances. Unit test for
+component tag, frontmatter) and for `collect_references` using constructed
+`DocumentGraph` instances. Unit test for
 `component_at_path` in graph tests. Edge cases: empty results, unknown
 targets, `includeDeclaration` flag.
 

@@ -26,7 +26,7 @@ This skill delegates to the lower-level skills at explicit phase boundaries:
 2. **Specification phase** — delegate to `feature-specification`.
    Follow its full workflow: inspect state, scaffold, author requirements,
    pause for feedback, author design, pause for feedback, author tasks,
-   pause for feedback. Run `supersigil lint` and `supersigil verify` as
+   pause for feedback. Run `supersigil verify` and `supersigil verify` as
    that skill prescribes.
 3. **Implementation phase** — delegate to `feature-development`.
    Follow its full workflow: read plan, pick a slice, implement with TDD,
@@ -97,7 +97,7 @@ Use this only when the lower-level skills are unavailable.
 - Use `supersigil new` or `supersigil import --from kiro` as the starting point.
 - Base requirements and design on the confirmed planning brief when one exists.
 - Keep documents in `status: draft` while editing.
-- Run `supersigil lint` after every spec write.
+- Run `supersigil verify` after every spec write.
 - Run `supersigil verify` before handing the graph to implementation.
 
 ### Implementation Phase

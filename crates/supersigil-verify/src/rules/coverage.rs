@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use supersigil_core::{CRITERION, DocumentGraph, EXAMPLE, split_criterion_ref};
+use supersigil_core::{CRITERION, DocumentGraph};
 
 use crate::artifact_graph::ArtifactGraph;
 
@@ -27,17 +27,12 @@ pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<F
         }
     }
 
-    // Pre-compute (doc_id, criterion_id) pairs targeted by <Example verifies="...">
-    // so we can flag findings as example-coverable.
-    let example_targets = collect_example_targets(graph);
-
     for (doc_id, doc) in graph.documents() {
         for_each_criterion(
             &doc.components,
             doc_id,
             artifact_graph,
             &suggestable,
-            &example_targets,
             &mut findings,
         );
     }
@@ -45,41 +40,11 @@ pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<F
     findings
 }
 
-/// Collect all `(doc_id, criterion_id)` pairs targeted by `<Example verifies="...">`
-/// components across the entire graph.
-fn collect_example_targets(graph: &DocumentGraph) -> HashSet<(String, String)> {
-    let mut targets = HashSet::new();
-    for (_doc_id, doc) in graph.documents() {
-        collect_example_targets_from(&doc.components, &mut targets);
-    }
-    targets
-}
-
-fn collect_example_targets_from(
-    components: &[supersigil_core::ExtractedComponent],
-    targets: &mut HashSet<(String, String)>,
-) {
-    for component in components {
-        if component.name == EXAMPLE
-            && let Some(verifies) = component.attributes.get("verifies")
-        {
-            for ref_str in verifies.split(',') {
-                let ref_str = ref_str.trim();
-                if let Some((doc_id, criterion_id)) = split_criterion_ref(ref_str) {
-                    targets.insert((doc_id.to_owned(), criterion_id.to_owned()));
-                }
-            }
-        }
-        collect_example_targets_from(&component.children, targets);
-    }
-}
-
 fn for_each_criterion(
     components: &[supersigil_core::ExtractedComponent],
     doc_id: &str,
     artifact_graph: &ArtifactGraph<'_>,
     suggestable: &HashSet<(&str, &str)>,
-    example_targets: &HashSet<(String, String)>,
     findings: &mut Vec<Finding>,
 ) {
     for component in components {
@@ -88,9 +53,6 @@ fn for_each_criterion(
         {
             let has_evidence = artifact_graph.has_evidence(doc_id, criterion_id);
             if !has_evidence {
-                let example_coverable =
-                    example_targets.contains(&(doc_id.to_owned(), criterion_id.to_owned()));
-
                 let mut message =
                     format!("criterion `{criterion_id}` has no verification evidence");
 
@@ -113,7 +75,6 @@ fn for_each_criterion(
                              or use a language plugin (e.g. `#[verifies(\"{target_ref}\")]` for Rust)."
                         )),
                         target_ref: Some(target_ref),
-                        example_coverable,
                         ..FindingDetails::default()
                     }),
                 );
@@ -125,7 +86,6 @@ fn for_each_criterion(
             doc_id,
             artifact_graph,
             suggestable,
-            example_targets,
             findings,
         );
     }
@@ -133,10 +93,6 @@ fn for_each_criterion(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use supersigil_core::ExtractedComponent;
-
     use super::*;
     use crate::test_helpers::*;
 
@@ -176,42 +132,6 @@ mod tests {
         let findings = check(&graph, &ag);
         assert_eq!(findings.len(), 1, "References should not satisfy coverage");
         assert_eq!(findings[0].rule, RuleName::MissingVerificationEvidence);
-    }
-
-    #[test]
-    fn example_component_does_not_satisfy_coverage() {
-        // An Example component is referenceable but NOT verifiable,
-        // so its presence alongside an uncovered Criterion must not
-        // accidentally satisfy coverage.
-        let docs = vec![make_doc(
-            "req/auth",
-            vec![
-                make_acceptance_criteria(vec![make_criterion("req-1", 10)], 9),
-                ExtractedComponent {
-                    name: EXAMPLE.to_owned(),
-                    attributes: HashMap::from([
-                        ("id".into(), "ex-1".into()),
-                        ("runner".into(), "sh".into()),
-                    ]),
-                    children: vec![],
-                    body_text: None,
-                    body_text_offset: None,
-                    body_text_end_offset: None,
-                    code_blocks: vec![],
-                    position: pos(20),
-                    end_position: pos(20),
-                },
-            ],
-        )];
-        let graph = build_test_graph(docs);
-        let ag = ArtifactGraph::empty(&graph);
-        let findings = check(&graph, &ag);
-        assert_eq!(
-            findings.len(),
-            1,
-            "Example should NOT satisfy coverage for req-1: {findings:?}",
-        );
-        assert!(findings[0].message.contains("req-1"));
     }
 
     #[test]

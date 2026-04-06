@@ -4,7 +4,6 @@ pub mod affected;
 pub(crate) mod artifact_graph;
 pub mod document_components;
 mod error;
-pub(crate) mod examples;
 pub(crate) mod explicit_evidence;
 pub mod git;
 pub(crate) mod hooks;
@@ -24,14 +23,6 @@ use supersigil_core::{Config, DocumentGraph, SpecDocument};
 pub use affected::AffectedDocument;
 pub use artifact_graph::{ArtifactGraph, build_artifact_graph};
 pub use error::VerifyError;
-pub use examples::executor::{
-    ExampleProgressObserver, collect_examples, execute_examples, execute_examples_with_progress,
-    results_to_evidence, results_to_findings,
-};
-pub use examples::types::{
-    BodySpan, ExampleOutcome, ExampleResult, ExampleSpec, ExpectedSpec, MatchCheck, MatchFailure,
-    MatchFormat,
-};
 pub use explicit_evidence::extract_explicit_evidence;
 pub use hooks::run_hooks;
 pub use report::{
@@ -40,15 +31,6 @@ pub use report::{
 };
 pub use scan::{TagMatch, scan_all_tags, scan_for_tag};
 pub use severity::resolve_severity;
-
-/// Why example execution did not run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExampleSkipReason {
-    /// Structural errors in phase 1 gated example execution.
-    StructuralErrors,
-    /// The user explicitly requested `--skip-examples`.
-    ExplicitSkip,
-}
 
 /// Options for the verify pipeline.
 #[derive(Debug, Default)]
@@ -161,16 +143,10 @@ pub fn verify_structural(
         &docs,
         component_defs,
     ));
-    findings.extend(rules::structural::check_expected_placement(&docs));
     findings.extend(rules::structural::check_rationale_placement(&docs));
     findings.extend(rules::structural::check_alternative_placement(&docs));
     findings.extend(rules::structural::check_duplicate_rationale(&docs));
     findings.extend(rules::structural::check_alternative_status(&docs));
-    findings.extend(rules::structural::check_code_block_cardinality(&docs));
-    findings.extend(rules::structural::check_expected_cardinality(&docs));
-    findings.extend(rules::structural::check_inline_example_lang(&docs));
-    findings.extend(rules::structural::check_code_ref_conflicts(&docs));
-    findings.extend(rules::structural::check_env_format(&docs));
     let (sequential_id_order, sequential_id_gap) = rules::structural::check_sequential_ids(&docs);
     findings.extend(sequential_id_order);
     findings.extend(sequential_id_gap);
@@ -299,46 +275,6 @@ pub fn artifact_conflict_findings(artifact_graph: &ArtifactGraph<'_>) -> Vec<Fin
             Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
         })
         .collect()
-}
-
-/// Finalize example findings by attaching any skip note and resolving
-/// severities for real execution failures.
-#[must_use]
-pub fn finalize_example_findings(
-    mut findings: Vec<Finding>,
-    skip_reason: Option<ExampleSkipReason>,
-    graph: &DocumentGraph,
-    config: &Config,
-) -> Vec<Finding> {
-    if let Some(skip_reason) = skip_reason {
-        let message = match skip_reason {
-            ExampleSkipReason::StructuralErrors => {
-                "example execution skipped because verify found errors (fix errors to run examples)"
-            }
-            ExampleSkipReason::ExplicitSkip => "example execution skipped via --skip-examples",
-        };
-
-        let mut skip_finding =
-            Finding::new(RuleName::ExampleFailed, None, message.to_string(), None);
-        skip_finding.effective_severity = ReportSeverity::Info;
-        skip_finding.raw_severity = ReportSeverity::Info;
-        findings.push(skip_finding);
-    }
-
-    for finding in &mut findings {
-        if finding.raw_severity == ReportSeverity::Info {
-            continue;
-        }
-
-        let doc_status = finding
-            .doc_id
-            .as_ref()
-            .and_then(|id| graph.document(id))
-            .and_then(|doc| doc.frontmatter.status.as_deref());
-        finding.effective_severity = resolve_severity(&finding.rule, doc_status, &config.verify);
-    }
-
-    findings
 }
 
 /// Build the empty-project warning finding when no documents are in scope.
@@ -675,49 +611,6 @@ mod verify_tests {
             "conflict finding should list both conflicting target sets: {:?}",
             findings[0],
         );
-    }
-
-    #[test]
-    fn finalize_example_findings_adds_structural_skip_info_finding() {
-        let docs = vec![make_doc("req/auth", vec![])];
-        let graph = build_test_graph(docs);
-        let config = test_config();
-
-        let findings = finalize_example_findings(
-            Vec::new(),
-            Some(ExampleSkipReason::StructuralErrors),
-            &graph,
-            &config,
-        );
-
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule, RuleName::ExampleFailed);
-        assert_eq!(findings[0].effective_severity, ReportSeverity::Info);
-        assert_eq!(findings[0].raw_severity, ReportSeverity::Info);
-        assert!(
-            findings[0].message.contains("verify found errors"),
-            "skip finding should explain why examples were skipped: {:?}",
-            findings[0],
-        );
-    }
-
-    #[test]
-    fn finalize_example_findings_resolves_severity_for_real_findings() {
-        let docs = vec![make_doc_with_status("req/auth", "draft", vec![])];
-        let graph = build_test_graph(docs);
-        let config = test_config();
-        let finding = Finding::new(
-            RuleName::ExampleFailed,
-            Some("req/auth".into()),
-            "example failed".into(),
-            None,
-        );
-
-        let findings = finalize_example_findings(vec![finding], None, &graph, &config);
-
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].effective_severity, ReportSeverity::Info);
-        assert_eq!(findings[0].raw_severity, ReportSeverity::Error);
     }
 
     #[test]

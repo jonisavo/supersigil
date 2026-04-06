@@ -15,7 +15,6 @@ const SUPERSIGIL_COMMAND_PATTERNS = [
   /^supersigil\s+plan\b/,
   /^supersigil\s+context\b/,
   /^supersigil\s+refs\b/,
-  /^supersigil\s+lint\b/,
   /^supersigil\s+new\b/,
   /^supersigil\s+import\b/,
   /^supersigil\s+graph\b/,
@@ -176,20 +175,20 @@ async function captureSupersigilArtifacts(context: {
     });
   }
 
-  const lintCapture = await runAndCapture(
+  const verifyTerminalCapture = await runAndCapture(
     binary,
-    ["lint"],
+    ["verify"],
     context.workspacePath,
-    join(context.runDir, "supersigil-lint.txt"),
+    join(context.runDir, "supersigil-verify-terminal.txt"),
   );
   artifacts.push({
-    path: "supersigil-lint.txt",
-    description: "Output of supersigil lint",
+    path: "supersigil-verify-terminal.txt",
+    description: "Output of supersigil verify",
   });
-  if (lintCapture.stderrPath) {
+  if (verifyTerminalCapture.stderrPath) {
     artifacts.push({
-      path: "supersigil-lint.stderr.txt",
-      description: "stderr from supersigil lint",
+      path: "supersigil-verify-terminal.stderr.txt",
+      description: "stderr from supersigil verify",
     });
   }
 

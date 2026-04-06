@@ -228,7 +228,7 @@ fn import_write_conflict_with_force_overwrites() {
         .success();
 }
 
-/// Write mode prints a `supersigil lint` next-step hint on stderr.
+/// Write mode prints a `supersigil verify` next-step hint on stderr.
 #[verifies("kiro-import/req#req-4-3")]
 #[test]
 fn import_write_mode_prints_lint_hint() {
@@ -236,7 +236,7 @@ fn import_write_mode_prints_lint_hint() {
     let specs_dir = project.path().join(".kiro/specs");
     write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
 
-    // Create a supersigil.toml so the hint says "supersigil lint" (not "supersigil init").
+    // Create a supersigil.toml so the hint says "supersigil verify" (not "supersigil init").
     fs::write(
         project.path().join("supersigil.toml"),
         "paths = [\"specs/**/*.md\"]\n",
@@ -259,7 +259,7 @@ fn import_write_mode_prints_lint_hint() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("lint"),
-        "stderr should contain a lint hint after write mode, got: {stderr}"
+        stderr.contains("verify"),
+        "stderr should contain a verify hint after write mode, got: {stderr}"
     );
 }

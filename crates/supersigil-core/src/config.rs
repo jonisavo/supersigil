@@ -2,10 +2,6 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::LazyLock;
-
-static PLACEHOLDER_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\{(\w+)\}").expect("valid regex"));
 
 use serde::{Deserialize, Serialize};
 
@@ -209,56 +205,6 @@ impl Default for EcosystemConfig {
             plugins: default_plugins(),
             rust: None,
             js: None,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// RunnerConfig
-// ---------------------------------------------------------------------------
-
-/// Configuration for a single example runner.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RunnerConfig {
-    pub command: String,
-}
-
-// ---------------------------------------------------------------------------
-// ExamplesConfig
-// ---------------------------------------------------------------------------
-
-const DEFAULT_EXAMPLE_TIMEOUT: u64 = 30;
-
-fn default_example_timeout() -> u64 {
-    DEFAULT_EXAMPLE_TIMEOUT
-}
-
-fn default_parallelism() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get() / 2)
-        .unwrap_or(1)
-        .max(1)
-}
-
-/// Configuration for executable examples.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ExamplesConfig {
-    #[serde(default = "default_example_timeout")]
-    pub timeout: u64,
-    #[serde(default = "default_parallelism")]
-    pub parallelism: usize,
-    #[serde(default)]
-    pub runners: HashMap<String, RunnerConfig>,
-}
-
-impl Default for ExamplesConfig {
-    fn default() -> Self {
-        Self {
-            timeout: default_example_timeout(),
-            parallelism: default_parallelism(),
-            runners: HashMap::new(),
         }
     }
 }
@@ -469,9 +415,6 @@ pub struct Config {
     /// Test results configuration.
     #[serde(default)]
     pub test_results: TestResultsConfig,
-    /// Executable examples configuration.
-    #[serde(default)]
-    pub examples: ExamplesConfig,
     /// Agent skills configuration.
     #[serde(default)]
     pub skills: SkillsConfig,
@@ -507,10 +450,6 @@ pub const KNOWN_RULES: &[&str] = &[
     "status_inconsistency",
     "missing_required_component",
     "invalid_verified_by_placement",
-    "invalid_expected_placement",
-    "invalid_code_block_cardinality",
-    "invalid_env_format",
-    "example_failed",
     "plugin_discovery_failure",
     "plugin_discovery_warning",
     "sequential_id_order",
@@ -523,9 +462,6 @@ pub const KNOWN_RULES: &[&str] = &[
     "orphan_decision",
     "missing_decision_coverage",
     "empty_project",
-    "multiple_expected_children",
-    "inline_example_without_lang",
-    "code_ref_conflict",
 ];
 
 // ---------------------------------------------------------------------------
@@ -613,20 +549,6 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
             pattern: pattern.clone(),
             message: e.to_string(),
         });
-    }
-
-    // Runner placeholder validation
-    let valid_placeholders = ["{file}", "{dir}", "{lang}", "{name}"];
-    for (name, runner) in &config.examples.runners {
-        for cap in PLACEHOLDER_RE.captures_iter(&runner.command) {
-            let placeholder = cap.get(0).expect("group 0 always exists").as_str();
-            if !valid_placeholders.contains(&placeholder) {
-                errors.push(ConfigError::InvalidRunnerPlaceholder {
-                    runner: name.clone(),
-                    placeholder: placeholder.to_string(),
-                });
-            }
-        }
     }
 
     if errors.is_empty() {

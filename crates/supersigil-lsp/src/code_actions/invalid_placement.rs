@@ -1,4 +1,4 @@
-//! Code action provider for misplaced components (Rationale, Alternative, Expected).
+//! Code action provider for misplaced components (Rationale, Alternative).
 
 use lsp_types::{CodeAction, Diagnostic, Position, Range, TextEdit};
 use supersigil_verify::RuleName;
@@ -13,7 +13,6 @@ use crate::diagnostics::{DiagnosticData, DiagnosticSource};
 /// Offers to wrap a misplaced component in its correct parent element.
 ///
 /// - `Rationale` / `Alternative` → wrap in `<Decision id="">`
-/// - `Expected` → wrap in `<Example id="" runner="">`
 #[derive(Debug)]
 pub struct InvalidPlacementProvider;
 
@@ -22,9 +21,7 @@ impl CodeActionProvider for InvalidPlacementProvider {
         matches!(
             data.source,
             DiagnosticSource::Verify(
-                RuleName::InvalidRationalePlacement
-                    | RuleName::InvalidAlternativePlacement
-                    | RuleName::InvalidExpectedPlacement
+                RuleName::InvalidRationalePlacement | RuleName::InvalidAlternativePlacement
             )
         )
     }
@@ -46,9 +43,6 @@ impl CodeActionProvider for InvalidPlacementProvider {
             RuleName::InvalidAlternativePlacement => {
                 ("Alternative", "<Decision id=\"\">", "</Decision>")
             }
-            RuleName::InvalidExpectedPlacement => {
-                ("Expected", "<Example id=\"\" runner=\"\">", "</Example>")
-            }
             _ => return vec![],
         };
 
@@ -62,7 +56,6 @@ impl CodeActionProvider for InvalidPlacementProvider {
             RuleName::InvalidRationalePlacement | RuleName::InvalidAlternativePlacement => {
                 "Decision"
             }
-            RuleName::InvalidExpectedPlacement => "Example",
             _ => return vec![],
         };
 
@@ -194,13 +187,6 @@ mod tests {
     }
 
     #[test]
-    fn handles_invalid_expected_placement() {
-        let provider = InvalidPlacementProvider;
-        let data = make_data(RuleName::InvalidExpectedPlacement);
-        assert!(provider.handles(&data));
-    }
-
-    #[test]
     fn rejects_other_verify_rules() {
         let provider = InvalidPlacementProvider;
         let data = DiagnosticData {
@@ -296,40 +282,6 @@ MySQL was considered.
     }
 
     #[test]
-    fn wrap_expected_in_example() {
-        let provider = InvalidPlacementProvider;
-        let content = "\
----
-id: auth/req
----
-```supersigil-xml
-<Expected>
-Login should succeed.
-</Expected>
-```
-";
-        let diag = make_diagnostic(
-            4,
-            0,
-            10,
-            "Expected in `auth/req` is placed at document root; \
-             it must be a direct child of Example",
-        );
-        let data = make_data(RuleName::InvalidExpectedPlacement);
-
-        let tc = TestContext::new();
-        let ctx = tc.make_ctx(content);
-
-        let actions = provider.actions(&diag, &data, &ctx);
-        insta::assert_snapshot!(format_actions(&actions), @r#"
-        [none] Wrap in <Example>
-          edit: file:///tmp/project/spec.md
-            @4:0 insert `<Example id="" runner="">\n`
-            @7:0 insert `</Example>\n`
-        "#);
-    }
-
-    #[test]
     fn wrap_indented_rationale() {
         let provider = InvalidPlacementProvider;
         let content = "\
@@ -360,38 +312,6 @@ id: adr/design
           edit: file:///tmp/project/spec.md
             @4:0 insert `  <Decision id="">\n`
             @7:0 insert `  </Decision>\n`
-        "#);
-    }
-
-    #[test]
-    fn wrap_self_closing_expected() {
-        let provider = InvalidPlacementProvider;
-        let content = "\
----
-id: auth/req
----
-```supersigil-xml
-<Expected />
-```
-";
-        let diag = make_diagnostic(
-            4,
-            0,
-            10,
-            "Expected in `auth/req` is placed at document root; \
-             it must be a direct child of Example",
-        );
-        let data = make_data(RuleName::InvalidExpectedPlacement);
-
-        let tc = TestContext::new();
-        let ctx = tc.make_ctx(content);
-
-        let actions = provider.actions(&diag, &data, &ctx);
-        insta::assert_snapshot!(format_actions(&actions), @r#"
-        [none] Wrap in <Example>
-          edit: file:///tmp/project/spec.md
-            @4:0 insert `<Example id="" runner="">\n`
-            @5:0 insert `</Example>\n`
         "#);
     }
 

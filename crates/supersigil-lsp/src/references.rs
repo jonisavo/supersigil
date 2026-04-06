@@ -26,9 +26,8 @@ use crate::position;
 ///
 /// Checks in priority order:
 /// 1. Ref string inside a supersigil-xml fence
-/// 2. `supersigil-ref=<target>` in a code fence info string
-/// 3. Component definition tag with `id` attribute
-/// 4. YAML frontmatter (document-level)
+/// 2. Component definition tag with `id` attribute
+/// 3. YAML frontmatter (document-level)
 #[must_use]
 pub fn find_reference_target(
     content: &str,
@@ -38,12 +37,6 @@ pub fn find_reference_target(
 ) -> Option<(String, Option<String>)> {
     if let Some(ref_at) = find_ref_at_position(content, line, character) {
         return Some(parse_ref_target(&ref_at.ref_string));
-    }
-
-    if let Some((target, _fragment)) = find_supersigil_ref_at_position(content, line, character) {
-        // The target names the Example component; the #fragment (e.g. "expected")
-        // is an internal child, not a graph-level component ID.
-        return Some((doc_id.to_owned(), Some(target)));
     }
 
     if is_in_supersigil_fence(content, line)
@@ -65,89 +58,6 @@ fn parse_ref_target(ref_str: &str) -> (String, Option<String>) {
     match ref_str.split_once('#') {
         Some((doc, frag)) => (doc.to_owned(), Some(frag.to_owned())),
         None => (ref_str.to_owned(), None),
-    }
-}
-
-/// Detect a `supersigil-ref=<target>` token on the given line.
-///
-/// Returns `Some((target, Option<fragment>))` if the line is a code fence
-/// opening with `supersigil-ref=` in the info string and the cursor column
-/// falls within the `supersigil-ref=<value>` token.
-pub(crate) fn find_supersigil_ref_at_position(
-    content: &str,
-    line: u32,
-    character: u32,
-) -> Option<(String, Option<String>)> {
-    const PREFIX: &str = "supersigil-ref=";
-
-    let line_str = content.lines().nth(line as usize)?;
-    let trimmed = line_str.trim_start();
-    let leading_ws = line_str.len() - trimmed.len();
-
-    // Must be a code fence opening line (``` or ~~~).
-    let fence_count = trimmed.bytes().take_while(|&b| b == b'`').count();
-    let tilde_count = trimmed.bytes().take_while(|&b| b == b'~').count();
-    let count = if fence_count >= 3 {
-        fence_count
-    } else if tilde_count >= 3 {
-        tilde_count
-    } else {
-        return None;
-    };
-
-    let info_string = &trimmed[count..];
-
-    // Find the supersigil-ref= token and check cursor is within it.
-    let mut search_offset = 0;
-    let token = loop {
-        let remaining = &info_string[search_offset..];
-        let ws_start = remaining
-            .find(|c: char| !c.is_whitespace())
-            .unwrap_or(remaining.len());
-        let token_start = search_offset + ws_start;
-        let token_str = &info_string[token_start..];
-        let token_len = token_str
-            .find(|c: char| c.is_whitespace())
-            .unwrap_or(token_str.len());
-        if token_len == 0 {
-            return None;
-        }
-        let token = &info_string[token_start..token_start + token_len];
-        if token.starts_with(PREFIX) {
-            // Token spans [leading_ws + count + token_start, ... + token_len) in the line.
-            let abs_start = leading_ws + count + token_start;
-            let abs_end = abs_start + token_len;
-            let cursor = character as usize;
-            if cursor < abs_start || cursor >= abs_end {
-                return None;
-            }
-            break token;
-        }
-        search_offset = token_start + token_len;
-    };
-
-    let value = &token[PREFIX.len()..];
-
-    if value.is_empty() {
-        return None;
-    }
-
-    if let Some(hash_pos) = value.find('#') {
-        let target = &value[..hash_pos];
-        let fragment = &value[hash_pos + 1..];
-        if target.is_empty() {
-            return None;
-        }
-        Some((
-            target.to_owned(),
-            if fragment.is_empty() {
-                None
-            } else {
-                Some(fragment.to_owned())
-            },
-        ))
-    } else {
-        Some((value.to_owned(), None))
     }
 }
 
@@ -315,30 +225,6 @@ mod tests {
 
     #[test]
     #[verifies("find-all-references/req#req-1-2")]
-    fn supersigil_ref_detected_as_target() {
-        let content = "---\nsupersigil:\n  id: my/spec\n---\n\n```sh supersigil-ref=echo-test\necho hello\n```";
-        let result = find_reference_target(content, 5, 10, "my/spec");
-        assert_eq!(
-            result,
-            Some(("my/spec".to_owned(), Some("echo-test".to_owned())))
-        );
-    }
-
-    #[test]
-    #[verifies("find-all-references/req#req-1-2")]
-    fn supersigil_ref_with_fragment() {
-        // The #expected sub-fragment is an internal code-ref, not a graph-level ID.
-        // The target should be the Example component name ("my-example").
-        let content = "```sh supersigil-ref=my-example#expected\nsome content\n```";
-        let result = find_reference_target(content, 0, 10, "doc");
-        assert_eq!(
-            result,
-            Some(("doc".to_owned(), Some("my-example".to_owned())))
-        );
-    }
-
-    #[test]
-    #[verifies("find-all-references/req#req-1-3")]
     fn component_tag_with_id_detected() {
         let content = "```supersigil-xml\n<Criterion id=\"login-success\">\nThe user logs in.\n</Criterion>\n```";
         let result = find_reference_target(content, 1, 1, "auth/req");
@@ -349,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("find-all-references/req#req-1-3")]
+    #[verifies("find-all-references/req#req-1-2")]
     fn component_tag_without_id_returns_none() {
         let content = "```supersigil-xml\n<AcceptanceCriteria>\n</AcceptanceCriteria>\n```";
         let result = find_reference_target(content, 1, 1, "doc");
@@ -357,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("find-all-references/req#req-1-4")]
+    #[verifies("find-all-references/req#req-1-3")]
     fn frontmatter_detected() {
         let content = "---\nsupersigil:\n  id: my-doc/req\n  type: requirements\n---\n\nSome text.";
         let result = find_reference_target(content, 2, 5, "my-doc/req");
@@ -365,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("find-all-references/req#req-1-4")]
+    #[verifies("find-all-references/req#req-1-3")]
     fn outside_frontmatter_returns_none() {
         let content = "---\nsupersigil:\n  id: test\n---\n\nSome text outside.";
         let result = find_reference_target(content, 5, 0, "test");
@@ -373,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    #[verifies("find-all-references/req#req-1-5")]
+    #[verifies("find-all-references/req#req-1-4")]
     fn ref_string_takes_priority_over_component_tag() {
         let content =
             "```supersigil-xml\n<Implements id=\"impl-1\" refs=\"other/doc#crit\" />\n```";
@@ -397,31 +283,6 @@ mod tests {
         let content = "No frontmatter here.\nJust text.";
         assert!(!is_in_frontmatter(content, 0));
         assert!(!is_in_frontmatter(content, 1));
-    }
-
-    #[test]
-    fn supersigil_ref_basic() {
-        // "```sh supersigil-ref=echo-test" — cursor at 10 is on the token.
-        let content = "```sh supersigil-ref=echo-test\necho hello\n```";
-        let result = find_supersigil_ref_at_position(content, 0, 10);
-        assert_eq!(result, Some(("echo-test".to_owned(), None)));
-    }
-
-    #[test]
-    fn supersigil_ref_with_fragment_parsed() {
-        let content = "```json supersigil-ref=my-test#expected\n{}\n```";
-        let result = find_supersigil_ref_at_position(content, 0, 10);
-        assert_eq!(
-            result,
-            Some(("my-test".to_owned(), Some("expected".to_owned())))
-        );
-    }
-
-    #[test]
-    fn non_fence_line_returns_none() {
-        let content = "Just a regular line with supersigil-ref=something";
-        let result = find_supersigil_ref_at_position(content, 0, 0);
-        assert_eq!(result, None);
     }
 
     #[test]
@@ -503,50 +364,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn supersigil_ref_with_fragment_uses_target_not_fragment() {
-        // P3: supersigil-ref=my-example#expected should resolve to (doc_id, Some("my-example")),
-        // not (doc_id, Some("expected")).
-        let content = "```sh supersigil-ref=my-example#expected\nsome content\n```";
-        // Cursor at 10 is on the supersigil-ref= token.
-        let result = find_reference_target(content, 0, 10, "doc");
-        assert_eq!(
-            result,
-            Some(("doc".to_owned(), Some("my-example".to_owned())))
-        );
-    }
-
-    #[test]
-    fn supersigil_ref_cursor_on_lang_returns_none() {
-        // P3: cursor on the language tag "sh" (column 3) should not match supersigil-ref.
-        let content = "```sh supersigil-ref=echo-test\necho hello\n```";
-        // Column 4 is on "h" of "sh" — before the supersigil-ref= token.
-        let result = find_reference_target(content, 0, 4, "doc");
-        assert_eq!(result, None);
-    }
-
-    // -- Example verifies refs -----------------------------------------------
-
-    #[test]
-    fn verifies_ref_detected_as_target() {
-        let content = "```supersigil-xml\n<Example id=\"ex-1\" runner=\"sh\" verifies=\"auth/req#crit-1\" />\n```";
-        let result = find_reference_target(content, 1, 52, "my/spec");
-        assert_eq!(
-            result,
-            Some(("auth/req".to_owned(), Some("crit-1".to_owned())))
-        );
-    }
-
-    #[test]
-    fn collect_references_finds_verifies_refs() {
-        let graph = test_graph_with_verifies();
-        let results = collect_references("test/req", Some("crit-a"), false, &graph);
-        assert!(
-            !results.is_empty(),
-            "should find Example verifies reference: {results:?}"
-        );
-    }
-
     // -- Helpers --------------------------------------------------------------
 
     fn empty_graph() -> DocumentGraph {
@@ -620,28 +437,5 @@ mod tests {
         );
 
         build_graph(vec![req_doc, impl_doc], &Config::default()).unwrap()
-    }
-
-    /// Like `test_graph` but with an `Example` using `verifies` instead of `References`.
-    fn test_graph_with_verifies() -> DocumentGraph {
-        use supersigil_core::test_helpers::{
-            make_acceptance_criteria, make_criterion, make_doc, make_example,
-        };
-        use supersigil_core::{Config, build_graph};
-
-        let req_doc = make_doc(
-            "test/req",
-            vec![make_acceptance_criteria(
-                vec![make_criterion("crit-a", 5)],
-                3,
-            )],
-        );
-
-        let example_doc = make_doc(
-            "test/example",
-            vec![make_example("ex-1", "sh", None, Some("test/req#crit-a"), 3)],
-        );
-
-        build_graph(vec![req_doc, example_doc], &Config::default()).unwrap()
     }
 }

@@ -350,7 +350,6 @@ id: auth/adr
                     column: 1,
                 },
             }],
-            warnings: vec![],
         };
         file_parses.insert(PathBuf::from("specs/auth/auth.adr.md"), doc);
 
@@ -439,7 +438,6 @@ id: auth/adr
                     column: 1,
                 },
             }],
-            warnings: vec![],
         };
         file_parses.insert(PathBuf::from("specs/auth/auth.adr.md"), doc);
 

@@ -82,10 +82,6 @@ orphan_test_tag = "warning"                # default
 invalid_id_pattern = "warning"             # default
 isolated_document = "off"                  # default
 invalid_verified_by_placement = "warning"  # default
-invalid_expected_placement = "warning"     # default
-invalid_code_block_cardinality = "warning" # default
-invalid_env_format = "warning"             # default
-example_failed = "error"                   # default
 plugin_discovery_failure = "error"         # default
 plugin_discovery_warning = "warning"       # default
 sequential_id_order = "warning"           # default
@@ -98,9 +94,6 @@ invalid_alternative_placement = "warning" # default
 duplicate_rationale = "warning"           # default
 invalid_alternative_status = "warning"    # default
 empty_project = "warning"                # default
-multiple_expected_children = "error"     # default
-inline_example_without_lang = "error"    # default
-code_ref_conflict = "warning"            # default
 ```
 
 <Aside type="note">
@@ -132,7 +125,7 @@ The three built-in types (`requirements`, `design`, `tasks`) are always availabl
 
 ## Custom Components
 
-Define custom components beyond the 13 built-ins:
+Define custom components beyond the 11 built-ins:
 
 ```toml title="supersigil.toml"
 [components.SecurityReview]
@@ -151,7 +144,7 @@ findings = { required = false, list = true }
 | `attributes.<name>.required` | bool | Whether the attribute must be present |
 | `attributes.<name>.list` | bool | Whether the attribute accepts comma-separated values |
 
-Custom components participate in lint checking (known component names, required attributes) but do not create graph edges unless configured via hooks.
+Custom components participate in structural checking (known component names, required attributes) but do not create graph edges unless configured via hooks.
 
 ## Documentation
 
@@ -203,43 +196,19 @@ test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 The JS plugin respects `.gitignore` files automatically, so `node_modules`,
 `dist`, and other ignored paths are excluded without extra configuration.
 
-## Executable Examples
-
-Configure the example execution engine:
-
-```toml title="supersigil.toml"
-[examples]
-timeout = 30
-parallelism = 4
-
-[examples.runners.node]
-command = "node {file}"
-
-[examples.runners.deno]
-command = "deno run {file}"
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `timeout` | integer | `30` | Global timeout for all examples (seconds) |
-| `parallelism` | integer | half of CPU threads (min 1) | Number of examples to run concurrently. Overridden by `supersigil verify -j <N>`. |
-| `runners.<name>.command` | string | -- | Shell command template. Placeholders: `{file}`, `{dir}`, `{lang}`, `{name}` |
-
 ## Hooks
 
-External commands that run after verification or lint:
+External commands that run after verification:
 
 ```toml title="supersigil.toml"
 [hooks]
 post_verify = ["my-custom-check", "another-script"]
-post_lint = ["quick-check"]
 timeout_seconds = 30
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `post_verify` | string[] | `[]` | Commands run after `supersigil verify` |
-| `post_lint` | string[] | `[]` | Commands run after `supersigil lint` |
 | `export` | string[] | `[]` | Export hook commands |
 | `timeout_seconds` | integer | `30` | Max execution time per hook |
 
@@ -300,13 +269,6 @@ plugins = ["rust"]
 
 [ecosystem.rust]
 validation = "dev"
-
-[examples]
-timeout = 30
-parallelism = 4
-
-[examples.runners.node]
-command = "node {file}"
 
 [hooks]
 post_verify = ["python scripts/check_naming.py"]

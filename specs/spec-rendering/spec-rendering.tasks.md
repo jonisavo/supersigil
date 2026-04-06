@@ -71,9 +71,10 @@ for each criterion.
   Implement `renderComponentTree(fences, edges, linkResolver)` in
   `src/render.ts` with TypeScript interfaces in `src/types.ts`.
   Render Criterion (badge + collapsible evidence), Decision
-  (rationale + alternatives), Example (runner/language/targets),
-  AcceptanceCriteria (wrapper), and link components (VerifiedBy,
-  References, DependsOn, Implements as link pills).
+  (rationale + alternatives), AcceptanceCriteria (wrapper),
+  unsupported or uncustomized kinds via a generic wrapper, and link
+  components (VerifiedBy, References, DependsOn, Implements as link
+  pills).
 
   Create `styles/supersigil-preview.css` with CSS custom properties
   for theming and all component styles.

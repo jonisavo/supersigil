@@ -1,20 +1,9 @@
 use supersigil_core::{Config, DocumentGraph};
-use supersigil_evidence::VerificationEvidenceRecord;
 use supersigil_verify::{
-    ArtifactGraph, ExampleSkipReason, Finding, ReportSeverity, RuleName, VerificationReport,
-    artifact_conflict_findings, empty_project_finding, filter_findings_to_doc_ids,
-    finalize_example_findings, finalize_report, resolve_finding_severities, verify_coverage,
+    ArtifactGraph, Finding, ReportSeverity, VerificationReport, artifact_conflict_findings,
+    empty_project_finding, filter_findings_to_doc_ids, finalize_report, resolve_finding_severities,
+    verify_coverage,
 };
-
-use super::example_phase::ExamplePhaseResult;
-use super::output::{ExampleExecutionSummary, ExampleProgressDisplay};
-
-pub(super) struct PreparedReport {
-    pub(super) report: VerificationReport,
-    pub(super) example_summary: Option<ExampleExecutionSummary>,
-    pub(super) example_progress_display: Option<ExampleProgressDisplay>,
-    pub(super) example_skip_reason: Option<ExampleSkipReason>,
-}
 
 pub(super) struct ReportPhaseInput<'a> {
     pub(super) graph: &'a DocumentGraph,
@@ -24,32 +13,18 @@ pub(super) struct ReportPhaseInput<'a> {
     pub(super) artifact_graph: ArtifactGraph<'a>,
     pub(super) structural_findings: Vec<Finding>,
     pub(super) plugin_findings: Vec<Finding>,
-    pub(super) example_phase: ExamplePhaseResult,
 }
 
-pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> PreparedReport {
+pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> VerificationReport {
     let ReportPhaseInput {
         graph,
         config,
         doc_ids,
         project_filter,
-        mut artifact_graph,
+        artifact_graph,
         structural_findings,
         mut plugin_findings,
-        example_phase,
     } = input;
-
-    let ExamplePhaseResult {
-        findings: mut example_findings,
-        evidence: example_evidence,
-        summary: example_summary,
-        progress_display: example_progress_display,
-        skip_reason: example_skip_reason,
-    } = example_phase;
-
-    if !example_evidence.is_empty() {
-        artifact_graph = merge_example_evidence(graph, artifact_graph, example_evidence);
-    }
 
     let mut coverage_findings = verify_coverage(graph, &artifact_graph);
     resolve_finding_severities(&mut coverage_findings, graph, config);
@@ -61,14 +36,10 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> PreparedReport {
     resolve_finding_severities(&mut conflict_findings, graph, config);
     conflict_findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
-    example_findings =
-        finalize_example_findings(example_findings, example_skip_reason, graph, config);
-
     if project_filter {
         filter_findings_to_doc_ids(&mut coverage_findings, doc_ids);
         filter_findings_to_doc_ids(&mut plugin_findings, doc_ids);
         filter_findings_to_doc_ids(&mut conflict_findings, doc_ids);
-        filter_findings_to_doc_ids(&mut example_findings, doc_ids);
     }
 
     let doc_count = doc_ids.len();
@@ -76,49 +47,10 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> PreparedReport {
     all_findings.extend(coverage_findings);
     all_findings.extend(plugin_findings);
     all_findings.extend(conflict_findings);
-    all_findings.extend(example_findings);
-
-    if example_skip_reason.is_some() {
-        annotate_example_coverable_findings(&mut all_findings);
-    }
 
     if let Some(finding) = empty_project_finding(config, doc_count) {
         all_findings.push(finding);
     }
 
-    PreparedReport {
-        report: finalize_report(config, doc_count, all_findings, Some(&artifact_graph)),
-        example_summary,
-        example_progress_display,
-        example_skip_reason,
-    }
-}
-
-/// Append "(has example, skipped)" to `MissingVerificationEvidence` findings whose
-/// criterion is targeted by an `<Example verifies="...">` component. This tells the
-/// user the finding is a downstream consequence of examples being skipped, not a
-/// genuine coverage gap.
-fn annotate_example_coverable_findings(findings: &mut [Finding]) {
-    for finding in findings {
-        if finding.rule != RuleName::MissingVerificationEvidence {
-            continue;
-        }
-        let is_example_coverable = finding
-            .details
-            .as_ref()
-            .is_some_and(|d| d.example_coverable);
-        if is_example_coverable {
-            finding.message.push_str(" (has example, skipped)");
-        }
-    }
-}
-
-fn merge_example_evidence<'a>(
-    graph: &'a DocumentGraph,
-    artifact_graph: ArtifactGraph<'a>,
-    example_evidence: Vec<VerificationEvidenceRecord>,
-) -> ArtifactGraph<'a> {
-    let mut all_plugin_evidence: Vec<_> = artifact_graph.evidence.into_iter().collect();
-    all_plugin_evidence.extend(example_evidence);
-    supersigil_verify::build_artifact_graph(graph, vec![], all_plugin_evidence)
+    finalize_report(config, doc_count, all_findings, Some(&artifact_graph))
 }

@@ -19,7 +19,7 @@ supersigil plan [<id_or_prefix>] [--format json]
 supersigil context <id> [--format json]
 supersigil verify [--format terminal|json|markdown]
 supersigil affected --since <ref> [--format json]
-supersigil lint
+supersigil verify
 ```
 
 If the spec graph is missing, broken, or incomplete for the area being
@@ -59,7 +59,7 @@ behavioral contract.
      paths changed.
    - `supersigil: {tag}` comments if they moved to new files (tags
      themselves should not change).
-   Run `supersigil lint` after each spec edit.
+   Run `supersigil verify` after each spec edit.
 
 6. Do not change criteria, requirements, or design intent.
    The refactoring skill changes code structure and spec plumbing

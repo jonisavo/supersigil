@@ -128,9 +128,8 @@ general content.
     The verification pipeline (with real evidence from VerifiedBy tags
     and file globs) runs in milliseconds, making it viable as a default
     on-save action. A `lint` tier gives users a faster option that skips
-    evidence discovery. A `full` tier for executable examples was
-    considered but deferred — example execution takes seconds and the
-    LSP does not yet integrate the example executor.
+    evidence discovery without changing the feature surface or command
+    model.
   </Rationale>
 
   <Alternative id="single-tier" status="rejected">
@@ -139,9 +138,11 @@ general content.
   </Alternative>
 
   <Alternative id="three-tiers" status="rejected">
-    A third `full` tier for example execution was originally planned but
-    dropped because the example executor is not yet wired into the LSP
-    and adding an unused tier created confusion.
+    Add a third diagnostics tier above `verify`. Rejected because the
+    current product has only two meaningful analysis boundaries:
+    structural checks and full verification. A third tier would add
+    configuration and UX overhead without a distinct implementation
+    stage to justify it.
   </Alternative>
 </Decision>
 ```

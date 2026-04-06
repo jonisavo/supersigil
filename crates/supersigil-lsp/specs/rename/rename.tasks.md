@@ -33,15 +33,15 @@ independently testable.
 <Task
   id="task-2"
   status="done"
-  implements="rename/req#req-1-1, rename/req#req-1-2, rename/req#req-1-3, rename/req#req-1-4, rename/req#req-1-5, rename/req#req-1-6, rename/req#req-1-7, rename/req#req-2-1"
+  implements="rename/req#req-1-1, rename/req#req-1-2, rename/req#req-1-3, rename/req#req-1-4, rename/req#req-1-5, rename/req#req-1-6, rename/req#req-2-1"
   depends="task-1"
 >
   Implement `find_rename_target()` in a new `rename.rs` module. Define
-  `LineRange` and `RenameTarget` types. Four detection strategies in priority
-  order: ref attribute (via enriched `find_ref_at_position`), supersigil-ref
-  info string, component tag / id attribute value, frontmatter. Add
-  `mod rename` to `lib.rs`. Unit tests for each detection case, priority
-  ordering, and rejection of non-renameable positions.
+  `LineRange` and `RenameTarget` types. Three detection strategies in
+  priority order: ref attribute (via enriched `find_ref_at_position`),
+  component tag / id attribute value, frontmatter. Add `mod rename` to
+  `lib.rs`. Unit tests for each detection case, priority ordering, and
+  rejection of non-renameable positions.
 </Task>
 
 <Task
@@ -52,11 +52,11 @@ independently testable.
 >
   Implement `collect_rename_edits()` in `rename.rs`. For ComponentId renames:
   update definition site id attribute, ref attribute fragments across all
-  documents, supersigil-ref tokens, and task implements entries. For
-  DocumentId renames: update frontmatter id value, doc ID portions in ref
-  attributes, and task implements entries. Group edits by URI into a
-  WorkspaceEdit. Convert byte offsets to UTF-16. Integration tests using
-  constructed DocumentGraph instances.
+  documents, and task implements entries. For DocumentId renames: update
+  frontmatter id value, doc ID portions in ref attributes, and task
+  implements entries. Group edits by URI into a WorkspaceEdit. Convert byte
+  offsets to UTF-16. Integration tests using constructed DocumentGraph
+  instances.
 </Task>
 
 <Task

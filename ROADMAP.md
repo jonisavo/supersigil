@@ -12,9 +12,21 @@
   without shelling out to the CLI.
 
 - **Additional ecosystem plugins**: Language-specific plugins for
-  TypeScript, Python, Go, and others — each understanding native
-  test frameworks for automatic evidence discovery (like the Rust
-  plugin's `#[verifies(...)]`).
+  Python, Go, and others — each understanding native test frameworks
+  for automatic evidence discovery (like the Rust plugin's
+  `#[verifies(...)]` attribute and the JS/TS plugin's `verifies()`
+  helper).
+
+- **Ecosystem plugin improvements**: Make evidence from tests more
+  visible and useful:
+  - **Test body rendering**: The spec browser could pull in and render
+    linked test source alongside the criteria it verifies, making tests
+    serve as live examples without execution machinery in supersigil.
+  - **Convention-based mapping**: Auto-map test names to criteria
+    (e.g., `test_auth_session_expiry` → `auth/req#session-expiry`)
+    so simple cases need no annotation at all.
+  - **Doctest evidence**: Parse `cargo test --doc` output so Rust
+    doctests become first-class verification evidence.
 
 - **WASM plugins**: For verification rules that need more than
   stdin/stdout hooks, WASM plugins (via Extism or similar) could
@@ -31,6 +43,6 @@
   hinted at in the summary, which is confusing. The flag would render
   them dimmed or with an `[info]` prefix.
 
-- **Lint auto-fix**: `supersigil lint --fix` to automatically
+- **Verify auto-fix**: `supersigil verify --fix` to automatically
   correct simple structural issues (missing attributes, ID
   formatting).

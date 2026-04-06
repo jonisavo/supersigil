@@ -108,7 +108,6 @@ mod tests {
             },
             extra: HashMap::new(),
             components,
-            warnings: Vec::new(),
         }
     }
 
@@ -224,7 +223,6 @@ mod tests {
             ("DependsOn", SymbolKind::STRUCT),
             ("AcceptanceCriteria", SymbolKind::OBJECT),
             ("Rationale", SymbolKind::OBJECT),
-            ("Example", SymbolKind::OBJECT),
         ];
 
         let content = test_content(5);

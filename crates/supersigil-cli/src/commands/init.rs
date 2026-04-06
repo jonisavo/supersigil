@@ -95,7 +95,7 @@ pub fn run(args: &InitArgs, color: ColorConfig) -> Result<(), CliError> {
 
     format::hint(
         color,
-        "Run `supersigil new <type> <name>` to create spec documents, then `supersigil lint` to validate them.",
+        "Run `supersigil new <type> <name>` to create spec documents, then `supersigil verify` to validate them.",
     );
 
     Ok(())

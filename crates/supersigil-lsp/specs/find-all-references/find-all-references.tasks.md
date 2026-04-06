@@ -35,13 +35,13 @@ testable.
 <Task
   id="task-2"
   status="done"
-  implements="find-all-references/req#req-1-1, find-all-references/req#req-1-2, find-all-references/req#req-1-3, find-all-references/req#req-1-4, find-all-references/req#req-1-5"
+  implements="find-all-references/req#req-1-1, find-all-references/req#req-1-2, find-all-references/req#req-1-3, find-all-references/req#req-1-4"
   depends="task-1"
 >
   Implement cursor detection in `references.rs`:
   `find_reference_target(content, line, character, doc_id, graph)`.
-  Four strategies in priority order: ref string (reuse `find_ref_at_position`),
-  supersigil-ref info string, component definition tag with `id` attribute,
+  Three strategies in priority order: ref string (reuse
+  `find_ref_at_position`), component definition tag with `id` attribute,
   frontmatter. Unit tests for each detection case and priority ordering.
 </Task>
 

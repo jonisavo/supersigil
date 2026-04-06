@@ -14,8 +14,8 @@ verification status, and coverage percentages. This makes verification
 status visible in the editor without running the CLI.
 
 In scope: Code Lenses for Document (frontmatter), AcceptanceCriteria, and
-Criterion components. Out of scope: Task lenses, Example lenses, per-lens
-configuration toggle, `codeLens/resolve`.
+Criterion components. Out of scope: Task lenses, per-lens configuration
+toggle, `codeLens/resolve`.
 
 ## Definitions
 

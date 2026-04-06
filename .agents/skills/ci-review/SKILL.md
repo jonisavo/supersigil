@@ -16,7 +16,7 @@ supersigil verify [--format terminal|json|markdown]
 supersigil affected --since <ref> [--format json]
 supersigil status [<id>] [--format json]
 supersigil plan [<id_or_prefix>] [--format json]
-supersigil lint
+supersigil verify
 ```
 
 ## CI Pipeline Integration

@@ -175,8 +175,8 @@ defaults and summaries, so that I can run migrations directly from a workspace.
   <Criterion id="req-4-3">
     WHEN write mode succeeds, THE CLI SHALL print the written file list and the
     same summary counts, then SHALL emit a next-step hint of
-    `supersigil lint` when `supersigil.toml` exists in the current directory
-    and SHALL otherwise hint `supersigil init` followed by `supersigil lint`.
+    `supersigil verify` when `supersigil.toml` exists in the current directory
+    and SHALL otherwise hint `supersigil init` followed by `supersigil verify`.
   </Criterion>
 </AcceptanceCriteria>
 ```

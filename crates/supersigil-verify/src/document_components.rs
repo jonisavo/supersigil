@@ -164,8 +164,6 @@ pub enum EvidenceKindLabel {
     FileGlob,
     #[serde(rename = "rust-attribute")]
     RustAttribute,
-    #[serde(rename = "example")]
-    Example,
     #[serde(rename = "js-verifies")]
     JsVerifies,
 }
@@ -189,9 +187,6 @@ pub enum ProvenanceEntry {
     /// Evidence from a Rust `#[verifies(...)]` attribute.
     #[serde(rename = "rust-attribute")]
     RustAttribute { file: String, line: usize },
-    /// Evidence from an `<Example>` component.
-    #[serde(rename = "example")]
-    Example { example_id: String },
     /// Evidence from a JS/TS `verifies()` call or `meta.verifies` object.
     #[serde(rename = "js-verifies")]
     JsVerifies { file: String, line: usize },
@@ -480,7 +475,6 @@ fn map_evidence_kind(kind: supersigil_evidence::EvidenceKind) -> EvidenceKindLab
         supersigil_evidence::EvidenceKind::Tag => EvidenceKindLabel::Tag,
         supersigil_evidence::EvidenceKind::FileGlob => EvidenceKindLabel::FileGlob,
         supersigil_evidence::EvidenceKind::RustAttribute => EvidenceKindLabel::RustAttribute,
-        supersigil_evidence::EvidenceKind::Example => EvidenceKindLabel::Example,
         supersigil_evidence::EvidenceKind::JsVerifies => EvidenceKindLabel::JsVerifies,
     }
 }
@@ -496,9 +490,6 @@ fn map_provenance(prov: &PluginProvenance, project_root: &Path) -> ProvenanceEnt
         PluginProvenance::RustAttribute { attribute_span } => ProvenanceEntry::RustAttribute {
             file: relativize(&attribute_span.file, project_root),
             line: attribute_span.line,
-        },
-        PluginProvenance::Example { example_id, .. } => ProvenanceEntry::Example {
-            example_id: example_id.clone(),
         },
         PluginProvenance::JsVerifies { annotation_span } => ProvenanceEntry::JsVerifies {
             file: relativize(&annotation_span.file, project_root),
@@ -794,7 +785,6 @@ mod tests {
             EvidenceKindLabel::Tag,
             EvidenceKindLabel::FileGlob,
             EvidenceKindLabel::RustAttribute,
-            EvidenceKindLabel::Example,
         ] {
             assert_round_trip(&kind);
         }
@@ -813,10 +803,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&EvidenceKindLabel::RustAttribute).unwrap(),
             r#""rust-attribute""#,
-        );
-        assert_eq!(
-            serde_json::to_string(&EvidenceKindLabel::Example).unwrap(),
-            r#""example""#,
         );
     }
 
@@ -848,14 +834,6 @@ mod tests {
     }
 
     #[test]
-    fn provenance_example_round_trip() {
-        let entry = ProvenanceEntry::Example {
-            example_id: "ex-1".to_owned(),
-        };
-        assert_round_trip(&entry);
-    }
-
-    #[test]
     fn provenance_tag_discriminator_in_json() {
         let entry = ProvenanceEntry::VerifiedByTag {
             tag: "auth:crit1".to_owned(),
@@ -875,15 +853,6 @@ mod tests {
         assert_eq!(json["kind"], "rust-attribute");
         assert_eq!(json["file"], "src/lib.rs");
         assert_eq!(json["line"], 10);
-    }
-
-    #[test]
-    fn provenance_example_discriminator_in_json() {
-        let entry = ProvenanceEntry::Example {
-            example_id: "ex-1".to_owned(),
-        };
-        let json: serde_json::Value = serde_json::to_value(&entry).unwrap();
-        assert_eq!(json["kind"], "example");
     }
 
     #[test]
@@ -1491,7 +1460,6 @@ supersigil:
                 },
                 extra: HashMap::new(),
                 components: Vec::new(),
-                warnings: Vec::new(),
             };
             let graph = build_graph_with_docs(vec![]);
 

@@ -44,10 +44,6 @@ pub const IMPLEMENTS: &str = "Implements";
 pub const DEPENDS_ON: &str = "DependsOn";
 /// The well-known component name for tracked-files components.
 pub const TRACKED_FILES: &str = "TrackedFiles";
-/// The well-known component name for example components.
-pub const EXAMPLE: &str = "Example";
-/// The well-known component name for expected components.
-pub const EXPECTED: &str = "Expected";
 /// The well-known component name for decision components.
 pub const DECISION: &str = "Decision";
 /// The well-known component name for rationale components.
@@ -56,8 +52,6 @@ pub const RATIONALE: &str = "Rationale";
 pub const ALTERNATIVE: &str = "Alternative";
 /// The language identifier for supersigil XML fenced code blocks.
 pub const SUPERSIGIL_XML_LANG: &str = "supersigil-xml";
-/// The well-known fragment name for expected output in ref fences.
-pub const EXPECTED_FRAGMENT: &str = "expected";
 
 // ---------------------------------------------------------------------------
 // EdgeKind

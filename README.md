@@ -48,7 +48,6 @@ supersigil verify
 
 ```
 supersigil verify              # Cross-document verification
-supersigil lint                # Per-file structural checks (fast)
 supersigil ls                  # List all documents
 supersigil context <id>        # Agent-friendly view of a document
 supersigil plan [id]           # Outstanding work overview
@@ -61,7 +60,6 @@ supersigil new <type> <id>     # Scaffold a new spec document
 supersigil init                # Create supersigil.toml and install agent skills
 supersigil skills install      # Install or update agent skills
 supersigil import --from kiro  # Import from Kiro format
-supersigil examples            # List executable examples
 supersigil explore             # Interactive graph explorer (browser)
 ```
 
@@ -96,7 +94,7 @@ Criterion (in requirements doc)
     | <VerifiedBy>              direct evidence
     |
     v
-Test files / executable examples
+Test files
 ```
 
 - Requirements define criteria. `<VerifiedBy>` links criteria to test

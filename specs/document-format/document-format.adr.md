@@ -148,81 +148,6 @@ grammar no more complex than what the tool actually uses.
   </Rationale>
 </Decision>
 
-<Decision id="example-code-content">
-  `Example` and `Expected` components support two ways to provide code
-  content. For trivial content (no XML-special characters), inline text
-  content inside the XML element is sufficient. For complex content
-  (angle brackets, ampersands, or content that benefits from syntax
-  highlighting), a standard Markdown code fence elsewhere in the
-  document is linked via the `supersigil-ref` meta attribute in the
-  fence info string.
-
-  <References refs="executable-examples/req#req-1-8, parser-pipeline/req#req-8-1" />
-
-  The `supersigil-ref` value uses the component's ID. An `Example`
-  may have at most one `Expected` child; `Expected` receives the
-  reserved implicit fragment ID `expected` within its parent, referenced
-  as `supersigil-ref=example-id#expected`. Code fences may appear
-  anywhere in the document — before, after, or interspersed with the
-  `supersigil-xml` block that declares the component metadata. The
-  parser links them by explicit reference, not by proximity. Resolution
-  is document-local: a `supersigil-ref` only targets components in the
-  same file.
-
-  The `supersigil-ref` mini-grammar: the value starts after `=` and
-  extends to the next whitespace or end of the meta string. The
-  optional fragment separator is `#`. Other meta tokens (e.g. Shiki
-  line highlights) may coexist, separated by whitespace. Because the
-  value is whitespace-delimited, component IDs used in `supersigil-ref`
-  must not contain whitespace. This is a stricter constraint than the
-  general freeform ID rule, enforced by lint when an Example or
-  Expected component has code content linked via `supersigil-ref`.
-
-  Error semantics: if both inline text and a linked code fence exist
-  for the same component, a structural lint error is reported. If inline text
-  contains XML-special characters (`&lt;`, `&gt;`, `&amp;`), the XML parser
-  reports a syntax error — the author should use an external code fence
-  instead. A `supersigil-ref` that targets no component in the document
-  is a lint error — this catches typos that would otherwise silently
-  drop code content.
-
-  <Rationale>
-    Executable examples contain arbitrary code that may include raw
-    angle brackets, ampersands, and other XML-special characters.
-    Embedding such code inside XML text would require entity escaping
-    (`&lt;`, `&amp;`), which makes code unreadable and unrunnable
-    without transformation.
-
-    The dual-mode approach handles both cases ergonomically: trivial
-    examples like `echo hello` stay compact as inline XML text content,
-    while complex examples with HTTP requests, JSON payloads, or
-    template syntax use standard Markdown code fences that get native
-    syntax highlighting and copy-paste fidelity. The `supersigil-ref`
-    binding is explicit and position-independent, avoiding fragile
-    proximity-based association.
-  </Rationale>
-
-  <Alternative id="proximity-based-association" status="rejected">
-    Associate code fences with components by proximity (the next code
-    fence after a self-closing `Example` belongs to it). Fragile —
-    adding prose between the component and its code block would break
-    the association silently, and the relationship is not visually
-    obvious.
-  </Alternative>
-
-  <Alternative id="cdata-sections" status="rejected">
-    Allow CDATA sections inside the XML subset for code content. This
-    would keep everything in one fence but adds XML complexity and
-    removes syntax highlighting from the code portion.
-  </Alternative>
-
-  <Alternative id="entity-escaped-code" status="rejected">
-    Require XML entity escaping for code content. Unacceptable for
-    authoring ergonomics — code must be copy-pasteable and runnable
-    without transformation.
-  </Alternative>
-</Decision>
-
 <Decision id="components-carry-semantics">
   Unchanged from `document-format/mdx-adr`. Document types are
   classification tags; the verification engine operates on the component
@@ -329,51 +254,19 @@ Session tokens must expire after the configured TTL.
 ```
 ````
 
-A trivial executable example with inline code content:
+A document can still include ordinary Markdown code fences for prose,
+design notes, or illustrative snippets. They are not interpreted as
+structured supersigil content:
 
 ````md
-```supersigil-xml
-<Example id="echo-test" runner="sh" verifies="demo/req#demo-1">
-  echo hello
-  <Expected status="0">
-    hello
-  </Expected>
-</Example>
+## Notes
+
+Use the current session token for follow-up API calls:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" https://api.example.test/me
 ```
 ````
-
-A complex executable example with external code fences linked via
-`supersigil-ref`. The code fences can appear anywhere in the document
-— here they come before the metadata block:
-
-````md
-```http supersigil-ref=create-task
-POST /api/v1/tasks
-Content-Type: application/json
-
-{"title": "Buy milk", "due_date": "2026-12-01"}
-```
-
-```json supersigil-ref=create-task#expected
-{
-  "id": "<any-uuid>",
-  "title": "Buy milk",
-  "status": "pending"
-}
-```
-
-```supersigil-xml
-<Example id="create-task" runner="http" verifies="api/req#create-task">
-  <Expected status="201" format="json" />
-</Example>
-```
-````
-
-External code fences get native syntax highlighting (the fence language
-is `http`, `json`, `sh`, etc.) and are copy-paste-safe — no XML
-escaping needed, even for code containing angle brackets like
-`<any-uuid>`. The `supersigil-ref` attribute in the fence info string
-binds them to the component by ID.
 
 ## Consequences
 

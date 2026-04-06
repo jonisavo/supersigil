@@ -80,24 +80,6 @@ The generated file includes a type-appropriate template with placeholder section
 |------|-------------|
 | `--project <name>`, `-p` | Target project (required in multi-project mode, invalid in single-project mode) |
 
-## `supersigil lint`
-
-Run per-file structural checks. Fast, no graph needed.
-
-```bash
-supersigil lint
-```
-
-Lint checks a subset of rules that don't require the full document graph: valid front matter, known components, required attributes, string-only attributes.
-
-Suitable for pre-commit hooks and editor integration. Returns the number of errors found. Exit code 1 on any errors.
-
-When no documents are found matching the configured paths, lint prints a warning with guidance to create specs or check frontmatter format.
-
-<Aside type="tip">
-  Lint is fast because it never builds the cross-document graph. For full verification including reference resolution, coverage, and executable examples, use `supersigil verify`.
-</Aside>
-
 ## `supersigil verify`
 
 Whole-graph verification. This is the CI command.
@@ -106,21 +88,15 @@ Whole-graph verification. This is the CI command.
 supersigil verify
 supersigil verify --since main --committed-only
 supersigil verify --project backend --format json
-supersigil verify --skip-examples
 ```
 
-Runs in two phases:
-1. **Structural checks** -- all hard errors (broken refs, duplicate IDs, cycles) and configurable rules at their effective severity.
-2. **Executable examples** -- runs `<Example>` components and compares output against `<Expected>`.
+Builds the full document graph and runs structural checks, plugin evidence discovery, and coverage analysis.
 
 | Flag | Description |
 |------|-------------|
 | `--since <ref>` | Git ref for staleness checks |
 | `--committed-only` | Only consider committed changes |
 | `--merge-base` | Use merge-base for git diff |
-| `--skip-examples` | Skip executable example execution |
-| `--update-snapshots` | Update snapshot expectations with actual output |
-| `-j, --parallelism <N>` | Number of examples to run concurrently (overrides config) |
 | `--project <name>`, `-p` | Filter to a project (multi-project mode) |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `markdown` |
 
@@ -212,26 +188,6 @@ supersigil refs --all
 |------|-------------|
 | `--all` | Show all criterion refs (no context scoping) |
 | `--format <fmt>` | Output format: `terminal` (default), `json` |
-
-## `supersigil examples [prefix]`
-
-List executable examples with metadata.
-
-```bash
-supersigil examples                  # Scoped to cwd via TrackedFiles
-supersigil examples --all            # All examples (no scoping)
-supersigil examples auth             # Filter by document ID prefix
-supersigil examples --format json
-```
-
-| Flag | Description |
-|------|-------------|
-| `--all` | Show all examples (no context scoping) |
-| `--format <fmt>` | Output format: `terminal` (default), `json` |
-
-<Aside>
-  Examples are also executed as part of `supersigil verify` (unless `--skip-examples` is passed). The `examples` command lists metadata only; it does not run them.
-</Aside>
 
 ## `supersigil affected`
 
@@ -325,7 +281,7 @@ supersigil import --from kiro --source-dir ./kiro-specs --output-dir ./specs --p
 | `--force` | Overwrite existing files |
 
 <Aside type="note">
-  Imported files may contain `TODO(supersigil-import)` comments where manual review is needed. Run `supersigil lint` after importing to validate the results.
+  Imported files may contain `TODO(supersigil-import)` comments where manual review is needed. Run `supersigil verify` after importing to validate the results.
 </Aside>
 
 ## `supersigil skills install`

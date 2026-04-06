@@ -1,6 +1,6 @@
 ---
 name: feature-specification
-description: Author or refine Supersigil specification documents for one bounded feature using the full Supersigil CLI workflow. Use when the user wants to turn a feature idea or imported `.kiro/specs` material into `requirement`, `design`, `tasks`, or `adr` MDX documents; repair or extend existing specs so `supersigil lint`, `supersigil context`, `supersigil plan`, `supersigil status`, and `supersigil verify` all work; or bring one feature's docs to an implementation-ready state.
+description: Author or refine Supersigil specification documents for one bounded feature using the full Supersigil CLI workflow. Use when the user wants to turn a feature idea or imported `.kiro/specs` material into `requirement`, `design`, `tasks`, or `adr` MDX documents; repair or extend existing specs so `supersigil verify`, `supersigil context`, `supersigil plan`, `supersigil status`, and `supersigil verify` all work; or bring one feature's docs to an implementation-ready state.
 ---
 
 # Feature Specification
@@ -15,7 +15,7 @@ Use the current CLI as the source of truth:
 supersigil import --from kiro ...
 supersigil new <type> <feature>
 supersigil schema [--format json]
-supersigil lint
+supersigil verify
 supersigil ls [--format json]
 supersigil context <id> [--format json]
 supersigil plan [<id_or_prefix>] [--format json]
@@ -91,7 +91,7 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
     Let the user adjust task granularity, ordering, or scope before handoff to implementation.
     Refine the tasks doc if the user wants another pass.
 
-12. Run `supersigil lint` after every write.
+12. Run `supersigil verify` after every write.
    Treat lint cleanliness as the minimum quality bar.
    If `lint` fails, fix that before doing more structural work.
 

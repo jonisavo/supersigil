@@ -51,8 +51,6 @@ pub enum StatusContext {
     Task,
     /// Inside an `<Alternative>` component.
     Alternative,
-    /// Inside an `<Expected>` component (free-form exit code).
-    Expected,
     /// Inside an unknown or other component.
     Other(String),
 }
@@ -147,7 +145,6 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
                 match find_enclosing_component(content, line as usize) {
                     Some(ref name) if name == "Task" => StatusContext::Task,
                     Some(ref name) if name == "Alternative" => StatusContext::Alternative,
-                    Some(ref name) if name == "Expected" => StatusContext::Expected,
                     Some(name) => StatusContext::Other(name),
                     None => StatusContext::Other(String::new()),
                 }
@@ -407,7 +404,7 @@ pub fn complete_status(
         }
         StatusContext::Task => TASK_STATUSES.to_vec(),
         StatusContext::Alternative => ALTERNATIVE_STATUSES.to_vec(),
-        StatusContext::Expected | StatusContext::Other(_) => vec![],
+        StatusContext::Other(_) => vec![],
     };
 
     filter_to_completion_items(&candidates, prefix)
@@ -618,12 +615,6 @@ mod tests {
         let items = complete_status("", &StatusContext::Alternative, None, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["deferred", "rejected", "superseded"]);
-    }
-
-    #[test]
-    fn expected_status_no_completions() {
-        let items = complete_status("", &StatusContext::Expected, None, None);
-        assert!(items.is_empty());
     }
 
     #[test]

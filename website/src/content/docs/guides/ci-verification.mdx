@@ -16,15 +16,14 @@ missing evidence, and spec drift before a change lands.
 
 <Steps>
 
-1. **Run fast checks locally**
+1. **Run verification locally**
 
    ```bash
-   supersigil lint
    supersigil verify
    ```
 
-   `lint` is the quick structural pass. `verify` is the graph-level check that
-   enforces coverage, evidence, and tracked-file rules.
+   `verify` is the graph-level check that enforces structural integrity,
+   coverage, evidence, and tracked-file rules.
 
 2. **Use tracked files for drift detection**
 

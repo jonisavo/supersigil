@@ -206,7 +206,7 @@ if the change is purely structural.
   documents than valid ones. Key mechanisms:
   - Always start documents as `status: draft` (suppresses configurable
     verification rules while iterating)
-  - Run `supersigil lint` after every write (immediate structural feedback)
+  - Run `supersigil verify` after every write (immediate structural feedback)
   - Run `supersigil verify` before promoting status (full graph check)
   - Use `supersigil schema` to get current component definitions (never
     guess component names or attributes)

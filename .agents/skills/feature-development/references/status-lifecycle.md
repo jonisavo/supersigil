@@ -38,7 +38,7 @@ rule will warn about missed promotions or inconsistent sibling statuses.
 ## During Authoring
 
 - Keep documents at `status: draft` while actively editing.
-- Do not promote based only on `supersigil lint` passing.
+- Do not promote based only on `supersigil verify` passing.
 - Promote to `review` or `approved` only after `supersigil verify` is clean
   and the user has reviewed the document.
 - `draft` suppresses configurable verification warnings, so it is the safe

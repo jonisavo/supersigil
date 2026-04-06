@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -11,7 +11,6 @@ use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, status_token, write_json};
 use crate::loader;
 use crate::plugins;
-use crate::scope;
 
 #[derive(Debug, Serialize)]
 struct ProjectStatus {
@@ -20,16 +19,6 @@ struct ProjectStatus {
     by_status: BTreeMap<String, usize>,
     targets_total: usize,
     targets_covered: usize,
-    #[serde(skip_serializing_if = "is_zero")]
-    targets_example_pending: usize,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde skip_serializing_if requires &T"
-)]
-const fn is_zero(n: &usize) -> bool {
-    *n == 0
 }
 
 #[derive(Debug, Serialize)]
@@ -45,10 +34,6 @@ struct DocumentStatus {
 struct TargetStatus {
     id: String,
     covered: bool,
-    /// When `true`, this criterion is not covered by artifact evidence but
-    /// is targeted by at least one `<Example verifies="...">` component.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    example_coverable: bool,
     /// `VerifiedBy` strategies associated with this criterion (e.g. `"tag:my_tag"`,
     /// `"file-glob:tests/**"`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -73,15 +58,7 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
         Some(id) => {
             // Exact match → per-document detail view.
             if graph.document(id).is_some() {
-                let example_refs = scope::collect_example_verifies_refs(&graph);
-                return run_per_document(
-                    id,
-                    &args.format,
-                    &graph,
-                    &artifact_graph,
-                    &example_refs,
-                    color,
-                );
+                return run_per_document(id, &args.format, &graph, &artifact_graph, color);
             }
             // Prefix match → aggregated project-style summary for matching docs.
             let has_prefix_match = graph
@@ -102,8 +79,6 @@ fn run_project_wide(
     artifact_graph: &ArtifactGraph<'_>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
-    let example_refs = scope::collect_example_verifies_refs(graph);
-
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0;
@@ -129,13 +104,7 @@ fn run_project_wide(
             .to_owned();
         *by_status.entry(s).or_default() += 1;
 
-        count_targets_recursive(
-            id,
-            &doc.components,
-            artifact_graph,
-            &example_refs,
-            &mut targets,
-        );
+        count_targets_recursive(id, &doc.components, artifact_graph, &mut targets);
     }
 
     let status = ProjectStatus {
@@ -144,7 +113,6 @@ fn run_project_wide(
         by_status,
         targets_total: targets.total,
         targets_covered: targets.covered,
-        targets_example_pending: targets.example_pending,
     };
 
     match fmt {
@@ -201,39 +169,25 @@ fn write_project_terminal(
         reason = "target counts are small enough for f64"
     )]
     let pct = if status.targets_total > 0 {
-        (status.targets_covered + status.targets_example_pending) as f64
-            / status.targets_total as f64
-            * 100.0
+        status.targets_covered as f64 / status.targets_total as f64 * 100.0
     } else {
         100.0
     };
-    let display_covered = status.targets_covered + status.targets_example_pending;
     writeln!(
         out,
         "{} {}/{} ({pct:.0}%)",
         c.paint(Token::Label, "Verification coverage:"),
-        c.paint(Token::Count, &display_covered.to_string()),
+        c.paint(Token::Count, &status.targets_covered.to_string()),
         c.paint(Token::Count, &status.targets_total.to_string()),
     )?;
 
-    if status.targets_example_pending > 0 {
-        format::hint(
-            color,
-            &format!(
-                "{} criteria covered only by examples (not executed here). \
-                 Run `supersigil verify` to confirm.",
-                status.targets_example_pending,
-            ),
-        );
-    }
-
-    let uncovered = status.targets_total.saturating_sub(display_covered);
+    let uncovered = status.targets_total.saturating_sub(status.targets_covered);
     if uncovered > 0 {
         format::hint(
             color,
             "Some verification targets are uncovered. Run `supersigil verify` to see details.",
         );
-    } else if status.targets_example_pending == 0 {
+    } else {
         format::hint(
             color,
             "All verification targets covered. Run `supersigil verify` for full verification.",
@@ -248,7 +202,6 @@ fn run_per_document(
     fmt: &OutputFormat,
     graph: &supersigil_core::DocumentGraph,
     artifact_graph: &ArtifactGraph<'_>,
-    example_refs: &HashSet<String>,
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let ctx = graph.context(id)?;
@@ -256,7 +209,7 @@ fn run_per_document(
 
     // Build per-criterion status with VerifiedBy info extracted from the
     // component tree (VerifiedBy is always nested inside Criterion).
-    let criteria = build_targets_status(id, &doc.components, artifact_graph, example_refs);
+    let criteria = build_targets_status(id, &doc.components, artifact_graph);
 
     let tracked_files = graph
         .tracked_files(id)
@@ -297,8 +250,6 @@ fn run_per_document(
                 for crit in &status.criteria {
                     let (marker, tok) = if crit.covered {
                         ("covered", Token::StatusGood)
-                    } else if crit.example_coverable {
-                        ("example-coverable", Token::StatusInfo)
                     } else {
                         ("uncovered", Token::StatusBad)
                     };
@@ -335,28 +286,24 @@ fn run_per_document(
 struct TargetCounts {
     total: usize,
     covered: usize,
-    example_pending: usize,
 }
 
 fn count_targets_recursive(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
-    example_refs: &HashSet<String>,
     counts: &mut TargetCounts,
 ) {
     for comp in components {
         if comp.name == CRITERION {
             counts.total += 1;
-            if let Some(crit_id) = comp.attributes.get("id") {
-                if artifact_graph.has_evidence(doc_id, crit_id) {
-                    counts.covered += 1;
-                } else if example_refs.contains(&format!("{doc_id}#{crit_id}")) {
-                    counts.example_pending += 1;
-                }
+            if let Some(crit_id) = comp.attributes.get("id")
+                && artifact_graph.has_evidence(doc_id, crit_id)
+            {
+                counts.covered += 1;
             }
         }
-        count_targets_recursive(doc_id, &comp.children, artifact_graph, example_refs, counts);
+        count_targets_recursive(doc_id, &comp.children, artifact_graph, counts);
     }
 }
 
@@ -368,16 +315,9 @@ fn build_targets_status(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
-    example_refs: &HashSet<String>,
 ) -> Vec<TargetStatus> {
     let mut result = Vec::new();
-    collect_targets_status(
-        doc_id,
-        components,
-        artifact_graph,
-        example_refs,
-        &mut result,
-    );
+    collect_targets_status(doc_id, components, artifact_graph, &mut result);
     result
 }
 
@@ -385,7 +325,6 @@ fn collect_targets_status(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     artifact_graph: &ArtifactGraph<'_>,
-    example_refs: &HashSet<String>,
     result: &mut Vec<TargetStatus>,
 ) {
     for comp in components {
@@ -416,16 +355,13 @@ fn collect_targets_status(
                 .collect();
 
             let covered = artifact_graph.has_evidence(doc_id, crit_id);
-            let example_coverable =
-                !covered && example_refs.contains(&format!("{doc_id}#{crit_id}"));
             result.push(TargetStatus {
                 id: crit_id.clone(),
                 covered,
-                example_coverable,
                 verified_by,
             });
         }
         // Recurse into children (e.g. AcceptanceCriteria -> Criterion).
-        collect_targets_status(doc_id, &comp.children, artifact_graph, example_refs, result);
+        collect_targets_status(doc_id, &comp.children, artifact_graph, result);
     }
 }

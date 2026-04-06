@@ -196,7 +196,7 @@ Eight provider structs, each a unit struct implementing
 | `IncompleteDecisionProvider` | `Verify(IncompleteDecision)` |
 | `MissingComponentProvider` | `Verify(MissingRequiredComponent)` |
 | `OrphanDecisionProvider` | `Verify(OrphanDecision)` |
-| `InvalidPlacementProvider` | `Verify(InvalidRationalePlacement)`, `Verify(InvalidAlternativePlacement)`, `Verify(InvalidExpectedPlacement)` |
+| `InvalidPlacementProvider` | `Verify(InvalidRationalePlacement)`, `Verify(InvalidAlternativePlacement)` |
 | `SequentialIdProvider` | `Verify(SequentialIdGap)`, `Verify(SequentialIdOrder)` |
 
 ## Shared Scaffolding

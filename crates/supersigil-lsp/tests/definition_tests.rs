@@ -58,7 +58,6 @@ fn make_doc(id: &str, path: &str, components: Vec<ExtractedComponent>) -> SpecDo
         },
         extra: HashMap::new(),
         components,
-        warnings: vec![],
     }
 }
 
@@ -225,31 +224,4 @@ fn nonexistent_fragment_ref_returns_none() {
     // Document exists but fragment does not.
     let result = resolve_ref("auth/req#missing-frag", &graph);
     assert!(result.is_none());
-}
-
-// ---------------------------------------------------------------------------
-// find_ref_at_position — verifies attribute on Example components
-// ---------------------------------------------------------------------------
-
-#[test]
-fn cursor_inside_verifies_attribute() {
-    let (content, line) = fenced(r#"<Example id="ex-1" runner="sh" verifies="auth/req#crit-1" />"#);
-    // `verifies="` starts at 31; value `auth/req#crit-1` starts at 41.
-    let result = find_ref_at_position(&content, line, 45);
-    assert_eq!(
-        result.as_ref().map(|r| r.ref_string.as_str()),
-        Some("auth/req#crit-1")
-    );
-}
-
-#[test]
-fn cursor_inside_verifies_comma_list() {
-    let (content, line) =
-        fenced(r#"<Example id="ex-1" runner="sh" verifies="a/req#c1, b/req#c2" />"#);
-    // Second ref starts after the comma+space.
-    let result = find_ref_at_position(&content, line, 52);
-    assert_eq!(
-        result.as_ref().map(|r| r.ref_string.as_str()),
-        Some("b/req#c2")
-    );
 }

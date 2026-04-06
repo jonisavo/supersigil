@@ -50,12 +50,6 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
     let config_path = supersigil_cli::find_config(&std::env::current_dir()?)?;
 
     match cli.command {
-        supersigil_cli::Command::Lint => {
-            let clean = supersigil_cli::commands::lint::run(&config_path, color)?;
-            if !clean {
-                return Err(supersigil_cli::error::CliError::LintFailed);
-            }
-        }
         supersigil_cli::Command::Ls(ref args) => {
             supersigil_cli::commands::ls::run(args, &config_path, color)?;
         }
@@ -85,9 +79,6 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
         }
         supersigil_cli::Command::Refs(ref args) => {
             supersigil_cli::commands::refs::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Examples(ref args) => {
-            supersigil_cli::commands::examples::run(args, &config_path, color)?;
         }
         supersigil_cli::Command::Explore(ref args) => {
             supersigil_cli::commands::explore::run(args, &config_path, color)?;

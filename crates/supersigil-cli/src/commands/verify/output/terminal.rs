@@ -5,8 +5,6 @@ use supersigil_verify::{Finding, ReportSeverity, ResultStatus, RuleName, Verific
 
 use crate::format::{self, ColorConfig, Token};
 
-use super::{ExampleExecutionSummary, ExampleFailureDetail};
-
 /// Maximum number of findings per (document, rule) group before collapsing.
 const COLLAPSE_THRESHOLD: usize = 3;
 /// Number of individual messages shown when a group is collapsed.
@@ -16,23 +14,11 @@ const COLLAPSE_PREVIEW: usize = 2;
 ///
 /// Groups findings by `doc_id`, sub-groups by rule, and collapses repeated
 /// findings of the same rule when there are more than `COLLAPSE_THRESHOLD`.
-pub(crate) fn format_terminal(
-    report: &VerificationReport,
-    example_summary: Option<&ExampleExecutionSummary>,
-    color: ColorConfig,
-) -> String {
+pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
     let mut out = String::new();
 
-    if let Some(summary) = example_summary {
-        write_example_summary(&mut out, summary, color);
-    }
-
     if report.result_status() == ResultStatus::Clean {
-        if example_summary.is_some_and(|summary| summary.failed() > 0) {
-            let _ = writeln!(out, "{} No blocking findings", color.info());
-        } else {
-            let _ = writeln!(out, "{} Clean: no findings", color.ok());
-        }
+        let _ = writeln!(out, "{} Clean: no findings", color.ok());
         write_draft_gating_hint(&mut out, &report.findings, color);
         return out;
     }
@@ -130,72 +116,6 @@ fn write_draft_gating_hint(out: &mut String, findings: &[Finding], color: ColorC
             "{} {suppressed} finding(s) downgraded to info because their documents have status: draft.",
             color.paint(Token::Hint, "hint:"),
         );
-    }
-}
-
-fn write_example_summary(out: &mut String, summary: &ExampleExecutionSummary, color: ColorConfig) {
-    if summary.passed == 0 && summary.failed() == 0 {
-        return;
-    }
-
-    let _ = write!(
-        out,
-        "Examples: {} passed",
-        color.paint(Token::Count, &summary.passed.to_string()),
-    );
-    if summary.failed() > 0 {
-        let _ = write!(
-            out,
-            ", {} failed",
-            color.paint(Token::Error, &summary.failed().to_string()),
-        );
-    }
-    let _ = writeln!(out);
-
-    if summary.failures.is_empty() {
-        let _ = writeln!(out);
-        return;
-    }
-
-    let _ = writeln!(out, "Failed examples:");
-    for failure in &summary.failures {
-        let example_ref = format!("{}::{}", failure.doc_id, failure.example_id);
-        let _ = writeln!(
-            out,
-            "  {} {} ({})",
-            color.err(),
-            color.paint(Token::DocId, &example_ref),
-            failure.runner,
-        );
-        for detail in &failure.details {
-            match detail {
-                ExampleFailureDetail::Match {
-                    check,
-                    expected,
-                    actual,
-                } => {
-                    let _ = writeln!(out, "      [{check}]");
-                    write_labelled_block(out, "      expected:", expected);
-                    write_labelled_block(out, "      actual:", actual);
-                }
-                ExampleFailureDetail::Message(message) => {
-                    let _ = writeln!(out, "      {message}");
-                }
-            }
-        }
-    }
-    let _ = writeln!(out);
-}
-
-fn write_labelled_block(out: &mut String, label: &str, value: &str) {
-    if !value.contains('\n') {
-        let _ = writeln!(out, "{label} {value}");
-        return;
-    }
-
-    let _ = writeln!(out, "{label}");
-    for line in value.lines() {
-        let _ = writeln!(out, "        {line}");
     }
 }
 

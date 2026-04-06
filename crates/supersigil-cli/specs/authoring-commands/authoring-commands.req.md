@@ -50,7 +50,7 @@ that I can start writing documents without hand-authoring the initial TOML.
   <Criterion id="req-1-3">
     AFTER successful creation, `init` SHALL print the created path to stdout and
     a next-step hint directing the operator to `supersigil new` and
-    `supersigil lint`.
+    `supersigil verify`.
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -84,7 +84,7 @@ scaffold without manually placing files.
   </Criterion>
   <Criterion id="req-2-4">
     AFTER successful creation, `new` SHALL print the Generated_Doc_Path to
-    stdout and a `supersigil lint` next-step hint to stderr.
+    stdout and a `supersigil verify` next-step hint to stderr.
   </Criterion>
   <Criterion id="req-2-5">
     IN Multi_Project_Mode, `new` SHALL accept a `--project &lt;name&gt;` (short
@@ -122,7 +122,7 @@ I start from valid front matter and structure rather than an empty file.
     the current Generated_Doc_ID and requested document type.
   </Criterion>
   <Criterion id="req-3-2">
-    The current `requirements` and `tasks` scaffolds SHALL be lint-clean
+    The current `requirements` and `tasks` scaffolds SHALL be verify-clean
     immediately after generation.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_new.rs" />
   </Criterion>

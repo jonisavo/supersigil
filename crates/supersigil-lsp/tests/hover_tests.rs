@@ -55,7 +55,6 @@ fn make_doc(
         },
         extra,
         components,
-        warnings: vec![],
     }
 }
 
@@ -301,31 +300,4 @@ fn hover_at_position_outside_fence_returns_none() {
     let graph = build_graph(vec![], &default_config()).expect("graph must build");
     let result = hover_at_position(content, 0, 3, &defs, &graph);
     assert!(result.is_none());
-}
-
-// ---------------------------------------------------------------------------
-// hover_at_position — verifies attribute on Example components
-// ---------------------------------------------------------------------------
-
-#[test]
-fn hover_at_position_on_verifies_ref() {
-    let content = fenced(r#"<Example id="ex-1" runner="sh" verifies="auth/req#req-1" />"#);
-    let defs = supersigil_core::ComponentDefs::defaults();
-
-    let criterion = make_criterion("req-1", "test body", 5);
-    let doc = make_doc(
-        "auth/req",
-        "/specs/auth/req.md",
-        Some("requirements"),
-        Some("approved"),
-        Some("Auth Requirements"),
-        vec![criterion],
-    );
-    let graph = build_graph(vec![doc], &default_config()).expect("graph must build");
-
-    // Line 1 inside fence, position 45 is inside "auth/req#req-1".
-    let h = hover_at_position(&content, 1, 45, &defs, &graph).expect("should return hover");
-    let text = hover_text(&h);
-    assert!(text.contains("Auth Requirements"), "should show doc title");
-    assert!(text.contains("Criterion"), "should show component kind");
 }

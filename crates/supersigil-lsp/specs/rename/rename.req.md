@@ -40,9 +40,8 @@ a reference site.
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
     WHEN the cursor is on the fragment portion of a ref string inside a
-    `refs`, `implements`, `depends`, or `verifies` attribute within a
-    `supersigil-xml` fence, THE server SHALL identify the Rename_Target
-    as a ComponentId.
+    `refs`, `implements`, or `depends` attribute within a `supersigil-xml`
+    fence, THE server SHALL identify the Rename_Target as a ComponentId.
   </Criterion>
   <Criterion id="req-1-2">
     WHEN the cursor is on the document ID portion of a ref string (before
@@ -51,27 +50,21 @@ a reference site.
     Rename_Target as a DocumentId.
   </Criterion>
   <Criterion id="req-1-3">
-    WHEN the cursor is on a `supersigil-ref=&lt;target&gt;` token in a code
-    fence info string, THE server SHALL identify the Rename_Target as a
-    ComponentId using the current document's ID and the target value as the
-    component ID.
-  </Criterion>
-  <Criterion id="req-1-4">
     WHEN the cursor is on a component tag name or on the `id` attribute
     value inside a `supersigil-xml` fence and the component has an `id`
     attribute, THE server SHALL identify the Rename_Target as a ComponentId
     using the document's ID and the component's `id` attribute value.
   </Criterion>
-  <Criterion id="req-1-5">
+  <Criterion id="req-1-4">
     WHEN the cursor is on the `id:` value in YAML frontmatter, THE server
     SHALL identify the Rename_Target as a DocumentId.
   </Criterion>
-  <Criterion id="req-1-6">
+  <Criterion id="req-1-5">
     THE server SHALL check cursor positions in priority order: ref attribute,
-    supersigil-ref info string, component definition tag / id attribute,
-    frontmatter. The first match wins.
+    component definition tag / id attribute, frontmatter. The first match
+    wins.
   </Criterion>
-  <Criterion id="req-1-7">
+  <Criterion id="req-1-6">
     WHEN the cursor is not on any renameable position, THE server SHALL
     reject the rename with an error.
   </Criterion>
@@ -113,8 +106,7 @@ that renaming an identifier does not leave broken references behind.
   <Criterion id="req-3-1">
     WHEN renaming a ComponentId, THE server SHALL produce text edits that
     update the `id` attribute at the definition site, all matching fragment
-    portions in ref attributes across all documents, and all matching
-    `supersigil-ref=` tokens in code fence info strings.
+    portions in ref attributes across all documents.
   </Criterion>
   <Criterion id="req-3-2">
     WHEN renaming a DocumentId, THE server SHALL produce text edits that
@@ -122,8 +114,8 @@ that renaming an identifier does not leave broken references behind.
     matching document ID portions in ref attributes across all documents.
   </Criterion>
   <Criterion id="req-3-3">
-    THE server SHALL scan all four ref attributes (`refs`, `implements`,
-    `depends`, `verifies`) for matching references.
+    THE server SHALL scan all three ref attributes (`refs`, `implements`,
+    `depends`) for matching references.
   </Criterion>
   <Criterion id="req-3-4">
     THE server SHALL group edits by file URI and return them as a single

@@ -9,10 +9,10 @@ pub mod scope;
 pub mod skills;
 
 pub use commands::{
-    AffectedArgs, Command, ContextArgs, ExamplesArgs, ExploreArgs, GraphArgs, GraphFormat,
-    ImportArgs, ImportSource, InitArgs, LsArgs, NewArgs, PlanArgs, RefsArgs, RenderArgs,
-    RenderFormat, SchemaArgs, SchemaFormat, SkillsArgs, SkillsCommand, SkillsInstallArgs,
-    StatusArgs, VerifyArgs, VerifyFormat,
+    AffectedArgs, Command, ContextArgs, ExploreArgs, GraphArgs, GraphFormat, ImportArgs,
+    ImportSource, InitArgs, LsArgs, NewArgs, PlanArgs, RefsArgs, RenderArgs, RenderFormat,
+    SchemaArgs, SchemaFormat, SkillsArgs, SkillsCommand, SkillsInstallArgs, StatusArgs, VerifyArgs,
+    VerifyFormat,
 };
 pub use discover::discover_spec_files;
 pub use format::{ColorChoice, ColorConfig, ExitStatus, OutputFormat};

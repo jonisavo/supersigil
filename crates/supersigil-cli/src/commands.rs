@@ -1,11 +1,9 @@
 pub mod affected;
 pub mod context;
-pub mod examples;
 pub mod explore;
 pub mod graph;
 pub mod import;
 pub mod init;
-pub mod lint;
 pub mod ls;
 pub mod new;
 pub mod plan;
@@ -23,8 +21,6 @@ use crate::format::OutputFormat;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Structural checks on spec files (per-file, no graph)
-    Lint,
     /// List all documents
     #[command(alias = "list")]
     Ls(LsArgs),
@@ -50,8 +46,6 @@ pub enum Command {
     New(NewArgs),
     /// List criterion refs in the project
     Refs(RefsArgs),
-    /// List executable examples in the spec
-    Examples(ExamplesArgs),
     /// Manage agent skills
     Skills(SkillsArgs),
     /// Open an interactive graph explorer in the browser
@@ -146,10 +140,6 @@ pub enum VerifyFormat {
 }
 
 #[derive(Debug, clap::Args)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "CLI flags map naturally to independent boolean options"
-)]
 pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
     #[arg(short, long)]
@@ -166,15 +156,6 @@ pub struct VerifyArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: VerifyFormat,
-    /// Skip example execution
-    #[arg(long)]
-    pub skip_examples: bool,
-    /// Update snapshot expectations with actual output
-    #[arg(long)]
-    pub update_snapshots: bool,
-    /// Number of examples to run concurrently (overrides config)
-    #[arg(short = 'j', long)]
-    pub parallelism: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -233,18 +214,6 @@ pub struct RefsArgs {
     /// Filter refs by document ID prefix
     pub prefix: Option<String>,
     /// Show all criterion refs (no context scoping)
-    #[arg(long)]
-    pub all: bool,
-    /// Output format
-    #[arg(long, default_value = "terminal")]
-    pub format: OutputFormat,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct ExamplesArgs {
-    /// Filter by document ID prefix
-    pub prefix: Option<String>,
-    /// Show all examples (no context scoping)
     #[arg(long)]
     pub all: bool,
     /// Output format

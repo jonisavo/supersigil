@@ -93,7 +93,7 @@ lifecycle wiring, and a final smoke test pass.
   status="done"
   depends="task-4"
 >
-  End-to-end smoke test: verify `supersigil lint`, `cargo clippy`,
+  End-to-end smoke test: verify `supersigil verify`, `cargo clippy`,
   `cargo fmt`, `cargo nextest run` all pass. Build the VS Code
   extension with `pnpm run compile` and confirm no TypeScript errors.
   Manually verify the extension activates and shows the tree view

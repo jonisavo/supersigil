@@ -22,10 +22,10 @@ paths = ["crates/my-cli/specs/**/*.md"]
     fs::create_dir_all(dir.join("crates/my-cli/specs")).unwrap();
 }
 
-/// task-7-2: Generated requirements template must pass lint.
+/// task-7-2: Generated requirements template must pass verify.
 #[verifies("authoring-commands/req#req-2-3", "authoring-commands/req#req-3-1")]
 #[test]
-fn new_requirements_passes_lint() {
+fn new_requirements_passes_verify() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
@@ -36,18 +36,18 @@ fn new_requirements_passes_lint() {
         .assert()
         .success();
 
-    // The generated file must pass lint
+    // The generated file must pass verify
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["verify"])
         .current_dir(tmp.path())
         .assert()
         .success();
 }
 
-/// task-7-2: Generated tasks template must pass lint.
+/// task-7-2: Generated tasks template must pass verify.
 #[verifies("authoring-commands/req#req-3-1")]
 #[test]
-fn new_tasks_passes_lint() {
+fn new_tasks_passes_verify() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
@@ -58,7 +58,7 @@ fn new_tasks_passes_lint() {
         .success();
 
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["verify"])
         .current_dir(tmp.path())
         .assert()
         .success();
@@ -141,9 +141,9 @@ fn new_with_project_places_file_in_project_dir() {
         expected.display()
     );
 
-    // Must pass lint
+    // Must pass verify
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["verify"])
         .current_dir(tmp.path())
         .assert()
         .success();
@@ -299,10 +299,10 @@ fn new_rejects_unknown_doc_type() {
     );
 }
 
-/// After successful creation, `new` prints path to stdout and lint hint to stderr.
+/// After successful creation, `new` prints path to stdout and verify hint to stderr.
 #[verifies("authoring-commands/req#req-2-4")]
 #[test]
-fn new_prints_path_to_stdout_and_lint_hint_to_stderr() {
+fn new_prints_path_to_stdout_and_verify_hint_to_stderr() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
@@ -322,8 +322,8 @@ fn new_prints_path_to_stdout_and_lint_hint_to_stderr() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("lint"),
-        "stderr should contain a lint hint, got: {stderr}"
+        stderr.contains("verify"),
+        "stderr should contain a verify hint, got: {stderr}"
     );
 }
 
@@ -355,10 +355,10 @@ fn new_adr_produces_correct_frontmatter() {
     );
 }
 
-/// `supersigil new adr` produces a lint-clean document.
+/// `supersigil new adr` produces a verify-clean document.
 #[verifies("decision-components/req#req-4-3")]
 #[test]
-fn new_adr_passes_lint() {
+fn new_adr_passes_verify() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
@@ -369,7 +369,7 @@ fn new_adr_passes_lint() {
         .success();
 
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["verify"])
         .current_dir(tmp.path())
         .assert()
         .success();

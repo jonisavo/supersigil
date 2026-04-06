@@ -77,7 +77,10 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
         color.paint(Token::Success, "Created"),
         color.paint(Token::Path, &output_path),
     )?;
-    format::hint(color, "Run `supersigil lint` to validate the new document.");
+    format::hint(
+        color,
+        "Run `supersigil verify` to validate the new document.",
+    );
 
     Ok(())
 }

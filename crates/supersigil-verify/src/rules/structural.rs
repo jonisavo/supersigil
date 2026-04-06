@@ -1,7 +1,7 @@
 use supersigil_core::{
-    ALTERNATIVE, CRITERION, ComponentDefs, Config, DECISION, DEPENDS_ON, DocumentGraph, EXAMPLE,
-    EXPECTED, ExtractedComponent, IMPLEMENTS, RATIONALE, REFERENCES, SourcePosition, SpecDocument,
-    TASK, VERIFIED_BY,
+    ALTERNATIVE, CRITERION, ComponentDefs, Config, DECISION, DEPENDS_ON, DocumentGraph,
+    ExtractedComponent, IMPLEMENTS, RATIONALE, REFERENCES, SourcePosition, SpecDocument, TASK,
+    VERIFIED_BY,
 };
 
 use crate::report::{Finding, RuleName};
@@ -228,7 +228,7 @@ pub fn check_verified_by_placement(
 }
 
 // ---------------------------------------------------------------------------
-// check_{expected,rationale,alternative}_placement  (shared implementation)
+// check_{rationale,alternative}_placement  (shared implementation)
 // ---------------------------------------------------------------------------
 
 /// Generic placement check: every occurrence of `child_name` must be a direct
@@ -264,13 +264,6 @@ fn check_child_placement(
         visit_components(&doc.components, None, &mut visit);
     }
     findings
-}
-
-/// Check that every `Expected` component is a direct child of an `Example`
-/// component. `Expected` at document root or under any other component is a
-/// structural error.
-pub fn check_expected_placement(docs: &[&SpecDocument]) -> Vec<Finding> {
-    check_child_placement(docs, EXPECTED, EXAMPLE, RuleName::InvalidExpectedPlacement)
 }
 
 /// Check that every `Rationale` component is a direct child of a `Decision`
@@ -360,97 +353,6 @@ pub fn check_duplicate_rationale(docs: &[&SpecDocument]) -> Vec<Finding> {
                 ));
             }
         }
-    }
-    findings
-}
-
-// ---------------------------------------------------------------------------
-// check_code_block_cardinality
-// ---------------------------------------------------------------------------
-
-/// Check that every `Example` component has exactly one code block, and every
-/// `Expected` component has at most one code block.
-pub fn check_code_block_cardinality(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = doc.frontmatter.id.as_str();
-        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| match component
-            .name
-            .as_str()
-        {
-            EXAMPLE => {
-                let count = component.code_blocks.len();
-                if count != 1 {
-                    findings.push(Finding::new(
-                        RuleName::InvalidCodeBlockCardinality,
-                        Some(doc_id.to_owned()),
-                        format!(
-                            "Example in `{doc_id}` has {count} code block(s); \
-                                 it must have exactly 1"
-                        ),
-                        Some(component.position),
-                    ));
-                }
-            }
-            EXPECTED => {
-                let count = component.code_blocks.len();
-                if count > 1 {
-                    findings.push(Finding::new(
-                        RuleName::InvalidCodeBlockCardinality,
-                        Some(doc_id.to_owned()),
-                        format!(
-                            "Expected in `{doc_id}` has {count} code block(s); \
-                                 it must have at most 1"
-                        ),
-                        Some(component.position),
-                    ));
-                }
-            }
-            _ => {}
-        };
-        visit_components(&doc.components, None, &mut visit);
-    }
-    findings
-}
-
-// ---------------------------------------------------------------------------
-// check_env_format
-// ---------------------------------------------------------------------------
-
-/// Check that every item in the `env` attribute of `Example` and `Expected`
-/// components contains `=` (i.e. is in `KEY=VALUE` form).
-pub fn check_env_format(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = doc.frontmatter.id.as_str();
-        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
-            if (component.name != EXAMPLE && component.name != EXPECTED)
-                || !component.attributes.contains_key("env")
-            {
-                return;
-            }
-
-            let env_val = component
-                .attributes
-                .get("env")
-                .expect("checked env attribute above");
-            for item in env_val.split(',') {
-                let item = item.trim();
-                if !item.is_empty() && !item.contains('=') {
-                    findings.push(Finding::new(
-                        RuleName::InvalidEnvFormat,
-                        Some(doc_id.to_owned()),
-                        format!(
-                            "{} in `{doc_id}` has invalid env item `{item}`; \
-                             each item must contain `=`",
-                            component.name
-                        ),
-                        Some(component.position),
-                    ));
-                }
-            }
-        };
-        visit_components(&doc.components, None, &mut visit);
     }
     findings
 }
@@ -772,112 +674,6 @@ fn check_two_level_m_contiguity(
     findings: &mut Vec<Finding>,
 ) {
     check_level_contiguity(doc_id, m_values, |m| format!("{prefix}-{n}-{m}"), findings);
-}
-
-// ---------------------------------------------------------------------------
-// check_expected_cardinality
-// ---------------------------------------------------------------------------
-
-/// Check that every `Example` component has at most one `Expected` child.
-/// Examples with 2+ `Expected` children are a structural error.
-pub fn check_expected_cardinality(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = doc.frontmatter.id.as_str();
-        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
-            if component.name != EXAMPLE {
-                return;
-            }
-            let count = component
-                .children
-                .iter()
-                .filter(|c| c.name == EXPECTED)
-                .count();
-            if count > 1 {
-                findings.push(Finding::new(
-                    RuleName::MultipleExpectedChildren,
-                    Some(doc_id.to_owned()),
-                    format!(
-                        "Example in `{doc_id}` has {count} Expected children; \
-                         it must have at most 1"
-                    ),
-                    Some(component.position),
-                ));
-            }
-        };
-        visit_components(&doc.components, None, &mut visit);
-    }
-    findings
-}
-
-// ---------------------------------------------------------------------------
-// check_inline_example_lang
-// ---------------------------------------------------------------------------
-
-/// Check that `Example` components with inline code content (code block with
-/// `lang: None`) have a `lang` attribute on the component itself.
-pub fn check_inline_example_lang(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = doc.frontmatter.id.as_str();
-        let mut visit = |component: &ExtractedComponent, _parent_name: Option<&str>| {
-            if component.name != EXAMPLE {
-                return;
-            }
-            // Check the first code block's lang field
-            let has_fence_lang = component
-                .code_blocks
-                .first()
-                .and_then(|cb| cb.lang.as_ref())
-                .is_some();
-            if has_fence_lang {
-                // Code block has a language from the fence info string — no error
-                return;
-            }
-            // No code block at all means nothing to check (cardinality rule handles that)
-            if component.code_blocks.is_empty() {
-                return;
-            }
-            // Code block exists but has lang: None — check for attribute
-            let has_lang_attr = component.attributes.contains_key("lang");
-            if !has_lang_attr {
-                findings.push(Finding::new(
-                    RuleName::InlineExampleWithoutLang,
-                    Some(doc_id.to_owned()),
-                    format!(
-                        "Example in `{doc_id}` has inline code without a language; \
-                         add a `lang` attribute or use a fenced code block with a language tag"
-                    ),
-                    Some(component.position),
-                ));
-            }
-        };
-        visit_components(&doc.components, None, &mut visit);
-    }
-    findings
-}
-
-// ---------------------------------------------------------------------------
-// check_code_ref_conflicts
-// ---------------------------------------------------------------------------
-
-/// Surface non-fatal code-ref parse warnings (orphan refs, duplicate refs,
-/// dual-source conflicts) as verification findings so they are visible in
-/// `supersigil verify` output, not only in `supersigil lint` / LSP.
-pub fn check_code_ref_conflicts(docs: &[&SpecDocument]) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for doc in docs {
-        let doc_id = doc.frontmatter.id.as_str();
-        for warning in &doc.warnings {
-            findings.push(Finding::new(
-                RuleName::CodeRefConflict,
-                Some(doc_id.to_owned()),
-                warning.to_string(),
-                None,
-            ));
-        }
-    }
-    findings
 }
 
 fn is_referenceable(name: &str) -> bool {

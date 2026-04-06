@@ -118,7 +118,6 @@ mod tests {
             },
             extra: HashMap::new(),
             components: Vec::new(),
-            warnings: Vec::new(),
         }
     }
 

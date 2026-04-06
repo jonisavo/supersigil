@@ -1,10 +1,8 @@
 //! Parsing pipeline for supersigil spec documents.
 //!
 //! Documents use standard Markdown with `supersigil-xml` fenced code blocks
-//! for component markup and optional `supersigil-ref` fenced code blocks for
-//! external code content.
+//! for component markup.
 
-mod code_refs;
 mod frontmatter;
 mod markdown_fences;
 mod preprocess;
@@ -12,9 +10,8 @@ pub mod util;
 mod xml_extract;
 mod xml_parser;
 
-pub use code_refs::resolve_code_refs;
 pub use frontmatter::{FrontMatterResult, deserialize_front_matter, extract_front_matter};
-pub use markdown_fences::{MarkdownFences, RefFence, XmlFence, extract_markdown_fences};
+pub use markdown_fences::{MarkdownFences, XmlFence, extract_markdown_fences};
 pub use preprocess::{normalize, preprocess};
 pub use xml_extract::extract_components_from_xml;
 pub use xml_parser::{XmlNode, parse_supersigil_xml};
@@ -82,13 +79,11 @@ pub fn validate_components(
 ///
 /// 1. **Front matter** — extraction and deserialization (fatal on error).
 /// 2. **Markdown fence extraction** — parse the body as standard Markdown
-///    and collect `supersigil-xml` and `supersigil-ref` fenced code blocks.
+///    and collect `supersigil-xml` fenced code blocks.
 /// 3. **XML parsing** — parse each `supersigil-xml` fence into structured
 ///    XML nodes. Errors in one fence do not prevent parsing of others.
 /// 4. **Component extraction** — walk XML nodes and extract known components.
-/// 5. **Code ref resolution** — link `supersigil-ref` fences to `Example` /
-///    `Expected` components.
-/// 6. **Lint-time validation** — check required attributes, etc.
+/// 5. **Lint-time validation** — check required attributes, etc.
 ///
 /// Stage 1 errors are fatal and prevent all later stages.
 ///
@@ -128,7 +123,7 @@ pub fn parse_content_recovering(
     // body starts at content[body_offset..], so:
     let body_offset = content.len() - body.len();
 
-    // Stage 2: Parse Markdown body and extract fences
+    // Stage 2: Parse Markdown body and extract supersigil-xml fences
     let fences = extract_markdown_fences(body, body_offset);
 
     // Stage 3: Parse XML content from each supersigil-xml fence
@@ -168,21 +163,8 @@ pub fn parse_content_recovering(
         }
     }
 
-    // Stage 4: Resolve supersigil-ref code fences
-    resolve_code_refs(&mut all_components, &fences.ref_fences, path, &mut errors);
-
-    // Stage 5: Lint-time validation
+    // Stage 4: Lint-time validation
     validate_components(&all_components, component_defs, path, &mut errors);
-
-    // Partition: code-ref issues are non-fatal warnings; everything else is fatal.
-    let mut warnings = Vec::new();
-    let mut fatal_errors = Vec::new();
-    for err in errors {
-        match err.try_into() {
-            Ok(warning) => warnings.push(warning),
-            Err(fatal) => fatal_errors.push(fatal),
-        }
-    }
 
     Ok(RecoveredParse {
         result: ParseResult::Document(SpecDocument {
@@ -190,9 +172,8 @@ pub fn parse_content_recovering(
             frontmatter,
             extra,
             components: all_components,
-            warnings,
         }),
-        fatal_errors,
+        fatal_errors: errors,
     })
 }
 
@@ -228,10 +209,9 @@ pub fn parse_content(
 /// Implements the full parsing pipeline:
 /// 1. Preprocess (UTF-8 decode, BOM strip, CRLF normalize).
 /// 2. Front matter extraction and deserialization.
-/// 3. Markdown fence extraction (`supersigil-xml` and `supersigil-ref`).
+/// 3. Markdown fence extraction (`supersigil-xml`).
 /// 4. XML parsing and component extraction.
-/// 5. Code ref resolution.
-/// 6. Lint-time validation.
+/// 5. Lint-time validation.
 ///
 /// Stage 1 fatal errors prevent later stages. XML parse errors in one fence
 /// do not prevent other fences from being parsed.
@@ -265,7 +245,6 @@ pub fn parse_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use supersigil_core::ParseWarning;
 
     #[test]
     fn xml_error_positions_are_file_absolute_not_fence_relative() {
@@ -306,120 +285,6 @@ Some prose here.
                 "error line should be file-absolute (got {line}, fence-relative would be 2)"
             );
         }
-    }
-
-    #[test]
-    fn orphan_code_ref_is_non_fatal_warning() {
-        // A document with a valid Example component and an orphan
-        // supersigil-ref that targets a non-existent component.
-        let content = "\
----
-supersigil:
-  id: test/warn
-  type: requirements
-  status: approved
----
-
-```supersigil-xml
-<Example id=\"real-test\" runner=\"shell\">
-</Example>
-```
-
-```sh supersigil-ref=no-such-test
-echo hello
-```
-";
-        let defs = ComponentDefs::defaults();
-        let result = parse_content(Path::new("test.md"), content, &defs);
-
-        // Should succeed (not Err), with warnings on the document.
-        let doc = match result {
-            Ok(ParseResult::Document(doc)) => doc,
-            Ok(ParseResult::NotSupersigil(_)) => panic!("expected Document, got NotSupersigil"),
-            Err(errs) => panic!("expected Ok(Document), got Err: {errs:?}"),
-        };
-
-        assert_eq!(doc.warnings.len(), 1, "expected exactly 1 warning");
-        assert!(
-            matches!(&doc.warnings[0], ParseWarning::OrphanCodeRef { target, .. } if target == "no-such-test"),
-            "expected OrphanCodeRef warning, got: {:?}",
-            doc.warnings[0]
-        );
-    }
-
-    #[test]
-    fn duplicate_code_ref_is_non_fatal_warning() {
-        let content = "\
----
-supersigil:
-  id: test/dup-ref
-  type: requirements
-  status: approved
----
-
-```supersigil-xml
-<Example id=\"dup-test\" runner=\"shell\">
-</Example>
-```
-
-```sh supersigil-ref=dup-test
-echo first
-```
-
-```sh supersigil-ref=dup-test
-echo second
-```
-";
-        let defs = ComponentDefs::defaults();
-        let result = parse_content(Path::new("test.md"), content, &defs);
-
-        let doc = match result {
-            Ok(ParseResult::Document(doc)) => doc,
-            other => panic!("expected Ok(Document), got: {other:?}"),
-        };
-
-        assert_eq!(doc.warnings.len(), 1, "expected exactly 1 warning");
-        assert!(
-            matches!(&doc.warnings[0], ParseWarning::DuplicateCodeRef { target, .. } if target == "dup-test"),
-            "expected DuplicateCodeRef warning, got: {:?}",
-            doc.warnings[0]
-        );
-    }
-
-    #[test]
-    fn dual_source_conflict_is_non_fatal_warning() {
-        let content = "\
----
-supersigil:
-  id: test/dual
-  type: requirements
-  status: approved
----
-
-```supersigil-xml
-<Example id=\"conflict-test\" runner=\"shell\">
-echo inline
-</Example>
-```
-
-```sh supersigil-ref=conflict-test
-echo ref
-```
-";
-        let defs = ComponentDefs::defaults();
-        let result = parse_content(Path::new("test.md"), content, &defs);
-
-        let doc = match result {
-            Ok(ParseResult::Document(doc)) => doc,
-            other => panic!("expected Ok(Document), got: {other:?}"),
-        };
-
-        assert_eq!(doc.warnings.len(), 1, "expected exactly 1 warning");
-        assert!(
-            matches!(&doc.warnings[0], ParseWarning::DualSourceConflict { target, .. } if target == "conflict-test"),
-            "expected DualSourceConflict warning, got: {:?}",
-            doc.warnings[0]
-        );
     }
 
     #[test]
@@ -481,36 +346,6 @@ supersigil:
                 .iter()
                 .any(|e| matches!(e, ParseError::MissingRequiredAttribute { .. })),
             "should contain MissingRequiredAttribute"
-        );
-    }
-
-    #[test]
-    fn clean_document_has_empty_warnings() {
-        let content = "\
----
-supersigil:
-  id: test/clean
-  type: requirements
-  status: approved
----
-
-```supersigil-xml
-<Criterion id=\"c1\">
-  The system shall work.
-</Criterion>
-```
-";
-        let defs = ComponentDefs::defaults();
-        let result = parse_content(Path::new("test.md"), content, &defs);
-
-        let doc = match result {
-            Ok(ParseResult::Document(doc)) => doc,
-            other => panic!("expected Ok(Document), got: {other:?}"),
-        };
-
-        assert!(
-            doc.warnings.is_empty(),
-            "clean document should have no warnings"
         );
     }
 

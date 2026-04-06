@@ -50,7 +50,7 @@ Your Markdown content goes here.
 
 ## Components
 
-Components are MDX JSX elements that carry specification semantics. Supersigil ships with 13 built-in components:
+Components are MDX JSX elements that carry specification semantics. Supersigil ships with 11 built-in components:
 
 | Component | Purpose |
 |-----------|---------|
@@ -62,8 +62,6 @@ Components are MDX JSX elements that carry specification semantics. Supersigil s
 | `<DependsOn>` | Declares document-level ordering dependencies |
 | `<TrackedFiles>` | File paths (globs) tracked for staleness detection |
 | `<Task>` | A trackable work item with status, implements, and depends edges |
-| `<Example>` | An executable code sample with expected output |
-| `<Expected>` | Declares expected output of an Example (child of Example) |
 | `<Decision>` | A recorded architectural choice with rationale and alternatives |
 | `<Rationale>` | Justification for a Decision |
 | `<Alternative>` | A considered option for a Decision that was not chosen or was deferred |
@@ -76,7 +74,7 @@ Documents and their components form a directed graph:
 
 ```mermaid
 graph LR
-  C["Criterion"] -- "&lt;VerifiedBy&gt;" --> T["Test files / executable examples"]
+  C["Criterion"] -- "&lt;VerifiedBy&gt;" --> T["Test files"]
   D["Design doc"] -- "&lt;Implements&gt;" --> R["Requirement doc"]
   D -- "&lt;DependsOn&gt;" --> O["Other doc"]
   S["Spec doc"] -- "&lt;TrackedFiles&gt;" --> F["Source files"]
@@ -89,10 +87,7 @@ Key properties:
 
 ## Verification
 
-Supersigil provides two verification modes:
-
-- **`supersigil lint`** -- Fast per-file structural checks. Good for editors and pre-commit hooks.
-- **`supersigil verify`** -- Whole-graph analysis. The CI command. Checks cross-document references, coverage, test mappings, staleness, and cycles.
+`supersigil verify` performs whole-graph analysis: structural checks, cross-document references, coverage, test mappings, staleness, and cycles. This is the CI command.
 
 Hard errors (broken refs, duplicate IDs, dependency cycles) are always fatal. Configurable rules (uncovered criteria, missing tests, staleness) have default severities that you can override in `supersigil.toml`. Draft documents get relaxed verification automatically.
 
@@ -106,7 +101,7 @@ Hard errors (broken refs, duplicate IDs, dependency cycles) are always fatal. Co
     [Read more](/supersigil/concepts/verification/)
   </Card>
   <Card title="Evidence Sources" icon="magnifier">
-    How criteria become covered through tags, file globs, executable examples, and ecosystem-discovered evidence.
+    How criteria become covered through tags, file globs, and ecosystem-discovered evidence.
     [Read more](/supersigil/concepts/evidence-sources/)
   </Card>
 </CardGrid>

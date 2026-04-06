@@ -284,25 +284,25 @@ describe("renderComponentTree", () => {
       expect(html).toContain("File glob: tests/**/*.rs, src/**/*.rs");
     });
 
-    it("renders provenance for example evidence", () => {
+    it("renders provenance for js-verifies evidence", () => {
       const comp: RenderedComponent = {
         kind: "Criterion",
-        id: "req-ex",
+        id: "req-js",
         attributes: {},
-        body_text: "Example criterion",
+        body_text: "JS criterion",
         children: [],
         source_range: sourceRange(),
         verification: {
           state: "verified",
           evidence: [
             {
-              test_name: "test_example",
-              test_file: "tests/ex.rs",
+              test_name: "test_js_verifies",
+              test_file: "tests/render.test.ts",
               test_kind: "unit",
-              evidence_kind: "example",
-              source_line: 1,
+              evidence_kind: "js-verifies",
+              source_line: 42,
               provenance: [
-                { kind: "example", example_id: "ex-123" },
+                { kind: "js-verifies", file: "tests/render.test.ts", line: 42 },
               ],
             },
           ],
@@ -312,7 +312,8 @@ describe("renderComponentTree", () => {
         { byte_range: [0, 100], components: [comp] },
       ];
       const html = renderComponentTree(fences, [], mockLinkResolver());
-      expect(html).toContain("Example: ex-123");
+      expect(html).toContain("tests/render.test.ts:42");
+      expect(html).toContain("test://evidence/tests/render.test.ts#L42");
     });
 
     it("does not render provenance list when provenance is empty", () => {
@@ -432,60 +433,6 @@ describe("renderComponentTree", () => {
       ];
       const html = renderComponentTree(fences, [], mockLinkResolver());
       expect(html).toContain("Decision body text");
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Example rendering
-  // ---------------------------------------------------------------------------
-
-  describe("Example component", () => {
-    function example(): RenderedComponent {
-      return {
-        kind: "Example",
-        id: "ex-1",
-        attributes: {
-          runner: "cargo-test",
-          lang: "rust",
-          verifies: "req-1,req-2",
-        },
-        body_text: undefined,
-        children: [],
-        source_range: sourceRange(),
-      };
-    }
-
-    it("renders with the correct CSS class", verifies("spec-rendering/req#req-2-4"), () => {
-      const fences: FenceData[] = [
-        { byte_range: [0, 100], components: [example()] },
-      ];
-      const html = renderComponentTree(fences, [], mockLinkResolver());
-      expect(html).toContain('class="supersigil-example"');
-    });
-
-    it("shows runner", () => {
-      const fences: FenceData[] = [
-        { byte_range: [0, 100], components: [example()] },
-      ];
-      const html = renderComponentTree(fences, [], mockLinkResolver());
-      expect(html).toContain("cargo-test");
-    });
-
-    it("shows language", () => {
-      const fences: FenceData[] = [
-        { byte_range: [0, 100], components: [example()] },
-      ];
-      const html = renderComponentTree(fences, [], mockLinkResolver());
-      expect(html).toContain("rust");
-    });
-
-    it("shows verification targets", () => {
-      const fences: FenceData[] = [
-        { byte_range: [0, 100], components: [example()] },
-      ];
-      const html = renderComponentTree(fences, [], mockLinkResolver());
-      expect(html).toContain("req-1");
-      expect(html).toContain("req-2");
     });
   });
 
@@ -1027,22 +974,6 @@ describe("renderComponentTree", () => {
             },
           ],
         },
-        {
-          byte_range: [600, 700],
-          components: [
-            {
-              kind: "Example",
-              id: "ex-render",
-              attributes: {
-                runner: "vitest",
-                lang: "typescript",
-                verifies: "req-1-1,req-1-2",
-              },
-              children: [],
-              source_range: sourceRange(),
-            },
-          ],
-        },
       ];
 
       const edges: EdgeData[] = [
@@ -1060,7 +991,7 @@ describe("renderComponentTree", () => {
   // ---------------------------------------------------------------------------
 
   describe("unknown component kinds", () => {
-    it("renders unknown components with a generic wrapper", () => {
+    it("renders unknown components with a generic wrapper", verifies("spec-rendering/req#req-2-4"), () => {
       const fences: FenceData[] = [
         {
           byte_range: [0, 100],

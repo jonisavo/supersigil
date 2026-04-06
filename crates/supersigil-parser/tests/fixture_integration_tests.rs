@@ -163,65 +163,6 @@ fn fixture_no_supersigil_key_is_not_supersigil() {
 }
 
 // ---------------------------------------------------------------------------
-// with_example_ref.md — Example with supersigil-ref code fences
-// ---------------------------------------------------------------------------
-
-#[test]
-fn fixture_with_example_ref_resolves_code_blocks() {
-    let path = fixture_path("with_example_ref.md");
-    let defs = ComponentDefs::defaults();
-    let result = parse_file(&path, &defs).expect("should parse without errors");
-
-    match result {
-        ParseResult::Document(doc) => {
-            assert_eq!(doc.frontmatter.id, "req/echo");
-
-            // Should have: AcceptanceCriteria, Example, VerifiedBy
-            assert_eq!(
-                doc.components.len(),
-                3,
-                "expected 3 top-level components, got: {:?}",
-                doc.components.iter().map(|c| &c.name).collect::<Vec<_>>()
-            );
-
-            let ac = &doc.components[0];
-            assert_eq!(ac.name, "AcceptanceCriteria");
-            assert_eq!(ac.children.len(), 1);
-            assert_eq!(ac.children[0].name, "Criterion");
-            assert_eq!(ac.children[0].attributes.get("id").unwrap(), "echo-works");
-
-            let example = &doc.components[1];
-            assert_eq!(example.name, "Example");
-            assert_eq!(example.attributes.get("id").unwrap(), "echo-test");
-            // Example should have code block from supersigil-ref
-            assert_eq!(
-                example.code_blocks.len(),
-                1,
-                "Example should have 1 code block from ref fence"
-            );
-            assert_eq!(example.code_blocks[0].lang.as_deref(), Some("sh"));
-            assert_eq!(example.code_blocks[0].content, "echo hello");
-
-            // Expected child should have code block from supersigil-ref#expected
-            assert_eq!(example.children.len(), 1);
-            let expected = &example.children[0];
-            assert_eq!(expected.name, "Expected");
-            assert_eq!(
-                expected.code_blocks.len(),
-                1,
-                "Expected should have 1 code block from ref fence"
-            );
-            assert_eq!(expected.code_blocks[0].lang.as_deref(), Some("txt"));
-            assert_eq!(expected.code_blocks[0].content, "hello");
-
-            let verified = &doc.components[2];
-            assert_eq!(verified.name, "VerifiedBy");
-        }
-        ParseResult::NotSupersigil(_) => panic!("expected Document, got NotSupersigil"),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // multi_fence.md — Multiple supersigil-xml fences
 // ---------------------------------------------------------------------------
 

@@ -153,7 +153,7 @@ Source mapping:
 | Existing type | LSP diagnostic |
 |---|---|
 | `ParseError::UnclosedFrontMatter` | ERROR at frontmatter position |
-| `ParseError::MdxSyntaxError` | ERROR at syntax error position |
+| `ParseError::XmlSyntaxError` | ERROR at syntax error position |
 | `ParseError::MissingRequiredAttribute` | ERROR at component position |
 | `ParseError::ExpressionAttribute` | ERROR at attribute position |
 | `GraphError::BrokenRef` | ERROR at ref source position |
@@ -197,7 +197,6 @@ component (or frontmatter) the attribute belongs to:
 | YAML frontmatter | `status` | Valid statuses from the document type definition in config (e.g. `draft`, `review`, `approved`, `implemented` for `requirements`) |
 | `<Task>` | `status` | `draft`, `ready`, `in-progress`, `done` |
 | `<Alternative>` | `status` | `rejected`, `deferred`, `superseded` |
-| `<Expected>` | `status` | *(none — free-form exit code)* |
 | `<VerifiedBy>` | `strategy` | `tag`, `file-glob` |
 | Other / unknown | any | *(none)* |
 

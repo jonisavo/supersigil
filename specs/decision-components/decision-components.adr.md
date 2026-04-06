@@ -124,9 +124,9 @@ title: "ADR: Structured Rationale in the Specification Graph"
     Rationale children would invite splitting the justification into
     fragments that are harder to read as a whole.
 
-    This mirrors the Expected/Example pattern: one Expected per Example,
-    one Rationale per Decision. The constraint keeps the component model
-    simple and the authoring experience predictable.
+    This mirrors the rest of the component model's singular-child
+    relationships: one Rationale per Decision keeps the structure simple
+    and the authoring experience predictable.
   </Rationale>
 
   <Alternative id="multiple-rationale" status="deferred">

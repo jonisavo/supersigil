@@ -49,7 +49,6 @@ fn make_doc(id: &str, doc_type: Option<&str>, components: Vec<ExtractedComponent
         },
         extra: HashMap::new(),
         components,
-        warnings: vec![],
     }
 }
 
@@ -540,12 +539,6 @@ fn complete_alternative_status_values() {
     // Should NOT contain task or document-level statuses
     assert!(!labels.contains(&"draft"));
     assert!(!labels.contains(&"done"));
-}
-
-#[test]
-fn complete_expected_status_returns_empty() {
-    let items = complete_status("", &StatusContext::Expected, None, None);
-    assert!(items.is_empty());
 }
 
 #[test]

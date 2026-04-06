@@ -77,9 +77,9 @@ success_criteria:
   - type: glob_exists
     pattern: "tests/**/*.rs"
 
-  # Lint is clean
+  # Verify is clean
   - type: supersigil_exit_code
     command:
-      subcommand: lint
+      subcommand: verify
       occurrence: last
     equals: 0

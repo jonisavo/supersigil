@@ -13,7 +13,7 @@ document ID, component fragment, or ref string under the cursor, return all
 locations in the spec graph that reference the same target. Natural complement
 to the existing Go to Definition feature (Requirement 2 in `lsp-server/req`).
 
-In scope: the `textDocument/references` handler, cursor detection for four
+In scope: the `textDocument/references` handler, cursor detection for three
 entry points, reference collection via existing graph reverse mappings, and
 new graph accessor methods. Out of scope: editor extension changes (references
 is a standard LSP capability that editors handle natively).
@@ -40,12 +40,6 @@ I'm looking at a definition or a reference site.
     to that target.
   </Criterion>
   <Criterion id="req-1-2">
-    WHEN the cursor is on a `supersigil-ref=&lt;target&gt;` token in a code fence
-    info string (outside `supersigil-xml` fences), THE server SHALL parse
-    the target, resolve it to the Example component in the same document,
-    and find all incoming references to that component.
-  </Criterion>
-  <Criterion id="req-1-3">
     WHEN the cursor is on a component definition tag
     (e.g. Criterion with id="login")
     inside a `supersigil-xml` fence and the component has an `id` attribute,
@@ -53,16 +47,15 @@ I'm looking at a definition or a reference site.
     document's ID and the component's `id` attribute, and find all incoming
     references.
   </Criterion>
-  <Criterion id="req-1-4">
+  <Criterion id="req-1-3">
     WHEN the cursor is anywhere in the YAML frontmatter (between the opening
     and closing `---` delimiters), THE server SHALL resolve the current
     document as the Reference_Target (document-level, no fragment) and find
     all incoming references.
   </Criterion>
-  <Criterion id="req-1-5">
+  <Criterion id="req-1-4">
     THE server SHALL check cursor positions in priority order: ref string,
-    supersigil-ref info string, component definition tag, frontmatter. The
-    first match wins.
+    component definition tag, frontmatter. The first match wins.
   </Criterion>
 </AcceptanceCriteria>
 ```

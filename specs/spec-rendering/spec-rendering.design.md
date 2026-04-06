@@ -106,8 +106,8 @@ pub enum ProvenanceEntry {
     VerifiedByFileGlob { paths: Vec<String> },
     #[serde(rename = "rust-attribute")]
     RustAttribute { file: String, line: usize },
-    #[serde(rename = "example")]
-    Example { example_id: String },
+    #[serde(rename = "js-verifies")]
+    JsVerifies { file: String, line: usize },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -226,8 +226,9 @@ Components are rendered as nested elements within it:
   `.supersigil-evidence` collapsible section.
 - **Decision**: `.supersigil-decision` with nested
   `.supersigil-rationale` and `.supersigil-alternative` blocks.
-- **Example**: `.supersigil-example` showing runner, language, and
-  linked criteria.
+- **Unsupported or uncustomized kinds**: `.supersigil-component`
+  generic wrapper showing kind, optional ID, body text, and nested
+  children.
 - **AcceptanceCriteria**: `.supersigil-acceptance-criteria` wrapper
   (pass-through to children).
 - **VerifiedBy / References / DependsOn / Implements**: rendered as

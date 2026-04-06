@@ -286,18 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn verifies_attr_detected() {
-        // <Example id="ex" runner="sh" verifies="auth/req#crit" />
-        // 0         1         2         3         4         5
-        // 0123456789012345678901234567890123456789012345678901234567
-        // verifies=" starts at 30, value "auth/req#crit" at 40..53
-        let content = "```supersigil-xml\n<Example id=\"ex\" runner=\"sh\" verifies=\"auth/req#crit\" />\n```";
-        let result = find_ref_at_position(content, 1, 50).unwrap();
-        assert_eq!(result.ref_string, "auth/req#crit");
-        assert_eq!(result.part, RefPart::Fragment);
-    }
-
-    #[test]
     fn outside_fence_returns_none() {
         let content = "Not in a fence\n<Implements refs=\"auth/req#login\" />";
         assert!(find_ref_at_position(content, 1, 20).is_none());

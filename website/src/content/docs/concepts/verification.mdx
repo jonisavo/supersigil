@@ -14,16 +14,9 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and stale specs -- automatically, on every commit.
 
-## Two Modes
+## What Verify Does
 
-| Mode | Command | Scope | Speed | Use Case |
-|------|---------|-------|-------|----------|
-| **Lint** | `supersigil lint` | Per-file structural checks | Fast | Editor integration, pre-commit hooks |
-| **Verify** | `supersigil verify` | Whole-graph analysis | Thorough | CI pipelines, full validation |
-
-**Lint** checks individual files for structural correctness: valid front matter, known components, required attributes, no expression attributes. It does not build the cross-document graph, so it runs fast on single files.
-
-**Verify** builds the full document graph and checks everything: cross-document references, coverage, test mappings, staleness, cycles, and executable examples. This is the CI command.
+`supersigil verify` builds the full document graph and checks everything: cross-document references, coverage, test mappings, staleness, and cycles. This is the CI command.
 
 ## Hard Errors
 
@@ -47,13 +40,9 @@ These rules have built-in default severities that can be overridden in `supersig
 
 | Rule | Default | Description |
 |------|---------|-------------|
-| `missing_verification_evidence` | error | Criterion has no verification evidence (no VerifiedBy, no plugin evidence, no executable example) |
+| `missing_verification_evidence` | error | Criterion has no verification evidence (no VerifiedBy, no plugin evidence) |
 | `missing_test_files` | error | `<VerifiedBy strategy="file-glob">` paths resolve to no files |
 | `invalid_verified_by_placement` | error | `<VerifiedBy>` placed outside a `<Criterion>` |
-| `invalid_expected_placement` | error | `<Expected>` placed outside an `<Example>` |
-| `invalid_code_block_cardinality` | error | `<Example>` contains zero or multiple code blocks |
-| `invalid_env_format` | error | `<Example>` env attribute has invalid `KEY=VALUE` format |
-| `example_failed` | error | Executable example produced unexpected output |
 | `zero_tag_matches` | warning | `<VerifiedBy strategy="tag">` tag found no matching tests |
 | `status_inconsistency` | warning | Tasks doc has completed tasks but stale status, or sibling design/requirements doc not promoted after tasks doc reaches `done` |
 | `missing_required_component` | warning | Document type requires a component that is missing |
@@ -74,9 +63,6 @@ These rules have built-in default severities that can be overridden in `supersig
 | `invalid_alternative_status` | warning | `<Alternative>` status is not `rejected`, `deferred`, or `superseded` |
 | `isolated_document` | off | Document has no edges to or from any other document |
 | `empty_project` | warning | No documents found matching configured paths |
-| `multiple_expected_children` | error | `<Example>` has more than one `<Expected>` child |
-| `inline_example_without_lang` | error | `<Example>` with inline code has no `lang` attribute and no fenced code block language |
-| `code_ref_conflict` | warning | Orphan, duplicate, or dual-source `supersigil-ref` fence detected |
 
 ## Severity Levels
 
@@ -137,13 +123,12 @@ When you change `status` from `draft` to any other value, the full rule set appl
 
 ## Evidence Sources
 
-Supersigil recognizes three sources of verification evidence for criteria:
+Supersigil recognizes two sources of verification evidence for criteria:
 
 1. **Explicit `<VerifiedBy>` mappings** -- Tag-based or file-glob-based test mappings authored directly in specs.
-2. **Rust `#[verifies(...)]` attribute** -- The Rust ecosystem plugin discovers `#[verifies("doc#criterion")]` attributes in test code and produces evidence records automatically.
-3. **Executable examples** -- `<Example verifies="...">` components whose code blocks are run during `supersigil verify`. Passing examples count as evidence.
+2. **Ecosystem plugins** -- The Rust plugin discovers `#[verifies("doc#criterion")]` attributes in test code. The JS/TS plugin discovers `verifies()` calls in Vitest tests. Both produce evidence records automatically.
 
-All three sources are merged into a unified artifact graph before coverage is evaluated. A criterion is covered if it has at least one evidence record from any source.
+All sources are merged into a unified artifact graph before coverage is evaluated. A criterion is covered if it has at least one evidence record from any source.
 
 ## Exit Codes
 

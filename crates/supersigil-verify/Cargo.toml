@@ -21,7 +21,6 @@ supersigil-js.workspace = true
 supersigil-parser.workspace = true
 supersigil-rust.workspace = true
 thiserror.workspace = true
-ureq.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

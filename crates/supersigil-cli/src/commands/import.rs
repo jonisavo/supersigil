@@ -85,12 +85,12 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError
         if std::path::Path::new(supersigil_core::CONFIG_FILENAME).exists() {
             format::hint(
                 color,
-                "Run `supersigil lint` to validate imported documents.",
+                "Run `supersigil verify` to validate imported documents.",
             );
         } else {
             format::hint(
                 color,
-                "Run `supersigil init` to create a config, then `supersigil lint`.",
+                "Run `supersigil init` to create a config, then `supersigil verify`.",
             );
         }
     }

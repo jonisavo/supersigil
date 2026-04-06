@@ -50,7 +50,7 @@ and LSP integration.
   Wire `textDocument/documentSymbol` into the LSP server: add
   `documentSymbolProvider` to `ServerCapabilities` (gated on config
   presence), add the request handler in `state.rs`, register the module
-  in `lib.rs`. Verify the full flow with `supersigil lint` and
+  in `lib.rs`. Verify the full flow with `supersigil verify` and
   `cargo nextest run`.
 </Task>
 ```

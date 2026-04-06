@@ -63,15 +63,6 @@ so that I can fix problems without switching to a terminal.
     `Warning` to `WARNING`, and `Info` to `HINT`. Findings with
     `ReportSeverity::Off` SHALL be excluded from diagnostics.
   </Criterion>
-  <Criterion id="req-1-6">
-    WHEN a `missing_verification_evidence` finding has `example_coverable`
-    set to `true`, THE server SHALL downgrade it to
-    `DiagnosticSeverity::HINT` regardless of its effective severity, since
-    the LSP does not execute examples. THE server SHALL also emit a single
-    `INFORMATION`-level diagnostic per affected document summarizing the
-    count of example-coverable criteria.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/diagnostics.rs, crates/supersigil-lsp/src/state.rs" />
-  </Criterion>
   <Criterion id="req-1-5">
     WHEN publishing diagnostics, THE server SHALL merge per-file and
     cross-document findings into one set per URI, so that a later publish
@@ -139,8 +130,7 @@ namespace.
     - For `status` on `Alternative`: recognized alternative statuses
       (`rejected`, `deferred`, `superseded`).
     - For `strategy` on `VerifiedBy`: `tag`, `file-glob`.
-    - For `status` on `Expected` or other free-form contexts: no
-      completions.
+    - For other free-form contexts: no completions.
   </Criterion>
 </AcceptanceCriteria>
 ```

@@ -1,4 +1,4 @@
-//! End-to-end smoke test: import kiro specs, then run ls/lint/context/plan.
+//! End-to-end smoke test: import kiro specs, then run ls/verify/context/plan.
 
 use std::fs;
 use std::path::Path;
@@ -47,9 +47,9 @@ fn dogfooding_pipeline() {
     )
     .unwrap();
 
-    // Step 3: Lint should pass
+    // Step 3: Verify should pass (imported docs have draft status, so findings are non-blocking)
     cargo_bin_cmd!("supersigil")
-        .args(["lint"])
+        .args(["verify"])
         .current_dir(project.path())
         .assert()
         .success();

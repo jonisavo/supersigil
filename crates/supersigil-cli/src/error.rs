@@ -23,8 +23,6 @@ pub enum CliError {
     Verify(#[from] supersigil_verify::VerifyError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
-    #[error("lint errors found")]
-    LintFailed,
     #[error("{0}")]
     CommandFailed(String),
 }

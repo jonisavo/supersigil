@@ -100,12 +100,11 @@ pub fn setup_project_with_js_plugin(dir: &Path) {
 /// sections in triple-backtick `supersigil-xml` fences. Markdown headings
 /// and other non-XML content pass through unchanged.
 ///
-/// If the body already contains `supersigil-xml` fences or embedded Markdown
-/// code fences (e.g. `supersigil-ref`), it is returned as-is (the caller has
-/// already formatted it in the new document format).
+/// If the body already contains `supersigil-xml` fences, it is returned as-is
+/// (the caller has already formatted it in the new document format).
 fn wrap_xml_body(body: &str) -> String {
     // Already in the new format — pass through.
-    if body.contains("```supersigil-xml") || body.contains("supersigil-ref=") {
+    if body.contains("```supersigil-xml") {
         return body.to_owned();
     }
 

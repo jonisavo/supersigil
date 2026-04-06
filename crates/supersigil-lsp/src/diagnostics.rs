@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Url};
 use serde::{Deserialize, Serialize};
-use supersigil_core::{GraphError, ParseError, ParseWarning};
+use supersigil_core::{GraphError, ParseError};
 use supersigil_verify::{Finding, ReportSeverity, RuleName};
 
 use crate::DIAGNOSTIC_SOURCE;
@@ -41,7 +41,6 @@ pub enum ParseDiagnosticKind {
     UnknownComponent,
     XmlSyntaxError,
     UnclosedFrontmatter,
-    DuplicateCodeRef,
     Other,
 }
 
@@ -109,14 +108,8 @@ fn diagnostic_data_to_value(data: &DiagnosticData) -> serde_json::Value {
 /// produce a valid file URL (e.g., the path cannot be turned into a `file://`
 /// URI).
 ///
-/// All parse errors map to [`DiagnosticSeverity::ERROR`] by default. Use
-/// [`parse_warning_to_diagnostic`] for code-ref warnings that should map
-/// to [`DiagnosticSeverity::WARNING`].
+/// All parse errors map to [`DiagnosticSeverity::ERROR`].
 #[must_use]
-#[allow(
-    clippy::too_many_lines,
-    reason = "match arms for each ParseError variant"
-)]
 pub fn parse_error_to_diagnostic(
     err: &ParseError,
     buffer: Option<&str>,
@@ -184,71 +177,6 @@ pub fn parse_error_to_diagnostic(
             ParseDiagnosticKind::Other,
             ActionContext::None,
         ),
-        ParseError::OrphanCodeRef {
-            path,
-            target,
-            content_offset,
-        } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
-            (
-                path,
-                sp_to_lsp(&sp, path, buffer),
-                format!("orphan supersigil-ref `{target}` (no matching component)"),
-                ParseDiagnosticKind::Other,
-                ActionContext::None,
-            )
-        }
-        ParseError::DuplicateCodeRef { path, target } => (
-            path,
-            raw_to_lsp(0, 0),
-            format!("duplicate supersigil-ref fences targeting `{target}`"),
-            ParseDiagnosticKind::DuplicateCodeRef,
-            ActionContext::None,
-        ),
-        ParseError::DualSourceConflict {
-            path,
-            target,
-            content_offset,
-        } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
-            (
-                path,
-                sp_to_lsp(&sp, path, buffer),
-                format!(
-                    "dual-source conflict for `{target}` (both inline text and supersigil-ref fence)"
-                ),
-                ParseDiagnosticKind::Other,
-                ActionContext::None,
-            )
-        }
     };
 
     let url = path_to_url(path)?;
@@ -260,94 +188,6 @@ pub fn parse_error_to_diagnostic(
     let diagnostic = Diagnostic {
         range: zero_range(pos),
         severity: Some(DiagnosticSeverity::ERROR),
-        source: Some(DIAGNOSTIC_SOURCE.to_string()),
-        message,
-        data: Some(diagnostic_data_to_value(&data)),
-        ..Diagnostic::default()
-    };
-    Some((url, diagnostic))
-}
-
-/// Convert a [`ParseWarning`] to a diagnostic with [`DiagnosticSeverity::WARNING`].
-#[must_use]
-pub fn parse_warning_to_diagnostic(
-    warn: &ParseWarning,
-    buffer: Option<&str>,
-) -> Option<(Url, Diagnostic)> {
-    let (path, pos, message, kind) = match warn {
-        ParseWarning::OrphanCodeRef {
-            path,
-            target,
-            content_offset,
-        } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
-            (
-                path,
-                sp_to_lsp(&sp, path, buffer),
-                format!("orphan supersigil-ref `{target}` (no matching component)"),
-                ParseDiagnosticKind::Other,
-            )
-        }
-        ParseWarning::DuplicateCodeRef { path, target } => (
-            path,
-            raw_to_lsp(0, 0),
-            format!("duplicate supersigil-ref fences targeting `{target}`"),
-            ParseDiagnosticKind::DuplicateCodeRef,
-        ),
-        ParseWarning::DualSourceConflict {
-            path,
-            target,
-            content_offset,
-        } => {
-            let (line, column) = if let Some(buf) = buffer {
-                let offset = (*content_offset).min(buf.len());
-                let before = &buf[..offset];
-                let line = before.chars().filter(|&c| c == '\n').count() + 1;
-                let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
-                let column = offset - last_nl + 1;
-                (line, column)
-            } else {
-                (1, 1)
-            };
-            let sp = supersigil_core::SourcePosition {
-                byte_offset: *content_offset,
-                line,
-                column,
-            };
-            (
-                path,
-                sp_to_lsp(&sp, path, buffer),
-                format!(
-                    "dual-source conflict for `{target}` (both inline text and supersigil-ref fence)"
-                ),
-                ParseDiagnosticKind::Other,
-            )
-        }
-    };
-
-    let url = path_to_url(path)?;
-    let data = DiagnosticData {
-        source: DiagnosticSource::Parse(kind),
-        doc_id: None,
-        context: ActionContext::None,
-    };
-    let diagnostic = Diagnostic {
-        range: zero_range(pos),
-        severity: Some(DiagnosticSeverity::WARNING),
         source: Some(DIAGNOSTIC_SOURCE.to_string()),
         message,
         data: Some(diagnostic_data_to_value(&data)),
@@ -674,10 +514,6 @@ fn enrich_finding_context(finding: &Finding) -> ActionContext {
             component: "Alternative".to_string(),
             expected_parent: "Decision".to_string(),
         },
-        RuleName::InvalidExpectedPlacement => ActionContext::InvalidPlacement {
-            component: "Expected".to_string(),
-            expected_parent: "Example".to_string(),
-        },
         RuleName::SequentialIdGap | RuleName::SequentialIdOrder => {
             // Try to extract the component type from the first backtick-delimited ID.
             // E.g. "gap in sequence: `task-2` is missing" → prefix "task"
@@ -720,17 +556,7 @@ pub fn finding_to_diagnostic(
     finding: &Finding,
     doc_path: impl Fn(&str) -> Option<PathBuf>,
 ) -> Option<(Url, Diagnostic)> {
-    let mut lsp_severity = severity_to_lsp(finding.effective_severity)?;
-
-    // Downgrade example-coverable findings to HINT since the LSP does not
-    // execute examples (req-1-6).
-    if finding
-        .details
-        .as_ref()
-        .is_some_and(|d| d.example_coverable)
-    {
-        lsp_severity = DiagnosticSeverity::HINT;
-    }
+    let lsp_severity = severity_to_lsp(finding.effective_severity)?;
 
     let (url, pos) = if let Some(details) = &finding.details
         && let Some(path_str) = &details.path
@@ -1026,53 +852,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // OrphanCodeRef / DualSourceConflict position computation
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn orphan_code_ref_diagnostic_uses_correct_line_from_byte_offset() {
-        let path = std::path::PathBuf::from("/tmp/orphan-ref.md");
-        // content_offset 12 → "line1\nline2\n" → line 3, column 1
-        let buffer = "line1\nline2\norphan ref here\n";
-        let err = ParseError::OrphanCodeRef {
-            path: path.clone(),
-            target: "some-target".into(),
-            content_offset: 12,
-        };
-
-        let result = parse_error_to_diagnostic(&err, Some(buffer));
-        let (_, diag) = result.expect("should produce a diagnostic");
-        // Line 3 → 0-based LSP line 2
-        assert_eq!(
-            diag.range.start.line, 2,
-            "orphan code ref should point to line 3 (0-based: 2), not line 0"
-        );
-        assert_eq!(
-            diag.range.start.character, 0,
-            "orphan code ref should point to column 1 (0-based: 0)"
-        );
-    }
-
-    #[test]
-    fn dual_source_conflict_diagnostic_uses_correct_line_from_byte_offset() {
-        let path = std::path::PathBuf::from("/tmp/dual-source.md");
-        // content_offset 18 → "line1\nline2\nline3\n" → line 4, column 1
-        let buffer = "line1\nline2\nline3\ndual source here\n";
-        let err = ParseError::DualSourceConflict {
-            path: path.clone(),
-            target: "some-target".into(),
-            content_offset: 18,
-        };
-
-        let result = parse_error_to_diagnostic(&err, Some(buffer));
-        let (_, diag) = result.expect("should produce a diagnostic");
-        // Line 4 → 0-based LSP line 3
-        assert_eq!(
-            diag.range.start.line, 3,
-            "dual source conflict should point to line 4 (0-based: 3), not line 0"
-        );
-    }
-
     #[test]
     fn task_dependency_cycle_with_lookup_produces_diagnostic() {
         let path = std::path::PathBuf::from("/tmp/tasks.md");
@@ -1164,23 +943,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_error_duplicate_code_ref_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/parse-dup.md");
-        let err = ParseError::DuplicateCodeRef {
-            path: path.clone(),
-            target: "comp-1".into(),
-        };
-
-        let (_, diag) = parse_error_to_diagnostic(&err, None).unwrap();
-        let data = extract_data(&diag);
-
-        assert!(matches!(
-            data.source,
-            DiagnosticSource::Parse(ParseDiagnosticKind::DuplicateCodeRef)
-        ));
-    }
-
-    #[test]
     fn parse_error_other_variants_attach_other_kind() {
         let path = std::path::PathBuf::from("/tmp/parse-id.md");
         let err = ParseError::MissingId { path: path.clone() };
@@ -1192,28 +954,6 @@ mod tests {
             data.source,
             DiagnosticSource::Parse(ParseDiagnosticKind::Other)
         ));
-    }
-
-    // -----------------------------------------------------------------------
-    // DiagnosticData on parse warnings (req-1-2)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn parse_warning_duplicate_code_ref_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/warn-dup.md");
-        let warn = ParseWarning::DuplicateCodeRef {
-            path: path.clone(),
-            target: "comp-1".into(),
-        };
-
-        let (_, diag) = parse_warning_to_diagnostic(&warn, None).unwrap();
-        let data = extract_data(&diag);
-
-        assert!(matches!(
-            data.source,
-            DiagnosticSource::Parse(ParseDiagnosticKind::DuplicateCodeRef)
-        ));
-        assert!(matches!(data.context, ActionContext::None));
     }
 
     // -----------------------------------------------------------------------
@@ -1612,26 +1352,6 @@ mod tests {
             } => {
                 assert_eq!(component, "Alternative");
                 assert_eq!(expected_parent, "Decision");
-            }
-            other => panic!("expected InvalidPlacement, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn enrich_invalid_expected_placement() {
-        let finding = Finding::new(
-            RuleName::InvalidExpectedPlacement,
-            Some("auth/req".into()),
-            "Expected in `auth/req` is placed at document root; it must be a direct child of Example".into(),
-            None,
-        );
-        match enrich_finding_context(&finding) {
-            ActionContext::InvalidPlacement {
-                component,
-                expected_parent,
-            } => {
-                assert_eq!(component, "Expected");
-                assert_eq!(expected_parent, "Example");
             }
             other => panic!("expected InvalidPlacement, got {other:?}"),
         }

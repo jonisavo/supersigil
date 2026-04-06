@@ -4,12 +4,6 @@ use supersigil_cli::Cli;
 use supersigil_rust::verifies;
 
 #[test]
-fn parse_lint() {
-    let cli = Cli::parse_from(["supersigil", "lint"]);
-    assert!(matches!(cli.command, supersigil_cli::Command::Lint));
-}
-
-#[test]
 fn parse_ls() {
     let cli = Cli::parse_from(["supersigil", "ls"]);
     assert!(matches!(cli.command, supersigil_cli::Command::Ls(_)));
@@ -580,18 +574,18 @@ fn parse_explore_with_output() {
 
 #[test]
 fn parse_color_flag() {
-    let cli = Cli::parse_from(["supersigil", "--color", "never", "lint"]);
+    let cli = Cli::parse_from(["supersigil", "--color", "never", "verify"]);
     assert!(matches!(cli.color, supersigil_cli::ColorChoice::Never));
 }
 
 #[test]
 fn parse_color_always() {
-    let cli = Cli::parse_from(["supersigil", "--color", "always", "lint"]);
+    let cli = Cli::parse_from(["supersigil", "--color", "always", "verify"]);
     assert!(matches!(cli.color, supersigil_cli::ColorChoice::Always));
 }
 
 #[test]
 fn parse_color_default_auto() {
-    let cli = Cli::parse_from(["supersigil", "lint"]);
+    let cli = Cli::parse_from(["supersigil", "verify"]);
     assert!(matches!(cli.color, supersigil_cli::ColorChoice::Auto));
 }
