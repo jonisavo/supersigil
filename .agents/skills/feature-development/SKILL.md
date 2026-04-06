@@ -53,7 +53,9 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
    Run `supersigil verify` after any spec edit before doing more work.
 
 6. Add or repair verification evidence as part of the implementation.
-   Prefer `VerifiedBy strategy="tag"` when you can add `supersigil: {tag}` comments to tests.
+   Prefer ecosystem-native evidence helpers where available (e.g.,
+   `@supersigil/vitest` for JS/TS, `#[verifies]` for Rust); otherwise
+   use manual `supersigil: {tag}` comment tags.
    Use `strategy="file-glob"` when file existence is the best available evidence.
    Do not leave empty `tag`, `paths`, or `refs` placeholders behind.
 
