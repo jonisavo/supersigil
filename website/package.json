@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "prebuild": "supersigil graph --format json > public/explore/graph.json && (supersigil render --format json > public/explore/render-data.json || true)",
+    "prebuild": "cd ../packages/preview && pnpm run build && cd ../../website && cp ../packages/preview/dist/supersigil-preview.css ../packages/preview/dist/render-iife.js ../packages/preview/dist/supersigil-preview.js public/explore/ && supersigil graph --format json > public/explore/graph.json && (supersigil render --format json > public/explore/render-data.json || true)",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
