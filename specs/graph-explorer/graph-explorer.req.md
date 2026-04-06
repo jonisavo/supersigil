@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/req
   type: requirements
-  status: approved
+  status: implemented
 title: "Visual Graph Explorer"
 ---
 

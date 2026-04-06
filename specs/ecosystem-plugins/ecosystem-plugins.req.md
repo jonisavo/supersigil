@@ -2,7 +2,7 @@
 supersigil:
   id: ecosystem-plugins/req
   type: requirements
-  status: approved
+  status: implemented
 title: "Ecosystem Plugins"
 ---
 

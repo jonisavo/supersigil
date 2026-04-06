@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "Visual Graph Explorer"
 ---
 
@@ -102,7 +102,7 @@ command). Tasks are dependency-ordered so each builds on the previous.
   or `--output` path. Open with `open::that()`. Add clap parsing and tests.
 </Task>
 
-<Task id="task-14" status="pending" implements="graph-explorer/req#req-11-1">
+<Task id="task-14" status="done" implements="graph-explorer/req#req-11-1">
   Update `build_html` to accept optional `RepositoryInfo`, serialize it as
   JSON, and inject it via a `REPOSITORY_INFO` placeholder in the HTML
   template. Update the template to pass repository info to the `mount()` call.
@@ -111,7 +111,7 @@ command). Tasks are dependency-ordered so each builds on the previous.
   and without repository info.
 </Task>
 
-<Task id="task-15" status="pending" depends="task-14" implements="graph-explorer/req#req-11-1, graph-explorer/req#req-11-2, graph-explorer/req#req-11-3">
+<Task id="task-15" status="done" depends="task-14" implements="graph-explorer/req#req-11-1, graph-explorer/req#req-11-2, graph-explorer/req#req-11-3">
   Update `mount()` in `graph-explorer.js` to accept `repositoryInfo` as a
   fourth parameter and pass it to `renderDetail`. Update
   `createExplorerLinkResolver` in `detail-panel.js` to use provider-specific
@@ -120,7 +120,7 @@ command). Tasks are dependency-ordered so each builds on the previous.
   `graph-explorer.js`. Rebuild `explore_standalone.js`.
 </Task>
 
-<Task id="task-16" status="pending" depends="task-15" implements="graph-explorer/req#req-11-1">
+<Task id="task-16" status="done" depends="task-15" implements="graph-explorer/req#req-11-1">
   Update the Astro page at `website/src/pages/explore.astro` to pass
   repository info to `mount()`.
 </Task>

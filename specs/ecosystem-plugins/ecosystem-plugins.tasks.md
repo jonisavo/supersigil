@@ -2,7 +2,7 @@
 supersigil:
   id: ecosystem-plugins/tasks
   type: tasks
-  status: in-progress
+  status: done
 title: "Ecosystem Plugins Tasks"
 ---
 
@@ -36,21 +36,21 @@ the split from the old root monolith into crate-local domains.
   project once a second built-in ecosystem exists.
 </Task>
 
-<Task id="task-5" status="pending" implements="ecosystem-plugins/req#req-1-4">
+<Task id="task-5" status="done" implements="ecosystem-plugins/req#req-1-4">
   Add a test for `ecosystem.rust` config field exposure. Assert that
   `Config` exposes `ecosystem.rust` with `validation` policy and
   `project_scope` entries, and that the Rust-specific fields deserialize
   correctly from `supersigil.toml`.
 </Task>
 
-<Task id="task-6" status="pending" implements="ecosystem-plugins/req#req-4-1">
+<Task id="task-6" status="done" implements="ecosystem-plugins/req#req-4-1">
   Add a test verifying that `DocumentGraph` and core config remain usable
   without a compile-time dependency on Rust parsing. Assert that a config
   without Rust ecosystem enabled (e.g. `plugins = []`) can still build a
   graph and run structural verification successfully.
 </Task>
 
-<Task id="task-7" status="pending" implements="ecosystem-plugins/req#req-4-2">
+<Task id="task-7" status="done" implements="ecosystem-plugins/req#req-4-2">
   Add a test verifying that ecosystem implementation remains split between
   shared evidence-contract, Rust runtime, and Rust proc-macro crates. This
   can be a build-time or structural test asserting the crate dependency
@@ -58,14 +58,14 @@ the split from the old root monolith into crate-local domains.
   `supersigil-rust-macros`).
 </Task>
 
-<Task id="task-8" status="pending" implements="ecosystem-plugins/req#req-4-3">
+<Task id="task-8" status="done" implements="ecosystem-plugins/req#req-4-3">
   Add a test verifying that the ecosystem layer leaves room for future
   ecosystems. Assert that the plugin activation path accepts unknown plugin
   names gracefully (already tested as rejection), and that the shared
   `evidence-contract` types are not Rust-specific in their interface.
 </Task>
 
-<Task id="task-9" status="pending" implements="ecosystem-plugins/req#req-5-2">
+<Task id="task-9" status="done" implements="ecosystem-plugins/req#req-5-2">
   Add `RepositoryProvider` enum, `RepositoryInfo` struct, and
   `WorkspaceMetadata` struct to `supersigil-evidence`. Add
   `parse_repository_url` utility that parses HTTPS and SSH repository URLs,
@@ -73,7 +73,7 @@ the split from the old root monolith into crate-local domains.
   provider format and unrecognized hosts.
 </Task>
 
-<Task id="task-10" status="pending" depends="task-9" implements="ecosystem-plugins/req#req-5-1">
+<Task id="task-10" status="done" depends="task-9" implements="ecosystem-plugins/req#req-5-1">
   Add `workspace_metadata` method to the `EcosystemPlugin` trait with a
   default implementation returning empty metadata. Update `RustPlugin` to
   implement it by reading `Cargo.toml` at the workspace root
@@ -82,7 +82,7 @@ the split from the old root monolith into crate-local domains.
   single-crate manifests, missing repository field, and malformed TOML.
 </Task>
 
-<Task id="task-11" status="pending" depends="task-9" implements="config/req#req-3-5">
+<Task id="task-11" status="done" depends="task-9" implements="config/req#req-3-5">
   Add `DocumentationConfig` and `RepositoryConfig` to the `Config` model in
   `supersigil-core`. Parse `[documentation.repository]` with `provider`,
   `repo`, optional `host`, and optional `main_branch`. Reject unknown provider
@@ -90,7 +90,7 @@ the split from the old root monolith into crate-local domains.
   fields, and unknown provider rejection.
 </Task>
 
-<Task id="task-12" status="pending" depends="task-10, task-11" implements="ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-3">
+<Task id="task-12" status="done" depends="task-10, task-11" implements="ecosystem-plugins/req#req-5-1, ecosystem-plugins/req#req-5-3">
   Add CLI resolution function that checks explicit config first, then
   iterates enabled plugins calling `workspace_metadata`. First `Some` wins.
   Log `Err` results as warnings. Unit tests for config-wins, plugin-fallback,

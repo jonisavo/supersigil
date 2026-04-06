@@ -2,7 +2,7 @@
 supersigil:
   id: graph-explorer/adr
   type: adr
-  status: draft
+  status: accepted
 title: "Visual Graph Explorer"
 ---
 
