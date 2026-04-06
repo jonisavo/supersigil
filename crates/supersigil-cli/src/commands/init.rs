@@ -82,6 +82,7 @@ pub fn run(args: &InitArgs, color: ColorConfig) -> Result<(), CliError> {
                     color.paint(Token::Success, &format!("Installed {count} skills")),
                     color.paint(Token::Path, dir),
                 )?;
+                print_skill_chooser(color);
             }
             Err(e) => {
                 let _ = writeln!(
@@ -167,4 +168,40 @@ fn as_resolution(path: String) -> SkillsResolution {
     } else {
         SkillsResolution::InstallAt(path)
     }
+}
+
+fn print_skill_chooser(color: ColorConfig) {
+    let err = io::stderr();
+    let mut w = err.lock();
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "  Build or fix with existing specs  -> {}",
+        color.paint(Token::DocId, "feature-development")
+    );
+    let _ = writeln!(
+        w,
+        "  Write or repair specs             -> {}",
+        color.paint(Token::DocId, "feature-specification")
+    );
+    let _ = writeln!(
+        w,
+        "  Existing code, no specs           -> {}",
+        color.paint(Token::DocId, "retroactive-specification")
+    );
+    let _ = writeln!(
+        w,
+        "  Behavior-preserving cleanup       -> {}",
+        color.paint(Token::DocId, "refactoring")
+    );
+    let _ = writeln!(
+        w,
+        "  CI / PR verification              -> {}",
+        color.paint(Token::DocId, "ci-review")
+    );
+    let _ = writeln!(
+        w,
+        "  Full guided flow                  -> {}",
+        color.paint(Token::DocId, "spec-driven-development")
+    );
 }

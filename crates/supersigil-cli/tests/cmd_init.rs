@@ -159,6 +159,26 @@ fn init_skills_path_and_no_skills_conflict() {
         .failure();
 }
 
+#[test]
+fn init_prints_skill_chooser() {
+    let tmp = TempDir::new().unwrap();
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["init", "-y"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("feature-development"),
+        "should print skill chooser to stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("feature-specification"),
+        "should print skill chooser to stderr: {stderr}"
+    );
+}
+
 #[verifies("authoring-commands/req#req-1-2")]
 #[test]
 fn init_fails_if_config_exists() {
