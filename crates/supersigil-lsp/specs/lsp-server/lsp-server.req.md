@@ -207,11 +207,6 @@ reliable.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-5-7">
-    THE Diagnostic_Tier SHALL be configurable via `[lsp].diagnostics` in
-    `supersigil.toml` with `verify` as the default, and overridable at
-    runtime via `workspace/didChangeConfiguration`.
-  </Criterion>
-  <Criterion id="req-5-8">
     WHEN a file URI is inside a subdirectory that contains its own
     `supersigil.toml` (a nested supersigil root), THE server SHALL
     ignore `didOpen`, `didChange`, hover, completion, and definition
@@ -232,11 +227,11 @@ that users can run the verify pipeline without leaving the editor.
 <AcceptanceCriteria>
   <Criterion id="req-6-1">
     THE server SHALL handle a `supersigil.verify` command via
-    `workspace/executeCommand` that runs verification at the configured
-    tier (or an explicit tier passed as argument) and publishes results
-    as diagnostics. THE server SHALL NOT advertise this command in
+    `workspace/executeCommand` that runs full verification and publishes
+    results as diagnostics. THE server SHALL NOT advertise this command in
     `executeCommandProvider` capabilities; the editor extension registers
     it and routes to the appropriate server instance.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/commands.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -282,12 +277,6 @@ LSP can function correctly.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs, crates/supersigil-parser/src/lib.rs" />
   </Criterion>
   <Criterion id="req-8-2">
-    `supersigil-core` Config SHALL accept an optional `[lsp]` section
-    (via `lsp: Option&lt;LspConfig&gt;` with `#[serde(default)]`) without
-    breaking existing CLI consumers that use `deny_unknown_fields`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/config.rs" />
-  </Criterion>
-  <Criterion id="req-8-3">
     THE server SHALL convert between `SourcePosition` (1-based line/column,
     byte offset) and LSP `Position` (0-based line, 0-based UTF-16 character
     offset), advertising `PositionEncodingKind::UTF16`.

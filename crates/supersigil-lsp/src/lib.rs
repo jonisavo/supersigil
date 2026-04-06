@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use lsp_types::Url;
-use supersigil_core::{DiagnosticsTier, SUPERSIGIL_XML_LANG};
+use supersigil_core::SUPERSIGIL_XML_LANG;
 
 pub mod code_actions;
 pub mod code_lens;
@@ -23,14 +23,6 @@ pub mod state;
 pub(crate) const REF_ATTRS: &[&str] = &["refs", "implements", "depends"];
 
 pub(crate) const DIAGNOSTIC_SOURCE: &str = "supersigil";
-
-pub(crate) fn parse_tier(s: &str) -> Option<DiagnosticsTier> {
-    match s {
-        "lint" => Some(DiagnosticsTier::Lint),
-        "verify" => Some(DiagnosticsTier::Verify),
-        _ => None,
-    }
-}
 
 pub(crate) fn path_to_url(path: &Path) -> Option<Url> {
     if path.is_absolute() {

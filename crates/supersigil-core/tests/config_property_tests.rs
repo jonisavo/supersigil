@@ -186,7 +186,6 @@ fn arb_config() -> impl Strategy<Value = Config> {
                     test_results,
                     skills: SkillsConfig::default(),
                     documentation: DocumentationConfig::default(),
-                    lsp: None,
                 }
             },
         )

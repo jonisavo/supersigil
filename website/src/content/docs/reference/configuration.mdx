@@ -196,19 +196,6 @@ test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 The JS plugin respects `.gitignore` files automatically, so `node_modules`,
 `dist`, and other ignored paths are excluded without extra configuration.
 
-## LSP
-
-Configure the language server behavior:
-
-```toml title="supersigil.toml"
-[lsp]
-diagnostics = "verify"
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `diagnostics` | `"lint"` \| `"verify"` | `"verify"` | Diagnostics tier on save. `lint` runs only parse + structural checks (fast). `verify` additionally runs graph rules, coverage checks, and plugin evidence (slower but more complete). |
-
 ## Skills
 
 Configure the path for installed agent skills:

@@ -126,18 +126,6 @@ The Supersigil tool window in the right sidebar shows all spec documents grouped
 
 Available from **Tools > Supersigil: Verify** or the Spec Explorer toolbar button.
 
-## Diagnostics tier
-
-The LSP server runs at the `verify` diagnostic tier by default, which includes coverage checks. You can change this in `supersigil.toml`:
-
-```toml
-[lsp]
-diagnostics = "lint"  # "lint" or "verify"
-```
-
-- **`lint`** — fast: parse errors and structural rules only.
-- **`verify`** — full: adds evidence discovery and coverage analysis on save.
-
 ## Other editors
 
 The `supersigil-lsp` binary communicates over stdio and implements the Language Server Protocol. It works with any LSP-capable editor:

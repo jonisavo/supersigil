@@ -14,14 +14,13 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location,
     MessageType, NumberOrString, PositionEncodingKind, ProgressParams, ProgressParamsValue,
-    PublishDiagnosticsParams, ServerCapabilities, ShowMessageParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, Url, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressEnd,
+    PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, Url, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
-    ComponentDefs, Config, DiagnosticsTier, DocumentGraph, ParseResult, SpecDocument, build_graph,
-    expand_globs, find_config, load_config,
+    ComponentDefs, Config, DocumentGraph, ParseResult, SpecDocument, build_graph, expand_globs,
+    find_config, load_config,
 };
 use supersigil_evidence::{EvidenceId, VerificationEvidenceRecord};
 use supersigil_verify::{VerifyInputs, VerifyOptions, verify};
@@ -36,7 +35,6 @@ use crate::diagnostics::{
 };
 use crate::document_symbols;
 use crate::hover;
-use crate::parse_tier;
 use crate::position;
 use crate::references;
 use crate::rename;
@@ -53,7 +51,6 @@ pub struct SupersigilLsp {
     client: ClientSocket,
     config: Option<Config>,
     project_root: Option<PathBuf>,
-    diagnostics_tier: DiagnosticsTier,
     open_files: HashMap<lsp_types::Url, Arc<String>>,
     file_parses: HashMap<PathBuf, SpecDocument>,
     partial_file_parses: HashMap<PathBuf, SpecDocument>,
@@ -73,7 +70,6 @@ impl std::fmt::Debug for SupersigilLsp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SupersigilLsp")
             .field("project_root", &self.project_root)
-            .field("diagnostics_tier", &self.diagnostics_tier)
             .field("open_files", &self.open_files.len())
             .field("file_parses", &self.file_parses.len())
             .field("partial_file_parses", &self.partial_file_parses.len())
@@ -88,7 +84,7 @@ impl SupersigilLsp {
             client,
             config: None,
             project_root: None,
-            diagnostics_tier: DiagnosticsTier::default(),
+
             open_files: HashMap::new(),
             file_parses: HashMap::new(),
             partial_file_parses: HashMap::new(),
@@ -294,11 +290,7 @@ impl SupersigilLsp {
         }
     }
 
-    fn run_verify_and_publish(&mut self, tier: DiagnosticsTier) {
-        if tier < DiagnosticsTier::Verify {
-            return;
-        }
-
+    fn run_verify_and_publish(&mut self) {
         let Some(config) = &self.config else {
             return;
         };
@@ -682,11 +674,6 @@ impl LanguageServer for SupersigilLsp {
             .to_path_buf();
         self.project_root = Some(project_root.clone());
 
-        self.diagnostics_tier = config
-            .lsp
-            .as_ref()
-            .map_or(DiagnosticsTier::default(), |lsp| lsp.diagnostics);
-
         self.component_defs = Arc::new(Self::effective_component_defs(Some(&config)));
 
         let token = NumberOrString::String("supersigil/indexing".into());
@@ -725,16 +712,11 @@ impl LanguageServer for SupersigilLsp {
 
         self.file_parses = parses;
         self.partial_file_parses.clear();
-        self.diagnostics_tier = config
-            .lsp
-            .as_ref()
-            .map_or(DiagnosticsTier::Verify, |lsp| lsp.diagnostics);
         self.config = Some(config);
 
         // Run verify on initial load so diagnostics appear immediately
         // without requiring a save.
-        let tier = self.diagnostics_tier;
-        self.run_verify_and_publish(tier);
+        self.run_verify_and_publish();
         self.republish_all_diagnostics();
         self.notify_documents_changed();
 
@@ -751,32 +733,8 @@ impl LanguageServer for SupersigilLsp {
 
     fn did_change_configuration(
         &mut self,
-        params: DidChangeConfigurationParams,
+        _params: DidChangeConfigurationParams,
     ) -> ControlFlow<async_lsp::Result<()>> {
-        let tier_str = params.settings["supersigil"]["diagnostics"]
-            .as_str()
-            .unwrap_or("");
-
-        if tier_str.is_empty() {
-            return ControlFlow::Continue(());
-        }
-
-        if let Some(tier) = parse_tier(tier_str) {
-            self.diagnostics_tier = tier;
-            tracing::info!(?tier, "diagnostics tier updated");
-        } else {
-            tracing::warn!(value = tier_str, "invalid supersigil.diagnostics value");
-            let _ = self
-                .client
-                .notify::<lsp_types::notification::ShowMessage>(ShowMessageParams {
-                    typ: MessageType::WARNING,
-                    message: format!(
-                        "Supersigil: unknown diagnostics tier {tier_str:?}; \
-                             expected one of \"lint\", \"verify\".",
-                    ),
-                });
-        }
-
         ControlFlow::Continue(())
     }
 
@@ -837,8 +795,7 @@ impl LanguageServer for SupersigilLsp {
                     self.graph = Arc::new(graph);
                     self.graph_diagnostics.clear();
 
-                    let tier = self.diagnostics_tier;
-                    self.run_verify_and_publish(tier);
+                    self.run_verify_and_publish();
                 }
                 Err(errors) => {
                     tracing::warn!(
@@ -941,10 +898,6 @@ impl LanguageServer for SupersigilLsp {
                 .is_some_and(|p| p.ends_with("supersigil.toml"))
         }) && let Some((_, new_config)) = discover_config(project_root)
         {
-            self.diagnostics_tier = new_config
-                .lsp
-                .as_ref()
-                .map_or(DiagnosticsTier::Verify, |lsp| lsp.diagnostics);
             self.component_defs = Arc::new(Self::effective_component_defs(Some(&new_config)));
             self.config = Some(new_config);
         }
@@ -1006,8 +959,7 @@ impl LanguageServer for SupersigilLsp {
             Ok(graph) => {
                 self.graph = Arc::new(graph);
                 self.graph_diagnostics.clear();
-                let tier = self.diagnostics_tier;
-                self.run_verify_and_publish(tier);
+                self.run_verify_and_publish();
             }
             Err(errors) => {
                 tracing::warn!(
@@ -1115,9 +1067,6 @@ impl LanguageServer for SupersigilLsp {
         params: ExecuteCommandParams,
     ) -> BoxFuture<'static, Result<Option<serde_json::Value>, Self::Error>> {
         if params.command == commands::VERIFY_COMMAND {
-            let tier =
-                commands::parse_verify_tier(&params.arguments).unwrap_or(self.diagnostics_tier);
-
             let prev_closed_uris: Vec<Url> = self
                 .graph_diagnostics
                 .keys()
@@ -1126,7 +1075,7 @@ impl LanguageServer for SupersigilLsp {
                 .collect();
 
             self.graph_diagnostics.clear();
-            self.run_verify_and_publish(tier);
+            self.run_verify_and_publish();
             self.republish_all_diagnostics();
             self.notify_documents_changed();
 
@@ -1745,7 +1694,7 @@ mod tests {
                 ..Config::default()
             }),
             project_root: Some(root.to_path_buf()),
-            diagnostics_tier: DiagnosticsTier::default(),
+
             open_files: HashMap::new(),
             file_parses: HashMap::new(),
             partial_file_parses: HashMap::new(),
@@ -1765,7 +1714,7 @@ mod tests {
             client: ClientSocket::new_closed(),
             config: Some(Config::default()),
             project_root: Some(PathBuf::from("/tmp/project")),
-            diagnostics_tier: DiagnosticsTier::default(),
+
             open_files: HashMap::new(),
             file_parses: HashMap::new(),
             partial_file_parses: HashMap::new(),
@@ -2080,7 +2029,7 @@ supersigil:
             client: ClientSocket::new_closed(),
             config: None,
             project_root: None,
-            diagnostics_tier: DiagnosticsTier::default(),
+
             open_files: HashMap::new(),
             file_parses: HashMap::new(),
             partial_file_parses: HashMap::new(),

@@ -3,7 +3,7 @@ use supersigil_lsp::position::{source_to_lsp_utf16, utf16_to_byte};
 use supersigil_rust_macros::verifies;
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn ascii_line_and_column() {
     // SourcePosition is 1-based; LSP Position is 0-based.
     // Line 3, column 6 in "line1\nline2\nline3content"
@@ -55,7 +55,7 @@ fn start_of_second_line() {
 }
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn multibyte_utf8() {
     // "aéb" = 'a' (1 byte, 1 UTF-16) + 'é' (2 bytes UTF-8, 1 UTF-16 unit) + 'b' (1 byte)
     // Column 4 means byte offset 3 within line (0-based: 3), which is after 'a'(1) + 'é'(2) = 3 bytes
@@ -72,7 +72,7 @@ fn multibyte_utf8() {
 }
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn emoji_surrogate_pair() {
     // "a😀b" = 'a' (1 byte, 1 UTF-16) + '😀' (4 bytes UTF-8, 2 UTF-16 units) + 'b' (1 byte)
     // Column 6 means byte offset 5 within line, which is after 'a'(1) + '😀'(4) = 5 bytes
@@ -93,7 +93,7 @@ fn emoji_surrogate_pair() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn utf16_to_byte_ascii() {
     let content = "hello world";
     // UTF-16 offset 5 → byte 5 (ASCII is 1:1)
@@ -101,7 +101,7 @@ fn utf16_to_byte_ascii() {
 }
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn utf16_to_byte_multibyte() {
     // "aéb" = 'a' (1 byte, 1 UTF-16) + 'é' (2 bytes, 1 UTF-16) + 'b' (1 byte, 1 UTF-16)
     let content = "a\u{00E9}b";
@@ -114,7 +114,7 @@ fn utf16_to_byte_multibyte() {
 }
 
 #[test]
-#[verifies("lsp-server/req#req-8-3")]
+#[verifies("lsp-server/req#req-8-2")]
 fn utf16_to_byte_emoji() {
     // "a😀b" = 'a' (1 byte, 1 UTF-16) + '😀' (4 bytes, 2 UTF-16) + 'b' (1 byte, 1 UTF-16)
     let content = "a\u{1F600}b";

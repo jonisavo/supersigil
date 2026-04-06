@@ -51,16 +51,10 @@ runs concurrently on the snapshot.
 ## Key Types
 
 ```rust
-enum DiagnosticsTier {
-    Lint,    // parse errors + structural rules
-    Verify,  // lint + evidence discovery, tag scanning, coverage
-}
-
 struct SupersigilLsp {
     // Config
     config: ProjectConfig,
     project_root: PathBuf,
-    diagnostics_tier: DiagnosticsTier,
 
     // Document state
     open_files: HashMap<Url, String>,
@@ -229,31 +223,8 @@ verification evidence summary (if available from last verify run).
 
 ### Custom commands
 
-`supersigil.verify` accepts an optional `tier` string argument (`"lint"` or
-`"verify"`). Runs the verify pipeline at that tier (or the configured
-default) and publishes all findings as diagnostics.
-
-## Configuration
-
-```toml
-# supersigil.toml
-[lsp]
-diagnostics = "verify"  # "lint" | "verify"
-```
-
-Requires adding `lsp: Option<LspConfig>` with `#[serde(default)]` to the
-`Config` struct in `supersigil-core`, since `Config` uses
-`deny_unknown_fields`.
-
-`LspConfig`:
-```rust
-struct LspConfig {
-    diagnostics: DiagnosticsTier,  // default: Verify
-}
-```
-
-Runtime override via `workspace/didChangeConfiguration`. Invalid values
-ignored with `window/showMessage` warning.
+`supersigil.verify` runs the full verify pipeline and publishes all findings
+as diagnostics.
 
 ## Markdown Integration
 
@@ -281,11 +252,6 @@ Collision minimization:
 Add `parse_content(path: &Path, content: &str, defs: &ComponentDefs) ->
 ParseResult`. Refactor `parse_file` to read from disk then delegate to
 `parse_content`. No behavior change for existing callers.
-
-### supersigil-core: LspConfig
-
-Add `lsp: Option<LspConfig>` to `Config` with `#[serde(default)]`.
-`LspConfig` contains `diagnostics: DiagnosticsTier` defaulting to `Verify`.
 
 ## Error Handling
 

@@ -119,31 +119,18 @@ general content.
 </Decision>
 
 <Decision id="decision-5">
-  Offer two configurable diagnostics tiers (`lint` and `verify`) with
-  `verify` as the default.
+  Always run full verification on save. The verify pipeline runs in
+  milliseconds, so a configurable diagnostics tier is unnecessary
+  complexity.
 
-  <References refs="lsp-server/req#req-1-3, lsp-server/req#req-5-7, lsp-server/req#req-6-1" />
+  <References refs="lsp-server/req#req-1-3, lsp-server/req#req-6-1" />
 
   <Rationale>
     The verification pipeline (with real evidence from VerifiedBy tags
-    and file globs) runs in milliseconds, making it viable as a default
-    on-save action. A `lint` tier gives users a faster option that skips
-    evidence discovery without changing the feature surface or command
-    model.
+    and file globs) runs in milliseconds, making it viable as the sole
+    on-save action. A separate lighter tier was previously offered but
+    removed because the performance difference was negligible.
   </Rationale>
-
-  <Alternative id="single-tier" status="rejected">
-    Always run verification. Users with complex repos or slow file
-    systems cannot opt into a lighter mode.
-  </Alternative>
-
-  <Alternative id="three-tiers" status="rejected">
-    Add a third diagnostics tier above `verify`. Rejected because the
-    current product has only two meaningful analysis boundaries:
-    structural checks and full verification. A third tier would add
-    configuration and UX overhead without a distinct implementation
-    stage to justify it.
-  </Alternative>
 </Decision>
 ```
 

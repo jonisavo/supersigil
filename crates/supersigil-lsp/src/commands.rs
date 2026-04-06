@@ -1,9 +1,5 @@
 //! Custom LSP command handlers.
 
-use supersigil_core::DiagnosticsTier;
-
-use crate::parse_tier;
-
 /// The command name for the supersigil verify command.
 pub const VERIFY_COMMAND: &str = "supersigil.verify";
 
@@ -29,62 +25,3 @@ pub const DOCUMENT_COMPONENTS_COMMAND: &str = "supersigil.documentComponents";
 /// Used when the target project is ambiguous (multi-project mode) and the
 /// server needs to ask the user which project to place the file in.
 pub const CREATE_DOCUMENT_COMMAND: &str = "supersigil.createDocument";
-
-/// Parse an optional tier argument from command arguments.
-///
-/// Expected: `["lint"]`, `["verify"]`, or `[]` (use default).
-///
-/// Returns `None` if no arguments are provided or if the argument is not a
-/// recognised tier name.
-#[must_use]
-pub fn parse_verify_tier(arguments: &[serde_json::Value]) -> Option<DiagnosticsTier> {
-    arguments
-        .first()
-        .and_then(|v| v.as_str())
-        .and_then(parse_tier)
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-    use supersigil_rust_macros::verifies;
-
-    use super::*;
-
-    #[test]
-    #[verifies("lsp-server/req#req-5-7", "lsp-server/req#req-6-1")]
-    fn parse_verify_tier_lint() {
-        assert_eq!(
-            parse_verify_tier(&[json!("lint")]),
-            Some(DiagnosticsTier::Lint),
-        );
-    }
-
-    #[test]
-    #[verifies("lsp-server/req#req-5-7", "lsp-server/req#req-6-1")]
-    fn parse_verify_tier_verify() {
-        assert_eq!(
-            parse_verify_tier(&[json!("verify")]),
-            Some(DiagnosticsTier::Verify),
-        );
-    }
-
-    #[test]
-    fn parse_verify_tier_full_is_now_unknown() {
-        assert_eq!(parse_verify_tier(&[json!("full")]), None);
-    }
-
-    #[test]
-    fn parse_verify_tier_empty_returns_none() {
-        assert_eq!(parse_verify_tier(&[]), None);
-    }
-
-    #[test]
-    fn parse_verify_tier_invalid_returns_none() {
-        assert_eq!(parse_verify_tier(&[json!("invalid")]), None);
-    }
-}

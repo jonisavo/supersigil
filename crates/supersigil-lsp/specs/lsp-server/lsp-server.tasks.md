@@ -30,19 +30,8 @@ on the last. Each task is independently testable.
 <Task
   id="task-2"
   status="done"
-  implements="lsp-server/req#req-8-2"
->
-  Add `lsp: Option&lt;LspConfig&gt;` to `Config` in `supersigil-core` with
-  `#[serde(default)]`. `LspConfig` contains `diagnostics: DiagnosticsTier`
-  defaulting to `Verify`. Existing config files without `[lsp]` must
-  continue to load. Add a config unit test with and without `[lsp]`.
-</Task>
-
-<Task
-  id="task-3"
-  status="done"
   implements="lsp-server/req#req-5-1, lsp-server/req#req-5-2"
-  depends="task-1, task-2"
+  depends="task-1"
 >
   Create `crates/supersigil-lsp` with `async-lsp` and `lsp-types`
   dependencies. Implement `main.rs` (stdio transport), `lib.rs`
@@ -54,24 +43,23 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-4"
+  id="task-3"
   status="done"
-  implements="lsp-server/req#req-5-3, lsp-server/req#req-5-4, lsp-server/req#req-5-5, lsp-server/req#req-5-6, lsp-server/req#req-5-7"
-  depends="task-3"
+  implements="lsp-server/req#req-5-3, lsp-server/req#req-5-4, lsp-server/req#req-5-5, lsp-server/req#req-5-6"
+  depends="task-2"
 >
   Implement hybrid re-indexing in `state.rs`: `didOpen` (init buffer,
   parse), `didChange` (update buffer, re-parse), `didSave` (rebuild graph,
   retain last-good on failure), `didClose` (clear buffer and diagnostics).
   Implement `didChangeWatchedFiles` for config and `.md` file changes.
-  Add `didChangeConfiguration` handler for runtime tier override.
   Add `window/workDoneProgress` during initial indexing.
 </Task>
 
 <Task
-  id="task-5"
+  id="task-4"
   status="done"
   implements="lsp-server/req#req-1-1, lsp-server/req#req-1-2, lsp-server/req#req-1-3, lsp-server/req#req-1-4, lsp-server/req#req-1-5"
-  depends="task-4"
+  depends="task-3"
 >
   Implement `diagnostics.rs`: convert `ParseError`, `GraphError`, and
   `Finding` to LSP `Diagnostic`. Filter by tier and exclude
@@ -81,10 +69,10 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-6"
+  id="task-5"
   status="done"
   implements="lsp-server/req#req-2-1, lsp-server/req#req-2-2, lsp-server/req#req-2-3"
-  depends="task-5"
+  depends="task-4"
 >
   Implement `definition.rs`: detect cursor on ref string in attribute
   context, parse ref, look up in graph (fragment or document-level),
@@ -92,10 +80,10 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-7"
+  id="task-6"
   status="done"
   implements="lsp-server/req#req-3-1, lsp-server/req#req-3-2, lsp-server/req#req-3-3, lsp-server/req#req-3-4"
-  depends="task-5"
+  depends="task-4"
 >
   Implement `completion.rs`: context detection (ref attribute, component
   name after `&lt;`, attribute value), document ID prefix matching, fragment
@@ -104,10 +92,10 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-8"
+  id="task-7"
   status="done"
   implements="lsp-server/req#req-4-1, lsp-server/req#req-4-2"
-  depends="task-5"
+  depends="task-4"
 >
   Implement `hover.rs`: component name lookup in ComponentDefs (format as
   Markdown attribute table), ref lookup in graph (document title, criterion
@@ -115,21 +103,21 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-9"
+  id="task-8"
   status="done"
   implements="lsp-server/req#req-6-1"
-  depends="task-5"
+  depends="task-4"
 >
-  Implement `commands.rs`: `supersigil.verify` command handler, optional
-  tier argument, run verify pipeline, publish diagnostics, progress
-  reporting. Wire into `workspace/executeCommand` handler.
+  Implement `commands.rs`: `supersigil.verify` command handler, run verify
+  pipeline, publish diagnostics. Wire into `workspace/executeCommand`
+  handler.
 </Task>
 
 <Task
-  id="task-10"
+  id="task-9"
   status="done"
-  implements="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3, lsp-server/req#req-8-3"
-  depends="task-3"
+  implements="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3, lsp-server/req#req-8-2"
+  depends="task-2"
 >
   Markdown integration and capability registration: register for `markdown`
   and `mdx` language IDs, activation guard on `supersigil.toml` presence,
@@ -138,9 +126,9 @@ on the last. Each task is independently testable.
 </Task>
 
 <Task
-  id="task-11"
+  id="task-10"
   status="draft"
-  depends="task-10"
+  depends="task-9"
 >
   Editor extensions and documentation. Build at least one editor extension
   (VS Code or Neovim) that activates supersigil-lsp for spec files,
