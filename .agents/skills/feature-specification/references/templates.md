@@ -1,142 +1,76 @@
-# Draft Templates
+# Component Quick Reference
 
-Start with `supersigil new <type> <feature>` when creating a new document set.
-Use these templates when the scaffold is too minimal, when imported docs need to be normalized, or when you need a richer example while editing by hand.
+Start documents with `supersigil new <type> <feature>`. Use this
+reference for component placement and attribute syntax when editing.
 
-Keep new or actively edited documents at `status: draft` until `supersigil verify` and human review justify promotion.
-Write list attributes as comma-separated string literals like `refs="a, b"` and `paths="x, y"`. Do not use JSX expression attributes like `refs={["a"]}`; `supersigil verify` rejects them.
+Write all list attributes as comma-separated string literals:
+`refs="a, b"` and `paths="x, y"`. Do not use JSX expression attributes.
+Never leave empty placeholders like `refs=""` or `paths=""`.
 
-## Requirement
+## Components by Document Type
+
+### Requirement docs
+
+- `<AcceptanceCriteria>` — wrapper for criterion entries
+- `<Criterion id="...">` — one acceptance criterion
 
 ```mdx
----
-supersigil:
-  id: auth/req
-  type: requirement
-  status: draft
-title: "User Login"
----
-
-# User Login
-
-Describe the user-facing requirement in plain language.
-
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
-    WHEN a user submits valid email and password,
-    THE SYSTEM SHALL return a session token.
-  </Criterion>
-
-  <Criterion id="req-1-2">
-    WHEN a user submits an incorrect password,
-    THE SYSTEM SHALL return a 401 response.
+    WHEN valid credentials, THE SYSTEM SHALL return a session token.
   </Criterion>
 </AcceptanceCriteria>
 ```
 
-## Design
+### Design docs
+
+- `<Implements refs="feature/req">` — links to the requirement this design implements
+- `<TrackedFiles paths="src/**/*.rs, tests/**/*.rs">` — source files owned by this design
+- `<DependsOn refs="other/design">` — document-level ordering
 
 ```mdx
----
-supersigil:
-  id: auth/design
-  type: design
-  status: draft
-title: "Login Flow"
----
-
 <Implements refs="auth/req" />
-<TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />
-
-Describe the implementation approach, boundaries, and tradeoffs.
+<TrackedFiles paths="src/auth/**/*.rs" />
 ```
 
-Use `<DependsOn>` only for document-level ordering.
-Use `<TrackedFiles>` only when the source paths are concrete.
-If a relation target is not known yet, omit that component until the target exists.
+### Tasks docs
 
-## Tasks
+- `<Task id="..." status="..." implements="..." depends="...">` — one task entry
 
 ```mdx
----
-supersigil:
-  id: auth/tasks
-  type: tasks
-  status: draft
-title: "Login Tasks"
----
-
-## Overview
-
-Track the implementation sequence for this feature.
-
-<Task
-  id="task-1-1"
-  status="ready"
-  implements="auth/req#req-1-1"
->
-  Implement the adapter layer for credential validation.
-</Task>
-
-<Task
-  id="task-1-2"
-  status="ready"
-  depends="task-1-1"
-  implements="auth/req#req-1-2"
->
-  Handle incorrect password responses and error mapping.
+<Task id="task-1-1" status="ready" implements="auth/req#req-1-1">
+  Implement credential validation.
 </Task>
 ```
 
-Use `depends` for task ordering inside the same tasks document. Use `implements` for criterion refs only.
+### ADR docs
 
-## ADR (Architectural Decision Record)
+- `<Decision id="...">` — wraps rationale, references, and alternatives
+- `<Rationale>` — reasoning (child of Decision)
+- `<References refs="...">` — links to criteria (child of Decision)
+- `<Alternative id="..." status="rejected|deferred">` — considered option (child of Decision)
 
 ```mdx
----
-supersigil:
-  id: infra/adr
-  type: adr
-  status: draft
-title: "Use PostgreSQL"
----
-
-# Use PostgreSQL as the Primary Data Store
-
 <Decision id="use-postgres">
-  Use PostgreSQL for all persistent storage.
-
+  Use PostgreSQL for persistent storage.
   <References refs="infra/req#req-1-1" />
-
-  <Rationale>
-    Mature ecosystem, strong JSONB support, team expertise.
-  </Rationale>
-</Decision>
-
-<Decision id="reject-mysql" standalone="Evaluated as part of use-postgres">
-  <Alternative id="use-mysql" status="rejected">
-    MySQL was considered but lacks some PostgreSQL extensions we rely on.
-  </Alternative>
+  <Rationale>Mature ecosystem, team expertise.</Rationale>
 </Decision>
 ```
 
-ADR statuses are `draft`, `review`, `accepted`, `superseded`.
-Use `<References>` inside a `<Decision>` to link to requirement criteria.
-Use `standalone="..."` when a decision has no corresponding requirement.
-Use `<Alternative>` with `status="rejected"` or `status="deferred"` for considered options.
+Use `standalone="..."` on decisions with no corresponding requirement.
 
-## Quick Reference
+### Evidence (any doc with criteria)
 
-- `<AcceptanceCriteria>`: wrapper for `<Criterion>` entries in requirement docs
-- `<Criterion id="...">`: a single acceptance criterion
-- `<VerifiedBy strategy="tag" tag="...">`: automated verification via tagged tests
-- `<VerifiedBy strategy="file-glob" paths="...">`: automated verification via concrete test files
-- `<Implements refs="doc">`: design doc points at the spec it implements
-- `<References refs="doc#criterion">`: informational traceability link (no verification semantics)
-- `<Task id="..." status="..." depends="..." implements="...">`: task entry in a tasks doc
-- `<DependsOn refs="doc">`: document-level dependency
-- `<TrackedFiles paths="glob">`: source files related to the doc
-- `<Decision id="..." standalone="...">`: architectural decision in an ADR doc
-- `<Rationale>`: reasoning behind a decision (child of `<Decision>`)
-- `<Alternative id="..." status="...">`: considered alternative (child of `<Decision>`)
-- Write list attributes as quoted strings, not JSX expressions
+- `<VerifiedBy strategy="tag" tag="...">` — evidence via tagged tests
+- `<VerifiedBy strategy="file-glob" paths="...">` — evidence via test file existence
+
+## Statuses
+
+| Document type | Statuses |
+|---------------|----------|
+| requirement   | draft -> review -> approved -> implemented |
+| design        | draft -> review -> approved |
+| tasks         | draft -> ready -> in-progress -> done |
+| adr           | draft -> review -> accepted -> superseded |
+| task (item)   | draft, ready, in-progress, done |
