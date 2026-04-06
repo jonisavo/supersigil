@@ -6,10 +6,10 @@
 /* ===== DARK THEME (default) ===== */
 :root[data-theme='dark'],
 :root {
-  /* Backgrounds */
-  --sl-color-bg: #0b0b11;
-  --sl-color-bg-nav: rgba(11, 11, 17, 0.88);
-  --sl-color-bg-sidebar: #0e0e15;
+  /* Backgrounds — aligned with landing page tokens */
+  --sl-color-bg: #08080c;
+  --sl-color-bg-nav: rgba(8, 8, 12, 0.88);
+  --sl-color-bg-sidebar: #0c0c12;
   --sl-color-bg-inline-code: rgba(201, 165, 92, 0.07);
 
   /* Accents — warm gold */
@@ -17,8 +17,8 @@
   --sl-color-accent: #c9a55c;
   --sl-color-accent-high: #e0c889;
 
-  /* Text */
-  --sl-color-text: #e0dcd7;
+  /* Text — aligned with landing page */
+  --sl-color-text: #e8e4df;
   --sl-color-text-accent: #c9a55c;
 
   /* Borders & hairlines */
@@ -35,11 +35,11 @@
   --sl-content-width: 48rem;
 }
 
-/* ===== LIGHT THEME ===== */
+/* ===== LIGHT THEME — aligned with landing page ===== */
 :root[data-theme='light'] {
-  --sl-color-bg: #faf9f7;
-  --sl-color-bg-nav: rgba(250, 249, 247, 0.9);
-  --sl-color-bg-sidebar: #f5f3f0;
+  --sl-color-bg: #ede8df;
+  --sl-color-bg-nav: rgba(237, 232, 223, 0.9);
+  --sl-color-bg-sidebar: #e8e2d8;
   --sl-color-bg-inline-code: rgba(42, 37, 32, 0.06);
 
   --sl-color-accent-low: rgba(160, 120, 50, 0.1);
@@ -95,17 +95,17 @@ h1, h2, h3, h4, h5, h6,
 
 :root[data-theme='dark'] .expressive-code,
 :root:not([data-theme='light']) .expressive-code {
-  --ec-codeBg: #111118 !important;
+  --ec-codeBg: #0f0f15 !important;
   --ec-codeBrdCol: rgba(255, 255, 255, 0.06) !important;
-  --ec-frm-edActTabBg: #111118 !important;
-  --ec-frm-edTabBarBg: #0d0d14 !important;
+  --ec-frm-edActTabBg: #0f0f15 !important;
+  --ec-frm-edTabBarBg: #0b0b11 !important;
 }
 
 :root[data-theme='light'] .expressive-code {
-  --ec-codeBg: #f5f3f0 !important;
-  --ec-codeBrdCol: rgba(0, 0, 0, 0.08) !important;
-  --ec-frm-edActTabBg: #f5f3f0 !important;
-  --ec-frm-edTabBarBg: #eceae6 !important;
+  --ec-codeBg: #e3dcd2 !important;
+  --ec-codeBrdCol: rgba(42, 37, 32, 0.08) !important;
+  --ec-frm-edActTabBg: #e3dcd2 !important;
+  --ec-frm-edTabBarBg: #ddd6cb !important;
 }
 
 /* ===== SIDEBAR ===== */
@@ -115,13 +115,13 @@ nav.sidebar {
 
 .sidebar-content a[aria-current='page'],
 sidebar-content a[aria-current='page']:hover {
-  color: #0e0e14;
+  color: #08080c;
   font-weight: 600;
 }
 
 :root[data-theme='light'] .sidebar-content a[aria-current='page'],
 :root[data-theme='light'] .sidebar-content a[aria-current='page']:hover {
-  color: #faf9f7;
+  color: #ede8df;
 }
 
 /* ===== CONTENT LINKS ===== */
@@ -157,10 +157,22 @@ sidebar-content a[aria-current='page']:hover {
   padding: 0.65rem 1rem;
 }
 
-/* ===== NAV BAR — blur backdrop ===== */
+/* ===== NAV BAR — match landing page style ===== */
 header.header {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+.site-title {
+  font-weight: 700;
+  font-size: 1.15rem !important;
+  letter-spacing: 0.04em;
+  gap: 0.6rem !important;
+}
+
+.site-title img {
+  height: 24px !important;
+  width: 24px !important;
 }
 
 /* ===== ASIDE / CALLOUTS ===== */
