@@ -66,7 +66,9 @@ Start small. Pick one module you understand well, write a single requirements sp
 
 3. **Annotate your existing tests**
 
-   Add `#[verifies]` annotations to the tests that prove each criterion (the Rust ecosystem plugin is enabled by default):
+   Add annotations to the tests that prove each criterion:
+
+   **Rust** (plugin enabled by default):
 
    ```rust title="tests/auth/login_test.rs"
    use supersigil_rust::verifies;
@@ -78,17 +80,22 @@ Start small. Pick one module you understand well, write a single requirements sp
    }
    ```
 
-   ```rust title="tests/auth/login_failure_test.rs"
-   use supersigil_rust::verifies;
+   Add `supersigil-rust` as a dev-dependency.
 
-   #[verifies("auth/req#invalid-creds")]
-   #[test]
-   fn login_rejects_bad_password() {
-       // your existing test
-   }
+   **JavaScript/TypeScript** (add `plugins = ["js"]` to config):
+
+   ```typescript title="tests/auth/login.test.ts"
+   import { verifies } from '@supersigil/vitest'
+   import { test } from 'vitest'
+
+   test('login returns session token', verifies('auth/req#valid-creds'), () => {
+     // your existing test
+   })
    ```
 
-   The annotation is a no-op at runtime — it just marks the test as evidence. Add `supersigil-rust` as a dev-dependency to your crate.
+   Add `@supersigil/vitest` as a dev-dependency.
+
+   The annotations are no-ops at runtime — they just mark the test as evidence.
 
 4. **Run verify and confirm it passes**
 

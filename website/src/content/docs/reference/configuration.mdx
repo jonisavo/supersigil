@@ -180,14 +180,17 @@ When configured, evidence source locations in the graph explorer become clickabl
 
 ## Ecosystem Plugins
 
-Declare ecosystem plugins. Currently only `rust` is supported:
+Declare ecosystem plugins. The built-in plugins are `rust` and `js`:
 
 ```toml title="supersigil.toml"
 [ecosystem]
-plugins = ["rust"]
+plugins = ["rust", "js"]
 
 [ecosystem.rust]
 validation = "dev"
+
+[ecosystem.js]
+test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 ```
 
 | Key | Type | Default | Description |
@@ -195,6 +198,10 @@ validation = "dev"
 | `plugins` | string[] | `["rust"]` | Active plugins |
 | `rust.validation` | `"off"` \| `"dev"` \| `"all"` | `"dev"` | Which Cargo manifests to validate |
 | `rust.project_scope` | array of `{manifest_dir_prefix, project}` | `[]` | Map manifest directories to projects in multi-project mode |
+| `js.test_patterns` | string[] | `["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]` | Glob patterns for discovering JS/TS test files |
+
+The JS plugin respects `.gitignore` files automatically, so `node_modules`,
+`dist`, and other ignored paths are excluded without extra configuration.
 
 ## Executable Examples
 

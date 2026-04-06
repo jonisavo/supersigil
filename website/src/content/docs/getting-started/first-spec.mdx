@@ -113,7 +113,9 @@ The 2 suppressed findings are `missing_verification_evidence` for each criterion
 
 ## Step 4: Annotate your tests
 
-Add `#[verifies]` annotations to the tests that prove each criterion. The Rust ecosystem plugin (enabled by default) discovers these automatically.
+Add annotations to the tests that prove each criterion. The ecosystem plugin for your language discovers these automatically.
+
+**Rust** (plugin enabled by default):
 
 ```rust title="tests/auth/login_test.rs"
 use supersigil_rust::verifies;
@@ -137,10 +139,29 @@ fn login_with_wrong_password_returns_401() {
 }
 ```
 
-Add `supersigil-rust` as a dev-dependency to your crate. The annotation is a no-op at runtime.
+Add `supersigil-rust` as a dev-dependency. The annotation is a no-op at runtime.
+
+**JavaScript/TypeScript** (add `plugins = ["js"]` to config):
+
+```typescript title="tests/auth/login.test.ts"
+import { verifies } from '@supersigil/vitest'
+import { test, expect } from 'vitest'
+
+test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
+  const result = login('alice', 'correct-password')
+  expect(result.token).toBeDefined()
+})
+
+test('login with wrong password returns 401', verifies('auth/req#invalid-creds'), () => {
+  const result = login('alice', 'wrong-password')
+  expect(result.status).toBe(401)
+})
+```
+
+Add `@supersigil/vitest` as a dev-dependency.
 
 <Aside type="tip">
-  For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in
+  For projects without an ecosystem plugin, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in
   your criteria and add `// supersigil: auth:valid-creds` comments in test files instead.
   See the [Evidence Sources](/supersigil/concepts/evidence-sources/) page for all options.
 </Aside>

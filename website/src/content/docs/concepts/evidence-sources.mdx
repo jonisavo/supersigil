@@ -9,7 +9,7 @@ supersigil:
 import { Aside } from '@astrojs/starlight/components';
 
 ```supersigil-xml
-<TrackedFiles paths="crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-rust/src/**/*.rs" />
+<TrackedFiles paths="crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-rust/src/**/*.rs, crates/supersigil-js/src/**/*.rs" />
 ```
 
 Coverage in Supersigil is not a vague statement about “having tests.” A
@@ -24,15 +24,20 @@ The built-in evidence paths are:
 
 | Source | Best for | Strength |
 |--------|----------|----------|
-| Ecosystem plugins | Rust projects (and future language integrations) | Structured discovery from the code itself |
+| Ecosystem plugins | Rust and JavaScript/TypeScript projects | Structured discovery from the code itself |
 | `<VerifiedBy strategy="tag">` | Existing test suites in any language | Explicit mapping with very low setup cost |
 | `<VerifiedBy strategy="file-glob">` | Broad file-level coverage | Fastest way to connect criteria to known test locations |
 | `<Example verifies="...">` | API flows, CLI sessions, runnable docs | Documentation that doubles as evidence |
 
 ## Ecosystem Plugins
 
-Plugins let Supersigil discover evidence directly from the code itself. The
-Rust plugin is enabled by default and discovers `#[verifies]` annotations:
+Plugins let Supersigil discover evidence directly from the code itself. Each
+plugin parses test source files and emits evidence records automatically — no
+`<VerifiedBy>` component is needed in the spec.
+
+### Rust Plugin
+
+The Rust plugin is enabled by default and discovers `#[verifies]` annotations:
 
 ```rust
 use supersigil_rust::verifies;
@@ -44,13 +49,46 @@ fn login_with_valid_credentials_returns_token() {
 }
 ```
 
-The plugin parses test code and emits evidence records automatically. No
-`<VerifiedBy>` component is needed in the spec — the annotation on the test
-is sufficient.
+### JavaScript/TypeScript Plugin
+
+The JS plugin discovers `verifies()` calls in Vitest test files. Enable it in
+your config and install the helper package:
+
+```toml title="supersigil.toml"
+[ecosystem]
+plugins = ["rust", "js"]
+```
+
+```bash
+pnpm add -D @supersigil/vitest
+```
+
+Then annotate tests with `verifies()`:
+
+```typescript
+import { verifies } from '@supersigil/vitest'
+import { test } from 'vitest'
+
+test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
+  // ...
+})
+```
+
+The plugin uses [oxc](https://oxc.rs) to parse test files statically — no
+Node.js runtime is needed during `supersigil verify`. It recognizes both the
+`verifies()` helper and the raw `{ meta: { verifies: [...] } }` form, and
+tracks `describe` nesting for full test names.
+
+<Aside type="tip">
+  Install `@supersigil/eslint-plugin` for editor-time validation of criterion
+  refs. It checks ref strings against your specs via `supersigil refs` and
+  reports unknown documents or criteria as lint errors.
+</Aside>
 
 ## Tag-Based Evidence
 
-For non-Rust projects, tags are a portable bridge from criteria to tests:
+For projects without an ecosystem plugin, tags are a portable bridge from
+criteria to tests:
 
 ```xml
 <Criterion id="valid-creds">
@@ -115,8 +153,9 @@ you are documenting.
 
 ## Choosing the Right Source
 
-- Use **plugins** for Rust projects — structured discovery with no manual linking.
-- Use **tags** for non-Rust projects that want explicit criterion-to-test mapping.
+- Use the **Rust plugin** for Rust projects — `#[verifies]` annotations with compile-time validation.
+- Use the **JS plugin** for JavaScript/TypeScript projects — `verifies()` calls in Vitest tests.
+- Use **tags** for other languages that want explicit criterion-to-test mapping.
 - Use **file globs** when you only need coarse evidence and the test location is stable.
 - Use **executable examples** when the docs themselves should be runnable proof.
 

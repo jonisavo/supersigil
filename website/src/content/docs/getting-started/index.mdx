@@ -100,7 +100,9 @@ supersigil --version
 
 4. **Add evidence and watch it go green**
 
-   Add a `#[verifies]` annotation to a test (the Rust ecosystem plugin is enabled by default):
+   Annotate a test with its criterion ref. The approach depends on your language:
+
+   **Rust** (ecosystem plugin enabled by default):
 
    ```rust title="tests/auth/login_test.rs"
    use supersigil_rust::verifies;
@@ -111,6 +113,18 @@ supersigil --version
        let result = login("alice", "correct-password");
        assert!(result.token.is_some());
    }
+   ```
+
+   **JavaScript/TypeScript** (add `plugins = ["js"]` to `supersigil.toml`):
+
+   ```typescript title="tests/auth/login.test.ts"
+   import { verifies } from '@supersigil/vitest'
+   import { test, expect } from 'vitest'
+
+   test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
+     const result = login('alice', 'correct-password')
+     expect(result.token).toBeDefined()
+   })
    ```
 
    Run verify again:
