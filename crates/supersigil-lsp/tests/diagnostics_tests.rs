@@ -7,6 +7,7 @@ use supersigil_core::{ParseError, SourcePosition};
 use supersigil_lsp::diagnostics::{
     finding_to_diagnostic, parse_error_to_diagnostic, severity_to_lsp,
 };
+use supersigil_rust_macros::verifies;
 use supersigil_verify::{Finding, ReportSeverity, RuleName};
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,7 @@ fn abs_path(name: &str) -> PathBuf {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn xml_syntax_error_maps_to_error_with_position() {
     let path = abs_path("spec.md");
     let err = ParseError::XmlSyntaxError {
@@ -48,6 +50,7 @@ fn xml_syntax_error_maps_to_error_with_position() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn missing_id_maps_to_error_at_origin() {
     let path = abs_path("spec.md");
     let err = ParseError::MissingId { path: path.clone() };
@@ -62,6 +65,7 @@ fn missing_id_maps_to_error_at_origin() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn unclosed_front_matter_maps_to_origin() {
     let path = abs_path("spec.md");
     let err = ParseError::UnclosedFrontMatter { path: path.clone() };
@@ -74,6 +78,7 @@ fn unclosed_front_matter_maps_to_origin() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn invalid_yaml_maps_to_origin() {
     let path = abs_path("spec.md");
     let err = ParseError::InvalidYaml {
@@ -89,6 +94,7 @@ fn invalid_yaml_maps_to_origin() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn missing_required_attribute_maps_position() {
     let path = abs_path("spec.md");
     let err = ParseError::MissingRequiredAttribute {
@@ -110,6 +116,7 @@ fn missing_required_attribute_maps_position() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-1")]
 fn parse_error_uses_buffer_content_for_utf16_conversion() {
     // Buffer content has a 2-byte UTF-8 char (é) before the error column.
     // "aéb<X" — 'a'(1 byte) + 'é'(2 bytes) + 'b'(1 byte) + '<'(1 byte) + 'X'(1 byte)
@@ -138,6 +145,7 @@ fn parse_error_uses_buffer_content_for_utf16_conversion() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn severity_error_maps_to_lsp_error() {
     assert_eq!(
         severity_to_lsp(ReportSeverity::Error),
@@ -146,6 +154,7 @@ fn severity_error_maps_to_lsp_error() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn severity_warning_maps_to_lsp_warning() {
     assert_eq!(
         severity_to_lsp(ReportSeverity::Warning),
@@ -154,6 +163,7 @@ fn severity_warning_maps_to_lsp_warning() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn severity_info_maps_to_lsp_hint() {
     assert_eq!(
         severity_to_lsp(ReportSeverity::Info),
@@ -162,6 +172,7 @@ fn severity_info_maps_to_lsp_hint() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn severity_off_maps_to_none() {
     assert_eq!(severity_to_lsp(ReportSeverity::Off), None);
 }
@@ -182,6 +193,7 @@ fn path_lookup(doc_id: &str) -> Option<PathBuf> {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn finding_warning_maps_to_lsp_warning() {
     let finding = Finding {
         rule: RuleName::ZeroTagMatches,
@@ -201,6 +213,7 @@ fn finding_warning_maps_to_lsp_warning() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn finding_info_maps_to_lsp_hint() {
     let finding = Finding {
         rule: RuleName::EmptyProject,
@@ -219,6 +232,7 @@ fn finding_info_maps_to_lsp_hint() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn finding_off_is_filtered_out() {
     let finding = Finding {
         rule: RuleName::IsolatedDocument,
@@ -255,6 +269,7 @@ fn finding_without_doc_id_returns_none_when_no_lookup() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn finding_with_position_uses_source_position() {
     let finding = Finding {
         rule: RuleName::InvalidIdPattern,
@@ -280,6 +295,7 @@ fn finding_with_position_uses_source_position() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-1-4")]
 fn finding_with_details_path_uses_details_path() {
     use supersigil_verify::FindingDetails;
 

@@ -2,7 +2,7 @@
 supersigil:
   id: parser-pipeline/req
   type: requirements
-  status: draft
+  status: implemented
 title: "Parser Pipeline"
 ---
 
@@ -161,11 +161,13 @@ verification logic can operate on typed components instead of raw text.
     subset: PascalCase elements, double-quoted string attributes, nesting,
     and text content. No processing instructions, CDATA, DTD, namespaces,
     or entity references beyond `&amp;`, `&lt;`, `&gt;`, `&quot;`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/xml_parser.rs, crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-2">
     IF a Supersigil_Fence contains invalid XML syntax, THEN the Parser
     SHALL return a parse error with position information adjusted to the
     fence's location in the source file.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-3">
     THE Parser SHALL extract only *known* PascalCase XML elements (those
@@ -173,24 +175,29 @@ verification logic can operate on typed components instead of raw text.
     as transparent content wrappers whose children are still traversed, so
     that known components nested inside unknown parents are extracted.
     Lowercase elements SHALL be ignored.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-4">
     THE Parser SHALL record component source positions relative to the
     original file after BOM stripping, offsetting by the front matter length
     and the fence's position within the Markdown body.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/src/xml_extract.rs, crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-5">
     THE Parser SHALL store string-literal attributes as raw strings without
     splitting list-like values.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-6">
     THE Parser SHALL collect nested child components recursively.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-5-7">
     THE Parser SHALL compute `body_text` from direct non-component text
     nodes within an element, trimming leading and trailing whitespace.
     Self-closing elements, or elements whose content is only child
     elements, SHALL have no body text.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -207,6 +214,7 @@ parse, so that obvious authoring mistakes are caught before graph building.
     rather than emitting errors. Only elements matching Component_Defs are
     extracted; all others are treated as transparent content wrappers whose
     children are still traversed.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs" />
   </Criterion>
   <Criterion id="req-6-2">
     THE Parser SHALL emit `ParseError::MissingRequiredAttribute` when a known

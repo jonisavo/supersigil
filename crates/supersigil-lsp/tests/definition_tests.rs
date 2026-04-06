@@ -7,6 +7,7 @@ use supersigil_core::{
     Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument, build_graph,
 };
 use supersigil_lsp::definition::{find_ref_at_position, resolve_ref};
+use supersigil_rust_macros::verifies;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,6 +147,7 @@ fn wrong_line_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-7-3")]
 fn ref_outside_fence_returns_none() {
     // Content is NOT inside a fence — should return None.
     let content = r#"<References refs="auth/req#req-1-1" />"#;
@@ -158,6 +160,7 @@ fn ref_outside_fence_returns_none() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-2-1")]
 fn fragment_ref_resolves_to_source_position() {
     // Build a graph with one document containing a Criterion at a known line.
     let criterion_line = 5usize;
@@ -194,6 +197,7 @@ fn fragment_ref_resolves_to_source_position() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-2-2")]
 fn document_ref_resolves_to_file_start() {
     let doc = make_doc("design/req", "/specs/design/req.md", vec![]);
     let graph = build_graph(vec![doc], &default_config()).expect("graph must build");
@@ -210,6 +214,7 @@ fn document_ref_resolves_to_file_start() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-2-3")]
 fn nonexistent_document_ref_returns_none() {
     let graph = build_graph(vec![], &default_config()).expect("graph must build");
     let result = resolve_ref("no/such/doc", &graph);
@@ -217,6 +222,7 @@ fn nonexistent_document_ref_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-2-3")]
 fn nonexistent_fragment_ref_returns_none() {
     let doc = make_doc("auth/req", "/specs/auth/req.md", vec![]);
     let graph = build_graph(vec![doc], &default_config()).expect("graph must build");

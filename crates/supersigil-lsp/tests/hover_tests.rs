@@ -7,6 +7,7 @@ use supersigil_core::{
     Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument, build_graph,
 };
 use supersigil_lsp::hover::{hover_at_position, hover_component, hover_ref};
+use supersigil_rust_macros::verifies;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,6 +83,7 @@ fn fenced(inner: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-4-1")]
 fn hover_criterion_contains_required_fields() {
     let defs = supersigil_core::ComponentDefs::defaults();
     let h = hover_component("Criterion", &defs).expect("should return hover");
@@ -98,6 +100,7 @@ fn hover_criterion_contains_required_fields() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-4-1")]
 fn hover_verified_by_contains_all_attributes() {
     let defs = supersigil_core::ComponentDefs::defaults();
     let h = hover_component("VerifiedBy", &defs).expect("should return hover");
@@ -125,6 +128,7 @@ fn hover_nonexistent_component_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-4-1")]
 fn hover_component_with_description_includes_it() {
     let defs = supersigil_core::ComponentDefs::defaults();
     let h = hover_component("Criterion", &defs).expect("should return hover");
@@ -137,6 +141,7 @@ fn hover_component_with_description_includes_it() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-4-1")]
 fn hover_acceptance_criteria_no_attributes_table() {
     let defs = supersigil_core::ComponentDefs::defaults();
     let h = hover_component("AcceptanceCriteria", &defs).expect("should return hover");
@@ -153,6 +158,7 @@ fn hover_acceptance_criteria_no_attributes_table() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-4-2")]
 fn fragment_ref_hover_shows_title_and_body() {
     let criterion = make_criterion("req-1-1", "User logs in successfully.", 5);
     let doc = make_doc(
@@ -190,6 +196,7 @@ fn fragment_ref_hover_shows_title_and_body() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-4-2")]
 fn document_ref_hover_shows_title_and_status() {
     let doc = make_doc(
         "design/session",
@@ -228,6 +235,7 @@ fn nonexistent_fragment_ref_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-4-2")]
 fn doc_without_title_falls_back_to_id() {
     let doc = make_doc(
         "auth/req",
@@ -249,6 +257,7 @@ fn doc_without_title_falls_back_to_id() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-4-1")]
 fn hover_at_position_on_component_name() {
     let content = fenced("<Criterion id=\"req-1\">\nsome body\n</Criterion>");
     let defs = supersigil_core::ComponentDefs::defaults();
@@ -261,6 +270,7 @@ fn hover_at_position_on_component_name() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-4-2")]
 fn hover_at_position_on_ref_string() {
     let content = fenced("<References refs=\"auth/req#req-1\" />");
     let defs = supersigil_core::ComponentDefs::defaults();
@@ -293,6 +303,7 @@ fn hover_at_position_on_whitespace_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-7-3")]
 fn hover_at_position_outside_fence_returns_none() {
     // Component name outside a fence should not trigger hover.
     let content = "<Criterion id=\"req-1\">\nsome body\n</Criterion>";

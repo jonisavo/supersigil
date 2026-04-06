@@ -479,10 +479,12 @@ pub fn complete(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supersigil_rust_macros::verifies;
 
     // -- is_in_frontmatter --
 
     #[test]
+    #[verifies("lsp-server/req#req-7-3")]
     fn frontmatter_line_inside() {
         let content = "---\ntitle: Hello\nstatus: draft\n---\nbody";
         assert!(is_in_frontmatter(content, 1));
@@ -490,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-7-3")]
     fn frontmatter_line_outside() {
         let content = "---\ntitle: Hello\n---\nbody";
         assert!(!is_in_frontmatter(content, 3));
@@ -559,6 +562,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn status_on_task_component() {
         let content = "```supersigil-xml\n<Task\n  id=\"task-1\"\n  status=\"dr\n```";
         let ctx = detect_context(content, 3, 13);
@@ -572,6 +576,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn status_on_alternative() {
         let content =
             "```supersigil-xml\n<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej\n```";
@@ -586,6 +591,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn strategy_on_verified_by() {
         let content = "```supersigil-xml\n<VerifiedBy strategy=\"ta\n```";
         // Line 1 is the content line inside the fence.
@@ -604,6 +610,7 @@ mod tests {
     // -- complete_status --
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn task_status_completions() {
         let items = complete_status("", &StatusContext::Task, None, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -611,6 +618,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn alternative_status_completions() {
         let items = complete_status("", &StatusContext::Alternative, None, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -618,6 +626,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-3-4")]
     fn frontmatter_status_from_config() {
         let mut config = Config::default();
         config.documents.types.insert(

@@ -12,6 +12,7 @@ use supersigil_lsp::completion::{
     CompletionContext, StatusContext, complete_component_names, complete_document_ids,
     complete_fragment_ids, complete_status, complete_strategy, detect_context,
 };
+use supersigil_rust_macros::verifies;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +79,7 @@ fn fenced_multi(lines: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn detect_refs_attribute_doc_id_prefix() {
     // `refs="auth-` — cursor after `auth-`
     let (content, line) = fenced(r#"<References refs="auth-"#);
@@ -91,6 +93,7 @@ fn detect_refs_attribute_doc_id_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn detect_implements_attribute_doc_id_prefix() {
     let (content, line) = fenced(r#"<Task id="t1" implements="design/"#);
     let ctx = detect_context(&content, line, 33);
@@ -103,6 +106,7 @@ fn detect_implements_attribute_doc_id_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn detect_depends_attribute_empty_prefix() {
     let (content, line) = fenced(r#"<Task id="t1" depends=""#);
     let ctx = detect_context(&content, line, 23);
@@ -119,6 +123,7 @@ fn detect_depends_attribute_empty_prefix() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn detect_refs_attribute_fragment_prefix() {
     let (content, line) = fenced(r#"<References refs="auth/req#req-"#);
     let ctx = detect_context(&content, line, 33);
@@ -132,6 +137,7 @@ fn detect_refs_attribute_fragment_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn detect_refs_attribute_fragment_empty_prefix() {
     let (content, line) = fenced(r#"<References refs="auth/req#"#);
     let ctx = detect_context(&content, line, 27);
@@ -145,6 +151,7 @@ fn detect_refs_attribute_fragment_empty_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn detect_second_ref_in_comma_list() {
     let (content, line) = fenced(r#"<References refs="a/req, auth/req#req-"#);
     let ctx = detect_context(&content, line, 38);
@@ -162,6 +169,7 @@ fn detect_second_ref_in_comma_list() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn detect_component_name_prefix() {
     let (content, line) = fenced("<Cri");
     let ctx = detect_context(&content, line, 4);
@@ -174,6 +182,7 @@ fn detect_component_name_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn detect_component_name_empty_prefix() {
     let (content, line) = fenced("<");
     let ctx = detect_context(&content, line, 1);
@@ -207,6 +216,7 @@ fn detect_component_name_with_whitespace_returns_none() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn detect_strategy_attribute_on_verified_by() {
     let (content, line) = fenced(r#"<VerifiedBy strategy="ta"#);
     let ctx = detect_context(&content, line, 24);
@@ -220,6 +230,7 @@ fn detect_strategy_attribute_on_verified_by() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn detect_status_attribute_on_task() {
     let (content, line) = fenced(r#"<Task id="t1" status="dra"#);
     let ctx = detect_context(&content, line, 25);
@@ -233,6 +244,7 @@ fn detect_status_attribute_on_task() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn detect_status_attribute_on_alternative() {
     let content = fenced_multi("<Decision id=\"d1\">\n  <Alternative id=\"a1\" status=\"rej");
     // Line 1 = <Decision ...>, Line 2 = <Alternative ...>
@@ -265,6 +277,7 @@ fn detect_out_of_bounds_line_returns_none() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-7-3")]
 fn detect_angle_bracket_in_plain_markdown_returns_none() {
     // A `<` in regular prose (not in a fence) should not trigger completions.
     let content = "# Title\n\nSome text with <Criterion in it";
@@ -273,6 +286,7 @@ fn detect_angle_bracket_in_plain_markdown_returns_none() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-7-3")]
 fn detect_refs_outside_fence_returns_none() {
     // ref-like pattern in plain Markdown should not trigger completions.
     let content = "plain text refs=\"auth-";
@@ -285,6 +299,7 @@ fn detect_refs_outside_fence_returns_none() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn complete_doc_ids_returns_matching_items() {
     let docs = vec![
         make_doc("auth/req", Some("requirements"), vec![]),
@@ -312,6 +327,7 @@ fn complete_doc_ids_returns_matching_items() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn complete_doc_ids_empty_prefix_returns_all() {
     let docs = vec![
         make_doc("a/req", None, vec![]),
@@ -323,6 +339,7 @@ fn complete_doc_ids_empty_prefix_returns_all() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-1")]
 fn complete_doc_ids_no_match_returns_empty() {
     let docs = vec![make_doc("auth/req", None, vec![])];
     let graph = build_graph(docs, &default_config()).expect("graph must build");
@@ -335,6 +352,7 @@ fn complete_doc_ids_no_match_returns_empty() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn complete_fragment_ids_returns_matching_items() {
     let doc = make_doc(
         "auth/req",
@@ -360,6 +378,7 @@ fn complete_fragment_ids_returns_matching_items() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn complete_fragment_ids_wrong_doc_returns_empty() {
     let doc = make_doc("auth/req", None, vec![make_criterion("req-1-1", "body", 5)]);
     let graph = build_graph(vec![doc], &default_config()).expect("graph must build");
@@ -369,6 +388,7 @@ fn complete_fragment_ids_wrong_doc_returns_empty() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-2")]
 fn complete_fragment_ids_body_preview_in_detail() {
     let long_body = "A".repeat(80);
     let doc = make_doc(
@@ -394,6 +414,7 @@ fn complete_fragment_ids_body_preview_in_detail() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn complete_component_names_prefix_match() {
     let defs = ComponentDefs::defaults();
     let items = complete_component_names("Crit", &defs);
@@ -412,6 +433,7 @@ fn complete_component_names_prefix_match() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn complete_component_names_empty_prefix_returns_all() {
     let defs = ComponentDefs::defaults();
     let items = complete_component_names("", &defs);
@@ -419,6 +441,7 @@ fn complete_component_names_empty_prefix_returns_all() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn complete_component_names_criterion_has_snippet() {
     let defs = ComponentDefs::defaults();
     let items = complete_component_names("Criterion", &defs);
@@ -440,6 +463,7 @@ fn complete_component_names_criterion_has_snippet() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn complete_component_names_references_has_snippet() {
     let defs = ComponentDefs::defaults();
     let items = complete_component_names("References", &defs);
@@ -458,6 +482,7 @@ fn complete_component_names_references_has_snippet() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-3")]
 fn complete_component_names_no_match_returns_empty() {
     let defs = ComponentDefs::defaults();
     let items = complete_component_names("Zzz", &defs);
@@ -469,6 +494,7 @@ fn complete_component_names_no_match_returns_empty() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_strategy_on_verified_by() {
     let items = complete_strategy("", Some("VerifiedBy"));
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -482,6 +508,7 @@ fn complete_strategy_on_verified_by() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_strategy_with_prefix() {
     let items = complete_strategy("ta", Some("VerifiedBy"));
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -494,12 +521,14 @@ fn complete_strategy_with_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_strategy_on_other_component_returns_empty() {
     let items = complete_strategy("", Some("Task"));
     assert!(items.is_empty());
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_task_status_values() {
     let items = complete_status("", &StatusContext::Task, None, None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -519,6 +548,7 @@ fn complete_task_status_values() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_task_status_with_prefix() {
     let items = complete_status("dra", &StatusContext::Task, None, None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -528,6 +558,7 @@ fn complete_task_status_with_prefix() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_alternative_status_values() {
     let items = complete_status("", &StatusContext::Alternative, None, None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -542,6 +573,7 @@ fn complete_alternative_status_values() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_frontmatter_status_from_config() {
     let mut config = Config::default();
     config.documents.types.insert(
@@ -577,6 +609,7 @@ fn complete_frontmatter_status_from_config() {
 }
 
 #[test]
+#[verifies("lsp-server/req#req-3-4")]
 fn complete_frontmatter_status_unknown_doc_type() {
     let items = complete_status(
         "",

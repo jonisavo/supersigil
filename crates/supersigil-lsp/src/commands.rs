@@ -51,10 +51,12 @@ pub fn parse_verify_tier(arguments: &[serde_json::Value]) -> Option<DiagnosticsT
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use supersigil_rust_macros::verifies;
 
     use super::*;
 
     #[test]
+    #[verifies("lsp-server/req#req-5-7", "lsp-server/req#req-6-1")]
     fn parse_verify_tier_lint() {
         assert_eq!(
             parse_verify_tier(&[json!("lint")]),
@@ -63,6 +65,7 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-5-7", "lsp-server/req#req-6-1")]
     fn parse_verify_tier_verify() {
         assert_eq!(
             parse_verify_tier(&[json!("verify")]),

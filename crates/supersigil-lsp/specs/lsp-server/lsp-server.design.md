@@ -2,7 +2,7 @@
 supersigil:
   id: lsp-server/design
   type: design
-  status: draft
+  status: approved
 title: "Language Server Protocol Support"
 ---
 

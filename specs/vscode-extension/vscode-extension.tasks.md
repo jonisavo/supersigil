@@ -2,7 +2,7 @@
 supersigil:
   id: vscode-extension/tasks
   type: tasks
-  status: draft
+  status: done
 title: "VS Code Extension"
 ---
 

@@ -2,7 +2,7 @@
 supersigil:
   id: lsp-server/req
   type: requirements
-  status: draft
+  status: implemented
 title: "Language Server Protocol Support"
 ---
 
@@ -50,6 +50,7 @@ so that I can fix problems without switching to a terminal.
     invalid refs, cycles, missing criteria). THE server SHALL also run
     verification on initial indexing (not just on save) so that
     diagnostics appear immediately when the workspace opens.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     WHEN the configured Diagnostic_Tier is `verify`, THE server SHALL run
@@ -67,6 +68,7 @@ so that I can fix problems without switching to a terminal.
     WHEN publishing diagnostics, THE server SHALL merge per-file and
     cross-document findings into one set per URI, so that a later publish
     does not silently clear earlier diagnostics.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/diagnostics.rs, crates/supersigil-lsp/src/state.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -186,19 +188,23 @@ reliable.
     THE server SHALL use Hybrid_Reindexing: single-file re-parse on
     `didChange` (from in-memory buffer, not disk), full graph rebuild on
     `didSave`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-5-4">
     WHEN a graph rebuild fails, THE server SHALL retain the Last_Good_Graph
     and publish GraphErrors as diagnostics, rather than losing
     cross-document features.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-5-5">
     ON `didClose`, THE server SHALL remove the file from the open buffer
     set and clear diagnostics for that URI.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-5-6">
     THE server SHALL report progress during initial indexing via
     `window/workDoneProgress`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-5-7">
     THE Diagnostic_Tier SHALL be configurable via `[lsp].diagnostics` in
@@ -212,6 +218,7 @@ reliable.
     requests for that file, returning empty results. This prevents
     cross-root interference when multiple LSP instances serve nested
     projects.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -244,6 +251,7 @@ that it does not interfere with general Markdown editing.
 <AcceptanceCriteria>
   <Criterion id="req-7-1">
     THE server SHALL register for both the `markdown` and `mdx` language IDs.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-7-2">
     THE server SHALL only activate when `supersigil.toml` is found in the
@@ -271,11 +279,13 @@ LSP can function correctly.
     `supersigil-parser` SHALL expose a `parse_content(path, content, defs)`
     entry point that accepts in-memory content, with `parse_file` becoming
     a thin wrapper that reads from disk then calls `parse_content`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-parser/tests/unit_tests.rs, crates/supersigil-parser/src/lib.rs" />
   </Criterion>
   <Criterion id="req-8-2">
     `supersigil-core` Config SHALL accept an optional `[lsp]` section
     (via `lsp: Option&lt;LspConfig&gt;` with `#[serde(default)]`) without
     breaking existing CLI consumers that use `deny_unknown_fields`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/src/config.rs" />
   </Criterion>
   <Criterion id="req-8-3">
     THE server SHALL convert between `SourcePosition` (1-based line/column,

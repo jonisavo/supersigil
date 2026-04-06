@@ -1605,12 +1605,14 @@ mod tests {
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-5-2", "lsp-server/req#req-7-2")]
     fn discover_config_returns_none_in_temp_dir() {
         let dir = tempfile::tempdir().unwrap();
         assert!(discover_config(dir.path()).is_none());
     }
 
     #[test]
+    #[verifies("lsp-server/req#req-1-3")]
     fn plugin_evidence_incorporated_into_verify() {
         use std::collections::HashMap;
         use supersigil_core::{EcosystemConfig, ExtractedComponent, Frontmatter, SpecDocument};
@@ -2071,7 +2073,7 @@ supersigil:
         assert_eq!(result.unwrap().len(), 0);
     }
 
-    #[verifies("lsp-code-actions/req#req-2-1")]
+    #[verifies("lsp-code-actions/req#req-2-1", "lsp-server/req#req-5-1")]
     #[test]
     fn initialize_advertises_code_action_provider() {
         let mut server = SupersigilLsp {

@@ -2,7 +2,7 @@
 supersigil:
   id: vscode-extension/design
   type: design
-  status: draft
+  status: approved
 title: "VS Code Extension"
 ---
 
@@ -260,7 +260,7 @@ host at runtime.
   </Alternative>
 </Decision>
 
-<Decision id="decision-3">
+<Decision id="decision-3" standalone="VS Code first strategy">
   Build the VS Code extension first, deferring IntelliJ, Neovim, and
   Zed extensions.
 
