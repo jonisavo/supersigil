@@ -224,7 +224,7 @@ Now run verify again to check the entire graph:
 supersigil verify
 ```
 
-With test files containing the correct tags, and both documents in `draft`:
+With test files containing the correct annotations, and both documents in `draft`:
 
 ```
 ✓ Clean: no findings
@@ -240,18 +240,18 @@ supersigil:
   status: approved
 ```
 
-Then run verify again. If the test files exist and contain the tags:
+Then run verify again. If the test files exist and contain the annotations:
 
 ```
 ✓ Clean: no findings
 ```
 
-If the tags are missing or the test files do not exist, you will see errors:
+If the annotations are missing or the test files do not exist, you will see errors:
 
 ```
 auth/req
-  ✗ [zero_tag_matches] tag "auth:valid-creds" not found in any test file
-  ✗ [zero_tag_matches] tag "auth:invalid-creds" not found in any test file
+  ✗ [missing_verification_evidence] Criterion "valid-creds": no matching evidence
+  ✗ [missing_verification_evidence] Criterion "invalid-creds": no matching evidence
 
 2 error(s), 0 warning(s), 0 info(s) across 2 documents
 ```

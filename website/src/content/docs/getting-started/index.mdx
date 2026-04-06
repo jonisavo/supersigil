@@ -6,20 +6,43 @@ supersigil:
   type: documentation
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-This is the fastest path to Supersigil's core loop: write one enforceable
-criterion, run `verify`, and watch the tool tell you what is missing.
+Supersigil is an open-source CLI that turns Markdown spec files into a verifiable graph. You write criteria in your repo, link them to test evidence through ecosystem plugins or annotations, and Supersigil checks that everything stays connected — broken refs, uncovered criteria, stale specs. It works locally, in CI, and as structured context for AI coding agents.
+
+This is the fastest path to the core loop: write one enforceable criterion, run `verify`, and watch the tool tell you what is missing.
 
 ## Install
 
-The only supported installation method today is via Cargo:
+<Tabs>
+  <TabItem label="Homebrew">
+    ```bash
+    brew tap jonisavo/supersigil
+    brew install supersigil
 
-```bash
-cargo install supersigil
-```
+    # or alternatively
+    brew install jonisavo/supersigil/supersigil
+    ```
 
-This requires a working [Rust toolchain](https://rustup.rs/). The install compiles Supersigil from source and places the binary in your Cargo bin directory.
+    Installs prebuilt binaries for macOS and Linux.
+  </TabItem>
+  <TabItem label="Cargo">
+    ```bash
+    cargo install supersigil
+    ```
+
+    Compiles from source. Requires a working [Rust toolchain](https://rustup.rs/).
+  </TabItem>
+  <TabItem label="AUR">
+    ```bash
+    yay -S supersigil-bin
+    ```
+
+    Arch Linux only. Available for x86_64 and aarch64.
+  </TabItem>
+</Tabs>
+
+Prebuilt binaries are also available on the [GitHub Releases](https://github.com/jonisavo/supersigil/releases) page.
 
 Verify the installation:
 
@@ -157,6 +180,7 @@ supersigil --version
 
 ## Choose Your Next Path
 
+- [Set up your editor](/supersigil/guides/editor-setup/) — Get live diagnostics, rendered spec previews with verification badges, and go-to-definition in VS Code or IntelliJ.
 - [Deepen the authoring workflow](/supersigil/getting-started/first-spec/) — Add a design document, richer coverage, and graph exploration.
 - [Use it with AI agents](/supersigil/guides/ai-agents/) — Load scoped context and re-verify work through JSON output.
 - [Bring it into CI](/supersigil/guides/ci-verification/) — Add `verify`, `affected`, and drift checks to pull requests.

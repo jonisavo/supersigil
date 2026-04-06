@@ -12,6 +12,7 @@ Supersigil provides editor extensions that connect to the `supersigil-lsp` langu
 
 ## What you get
 
+- **Rendered spec previews** — `supersigil-xml` blocks render as rich components in the Markdown preview, showing verification badges, expandable evidence with test links, and navigation to related documents.
 - **Live diagnostics** — parse errors, broken refs, missing coverage, and structural issues appear as you type and save.
 - **Go-to-definition** — jump from a ref like `auth/req#req-1-1` to the criterion's source location.
 - **Autocomplete** — document IDs, criterion IDs, component names with attribute snippets, and context-sensitive `status`/`strategy` values.
@@ -84,6 +85,7 @@ When not set, the extension searches `$PATH` and common install locations (`~/.c
 
 | Feature | VS Code | IntelliJ |
 |---------|---------|----------|
+| Rendered previews | Markdown preview | Markdown preview |
 | Diagnostics | On type + save | On save |
 | Completions | Yes | Yes |
 | Hover | Yes | Yes (without link navigation) |
@@ -100,6 +102,24 @@ When not set, the extension searches `$PATH` and common install locations (`~/.c
 
 <Aside>
   Find References, Rename, clickable code lenses, and hover link navigation are not yet available in IntelliJ. These features work in VS Code and other LSP clients that support them.
+</Aside>
+
+## Rendered spec previews
+
+Both editors render `supersigil-xml` fenced code blocks as rich, interactive components in the Markdown preview pane. Instead of seeing raw XML, you see:
+
+- **Verification badges** — each criterion shows its state (Verified, Unverified, Partial, or Failing) as a colored badge.
+- **Expandable evidence** — click "Evidence (N)" to see which tests verify a criterion, with clickable links to the test source file and line.
+- **Link pills** — `Implements`, `DependsOn`, and `References` components render as navigable badge-ref pairs.
+- **Task status** — tasks show colored status pills (draft, ready, in-progress, done).
+- **Decision blocks** — decisions render with rationale and alternative subsections.
+
+Open the Markdown preview in your editor (VS Code: `Ctrl+Shift+V` or the preview icon; IntelliJ: the split editor preview) and the rendering activates automatically for any file in a Supersigil project.
+
+Evidence links navigate to the test source file in VS Code. In IntelliJ, evidence links open the file in the editor.
+
+<Aside type="tip">
+  The preview updates automatically when you save. If verification data looks stale, the rendered blocks dim slightly until fresh data arrives from the language server.
 </Aside>
 
 ## VS Code-specific features

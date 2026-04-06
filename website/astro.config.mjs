@@ -30,7 +30,6 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/jonisavo/supersigil' },
       ],
       sidebar: [
-        { label: 'Introduction', slug: 'introduction' },
         {
           label: 'Spec Explorer',
           link: '/explore/',
