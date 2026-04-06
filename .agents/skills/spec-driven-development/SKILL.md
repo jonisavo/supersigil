@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Run the full Supersigil workflow from feature idea to verified specs to implementation. Use when the user explicitly wants an end-to-end guided spec-driven development flow rather than only spec authoring or only implementation.
+description: Use ONLY when the user explicitly requests the full end-to-end Supersigil workflow — from feature idea through verified specs to implementation. This is the guided "omakase" flow. For just writing specs, use feature-specification. For just implementing, use feature-development.
 ---
 
 # Spec-Driven Development

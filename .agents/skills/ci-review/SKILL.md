@@ -1,6 +1,6 @@
 ---
 name: ci-review
-description: Use Supersigil for CI gating and pull request review. Use when the user wants to set up spec verification in CI pipelines, review PRs against spec coverage, or interpret verification output in automated contexts.
+description: Use when setting up CI gates, reviewing pull requests, interpreting verification failures, or adding Supersigil checks to automated pipelines. Activates on CI configuration, PR review workflows, and verification output triage.
 ---
 
 # CI and Review

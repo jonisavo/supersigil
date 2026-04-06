@@ -1,6 +1,6 @@
 ---
 name: retroactive-specification
-description: Recover or refresh Supersigil specs from existing code for one bounded area. Use when working code exists without Supersigil docs and the user wants to document current behavior, baseline a refactor, or expose specification and test coverage gaps. Also use when existing specs have gone stale and need to be reconciled with the current codebase.
+description: Use when code exists but Supersigil specs do not, or when existing specs have gone stale. Activates when the user wants to document current behavior, baseline before a refactor, add spec coverage to a brownfield module, or reconcile drifted specs with the codebase.
 ---
 
 # Retroactive Specification

@@ -1,6 +1,6 @@
 ---
 name: feature-specification
-description: Author or refine Supersigil specification documents for one bounded feature using the full Supersigil CLI workflow. Use when the user wants to turn a feature idea or imported `.kiro/specs` material into `requirement`, `design`, `tasks`, or `adr` MDX documents; repair or extend existing specs so `supersigil verify`, `supersigil context`, `supersigil plan`, `supersigil status`, and `supersigil verify` all work; or bring one feature's docs to an implementation-ready state.
+description: Default skill for authoring or repairing Supersigil specification documents: requirements, design docs, tasks, and ADRs. Use when turning an agreed feature idea or imported material into verifiable docs, refining acceptance criteria, or bringing specs to an implementation-ready state. Works alongside brainstorming and planning skills.
 ---
 
 # Feature Specification

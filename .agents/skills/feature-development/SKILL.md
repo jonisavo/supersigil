@@ -1,6 +1,6 @@
 ---
 name: feature-development
-description: Implement or refine a bounded feature against existing Supersigil specs. Use when requirement, design, or tasks documents already exist and the user wants to code, test, update task status, repair coverage, or bring the feature to a verify-clean, implementation-ready state.
+description: Default skill for behavior-changing code work in projects that already have Supersigil specs. Use when fixing bugs, adding features, implementing endpoints, updating tests, repairing verification coverage, or completing tasks linked to existing requirement, design, or tasks documents. Works alongside TDD, code review, and language-specific skills.
 ---
 
 # Feature Development

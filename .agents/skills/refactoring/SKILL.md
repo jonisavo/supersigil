@@ -1,6 +1,6 @@
 ---
 name: refactoring
-description: Restructure code that already has Supersigil specs without changing behavior. Use when the user wants to reorganize internals, extract modules, rename abstractions, or improve code structure while keeping existing specs, criteria, and verification evidence valid.
+description: Use when restructuring code that has Supersigil specs and behavior must not change. Activates for module extraction, file moves, renames, hierarchy flattening, or any structural cleanup. Keeps specs, criteria, tracked files, and verification evidence valid throughout.
 ---
 
 # Refactoring
