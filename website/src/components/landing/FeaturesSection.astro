@@ -11,7 +11,7 @@
       <div class="bento-card bento-graph reveal" style="--reveal-delay: 0s">
         <div class="bento-label">Verifiable Graph</div>
         <h3>One graph for requirements, designs, tasks, and evidence.</h3>
-        <p>Every document becomes a typed node with computed reverse links. Query any slice with <code>supersigil context</code>, inspect coverage, or <a href="/supersigil/explore/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">explore the graph interactively</a> in your browser.</p>
+        <p>Every document becomes a typed node with computed reverse links. Evidence flows in through native Rust and Vitest support, tags, or file globs. Query any slice with <code>supersigil context</code> or <a href="/supersigil/explore/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">explore the graph interactively</a> in your browser.</p>
         <div class="bento-visual graph-mini" aria-hidden="true">
           <svg viewBox="0 0 240 120">
             <g class="graph-edges" stroke-width="1">
@@ -33,39 +33,37 @@
         </div>
       </div>
 
-      <div class="bento-card bento-ai reveal" style="--reveal-delay: 0.08s">
-        <div class="bento-label">Agent-Ready Context</div>
+      <div class="bento-card bento-editor reveal" style="--reveal-delay: 0.08s">
+        <div class="bento-label">Editor Integration</div>
+        <h3>Specs rendered with live verification status.</h3>
+        <p><a href="/supersigil/guides/editor-setup/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">VS Code and IntelliJ extensions</a> render Markdown previews with verification badges, expandable evidence with test links, and navigation to related documents. Plus diagnostics, autocomplete, hover docs, and go-to-definition through the LSP server.</p>
+        <div class="bento-preview-mock" aria-hidden="true">
+          <div class="bento-mock-criterion">
+            <span class="bento-mock-badge bento-mock-badge--verified">Verified</span>
+            <code>req-1-1</code>
+          </div>
+          <div class="bento-mock-criterion">
+            <span class="bento-mock-badge bento-mock-badge--unverified">Unverified</span>
+            <code>req-1-2</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="bento-card bento-ai reveal" style="--reveal-delay: 0.16s">
+        <div class="bento-label">Agent Contract</div>
         <h3>Structured scope for coding agents.</h3>
-        <p>Core commands emit <code>--format json</code>. Agents can load one document, inspect linked criteria, plan missing work, and re-verify against the same contract.</p>
+        <p>Four agent skills ship with Supersigil, teaching agents the full spec-driven workflow: authoring, implementation, end-to-end development, and retroactive specification. Agents load context, plan against criteria, and re-verify through the same CLI.</p>
         <div class="bento-snippet" aria-hidden="true">
           <code><span class="c-muted">$</span> supersigil context auth/req --format json</code>
         </div>
       </div>
 
-      <div class="bento-card bento-verify reveal" style="--reveal-delay: 0.16s">
+      <div class="bento-card bento-verify reveal" style="--reveal-delay: 0.24s">
         <div class="bento-label">CI Guardrails</div>
         <h3>Catch broken refs, missing evidence, and stale specs before release.</h3>
         <p><code>supersigil verify</code> checks the graph, while tracked files flag specs that need review after code changes. Draft gating keeps iteration light until you are ready to enforce.</p>
         <div class="bento-snippet" aria-hidden="true">
           <code><span class="c-red"><b>&#10006;</b></span> <span class="c-muted">[missing_verification_evidence]</span> Criterion "valid-creds": no matching evidence</code>
-        </div>
-      </div>
-
-      <div class="bento-card bento-rust reveal" style="--reveal-delay: 0.12s">
-        <div class="bento-label">Pluggable Evidence</div>
-        <h3>Start simple, then add richer discovery where your stack supports it.</h3>
-        <p>Use tags or file globs by default. Add ecosystem integrations such as Rust <code>#[verifies(...)]</code> discovery when you want test evidence to flow into the graph automatically.</p>
-        <div class="bento-snippet" aria-hidden="true">
-          <code><span class="c-muted">// supersigil:</span> <span class="c-teal">auth:valid-creds</span></code>
-        </div>
-      </div>
-
-      <div class="bento-card bento-editor reveal" style="--reveal-delay: 0.24s">
-        <div class="bento-label">Editor Integration</div>
-        <h3>Live feedback as you write specs.</h3>
-        <p><a href="/supersigil/guides/editor-setup/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">VS Code and IntelliJ extensions</a> surface diagnostics, autocomplete, hover docs, go-to-definition, and a Spec Explorer sidebar through the LSP server.</p>
-        <div class="bento-snippet" aria-hidden="true">
-          <code><span class="c-gold">[err]</span> criterion <span class="c-teal">`req-1-1`</span> has no verification evidence</code>
         </div>
       </div>
     </div>
@@ -79,19 +77,18 @@
   }
   .bento {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     grid-template-rows: auto auto;
     gap: 1.25rem;
     margin-top: 3rem;
     grid-template-areas:
-      "graph ai      verify"
-      "graph rust    editor";
+      "graph  editor"
+      "ai     verify";
   }
   .bento-graph    { grid-area: graph; }
+  .bento-editor   { grid-area: editor; }
   .bento-ai       { grid-area: ai; }
   .bento-verify   { grid-area: verify; }
-  .bento-rust     { grid-area: rust; }
-  .bento-editor   { grid-area: editor; }
 
   .bento-card {
     padding: 2rem;
@@ -159,4 +156,42 @@
   .graph-root  { fill: var(--gold); }
   .graph-mid   { fill: var(--teal); }
   .graph-leaf  { fill: var(--text-muted); }
+  .bento-preview-mock {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .bento-mock-criterion {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--teal);
+    border-radius: 4px;
+    font-size: 0.76rem;
+  }
+  .bento-mock-criterion code {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+  .bento-mock-badge {
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    text-transform: capitalize;
+  }
+  .bento-mock-badge--verified {
+    background: #22c55e;
+    color: #fff;
+  }
+  .bento-mock-badge--unverified {
+    background: #94a3b8;
+    color: #fff;
+  }
+  :global([data-theme='light']) .bento-mock-badge--verified {
+    background: #16a34a;
+  }
 </style>

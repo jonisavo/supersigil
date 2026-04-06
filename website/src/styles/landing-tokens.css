@@ -280,16 +280,20 @@ body.js-ready .reveal.visible {
 @media (max-width: 900px) {
   .problem-grid,
   .audience-grid { grid-template-columns: 1fr; }
-  .workflow-panels { grid-template-columns: 1fr; }
-  .examples-panels { grid-template-columns: 1fr; }
+  .workflow-panels {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "spec"
+      "term"
+      "preview";
+  }
   .bento {
     grid-template-columns: 1fr;
     grid-template-areas:
       "graph"
+      "editor"
       "ai"
-      "verify"
-      "examples"
-      "rust";
+      "verify";
   }
   .nav-links { gap: 1rem; }
 }

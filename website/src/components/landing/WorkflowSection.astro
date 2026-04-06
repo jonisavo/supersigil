@@ -1,20 +1,19 @@
 ---
-// WorkflowSection — code panel + terminal panel
+// WorkflowSection — 3-panel layout: spec + terminal + rendered preview
 ---
 
 <section class="workflow">
   <div class="container">
     <p class="section-label reveal">How it works</p>
-    <h2 class="section-title reveal">Write the contract. Verify the change.</h2>
+    <h2 class="section-title reveal">Write the contract. See it come alive.</h2>
     <p class="section-sub reveal">
-      Criteria, evidence, and tracked files become machine-checkable edges.
-      Supersigil shows where coverage comes from and when code changes put a
-      spec back in question.
+      Write criteria in Markdown. Verify structural integrity in the
+      terminal. See live status in your editor preview.
     </p>
 
     <div class="workflow-panels">
-      <!-- Code editor panel -->
-      <div class="panel reveal" style="--reveal-delay: 0.1s">
+      <!-- Spec editor panel (left, tall) -->
+      <div class="panel panel-spec reveal" style="--reveal-delay: 0.1s">
         <div class="panel-bar">
           <div class="panel-dots"><span></span><span></span><span></span></div>
           <span class="panel-title">auth/req/login.md</span>
@@ -34,25 +33,21 @@
   <span class="c-gold">&lt;Criterion</span> <span class="c-teal">id</span>=<span class="c-str">"valid-creds"</span><span class="c-gold">&gt;</span>
     WHEN a user submits valid credentials
     THE SYSTEM SHALL issue a session token
-    within 200ms
-    <span class="c-gold">&lt;VerifiedBy</span> <span class="c-teal">strategy</span>=<span class="c-str">"tag"</span> <span class="c-teal">tag</span>=<span class="c-str">"auth:valid-creds"</span> <span class="c-gold">/&gt;</span>
+    within 200ms.
   <span class="c-gold">&lt;/Criterion&gt;</span>
 
   <span class="c-gold">&lt;Criterion</span> <span class="c-teal">id</span>=<span class="c-str">"invalid-creds"</span><span class="c-gold">&gt;</span>
     WHEN a user submits invalid credentials
     THE SYSTEM SHALL return a 401 response
-    with a generic error message
-    <span class="c-gold">&lt;VerifiedBy</span> <span class="c-teal">strategy</span>=<span class="c-str">"tag"</span> <span class="c-teal">tag</span>=<span class="c-str">"auth:invalid-creds"</span> <span class="c-gold">/&gt;</span>
+    with a generic error message.
   <span class="c-gold">&lt;/Criterion&gt;</span>
 <span class="c-gold">&lt;/AcceptanceCriteria&gt;</span>
-<span class="c-muted">```</span>
-
-<span class="c-gold">&lt;TrackedFiles</span> <span class="c-teal">paths</span>=<span class="c-str">"src/auth/**/*.rs, tests/auth/**/*.rs"</span> <span class="c-gold">/&gt;</span></code></pre>
+<span class="c-muted">```</span></code></pre>
         </div>
       </div>
 
-      <!-- Terminal panel -->
-      <div class="panel reveal" style="--reveal-delay: 0.2s">
+      <!-- Terminal panel (right top) -->
+      <div class="panel panel-term reveal" style="--reveal-delay: 0.2s">
         <div class="panel-bar">
           <div class="panel-dots"><span></span><span></span><span></span></div>
           <span class="panel-title">Terminal</span>
@@ -61,11 +56,53 @@
           <pre><code><span class="c-muted">$</span> <span class="c-text">supersigil verify</span>
 
 <span class="c-teal">auth/req/login</span>
-  <span class="c-red"><b>&#10006;</b></span> <span class="c-muted">[missing_verification_evidence]</span> Criterion "invalid-creds": no matching evidence
-  <span class="c-gold"><b>&#9888;</b></span> <span class="c-muted">[tracked_file_changed]</span> tracked file changed: src/auth/session.rs
+  <span class="c-red"><b>&#10006;</b></span> <span class="c-muted">[missing_verification_evidence]</span>
+     Criterion "invalid-creds": no matching evidence
+  <span class="c-gold"><b>&#9888;</b></span> <span class="c-muted">[tracked_file_changed]</span>
+     tracked file changed: src/auth/session.rs
 
-<span class="c-red"><b>1</b></span> error(s), <span class="c-gold"><b>1</b></span> warning(s), 0 info(s) across <b>3</b> documents
-<span class="c-muted">hint: Run `supersigil refs` to list criterion refs you can copy into evidence.</span></code></pre>
+<span class="c-red"><b>1</b></span> error, <span class="c-gold"><b>1</b></span> warning across <b>3</b> documents</code></pre>
+        </div>
+      </div>
+
+      <!-- Rendered preview panel (right bottom) -->
+      <div class="panel panel-preview reveal" style="--reveal-delay: 0.3s">
+        <div class="panel-bar">
+          <div class="panel-dots"><span></span><span></span><span></span></div>
+          <span class="panel-title">Editor Preview</span>
+        </div>
+        <div class="panel-body preview-panel">
+          <div class="preview-criterion">
+            <div class="preview-criterion-header">
+              <span class="preview-badge preview-badge--verified">Verified</span>
+              <code class="preview-criterion-id">valid-creds</code>
+            </div>
+            <p class="preview-criterion-body">WHEN a user submits valid credentials THE SYSTEM SHALL issue a session token within 200ms</p>
+            <span class="preview-evidence-toggle" aria-hidden="true">
+              <span class="preview-toggle-arrow">&#9654;</span> Evidence (1)
+            </span>
+            <div class="preview-evidence-list">
+              <div class="preview-evidence-item">
+                <code class="preview-evidence-link">test_session_issued_for_valid_creds</code>
+                <span class="preview-evidence-meta">
+                  <span class="preview-tag">unit</span>
+                  <span class="preview-tag">rust-attribute</span>
+                </span>
+                <span class="preview-evidence-file">tests/auth/login.rs:28</span>
+              </div>
+            </div>
+          </div>
+          <div class="preview-criterion">
+            <div class="preview-criterion-header">
+              <span class="preview-badge preview-badge--unverified">Unverified</span>
+              <code class="preview-criterion-id">invalid-creds</code>
+            </div>
+            <p class="preview-criterion-body">WHEN a user submits invalid credentials THE SYSTEM SHALL return a 401 response with a generic error message</p>
+          </div>
+          <div class="preview-link-pill">
+            <span class="preview-pill-label">Implements</span>
+            <span class="preview-pill-ref">auth/design/login</span>
+          </div>
         </div>
       </div>
     </div>
@@ -80,7 +117,136 @@
   .workflow-panels {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    grid-template-rows: auto auto;
+    gap: 1.25rem;
     margin-top: 3rem;
+    grid-template-areas:
+      "spec term"
+      "spec preview";
+  }
+  .panel-spec    { grid-area: spec; }
+  .panel-term    { grid-area: term; }
+  .panel-preview { grid-area: preview; }
+
+  /* --- Rendered preview styles --- */
+  .preview-panel {
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+  .preview-criterion {
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--teal);
+    border-radius: 6px;
+    margin-bottom: 0.6rem;
+  }
+  .preview-criterion-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+  .preview-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+  }
+  .preview-badge--verified {
+    background: #22c55e;
+    color: #fff;
+  }
+  .preview-badge--unverified {
+    background: #94a3b8;
+    color: #fff;
+  }
+  .preview-criterion-id {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .preview-criterion-body {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    margin-bottom: 0.4rem;
+  }
+  .preview-evidence-toggle {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .preview-toggle-arrow {
+    font-size: 0.55rem;
+    display: inline-block;
+    transform: rotate(90deg);
+  }
+  .preview-evidence-list {
+    margin-top: 0.35rem;
+    padding-left: 0.75rem;
+  }
+  .preview-evidence-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+  }
+  .preview-evidence-link {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--teal);
+  }
+  .preview-evidence-meta {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .preview-tag {
+    font-size: 0.62rem;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--border-hover);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+  .preview-evidence-file {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+  .preview-link-pill {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    font-size: 0.72rem;
+  }
+  .preview-pill-label {
+    padding: 0.2rem 0.5rem;
+    background: var(--bg-surface);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    border-right: 1px solid var(--border);
+  }
+  .preview-pill-ref {
+    padding: 0.2rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--teal);
+  }
+
+  /* Light theme adjustments */
+  :global([data-theme='light']) .preview-badge--verified {
+    background: #16a34a;
+  }
+  :global([data-theme='light']) .preview-badge--unverified {
+    background: #94a3b8;
   }
 </style>
