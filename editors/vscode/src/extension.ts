@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { accessSync, constants, existsSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import * as vscode from "vscode";
@@ -35,13 +35,25 @@ function resolveServerBinary(): string | undefined {
   const configuredPath = config.get<string | null>("serverPath", null);
 
   if (configuredPath) {
-    if (existsSync(configuredPath)) {
+    try {
+      const stat = statSync(configuredPath);
+      if (!stat.isFile()) {
+        vscode.window.showErrorMessage(
+          `Supersigil LSP server at configured path: ${configuredPath} (not a file)`,
+        );
+        return undefined;
+      }
+      accessSync(configuredPath, constants.X_OK);
       return configuredPath;
+    } catch {
+      const reason = existsSync(configuredPath)
+        ? "path exists but is not executable"
+        : "file not found";
+      vscode.window.showErrorMessage(
+        `Supersigil LSP server at configured path: ${configuredPath} (${reason})`,
+      );
+      return undefined;
     }
-    vscode.window.showErrorMessage(
-      `Supersigil LSP server not found at configured path: ${configuredPath}`,
-    );
-    return undefined;
   }
 
   try {
