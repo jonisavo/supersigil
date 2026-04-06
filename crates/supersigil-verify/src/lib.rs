@@ -6,7 +6,6 @@ pub mod document_components;
 mod error;
 pub(crate) mod explicit_evidence;
 pub mod git;
-pub(crate) mod hooks;
 pub mod plugins;
 mod report;
 mod rules;
@@ -24,7 +23,6 @@ pub use affected::AffectedDocument;
 pub use artifact_graph::{ArtifactGraph, build_artifact_graph};
 pub use error::VerifyError;
 pub use explicit_evidence::extract_explicit_evidence;
-pub use hooks::run_hooks;
 pub use report::{
     EvidenceReportEntry, EvidenceSummary, Finding, FindingDetails, ReportSeverity, ResultStatus,
     RuleName, Summary, TargetCoverage, VerificationReport, format_json, format_markdown,
@@ -86,11 +84,10 @@ pub fn scoped_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<Str
     }
 }
 
-/// Run all structural verification rules (everything except coverage and hooks).
+/// Run all structural verification rules (everything except coverage).
 ///
 /// Returns raw findings without severity resolution or filtering. The caller is
-/// responsible for resolving severities, running hooks, and filtering `Off`
-/// findings.
+/// responsible for resolving severities and filtering `Off` findings.
 ///
 /// Rules included:
 /// - test mapping (`file_globs`, `tags`)
@@ -213,7 +210,6 @@ pub fn verify(
         findings.push(finding);
     }
     Ok(finalize_report(
-        config,
         doc_ids.len(),
         findings,
         Some(artifact_graph),
@@ -222,30 +218,15 @@ pub fn verify(
 
 /// Build the final verification report after callers have assembled findings.
 ///
-/// This centralizes shared report policy: post-verify hooks run against the
-/// interim report, `Off` findings are filtered, summary counts are rebuilt, and
-/// evidence summary metadata is attached when artifact evidence exists.
+/// This centralizes shared report policy: `Off` findings are filtered, summary
+/// counts are rebuilt, and evidence summary metadata is attached when artifact
+/// evidence exists.
 #[must_use]
 pub fn finalize_report(
-    config: &Config,
     doc_count: usize,
     mut findings: Vec<Finding>,
     artifact_graph: Option<&ArtifactGraph<'_>>,
 ) -> VerificationReport {
-    if !config.hooks.post_verify.is_empty() {
-        let interim = VerificationReport::new(
-            findings.clone(),
-            Summary::from_findings(doc_count, &findings),
-            None,
-        );
-        let interim_json = serde_json::to_string(&interim).unwrap_or_default();
-        findings.extend(hooks::run_hooks(
-            &config.hooks.post_verify,
-            &interim_json,
-            config.hooks.timeout_seconds,
-        ));
-    }
-
     findings.retain(|f| f.effective_severity != ReportSeverity::Off);
 
     let summary = Summary::from_findings(doc_count, &findings);
@@ -437,8 +418,6 @@ mod verify_tests {
 
     #[test]
     fn finalize_report_filters_off_findings() {
-        let config = test_config();
-
         let mut kept = Finding::new(
             RuleName::InvalidIdPattern,
             Some("req/auth".into()),
@@ -455,7 +434,7 @@ mod verify_tests {
         );
         filtered.effective_severity = ReportSeverity::Off;
 
-        let report = finalize_report(&config, 1, vec![kept.clone(), filtered], None);
+        let report = finalize_report(1, vec![kept.clone(), filtered], None);
 
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].message, kept.message);
@@ -480,10 +459,9 @@ mod verify_tests {
             )],
         )];
         let graph = build_test_graph(docs);
-        let config = test_config();
         let artifact_graph = make_artifact_graph_with_evidence(&graph);
 
-        let report = finalize_report(&config, 1, Vec::new(), Some(&artifact_graph));
+        let report = finalize_report(1, Vec::new(), Some(&artifact_graph));
 
         assert!(
             report.evidence_summary.is_some(),

@@ -31,7 +31,7 @@ called out in the design/tasks docs rather than normalized here.
   `tests`, and optional `isolated`.
 - **Shared_Workspace_Config**: Top-level config sections such as
   `id_pattern`, document/component definitions, verification settings,
-  ecosystem settings, hooks, and test-results settings that apply across the
+  ecosystem settings, and test-results settings that apply across the
   whole workspace.
 - **Project_Membership**: The project name assigned to a document in
   Multi_Project_Mode based on the document file path.

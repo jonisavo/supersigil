@@ -223,43 +223,6 @@ pub struct SkillsConfig {
 }
 
 // ---------------------------------------------------------------------------
-// HooksConfig
-// ---------------------------------------------------------------------------
-
-/// Default hook timeout, chosen to accommodate slow test runners while
-/// failing promptly on hung processes.
-const DEFAULT_HOOK_TIMEOUT_SECS: u64 = 30;
-
-fn default_timeout() -> u64 {
-    DEFAULT_HOOK_TIMEOUT_SECS
-}
-
-/// Hook configuration for external process hooks.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HooksConfig {
-    #[serde(default)]
-    pub post_verify: Vec<String>,
-    #[serde(default)]
-    pub post_lint: Vec<String>,
-    #[serde(default)]
-    pub export: Vec<String>,
-    #[serde(default = "default_timeout")]
-    pub timeout_seconds: u64,
-}
-
-impl Default for HooksConfig {
-    fn default() -> Self {
-        Self {
-            post_verify: Vec::new(),
-            post_lint: Vec::new(),
-            export: Vec::new(),
-            timeout_seconds: default_timeout(),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // TestResultsConfig
 // ---------------------------------------------------------------------------
 
@@ -409,9 +372,6 @@ pub struct Config {
     /// Ecosystem plugin declarations.
     #[serde(default)]
     pub ecosystem: EcosystemConfig,
-    /// Hook configuration.
-    #[serde(default)]
-    pub hooks: HooksConfig,
     /// Test results configuration.
     #[serde(default)]
     pub test_results: TestResultsConfig,

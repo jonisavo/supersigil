@@ -13,7 +13,7 @@ verification spec. It replaces the stale implementation-history tasks doc with
 current debt in the ArtifactGraph-era verification surface.
 
 ```supersigil-xml
-<Task id="task-1" status="done" implements="verification-engine/req#req-1-1, verification-engine/req#req-1-4, verification-engine/req#req-2-4, verification-engine/req#req-3-1, verification-engine/req#req-4-4, verification-engine/req#req-5-3, verification-engine/req#req-6-3, verification-engine/req#req-7-1, verification-engine/req#req-7-2, verification-engine/req#req-7-3">
+<Task id="task-1" status="done" implements="verification-engine/req#req-1-1, verification-engine/req#req-1-4, verification-engine/req#req-2-4, verification-engine/req#req-3-1, verification-engine/req#req-4-4, verification-engine/req#req-5-3, verification-engine/req#req-6-3, verification-engine/req#req-7-1, verification-engine/req#req-7-2">
   Recover the current verification behavior into project-local req, design, and
   tasks docs under `crates/supersigil-verify/specs/verification-engine/`, and
   retire the stale root-level verification docs.

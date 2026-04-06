@@ -291,14 +291,6 @@ are inspectable without reimplementing the pipeline.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
   </Criterion>
   <Criterion id="req-7-3">
-    Post-verify hooks SHALL run sequentially as shell commands, receive the
-    interim report JSON on stdin, parse stdout as JSON `[level, message]`
-    pairs into `hook_output` findings, and surface invalid JSON, spawn errors,
-    non-zero exit, and timeout conditions as `hook_failure` findings with
-    output truncated to 64 KiB.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/hooks.rs, crates/supersigil-verify/src/report.rs" />
-  </Criterion>
-  <Criterion id="req-7-4">
     THE `status` command SHALL interpret its ID argument using the same
     disambiguation as `plan`: an exact document ID SHALL produce per-document
     detail, a non-exact string matching at least one document ID by prefix

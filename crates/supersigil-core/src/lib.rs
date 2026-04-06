@@ -16,10 +16,9 @@ mod xml;
 pub use component_defs::ComponentDefs;
 pub use config::{
     AttributeDef, ComponentDef, Config, DiagnosticsTier, DocumentTypeDef, DocumentationConfig,
-    DocumentsConfig, EcosystemConfig, HooksConfig, JsEcosystemConfig, KNOWN_PLUGINS, KNOWN_RULES,
-    LspConfig, ProjectConfig, RepositoryConfig, RepositoryProvider, RustEcosystemConfig,
-    RustProjectScope, RustValidationPolicy, Severity, SkillsConfig, TestResultsConfig,
-    VerifyConfig, load_config,
+    DocumentsConfig, EcosystemConfig, JsEcosystemConfig, KNOWN_PLUGINS, KNOWN_RULES, LspConfig,
+    ProjectConfig, RepositoryConfig, RepositoryProvider, RustEcosystemConfig, RustProjectScope,
+    RustValidationPolicy, Severity, SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
 };
 pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
 pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};

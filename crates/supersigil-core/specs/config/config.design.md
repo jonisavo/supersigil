@@ -47,7 +47,6 @@ pub struct Config {
     pub components: HashMap<String, ComponentDef>,
     pub verify: VerifyConfig,
     pub ecosystem: EcosystemConfig,
-    pub hooks: HooksConfig,
     pub test_results: TestResultsConfig,
 }
 

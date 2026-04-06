@@ -10,9 +10,9 @@ title: "Config"
 
 This spec recovers the current configuration behavior implemented in
 `supersigil-core`. It covers TOML loading, single-project and multi-project
-mode validation, document and component definition types, ecosystem and hook
-configuration, ID-pattern validation, and the shared list-splitting utility
-used downstream by graph and verification code.
+mode validation, document and component definition types, ecosystem and
+test-result configuration, ID-pattern validation, and the shared
+list-splitting utility used downstream by graph and verification code.
 
 The config domain owns the typed model for `supersigil.toml`, but not every
 runtime invariant is enforced at `load_config` time. Some invariants, such as
@@ -111,7 +111,7 @@ configuration model.
 </AcceptanceCriteria>
 ```
 
-## Requirement 3: Verification, Ecosystem, Hook, and Test-Result Settings
+## Requirement 3: Verification, Ecosystem, Test-Result, and Documentation Settings
 
 As a workspace maintainer, I want top-level configuration for verification and
 integration behavior, so that one `Config` value can drive the rest of the
@@ -138,17 +138,11 @@ toolchain.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-3-4">
-    THE hook config SHALL parse ordered command lists for `post_verify`,
-    `post_lint`, and `export`, and SHALL default `timeout_seconds` to `30`
-    when omitted.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
-  </Criterion>
-  <Criterion id="req-3-5">
     THE `test_results` config SHALL store configured formats and paths and
     SHALL default both lists to empty when omitted.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
-  <Criterion id="req-3-6">
+  <Criterion id="req-3-5">
     THE Config_Loader SHALL parse an optional `[documentation.repository]`
     section with required `provider` (one of: github, gitlab, bitbucket, gitea)
     and `repo` fields, plus optional `host` and `main_branch` fields. Unknown

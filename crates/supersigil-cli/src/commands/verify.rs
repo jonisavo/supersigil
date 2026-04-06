@@ -24,7 +24,6 @@ use crate::plugins;
 /// Orchestrates the multi-phase pipeline:
 /// 1. Plugin evidence + structural checks
 /// 2. Coverage check + report assembly
-/// 3. Hooks
 ///
 /// # Errors
 ///

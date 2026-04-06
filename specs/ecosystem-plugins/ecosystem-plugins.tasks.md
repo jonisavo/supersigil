@@ -82,7 +82,7 @@ the split from the old root monolith into crate-local domains.
   single-crate manifests, missing repository field, and malformed TOML.
 </Task>
 
-<Task id="task-11" status="pending" depends="task-9" implements="config/req#req-3-6">
+<Task id="task-11" status="pending" depends="task-9" implements="config/req#req-3-5">
   Add `DocumentationConfig` and `RepositoryConfig` to the `Config` model in
   `supersigil-core`. Parse `[documentation.repository]` with `provider`,
   `repo`, optional `host`, and optional `main_branch`. Reject unknown provider

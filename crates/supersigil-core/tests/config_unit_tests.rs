@@ -5,8 +5,7 @@
 
 use serde::Deserialize;
 use supersigil_core::{
-    Config, DocumentationConfig, EcosystemConfig, HooksConfig, JsEcosystemConfig, Severity,
-    VerifyConfig,
+    Config, DocumentationConfig, EcosystemConfig, JsEcosystemConfig, Severity, VerifyConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,10 +25,6 @@ fn minimal_config_paths_only() {
     assert!(config.components.is_empty());
     assert_eq!(config.verify, VerifyConfig::default());
     assert_eq!(config.ecosystem.plugins, vec!["rust".to_string()]);
-    assert_eq!(config.hooks.timeout_seconds, 30);
-    assert!(config.hooks.post_verify.is_empty());
-    assert!(config.hooks.post_lint.is_empty());
-    assert!(config.hooks.export.is_empty());
     assert!(config.test_results.formats.is_empty());
     assert!(config.test_results.paths.is_empty());
 }
@@ -42,15 +37,6 @@ fn minimal_config_paths_only() {
 fn ecosystem_defaults_to_rust_plugin() {
     let eco = EcosystemConfig::default();
     assert_eq!(eco.plugins, vec!["rust".to_string()]);
-}
-
-#[test]
-fn hooks_defaults() {
-    let hooks = HooksConfig::default();
-    assert_eq!(hooks.timeout_seconds, 30);
-    assert!(hooks.post_verify.is_empty());
-    assert!(hooks.post_lint.is_empty());
-    assert!(hooks.export.is_empty());
 }
 
 #[test]
@@ -99,10 +85,6 @@ unknown_key = "oops"
         "error should mention unknown field: {err_msg}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Single-project config (Req 12.1, 12.6, 12.7)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn single_project_with_paths_and_tests() {
@@ -301,50 +283,6 @@ fn verify_config_defaults_when_absent() {
 }
 
 // ---------------------------------------------------------------------------
-// Hooks config (Req 17.1-17.4)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn hooks_with_timeout() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[hooks]
-post_verify = ["cargo test"]
-post_lint = ["cargo clippy"]
-export = ["cargo doc"]
-timeout_seconds = 60
-"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.hooks.post_verify, vec!["cargo test".to_string()]);
-    assert_eq!(config.hooks.post_lint, vec!["cargo clippy".to_string()]);
-    assert_eq!(config.hooks.export, vec!["cargo doc".to_string()]);
-    assert_eq!(config.hooks.timeout_seconds, 60);
-}
-
-#[test]
-fn hooks_without_timeout_defaults_to_30() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[hooks]
-post_verify = ["cargo test"]
-"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.hooks.timeout_seconds, 30);
-    assert_eq!(config.hooks.post_verify, vec!["cargo test".to_string()]);
-    assert!(config.hooks.post_lint.is_empty());
-    assert!(config.hooks.export.is_empty());
-}
-
-#[test]
-fn no_hooks_section_uses_defaults() {
-    let toml_str = r#"paths = ["specs/**/*.md"]"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.hooks, HooksConfig::default());
-}
-
-// ---------------------------------------------------------------------------
 // Test results config (Req 18.1, 18.2)
 // ---------------------------------------------------------------------------
 
@@ -447,18 +385,6 @@ fn config_toml_round_trip_basic() {
 // ---------------------------------------------------------------------------
 // deny_unknown_fields at nested levels
 // ---------------------------------------------------------------------------
-
-#[test]
-fn unknown_key_in_hooks_rejected() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[hooks]
-post_verify = ["cargo test"]
-unknown_hook_field = true
-"#;
-    toml::from_str::<Config>(toml_str).unwrap_err();
-}
 
 #[test]
 fn unknown_key_in_ecosystem_rejected() {
@@ -1211,7 +1137,7 @@ diagnostics = "full"
 
 // ===========================================================================
 // Task 11: DocumentationConfig and RepositoryConfig tests
-// Requirements: config/req#req-3-6
+// Requirements: config/req#req-3-5
 // ===========================================================================
 
 // ---------------------------------------------------------------------------

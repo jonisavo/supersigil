@@ -144,7 +144,7 @@ findings = { required = false, list = true }
 | `attributes.<name>.required` | bool | Whether the attribute must be present |
 | `attributes.<name>.list` | bool | Whether the attribute accepts comma-separated values |
 
-Custom components participate in structural checking (known component names, required attributes) but do not create graph edges unless configured via hooks.
+Custom components participate in structural checking (known component names, required attributes) but do not create graph edges.
 
 ## Documentation
 
@@ -195,22 +195,6 @@ test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 
 The JS plugin respects `.gitignore` files automatically, so `node_modules`,
 `dist`, and other ignored paths are excluded without extra configuration.
-
-## Hooks
-
-External commands that run after verification:
-
-```toml title="supersigil.toml"
-[hooks]
-post_verify = ["my-custom-check", "another-script"]
-timeout_seconds = 30
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `post_verify` | string[] | `[]` | Commands run after `supersigil verify` |
-| `export` | string[] | `[]` | Export hook commands |
-| `timeout_seconds` | integer | `30` | Max execution time per hook |
 
 ## LSP
 
@@ -269,9 +253,6 @@ plugins = ["rust"]
 
 [ecosystem.rust]
 validation = "dev"
-
-[hooks]
-post_verify = ["python scripts/check_naming.py"]
 
 [skills]
 path = ".agents/skills"

@@ -16,7 +16,7 @@ The subsystem spans two crates: `supersigil-parser` (front matter extraction, MD
 - **Extra_Metadata**: A `HashMap<String, serde_yaml::Value>` field on `SpecDocument` containing all YAML front matter keys outside the `supersigil:` namespace, preserved as opaque data.
 - **ExtractedComponent**: A struct representing a single MDX component with its name, attributes, children, body text, and source position.
 - **AttributeValue**: A raw `String` as extracted from the MDX source. The parser stores all attribute values as strings. List splitting (for attributes like `refs`, `paths`) is deferred to downstream consumers using component definitions from config.
-- **Config**: The output struct of the Config_Loader containing project paths, test paths, document type definitions, component definitions, verification rule overrides, ecosystem plugin declarations, and hook configuration.
+- **Config**: The output struct of the Config_Loader containing project paths, test paths, document type definitions, component definitions, verification rule overrides, ecosystem plugin declarations, and test-results configuration.
 - **BOM**: Byte Order Mark (U+FEFF), a Unicode character that may appear at the start of a file.
 - **CRLF**: Carriage Return + Line Feed (`\r\n`), a Windows-style line ending.
 - **Expression_Attribute**: A JSX expression attribute using `{...}` syntax, which Supersigil rejects.
@@ -200,17 +200,6 @@ The subsystem spans two crates: `supersigil-parser` (front matter extraction, MD
 1. WHEN the config file contains an `[ecosystem]` section with a `plugins` list, THE Config_Loader SHALL store the list of plugin identifiers.
 2. WHEN no `[ecosystem]` section is present, THE Config_Loader SHALL default to `plugins = ["rust"]` (the built-in Rust plugin is active by default).
 3. WHEN the config file explicitly sets `plugins = []`, THE Config_Loader SHALL store an empty plugin list, disabling all plugins including the built-in Rust plugin.
-
-### Requirement 17: Hook Configuration
-
-**User Story:** As a developer, I want to configure external process hooks in config, so that custom verification logic can run after built-in checks.
-
-#### Acceptance Criteria
-
-1. WHEN the config file contains a `[hooks]` section, THE Config_Loader SHALL parse the `post_verify`, `post_lint`, and `export` fields as ordered lists of command strings.
-2. WHEN the `[hooks]` section includes a `timeout_seconds` field, THE Config_Loader SHALL store the timeout value.
-3. WHEN the `[hooks]` section omits `timeout_seconds`, THE Config_Loader SHALL default the timeout to 30 seconds.
-4. WHEN no `[hooks]` section is present, THE Config_Loader SHALL use empty hook lists and the default timeout.
 
 ### Requirement 18: Test Results Configuration
 

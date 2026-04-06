@@ -15,12 +15,12 @@ runtime dependencies.
 ## Decision
 
 ```supersigil-xml
-<Decision id="rust-single-binary" standalone="Project-level technology choice with no corresponding requirement">
-  Supersigil is implemented in Rust for single-binary distribution, fast
-  filesystem traversal, native Markdown parsing via the `markdown` crate,
-  and XML parsing via `quick-xml`.
-  Pluggability is handled via external process hooks (stdin/stdout JSON),
-  avoiding the need for a plugin runtime.
+  <Decision id="rust-single-binary" standalone="Project-level technology choice with no corresponding requirement">
+    Supersigil is implemented in Rust for single-binary distribution, fast
+    filesystem traversal, native Markdown parsing via the `markdown` crate,
+    and XML parsing via `quick-xml`.
+    Extensibility is handled through built-in ecosystem plugins, avoiding the
+    need for a general plugin runtime in v1.
 
   <Rationale>
     A single binary with no runtime dependencies simplifies installation
@@ -29,9 +29,9 @@ runtime dependencies.
     large workspaces completes in seconds. Native Markdown parsing via
     `markdown-rs` extracts fenced component blocks, while `quick-xml`
     parses the XML component structure within them — both are pure Rust,
-    avoiding any Node.js runtime dependency. External process
-    hooks for plugins keep the core binary lean while allowing ecosystem
-    extensions in any language.
+    avoiding any Node.js runtime dependency. Built-in ecosystem plugins
+    keep the core binary lean while still supporting language-aware
+    evidence discovery.
   </Rationale>
 
   <Alternative id="typescript-implementation" status="rejected">
@@ -55,5 +55,5 @@ runtime dependencies.
 Distribution is a single binary per platform. The Rust ecosystem provides
 the Markdown parser (`markdown-rs`), the XML parser (`quick-xml`), and
 the proc-macro infrastructure for `#[verifies]`. The cost is a steeper
-contribution barrier for non-Rust developers, mitigated by the external
-process hook interface for plugins.
+contribution barrier for non-Rust developers, mitigated by the
+language-specific ecosystem plugins that integrate with common toolchains.

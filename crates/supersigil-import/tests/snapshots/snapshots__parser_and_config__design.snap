@@ -263,9 +263,6 @@ pub struct Config {
     /// Ecosystem plugin declarations.
     #[serde(default)]
     pub ecosystem: EcosystemConfig,
-    /// Hook configuration.
-    #[serde(default)]
-    pub hooks: HooksConfig,
     /// Test results configuration.
     #[serde(default)]
     pub test_results: TestResultsConfig,
@@ -351,32 +348,6 @@ fn default_plugins() -> Vec<String> {
 impl Default for EcosystemConfig {
     fn default() -> Self {
         Self { plugins: default_plugins() }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HooksConfig {
-    #[serde(default)]
-    pub post_verify: Vec<String>,
-    #[serde(default)]
-    pub post_lint: Vec<String>,
-    #[serde(default)]
-    pub export: Vec<String>,
-    #[serde(default = "default_timeout")]
-    pub timeout_seconds: u64,
-}
-
-fn default_timeout() -> u64 { 30 }
-
-impl Default for HooksConfig {
-    fn default() -> Self {
-        Self {
-            post_verify: Vec::new(),
-            post_lint: Vec::new(),
-            export: Vec::new(),
-            timeout_seconds: default_timeout(),
-        }
     }
 }
 
@@ -497,7 +468,7 @@ pub struct ListSplitError {
 
 ### Property 2: Config TOML round-trip
 
-*For any* valid `Config` value (in either single-project or multi-project mode, with arbitrary document types, component definitions, verification rules, ecosystem plugins, hooks, and test results), serializing it to TOML and deserializing the TOML back into a `Config` shall produce a value equal to the original. The `id_pattern` field is serialized as the pattern string and recompiled on deserialization.
+*For any* valid `Config` value (in either single-project or multi-project mode, with arbitrary document types, component definitions, verification rules, ecosystem plugins, and test results), serializing it to TOML and deserializing the TOML back into a `Config` shall produce a value equal to the original. The `id_pattern` field is serialized as the pattern string and recompiled on deserialization.
 
 ```supersigil-xml
 <References refs="parser-and-config/req#req-23-1, parser-and-config/req#req-11-1" />
@@ -569,7 +540,7 @@ pub struct ListSplitError {
 
 ### Property 11: Unknown TOML keys are rejected at all nesting levels
 
-*For any* valid `Config` TOML with an unknown key injected at any nesting level (top-level, inside `[documents]`, inside `[components.<Name>]`, inside `[projects.<name>]`, inside `[verify]`, inside `[hooks]`, inside `[ecosystem]`, inside `[test_results]`), the config loader shall emit an error identifying the unknown key.
+*For any* valid `Config` TOML with an unknown key injected at any nesting level (top-level, inside `[documents]`, inside `[components.<Name>]`, inside `[projects.<name>]`, inside `[verify]`, inside `[ecosystem]`, inside `[test_results]`), the config loader shall emit an error identifying the unknown key.
 
 ```supersigil-xml
 <References refs="parser-and-config/req#req-11-3" />
@@ -707,7 +678,7 @@ proptest! {
 **Generators needed:**
 
 - `arb_frontmatter()`: Generates `Frontmatter` with random `id` (non-empty alphanumeric + `/` + `-`), optional `doc_type`, optional `status`.
-- `arb_config()`: Generates valid `Config` in either single-project or multi-project mode with random document types, component definitions, verification rules, plugins, hooks, and test results. Must ensure mutual exclusivity invariant holds.
+- `arb_config()`: Generates valid `Config` in either single-project or multi-project mode with random document types, component definitions, verification rules, plugins, and test results. Must ensure mutual exclusivity invariant holds.
 - `arb_component_def()`: Generates `ComponentDef` with random attributes, each with random `required` and `list` flags.
 - `arb_mdx_document()`: Generates valid MDX strings with front matter and components for parser integration tests.
 - `arb_comma_separated()`: Generates comma-separated strings with varying whitespace for list splitting tests.
@@ -724,7 +695,7 @@ Unit tests cover specific examples, edge cases, and error conditions that comple
 - **HTML elements ignored**: `<div>`, `<p>`, `<table>` in MDX body do not produce components or unknown component errors.
 - **Inline JSX ignored**: `MdxJsxTextElement` nodes are not extracted.
 - **Minimal config example** (Req 24): `paths = ["specs/**/*.mdx"]` produces valid Config with all defaults.
-- **Default values**: Ecosystem plugins default to `["rust"]`, hooks timeout defaults to 30 (both via serde and `HooksConfig::default()`), tests defaults to `[]`.
+- **Default values**: Ecosystem plugins default to `["rust"]`, tests defaults to `[]`.
 - **Multi-project missing paths**: Project entry without `paths` field produces serde deserialization error.
 - **Built-in component definitions**: Verify the exact set of built-in components and their attribute schemas match the table in this design.
 - **Self-closing vs wrapping components**: Verify body_text is None for self-closing, populated for wrapping.

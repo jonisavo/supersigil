@@ -49,8 +49,7 @@ proptest! {
 
 use supersigil_core::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentationConfig, DocumentsConfig,
-    EcosystemConfig, HooksConfig, ProjectConfig, Severity, SkillsConfig, TestResultsConfig,
-    VerifyConfig,
+    EcosystemConfig, ProjectConfig, Severity, SkillsConfig, TestResultsConfig, VerifyConfig,
 };
 
 /// Generator for a non-empty identifier string (safe for TOML keys).
@@ -128,23 +127,6 @@ fn arb_verify_config() -> impl Strategy<Value = VerifyConfig> {
         .prop_map(|(strictness, rules)| VerifyConfig { strictness, rules })
 }
 
-fn arb_hooks_config() -> impl Strategy<Value = HooksConfig> {
-    (
-        prop::collection::vec("[a-z ]{1,15}", 0..2),
-        prop::collection::vec("[a-z ]{1,15}", 0..2),
-        prop::collection::vec("[a-z ]{1,15}", 0..2),
-        1u64..120,
-    )
-        .prop_map(
-            |(post_verify, post_lint, export, timeout_seconds)| HooksConfig {
-                post_verify,
-                post_lint,
-                export,
-                timeout_seconds,
-            },
-        )
-}
-
 fn arb_ecosystem_config() -> impl Strategy<Value = EcosystemConfig> {
     prop::collection::vec(arb_ident(), 0..4).prop_map(|plugins| EcosystemConfig {
         plugins,
@@ -180,7 +162,6 @@ fn arb_config() -> impl Strategy<Value = Config> {
         prop::collection::hash_map("[A-Z][a-z]{2,8}", arb_component_def(), 0..3),
         arb_verify_config(),
         arb_ecosystem_config(),
-        arb_hooks_config(),
         arb_test_results_config(),
     )
         .prop_map(
@@ -191,7 +172,6 @@ fn arb_config() -> impl Strategy<Value = Config> {
                 components,
                 verify,
                 ecosystem,
-                hooks,
                 test_results,
             )| {
                 Config {
@@ -203,7 +183,6 @@ fn arb_config() -> impl Strategy<Value = Config> {
                     components,
                     verify,
                     ecosystem,
-                    hooks,
                     test_results,
                     skills: SkillsConfig::default(),
                     documentation: DocumentationConfig::default(),
@@ -306,7 +285,6 @@ enum NestingLevel {
     TopLevel,
     Documents,
     Verify,
-    Hooks,
     Ecosystem,
     TestResults,
 }
@@ -316,7 +294,6 @@ fn arb_nesting_level() -> impl Strategy<Value = NestingLevel> {
         Just(NestingLevel::TopLevel),
         Just(NestingLevel::Documents),
         Just(NestingLevel::Verify),
-        Just(NestingLevel::Hooks),
         Just(NestingLevel::Ecosystem),
         Just(NestingLevel::TestResults),
     ]
@@ -331,9 +308,6 @@ fn inject_unknown_key(level: &NestingLevel, key: &str) -> String {
         }
         NestingLevel::Verify => {
             format!("paths = [\"specs/**/*.md\"]\n\n[verify]\n{key} = \"bad\"\n")
-        }
-        NestingLevel::Hooks => {
-            format!("paths = [\"specs/**/*.md\"]\n\n[hooks]\n{key} = \"bad\"\n")
         }
         NestingLevel::Ecosystem => {
             format!("paths = [\"specs/**/*.md\"]\n\n[ecosystem]\n{key} = \"bad\"\n")

@@ -52,5 +52,5 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> VerificationReport
         all_findings.push(finding);
     }
 
-    finalize_report(config, doc_count, all_findings, Some(&artifact_graph))
+    finalize_report(doc_count, all_findings, Some(&artifact_graph))
 }

@@ -100,8 +100,8 @@ repository-wide reshuffle.
 <Task id="task-8" status="done" implements="workspace-projects/req#req-1-5">
   Add a test verifying that Shared_Workspace_Config remains top-level in both
   modes. Assert that sections like `id_pattern`, `[documents]`, `[components]`,
-  `[verify]`, `[ecosystem]`, and `[hooks]` are parsed from the top level in
-  both single-project and multi-project configs, and that placing them inside a
+  `[verify]`, and `[ecosystem]` are parsed from the top level in both
+  single-project and multi-project configs, and that placing them inside a
   `[projects.*]` entry is rejected.
 </Task>
 

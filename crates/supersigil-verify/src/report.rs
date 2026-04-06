@@ -37,8 +37,6 @@ impl From<Severity> for ReportSeverity {
 /// Identifies a specific verification rule.
 ///
 /// The built-in rules correspond 1:1 with `KNOWN_RULES` in supersigil-core.
-/// `HookOutput` and `HookFailure` are synthetic rules emitted by hook
-/// execution rather than config-driven checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleName {
@@ -53,8 +51,6 @@ pub enum RuleName {
     StatusInconsistency,
     MissingRequiredComponent,
     InvalidVerifiedByPlacement,
-    HookOutput,
-    HookFailure,
     PluginDiscoveryFailure,
     PluginDiscoveryWarning,
     SequentialIdOrder,
@@ -70,7 +66,7 @@ pub enum RuleName {
 }
 
 impl RuleName {
-    /// The built-in rules (excludes hook-related synthetic rules).
+    /// The built-in verification rules.
     pub const ALL: &[Self] = &[
         Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
@@ -117,8 +113,6 @@ impl RuleName {
             Self::StatusInconsistency => "status_inconsistency",
             Self::MissingRequiredComponent => "missing_required_component",
             Self::InvalidVerifiedByPlacement => "invalid_verified_by_placement",
-            Self::HookOutput => "hook_output",
-            Self::HookFailure => "hook_failure",
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
             Self::PluginDiscoveryWarning => "plugin_discovery_warning",
             Self::SequentialIdOrder => "sequential_id_order",
@@ -141,7 +135,6 @@ impl RuleName {
         match self {
             Self::MissingVerificationEvidence
             | Self::MissingTestFiles
-            | Self::HookFailure
             | Self::InvalidVerifiedByPlacement => ReportSeverity::Error,
 
             Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
@@ -154,7 +147,6 @@ impl RuleName {
             | Self::InvalidIdPattern
             | Self::StatusInconsistency
             | Self::MissingRequiredComponent
-            | Self::HookOutput
             | Self::PluginDiscoveryFailure
             | Self::PluginDiscoveryWarning
             | Self::SequentialIdOrder
@@ -544,7 +536,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // default_severity for all 13 variants
+    // default_severity for built-in rule variants
     // -----------------------------------------------------------------------
 
     #[test]
@@ -552,7 +544,6 @@ mod tests {
         let expected = [
             (RuleName::MissingVerificationEvidence, ReportSeverity::Error),
             (RuleName::MissingTestFiles, ReportSeverity::Error),
-            (RuleName::HookFailure, ReportSeverity::Error),
             (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
@@ -562,7 +553,6 @@ mod tests {
             (RuleName::InvalidIdPattern, ReportSeverity::Warning),
             (RuleName::StatusInconsistency, ReportSeverity::Warning),
             (RuleName::MissingRequiredComponent, ReportSeverity::Warning),
-            (RuleName::HookOutput, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryFailure, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryWarning, ReportSeverity::Warning),
             (RuleName::SequentialIdOrder, ReportSeverity::Warning),

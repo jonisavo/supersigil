@@ -153,25 +153,7 @@ supersigil verify --format json
 supersigil verify --format markdown
 ```
 
-The JSON format includes the full findings list, summary counts, and optional evidence summary. It is the format received by post-verify hooks.
-
-## Post-Verify Hooks
-
-External scripts can receive the verification report and produce additional findings. Configure hooks in `supersigil.toml`:
-
-```toml title="supersigil.toml"
-[hooks]
-post_verify = ["python scripts/check_naming.py"]
-timeout_seconds = 30
-```
-
-Hooks receive the interim verification report as JSON on stdin. They return findings on stdout as a JSON array of `[level, message]` pairs:
-
-```json
-[["warning", "document auth/req/login uses non-standard naming"], ["error", "missing security review tag"]]
-```
-
-Hook findings are merged into the final report. Non-zero exit codes and timeouts produce `hook_failure` error findings.
+The JSON format includes the full findings list, summary counts, and optional evidence summary.
 
 ## Staleness Detection
 

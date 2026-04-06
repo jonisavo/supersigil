@@ -9,7 +9,7 @@ title: "Verification Engine"
 ```supersigil-xml
 <Implements refs="verification-engine/req" />
 <DependsOn refs="workspace-projects/design, document-graph/design, config/design" />
-<TrackedFiles paths="crates/supersigil-verify/src/lib.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-verify/src/severity.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/affected.rs, crates/supersigil-verify/src/hooks.rs, crates/supersigil-verify/src/rules.rs, crates/supersigil-verify/src/rules/**/*.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-cli/src/commands/status.rs, crates/supersigil-cli/src/commands/affected.rs" />
+<TrackedFiles paths="crates/supersigil-verify/src/lib.rs, crates/supersigil-verify/src/report.rs, crates/supersigil-verify/src/severity.rs, crates/supersigil-verify/src/artifact_graph.rs, crates/supersigil-verify/src/explicit_evidence.rs, crates/supersigil-verify/src/affected.rs, crates/supersigil-verify/src/rules.rs, crates/supersigil-verify/src/rules/**/*.rs, crates/supersigil-cli/src/plugins.rs, crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-cli/src/commands/status.rs, crates/supersigil-cli/src/commands/affected.rs" />
 ```
 
 ## Overview
@@ -17,7 +17,7 @@ title: "Verification Engine"
 The current verification design is split across two layers:
 
 - `supersigil-verify` owns rule execution, severity resolution, tracked-file
-  analysis, hook execution, report types, and report formatting.
+  analysis, report types, and report formatting.
 - `supersigil-cli` owns evidence assembly for the operator-facing commands:
   building the ArtifactGraph, surfacing plugin failures and evidence conflicts,
   and enriching the final report with Evidence_Summary data.
@@ -129,8 +129,7 @@ pub struct VerificationReport {
 
 - `ArtifactGraph::has_evidence(doc_id, target_id)` is the coverage rule's
   actual source of truth.
-- `RuleName` spans built-in configurable rules plus synthetic hook-related rule
-  names.
+- `RuleName` spans the built-in configurable verification rules.
 - `EvidenceSummary` is derived from the final ArtifactGraph, not from the raw
   report findings.
 
@@ -195,7 +194,7 @@ to a ref.
 - `crates/supersigil-verify/src/artifact_graph.rs`
   covers evidence deduplication and conflict detection.
 - `crates/supersigil-verify/src/rules/tests_rule.rs`,
-  `scan.rs`, `tracked.rs`, `hooks.rs`, and `affected.rs`
+  `scan.rs`, `tracked.rs`, and `affected.rs`
   cover the remaining built-in rule and query surfaces.
 - `crates/supersigil-cli/src/plugins.rs`,
   `commands/verify.rs`, and `commands/status.rs`

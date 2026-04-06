@@ -28,8 +28,8 @@
   - **Doctest evidence**: Parse `cargo test --doc` output so Rust
     doctests become first-class verification evidence.
 
-- **WASM plugins**: For verification rules that need more than
-  stdin/stdout hooks, WASM plugins (via Extism or similar) could
+- **WASM plugins**: For verification rules that need more than the
+  current built-in ecosystem plugins, WASM plugins (via Extism or similar) could
   provide sandboxed, cross-language extensibility. Not planned for v1.
 
 - **CI integrations**: First-party GitHub Action

@@ -312,7 +312,7 @@ fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
 /// When the ID argument doesn't match any document exactly but matches
 /// multiple documents by prefix, `status` should aggregate them into a
 /// project-style summary scoped to the matching documents.
-#[verifies("verification-engine/req#req-7-4")]
+#[verifies("verification-engine/req#req-7-3")]
 #[test]
 fn status_prefix_aggregates_matching_documents() {
     let tmp = TempDir::new().unwrap();
@@ -363,7 +363,7 @@ fn status_prefix_aggregates_matching_documents() {
 }
 
 /// Prefix status in terminal mode should display which prefix was used.
-#[verifies("verification-engine/req#req-7-4")]
+#[verifies("verification-engine/req#req-7-3")]
 #[test]
 fn status_prefix_terminal_shows_prefix_header() {
     let tmp = TempDir::new().unwrap();
@@ -387,7 +387,7 @@ fn status_prefix_terminal_shows_prefix_header() {
 
 /// When the ID argument matches nothing — neither exact nor prefix — the
 /// command should fail with a useful error message.
-#[verifies("verification-engine/req#req-7-4")]
+#[verifies("verification-engine/req#req-7-3")]
 #[test]
 fn status_no_match_fails_with_error() {
     let tmp = TempDir::new().unwrap();

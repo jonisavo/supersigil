@@ -46,7 +46,7 @@ Use your Rust skills while developing.
 - [x] 3. Implement Config types and deserialization
   - [x] 3.1 Write unit tests for Config types (TDD)
     - Test minimal config: `paths = ["specs/**/*.mdx"]` produces valid Config with all defaults (Req 24)
-    - Test default values: ecosystem plugins default to `["rust"]`, hooks timeout defaults to 30, tests defaults to `[]`
+    - Test default values: ecosystem plugins default to `["rust"]`, tests defaults to `[]`
     - Test `Severity` enum deserialization for `"off"`, `"warning"`, `"error"`
     - Test `deny_unknown_fields` rejects unknown keys at top level
     - Test single-project config with `paths` and optional `tests`
@@ -54,19 +54,18 @@ Use your Rust skills while developing.
     - Test `ProjectConfig` missing `paths` field produces serde error
     - Test document type definitions with status lists and required_components
     - Test component definitions with attributes (required, list flags), referenceable, target_component
-    - Test hooks config with and without timeout_seconds
     - Test test_results config
     - Test ecosystem config with explicit empty plugins list
-    - _Requirements: 11.1, 11.3, 12.1, 12.2, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 14.1, 14.2, 14.3, 15.1, 15.2, 16.1, 16.2, 16.3, 17.1, 17.2, 17.3, 17.4, 18.1, 18.2, 19.1, 19.2, 19.3, 19.4, 19.5, 24.1_
+    - _Requirements: 11.1, 11.3, 12.1, 12.2, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 14.1, 14.2, 14.3, 15.1, 15.2, 16.1, 16.2, 16.3, 18.1, 18.2, 19.1, 19.2, 19.3, 19.4, 19.5, 24.1_
 
   - [x] 3.2 Implement Config and all supporting types
-    - Implement `Config`, `ProjectConfig`, `DocumentsConfig`, `DocumentTypeDef`, `ComponentDef`, `AttributeDef`, `VerifyConfig`, `Severity`, `EcosystemConfig`, `HooksConfig`, `TestResultsConfig` with `Serialize`/`Deserialize` and `deny_unknown_fields`
-    - Implement `Default` for `EcosystemConfig` (plugins = `["rust"]`), `HooksConfig` (timeout = 30, empty lists), and other types with `#[serde(default)]`
-    - _Requirements: 11.1, 13.1, 14.1, 15.1, 16.1, 17.1, 18.1, 19.1_
+    - Implement `Config`, `ProjectConfig`, `DocumentsConfig`, `DocumentTypeDef`, `ComponentDef`, `AttributeDef`, `VerifyConfig`, `Severity`, `EcosystemConfig`, `TestResultsConfig` with `Serialize`/`Deserialize` and `deny_unknown_fields`
+    - Implement `Default` for `EcosystemConfig` (plugins = `["rust"]`) and other types with `#[serde(default)]`
+    - _Requirements: 11.1, 13.1, 14.1, 15.1, 16.1, 18.1, 19.1_
 
   - [x] 3.3 Write property test: Config TOML round-trip (Property 2)
     - **Property 2: Config TOML round-trip**
-    - Create `arb_config()` generator: valid Config in single-project or multi-project mode with random document types, component defs, verify rules, plugins, hooks, test results. Must ensure mutual exclusivity invariant.
+    - Create `arb_config()` generator: valid Config in single-project or multi-project mode with random document types, component defs, verify rules, plugins, and test results. Must ensure mutual exclusivity invariant.
     - Serialize to TOML, deserialize back, assert equality
     - **Validates: Requirements 23.1, 11.1**
 
