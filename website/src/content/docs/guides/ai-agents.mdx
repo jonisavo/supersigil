@@ -39,14 +39,16 @@ Any agent that can run shell commands and read JSON can integrate with Supersigi
 
 ## Agent Skills
 
-Supersigil ships four agent skills — structured guides that teach coding agents how to use the spec-driven workflow. Skills are installed to your project during `supersigil init` (or via `supersigil skills install`) and live in `.agents/skills/` by default.
+Supersigil ships six agent skills — structured guides that teach coding agents how to use the spec-driven workflow. Skills are installed to your project during `supersigil init` (or via `supersigil skills install`) and live in `.agents/skills/` by default.
 
-The four skills are:
+The six skills are:
 
 - **`feature-specification`** — How to author requirements, properties, design, and tasks documents using Supersigil's component grammar and the verify feedback loop.
 - **`feature-development`** — How to implement against existing specs using `plan`, `verify`, and test tagging.
 - **`spec-driven-development`** — The full end-to-end workflow from idea to verified implementation. Composes the specification and development skills.
 - **`retroactive-specification`** — How to reverse-engineer specs from existing code for brownfield projects.
+- **`refactoring`** — Restructure code while keeping specs, criteria, and verification evidence valid.
+- **`ci-review`** — Integrate Supersigil verification into CI pipelines and PR review workflows.
 
 Each skill is a self-contained directory with a `SKILL.md` entry point and optional reference files. Agents that support skill loading (Claude Code, Gemini CLI, etc.) can read these directly.
 
