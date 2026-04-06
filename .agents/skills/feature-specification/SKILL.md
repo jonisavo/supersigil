@@ -1,6 +1,6 @@
 ---
 name: feature-specification
-description: Default skill for authoring or repairing Supersigil specification documents: requirements, design docs, tasks, and ADRs. Use when turning an agreed feature idea or imported material into verifiable docs, refining acceptance criteria, or bringing specs to an implementation-ready state. Works alongside brainstorming and planning skills.
+description: "Default skill for authoring or repairing Supersigil specification documents: requirements, design docs, tasks, and ADRs. Use when turning an agreed feature idea or imported material into verifiable docs, refining acceptance criteria, or bringing specs to an implementation-ready state. Works alongside brainstorming and planning skills."
 ---
 
 # Feature Specification
