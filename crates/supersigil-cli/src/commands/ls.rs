@@ -20,6 +20,11 @@ struct DocEntry {
     path: String,
 }
 
+#[derive(Serialize)]
+struct LsOutput {
+    documents: Vec<DocEntry>,
+}
+
 /// Run the `ls` command: list documents with optional filters.
 ///
 /// # Errors
@@ -61,7 +66,7 @@ pub fn run(args: &LsArgs, config_path: &Path, color: ColorConfig) -> Result<(), 
     entries.sort_by(|a, b| a.id.cmp(&b.id));
 
     match args.format {
-        OutputFormat::Json => write_json(&entries)?,
+        OutputFormat::Json => write_json(&LsOutput { documents: entries })?,
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();

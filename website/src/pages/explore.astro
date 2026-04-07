@@ -101,7 +101,8 @@ import '../components/explore/styles.css';
         throw new Error(`Failed to load graph data: ${graphResponse.status} ${graphResponse.statusText}`);
       }
       const graphData = await graphResponse.json();
-      const renderData = renderResponse.ok ? await renderResponse.json() : [];
+      const renderJson = renderResponse.ok ? await renderResponse.json() : { documents: [] };
+      const renderData = renderJson.documents ?? renderJson;
       const repositoryInfo = {
         provider: 'github',
         repo: 'jonisavo/supersigil',

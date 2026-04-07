@@ -20,7 +20,10 @@ pub use config::{
     RepositoryConfig, RepositoryProvider, RustEcosystemConfig, RustProjectScope,
     RustValidationPolicy, Severity, SkillsConfig, TestResultsConfig, VerifyConfig, load_config,
 };
-pub use error::{ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute};
+pub use error::{
+    ComponentDefError, ConfigError, ListSplitError, ParseError, split_list_attribute,
+    suggest_similar,
+};
 pub use glob_util::{expand_glob, expand_globs, expand_globs_checked};
 pub use locate::{CONFIG_FILENAME, find_config};
 pub use refs::{is_valid_criterion_ref, split_criterion_ref};

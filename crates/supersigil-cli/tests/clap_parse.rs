@@ -93,17 +93,17 @@ fn parse_plan_with_id() {
     if let supersigil_cli::Command::Plan(args) = cli.command {
         assert_eq!(args.id_or_prefix, Some("auth/".into()));
         assert!(matches!(args.format, supersigil_cli::OutputFormat::Json));
-        assert!(!args.verbose);
+        assert!(!args.full);
     } else {
         panic!("expected Plan");
     }
 }
 
 #[test]
-fn parse_plan_verbose() {
-    let cli = Cli::parse_from(["supersigil", "plan", "--verbose"]);
+fn parse_plan_full() {
+    let cli = Cli::parse_from(["supersigil", "plan", "--full"]);
     if let supersigil_cli::Command::Plan(args) = cli.command {
-        assert!(args.verbose);
+        assert!(args.full);
         assert!(args.id_or_prefix.is_none());
     } else {
         panic!("expected Plan");
@@ -111,11 +111,11 @@ fn parse_plan_verbose() {
 }
 
 #[test]
-fn parse_plan_verbose_with_id() {
-    let cli = Cli::parse_from(["supersigil", "plan", "auth/", "--verbose"]);
+fn parse_plan_full_with_id() {
+    let cli = Cli::parse_from(["supersigil", "plan", "auth/", "--full"]);
     if let supersigil_cli::Command::Plan(args) = cli.command {
         assert_eq!(args.id_or_prefix, Some("auth/".into()));
-        assert!(args.verbose);
+        assert!(args.full);
     } else {
         panic!("expected Plan");
     }

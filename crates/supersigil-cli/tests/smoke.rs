@@ -62,7 +62,8 @@ fn dogfooding_pipeline() {
         .unwrap();
 
     assert!(ls_output.status.success());
-    let docs: Vec<serde_json::Value> = serde_json::from_slice(&ls_output.stdout).expect("ls JSON");
+    let ls_json: serde_json::Value = serde_json::from_slice(&ls_output.stdout).expect("ls JSON");
+    let docs = ls_json["documents"].as_array().expect("documents array");
     assert!(!docs.is_empty(), "expected imported docs to show in ls");
 
     // Step 5: context on first document should succeed

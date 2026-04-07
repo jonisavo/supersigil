@@ -44,13 +44,16 @@ fn render_multi_document_project_produces_json_array() {
 
     assert!(output.status.success(), "render should succeed");
 
-    let json: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).expect("should produce valid JSON array");
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("should produce valid JSON");
+    let json = parsed["documents"]
+        .as_array()
+        .expect("should have documents array");
 
     assert_eq!(json.len(), 2, "should have two document results");
 
     // Each result should have the expected top-level fields.
-    for doc_result in &json {
+    for doc_result in json {
         assert!(
             doc_result.get("document_id").is_some(),
             "each result should have document_id",
@@ -139,8 +142,11 @@ fn render_includes_verification_status() {
 
     assert!(output.status.success(), "render should succeed");
 
-    let json: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).expect("should produce valid JSON array");
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("should produce valid JSON");
+    let json = parsed["documents"]
+        .as_array()
+        .expect("should have documents array");
 
     assert_eq!(json.len(), 1);
     let doc = &json[0];
@@ -205,7 +211,11 @@ fn render_format_json_produces_valid_json_stdout() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("stdout should be valid JSON");
-    assert!(parsed.is_array(), "top-level JSON should be an array");
+    assert!(parsed.is_object(), "top-level JSON should be an object");
+    assert!(
+        parsed["documents"].is_array(),
+        "should have documents array"
+    );
 
     // stderr should have a summary message (similar to graph command).
     let stderr = String::from_utf8(output.stderr).unwrap();

@@ -136,7 +136,7 @@ pub struct EvidenceEntry {
 
 /// Classification of the test that produced evidence.
 ///
-/// Wire-format equivalent of [`supersigil_evidence::types::TestKind`].
+/// Wire-format equivalent of [`supersigil_evidence::TestKind`].
 /// Defined separately because the evidence crate type lacks `Deserialize`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -154,7 +154,7 @@ pub enum TestKind {
 
 /// How the evidence was originally authored or discovered.
 ///
-/// Wire-format equivalent of [`supersigil_evidence::types::EvidenceKind`].
+/// Wire-format equivalent of [`supersigil_evidence::EvidenceKind`].
 /// Defined separately because the evidence crate type lacks `Deserialize`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EvidenceKindLabel {

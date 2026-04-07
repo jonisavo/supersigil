@@ -89,6 +89,18 @@ As a [role], I want [capability], so that [benefit].
   </Criterion>
 </AcceptanceCriteria>
 ```
+
+<!-- To link criteria to test evidence, nest a VerifiedBy inside the Criterion:
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-1-2">
+    Criterion description.
+    <VerifiedBy strategy="tag" tag="{feature}/req#req-1-2" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+-->
 "#
         ),
         "design" => {

@@ -49,7 +49,7 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();
-            write_terminal(&mut out, &plan, args.verbose, color)?;
+            write_terminal(&mut out, &plan, args.full, color)?;
         }
     }
 
@@ -59,7 +59,7 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
 fn write_terminal(
     out: &mut impl Write,
     plan: &PlanOutput,
-    verbose: bool,
+    full: bool,
     color: ColorConfig,
 ) -> io::Result<()> {
     let c = color;
@@ -77,7 +77,7 @@ fn write_terminal(
 
     // 2. Criteria section.
     if !plan.outstanding_targets.is_empty() {
-        if verbose {
+        if full {
             writeln!(
                 out,
                 "\n{} ({})",
@@ -111,8 +111,8 @@ fn write_terminal(
         }
     }
 
-    // 3. Task list (verbose only).
-    if verbose && !plan.pending_tasks.is_empty() {
+    // 3. Task list (--full only).
+    if full && !plan.pending_tasks.is_empty() {
         writeln!(
             out,
             "\n{}",

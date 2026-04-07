@@ -26,13 +26,22 @@ pub enum Command {
     Ls(LsArgs),
     /// Output component and document type schema
     Schema(SchemaArgs),
-    /// Agent-friendly view of a document and its relationships
+    /// Structured view of a document: criteria, decisions, tasks, and relationships
+    #[command(
+        after_help = "Examples:\n  supersigil context auth/req\n  supersigil context auth/design --format json"
+    )]
     Context(ContextArgs),
     /// Outstanding work for a document, prefix, or the whole project
+    #[command(
+        after_help = "Examples:\n  supersigil plan\n  supersigil plan auth/\n  supersigil plan auth/tasks --full"
+    )]
     Plan(PlanArgs),
     /// Import specs from another format
     Import(ImportArgs),
     /// Cross-document verification
+    #[command(
+        after_help = "Examples:\n  supersigil verify\n  supersigil verify --project backend\n  supersigil verify --since main --format markdown"
+    )]
     Verify(VerifyArgs),
     /// Project or document status overview
     Status(StatusArgs),
@@ -43,6 +52,9 @@ pub enum Command {
     /// Create a new supersigil.toml config
     Init(InitArgs),
     /// Scaffold a new spec document
+    #[command(
+        after_help = "Examples:\n  supersigil new requirements auth\n  supersigil new design auth\n  supersigil new tasks auth\n  supersigil new adr auth"
+    )]
     New(NewArgs),
     /// List criterion refs in the project
     Refs(RefsArgs),
@@ -99,9 +111,9 @@ pub struct PlanArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
-    /// Show all criteria and full task details
+    /// Show all criteria and full task details including completed items
     #[arg(long)]
-    pub verbose: bool,
+    pub full: bool,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -144,13 +156,13 @@ pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
     #[arg(short, long)]
     pub project: Option<String>,
-    /// Git ref for staleness checks
+    /// Git ref for staleness checks (e.g., main, HEAD~3, a commit SHA)
     #[arg(long)]
     pub since: Option<String>,
-    /// Only consider committed changes
+    /// Only consider committed changes, ignoring staged and unstaged work
     #[arg(long)]
     pub committed_only: bool,
-    /// Use merge-base for git diff
+    /// Diff against the merge-base of --since instead of the ref itself
     #[arg(long)]
     pub merge_base: bool,
     /// Output format

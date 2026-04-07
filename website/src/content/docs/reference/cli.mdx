@@ -164,14 +164,14 @@ Outstanding work: unverified criteria, pending tasks with topological ordering.
 supersigil plan                    # All outstanding work
 supersigil plan auth               # Filter by prefix
 supersigil plan auth/tasks         # Specific document
-supersigil plan --verbose
+supersigil plan --full
 ```
 
 Lists tasks in dependency order. Shows which criteria still need coverage and which tasks are blocked.
 
 | Flag | Description |
 |------|-------------|
-| `--verbose` | Show all criteria and full task details |
+| `--full` | Show all criteria and full task details including completed items |
 | `--format <fmt>` | Output format: `terminal` (default), `json` |
 
 ## `supersigil refs [prefix]`

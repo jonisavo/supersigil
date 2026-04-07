@@ -1,3 +1,9 @@
+//! CLI interface for supersigil: spec-driven development with AI agents.
+//!
+//! This crate provides the `supersigil` binary and its command implementations.
+//! It also exports types for programmatic use (e.g., editor extensions and
+//! integration tests).
+
 pub mod commands;
 pub mod discover;
 pub mod error;

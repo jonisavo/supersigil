@@ -60,7 +60,8 @@ function loadRefMap(): { refMap: Map<string, Set<string>> | null; error: string 
       timeout: 30_000,
     })
 
-    const entries: RefEntry[] = JSON.parse(output)
+    const parsed = JSON.parse(output)
+    const entries: RefEntry[] = parsed.refs ?? parsed
     const refMap = new Map<string, Set<string>>()
 
     for (const entry of entries) {

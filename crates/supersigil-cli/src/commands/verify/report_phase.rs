@@ -1,8 +1,8 @@
 use supersigil_core::{Config, DocumentGraph};
 use supersigil_verify::{
     ArtifactGraph, Finding, ReportSeverity, VerificationReport, artifact_conflict_findings,
-    empty_project_finding, filter_findings_to_doc_ids, finalize_report, resolve_finding_severities,
-    verify_coverage,
+    attach_doc_paths, empty_project_finding, filter_findings_to_doc_ids, finalize_report,
+    resolve_finding_severities, verify_coverage,
 };
 
 pub(super) struct ReportPhaseInput<'a> {
@@ -52,5 +52,6 @@ pub(super) fn assemble_report(input: ReportPhaseInput<'_>) -> VerificationReport
         all_findings.push(finding);
     }
 
+    attach_doc_paths(&mut all_findings, graph);
     finalize_report(doc_count, all_findings, Some(&artifact_graph))
 }

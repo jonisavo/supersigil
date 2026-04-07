@@ -732,8 +732,6 @@ export function mount(container, data, renderData, repositoryInfo) {
     }
   }
 
-  const isMultiProject = documents.some((d) => d.project);
-
   // Build simulation nodes with radius pre-computed and group for forceInABox.
   // Group by prefix cluster name so forceInABox creates tight prefix groups.
   /** @type {(DocumentNode & d3.SimulationNodeDatum & {radius: number, group: string})[]} */

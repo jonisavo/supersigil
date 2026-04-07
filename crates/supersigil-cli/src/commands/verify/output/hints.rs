@@ -34,22 +34,72 @@ pub(crate) fn remediation_hints(
     }
 
     for finding in &report.findings {
-        if finding.rule != RuleName::PluginDiscoveryFailure {
-            continue;
-        }
-        let Some(suggestion) = finding
+        let suggestion = finding
             .details
             .as_ref()
-            .and_then(|details| details.suggestion.as_ref())
-        else {
-            continue;
-        };
-        if !hints.iter().any(|hint| hint == suggestion) {
-            hints.push(suggestion.clone());
+            .and_then(|details| details.suggestion.as_ref());
+
+        match finding.rule {
+            RuleName::PluginDiscoveryFailure => {
+                if let Some(suggestion) = suggestion
+                    && !hints.iter().any(|hint| hint == suggestion)
+                {
+                    hints.push(suggestion.clone());
+                }
+            }
+            RuleName::IncompleteDecision => {
+                push_unique(
+                    &mut hints,
+                    "Add a `<Rationale>` child inside each `<Decision>` to explain why it was chosen.",
+                );
+            }
+            RuleName::OrphanDecision => {
+                push_unique(
+                    &mut hints,
+                    "Link orphan decisions with `<References>` or reference them from another document.",
+                );
+            }
+            RuleName::InvalidVerifiedByPlacement => {
+                push_unique(
+                    &mut hints,
+                    "`<VerifiedBy>` must be a direct child of a `<Criterion>` component.",
+                );
+            }
+            RuleName::InvalidRationalePlacement => {
+                push_unique(
+                    &mut hints,
+                    "`<Rationale>` must be a direct child of a `<Decision>` component.",
+                );
+            }
+            RuleName::InvalidAlternativePlacement => {
+                push_unique(
+                    &mut hints,
+                    "`<Alternative>` must be a direct child of a `<Decision>` component.",
+                );
+            }
+            RuleName::InvalidAlternativeStatus => {
+                push_unique(
+                    &mut hints,
+                    "Valid `<Alternative>` status values: rejected, deferred, superseded.",
+                );
+            }
+            RuleName::StatusInconsistency => {
+                push_unique(
+                    &mut hints,
+                    "Update the document `status` in the front matter to reflect current progress.",
+                );
+            }
+            _ => {}
         }
     }
 
     hints
+}
+
+fn push_unique(hints: &mut Vec<String>, hint: &str) {
+    if !hints.iter().any(|h| h == hint) {
+        hints.push(hint.to_string());
+    }
 }
 
 fn authored_evidence_hint(defs: &ComponentDefs) -> String {

@@ -81,7 +81,7 @@ The CLI layer does not compute the context graph itself. It delegates that to
 6. Remove any outstanding target already backed by ArtifactGraph evidence.
 7. Render either:
    - JSON: the filtered `PlanOutput`
-   - terminal: dependency graph, then default actionable view or verbose full
+   - terminal: dependency graph, then default actionable view or `--full`
      view, followed by any completed-task summary
 
 ## Actionable Filtering Model
@@ -130,7 +130,7 @@ The important current boundary is that `PlanQuery`, `ContextOutput`, and
 - fallback hints on query errors
 - plugin warning emission
 - ArtifactGraph evidence suppression for `plan`
-- terminal-only actionable versus verbose presentation
+- terminal-only actionable versus `--full` presentation
 
 ## Testing Strategy
 
@@ -139,7 +139,7 @@ The important current boundary is that `PlanQuery`, `ContextOutput`, and
   `context`.
 - [cmd_plan.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_plan.rs)
   covers exact and prefix query selection, dependency graph rendering,
-  actionable filtering, verbose mode, JSON output, and stderr-only plugin
+  actionable filtering, `--full` mode, JSON output, and stderr-only plugin
   warnings.
 - [query.rs](/home/joni/.local/src/supersigil/crates/supersigil-core/src/graph/query.rs)
   contains unit coverage for `PlanQuery::parse` and the task-blocking partition

@@ -512,8 +512,9 @@ nonexistent_rule = "warning"
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
     assert!(
-        errs.iter()
-            .any(|e| matches!(e, ConfigError::UnknownRule { rule } if rule == "nonexistent_rule")),
+        errs.iter().any(
+            |e| matches!(e, ConfigError::UnknownRule { rule, .. } if rule == "nonexistent_rule")
+        ),
         "expected UnknownRule error, got: {errs:?}"
     );
 }
@@ -839,7 +840,7 @@ plugins = ["python"]
     let errs = load_config(Path::new(&path)).unwrap_err();
     assert!(
         errs.iter()
-            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin } if plugin == "python")),
+            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin, .. } if plugin == "python")),
         "expected UnknownPlugin error for 'python', got: {errs:?}"
     );
 }
@@ -1450,7 +1451,7 @@ plugins = ["js", "python"]
     let errs = load_config(Path::new(&path)).unwrap_err();
     assert!(
         errs.iter()
-            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin } if plugin == "python")),
+            .any(|e| matches!(e, ConfigError::UnknownPlugin { plugin, .. } if plugin == "python")),
         "expected UnknownPlugin error for 'python', got: {errs:?}"
     );
 }

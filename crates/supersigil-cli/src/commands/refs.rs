@@ -23,6 +23,11 @@ pub struct CriterionRefEntry {
     pub body_text: Option<String>,
 }
 
+#[derive(Serialize)]
+struct RefsOutput {
+    refs: Vec<CriterionRefEntry>,
+}
+
 /// Filter entries by an optional document ID prefix.
 fn filter_by_prefix(
     mut entries: Vec<CriterionRefEntry>,
@@ -76,7 +81,7 @@ pub fn run(args: &RefsArgs, config_path: &Path, color: ColorConfig) -> Result<()
     entries.sort_by(|a, b| a.ref_string.cmp(&b.ref_string));
 
     match args.format {
-        OutputFormat::Json => write_json(&entries)?,
+        OutputFormat::Json => write_json(&RefsOutput { refs: entries })?,
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();

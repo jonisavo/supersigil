@@ -1,7 +1,8 @@
 use super::*;
 use crate::format::ColorChoice;
-use supersigil_verify::Finding;
+use supersigil_core::SourcePosition;
 use supersigil_verify::test_helpers::sample_evidence_summary;
+use supersigil_verify::{Finding, FindingDetails};
 
 fn color() -> ColorConfig {
     ColorConfig::resolve(ColorChoice::Always)
@@ -221,5 +222,52 @@ fn terminal_no_evidence_when_absent() {
     assert!(
         !out.contains("Evidence"),
         "terminal output should NOT include Evidence section when absent, got:\n{out}",
+    );
+}
+
+#[test]
+fn shows_file_location_when_position_and_path_available() {
+    let finding = Finding::new(
+        RuleName::MissingVerificationEvidence,
+        Some("req/auth".to_string()),
+        "criterion AC-1 not covered".to_string(),
+        Some(SourcePosition {
+            byte_offset: 0,
+            line: 42,
+            column: 15,
+        }),
+    )
+    .with_details(FindingDetails {
+        path: Some("specs/auth/auth.req.md".to_string()),
+        ..FindingDetails::default()
+    });
+
+    let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
+    let report = VerificationReport::new(vec![finding], summary, None);
+
+    let out = format_terminal(&report, no_color());
+    assert!(
+        out.contains("specs/auth/auth.req.md:42:15"),
+        "should show file:line:col location, got:\n{out}",
+    );
+}
+
+#[test]
+fn no_location_line_when_position_missing() {
+    let finding = Finding::new(
+        RuleName::MissingVerificationEvidence,
+        Some("req/auth".to_string()),
+        "criterion AC-1 not covered".to_string(),
+        None,
+    );
+
+    let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
+    let report = VerificationReport::new(vec![finding], summary, None);
+
+    let out = format_terminal(&report, no_color());
+    // Should not contain any path-like location line
+    assert!(
+        !out.contains(".md:"),
+        "should not show location when position is missing, got:\n{out}",
     );
 }

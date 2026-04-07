@@ -457,6 +457,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
     for rule_name in config.verify.rules.keys() {
         if !KNOWN_RULES.contains(&rule_name.as_str()) {
             errors.push(ConfigError::UnknownRule {
+                suggestion: crate::suggest_similar(rule_name, KNOWN_RULES, 2).map(String::from),
                 rule: rule_name.clone(),
             });
         }
@@ -466,6 +467,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
     for plugin in &config.ecosystem.plugins {
         if !KNOWN_PLUGINS.contains(&plugin.as_str()) {
             errors.push(ConfigError::UnknownPlugin {
+                suggestion: crate::suggest_similar(plugin, KNOWN_PLUGINS, 2).map(String::from),
                 plugin: plugin.clone(),
             });
         }

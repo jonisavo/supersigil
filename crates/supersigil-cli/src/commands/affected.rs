@@ -1,10 +1,17 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::commands::AffectedArgs;
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, OutputFormat, Token, write_json};
 use crate::loader;
+
+#[derive(Serialize)]
+struct AffectedOutput<'a> {
+    documents: &'a [supersigil_verify::AffectedDocument],
+}
 
 /// Run the `affected` command: find documents affected by file changes.
 ///
@@ -25,7 +32,11 @@ pub fn run(args: &AffectedArgs, config_path: &Path, color: ColorConfig) -> Resul
     .map_err(supersigil_verify::VerifyError::from)?;
 
     match args.format {
-        OutputFormat::Json => write_json(&affected)?,
+        OutputFormat::Json => {
+            write_json(&AffectedOutput {
+                documents: &affected,
+            })?;
+        }
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();

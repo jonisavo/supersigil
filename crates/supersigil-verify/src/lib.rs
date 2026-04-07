@@ -316,7 +316,8 @@ pub fn filter_findings_to_doc_ids(findings: &mut Vec<Finding>, doc_ids: &[String
     });
 }
 
-fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
+/// Populate `details.path` for every finding that has a `doc_id` and no path yet.
+pub fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
     for finding in findings {
         let Some(doc_id) = finding.doc_id.as_deref() else {
             continue;

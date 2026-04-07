@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+use serde::Serialize;
 use supersigil_verify::document_components::{
     BuildComponentsInput, DocumentComponentsResult, build_document_components,
 };
@@ -11,11 +12,16 @@ use crate::format::{self, ColorConfig, Token};
 use crate::loader;
 use crate::plugins;
 
+#[derive(Serialize)]
+struct RenderOutput {
+    documents: Vec<DocumentComponentsResult>,
+}
+
 /// Run the `render` command: output component trees with verification data.
 ///
 /// Iterates all documents in the graph, builds fence-grouped component trees
-/// with verification status, and outputs a JSON array of
-/// `DocumentComponentsResult` objects.
+/// with verification status, and outputs a JSON object containing
+/// `DocumentComponentsResult` entries.
 ///
 /// # Errors
 ///
@@ -75,9 +81,11 @@ pub fn run(args: &RenderArgs, config_path: &Path, color: ColorConfig) -> Result<
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
+    let doc_count = results.len();
+
     match args.format {
         RenderFormat::Json => {
-            let json = serde_json::to_string_pretty(&results)
+            let json = serde_json::to_string_pretty(&RenderOutput { documents: results })
                 .map_err(|e| CliError::Io(io::Error::other(e)))?;
             writeln!(out, "{json}")?;
         }
@@ -87,7 +95,7 @@ pub fn run(args: &RenderArgs, config_path: &Path, color: ColorConfig) -> Result<
     eprintln!(
         "{} {} documents rendered",
         color.paint(Token::Header, "Render:"),
-        color.paint(Token::Count, &results.len().to_string()),
+        color.paint(Token::Count, &doc_count.to_string()),
     );
     format::hint(
         color,

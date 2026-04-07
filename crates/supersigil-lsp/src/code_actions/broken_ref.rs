@@ -514,7 +514,7 @@ mod tests {
           document_changes:
             create file:///tmp/project/specs/auth/auth.req.md
             edit file:///tmp/project/specs/auth/auth.req.md
-              @0:0 insert `---\nsupersigil:\n  id: auth/req\n  type: requirements\n  status: draft\ntitle: ""\n---\n\n## Introduction\n\n<!-- What problem does this feature solve? What is in scope and out of scope? -->\n\n## Definitions\n\n<!-- Domain terms used in the requirements below. Use bold for the term name. -->\n\n- **Term**: Definition.\n\n## Requirement 1: Title\n\nAs a [role], I want [capability], so that [benefit].\n\n```supersigil-xml\n<AcceptanceCriteria>\n  <Criterion id="req-1-1">\n    WHEN [precondition], THE [component] SHALL [behavior].\n  </Criterion>\n</AcceptanceCriteria>\n```\n`
+              @0:0 insert `---\nsupersigil:\n  id: auth/req\n  type: requirements\n  status: draft\ntitle: ""\n---\n\n## Introduction\n\n<!-- What problem does this feature solve? What is in scope and out of scope? -->\n\n## Definitions\n\n<!-- Domain terms used in the requirements below. Use bold for the term name. -->\n\n- **Term**: Definition.\n\n## Requirement 1: Title\n\nAs a [role], I want [capability], so that [benefit].\n\n```supersigil-xml\n<AcceptanceCriteria>\n  <Criterion id="req-1-1">\n    WHEN [precondition], THE [component] SHALL [behavior].\n  </Criterion>\n</AcceptanceCriteria>\n```\n\n<!-- To link criteria to test evidence, nest a VerifiedBy inside the Criterion:\n\n```supersigil-xml\n<AcceptanceCriteria>\n  <Criterion id="req-1-2">\n    Criterion description.\n    <VerifiedBy strategy="tag" tag="auth/req#req-1-2" />\n  </Criterion>\n</AcceptanceCriteria>\n```\n-->\n`
         "#);
     }
 

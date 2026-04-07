@@ -61,12 +61,62 @@ pub enum ConfigError {
     MutualExclusivity { keys: Vec<String> },
     #[error("missing required config: {message}")]
     MissingRequired { message: String },
-    #[error("unknown verification rule: `{rule}`")]
-    UnknownRule { rule: String },
+    #[error("unknown verification rule: `{rule}`{}", format_suggestion(.suggestion.as_deref()))]
+    UnknownRule {
+        rule: String,
+        suggestion: Option<String>,
+    },
     #[error("invalid id_pattern `{pattern}`: {message}")]
     InvalidIdPattern { pattern: String, message: String },
-    #[error("unknown ecosystem plugin: `{plugin}`")]
-    UnknownPlugin { plugin: String },
+    #[error("unknown ecosystem plugin: `{plugin}`{}", format_suggestion(.suggestion.as_deref()))]
+    UnknownPlugin {
+        plugin: String,
+        suggestion: Option<String>,
+    },
+}
+
+fn format_suggestion(suggestion: Option<&str>) -> String {
+    match suggestion {
+        Some(s) => format!("; did you mean `{s}`?"),
+        None => String::new(),
+    }
+}
+
+/// Find the closest match from `candidates` to `input` using Levenshtein distance.
+///
+/// Returns `Some(candidate)` if the best match has distance <= `threshold`.
+#[must_use]
+pub fn suggest_similar<'a>(
+    input: &str,
+    candidates: &[&'a str],
+    threshold: usize,
+) -> Option<&'a str> {
+    candidates
+        .iter()
+        .map(|c| (*c, levenshtein(input, c)))
+        .filter(|(_, d)| *d <= threshold)
+        .min_by_key(|(_, d)| *d)
+        .map(|(c, _)| c)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+
+    let mut prev = (0..=n).collect::<Vec<_>>();
+    let mut curr = vec![0; n + 1];
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
 }
 
 // ---------------------------------------------------------------------------
@@ -120,4 +170,25 @@ pub fn split_list_attribute(raw: &str) -> Result<Vec<&str>, ListSplitError> {
     }
 
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggest_similar_finds_close_match() {
+        assert_eq!(suggest_similar("rusts", &["rust", "js"], 2), Some("rust"));
+        assert_eq!(suggest_similar("jss", &["rust", "js"], 2), Some("js"));
+    }
+
+    #[test]
+    fn suggest_similar_returns_none_beyond_threshold() {
+        assert_eq!(suggest_similar("python", &["rust", "js"], 2), None);
+    }
+
+    #[test]
+    fn suggest_similar_exact_match() {
+        assert_eq!(suggest_similar("rust", &["rust", "js"], 2), Some("rust"));
+    }
 }

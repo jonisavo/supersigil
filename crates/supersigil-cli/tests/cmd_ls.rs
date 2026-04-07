@@ -69,7 +69,8 @@ fn ls_json_format() {
     assert!(output.status.success());
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
-    assert!(json.is_array());
+    assert!(json.is_object());
+    assert!(json["documents"].is_array());
 }
 
 #[verifies("inventory-queries/req#req-1-3")]

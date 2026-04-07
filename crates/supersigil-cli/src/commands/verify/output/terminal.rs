@@ -58,6 +58,7 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
             if group.len() <= COLLAPSE_THRESHOLD {
                 for finding in group {
                     let _ = writeln!(out, "  {symbol} {rule_label} {}", finding.message);
+                    write_location(&mut out, finding, color);
                 }
             } else {
                 collapsed = true;
@@ -113,10 +114,23 @@ fn write_draft_gating_hint(out: &mut String, findings: &[Finding], color: ColorC
     if suppressed > 0 {
         let _ = writeln!(
             out,
-            "{} {suppressed} finding(s) downgraded to info because their documents have status: draft.",
+            "{} {suppressed} finding(s) downgraded to info because their documents have status: draft \
+             (draft documents suppress errors until promoted).",
             color.paint(Token::Hint, "hint:"),
         );
     }
+}
+
+/// Write an indented `path:line:col` location line if position and path data are available.
+fn write_location(out: &mut String, finding: &Finding, color: ColorConfig) {
+    let Some(pos) = &finding.position else {
+        return;
+    };
+    let Some(path) = finding.details.as_ref().and_then(|d| d.path.as_deref()) else {
+        return;
+    };
+    let loc = format!("{path}:{}:{}", pos.line, pos.column);
+    let _ = writeln!(out, "      {}", color.paint(Token::Hint, &loc));
 }
 
 /// Return the severity symbol for terminal output, styled with the CLI's tokens.

@@ -10,7 +10,7 @@ title: "CLI Work Queries"
 
 This spec recovers the CLI query surface for `context` and `plan`. It captures
 the current post-Illustrates query model, including ArtifactGraph-backed plan
-filtering and the split between default actionable output and verbose output.
+filtering and the split between default actionable output and full output.
 
 It does not attempt to re-spec `ls`, `schema`, `graph`, `verify`, `status`,
 `affected`, `init`, or `new`. Those are separate CLI domains.
@@ -125,7 +125,7 @@ dependency picture.
     summary when additional targets are waiting on upstream tasks.
   </Criterion>
   <Criterion id="req-4-2">
-    In verbose terminal mode, THE `plan` command SHALL render all remaining
+    In full terminal mode (`--full`), THE `plan` command SHALL render all remaining
     outstanding targets and SHALL include pending tasks in dependency order.
   </Criterion>
   <Criterion id="req-4-3">

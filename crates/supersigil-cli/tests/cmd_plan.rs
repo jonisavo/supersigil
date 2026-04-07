@@ -205,7 +205,7 @@ fn plan_default_shows_actionable_work() {
 
 #[verifies("work-queries/req#req-4-2")]
 #[test]
-fn plan_verbose_shows_all_targets_and_task_list() {
+fn plan_full_shows_all_targets_and_task_list() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
     common::write_spec_doc(
@@ -243,9 +243,9 @@ fn plan_verbose_shows_all_targets_and_task_list() {
 "#,
     );
 
-    // Verbose mode: all criteria shown + task list with implements refs.
+    // Full mode: all criteria shown + task list with implements refs.
     cargo_bin_cmd!("supersigil")
-        .args(["plan", "test", "--verbose"])
+        .args(["plan", "test", "--full"])
         .current_dir(tmp.path())
         .assert()
         .success()

@@ -1365,7 +1365,6 @@ var SupersigilExplorer = (() => {
         docClusterMap.set(docId, cluster.name);
       }
     }
-    const isMultiProject = documents.some((d) => d.project);
     const nodes = documents.map((doc) => ({
       ...doc,
       radius: nodeRadius(doc),
