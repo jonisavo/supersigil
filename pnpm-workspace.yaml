@@ -10,7 +10,6 @@ catalog:
   vitest: ^4.1.2
 
 onlyBuiltDependencies:
-  - '@biomejs/biome'
   - '@vscode/vsce-sign'
   - esbuild
   - keytar
