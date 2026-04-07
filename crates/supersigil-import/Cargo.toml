@@ -18,7 +18,7 @@ thiserror.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-insta = { version = "1.46.3", features = ["yaml"] }
+insta.workspace = true
 supersigil-core.workspace = true
 supersigil-parser.workspace = true
 supersigil-rust.workspace = true

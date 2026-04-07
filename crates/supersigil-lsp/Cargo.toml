@@ -35,7 +35,7 @@ serde_json.workspace = true
 glob.workspace = true
 
 [dev-dependencies]
-insta = { version = "1.46.3", features = ["yaml"] }
+insta.workspace = true
 supersigil-core = { workspace = true, features = ["test-helpers"] }
 supersigil-rust-macros.workspace = true
 tempfile.workspace = true

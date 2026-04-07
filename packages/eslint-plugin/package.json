@@ -22,10 +22,10 @@
     "eslint": ">=9.0.0"
   },
   "devDependencies": {
-    "@supersigil/vitest": "workspace:*",
-    "@types/node": "^22.0.0",
+    "@supersigil/vitest": "workspace:^0.0.1",
+    "@types/node": "catalog:",
     "esbuild": "catalog:",
-    "eslint": "^9.27.0",
+    "eslint": "^9.39.4",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

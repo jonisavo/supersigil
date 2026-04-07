@@ -87,7 +87,10 @@
         "language": "supersigil-xml-injection",
         "scopeName": "markdown.supersigil-xml.codeblock",
         "path": "./syntaxes/supersigil-xml-injection.json",
-        "injectTo": ["text.html.markdown", "source.mdx"],
+        "injectTo": [
+          "text.html.markdown",
+          "source.mdx"
+        ],
         "embeddedLanguages": {
           "meta.embedded.block.supersigil-xml": "xml"
         }
@@ -118,9 +121,9 @@
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "catalog:",
     "@types/vscode": "^1.74.0",
-    "@vscode/vsce": "^3.2.2",
+    "@vscode/vsce": "^3.7.1",
     "esbuild": "catalog:",
     "typescript": "catalog:"
   }
