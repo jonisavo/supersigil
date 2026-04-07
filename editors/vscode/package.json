@@ -112,8 +112,7 @@
     "watch": "node esbuild.mjs --watch",
     "check-types": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "package": "pnpm run build && vsce package --no-dependencies",
-    "vscode:prepublish": "pnpm run build"
+    "package": "pnpm run build && vsce package --no-dependencies"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
