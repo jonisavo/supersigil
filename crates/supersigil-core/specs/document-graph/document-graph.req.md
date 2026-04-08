@@ -2,7 +2,7 @@
 supersigil:
   id: document-graph/req
   type: requirements
-  status: approved
+  status: implemented
 title: "Document Graph"
 ---
 

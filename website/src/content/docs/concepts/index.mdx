@@ -8,11 +8,11 @@ supersigil:
 
 import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
 
-Supersigil turns MDX spec files into a verifiable graph of criteria, evidence, and test mappings. Specs live in your repository alongside code. They are reviewed in pull requests and checked by CI, just like source code.
+Supersigil turns Markdown spec files into a verifiable graph of criteria, evidence, and test mappings. Specs live in your repository alongside code. They are reviewed in pull requests and checked by CI, just like source code.
 
 ## Core Principles
 
-1. **Everything-as-code.** Specs are MDX files committed to your repository. No external system of record. No sync to keep in place. Git is the source of truth.
+1. **Everything-as-code.** Specs are Markdown files committed to your repository. No external system of record. No sync to keep in place. Git is the source of truth.
 
 2. **Verifiable by default.** Cross-references are typed and checked. Criterion-to-test mappings are discovered and reported. Staleness, orphans, and coverage gaps surface as warnings and errors.
 
@@ -22,9 +22,9 @@ Supersigil turns MDX spec files into a verifiable graph of criteria, evidence, a
 
 ## Documents
 
-A Supersigil document is any MDX file with a `supersigil:` namespace in its front matter:
+A Supersigil document is any Markdown file with a `supersigil:` namespace in its front matter:
 
-```mdx
+```md
 ---
 supersigil:
   id: auth/req/login
@@ -41,7 +41,7 @@ Your Markdown content goes here.
 - `id` -- A stable, unique identifier for this document. Convention: `{feature}/{type}/{name}` (e.g., `auth/req/login`).
 
 **Optional fields:**
-- `type` -- Classification tag. Three built-in types: `requirements`, `design`, `tasks`. Custom types can be defined in config.
+- `type` -- Classification tag. Four built-in types: `requirements`, `design`, `tasks`, `adr`. Custom types can be defined in config.
 - `status` -- Current state (e.g., `draft`, `review`, `approved`). Documents with `status: draft` get relaxed verification.
 
 <Aside type="note">
@@ -50,7 +50,7 @@ Your Markdown content goes here.
 
 ## Components
 
-Components are MDX JSX elements that carry specification semantics. Supersigil ships with 11 built-in components:
+Components are XML elements that carry specification semantics. Supersigil ships with 11 built-in components:
 
 | Component | Purpose |
 |-----------|---------|

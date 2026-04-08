@@ -76,7 +76,7 @@ on success and rejects invalid credentials.
 
 A few things to note about the structure:
 
-- **Front matter** uses the `supersigil:` key with `id`, `type`, and `status`. The built-in document types are `requirements`, `design`, and `tasks`.
+- **Front matter** uses the `supersigil:` key with `id`, `type`, and `status`. The built-in document types are `requirements`, `design`, `tasks`, and `adr`.
 - **`<AcceptanceCriteria>`** groups one or more `<Criterion>` components. It has no attributes of its own.
 - **`<Criterion>`** defines a single verifiable criterion with a unique `id`. Other documents and tools reference criteria using the fragment syntax `doc-id#criterion-id` (e.g. `auth/req#valid-creds`).
 - **`<VerifiedBy>`** can be nested inside a `<Criterion>` to declare explicit evidence using `strategy="tag"` (comment tags) or `strategy="file-glob"` (path patterns). For Rust projects, the ecosystem plugin discovers `#[verifies("doc#criterion")]` annotations automatically, so `<VerifiedBy>` is often unnecessary.
@@ -95,6 +95,7 @@ A few things to note about the structure:
 | `requirements` | `draft`, `review`, `approved`, `implemented` |
 | `design` | `draft`, `review`, `approved` |
 | `tasks` | `draft`, `ready`, `in-progress`, `done` |
+| `adr` | `draft`, `review`, `accepted`, `superseded` |
 
 ## Step 3: Run verification
 

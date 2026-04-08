@@ -38,7 +38,7 @@ are checked by CI.
 supersigil init
 
 # Scaffold a requirements doc
-supersigil new requirements my-feature/req/login
+supersigil new requirements auth
 
 # Verify everything
 supersigil verify
@@ -47,39 +47,27 @@ supersigil verify
 ## Commands
 
 ```
-supersigil verify              # Cross-document verification
-supersigil ls                  # List all documents
-supersigil context <id>        # Agent-friendly view of a document
-supersigil plan [id]           # Outstanding work overview
-supersigil status [id]         # Coverage and staleness summary
+supersigil init                    # Create supersigil.toml and install agent skills
+supersigil new <type> <id>         # Scaffold a new spec document
+supersigil verify                  # Cross-document verification
+supersigil ls                      # List all documents
+supersigil context <id>            # Agent-friendly view of a document
+supersigil plan [id_or_prefix]     # Outstanding work overview
+supersigil status [id]             # Coverage and staleness summary
 supersigil affected --since <ref>  # Docs affected by file changes
-supersigil schema              # Component and type definitions
-supersigil graph               # Document dependency graph (Mermaid/Graphviz)
-supersigil refs                # List criterion refs
-supersigil new <type> <id>     # Scaffold a new spec document
-supersigil init                # Create supersigil.toml and install agent skills
-supersigil skills install      # Install or update agent skills
-supersigil import --from kiro  # Import from Kiro format
-supersigil explore             # Interactive graph explorer (browser)
+supersigil schema                  # Component and type definitions
+supersigil graph                   # Document dependency graph (Mermaid/Graphviz)
+supersigil refs                    # List criterion refs
+supersigil render                  # Render documents with verification data
+supersigil explore                 # Interactive graph explorer (browser)
+supersigil import --from kiro      # Import from Kiro format
+supersigil skills install          # Install or update agent skills
 ```
 
-## Configuration
-
-A minimal `supersigil.toml`:
-
-```toml
-paths = ["specs/**/*.md"]
-```
-
-For monorepos, use the `[projects]` table:
-
-```toml
-[projects.backend]
-paths = ["services/api/specs/**/*.md"]
-
-[projects.frontend]
-paths = ["apps/web/specs/**/*.md"]
-```
+See the [CLI reference](https://supersigil.dev/supersigil/reference/cli/) for
+flags and detailed usage, and the
+[configuration reference](https://supersigil.dev/supersigil/reference/configuration/)
+for `supersigil.toml` options.
 
 ## How it works
 
@@ -145,9 +133,11 @@ crates/
   supersigil-rust-macros/  # #[verifies(...)] proc macro
   supersigil-import/       # Kiro import
   supersigil-lsp/          # Language Server Protocol server
+  supersigil-js/           # JS/TS ecosystem plugin
   supersigil-cli/          # CLI entry point
 editors/
   vscode/                  # VS Code extension
+  intellij/                # IntelliJ extension
 ```
 
 ## License

@@ -2,7 +2,7 @@
 supersigil:
   id: config/req
   type: requirements
-  status: approved
+  status: implemented
 title: "Config"
 ---
 

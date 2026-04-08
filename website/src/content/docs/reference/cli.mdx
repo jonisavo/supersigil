@@ -99,6 +99,7 @@ Builds the full document graph and runs structural checks, plugin evidence disco
 | `--merge-base` | Use merge-base for git diff |
 | `--project <name>`, `-p` | Filter to a project (multi-project mode) |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `markdown` |
+| `--detail <compact\|full>` | JSON detail level: `compact` omits evidence records on clean runs, `full` includes everything (default: `compact`) |
 
 **Exit codes:**
 
@@ -139,6 +140,7 @@ Returns the document's metadata, criteria, coverage, implementing designs, track
 | Flag | Description |
 |------|-------------|
 | `--format <fmt>` | Output format: `terminal` (default), `json` |
+| `--detail <compact\|full>` | JSON detail level: `compact` omits raw components, `full` includes everything (default: `compact`) |
 
 ## `supersigil status [id]`
 
