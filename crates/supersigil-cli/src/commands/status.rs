@@ -67,6 +67,7 @@ pub fn run(args: &StatusArgs, config_path: &Path, color: ColorConfig) -> Result<
             if has_prefix_match {
                 return run_project_wide(Some(id), &args.format, &graph, &artifact_graph, color);
             }
+            format::hint(color, "Run `supersigil ls` to see available document IDs.");
             Err(supersigil_core::QueryError::NoMatchingDocuments { query: id.clone() }.into())
         }
     }

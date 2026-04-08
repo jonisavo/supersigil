@@ -114,6 +114,14 @@ pub struct TaskInfo {
     pub depends_on: Vec<String>,
 }
 
+impl TaskInfo {
+    /// Qualified task ref in `tasks_doc_id#task_id` form.
+    #[must_use]
+    pub fn qualified_ref(&self) -> String {
+        format!("{}#{}", self.tasks_doc_id, self.task_id)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PlanOutput
 // ---------------------------------------------------------------------------
@@ -423,7 +431,12 @@ fn build_task_info(
         .attributes
         .get("depends")
         .and_then(|d| split_list_attribute(d).ok())
-        .map(|items| items.into_iter().map(str::to_owned).collect())
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|dep| format!("{doc_id}#{dep}"))
+                .collect()
+        })
         .unwrap_or_default();
 
     TaskInfo {
@@ -509,8 +522,11 @@ fn partition_tasks(
     pending_tasks: &[TaskInfo],
     completed_tasks: &[TaskInfo],
 ) -> (Vec<String>, Vec<String>) {
-    let completed_ids: HashSet<&str> = completed_tasks.iter().map(|t| t.task_id.as_str()).collect();
-    let pending_ids: HashSet<&str> = pending_tasks.iter().map(|t| t.task_id.as_str()).collect();
+    let completed_ids: HashSet<String> = completed_tasks
+        .iter()
+        .map(TaskInfo::qualified_ref)
+        .collect();
+    let pending_ids: HashSet<String> = pending_tasks.iter().map(TaskInfo::qualified_ref).collect();
 
     let mut actionable = Vec::new();
     let mut blocked = Vec::new();
@@ -521,9 +537,9 @@ fn partition_tasks(
             .iter()
             .all(|dep| completed_ids.contains(dep.as_str()) || !pending_ids.contains(dep.as_str()));
         if is_actionable {
-            actionable.push(task.task_id.clone());
+            actionable.push(task.qualified_ref());
         } else {
-            blocked.push(task.task_id.clone());
+            blocked.push(task.qualified_ref());
         }
     }
 

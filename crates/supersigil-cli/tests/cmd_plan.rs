@@ -421,3 +421,100 @@ fn plan_no_work_message_and_completed_summary() {
         "stdout should mention the completed task, got: {stdout}"
     );
 }
+
+#[verifies("work-queries/req#req-5-1", "work-queries/req#req-5-2")]
+#[test]
+fn plan_json_qualified_task_refs() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/req.md",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Req
+
+<AcceptanceCriteria>
+  <Criterion id="c1">First criterion.</Criterion>
+  <Criterion id="c2">Second criterion.</Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/tasks-a.md",
+        "test/tasks-a",
+        Some("tasks"),
+        None,
+        r#"# Tasks A
+
+<Task id="task-1" implements="test/req#c1">
+  First task in doc A.
+</Task>
+"#,
+    );
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/tasks-b.md",
+        "test/tasks-b",
+        Some("tasks"),
+        None,
+        r#"# Tasks B
+
+<Task id="task-1" implements="test/req#c2" depends="task-2">
+  First task in doc B, depends on task-2.
+</Task>
+
+<Task id="task-2" implements="test/req#c2">
+  Second task in doc B.
+</Task>
+"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["plan", "test/", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    // actionable_tasks and blocked_tasks should use qualified refs.
+    let actionable = json["actionable_tasks"]
+        .as_array()
+        .expect("actionable_tasks should be array");
+    let blocked = json["blocked_tasks"]
+        .as_array()
+        .expect("blocked_tasks should be array");
+
+    // All entries should be qualified (contain '#').
+    for entry in actionable.iter().chain(blocked.iter()) {
+        let s = entry.as_str().expect("should be string");
+        assert!(s.contains('#'), "expected qualified ref, got bare: {s}");
+    }
+
+    // test/tasks-a#task-1 should be actionable (no deps).
+    assert!(
+        actionable.iter().any(|e| e == "test/tasks-a#task-1"),
+        "tasks-a#task-1 should be actionable: {actionable:?}"
+    );
+
+    // depends_on should also be qualified.
+    let pending = json["pending_tasks"]
+        .as_array()
+        .expect("pending_tasks should be array");
+    let task_b1 = pending
+        .iter()
+        .find(|t| t["task_id"] == "task-1" && t["tasks_doc_id"] == "test/tasks-b")
+        .expect("should find tasks-b/task-1");
+    let deps = task_b1["depends_on"]
+        .as_array()
+        .expect("depends_on should be array");
+    assert!(
+        deps.iter().any(|d| d == "test/tasks-b#task-2"),
+        "depends_on should be qualified: {deps:?}"
+    );
+}

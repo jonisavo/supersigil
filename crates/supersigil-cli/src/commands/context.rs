@@ -27,7 +27,13 @@ pub fn run(args: &ContextArgs, config_path: &Path, color: ColorConfig) -> Result
     };
 
     match args.format {
-        OutputFormat::Json => write_json(&ctx)?,
+        OutputFormat::Json => {
+            let mut ctx = ctx;
+            if args.detail == format::Detail::Compact {
+                ctx.document.components.clear();
+            }
+            write_json(&ctx)?;
+        }
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();

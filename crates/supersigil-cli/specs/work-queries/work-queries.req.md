@@ -135,3 +135,74 @@ dependency picture.
   </Criterion>
 </AcceptanceCriteria>
 ```
+
+## Requirement 5: Qualified Task Identity in Plan Output
+
+As an agent consuming `plan --format json`, I need task references to be
+unambiguous across task documents, so that overlapping task IDs from different
+documents do not collapse into misleading output.
+
+### Definitions
+
+- **Qualified_Task_Ref**: A string in `tasks_doc_id#task_id` form (e.g.
+  `auth/tasks/login#task-1-1`) that uniquely identifies a task across all
+  task documents in the project. Follows the same `doc_id#fragment` convention
+  used for criterion refs.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-5-1">
+    THE `actionable_tasks` and `blocked_tasks` fields in JSON `PlanOutput`
+    SHALL contain Qualified_Task_Refs instead of bare task IDs.
+  </Criterion>
+  <Criterion id="req-5-2">
+    THE `depends_on` field in `TaskInfo` SHALL contain Qualified_Task_Refs.
+    Each bare `depends` value from the source document SHALL be qualified
+    with the owning `tasks_doc_id` at build time. Cross-document task
+    dependencies are not supported in the `depends` attribute; all
+    dependencies are intra-document.
+  </Criterion>
+  <Criterion id="req-5-3">
+    THE terminal dependency-graph renderer SHALL key tasks by
+    Qualified_Task_Ref internally, so that tasks with the same bare ID
+    from different documents do not collide or overwrite each other.
+  </Criterion>
+  <Criterion id="req-5-4">
+    THE `partition_tasks` logic SHALL use Qualified_Task_Refs when comparing
+    task identity, so that actionable/blocked classification is correct
+    when multiple task documents share bare task IDs.
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 6: Compact JSON Defaults
+
+As an agent consuming `context` and `verify` JSON output, I want the default
+payload to contain only the derived, high-level fields, so that I can parse
+responses efficiently without wading through redundant or debug-level data.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    In JSON mode, THE `context` command SHALL omit the raw
+    `document.components` array by default. The derived fields (`criteria`,
+    `decisions`, `linked_decisions`, `implemented_by`, `referenced_by`,
+    `tasks`) SHALL remain present.
+  </Criterion>
+  <Criterion id="req-6-2">
+    WHEN the `--detail full` flag is passed, THE `context` command SHALL
+    include the raw `document.components` array in JSON output.
+  </Criterion>
+  <Criterion id="req-6-3">
+    In JSON mode, THE `verify` command SHALL omit `evidence_summary.records`
+    when the overall result is `Clean`. The `evidence_summary.coverage` and
+    `evidence_summary.conflict_count` fields SHALL remain present when an
+    evidence summary exists.
+  </Criterion>
+  <Criterion id="req-6-4">
+    WHEN the `--detail full` flag is passed, THE `verify` command SHALL
+    include the full `evidence_summary.records` array regardless of result
+    status.
+  </Criterion>
+</AcceptanceCriteria>
+```

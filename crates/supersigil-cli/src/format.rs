@@ -218,6 +218,16 @@ pub enum OutputFormat {
     Json,
 }
 
+/// JSON detail level for commands that support `--detail`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum Detail {
+    /// Omit redundant or debug-level data from JSON output.
+    #[default]
+    Compact,
+    /// Include all data in JSON output.
+    Full,
+}
+
 /// Write a value as pretty-printed JSON to stdout.
 ///
 /// # Errors
@@ -416,48 +426,63 @@ pub fn write_dependency_graph(
 use std::collections::{HashMap, HashSet};
 
 struct GraphRenderer<'a> {
-    forward: HashMap<&'a str, Vec<&'a str>>,
-    back: HashMap<&'a str, Vec<&'a str>>,
-    task_map: HashMap<&'a str, &'a TaskInfo>,
-    roots: Vec<&'a str>,
-    visited: HashSet<&'a str>,
+    forward: HashMap<String, Vec<String>>,
+    back: HashMap<String, Vec<String>>,
+    task_map: HashMap<String, &'a TaskInfo>,
+    /// Bare task IDs that appear in more than one document.
+    ambiguous_ids: HashSet<String>,
+    roots: Vec<String>,
+    visited: HashSet<String>,
     color: ColorConfig,
 }
 
 impl<'a> GraphRenderer<'a> {
     fn new(tasks: &[&'a TaskInfo], color: ColorConfig) -> Self {
-        let task_set: HashSet<&str> = tasks.iter().map(|t| t.task_id.as_str()).collect();
-        let task_map: HashMap<&str, &TaskInfo> =
-            tasks.iter().map(|t| (t.task_id.as_str(), *t)).collect();
+        // Key by qualified ref (tasks_doc_id#task_id) to avoid collisions
+        // when multiple task documents share bare IDs.
+        let mut bare_count: HashMap<&str, usize> = HashMap::new();
+        for task in tasks {
+            *bare_count.entry(task.task_id.as_str()).or_insert(0) += 1;
+        }
+        let ambiguous_ids: HashSet<String> = bare_count
+            .into_iter()
+            .filter(|(_, count)| *count > 1)
+            .map(|(id, _)| id.to_owned())
+            .collect();
 
-        let mut back: HashMap<&str, Vec<&str>> = HashMap::new();
-        let mut forward: HashMap<&str, Vec<&str>> = HashMap::new();
+        let task_set: HashSet<String> = tasks.iter().map(|t| t.qualified_ref()).collect();
+        let task_map: HashMap<String, &TaskInfo> =
+            tasks.iter().map(|t| (t.qualified_ref(), *t)).collect();
+
+        let mut back: HashMap<String, Vec<String>> = HashMap::new();
+        let mut forward: HashMap<String, Vec<String>> = HashMap::new();
 
         for task in tasks {
-            let tid = task.task_id.as_str();
-            let preds: Vec<&str> = task
+            let tid = task.qualified_ref();
+            let preds: Vec<String> = task
                 .depends_on
                 .iter()
                 .filter(|d| task_set.contains(d.as_str()))
-                .map(String::as_str)
+                .cloned()
                 .collect();
             for pred in &preds {
-                forward.entry(*pred).or_default().push(tid);
+                forward.entry(pred.clone()).or_default().push(tid.clone());
             }
             back.insert(tid, preds);
         }
 
         // Roots: tasks with no predecessors, preserving input order.
-        let roots: Vec<&str> = tasks
+        let roots: Vec<String> = tasks
             .iter()
-            .filter(|t| back.get(t.task_id.as_str()).is_none_or(Vec::is_empty))
-            .map(|t| t.task_id.as_str())
+            .map(|t| t.qualified_ref())
+            .filter(|k| back.get(k).is_none_or(Vec::is_empty))
             .collect();
 
         Self {
             forward,
             back,
             task_map,
+            ambiguous_ids,
             roots,
             visited: HashSet::new(),
             color,
@@ -465,24 +490,38 @@ impl<'a> GraphRenderer<'a> {
     }
 
     fn render_all(&mut self, out: &mut impl Write) -> io::Result<()> {
-        // Clone roots to avoid borrow conflict with &mut self.
-        let roots: Vec<&str> = self.roots.clone();
+        let roots: Vec<String> = self.roots.clone();
         for root in &roots {
-            if !self.visited.contains(*root) {
+            if !self.visited.contains(root) {
                 self.render_chain(out, root, "", "")?;
             }
         }
         Ok(())
     }
 
-    fn paint_task_id(&self, task_id: &str) -> String {
+    /// Display label for a task. Shows bare `task_id` unless the bare ID is
+    /// ambiguous (appears in multiple documents), in which case the full
+    /// qualified ref is shown for disambiguation.
+    fn display_label<'b>(&self, qualified_ref: &'b str) -> &'b str {
+        let bare = qualified_ref
+            .rsplit_once('#')
+            .map_or(qualified_ref, |(_, task_id)| task_id);
+        if self.ambiguous_ids.contains(bare) {
+            qualified_ref
+        } else {
+            bare
+        }
+    }
+
+    fn paint_task_id(&self, qualified_ref: &str) -> String {
         let status = self
             .task_map
-            .get(task_id)
+            .get(qualified_ref)
             .and_then(|t| t.status.as_deref())
             .unwrap_or("?");
         let tok = status_token(status);
-        self.color.paint(tok, task_id).to_string()
+        let label = self.display_label(qualified_ref);
+        self.color.paint(tok, label).to_string()
     }
 
     /// Render a chain starting from `start`.
@@ -492,25 +531,25 @@ impl<'a> GraphRenderer<'a> {
     fn render_chain(
         &mut self,
         out: &mut impl Write,
-        start: &'a str,
+        start: &str,
         line_prefix: &str,
         cont_prefix: &str,
     ) -> io::Result<()> {
-        let mut chain: Vec<&str> = vec![start];
-        self.visited.insert(start);
+        let mut chain: Vec<String> = vec![start.to_owned()];
+        self.visited.insert(start.to_owned());
 
-        let mut current: &str = start;
+        let mut current: String = start.to_owned();
         loop {
-            let Some(succs) = self.forward.get(current) else {
+            let Some(succs) = self.forward.get(&current) else {
                 break;
             };
             if succs.len() == 1 {
-                let next = succs[0];
+                let next = &succs[0];
                 let next_preds = self.back.get(next).map_or(0, Vec::len);
                 if next_preds == 1 && !self.visited.contains(next) {
-                    self.visited.insert(next);
-                    chain.push(next);
-                    current = next;
+                    self.visited.insert(next.clone());
+                    current = next.clone();
+                    chain.push(current.clone());
                     continue;
                 }
             }
@@ -522,14 +561,14 @@ impl<'a> GraphRenderer<'a> {
         write!(out, "{line_prefix}{}", chain_str.join(" → "))?;
 
         // Check what comes after the chain end.
-        let last = *chain.last().unwrap();
-        let succs: Vec<&str> = self
+        let last = chain.last().unwrap().clone();
+        let succs: Vec<String> = self
             .forward
-            .get(last)
+            .get(&last)
             .map(|v| {
                 v.iter()
-                    .copied()
-                    .filter(|s| !self.visited.contains(*s))
+                    .filter(|s| !self.visited.contains(s.as_str()))
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
@@ -540,12 +579,12 @@ impl<'a> GraphRenderer<'a> {
         }
 
         if succs.len() == 1 {
-            let next = succs[0];
+            let next = &succs[0];
             let next_preds = self.back.get(next).map(Vec::as_slice).unwrap_or_default();
             // Only continue inline if all predecessors are visited AND this
             // isn't a merge point (multiple predecessors). Merge points should
             // be rendered by the fork's parent so they get the (merge) label.
-            if next_preds.len() <= 1 && next_preds.iter().all(|p| self.visited.contains(*p)) {
+            if next_preds.len() <= 1 && next_preds.iter().all(|p| self.visited.contains(p)) {
                 write!(out, " → ")?;
                 return self.render_chain(out, next, "", cont_prefix);
             }
@@ -556,7 +595,7 @@ impl<'a> GraphRenderer<'a> {
         // Fork: multiple successors.
         writeln!(out)?;
 
-        for (i, &succ) in succs.iter().enumerate() {
+        for (i, succ) in succs.iter().enumerate() {
             let is_last = i == succs.len() - 1;
             let connector = if is_last { "└── " } else { "├── " };
             let continuation = if is_last { "    " } else { "│   " };
@@ -572,20 +611,20 @@ impl<'a> GraphRenderer<'a> {
         // unvisited nodes whose predecessors are all visited.
         if let Some(mp) = self.find_merge_point() {
             write!(out, "{cont_prefix}(merge) → ")?;
-            self.render_chain(out, mp, "", cont_prefix)?;
+            self.render_chain(out, &mp, "", cont_prefix)?;
         }
 
         Ok(())
     }
 
-    fn find_merge_point(&self) -> Option<&'a str> {
-        for &tid in &self.visited {
+    fn find_merge_point(&self) -> Option<String> {
+        for tid in &self.visited {
             if let Some(fwd) = self.forward.get(tid) {
-                for &s in fwd {
+                for s in fwd {
                     if !self.visited.contains(s) {
                         let preds = self.back.get(s).map(Vec::as_slice).unwrap_or_default();
-                        if preds.len() > 1 && preds.iter().all(|p| self.visited.contains(*p)) {
-                            return Some(s);
+                        if preds.len() > 1 && preds.iter().all(|p| self.visited.contains(p)) {
+                            return Some(s.clone());
                         }
                     }
                 }
@@ -651,13 +690,26 @@ mod tests {
     }
 
     fn pending_task(task_id: &str, depends_on: &[&str]) -> TaskInfo {
+        pending_task_with_doc("tasks/test", task_id, depends_on)
+    }
+
+    fn pending_task_with_doc(doc_id: &str, task_id: &str, depends_on: &[&str]) -> TaskInfo {
         TaskInfo {
-            tasks_doc_id: "tasks/test".to_owned(),
+            tasks_doc_id: doc_id.to_owned(),
             task_id: task_id.to_owned(),
             status: Some("pending".to_owned()),
             body_text: None,
             implements: vec![],
-            depends_on: depends_on.iter().map(ToString::to_string).collect(),
+            depends_on: depends_on
+                .iter()
+                .map(|d| {
+                    if d.contains('#') {
+                        d.to_string()
+                    } else {
+                        format!("{doc_id}#{d}")
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -668,7 +720,16 @@ mod tests {
             status: Some("done".to_owned()),
             body_text: None,
             implements: vec![],
-            depends_on: depends_on.iter().map(ToString::to_string).collect(),
+            depends_on: depends_on
+                .iter()
+                .map(|d| {
+                    if d.contains('#') {
+                        d.to_string()
+                    } else {
+                        format!("tasks/test#{d}")
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -915,5 +976,51 @@ mod tests {
         // Done task "a" should have ANSI green, pending "b" should have yellow.
         assert!(output.contains('a'), "should contain 'a': {output}");
         assert!(output.contains('→'), "should contain arrow: {output}");
+    }
+
+    #[verifies("work-queries/req#req-5-3")]
+    #[test]
+    fn dep_graph_duplicate_bare_ids_from_different_docs() {
+        // Two docs both have "task-1", keyed differently by qualified ref.
+        let tasks = vec![
+            pending_task_with_doc("tasks/alpha", "task-1", &[]),
+            pending_task_with_doc("tasks/beta", "task-1", &[]),
+        ];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        // Both tasks must appear — no collision.
+        assert_eq!(lines.len(), 2, "both tasks should render, got: {output}");
+        // Ambiguous bare IDs should show qualified refs.
+        assert!(
+            output.contains("tasks/alpha#task-1"),
+            "should show qualified ref for alpha: {output}"
+        );
+        assert!(
+            output.contains("tasks/beta#task-1"),
+            "should show qualified ref for beta: {output}"
+        );
+    }
+
+    #[verifies("work-queries/req#req-5-3")]
+    #[test]
+    fn dep_graph_cross_doc_dependency() {
+        // task-2 in tasks/beta depends on task-1 in tasks/alpha.
+        let tasks = vec![
+            pending_task_with_doc("tasks/alpha", "task-1", &[]),
+            pending_task_with_doc("tasks/beta", "task-2", &["tasks/alpha#task-1"]),
+        ];
+        let mut buf = Vec::new();
+        write_dependency_graph(&mut buf, &as_refs(&tasks), no_color()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("task-1") && output.contains("task-2"),
+            "both tasks should render: {output}"
+        );
+        assert!(
+            output.contains('→'),
+            "should show dependency chain: {output}"
+        );
     }
 }

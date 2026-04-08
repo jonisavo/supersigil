@@ -75,6 +75,91 @@ fn context_unknown_id_exits_one() {
         .stderr(predicate::str::contains("not found"));
 }
 
+#[verifies("work-queries/req#req-6-1")]
+#[test]
+fn context_json_compact_omits_components() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/req.md",
+        "test/doc",
+        Some("requirements"),
+        Some("draft"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">test criterion</Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["context", "test/doc", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    let doc = json.get("document").expect("document key should exist");
+    let components = doc
+        .get("components")
+        .and_then(|c| c.as_array())
+        .expect("components should be an array");
+    assert!(
+        components.is_empty(),
+        "compact context JSON should have empty components, got: {components:?}"
+    );
+    // Derived fields should still be present.
+    assert!(
+        json.get("criteria").is_some(),
+        "criteria field should exist"
+    );
+}
+
+#[verifies("work-queries/req#req-6-2")]
+#[test]
+fn context_json_detail_full_includes_components() {
+    let tmp = TempDir::new().unwrap();
+    common::setup_project(tmp.path());
+    common::write_spec_doc(
+        tmp.path(),
+        "specs/req.md",
+        "test/doc",
+        Some("requirements"),
+        Some("draft"),
+        r#"# Test
+
+<AcceptanceCriteria>
+  <Criterion id="c1">test criterion</Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "context", "test/doc", "--format", "json", "--detail", "full",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    let doc = json.get("document").expect("document key should exist");
+    let components = doc
+        .get("components")
+        .and_then(|c| c.as_array())
+        .expect("components should be an array");
+    assert!(
+        !components.is_empty(),
+        "full context JSON should have non-empty components"
+    );
+}
+
 /// Context JSON output does NOT expose a separate illustrations collection.
 #[verifies("work-queries/req#req-2-3")]
 #[test]

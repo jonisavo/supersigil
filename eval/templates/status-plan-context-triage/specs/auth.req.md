@@ -8,6 +8,7 @@ title: "Login Requirement"
 
 # Login Requirement
 
+```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="valid-creds">
     WHEN valid email and password are submitted, THEN the system SHALL return a session token.
@@ -16,3 +17,4 @@ title: "Login Requirement"
     WHEN repeated invalid logins occur, THEN the system SHALL require a lockout response.
   </Criterion>
 </AcceptanceCriteria>
+```

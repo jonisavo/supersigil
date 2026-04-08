@@ -17,7 +17,7 @@ pub mod verify;
 use clap::Subcommand;
 use std::path::PathBuf;
 
-use crate::format::OutputFormat;
+use crate::format::{Detail, OutputFormat};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -102,6 +102,9 @@ pub struct ContextArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
+    /// JSON detail level (compact omits raw components; full includes everything)
+    #[arg(long, default_value = "compact")]
+    pub detail: Detail,
 }
 
 #[derive(Debug, clap::Args)]
@@ -168,6 +171,9 @@ pub struct VerifyArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: VerifyFormat,
+    /// JSON detail level (compact omits evidence records on clean runs; full includes everything)
+    #[arg(long, default_value = "compact")]
+    pub detail: Detail,
 }
 
 #[derive(Debug, clap::Args)]

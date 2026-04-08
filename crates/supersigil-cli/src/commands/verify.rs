@@ -59,7 +59,7 @@ pub fn run(
 
     resolve_finding_severities(&mut structural_findings, &graph, &config);
 
-    let report = assemble_report(ReportPhaseInput {
+    let mut report = assemble_report(ReportPhaseInput {
         graph: &graph,
         config: &config,
         doc_ids: &doc_ids,
@@ -79,6 +79,12 @@ pub fn run(
             write!(out, "{text}")?;
         }
         VerifyFormat::Json => {
+            if args.detail == format::Detail::Compact
+                && report.result_status() == ResultStatus::Clean
+                && let Some(ref mut summary) = report.evidence_summary
+            {
+                summary.records.clear();
+            }
             let text = format_json(&report);
             writeln!(out, "{text}")?;
         }
@@ -109,7 +115,15 @@ pub fn run(
             }
             Ok(ExitStatus::VerifyFailed)
         }
-        ResultStatus::WarningsOnly => Ok(ExitStatus::VerifyWarnings),
+        ResultStatus::WarningsOnly => {
+            if !matches!(args.format, VerifyFormat::Json) {
+                let hints = remediation_hints(&report, &config, &graph);
+                for hint in hints {
+                    format::hint(color, &hint);
+                }
+            }
+            Ok(ExitStatus::VerifyWarnings)
+        }
     }
 }
 

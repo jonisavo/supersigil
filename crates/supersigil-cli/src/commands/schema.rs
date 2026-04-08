@@ -83,7 +83,7 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
         (
             "design".to_string(),
             doc_type(
-                "Describes how a requirement will be implemented. Links back to requirements via Validates.",
+                "Describes how a requirement will be implemented. Links back to requirements via Implements.",
                 &["draft", "review", "approved"],
             ),
         ),

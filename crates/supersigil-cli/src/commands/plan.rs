@@ -162,25 +162,28 @@ fn partition_targets<'a>(
     pending_tasks: &[TaskInfo],
     completed_tasks: &[TaskInfo],
 ) -> (Vec<&'a OutstandingTarget>, Vec<&'a OutstandingTarget>) {
-    let completed_ids: HashSet<&str> = completed_tasks.iter().map(|t| t.task_id.as_str()).collect();
-    let pending_ids: HashSet<&str> = pending_tasks.iter().map(|t| t.task_id.as_str()).collect();
+    let completed_ids: HashSet<String> = completed_tasks
+        .iter()
+        .map(TaskInfo::qualified_ref)
+        .collect();
+    let pending_ids: HashSet<String> = pending_tasks.iter().map(TaskInfo::qualified_ref).collect();
 
     // Unblocked tasks: pending tasks where all depends_on are either completed
     // or not in the pending set.
-    let unblocked_tasks: HashSet<&str> = pending_tasks
+    let unblocked_tasks: HashSet<String> = pending_tasks
         .iter()
         .filter(|t| {
             t.depends_on.iter().all(|dep| {
                 completed_ids.contains(dep.as_str()) || !pending_ids.contains(dep.as_str())
             })
         })
-        .map(|t| t.task_id.as_str())
+        .map(TaskInfo::qualified_ref)
         .collect();
 
     // Criteria refs covered by unblocked tasks.
     let actionable_refs: HashSet<(&str, &str)> = pending_tasks
         .iter()
-        .filter(|t| unblocked_tasks.contains(t.task_id.as_str()))
+        .filter(|t| unblocked_tasks.contains(&t.qualified_ref()))
         .flat_map(|t| {
             t.implements
                 .iter()
@@ -216,6 +219,7 @@ fn partition_targets<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supersigil_rust::verifies;
 
     fn crit(doc_id: &str, crit_id: &str) -> OutstandingTarget {
         OutstandingTarget {
@@ -235,7 +239,16 @@ mod tests {
                 .iter()
                 .map(|(d, c)| (d.to_string(), c.to_string()))
                 .collect(),
-            depends_on: depends_on.iter().map(ToString::to_string).collect(),
+            depends_on: depends_on
+                .iter()
+                .map(|d| {
+                    if d.contains('#') {
+                        d.to_string()
+                    } else {
+                        format!("tasks/test#{d}")
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -247,6 +260,34 @@ mod tests {
             body_text: None,
             implements: vec![],
             depends_on: vec![],
+        }
+    }
+
+    fn task_info_with_doc(
+        doc_id: &str,
+        task_id: &str,
+        implements: &[(&str, &str)],
+        depends_on: &[&str],
+    ) -> TaskInfo {
+        TaskInfo {
+            tasks_doc_id: doc_id.to_owned(),
+            task_id: task_id.to_owned(),
+            status: Some("pending".to_owned()),
+            body_text: None,
+            implements: implements
+                .iter()
+                .map(|(d, c)| (d.to_string(), c.to_string()))
+                .collect(),
+            depends_on: depends_on
+                .iter()
+                .map(|d| {
+                    if d.contains('#') {
+                        d.to_string()
+                    } else {
+                        format!("{doc_id}#{d}")
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -303,5 +344,52 @@ mod tests {
         let (actionable, blocked) = partition_targets(&criteria, &[], &[]);
         assert_eq!(actionable.len(), 2);
         assert!(blocked.is_empty());
+    }
+
+    #[verifies("work-queries/req#req-5-4")]
+    #[test]
+    fn partition_duplicate_bare_ids_different_docs_classified_independently() {
+        // Two docs both have "task-1". tasks/alpha's task-1 is done;
+        // tasks/beta's task-1 is pending and depends on nothing. They must
+        // not collide — beta's task-1 should be actionable even though
+        // alpha's task-1 is done.
+        let criteria = vec![crit("req", "c1"), crit("req", "c2")];
+        let pending = vec![task_info_with_doc(
+            "tasks/beta",
+            "task-1",
+            &[("req", "c2")],
+            &[],
+        )];
+        let completed = vec![{
+            let mut t = done_task_info("task-1");
+            t.tasks_doc_id = "tasks/alpha".to_owned();
+            t.implements = vec![("req".to_owned(), "c1".to_owned())];
+            t
+        }];
+        let (actionable, blocked) = partition_targets(&criteria, &pending, &completed);
+        // Both criteria should be actionable: c1 via completed alpha/task-1,
+        // c2 via unblocked pending beta/task-1.
+        assert_eq!(actionable.len(), 2, "actionable: {actionable:?}");
+        assert!(blocked.is_empty(), "blocked: {blocked:?}");
+    }
+
+    #[verifies("work-queries/req#req-5-4")]
+    #[test]
+    fn partition_cross_doc_dependency_blocks_correctly() {
+        // tasks/beta's task-1 depends on tasks/alpha's task-1 (cross-doc).
+        let criteria = vec![crit("req", "c1")];
+        // tasks/alpha's task-1 is also pending, so beta's task-1 is blocked.
+        let all_pending = vec![
+            task_info_with_doc("tasks/alpha", "task-1", &[], &[]),
+            task_info_with_doc(
+                "tasks/beta",
+                "task-1",
+                &[("req", "c1")],
+                &["tasks/alpha#task-1"],
+            ),
+        ];
+        let (_actionable, blocked) = partition_targets(&criteria, &all_pending, &[]);
+        assert_eq!(blocked.len(), 1, "c1 should be blocked: {blocked:?}");
+        assert_eq!(blocked[0].target_id, "c1");
     }
 }

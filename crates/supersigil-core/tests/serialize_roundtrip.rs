@@ -149,7 +149,7 @@ fn plan_output_serializes_to_json() {
             depends_on: vec![],
         }],
         completed_tasks: vec![],
-        actionable_tasks: vec!["t1".into()],
+        actionable_tasks: vec!["tasks/1#t1".into()],
         blocked_tasks: vec![],
     };
     let json = serde_json::to_value(&plan).expect("serialize PlanOutput");
@@ -174,7 +174,7 @@ fn plan_output_serializes_to_json() {
         }])
     );
     assert_eq!(json["completed_tasks"], json!([]));
-    assert_eq!(json["actionable_tasks"], json!(["t1"]));
+    assert_eq!(json["actionable_tasks"], json!(["tasks/1#t1"]));
     assert_eq!(json["blocked_tasks"], json!([]));
 }
 

@@ -273,7 +273,7 @@ impl ComponentDefs {
                 referenceable: true,
                 verifiable: false,
                 target_component: None,
-                description: Some("An alternative option considered for a decision, with a required status (e.g. rejected, considered). Referenceable by ID.".into()),
+                description: Some("An alternative option considered for a decision, with a required status (e.g. rejected, deferred, superseded). Referenceable by ID.".into()),
                 examples: vec!["<Alternative id=\"use-mysql\" status=\"rejected\">\nMySQL was considered but lacks some PostgreSQL extensions we rely on.\n</Alternative>".into()],
             },
         );

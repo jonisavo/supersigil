@@ -101,14 +101,16 @@ supersigil refs auth/ --format json
 ```
 
 ```json
-[
-  {
-    "ref": "auth/req/login#valid-creds",
-    "doc_id": "auth/req/login",
-    "criterion_id": "valid-creds",
-    "body_text": "WHEN a user submits valid credentials..."
-  }
-]
+{
+  "refs": [
+    {
+      "ref": "auth/req/login#valid-creds",
+      "doc_id": "auth/req/login",
+      "criterion_id": "valid-creds",
+      "body_text": "WHEN a user submits valid credentials..."
+    }
+  ]
+}
 ```
 
 Without a prefix, `refs` automatically scopes to the current working directory based on `TrackedFiles` globs. This means an agent working inside `src/auth/` sees only the criteria relevant to that code area.
@@ -188,7 +190,7 @@ Here is the typical loop an agent follows when implementing a feature:
 
 Supersigil's verification model makes it difficult for agents to produce work that only appears correct:
 
-- **Broken references are hard errors.** If an agent writes `<Validates refs="auth/req/signup">` but `auth/req/signup` does not exist, `supersigil verify` fails immediately. There is no way to reference a spec that is not in the graph.
+- **Broken references are hard errors.** If an agent writes `<Implements refs="auth/req/signup">` but `auth/req/signup` does not exist, `supersigil verify` fails immediately. There is no way to reference a spec that is not in the graph.
 
 - **Only known components are extracted.** If an agent invents `<Satisfies>` (not a real component), it is silently ignored — it will not appear in the graph or be validated. The set of meaningful components is defined by the built-in and configured component definitions.
 

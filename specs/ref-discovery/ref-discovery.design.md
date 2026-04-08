@@ -156,17 +156,19 @@ auth/req/login#login-fails      WHEN invalid credentials are provided...
 auth/req/login#rate-limited     WHEN login attempts exceed the threshold...
 ```
 
-JSON mode writes an array:
+JSON mode writes a wrapped object:
 
 ```json
-[
-  {
-    "ref": "auth/req/login#login-succeeds",
-    "doc_id": "auth/req/login",
-    "criterion_id": "login-succeeds",
-    "body_text": "WHEN valid email and password are submitted..."
-  }
-]
+{
+  "refs": [
+    {
+      "ref": "auth/req/login#login-succeeds",
+      "doc_id": "auth/req/login",
+      "criterion_id": "login-succeeds",
+      "body_text": "WHEN valid email and password are submitted..."
+    }
+  ]
+}
 ```
 
 Results are sorted by ref string for stable output.

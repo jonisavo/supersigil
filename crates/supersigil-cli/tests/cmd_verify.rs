@@ -353,6 +353,70 @@ fn verify_with_plugins_disabled_keeps_explicit_evidence_and_stays_clean() {
     );
 }
 
+#[verifies("work-queries/req#req-6-3")]
+#[test]
+fn verify_json_compact_omits_records_on_clean_run() {
+    let tmp = TempDir::new().unwrap();
+    setup_explicit_evidence_only_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(report["overall_status"], "clean");
+
+    // Compact mode (default) should strip records on clean runs.
+    let records = report["evidence_summary"]["records"]
+        .as_array()
+        .expect("records should be present");
+    assert!(
+        records.is_empty(),
+        "compact clean verify should have empty records, got: {records:?}",
+    );
+
+    // Coverage should still be present.
+    let coverage = report["evidence_summary"]["coverage"]
+        .as_array()
+        .expect("coverage should be present");
+    assert!(
+        !coverage.is_empty(),
+        "compact clean verify should still have coverage"
+    );
+}
+
+#[verifies("work-queries/req#req-6-4")]
+#[test]
+fn verify_json_detail_full_includes_records_on_clean_run() {
+    let tmp = TempDir::new().unwrap();
+    setup_explicit_evidence_only_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["verify", "--format", "json", "--detail", "full"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(report["overall_status"], "clean");
+
+    let records = report["evidence_summary"]["records"]
+        .as_array()
+        .expect("records should be present");
+    assert!(
+        !records.is_empty(),
+        "full detail verify should have non-empty records"
+    );
+}
+
 #[test]
 fn verify_rule_override_can_suppress_plugin_discovery_warning() {
     let tmp = TempDir::new().unwrap();
@@ -715,7 +779,7 @@ fn verify_js_plugin_discovers_verifies_evidence() {
     setup_js_plugin_fixture(tmp.path());
 
     let output = cargo_bin_cmd!("supersigil")
-        .args(["verify", "--format", "json"])
+        .args(["verify", "--format", "json", "--detail", "full"])
         .current_dir(tmp.path())
         .output()
         .unwrap();
