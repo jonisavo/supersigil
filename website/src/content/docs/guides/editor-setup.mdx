@@ -21,7 +21,7 @@ Supersigil provides editor extensions that connect to the `supersigil-lsp` langu
 
 ## Installation
 
-All editors require the `supersigil-lsp` binary:
+If you installed Supersigil via Homebrew or AUR, the `supersigil-lsp` language server is already on your `$PATH`. For other installation methods, install it separately:
 
 ```bash
 cargo install supersigil-lsp
@@ -32,18 +32,11 @@ Then install the extension for your editor:
 <Tabs>
 <TabItem label="VS Code">
 
-Build and install the extension from the repository:
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=supersigil.supersigil) or [Open VSX](https://open-vsx.org/extension/supersigil/supersigil):
 
 ```bash
-cd editors/vscode
-pnpm install
-pnpm run package
-code --install-extension supersigil-0.1.0.vsix
+code --install-extension supersigil.supersigil
 ```
-
-<Aside>
-  The extension will be published to the VS Code Marketplace in a future release. For now, install from the built `.vsix` file.
-</Aside>
 
 Open any folder containing a `supersigil.toml`. The extension activates automatically and starts the language server. You should see **Supersigil** in the status bar.
 
