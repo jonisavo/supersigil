@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
@@ -81,6 +82,10 @@ class SpecExplorerToolWindowFactory : ToolWindowFactory {
  * newly-appeared server so that subsequent updates arrive without
  * polling. Once a listener is attached, the poll stops — the listener
  * handles all further refreshes.
+ *
+ * On the very first attempt, if no LSP server is running yet, this
+ * proactively triggers server startup so the explorer populates
+ * without the user having to open a spec file first.
  */
 private fun scheduleRefreshWithRetry(
     project: Project,
@@ -90,9 +95,19 @@ private fun scheduleRefreshWithRetry(
     val retryAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, toolWindow.disposable)
     val refreshAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, toolWindow.disposable)
     var listenerAttached = false
+    var serverStartAttempted = false
 
     fun tryRefresh() {
         if (project.isDisposed) return
+
+        // Proactively start the LSP server if it hasn't been started yet.
+        // The IntelliJ LSP framework normally only starts the server when a
+        // matching file is opened in the editor, but the spec explorer needs
+        // the server before any file is opened.
+        if (!serverStartAttempted) {
+            serverStartAttempted = true
+            ensureLspServerStarted(project)
+        }
 
         // Try to attach the documentsChanged listener if we haven't yet.
         if (!listenerAttached) {
@@ -121,6 +136,26 @@ private fun scheduleRefreshWithRetry(
     }
 
     retryAlarm.addRequest(::tryRefresh, 0)
+}
+
+/**
+ * Trigger LSP server startup if no Supersigil server is running yet.
+ *
+ * The IntelliJ LSP framework normally starts servers in response to
+ * file-open events. `LspServerManager.ensureServerStarted` lets us
+ * provide a descriptor directly so the server starts without requiring
+ * any file to be open in the editor.
+ */
+private fun ensureLspServerStarted(project: Project) {
+    if (supersigilServers(project).isNotEmpty()) return
+
+    val settings = SupersigilSettings.getInstance()
+    val binaryPath = resolveServerBinary(settings.serverPath) ?: return
+
+    LspServerManager.getInstance(project).ensureServerStarted(
+        SupersigilLspServerSupportProvider::class.java,
+        SupersigilLspServerDescriptor(project, binaryPath),
+    )
 }
 
 private fun updateTree(
