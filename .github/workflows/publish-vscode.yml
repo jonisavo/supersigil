@@ -33,10 +33,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package
-        run: pnpm exec vsce package
+        run: pnpm exec vsce package --no-dependencies
 
       - name: Publish to VS Code Marketplace
-        run: pnpm exec vsce publish
+        run: pnpm exec vsce publish --packagePath ./*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
