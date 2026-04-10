@@ -10,7 +10,7 @@ homepage.workspace = true
 readme = "README.md"
 keywords = ["specification", "verification", "cli", "traceability", "ai-agents"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["src/", "tests/", "README.md"]
+include = ["src/", "tests/", "skills/", "README.md"]
 
 [[bin]]
 name = "supersigil"

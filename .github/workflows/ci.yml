@@ -36,8 +36,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Bundle explore assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
+      - name: Bundle CLI assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
 
       - name: Format
         run: cargo fmt --all -- --check
@@ -79,8 +79,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Bundle explore assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
+      - name: Bundle CLI assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
 
       - name: Test
         run: cargo nextest run
@@ -132,8 +132,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Bundle explore assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
+      - name: Bundle CLI assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
 
       - name: Check
         run: cargo check --workspace --target ${{ matrix.target }} ${{ matrix.extra-args }}

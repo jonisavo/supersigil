@@ -24,8 +24,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Bundle explore assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
+      - name: Bundle CLI assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master, "Add 1.94.1 patch release"

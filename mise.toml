@@ -2,8 +2,7 @@
 description = "Set up the development environment."
 run = [
     "pnpm install",
-    "mise bundle-explore",
-    "mise bundle-preview",
+    "mise bundle-cli",
     "cargo build --workspace",
     "lefthook install"
 ]
@@ -41,20 +40,14 @@ run = [
 description = "Apply ESLint fixes to JS/TS packages."
 run = "eslint --fix packages/"
 
-[tasks.bundle-explore]
-description = "Bundle the standalone graph explorer for use with the CLI."
-run = "pnpm run bundle:standalone"
-dir = "website"
-
-[tasks.bundle-preview]
-description = "Bundle the preview rendering module for use with the CLI."
-run = "pnpm run build"
-dir = "packages/preview"
+[tasks.bundle-cli]
+description = "Bundle all assets required to compile the CLI crate."
+run = "pnpm run bundle:cli-assets"
 
 [tasks.build]
 description = "Build the workspace."
 run = ["cargo build --workspace --release", "mise build:vscode", "mise build:intellij"]
-depends = ["bundle-explore", "bundle-preview", "build:js"]
+depends = ["bundle-cli", "build:js"]
 
 [tasks."build:js"]
 description = "Build JS/TS packages."
@@ -111,7 +104,7 @@ run = ["mise format", "mise lint", "mise build", "mise test"]
 description = "Install the CLI locally"
 run = "cargo install --path ."
 dir = "crates/supersigil-cli"
-depends = ["bundle-explore", "bundle-preview"]
+depends = ["bundle-cli"]
 
 [tasks."install-cli:safe"]
 description = "Install the CLI locally after QA is OK"

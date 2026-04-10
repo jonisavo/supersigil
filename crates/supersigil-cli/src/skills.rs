@@ -12,27 +12,27 @@ pub const DEFAULT_SKILLS_PATH: &str = ".agents/skills";
 const SKILL_DIRS: &[(&str, Dir<'_>)] = &[
     (
         "ci-review",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/ci-review"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ci-review"),
     ),
     (
         "feature-development",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/feature-development"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/feature-development"),
     ),
     (
         "feature-specification",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/feature-specification"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/feature-specification"),
     ),
     (
         "refactoring",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/refactoring"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/refactoring"),
     ),
     (
         "retroactive-specification",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/retroactive-specification"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/retroactive-specification"),
     ),
     (
         "spec-driven-development",
-        include_dir!("$CARGO_MANIFEST_DIR/../../.agents/skills/spec-driven-development"),
+        include_dir!("$CARGO_MANIFEST_DIR/skills/spec-driven-development"),
     ),
 ];
 
