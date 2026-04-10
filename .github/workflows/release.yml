@@ -5,6 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
+  id-token: write # npm OIDC
   contents: write
 
 env:
@@ -179,8 +180,6 @@ jobs:
     name: Publish npm
     needs: release
     uses: ./.github/workflows/publish-npm.yml
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-homebrew:
     name: Publish Homebrew
