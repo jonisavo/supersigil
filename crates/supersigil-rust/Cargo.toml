@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-rust"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rust ecosystem plugin for the supersigil verification framework"
 edition.workspace = true
 rust-version.workspace = true
