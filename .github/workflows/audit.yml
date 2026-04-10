@@ -1,0 +1,113 @@
+name: Security Audit
+
+on:
+  schedule:
+    # 06:00 UTC daily (09:00 EEST)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      vulnerable: ${{ steps.audit.outcome == 'failure' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
+        with:
+          tool: cargo-deny@0.19.1
+
+      - name: Check advisories
+        id: audit
+        continue-on-error: true
+        run: cargo deny check advisories
+
+      - name: Check licenses, bans, and sources
+        run: cargo deny check licenses bans sources
+
+      - name: Fail on advisories
+        if: steps.audit.outcome == 'failure'
+        run: exit 1
+
+  js:
+    name: JS dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      vulnerable: ${{ steps.audit.outcome == 'failure' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: website/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit JS dependencies
+        id: audit
+        continue-on-error: true
+        run: pnpm audit
+
+      - name: Fail on findings
+        if: steps.audit.outcome == 'failure'
+        run: exit 1
+
+  report:
+    name: Open issue on failure
+    runs-on: ubuntu-latest
+    needs: [rust, js]
+    if: always() && (needs.rust.outputs.vulnerable == 'true' || needs.js.outputs.vulnerable == 'true')
+    steps:
+      - name: Create or update issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = 'Security audit: vulnerabilities found';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security',
+              per_page: 100,
+            });
+            const existing = issues.find(i => i.title === title);
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The nightly security audit found vulnerabilities.\n\nSee the [workflow run](${runUrl}) for details.\n\n_Last checked: ${new Date().toISOString()}_`;
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['security'],
+              });
+            }

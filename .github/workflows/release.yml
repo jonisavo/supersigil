@@ -176,9 +176,10 @@ jobs:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
-  publish-intellij:
-    name: Publish IntelliJ
-    needs: release
-    uses: ./.github/workflows/publish-intellij.yml
-    secrets:
-      JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+  # TODO: re-enable once plugin is listed on JetBrains Marketplace
+  # publish-intellij:
+  #   name: Publish IntelliJ
+  #   needs: release
+  #   uses: ./.github/workflows/publish-intellij.yml
+  #   secrets:
+  #     JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
