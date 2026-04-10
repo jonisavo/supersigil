@@ -6,10 +6,13 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.ui.JBColor
@@ -18,26 +21,27 @@ import com.intellij.ui.TreeSpeedSearch
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.Alarm
-import java.awt.BorderLayout
 import javax.swing.Icon
-import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
 private val LOG = Logger.getInstance(SpecExplorerToolWindowFactory::class.java)
 
-class SpecExplorerToolWindowFactory : ToolWindowFactory {
+class SpecExplorerToolWindowFactory : ToolWindowFactory, DumbAware {
+    override suspend fun isApplicableAsync(project: Project): Boolean = hasSupersigilConfig(project)
+
     override fun shouldBeAvailable(project: Project): Boolean = hasSupersigilConfig(project)
 
     override fun createToolWindowContent(
         project: Project,
         toolWindow: ToolWindow,
     ) {
-        val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("Loading...")))
+        val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("root")))
         tree.isRootVisible = false
         tree.showsRootHandles = true
         tree.cellRenderer = SpecTreeCellRenderer()
+        tree.emptyText.setText("Waiting for language server\u2026")
         TreeSpeedSearch.installOn(tree)
 
         tree.addMouseListener(
@@ -52,9 +56,6 @@ class SpecExplorerToolWindowFactory : ToolWindowFactory {
             },
         )
 
-        val panel = JPanel(BorderLayout())
-        panel.add(JBScrollPane(tree), BorderLayout.CENTER)
-
         val actionGroup = DefaultActionGroup()
         val verifyAction = ActionManager.getInstance().getAction("org.supersigil.ij.verify")
         if (verifyAction != null) {
@@ -64,8 +65,11 @@ class SpecExplorerToolWindowFactory : ToolWindowFactory {
             ActionManager
                 .getInstance()
                 .createActionToolbar("SupersigilSpecExplorer", actionGroup, true)
+
+        val panel = SimpleToolWindowPanel(true)
         toolbar.targetComponent = panel
-        panel.add(toolbar.component, BorderLayout.NORTH)
+        panel.toolbar = toolbar.component
+        panel.setContent(JBScrollPane(tree))
 
         val content =
             toolWindow.contentManager.factory
@@ -123,9 +127,9 @@ private fun scheduleRefreshWithRetry(
 
         val root = fetchTreeRoot(project)
 
-        ApplicationManager.getApplication().invokeLater {
+        ToolWindowManager.getInstance(project).invokeLater {
             if (project.isDisposed) return@invokeLater
-            updateTree(tree, root)
+            updateTree(tree, root, project)
 
             // Keep retrying until the listener is attached. Once it is,
             // the documentsChanged notification handles all future updates.
@@ -161,12 +165,20 @@ private fun ensureLspServerStarted(project: Project) {
 private fun updateTree(
     tree: Tree,
     root: DefaultMutableTreeNode,
+    project: Project,
 ) {
     val model = tree.model as DefaultTreeModel
     model.setRoot(root)
     model.reload()
     for (i in 0 until tree.rowCount) {
         tree.expandRow(i)
+    }
+    if (root.childCount == 0) {
+        if (hasRunningSupersigil(project)) {
+            tree.emptyText.setText("No spec documents found")
+        } else {
+            tree.emptyText.setText("Waiting for language server\u2026")
+        }
     }
 }
 
@@ -177,14 +189,9 @@ private fun scheduleRefresh(
     ApplicationManager.getApplication().executeOnPooledThread {
         if (project.isDisposed) return@executeOnPooledThread
         val root = fetchTreeRoot(project)
-        ApplicationManager.getApplication().invokeLater {
+        ToolWindowManager.getInstance(project).invokeLater {
             if (project.isDisposed) return@invokeLater
-            val model = tree.model as DefaultTreeModel
-            model.setRoot(root)
-            model.reload()
-            for (i in 0 until tree.rowCount) {
-                tree.expandRow(i)
-            }
+            updateTree(tree, root, project)
         }
     }
 }
@@ -219,10 +226,6 @@ private fun fetchTreeRoot(project: Project): DefaultMutableTreeNode {
         } catch (e: Exception) {
             LOG.debug("Failed to fetch document list from LSP server", e)
         }
-    }
-
-    if (root.childCount == 0) {
-        root.add(DefaultMutableTreeNode("No documents found"))
     }
 
     return root
@@ -320,11 +323,6 @@ private class SpecTreeCellRenderer : com.intellij.ui.ColoredTreeCellRenderer() {
                 append("  ${node.description}", statusAttrs)
                 icon = iconForDocType(node.docType)
                 toolTipText = node.id
-            }
-
-            is String -> {
-                append(node)
-                toolTipText = null
             }
         }
     }
