@@ -29,9 +29,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Publish @supersigil/vitest
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: npm publish --provenance --access public
         working-directory: packages/vitest
 
       - name: Publish @supersigil/eslint-plugin
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: npm publish --provenance --access public
         working-directory: packages/eslint-plugin
