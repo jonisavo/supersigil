@@ -6,13 +6,15 @@ supersigil:
   type: documentation
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-The [Quickstart](/supersigil/getting-started/) walks through a greenfield setup. This guide covers the more common case: you have working code, existing tests, and want to start connecting them to verifiable specs without disrupting what already works.
+The [Quickstart](/supersigil/getting-started/) walks through a greenfield setup. This guide covers the more common case: you have working code, existing tests,
+and want to start connecting them to verifiable specs without disrupting what already works.
 
 ## Strategy
 
-Start small. Pick one module you understand well, write a single requirements spec for it, and wire up the evidence you already have. Once that loop feels natural, expand to more modules.
+Start small. Pick one module you understand well, write a single requirements spec for it, and wire up the evidence you already have.
+Once that loop feels natural, expand to more modules.
 
 <Steps>
 
@@ -24,11 +26,13 @@ Start small. Pick one module you understand well, write a single requirements sp
    supersigil init
    ```
 
-   This creates `supersigil.toml` and installs agent skills to `.agents/skills/`. The default `paths` glob (`specs/**/*.md`) is a good starting point — specs live in their own directory, separate from source code. Use `--no-skills` if you don't need the agent skills.
+   This creates `supersigil.toml` and installs agent skills to `.agents/skills/`.
+   The default `paths` glob (`specs/**/*.md`) is a good starting point — specs live in their own directory, separate from source code.
+   Use `--no-skills` if you don't need the agent skills.
 
 2. **Pick one module and write a requirements spec**
 
-   Choose a module that already has tests — authentication, billing, a CLI command, whatever you know best. Scaffold a requirements doc:
+   Choose a module that already has tests. Scaffold a requirements doc:
 
    ```bash
    supersigil new requirements auth
@@ -66,36 +70,50 @@ Start small. Pick one module you understand well, write a single requirements sp
 
 3. **Annotate your existing tests**
 
-   Add annotations to the tests that prove each criterion:
+   Add annotations to the tests that prove each criterion.
 
-   **Rust** (plugin enabled by default):
+   <Tabs>
+     <TabItem label="Rust">
+       Use the `verifies` attribute macro from the `supersigil_rust` crate. Native support
+       is enabled by default.
 
-   ```rust title="tests/auth/login_test.rs"
-   use supersigil_rust::verifies;
+       ```bash
+       cargo add supersigil-rust
+       ```
 
-   #[verifies("auth/req#valid-creds")]
-   #[test]
-   fn login_returns_session_token() {
-       // your existing test
-   }
-   ```
+       ```rust title="tests/auth/login_test.rs"
+       use supersigil_rust::verifies;
 
-   Add `supersigil-rust` as a dev-dependency.
+       #[verifies("auth/req#valid-creds")]
+       #[test]
+       fn login_returns_session_token() {
+         // your existing test
+       }
+       ```
+     </TabItem>
+     <TabItem label="JS/TS (Vitest)">
+      Enable the JavaScript/TypeScript ecosystem plugin by adding `plugins = ["js"]` to `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
 
-   **JavaScript/TypeScript** (add `plugins = ["js"]` to config):
+      ```bash
+      pnpm install --save-dev @supersigil/vitest
+      ```
 
-   ```typescript title="tests/auth/login.test.ts"
-   import { verifies } from '@supersigil/vitest'
-   import { test } from 'vitest'
+      ```toml title="supersigil.toml"
+      plugins = ["js"] # Enable JavaScript/TypeScript support
+      ``` 
 
-   test('login returns session token', verifies('auth/req#valid-creds'), () => {
-     // your existing test
-   })
-   ```
+      ```typescript title="tests/auth/login.test.ts"
+      import { verifies } from '@supersigil/vitest'
+      import { test, expect } from 'vitest'
 
-   Add `@supersigil/vitest` as a dev-dependency.
+      test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
+        // your existing test
+      })
+      ```
+     </TabItem>
+   </Tabs>
 
-   The annotations are no-ops at runtime — they just mark the test as evidence.
+   The annotations are no-ops at runtime. They just mark the test as evidence.
 
 4. **Run verify and confirm it passes**
 
@@ -122,9 +140,10 @@ Start small. Pick one module you understand well, write a single requirements sp
 Once the first module works:
 
 - **Add more modules one at a time.** Each spec is independent. There is no requirement to cover the whole codebase at once.
-- **Use `TrackedFiles` early.** Even before criteria have full evidence, tracked files give you drift detection — you will know when code changes and a spec might need review.
+- **Use `TrackedFiles` early.** Even before criteria have full evidence, tracked files give you drift detection. You will know when code changes and a spec might need review.
 - **Use `supersigil status`** to see coverage across all specs at a glance.
 - **Keep new specs in `draft`** until evidence is wired up. This prevents verify from blocking CI on work-in-progress specs.
+- **Let AI agents handle the next module.** The agent skills installed by `supersigil init` include a `retroactive-specification` skill designed for exactly this case — an agent reads existing code and tests, writes the spec, and wires up evidence. Point it at a module and let it follow the same loop you just did manually.
 
 <Aside type="tip">
   For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in your criteria and add `// supersigil: auth:valid-creds` comments in test files instead. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for all options.

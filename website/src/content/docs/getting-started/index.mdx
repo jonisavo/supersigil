@@ -8,7 +8,9 @@ supersigil:
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Supersigil is an open-source CLI that turns Markdown spec files into a verifiable graph. You write criteria in your repo, link them to test evidence through ecosystem plugins or annotations, and Supersigil checks that everything stays connected — broken refs, uncovered criteria, stale specs. It works locally, in CI, and as structured context for AI coding agents.
+Supersigil is an open-source CLI that turns Markdown spec files into a verifiable graph. You write criteria in your repo,
+link them to test evidence through ecosystem plugins or annotations, and Supersigil checks that everything stays connected.
+It works locally, in CI, and as structured context for AI coding agents.
 
 This is the fastest path to the core loop: write one enforceable criterion, run `verify`, and watch the tool tell you what is missing.
 
@@ -123,32 +125,50 @@ supersigil --version
 
 4. **Add evidence and watch it go green**
 
-   Annotate a test with its criterion ref. The approach depends on your language:
+   Annotate a test with its criterion ref. The approach depends on your language.
 
-   **Rust** (ecosystem plugin enabled by default):
+   <Tabs>
+    <TabItem label="Rust">
+      Use the `verifies` attribute macro from the `supersigil_rust` crate. Native support
+      is enabled by default.
 
-   ```rust title="tests/auth/login_test.rs"
-   use supersigil_rust::verifies;
+      ```bash
+      cargo add supersigil-rust
+      ```
 
-   #[verifies("auth/req#valid-creds")]
-   #[test]
-   fn login_with_valid_credentials_returns_token() {
-       let result = login("alice", "correct-password");
-       assert!(result.token.is_some());
-   }
-   ```
+      ```rust title="tests/auth/login_test.rs"
+      use supersigil_rust::verifies;
 
-   **JavaScript/TypeScript** (add `plugins = ["js"]` to `supersigil.toml`):
+      #[verifies("auth/req#valid-creds")]
+      #[test]
+      fn login_with_valid_credentials_returns_token() {
+          let result = login("alice", "correct-password");
+          assert!(result.token.is_some());
+      }
+      ```
+    </TabItem>
+    <TabItem label="JS/TS (Vitest)">
+      Enable the JavaScript/TypeScript ecosystem plugin by adding `plugins = ["js"]` to `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
 
-   ```typescript title="tests/auth/login.test.ts"
-   import { verifies } from '@supersigil/vitest'
-   import { test, expect } from 'vitest'
+      ```bash
+      pnpm install --save-dev @supersigil/vitest
+      ```
 
-   test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
-     const result = login('alice', 'correct-password')
-     expect(result.token).toBeDefined()
-   })
-   ```
+      ```toml title="supersigil.toml"
+      plugins = ["js"] # Enable JavaScript/TypeScript support
+      ``` 
+
+      ```typescript title="tests/auth/login.test.ts"
+      import { verifies } from '@supersigil/vitest'
+      import { test, expect } from 'vitest'
+
+      test('login with valid credentials', verifies('auth/req#valid-creds'), () => {
+        const result = login('alice', 'correct-password')
+        expect(result.token).toBeDefined()
+      })
+      ```
+    </TabItem>
+   </Tabs>
 
    Run verify again:
 
@@ -178,10 +198,25 @@ supersigil --version
 - Verification can fail for the right reason before code reaches CI.
 - One spec file is enough to start; you do not need a full process to get value.
 
+## Hand it to an AI agent
+
+The `supersigil init` step installed agent skills to `.agents/skills/`. These teach AI coding agents the full spec-driven workflow,
+from writing specs to implementing against criteria and re-verifying the result.
+
+Your agent can load the spec you just created as structured context:
+
+```bash
+supersigil context auth/req --format json
+```
+
+From here, an agent can read the criteria, plan implementation work, and run `supersigil verify --format json` to check its own output.
+The skills guide agents through this loop automatically. Point the agent at a spec, and it knows what to do.
+
+See the [AI Agents guide](/supersigil/guides/ai-agents/) for the full integration details.
+
 ## Choose Your Next Path
 
 - [Set up your editor](/supersigil/guides/editor-setup/) — Get live diagnostics, rendered spec previews with verification badges, and go-to-definition in VS Code or IntelliJ.
-- [Deepen the authoring workflow](/supersigil/getting-started/first-spec/) — Add a design document, richer coverage, and graph exploration.
-- [Use it with AI agents](/supersigil/guides/ai-agents/) — Load scoped context and re-verify work through JSON output.
+- [Add Supersigil to an existing project](/supersigil/getting-started/existing-project/) — Adopt incrementally in a codebase that already has code and tests.
 - [Bring it into CI](/supersigil/guides/ci-verification/) — Add `verify`, `affected`, and drift checks to pull requests.
 - [Understand evidence sources](/supersigil/concepts/evidence-sources/) — Compare tags, file globs, and ecosystem plugins.

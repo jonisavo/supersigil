@@ -8,7 +8,8 @@ supersigil:
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Supersigil gives AI coding agents something they usually lack: a structured, queryable contract that defines what to build, how to verify it, and what files are involved. Every command supports `--format json` for machine consumption.
+Supersigil gives AI coding agents something they usually lack: a structured, queryable contract that defines what to build,
+how to verify it, and what files are involved. Every command supports `--format json` for machine consumption.
 
 ## The Problem
 
@@ -22,7 +23,7 @@ Supersigil addresses all three by giving agents a queryable graph of specificati
 
 ## How Agents Integrate
 
-The integration is CLI-based. Agents shell out to `supersigil` commands with `--format json` and parse the structured output. There is no SDK, no library API -- just a binary that returns JSON on stdout.
+The integration is CLI-based. Agents shell out to `supersigil` commands with `--format json` and parse the structured output.
 
 ```bash
 # Load context for a document as JSON
@@ -39,7 +40,8 @@ Any agent that can run shell commands and read JSON can integrate with Supersigi
 
 ## Agent Skills
 
-Supersigil ships six agent skills — structured guides that teach coding agents how to use the spec-driven workflow. Skills are installed to your project during `supersigil init` (or via `supersigil skills install`) and live in `.agents/skills/` by default.
+Supersigil ships six agent skills — structured guides that teach coding agents how to use the spec-driven workflow.
+Skills are installed to your project during `supersigil init` (or via `supersigil skills install`) and live in `.agents/skills/` by default.
 
 The six skills are:
 
@@ -50,7 +52,7 @@ The six skills are:
 - **`refactoring`** — Restructure code while keeping specs, criteria, and verification evidence valid.
 - **`ci-review`** — Integrate Supersigil verification into CI pipelines and PR review workflows.
 
-Each skill is a self-contained directory with a `SKILL.md` entry point and optional reference files. Agents that support skill loading (Claude Code, Gemini CLI, etc.) can read these directly.
+Each skill is a self-contained directory with a `SKILL.md` entry point and optional reference files. Agents that support skill loading can read these directly.
 
 ### Installing and Updating Skills
 
