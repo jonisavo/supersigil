@@ -6,7 +6,7 @@
     "bundle:explore-assets": "mkdir -p crates/supersigil-cli/src/commands/explore_assets && pnpm --filter @supersigil/preview run build && pnpm --filter supersigil-website run bundle:standalone && cp website/src/styles/landing-tokens.css website/src/components/explore/styles.css packages/preview/styles/supersigil-preview.css packages/preview/scripts/supersigil-preview.js packages/preview/dist/render-iife.js crates/supersigil-cli/src/commands/explore_assets/"
   },
   "devDependencies": {
-    "@supersigil/eslint-plugin": "workspace:^0.0.1",
+    "@supersigil/eslint-plugin": "workspace:*",
     "eslint": "^9.39.4",
     "typescript-eslint": "^8.58.0"
   }

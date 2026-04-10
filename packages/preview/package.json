@@ -22,7 +22,7 @@
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {
-    "@supersigil/vitest": "workspace:^0.0.1",
+    "@supersigil/vitest": "workspace:*",
     "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

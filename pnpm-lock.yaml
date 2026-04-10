@@ -24,7 +24,7 @@ importers:
   .:
     devDependencies:
       '@supersigil/eslint-plugin':
-        specifier: workspace:^0.0.1
+        specifier: workspace:*
         version: link:packages/eslint-plugin
       eslint:
         specifier: ^9.39.4
@@ -68,7 +68,7 @@ importers:
   packages/eslint-plugin:
     devDependencies:
       '@supersigil/vitest':
-        specifier: workspace:^0.0.1
+        specifier: workspace:*
         version: link:../vitest
       '@types/node':
         specifier: 'catalog:'
@@ -89,7 +89,7 @@ importers:
   packages/preview:
     devDependencies:
       '@supersigil/vitest':
-        specifier: workspace:^0.0.1
+        specifier: workspace:*
         version: link:../vitest
       esbuild:
         specifier: 'catalog:'

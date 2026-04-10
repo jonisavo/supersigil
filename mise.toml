@@ -154,7 +154,7 @@ echo "Preparing release v${VERSION}..."
 
 # Update all crate versions
 for crate in crates/*/Cargo.toml; do
-  sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" "$crate"
+  sed -i'' -e 's/^version = ".*"/version = "'"${VERSION}"'"/' "$crate"
 done
 
 # Update workspace dependency version specifiers
@@ -162,17 +162,18 @@ sed -i'' -e 's/version = "=[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*"/version = "=
 
 # Update JS/TS package versions
 for pkg in packages/eslint-plugin/package.json packages/vitest/package.json; do
-  sed -i'' -e "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$pkg"
+  sed -i'' -e 's/"version": "[^"]*"/"version": "'"${VERSION}"'"/' "$pkg"
 done
 
 # Update VS Code extension version
-sed -i'' -e "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" editors/vscode/package.json
+sed -i'' -e 's/"version": "[^"]*"/"version": "'"${VERSION}"'"/' editors/vscode/package.json
 
 # Update IntelliJ plugin version
-sed -i'' -e "s/^pluginVersion = .*/pluginVersion = ${VERSION}/" editors/intellij/gradle.properties
+sed -i'' -e 's/^pluginVersion = .*/pluginVersion = '"${VERSION}"'/' editors/intellij/gradle.properties
 
-# Update Cargo.lock
+# Update lockfiles
 cargo generate-lockfile
+pnpm install --lockfile-only
 
 # Generate changelog
 git-cliff --tag "v${VERSION}" --output CHANGELOG.md
@@ -185,6 +186,7 @@ git add \
   packages/vitest/package.json \
   editors/vscode/package.json \
   editors/intellij/gradle.properties \
+  pnpm-lock.yaml \
   CHANGELOG.md
 
 git commit -m "chore(release): prepare v${VERSION}"

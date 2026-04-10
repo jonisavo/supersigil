@@ -11,8 +11,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  ci-gate:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="${{ github.sha }}"
+          echo "Waiting for CI to pass on ${SHA}..."
+          for i in $(seq 1 60); do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/${SHA}/check-runs \
+              --jq '[.check_runs[] | select(.name == "Check" or .name == "Test")] | if length == 0 then "pending" elif all(.conclusion == "success") then "success" elif any(.conclusion == "failure") then "failure" else "pending" end')
+            echo "  Attempt ${i}: ${STATUS}"
+            if [ "$STATUS" = "success" ]; then
+              echo "CI passed!"
+              exit 0
+            elif [ "$STATUS" = "failure" ]; then
+              echo "CI failed — aborting release."
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for CI."
+          exit 1
+
   prepare:
     name: Bundle explore assets
+    needs: ci-gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,9 +79,11 @@ jobs:
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            extra-args: --features supersigil-verify/vendored-openssl
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            extra-args: --features supersigil-verify/vendored-openssl
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -80,7 +109,7 @@ jobs:
         run: ${{ matrix.deps }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p supersigil-cli -p supersigil-lsp
+        run: cargo build --release --target ${{ matrix.target }} -p supersigil-cli -p supersigil-lsp ${{ matrix.extra-args }}
 
       - name: Package
         run: |
