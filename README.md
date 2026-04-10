@@ -135,6 +135,10 @@ crates/
   supersigil-lsp/          # Language Server Protocol server
   supersigil-js/           # JS/TS ecosystem plugin
   supersigil-cli/          # CLI entry point
+packages/
+  eslint-plugin/           # ESLint plugin for Supersigil criterion refs
+  vitest/                  # Vitest helpers for Supersigil criterion refs
+  preview/                 # Shared JS/CSS rendering assets
 editors/
   vscode/                  # VS Code extension
   intellij/                # IntelliJ extension
