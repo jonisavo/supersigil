@@ -210,37 +210,3 @@ path = "custom/skills/path"
 | `path` | string | `.agents/skills/` | Directory where `supersigil init` and `supersigil skills install` write agent skills |
 
 This section is only needed when using a non-default skills path. When omitted, skills are installed to `.agents/skills/`.
-
-## Full Example
-
-```toml title="supersigil.toml"
-paths = ["specs/**/*.md"]
-tests = ["tests/**/*.rs", "src/**/*.rs"]
-id_pattern = "^[a-z][a-z0-9-]*/[a-z]+/[a-z][a-z0-9-]*$"
-
-[verify.rules]
-isolated_document = "warning"
-zero_tag_matches = "off"
-
-[documents.types.requirements]
-status = ["draft", "review", "approved", "implemented"]
-
-[documents.types.design]
-status = ["draft", "review", "approved"]
-
-[documents.types.tasks]
-status = ["draft", "ready", "in-progress", "done"]
-
-[documentation.repository]
-provider = "github"
-repo = "myorg/myproject"
-
-[ecosystem]
-plugins = ["rust"]
-
-[ecosystem.rust]
-validation = "dev"
-
-[skills]
-path = ".agents/skills"
-```
