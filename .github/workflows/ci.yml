@@ -36,10 +36,10 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "22"
+          cache: pnpm
 
       - name: Build preview package
-        run: pnpm install --frozen-lockfile && pnpm run build
-        working-directory: packages/preview
+        run: pnpm install --frozen-lockfile && pnpm --filter @supersigil/preview run build
 
       - name: Format
         run: cargo fmt --all -- --check
@@ -82,15 +82,15 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
-          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build preview package
-        run: pnpm install --frozen-lockfile && pnpm run build
-        working-directory: packages/preview
+        run: pnpm --filter @supersigil/preview run build
 
       - name: Bundle graph explorer
-        run: pnpm install --frozen-lockfile && pnpm run bundle:standalone
-        working-directory: website
+        run: pnpm --filter supersigil-website run bundle:standalone
 
       - name: Test
         run: cargo nextest run
@@ -142,10 +142,10 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "22"
+          cache: pnpm
 
       - name: Build preview package
-        run: pnpm install --frozen-lockfile && pnpm run build
-        working-directory: packages/preview
+        run: pnpm install --frozen-lockfile && pnpm --filter @supersigil/preview run build
 
       - name: Check
         run: cargo check --workspace --target ${{ matrix.target }} ${{ matrix.extra-args }}
