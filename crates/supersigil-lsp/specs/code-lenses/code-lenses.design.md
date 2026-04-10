@@ -96,12 +96,13 @@ of unique referencing document IDs.
 ### Click Actions
 
 Lenses that include a reference count carry a `Command`:
-- `command`: `"editor.action.findReferences"` (VS Code built-in)
-- `arguments`: `[uri, position]` — the document URI and the lens position
+- `command`: `"supersigil.findReferences"`
+- `arguments`: `[uri, position]` — the document URI (string) and the
+  lens position (`{ line, character }` object)
 
-This is VS Code-specific. Other editors display the lens text but the
-click action may not work. A cross-editor custom command can be added
-later if needed.
+Each editor plugin registers a handler for this command that converts
+the raw JSON arguments to native types and delegates to the editor's
+built-in Find References action.
 
 Lenses showing only coverage or verification status have `command: None`.
 
@@ -174,21 +175,26 @@ coverage, click action presence, and behavior with/without verify data.
 
 <Decision id="vscode-command">
   <References refs="code-lenses/req#req-4-1" />
-  Use editor.action.findReferences as the lens click command rather
-  than a custom LSP execute command.
+  Use a custom supersigil.findReferences command as the lens click
+  action. Each editor plugin converts the raw JSON arguments (URI
+  string, position object) to native types and delegates to the
+  editor's built-in Find References action.
 
   <Rationale>
-    This is the standard VS Code command for triggering Find All
-    References at a position. It avoids defining a custom LSP command
-    and wiring it through the extension. Other editors that do not
-    support this command will still display the lens text; the click
-    action gracefully degrades to a no-op.
+    The LSP protocol transmits command arguments as raw JSON.
+    Editor-specific built-in commands (e.g. VS Code's
+    editor.action.findReferences) expect typed objects (Uri, Position),
+    not plain JSON. A proxy command in the editor plugin performs the
+    conversion, keeping the LSP editor-agnostic while ensuring
+    click actions work correctly.
   </Rationale>
 
-  <Alternative id="custom-command" status="deferred">
-    Define a custom supersigil.findReferences command routed through
-    workspace/executeCommand. Deferred until cross-editor support is
-    needed.
+  <Alternative id="direct-editor-command" status="rejected">
+    Send editor.action.findReferences directly from the LSP with
+    raw JSON arguments. Rejected because vscode-languageclient passes
+    arguments through as-is, causing "Unexpected type" errors when
+    VS Code tries to interpret plain strings/objects as typed Uri and
+    Position instances.
   </Alternative>
 </Decision>
 ```

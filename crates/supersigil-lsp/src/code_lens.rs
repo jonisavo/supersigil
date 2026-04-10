@@ -317,7 +317,7 @@ fn find_references_command(title: &str, path: &std::path::Path, range: Range) ->
     });
     Command {
         title: title.to_owned(),
-        command: "editor.action.findReferences".to_owned(),
+        command: "supersigil.findReferences".to_owned(),
         arguments: Some(vec![uri, pos]),
     }
 }
@@ -748,7 +748,7 @@ mod tests {
         // Document lens (has refs)
         let doc_lens = &lenses[0];
         let cmd = doc_lens.command.as_ref().expect("should have command");
-        assert_eq!(cmd.command, "editor.action.findReferences");
+        assert_eq!(cmd.command, "supersigil.findReferences");
         assert!(cmd.arguments.is_some());
     }
 
