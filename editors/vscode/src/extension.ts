@@ -573,6 +573,24 @@ export async function activate(
     }),
   );
 
+  // Find References proxy: the LSP sends raw JSON arguments (URI string +
+  // position object) which VS Code's built-in editor.action.findReferences
+  // rejects ("Unexpected type"). Convert to proper VS Code types first.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "supersigil.findReferences",
+      async (uriArg: string, posArg: { line: number; character: number }) => {
+        const uri = vscode.Uri.parse(uriArg);
+        const position = new vscode.Position(posArg.line, posArg.character);
+        await vscode.commands.executeCommand(
+          "editor.action.findReferences",
+          uri,
+          position,
+        );
+      },
+    ),
+  );
+
   // Criterion navigation command
   context.subscriptions.push(
     vscode.commands.registerCommand(

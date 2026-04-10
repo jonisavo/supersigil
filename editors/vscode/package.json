@@ -44,6 +44,10 @@
       {
         "command": "supersigil.goToCriterion",
         "title": "Supersigil: Go to Criterion"
+      },
+      {
+        "command": "supersigil.findReferences",
+        "title": "Supersigil: Find References"
       }
     ],
     "markdown.markdownItPlugins": true,
