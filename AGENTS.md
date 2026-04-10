@@ -10,7 +10,7 @@
 Run all three before finalizing work:
 
 ```shell
-cargo run -p supersigil-cli verify
+cargo run -p supersigil verify
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features
 cargo nextest run
