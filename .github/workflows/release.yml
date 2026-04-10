@@ -118,7 +118,7 @@ jobs:
       - name: Install git-cliff
         uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
         with:
-          tool: git-cliff@988e8638432dcfc762dfec3ea470eb82aab80380 # v2.12.0
+          tool: git-cliff@2.12.0
 
       - name: Generate changelog
         run: git-cliff --latest --strip header > RELEASE_NOTES.md

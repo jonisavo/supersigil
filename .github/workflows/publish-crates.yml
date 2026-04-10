@@ -23,7 +23,7 @@ jobs:
       - name: Install cargo-workspaces
         uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
         with:
-          tool: cargo-workspaces@73a9f77bc80c0459dd725bbfc6601f2e375aeac1 # v0.4.2
+          tool: cargo-workspaces@0.4.2
 
       - name: Publish
         run: cargo ws publish --from-git --publish-interval 15 --yes

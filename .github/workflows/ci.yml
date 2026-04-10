@@ -27,6 +27,20 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: website/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "22"
+
+      - name: Build preview package
+        run: pnpm install --frozen-lockfile && pnpm run build
+        working-directory: packages/preview
+
       - name: Format
         run: cargo fmt --all -- --check
 
@@ -56,7 +70,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
         with:
-          tool: nextest@6e4a9d6f2c4964f30ff54a8cd5466f8869267daa # 0.9.132
+          tool: cargo-nextest@0.9.132
 
       - name: Install pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -69,6 +83,10 @@ jobs:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Build preview package
+        run: pnpm install --frozen-lockfile && pnpm run build
+        working-directory: packages/preview
 
       - name: Bundle graph explorer
         run: pnpm install --frozen-lockfile && pnpm run bundle:standalone
@@ -92,9 +110,11 @@ jobs:
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            extra-args: --features supersigil-verify/vendored-openssl
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            extra-args: --features supersigil-verify/vendored-openssl
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -113,5 +133,19 @@ jobs:
         if: matrix.deps
         run: ${{ matrix.deps }}
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: website/package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "22"
+
+      - name: Build preview package
+        run: pnpm install --frozen-lockfile && pnpm run build
+        working-directory: packages/preview
+
       - name: Check
-        run: cargo check --workspace --target ${{ matrix.target }}
+        run: cargo check --workspace --target ${{ matrix.target }} ${{ matrix.extra-args }}

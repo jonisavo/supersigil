@@ -24,6 +24,7 @@ thiserror.workspace = true
 
 [features]
 test-helpers = ["supersigil-core/test-helpers"]
+vendored-openssl = ["git2/vendored-openssl"]
 
 [dependencies.tempfile]
 workspace = true
