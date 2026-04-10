@@ -71,6 +71,8 @@ pub fn source_to_lsp_from_file(sp: &SourcePosition, path: &Path) -> Position {
 }
 
 /// Convert a byte offset within a line to a UTF-16 character offset.
+///
+/// `byte_offset` must lie on a UTF-8 character boundary within `line_str`.
 #[must_use]
 #[allow(clippy::cast_possible_truncation, reason = "len_utf16 returns 1 or 2")]
 pub fn byte_to_utf16(line_str: &str, byte_offset: u32) -> u32 {

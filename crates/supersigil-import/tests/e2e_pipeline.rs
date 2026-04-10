@@ -1,3 +1,5 @@
+//! End-to-end pipeline tests for Kiro spec import.
+
 mod common;
 
 use common::{config_for, workspace_root};

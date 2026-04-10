@@ -1,8 +1,8 @@
-// Snapshot tests for the Kiro import pipeline.
-//
-// Full-pipeline snapshots feed real `.kiro/specs/` directories through
-// `plan_kiro_import` and snapshot each generated spec document using `insta`.
-// Synthetic snapshots cover edge cases with hand-crafted minimal inputs.
+//! Snapshot tests for the Kiro import pipeline.
+//!
+//! Full-pipeline snapshots feed real `.kiro/specs/` directories through
+//! `plan_kiro_import` and snapshot each generated spec document using `insta`.
+//! Synthetic snapshots cover edge cases with hand-crafted minimal inputs.
 
 mod common;
 

@@ -1,3 +1,6 @@
+//! Verification rules: structural, coverage, status, decision, test-mapping,
+//! and tracked-file checks.
+
 use supersigil_core::{CRITERION, ExtractedComponent, VERIFIED_BY};
 
 pub mod coverage;

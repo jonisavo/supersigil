@@ -43,6 +43,7 @@ pub struct JsPlugin {
 }
 
 impl JsPlugin {
+    /// Create a new JS/TS plugin with the given test file glob patterns.
     #[must_use]
     pub fn new(test_patterns: &[String]) -> Self {
         let glob_set = build_glob_set(test_patterns);

@@ -4,49 +4,78 @@ use std::sync::LazyLock;
 use super::RawRef;
 use crate::refs::parse_requirement_refs;
 
+/// Parsed tasks.md (implementation plan).
 #[derive(Debug, Clone)]
 pub struct ParsedTasks {
+    /// Document title extracted from the heading.
     pub title: Option<String>,
+    /// Overview/preamble text before the task list.
     pub preamble: Vec<String>,
+    /// Top-level tasks.
     pub tasks: Vec<ParsedTask>,
     /// Sections after the task list (e.g., `## Notes`), preserved as top-level prose.
     pub postamble: Vec<String>,
 }
 
+/// A parsed top-level task.
 #[derive(Debug, Clone)]
 pub struct ParsedTask {
+    /// Task number (e.g., `1`, `2`).
     pub number: String,
+    /// Task title text.
     pub title: String,
+    /// Completion status.
     pub status: TaskStatus,
+    /// Whether this task was marked as optional.
     pub is_optional: bool,
+    /// Description lines following the task heading.
     pub description: Vec<String>,
+    /// Requirement references from metadata lines.
     pub requirement_refs: TaskRefs,
+    /// Child sub-tasks.
     pub sub_tasks: Vec<ParsedSubTask>,
 }
 
+/// A parsed sub-task within a top-level task.
 #[derive(Debug, Clone)]
 pub struct ParsedSubTask {
+    /// Parent task number.
     pub parent_number: String,
+    /// Sub-task number within the parent.
     pub number: String,
+    /// Sub-task title text.
     pub title: String,
+    /// Completion status.
     pub status: TaskStatus,
+    /// Whether this sub-task was marked as optional.
     pub is_optional: bool,
+    /// Description lines following the sub-task heading.
     pub description: Vec<String>,
+    /// Requirement references from metadata lines.
     pub requirement_refs: TaskRefs,
 }
 
+/// Completion status of a task or sub-task.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskStatus {
+    /// Task is complete (`[x]`).
     Done,
+    /// Task is ready to start (`[ ]`).
     Ready,
+    /// Task is in progress (`[-]`).
     InProgress,
+    /// Task is in draft state (`[~]`).
     Draft,
 }
 
+/// Requirement references attached to a task via metadata lines.
 #[derive(Debug, Clone)]
 pub enum TaskRefs {
+    /// Parsed requirement references.
     Refs(Vec<RawRef>),
+    /// Unparseable metadata preserved as a comment.
     Comment(String),
+    /// No requirement references.
     None,
 }
 

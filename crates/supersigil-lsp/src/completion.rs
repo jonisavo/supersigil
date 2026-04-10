@@ -22,19 +22,34 @@ use crate::is_in_supersigil_fence;
 #[derive(Debug, PartialEq)]
 pub enum CompletionContext {
     /// Inside a ref-accepting attribute value before `#` or with no `#`.
-    RefDocId { prefix: String },
+    RefDocId {
+        /// The text typed so far.
+        prefix: String,
+    },
     /// Inside a ref-accepting attribute value after `doc-id#`.
-    RefFragment { doc_id: String, prefix: String },
+    RefFragment {
+        /// The document ID preceding the `#`.
+        doc_id: String,
+        /// The text typed after the `#`.
+        prefix: String,
+    },
     /// After `<` — completing a component name.
-    ComponentName { prefix: String },
+    ComponentName {
+        /// The text typed after `<`.
+        prefix: String,
+    },
     /// Inside a `strategy="..."` attribute value with enclosing component.
     AttributeStrategy {
+        /// The text typed so far.
         prefix: String,
+        /// The enclosing component name, if any.
         component: Option<String>,
     },
     /// Inside a `status="..."` attribute value with enclosing context.
     AttributeStatus {
+        /// The text typed so far.
         prefix: String,
+        /// The enclosing status context.
         context: StatusContext,
     },
     /// No recognized completion context.
@@ -351,11 +366,7 @@ fn build_component_snippet(name: &str, def: &supersigil_core::ComponentDef) -> S
         })
         .collect();
 
-    // Determine whether the component has a body (any children-accepting use).
-    // Heuristic: components that are referenceable or have no `refs` attribute
-    // and have description mentioning body content tend to have bodies.
-    // Simpler: use `referenceable` as proxy — referenceable components typically
-    // have meaningful body content.
+    // Referenceable components typically have meaningful body content.
     let has_body = def.referenceable;
 
     if has_body {

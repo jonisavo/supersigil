@@ -12,10 +12,13 @@ use supersigil_core::{
 };
 use thiserror::Error;
 
+/// Errors that can occur when collecting build-script validation inputs.
 #[derive(Debug, Error)]
 pub enum BuildSupportError {
+    /// Failed to resolve the set of validation input paths.
     #[error(transparent)]
     InputResolution(#[from] RustValidationInputResolutionError),
+    /// An I/O error occurred while writing `cargo:rerun-if-changed` directives.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

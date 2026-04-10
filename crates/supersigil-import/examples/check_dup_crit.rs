@@ -1,3 +1,5 @@
+//! Example: check for duplicate criterion IDs in a Kiro import.
+
 use supersigil_import::{ImportConfig, plan_kiro_import};
 
 fn main() {

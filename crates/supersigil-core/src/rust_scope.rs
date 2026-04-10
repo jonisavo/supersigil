@@ -14,16 +14,24 @@ use crate::{Config, ProjectConfig, RustEcosystemConfig, RustProjectScope};
 pub enum RustProjectResolutionError {
     /// Multi-project mode with explicit `project_scope`: no prefix matched.
     NoMatchingScope {
+        /// Absolute path to the Cargo manifest directory.
         manifest_dir: PathBuf,
+        /// Manifest directory relative to the project root.
         relative_manifest_dir: PathBuf,
     },
     /// Explicit `project_scope` resolved to a project name not present in
     /// `[projects]`.
-    UnknownProject { project: String },
+    UnknownProject {
+        /// The project name that was not found.
+        project: String,
+    },
     /// Path-based inference found zero or multiple project candidates.
     AmbiguousProject {
+        /// Absolute path to the Cargo manifest directory.
         manifest_dir: PathBuf,
+        /// Manifest directory relative to the project root.
         relative_manifest_dir: PathBuf,
+        /// Project names that matched (empty if none matched).
         candidates: Vec<String>,
     },
 }

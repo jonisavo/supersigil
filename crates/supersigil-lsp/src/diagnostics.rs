@@ -21,69 +21,106 @@ use crate::position::{raw_to_lsp, source_to_lsp_from_file, source_to_lsp_utf16, 
 /// which quick-fix actions are applicable without re-parsing the message text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagnosticData {
+    /// Which subsystem produced the diagnostic.
     pub source: DiagnosticSource,
+    /// The document ID this diagnostic relates to, if applicable.
     pub doc_id: Option<String>,
+    /// Fix-specific metadata for code action providers.
     pub context: ActionContext,
 }
 
 /// Identifies which subsystem produced the diagnostic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DiagnosticSource {
+    /// Produced during the parse phase.
     Parse(ParseDiagnosticKind),
+    /// Produced during graph construction.
     Graph(GraphDiagnosticKind),
+    /// Produced by a verification rule.
     Verify(RuleName),
 }
 
 /// Categorises parse-stage diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ParseDiagnosticKind {
+    /// A required attribute is missing from a component.
     MissingRequiredAttribute,
+    /// An unrecognized component tag was used.
     UnknownComponent,
+    /// Malformed XML syntax inside a supersigil fence.
     XmlSyntaxError,
+    /// YAML frontmatter is missing its closing delimiter.
     UnclosedFrontmatter,
+    /// Any other parse-stage diagnostic.
     Other,
 }
 
 /// Categorises graph-stage diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraphDiagnosticKind {
+    /// Two documents share the same ID.
     DuplicateDocumentId,
+    /// Two components share the same ID within a document.
     DuplicateComponentId,
+    /// A reference points to a non-existent target.
     BrokenRef,
+    /// A circular dependency was detected.
     DependencyCycle,
+    /// A component is invalid in its current context.
     InvalidComponent,
 }
 
 /// Fix-specific metadata carried by a diagnostic for code action providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ActionContext {
+    /// No additional context.
     None,
+    /// A broken reference target.
     BrokenRef {
+        /// The unresolved reference string.
         target_ref: String,
     },
+    /// A required attribute is missing from a component.
     MissingAttribute {
+        /// The component type name.
         component: String,
+        /// The missing attribute name.
         attribute: String,
     },
+    /// A duplicate component or document ID.
     DuplicateId {
+        /// The duplicated ID.
         id: String,
+        /// Path of the other file containing the duplicate.
         other_path: String,
     },
+    /// A Decision component that lacks required children.
     IncompleteDecision {
+        /// The ID of the incomplete decision.
         decision_id: String,
     },
+    /// A required child component is missing from its parent.
     MissingComponent {
+        /// The missing component type name.
         component: String,
+        /// The parent component ID.
         parent_id: String,
     },
+    /// A Decision component with no parent document reference.
     OrphanDecision {
+        /// The ID of the orphan decision.
         decision_id: String,
     },
+    /// A component placed outside its expected parent.
     InvalidPlacement {
+        /// The misplaced component type name.
         component: String,
+        /// The expected parent component type.
         expected_parent: String,
     },
+    /// A gap in sequential ID numbering.
     SequentialIdGap {
+        /// The component type with the gap.
         component_type: String,
     },
 }
@@ -314,6 +351,9 @@ pub(crate) fn graph_error_to_diagnostic(err: &GraphError) -> Vec<(Url, Diagnosti
 
 /// Convert a [`GraphError`] to diagnostics, using a `doc_id → path` lookup
 /// to resolve file URLs for errors that carry only a document ID.
+///
+/// `doc_path` resolves a document ID to its filesystem path; it is called for
+/// errors that carry only an ID without an explicit path.
 #[allow(
     clippy::too_many_lines,
     reason = "match arms with DiagnosticData for each GraphError variant"

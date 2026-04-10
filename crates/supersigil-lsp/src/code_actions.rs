@@ -67,12 +67,19 @@ pub(crate) fn find_closing_decision_tag(
 /// `textDocument/codeAction` request.
 #[derive(Debug)]
 pub struct ActionRequestContext<'a> {
+    /// The resolved document graph.
     pub graph: &'a DocumentGraph,
+    /// The loaded supersigil configuration.
     pub config: &'a Config,
+    /// Component definitions (built-in and custom).
     pub component_defs: &'a ComponentDefs,
+    /// Per-file parse results keyed by project-relative path.
     pub file_parses: &'a HashMap<PathBuf, SpecDocument>,
+    /// Absolute path to the project root directory.
     pub project_root: &'a Path,
+    /// URI of the file the code action request targets.
     pub file_uri: &'a Url,
+    /// Full text content of the target file.
     pub file_content: &'a str,
 }
 

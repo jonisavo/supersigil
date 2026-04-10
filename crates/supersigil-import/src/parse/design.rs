@@ -8,27 +8,42 @@ use super::RawRef;
 /// Parsed design.md
 #[derive(Debug, Clone)]
 pub struct ParsedDesign {
+    /// Document title extracted from the `# Design` heading.
     pub title: Option<String>,
+    /// Sections parsed from the document.
     pub sections: Vec<DesignSection>,
 }
 
+/// A single section within a parsed design document.
 #[derive(Debug, Clone)]
 pub struct DesignSection {
+    /// Section heading text.
     pub heading: String,
+    /// Heading level (2 for `##`, 3 for `###`, etc.; 0 for synthetic preamble).
     pub level: u8,
+    /// Content blocks within this section.
     pub content: Vec<DesignBlock>,
 }
 
+/// A content block within a design section.
 #[derive(Debug, Clone)]
 pub enum DesignBlock {
+    /// A block of prose text.
     Prose(String),
+    /// A fenced code block.
     CodeBlock {
+        /// Language identifier (e.g., `rust`, `mermaid`), if specified.
         language: Option<String>,
+        /// Code content inside the fence.
         content: String,
     },
+    /// A `**Validates: ...**` line with parsed requirement references.
     ValidatesLine {
+        /// The original raw line text.
         raw: String,
+        /// Parsed requirement references.
         refs: Vec<RawRef>,
+        /// Ambiguity markers for unparseable portions.
         markers: Vec<String>,
     },
 }

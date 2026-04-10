@@ -4,25 +4,37 @@ use std::sync::LazyLock;
 /// Parsed requirements.md
 #[derive(Debug, Clone)]
 pub struct ParsedRequirements {
+    /// Document title extracted from the `# Requirements Document` heading.
     pub title: Option<String>,
+    /// Introduction text before the first requirement section.
     pub introduction: String,
+    /// Optional glossary section content.
     pub glossary: Option<String>,
+    /// Individual parsed requirements.
     pub requirements: Vec<ParsedRequirement>,
 }
 
+/// A single parsed requirement with its acceptance criteria.
 #[derive(Debug, Clone)]
 pub struct ParsedRequirement {
+    /// Requirement number (e.g., `1`, `2`).
     pub number: String,
+    /// Optional requirement title.
     pub title: Option<String>,
+    /// Optional user story text.
     pub user_story: Option<String>,
+    /// Acceptance criteria for this requirement.
     pub criteria: Vec<ParsedCriterion>,
     /// Prose between user story and criteria, or after criteria.
     pub extra_prose: Vec<String>,
 }
 
+/// A single acceptance criterion.
 #[derive(Debug, Clone)]
 pub struct ParsedCriterion {
+    /// Criterion index (e.g., `1`, `8a`).
     pub index: String,
+    /// Criterion text.
     pub text: String,
 }
 

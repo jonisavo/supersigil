@@ -38,12 +38,20 @@ pub struct LineRange {
 pub enum RenameTarget {
     /// Rename a component ID (fragment).
     ComponentId {
+        /// The document containing the component.
         doc_id: String,
+        /// The current component ID.
         component_id: String,
+        /// The byte range of the ID in the source line.
         range: LineRange,
     },
     /// Rename a document ID.
-    DocumentId { doc_id: String, range: LineRange },
+    DocumentId {
+        /// The current document ID.
+        doc_id: String,
+        /// The byte range of the ID in the source line.
+        range: LineRange,
+    },
 }
 
 // ---------------------------------------------------------------------------

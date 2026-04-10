@@ -14,12 +14,17 @@ use crate::scope;
 /// Maximum body text length shown in terminal mode.
 const MAX_BODY_LEN: usize = 72;
 
+/// A single criterion ref entry for listing or JSON output.
 #[derive(Debug, Serialize)]
 pub struct CriterionRefEntry {
+    /// Full criterion reference string (e.g., `doc_id#criterion_id`).
     #[serde(rename = "ref")]
     pub ref_string: String,
+    /// Document ID containing this criterion.
     pub doc_id: String,
+    /// Criterion identifier within the document.
     pub criterion_id: String,
+    /// Optional body text describing the criterion.
     pub body_text: Option<String>,
 }
 

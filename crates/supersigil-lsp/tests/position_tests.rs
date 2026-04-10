@@ -1,3 +1,5 @@
+//! Tests for LSP position and UTF-16 offset conversion.
+
 use supersigil_core::SourcePosition;
 use supersigil_lsp::position::{source_to_lsp_utf16, utf16_to_byte};
 use supersigil_rust_macros::verifies;

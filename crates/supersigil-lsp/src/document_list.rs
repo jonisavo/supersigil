@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 // Request: supersigil/documentList
 // ---------------------------------------------------------------------------
 
+/// LSP request type for `supersigil/documentList`.
 #[derive(Debug)]
 pub struct DocumentListRequest;
 
@@ -21,18 +22,26 @@ impl Request for DocumentListRequest {
     const METHOD: &'static str = "supersigil/documentList";
 }
 
+/// Response payload for the `supersigil/documentList` request.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DocumentListResult {
+    /// The flat list of document entries.
     pub documents: Vec<DocumentEntry>,
 }
 
+/// A single document entry for the Spec Explorer tree view.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocumentEntry {
+    /// The document ID.
     pub id: String,
+    /// The document type (e.g. `"requirements"`, `"design"`).
     pub doc_type: String,
+    /// The document's current status, if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// Project-relative file path.
     pub path: String,
+    /// The project this document belongs to, if using multi-project config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
 }
@@ -41,6 +50,7 @@ pub struct DocumentEntry {
 // Notification: supersigil/documentsChanged
 // ---------------------------------------------------------------------------
 
+/// LSP notification type for `supersigil/documentsChanged`.
 #[derive(Debug)]
 pub struct DocumentsChanged;
 

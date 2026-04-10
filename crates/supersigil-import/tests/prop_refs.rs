@@ -1,3 +1,5 @@
+//! Property-based tests for reference parsing and resolution.
+
 mod generators;
 
 use proptest::prelude::*;

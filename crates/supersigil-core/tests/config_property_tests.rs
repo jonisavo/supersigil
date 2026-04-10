@@ -1,6 +1,4 @@
-// Property-based tests for supersigil-core
-// Task 2.3: Frontmatter YAML round-trip (Property 1)
-// Validates: Requirements 22.1, 4.1
+//! Property-based tests for supersigil-core config types.
 
 use proptest::prelude::*;
 use supersigil_core::Frontmatter;

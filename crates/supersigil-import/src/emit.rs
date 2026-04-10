@@ -1,5 +1,8 @@
+/// Emission of design spec documents.
 pub mod design;
+/// Emission of requirements spec documents.
 pub mod requirements;
+/// Emission of tasks spec documents.
 pub mod tasks;
 
 use std::fmt::Write;

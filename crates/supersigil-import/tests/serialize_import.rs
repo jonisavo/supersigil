@@ -1,3 +1,5 @@
+//! Serialization tests for import types.
+
 use std::path::PathBuf;
 
 use serde_json::json;

@@ -1,4 +1,4 @@
-// Property-based tests for supersigil-parser
+//! Property-based tests for supersigil-parser.
 
 use proptest::prelude::*;
 use supersigil_parser::preprocess;

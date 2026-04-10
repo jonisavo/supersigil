@@ -14,9 +14,13 @@ use supersigil_core::{Severity, SourcePosition};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportSeverity {
+    /// Rule is disabled.
     Off,
+    /// Informational finding.
     Info,
+    /// Non-blocking warning.
     Warning,
+    /// Blocking error.
     Error,
 }
 
@@ -40,28 +44,51 @@ impl From<Severity> for ReportSeverity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleName {
+    /// A criterion has no verification evidence.
     MissingVerificationEvidence,
+    /// A document's test file globs matched no files.
     MissingTestFiles,
+    /// A tag yielded zero matches in scanned files.
     ZeroTagMatches,
+    /// Tracked files changed since the given git ref.
     StaleTrackedFiles,
+    /// A tracked-files glob pattern matches no files.
     EmptyTrackedGlob,
+    /// A tag in test code does not correspond to any document.
     OrphanTestTag,
+    /// A document ID does not match the configured pattern.
     InvalidIdPattern,
+    /// A document has no edges to other documents.
     IsolatedDocument,
+    /// A document's status is inconsistent with its dependencies.
     StatusInconsistency,
+    /// A required component is missing from a document.
     MissingRequiredComponent,
+    /// A `VerifiedBy` component is placed in a disallowed position.
     InvalidVerifiedByPlacement,
+    /// A plugin failed during evidence discovery.
     PluginDiscoveryFailure,
+    /// A plugin emitted a non-fatal warning during discovery.
     PluginDiscoveryWarning,
+    /// Sequential IDs within a document are out of order.
     SequentialIdOrder,
+    /// Sequential IDs have gaps in their numbering.
     SequentialIdGap,
+    /// A `Rationale` component is placed in a disallowed position.
     InvalidRationalePlacement,
+    /// An `Alternative` component is placed in a disallowed position.
     InvalidAlternativePlacement,
+    /// A decision has more than one `Rationale`.
     DuplicateRationale,
+    /// An `Alternative` has an invalid status value.
     InvalidAlternativeStatus,
+    /// A decision is missing required sub-components.
     IncompleteDecision,
+    /// A decision is not referenced by any document.
     OrphanDecision,
+    /// A decision's criteria lack evidence coverage.
     MissingDecisionCoverage,
+    /// No documents were found in the project.
     EmptyProject,
 }
 
@@ -168,14 +195,21 @@ impl RuleName {
 /// A single verification finding produced by a rule.
 #[derive(Debug, Clone, Serialize)]
 pub struct Finding {
+    /// Which rule produced this finding.
     pub rule: RuleName,
+    /// Document ID this finding belongs to, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_id: Option<String>,
+    /// Human-readable description of the finding.
     pub message: String,
+    /// Severity after config overrides and status-based adjustments.
     pub effective_severity: ReportSeverity,
+    /// Severity before any overrides.
     pub raw_severity: ReportSeverity,
+    /// Source position in the spec file, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<SourcePosition>,
+    /// Structured metadata for programmatic consumers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Box<FindingDetails>>,
 }
@@ -183,18 +217,25 @@ pub struct Finding {
 /// Structured metadata for programmatic remediation and source attribution.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct FindingDetails {
+    /// Name of the plugin that produced the finding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin: Option<String>,
+    /// Verification target reference (e.g. `"doc#criterion"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_ref: Option<String>,
+    /// File path related to the finding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Line number in the related file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
+    /// Column number in the related file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<usize>,
+    /// Machine-readable error code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    /// Suggested fix for the finding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
 }
@@ -235,9 +276,13 @@ impl Finding {
 /// Aggregate counts for a verification run.
 #[derive(Debug, Clone, Serialize)]
 pub struct Summary {
+    /// Number of documents in scope.
     pub total_documents: usize,
+    /// Number of error-level findings.
     pub error_count: usize,
+    /// Number of warning-level findings.
     pub warning_count: usize,
+    /// Number of info-level findings.
     pub info_count: usize,
 }
 
@@ -271,8 +316,11 @@ impl Summary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResultStatus {
+    /// No findings above info level.
     Clean,
+    /// At least one error-level finding.
     HasErrors,
+    /// Warnings present but no errors.
     WarningsOnly,
 }
 
@@ -294,11 +342,17 @@ pub struct EvidenceSummary {
 /// A single evidence entry for report output.
 #[derive(Debug, Clone, Serialize)]
 pub struct EvidenceReportEntry {
+    /// Name of the test function.
     pub test_name: String,
+    /// Path to the test file.
     pub test_file: String,
+    /// Classification of the test (e.g. "unit", "async").
     pub test_kind: String,
+    /// How the evidence was discovered (e.g. "rust-attribute").
     pub evidence_kind: String,
+    /// Verification target references covered by this test.
     pub targets: Vec<String>,
+    /// Provenance chain for the evidence.
     pub provenance: Vec<String>,
     /// Source file where the evidence was discovered.
     pub source_file: String,
@@ -315,7 +369,9 @@ pub struct EvidenceReportEntry {
 /// check `test_count > 0` if they need a boolean "covered" flag.
 #[derive(Debug, Clone, Serialize)]
 pub struct TargetCoverage {
+    /// The verification target reference.
     pub target: String,
+    /// Number of tests covering this target.
     pub test_count: usize,
 }
 
@@ -392,8 +448,11 @@ impl EvidenceSummary {
 /// Complete output of a verification run.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerificationReport {
+    /// Overall pass/fail status.
     pub overall_status: ResultStatus,
+    /// All findings from the verification run.
     pub findings: Vec<Finding>,
+    /// Aggregate counts by severity.
     pub summary: Summary,
     /// Optional evidence summary from `ArtifactGraph` enrichment.
     #[serde(skip_serializing_if = "Option::is_none")]

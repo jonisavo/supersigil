@@ -1,61 +1,112 @@
+//! Import and convert external spec formats into supersigil documents.
+//!
+//! This crate handles discovering, parsing, and converting specification
+//! documents from other formats (e.g. Kiro specs) into supersigil's native
+//! Markdown-based format. It provides a plan-then-execute workflow: first
+//! preview what would be imported, then write the output files.
+
+/// Discovery of Kiro spec directories on the filesystem.
 pub mod discover;
+/// Emission of supersigil Markdown from parsed intermediate representations.
 pub mod emit;
+/// Document and criterion ID generation and deduplication.
 pub mod ids;
+/// Parsing of Kiro spec files into intermediate representations.
 pub mod parse;
+/// Requirement reference parsing and resolution.
 pub mod refs;
+/// Writing generated spec documents to disk.
 pub mod write;
 
 use std::path::PathBuf;
 
+/// Configuration for a Kiro-to-supersigil import operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportConfig {
+    /// Path to the Kiro specs directory (e.g., `.kiro/specs`).
     pub kiro_specs_dir: PathBuf,
+    /// Directory where converted spec documents will be written.
     pub output_dir: PathBuf,
+    /// Optional prefix for generated document IDs.
     pub id_prefix: Option<String>,
+    /// Whether to overwrite existing files.
     pub force: bool,
 }
 
+/// Result of a completed import operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportResult {
+    /// Files successfully written to disk.
     pub files_written: Vec<OutputFile>,
+    /// Number of ambiguity markers emitted during conversion.
     pub ambiguity_count: usize,
+    /// Aggregate statistics for the import.
     pub summary: ImportSummary,
+    /// Non-fatal warnings and skipped-directory notices.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Dry-run preview of an import operation (no files written).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportPlan {
+    /// Documents that would be written.
     pub documents: Vec<PlannedDocument>,
+    /// Number of ambiguity markers that would be emitted.
     pub ambiguity_count: usize,
+    /// Aggregate statistics for the planned import.
     pub summary: ImportSummary,
+    /// Non-fatal warnings and skipped-directory notices.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// A single document planned for output.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PlannedDocument {
+    /// Filesystem path where the document will be written.
     pub output_path: PathBuf,
+    /// The supersigil document ID.
     pub document_id: String,
+    /// Rendered Markdown content.
     pub content: String,
 }
 
+/// A file that was written to disk during import.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OutputFile {
+    /// Filesystem path of the written file.
     pub path: PathBuf,
+    /// The supersigil document ID of the written file.
     pub document_id: String,
 }
 
+/// Aggregate statistics for an import operation.
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ImportSummary {
+    /// Total acceptance criteria converted.
     pub criteria_converted: usize,
+    /// Total validates/implements references successfully resolved.
     pub validates_resolved: usize,
+    /// Total tasks (including sub-tasks) converted.
     pub tasks_converted: usize,
+    /// Number of feature directories processed.
     pub features_processed: usize,
 }
 
+/// A non-fatal diagnostic produced during import.
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum Diagnostic {
-    SkippedDir { path: PathBuf, reason: String },
-    Warning { message: String },
+    /// A directory was skipped during discovery.
+    SkippedDir {
+        /// Path of the skipped directory.
+        path: PathBuf,
+        /// Reason the directory was skipped.
+        reason: String,
+    },
+    /// A general warning.
+    Warning {
+        /// Warning message text.
+        message: String,
+    },
 }
 
 impl std::fmt::Display for Diagnostic {
@@ -69,17 +120,28 @@ impl std::fmt::Display for Diagnostic {
     }
 }
 
+/// Errors that can occur during a Kiro import.
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+    /// The specified Kiro specs directory does not exist.
     #[error("kiro specs directory not found: {path}")]
-    SpecsDirNotFound { path: PathBuf },
+    SpecsDirNotFound {
+        /// Path that was not found.
+        path: PathBuf,
+    },
+    /// An I/O error occurred during discovery, reading, or writing.
     #[error("I/O error: {source}")]
     Io {
+        /// The underlying I/O error.
         #[from]
         source: std::io::Error,
     },
+    /// A target file already exists and `--force` was not set.
     #[error("file already exists and --force not set: {path}")]
-    FileExists { path: PathBuf },
+    FileExists {
+        /// Path of the existing file.
+        path: PathBuf,
+    },
 }
 
 /// Perform the full import: parse, convert, and write spec documents.

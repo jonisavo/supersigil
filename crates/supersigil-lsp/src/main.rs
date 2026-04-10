@@ -1,3 +1,5 @@
+//! Supersigil Language Server binary entry point.
+
 use supersigil_lsp::state::SupersigilLsp;
 
 #[tokio::main(flavor = "current_thread")]

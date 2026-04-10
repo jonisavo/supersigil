@@ -1,7 +1,10 @@
+//! Proptest generators for import-related types.
+
 #![allow(
     dead_code,
     reason = "generator functions are used by other test files via mod"
 )]
+#![allow(missing_docs, reason = "test-only generators do not need doc comments")]
 #![allow(
     clippy::missing_panics_doc,
     reason = "test helper generators, panics are intentional on invalid regex"

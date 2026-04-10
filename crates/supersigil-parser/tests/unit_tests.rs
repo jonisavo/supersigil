@@ -1,4 +1,4 @@
-// Unit tests for supersigil-parser
+//! Unit tests for supersigil-parser.
 
 mod common;
 use common::dummy_path;

@@ -1,3 +1,5 @@
+//! Integration tests for the `init` command.
+
 use std::fs;
 
 use assert_cmd::cargo::cargo_bin_cmd;

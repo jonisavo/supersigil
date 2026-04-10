@@ -1,3 +1,5 @@
+//! Unit tests for `split_list_attribute`.
+
 use supersigil_core::split_list_attribute;
 
 #[test]

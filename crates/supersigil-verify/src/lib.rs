@@ -1,17 +1,22 @@
 //! Verification engine for supersigil spec documents.
 
+/// Affected-document detection based on git diffs and tracked-file globs.
 pub mod affected;
 pub(crate) mod artifact_graph;
+/// Per-document component trees with verification status.
 pub mod document_components;
 mod error;
 pub(crate) mod explicit_evidence;
+/// Git diff helpers for staleness detection.
 pub mod git;
+/// Language plugin discovery and evidence collection.
 pub mod plugins;
 mod report;
 mod rules;
 mod scan;
 mod severity;
 #[cfg(any(test, feature = "test-helpers"))]
+/// Test helpers for building spec documents and git repos.
 pub mod test_helpers;
 
 use std::collections::HashSet;

@@ -2,12 +2,18 @@ use std::path::{Path, PathBuf};
 
 use crate::{Diagnostic, ImportError};
 
+/// A discovered Kiro spec directory for a single feature.
 #[derive(Debug, Clone)]
 pub struct KiroSpecDir {
+    /// Absolute path to the feature's spec directory.
     pub path: PathBuf,
+    /// Name of the feature (directory basename).
     pub feature_name: String,
+    /// Whether a `requirements.md` file exists.
     pub has_requirements: bool,
+    /// Whether a `design.md` file exists.
     pub has_design: bool,
+    /// Whether a `tasks.md` file exists.
     pub has_tasks: bool,
 }
 

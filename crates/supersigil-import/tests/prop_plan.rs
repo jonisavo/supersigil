@@ -1,3 +1,5 @@
+//! Property-based tests for import planning.
+
 mod common;
 mod generators;
 

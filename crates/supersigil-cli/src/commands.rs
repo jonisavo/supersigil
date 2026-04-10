@@ -1,17 +1,32 @@
+/// Documents affected by file changes since a git ref.
 pub mod affected;
+/// Structured context view of a single document.
 pub mod context;
+/// Interactive graph explorer served in the browser.
 pub mod explore;
+/// Document dependency graph visualization.
 pub mod graph;
+/// Import specs from external formats.
 pub mod import;
+/// Initialize a new supersigil project.
 pub mod init;
+/// List all documents in the project.
 pub mod ls;
+/// Scaffold a new spec document.
 pub mod new;
+/// Outstanding work plan for documents or the project.
 pub mod plan;
+/// List criterion refs in the project.
 pub mod refs;
+/// Render component trees with verification data.
 pub mod render;
+/// Output component and document type schema.
 pub mod schema;
+/// Manage embedded agent skills.
 pub mod skills;
+/// Project or document status overview.
 pub mod status;
+/// Cross-document verification.
 pub mod verify;
 
 use clap::Subcommand;
@@ -19,6 +34,7 @@ use std::path::PathBuf;
 
 use crate::format::{Detail, OutputFormat};
 
+/// Available CLI subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// List all documents
@@ -66,6 +82,7 @@ pub enum Command {
     Render(RenderArgs),
 }
 
+/// Arguments for the `ls` command.
 #[derive(Debug, clap::Args)]
 pub struct LsArgs {
     /// Filter by document type
@@ -82,12 +99,16 @@ pub struct LsArgs {
     pub format: OutputFormat,
 }
 
+/// Output format for the `schema` command.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum SchemaFormat {
+    /// JSON output.
     Json,
+    /// YAML output.
     Yaml,
 }
 
+/// Arguments for the `schema` command.
 #[derive(Debug, clap::Args)]
 pub struct SchemaArgs {
     /// Output format
@@ -95,6 +116,7 @@ pub struct SchemaArgs {
     pub format: SchemaFormat,
 }
 
+/// Arguments for the `context` command.
 #[derive(Debug, clap::Args)]
 pub struct ContextArgs {
     /// Document ID
@@ -107,6 +129,7 @@ pub struct ContextArgs {
     pub detail: Detail,
 }
 
+/// Arguments for the `plan` command.
 #[derive(Debug, clap::Args)]
 pub struct PlanArgs {
     /// Document ID, prefix, or omit for all
@@ -119,11 +142,14 @@ pub struct PlanArgs {
     pub full: bool,
 }
 
+/// Supported import source formats.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum ImportSource {
+    /// Import from Amazon Kiro spec format.
     Kiro,
 }
 
+/// Arguments for the `import` command.
 #[derive(Debug, clap::Args)]
 pub struct ImportArgs {
     /// Source format to import from
@@ -149,11 +175,15 @@ pub struct ImportArgs {
 /// Verify output format (terminal includes color, markdown for CI).
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum VerifyFormat {
+    /// Colored terminal output.
     Terminal,
+    /// JSON output.
     Json,
+    /// Markdown output for CI.
     Markdown,
 }
 
+/// Arguments for the `verify` command.
 #[derive(Debug, clap::Args)]
 pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
@@ -176,6 +206,7 @@ pub struct VerifyArgs {
     pub detail: Detail,
 }
 
+/// Arguments for the `status` command.
 #[derive(Debug, clap::Args)]
 pub struct StatusArgs {
     /// Document ID (omit for project-wide overview)
@@ -185,6 +216,7 @@ pub struct StatusArgs {
     pub format: OutputFormat,
 }
 
+/// Arguments for the `affected` command.
 #[derive(Debug, clap::Args)]
 pub struct AffectedArgs {
     /// Git ref to diff against
@@ -204,11 +236,15 @@ pub struct AffectedArgs {
 /// Graph visualization format.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum GraphFormat {
+    /// Mermaid diagram syntax.
     Mermaid,
+    /// Graphviz DOT syntax.
     Dot,
+    /// JSON output.
     Json,
 }
 
+/// Arguments for the `graph` command.
 #[derive(Debug, clap::Args)]
 pub struct GraphArgs {
     /// Output format
@@ -216,6 +252,7 @@ pub struct GraphArgs {
     pub format: GraphFormat,
 }
 
+/// Arguments for the `new` command.
 #[derive(Debug, clap::Args)]
 pub struct NewArgs {
     /// Document type (e.g., requirements, design, tasks)
@@ -227,6 +264,7 @@ pub struct NewArgs {
     pub project: Option<String>,
 }
 
+/// Arguments for the `refs` command.
 #[derive(Debug, clap::Args)]
 pub struct RefsArgs {
     /// Filter refs by document ID prefix
@@ -239,6 +277,7 @@ pub struct RefsArgs {
     pub format: OutputFormat,
 }
 
+/// Arguments for the `init` command.
 #[derive(Debug, clap::Args)]
 pub struct InitArgs {
     /// Accept all defaults without prompting
@@ -255,18 +294,22 @@ pub struct InitArgs {
     pub skills_path: Option<PathBuf>,
 }
 
+/// Arguments for the `skills` command.
 #[derive(Debug, clap::Args)]
 pub struct SkillsArgs {
+    /// Skills subcommand.
     #[command(subcommand)]
     pub command: SkillsCommand,
 }
 
+/// Available skills subcommands.
 #[derive(Debug, Subcommand)]
 pub enum SkillsCommand {
     /// Install or update embedded agent skills
     Install(SkillsInstallArgs),
 }
 
+/// Arguments for the `skills install` command.
 #[derive(Debug, clap::Args)]
 pub struct SkillsInstallArgs {
     /// Target directory for skills
@@ -274,6 +317,7 @@ pub struct SkillsInstallArgs {
     pub path: Option<PathBuf>,
 }
 
+/// Arguments for the `explore` command.
 #[derive(Debug, clap::Args)]
 pub struct ExploreArgs {
     /// Write to this path instead of opening in browser
@@ -284,9 +328,11 @@ pub struct ExploreArgs {
 /// Render output format.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum RenderFormat {
+    /// JSON output.
     Json,
 }
 
+/// Arguments for the `render` command.
 #[derive(Debug, clap::Args)]
 pub struct RenderArgs {
     /// Output format

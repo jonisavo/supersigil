@@ -207,7 +207,7 @@ fn file_link(path: &std::path::Path, position: Option<&SourcePosition>) -> Strin
     }
 }
 
-/// Get the document title from the `extra` [`HashMap`], falling back to the ID.
+/// Get the document title from the `extra` map, falling back to the ID.
 fn doc_title(doc: &SpecDocument) -> String {
     doc.extra
         .get("title")

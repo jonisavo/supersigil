@@ -1,6 +1,4 @@
-// Unit tests for ComponentDefs: defaults, merge, is_known, get
-// Task 4.1: TDD — tests written before implementation
-// Requirements: 7.1, 7.3, 14.4, 14.5
+//! Unit tests for `ComponentDefs`: defaults, merge, `is_known`, get.
 // Task 1 (Decision Components): Decision, Rationale, Alternative added
 
 use std::collections::HashMap;

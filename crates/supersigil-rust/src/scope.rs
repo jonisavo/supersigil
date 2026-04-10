@@ -9,6 +9,7 @@ use std::path::Path;
 use supersigil_core::{Config, RustProjectResolutionError, resolve_rust_project};
 use supersigil_evidence::ProjectScope;
 
+/// Error type for Rust project scope resolution.
 pub type ScopeError = RustProjectResolutionError;
 pub use supersigil_core::match_rust_project_scope as match_explicit_scope;
 
@@ -32,6 +33,7 @@ pub use supersigil_core::match_rust_project_scope as match_explicit_scope;
 /// config, attempt path-based inference. If ambiguous or no match, return
 /// an error. The shared decision logic lives in `supersigil-core` so the
 /// runtime helper and proc macro stay aligned.
+///
 /// # Errors
 ///
 /// Returns [`ScopeError`] when:

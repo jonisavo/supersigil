@@ -1,7 +1,4 @@
-// Unit tests for real-world Kiro spec inputs and edge cases.
-//
-// 22.1: Parse existing `.kiro/specs/` directories as integration tests.
-// 22.2: Edge case tests for boundary conditions and error paths.
+//! Unit tests for real-world Kiro spec inputs and edge cases.
 
 mod common;
 

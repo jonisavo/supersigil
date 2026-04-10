@@ -9,22 +9,38 @@ use supersigil_core::TaskInfo;
 // Semantic color tokens
 // ---------------------------------------------------------------------------
 
+/// Semantic color token for terminal output styling.
 #[derive(Debug, Clone, Copy)]
 pub enum Token {
+    /// Section header (bold).
     Header,
+    /// Field label (bold).
     Label,
+    /// Document ID (cyan).
     DocId,
+    /// Document type (blue).
     DocType,
+    /// Default status (yellow).
     Status,
+    /// Good/passing status (green).
     StatusGood,
+    /// Bad/failing status (red).
     StatusBad,
+    /// Informational status (yellow).
     StatusInfo,
+    /// Superseded status (dimmed).
     StatusSuperseded,
+    /// Numeric count (bold).
     Count,
+    /// File path (dimmed).
     Path,
+    /// Success indicator (bold green).
     Success,
+    /// Error indicator (bold red).
     Error,
+    /// Warning indicator (bold yellow).
     Warning,
+    /// Hint text (dimmed).
     Hint,
 }
 
@@ -59,6 +75,7 @@ impl Token {
 // Painted wrapper
 // ---------------------------------------------------------------------------
 
+/// A string annotated with an ANSI style for display.
 #[derive(Debug)]
 pub struct Painted<'a> {
     text: &'a str,
@@ -84,8 +101,11 @@ impl fmt::Display for Painted<'_> {
 /// Raw clap enum for `--color` flag.
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum ColorChoice {
+    /// Always emit ANSI colors.
     Always,
+    /// Never emit ANSI colors.
     Never,
+    /// Detect from terminal and environment.
     #[default]
     Auto,
 }
@@ -131,16 +151,19 @@ impl ColorConfig {
         std::io::stdout().is_terminal()
     }
 
+    /// Whether color output is enabled.
     #[must_use]
     pub fn use_color(self) -> bool {
         self.color
     }
 
+    /// Whether unicode symbols are enabled.
     #[must_use]
     pub fn use_unicode(self) -> bool {
         self.unicode
     }
 
+    /// Wrap `text` with the ANSI style for `token`.
     #[must_use]
     pub fn paint(self, token: Token, text: &str) -> Painted<'_> {
         let style = if self.color {
@@ -172,24 +195,28 @@ pub enum ExitStatus {
 // ---------------------------------------------------------------------------
 
 impl ColorConfig {
+    /// Success symbol (checkmark or `[ok]`).
     #[must_use]
     pub fn ok(self) -> Painted<'static> {
         let text = if self.unicode { "✔" } else { "[ok]" };
         self.paint(Token::Success, text)
     }
 
+    /// Error symbol (cross or `[err]`).
     #[must_use]
     pub fn err(self) -> Painted<'static> {
         let text = if self.unicode { "✖" } else { "[err]" };
         self.paint(Token::Error, text)
     }
 
+    /// Warning symbol (triangle or `[warn]`).
     #[must_use]
     pub fn warn(self) -> Painted<'static> {
         let text = if self.unicode { "⚠" } else { "[warn]" };
         self.paint(Token::Warning, text)
     }
 
+    /// Info symbol (info icon or `[info]`).
     #[must_use]
     pub fn info(self) -> Painted<'static> {
         let text = if self.unicode { "ℹ" } else { "[info]" };
@@ -214,7 +241,9 @@ pub fn hint(color: ColorConfig, msg: &str) {
 /// Output format for commands that support `--format`.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum OutputFormat {
+    /// Colored terminal output.
     Terminal,
+    /// JSON output.
     Json,
 }
 

@@ -1,3 +1,5 @@
+//! Integration tests for the document loader.
+
 mod common;
 
 use std::fs;

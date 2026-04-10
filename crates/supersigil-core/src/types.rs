@@ -13,9 +13,12 @@ use serde::{Deserialize, Serialize};
 /// The YAML `type` field maps to `doc_type` (reserved keyword in Rust).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Frontmatter {
+    /// The document identifier.
     pub id: String,
+    /// The document type (e.g. `"requirements"`, `"design"`).
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub doc_type: Option<String>,
+    /// The document status (e.g. `"draft"`, `"approved"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
 }
@@ -31,8 +34,11 @@ pub struct Frontmatter {
 /// that it refers to the original file content (after BOM stripping).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct SourcePosition {
+    /// Byte offset from the start of the file.
     pub byte_offset: usize,
+    /// One-based line number.
     pub line: usize,
+    /// One-based column number.
     pub column: usize,
 }
 
@@ -58,8 +64,11 @@ pub enum SpanKind {
 /// A fenced code block extracted from component body content.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CodeBlock {
+    /// The language tag of the fenced code block, if present.
     pub lang: Option<String>,
+    /// The text content of the code block.
     pub content: String,
+    /// Byte offset of the content start in the raw source file.
     pub content_offset: usize,
     /// Byte offset of the end of the content in the raw source file.
     ///
@@ -81,8 +90,11 @@ pub struct CodeBlock {
 /// children, optional body text, and source position.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ExtractedComponent {
+    /// The component tag name (e.g. `"Criterion"`, `"Task"`).
     pub name: String,
+    /// Attribute key-value pairs from the component tag.
     pub attributes: HashMap<String, String>,
+    /// Nested child components.
     pub children: Vec<ExtractedComponent>,
     /// Trimmed concatenation of non-component text nodes.
     /// `None` if self-closing or no text content.
@@ -97,6 +109,7 @@ pub struct ExtractedComponent {
     pub body_text_end_offset: Option<usize>,
     /// Fenced code blocks extracted from the component body.
     pub code_blocks: Vec<CodeBlock>,
+    /// Source position of the opening tag of this component.
     pub position: SourcePosition,
     /// Source position of the end of this component (past the closing `>`).
     pub end_position: SourcePosition,
@@ -110,10 +123,13 @@ pub struct ExtractedComponent {
 /// and extracted components.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SpecDocument {
+    /// File path of the spec document.
     pub path: PathBuf,
+    /// Parsed supersigil front matter.
     pub frontmatter: Frontmatter,
     /// All YAML keys outside the `supersigil:` namespace, preserved as-is.
     pub extra: HashMap<String, yaml_serde::Value>,
+    /// Top-level extracted components from the document body.
     pub components: Vec<ExtractedComponent>,
 }
 
@@ -125,6 +141,8 @@ pub struct SpecDocument {
 /// signal that the file is not a supersigil spec.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseResult {
+    /// The file was successfully parsed as a supersigil document.
     Document(SpecDocument),
+    /// The file is not a supersigil spec (no supersigil front matter).
     NotSupersigil(PathBuf),
 }

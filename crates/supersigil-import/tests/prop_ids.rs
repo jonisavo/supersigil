@@ -1,3 +1,5 @@
+//! Property-based tests for ID generation and deduplication.
+
 mod generators;
 
 use proptest::prelude::*;

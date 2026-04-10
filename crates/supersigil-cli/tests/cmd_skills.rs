@@ -1,3 +1,5 @@
+//! Integration tests for the `skills` command.
+
 use std::fs;
 
 use assert_cmd::cargo::cargo_bin_cmd;

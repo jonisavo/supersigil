@@ -11,33 +11,60 @@ use crate::SourcePosition;
 /// Errors produced by the parser pipeline.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
+    /// An I/O error occurred while reading a spec file.
     #[error("{path}: {source}")]
     IoError {
+        /// Path to the file that caused the error.
         path: PathBuf,
+        /// The underlying I/O error.
         #[source]
         source: std::io::Error,
     },
+    /// Front matter block was opened but never closed.
     #[error("{path}: unclosed front matter (missing closing `---`)")]
-    UnclosedFrontMatter { path: PathBuf },
-    #[error("{path}: invalid YAML: {message}")]
-    InvalidYaml { path: PathBuf, message: String },
-    #[error("{path}: missing required `id` field in supersigil front matter")]
-    MissingId { path: PathBuf },
-    #[error("{path}:{line}:{column}: XML syntax error: {message}")]
-    XmlSyntaxError {
+    UnclosedFrontMatter {
+        /// Path to the file with unclosed front matter.
         path: PathBuf,
-        line: usize,
-        column: usize,
+    },
+    /// YAML front matter failed to parse.
+    #[error("{path}: invalid YAML: {message}")]
+    InvalidYaml {
+        /// Path to the file with invalid YAML.
+        path: PathBuf,
+        /// Description of the YAML error.
         message: String,
     },
+    /// The required `id` field is missing from supersigil front matter.
+    #[error("{path}: missing required `id` field in supersigil front matter")]
+    MissingId {
+        /// Path to the file missing an ID.
+        path: PathBuf,
+    },
+    /// XML syntax error in a supersigil code block.
+    #[error("{path}:{line}:{column}: XML syntax error: {message}")]
+    XmlSyntaxError {
+        /// Path to the file containing the error.
+        path: PathBuf,
+        /// Line number of the error.
+        line: usize,
+        /// Column number of the error.
+        column: usize,
+        /// Description of the XML syntax error.
+        message: String,
+    },
+    /// A required attribute is missing on a component.
     #[error(
         "{path}:{}:{}: missing required attribute `{attribute}` on `<{component}>`",
         position.line, position.column
     )]
     MissingRequiredAttribute {
+        /// Path to the file containing the component.
         path: PathBuf,
+        /// The component name that is missing the attribute.
         component: String,
+        /// The name of the missing required attribute.
         attribute: String,
+        /// Source position of the component.
         position: SourcePosition,
     },
 }
@@ -49,28 +76,55 @@ pub enum ParseError {
 /// Errors produced by the config loader.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    /// An I/O error occurred while reading the config file.
     #[error("{path}: {source}")]
     IoError {
+        /// Path to the config file.
         path: PathBuf,
+        /// The underlying I/O error.
         #[source]
         source: std::io::Error,
     },
+    /// The TOML content failed to parse.
     #[error("TOML syntax error: {message}")]
-    TomlSyntax { message: String },
+    TomlSyntax {
+        /// Description of the TOML syntax error.
+        message: String,
+    },
+    /// Mutually exclusive config keys were both present.
     #[error("keys are mutually exclusive: {}", keys.join(", "))]
-    MutualExclusivity { keys: Vec<String> },
+    MutualExclusivity {
+        /// The conflicting key names.
+        keys: Vec<String>,
+    },
+    /// A required config entry is missing.
     #[error("missing required config: {message}")]
-    MissingRequired { message: String },
+    MissingRequired {
+        /// Description of what is missing.
+        message: String,
+    },
+    /// An unrecognized verification rule name was used.
     #[error("unknown verification rule: `{rule}`{}", format_suggestion(.suggestion.as_deref()))]
     UnknownRule {
+        /// The unrecognized rule name.
         rule: String,
+        /// A similar known rule name, if one exists.
         suggestion: Option<String>,
     },
+    /// The `id_pattern` regex failed to compile.
     #[error("invalid id_pattern `{pattern}`: {message}")]
-    InvalidIdPattern { pattern: String, message: String },
+    InvalidIdPattern {
+        /// The invalid regex pattern.
+        pattern: String,
+        /// Description of the regex compilation error.
+        message: String,
+    },
+    /// An unrecognized ecosystem plugin name was used.
     #[error("unknown ecosystem plugin: `{plugin}`{}", format_suggestion(.suggestion.as_deref()))]
     UnknownPlugin {
+        /// The unrecognized plugin name.
         plugin: String,
+        /// A similar known plugin name, if one exists.
         suggestion: Option<String>,
     },
 }
@@ -126,10 +180,18 @@ fn levenshtein(a: &str, b: &str) -> usize {
 /// Errors produced when validating component definitions.
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentDefError {
+    /// A component is marked verifiable but not referenceable.
     #[error("component `{component}` is verifiable but not referenceable")]
-    VerifiableNotReferenceable { component: String },
+    VerifiableNotReferenceable {
+        /// The component name.
+        component: String,
+    },
+    /// A verifiable component lacks a required `id` attribute.
     #[error("component `{component}` is verifiable but has no required `id` attribute")]
-    VerifiableMissingId { component: String },
+    VerifiableMissingId {
+        /// The component name.
+        component: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +202,9 @@ pub enum ComponentDefError {
 #[derive(Debug, thiserror::Error)]
 #[error("invalid list value `{raw}`: {message}")]
 pub struct ListSplitError {
+    /// The raw input string that failed to split.
     pub raw: String,
+    /// Description of why splitting failed.
     pub message: String,
 }
 

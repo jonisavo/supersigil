@@ -6,6 +6,11 @@ use crate::artifact_graph::ArtifactGraph;
 
 use crate::report::{Finding, FindingDetails, RuleName};
 
+/// Check that all criteria have verification evidence coverage.
+///
+/// Returns findings for criteria that lack any matching test evidence in the
+/// artifact graph, skipping criteria whose fragments appear in unresolved
+/// evidence records.
 pub fn check(graph: &DocumentGraph, artifact_graph: &ArtifactGraph<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
 

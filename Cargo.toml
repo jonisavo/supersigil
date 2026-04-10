@@ -14,12 +14,11 @@ members = [
 resolver = "3"
 
 [workspace.package]
-description = "A CLI tool and verification framework for spec-driven software development"
+edition = "2024"
+rust-version = "1.92"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jonisavo/supersigil"
-readme = "README.md"
-keywords = ["specification", "verification", "mdx", "traceability", "ai-agents"]
-categories = ["command-line-utilities", "development-tools"]
+homepage = "https://supersigil.org"
 
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
@@ -51,6 +50,7 @@ insta = { version = "1.47.2", features = ["yaml"] }
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
 missing_debug_implementations = "warn"
+missing_docs = "warn"
 redundant_imports = "warn"
 redundant_lifetimes = "warn"
 trivial_numeric_casts = "warn"

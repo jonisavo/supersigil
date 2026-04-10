@@ -10,7 +10,9 @@ use supersigil_core::{Frontmatter, ParseError};
 pub enum FrontMatterResult {
     /// The YAML contained a `supersigil:` key with a valid `Frontmatter`.
     Supersigil {
+        /// The parsed supersigil front matter.
         frontmatter: Frontmatter,
+        /// Additional YAML keys outside the `supersigil:` block.
         extra: HashMap<String, yaml_serde::Value>,
     },
     /// The YAML did not contain a `supersigil:` key.

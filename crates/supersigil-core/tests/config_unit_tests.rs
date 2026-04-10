@@ -1,6 +1,4 @@
-// Unit tests for Config types and deserialization
-// Task 3.1: TDD — tests written before implementation
-// Requirements: 11.1, 11.3, 12.1, 12.2, 12.6, 12.7, 13.1-13.4, 14.1-14.3,
+//! Unit tests for Config types and deserialization.
 //               15.1-15.2, 16.1-16.3, 17.1-17.4, 18.1-18.2, 19.1-19.5, 24.1
 
 use serde::Deserialize;

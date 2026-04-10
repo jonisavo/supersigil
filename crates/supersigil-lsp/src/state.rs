@@ -78,6 +78,7 @@ impl std::fmt::Debug for SupersigilLsp {
 }
 
 impl SupersigilLsp {
+    /// Create a new LSP router wired to all supersigil handlers.
     #[must_use]
     pub fn new_router(client: ClientSocket) -> async_lsp::router::Router<Self, ResponseError> {
         let mut router = async_lsp::router::Router::from_language_server(Self {

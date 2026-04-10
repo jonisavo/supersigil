@@ -33,8 +33,11 @@ impl EvidenceId {
 /// File-relative source location for evidence provenance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SourceLocation {
+    /// File path relative to the project root.
     pub file: PathBuf,
+    /// One-based line number.
     pub line: usize,
+    /// One-based column number.
     pub column: usize,
 }
 
@@ -48,7 +51,9 @@ pub struct SourceLocation {
 /// the ecosystem that produced the evidence.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct VerifiableRef {
+    /// Document identifier (e.g. `"req/auth"`).
     pub doc_id: String,
+    /// Criterion identifier within the document (e.g. `"crit-1"`).
     pub target_id: String,
 }
 
@@ -165,10 +170,15 @@ impl PartialEq<VerificationTargets> for BTreeSet<VerifiableRef> {
 /// Classification of the test that produced evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum TestKind {
+    /// Synchronous unit test.
     Unit,
+    /// Asynchronous (tokio/async-std) test.
     Async,
+    /// Property-based (e.g. proptest) test.
     Property,
+    /// Snapshot test.
     Snapshot,
+    /// Test kind could not be determined.
     Unknown,
 }
 
@@ -197,8 +207,11 @@ impl TestKind {
 /// test name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TestIdentity {
+    /// Path to the test file relative to the project root.
     pub file: PathBuf,
+    /// Fully qualified test function name.
     pub name: String,
+    /// Classification of the test.
     pub kind: TestKind,
 }
 
@@ -209,9 +222,13 @@ pub struct TestIdentity {
 /// How the evidence was originally authored or discovered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum EvidenceKind {
+    /// Evidence from a `verified-by` tag in a spec document.
     Tag,
+    /// Evidence from a file-glob pattern match.
     FileGlob,
+    /// Evidence from a `#[verified_by(...)]` Rust attribute.
     RustAttribute,
+    /// Evidence from a JavaScript/TypeScript `verifies(...)` annotation.
     JsVerifies,
 }
 
@@ -235,11 +252,17 @@ impl EvidenceKind {
 /// A single normalized evidence record linking a test to one or more criterion targets.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerificationEvidenceRecord {
+    /// Unique identifier within the artifact graph.
     pub id: EvidenceId,
+    /// Criterion targets this evidence covers.
     pub targets: VerificationTargets,
+    /// Identity of the test that produced this evidence.
     pub test: TestIdentity,
+    /// Source location where the evidence annotation appears.
     pub source_location: SourceLocation,
+    /// Chain of provenance entries explaining how this evidence was discovered.
     pub provenance: Vec<PluginProvenance>,
+    /// Arbitrary key-value metadata attached by the plugin.
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -259,6 +282,8 @@ impl VerificationEvidenceRecord {
 /// evidence discovery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectScope {
+    /// Optional project name from the supersigil configuration.
     pub project: Option<String>,
+    /// Filesystem root of the project being verified.
     pub project_root: PathBuf,
 }

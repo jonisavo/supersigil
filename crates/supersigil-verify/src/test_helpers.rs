@@ -1,5 +1,6 @@
 #![allow(dead_code, reason = "shared test helpers — not all used yet")]
 #![allow(
+    missing_docs,
     clippy::must_use_candidate,
     clippy::missing_panics_doc,
     reason = "test helper constructors — panics are intentional, must_use is noise"

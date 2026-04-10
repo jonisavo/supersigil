@@ -1,10 +1,16 @@
 [package]
 name = "supersigil-cli"
 version = "0.1.0"
-edition = "2024"
-description.workspace = true
+description = "CLI tool for spec-driven software development with AI agents"
+edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["specification", "verification", "cli", "traceability", "ai-agents"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["specs/"]
 
 [[bin]]
 name = "supersigil"

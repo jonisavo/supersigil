@@ -1,13 +1,16 @@
 [package]
 name = "supersigil-core"
 version = "0.1.0"
-edition = "2024"
-description.workspace = true
+description = "Data model, config loader, and component definitions for the supersigil framework"
+edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["specification", "verification", "traceability", "development-tools"]
+categories = ["development-tools"]
+exclude = ["proptest-regressions/", "specs/"]
 
 [dependencies]
 glob.workspace = true

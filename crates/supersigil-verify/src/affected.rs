@@ -6,11 +6,16 @@ use supersigil_core::DocumentGraph;
 
 use crate::git;
 
+/// A spec document affected by file changes since a git ref.
 #[derive(Debug, Clone, Serialize)]
 pub struct AffectedDocument {
+    /// The document ID (e.g. `"design/auth"`).
     pub id: String,
+    /// Path to the spec file, relative to the project root.
     pub path: PathBuf,
+    /// Glob patterns from `TrackedFiles` that matched changed files.
     pub matched_globs: Vec<String>,
+    /// Changed files that matched the tracked globs.
     pub changed_files: Vec<PathBuf>,
     /// If `Some`, this document is transitively affected via the named document.
     /// If `None`, this document is directly affected.

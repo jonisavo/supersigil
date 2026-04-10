@@ -12,10 +12,18 @@ use crate::{ExtractedComponent, split_list_attribute};
 /// Errors returned by query methods on a successfully built graph.
 #[derive(Debug, thiserror::Error)]
 pub enum QueryError {
+    /// The requested document ID does not exist in the graph.
     #[error("document `{id}` not found")]
-    DocumentNotFound { id: String },
+    DocumentNotFound {
+        /// The requested document ID.
+        id: String,
+    },
+    /// No documents matched the query string or prefix.
     #[error("no documents match query `{query}`")]
-    NoMatchingDocuments { query: String },
+    NoMatchingDocuments {
+        /// The query that matched nothing.
+        query: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -44,9 +52,11 @@ pub struct ContextOutput {
 /// A verification target (criterion) with its incoming reference relationships.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TargetContext {
+    /// The criterion's component ID.
     pub id: String,
     /// Canonical target reference in `document-id#criterion-id` format.
     pub target_ref: String,
+    /// Body text of the criterion component.
     pub body_text: Option<String>,
     /// Documents that reference this criterion, with their status.
     pub referenced_by: Vec<DocRef>,
@@ -55,32 +65,44 @@ pub struct TargetContext {
 /// A reference to a document with its optional status.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DocRef {
+    /// The referenced document's ID.
     pub doc_id: String,
+    /// The referenced document's status, if set.
     pub status: Option<String>,
 }
 
 /// A decision with its rationale and alternatives, extracted from the component tree.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DecisionContext {
+    /// The decision's component ID.
     pub id: String,
+    /// Body text of the decision component.
     pub body_text: Option<String>,
+    /// Body text of the nested rationale, if present.
     pub rationale_text: Option<String>,
+    /// Alternatives nested under this decision.
     pub alternatives: Vec<AlternativeContext>,
 }
 
 /// An alternative within a decision.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AlternativeContext {
+    /// The alternative's component ID.
     pub id: String,
+    /// Status of the alternative (e.g. `"rejected"`, `"accepted"`).
     pub status: String,
+    /// Body text of the alternative component.
     pub body_text: Option<String>,
 }
 
 /// A decision from another document that references the current document.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LinkedDecision {
+    /// The document that contains this decision.
     pub source_doc_id: String,
+    /// The decision's component ID.
     pub decision_id: String,
+    /// Body text of the decision component.
     pub body_text: Option<String>,
 }
 
@@ -104,9 +126,12 @@ fn serialize_status_pending<S: serde::Serializer>(
 pub struct TaskInfo {
     /// Which tasks document this task belongs to.
     pub tasks_doc_id: String,
+    /// The task's component ID.
     pub task_id: String,
+    /// Task status (e.g. `"done"`, `"in-progress"`), serialized as `"pending"` when `None`.
     #[serde(serialize_with = "serialize_status_pending")]
     pub status: Option<String>,
+    /// Body text of the task component.
     pub body_text: Option<String>,
     /// Verification targets this task implements: `(doc_id, target_id)`.
     pub implements: Vec<(String, String)>,
@@ -146,7 +171,9 @@ pub struct PlanOutput {
 pub struct OutstandingTarget {
     /// The document containing this verification target.
     pub doc_id: String,
+    /// The target's component ID.
     pub target_id: String,
+    /// Body text of the target component.
     pub body_text: Option<String>,
 }
 

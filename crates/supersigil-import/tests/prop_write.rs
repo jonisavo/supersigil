@@ -1,3 +1,5 @@
+//! Property-based tests for file writing.
+
 mod generators;
 
 use generators::arb_feature_name;

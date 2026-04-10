@@ -42,7 +42,9 @@ pub enum XmlNode {
     },
     /// Raw text content (entity references already resolved).
     Text {
+        /// The decoded text content.
         content: String,
+        /// Byte offset of the start of the text relative to the source file.
         offset: usize,
         /// Byte offset of the end of the raw source text (past the last
         /// byte of the original text/entity-ref run). This can differ

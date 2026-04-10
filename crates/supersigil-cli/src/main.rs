@@ -1,3 +1,5 @@
+//! Supersigil CLI binary entry point.
+
 use std::process::ExitCode;
 
 use clap::Parser;

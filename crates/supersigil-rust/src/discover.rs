@@ -546,8 +546,10 @@ fn process_macro(
 
 /// Extract `VerifiableRef` targets from `#[verifies(...)]` attributes.
 ///
-/// Returns `None` if no matching attribute is found.
-/// Returns the set of criterion refs and the span of the attribute.
+/// Returns `Ok(None)` if no matching attribute is found.
+/// Returns `Ok(Some((targets, span)))` with the criterion refs and attribute
+/// span when a valid `#[verifies(...)]` attribute is present.
+/// Returns `Err` if the attribute is malformed.
 fn extract_verifies_targets(
     attrs: &[syn::Attribute],
 ) -> Result<Option<(VerificationTargets, proc_macro2::Span)>, VerifiesParseError> {

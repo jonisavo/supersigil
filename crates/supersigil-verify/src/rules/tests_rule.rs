@@ -15,7 +15,7 @@ use crate::scan::TagMatch;
 /// zero files.
 ///
 /// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
-/// placement is caught by `check_verified_by_placement` in `structural.rs`.
+/// placement is caught by [`structural::check_verified_by_placement`](super::structural::check_verified_by_placement).
 pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
@@ -72,7 +72,7 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
 /// avoid redundant per-tag file scanning.
 ///
 /// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
-/// placement is caught by `check_verified_by_placement` in `structural.rs`.
+/// placement is caught by [`structural::check_verified_by_placement`](super::structural::check_verified_by_placement).
 pub fn check_tags(docs: &[&SpecDocument], tag_matches: &[TagMatch]) -> Vec<Finding> {
     let known_tags: std::collections::HashSet<&str> =
         tag_matches.iter().map(|m| m.tag.as_str()).collect();

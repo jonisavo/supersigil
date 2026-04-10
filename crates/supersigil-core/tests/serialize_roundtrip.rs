@@ -1,3 +1,5 @@
+//! Serialization round-trip tests for core types.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 

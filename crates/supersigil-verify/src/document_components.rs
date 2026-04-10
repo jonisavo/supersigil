@@ -5,8 +5,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Parameters for the `supersigil/documentComponents` request.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocumentComponentsParams {
+    /// Document URI to query.
     pub uri: String,
 }
 
@@ -50,9 +52,13 @@ pub struct FenceData {
 /// Line/column range in the source file, for click-to-source navigation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceRange {
+    /// Starting line number (1-based).
     pub start_line: u32,
+    /// Starting column (1-based).
     pub start_col: u32,
+    /// Ending line number (1-based).
     pub end_line: u32,
+    /// Ending column (1-based).
     pub end_col: u32,
 }
 
@@ -103,9 +109,13 @@ pub struct VerificationStatus {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum VerificationState {
+    /// All criteria have passing evidence.
     Verified,
+    /// No evidence found.
     Unverified,
+    /// Some but not all criteria are covered.
     Partial,
+    /// Evidence exists but indicates failure.
     Failing,
 }
 
@@ -141,10 +151,15 @@ pub struct EvidenceEntry {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TestKind {
+    /// Standard synchronous unit test.
     Unit,
+    /// Asynchronous test (e.g. `#[tokio::test]`).
     Async,
+    /// Property-based test.
     Property,
+    /// Snapshot test.
     Snapshot,
+    /// Unclassified test kind.
     Unknown,
 }
 
@@ -158,12 +173,16 @@ pub enum TestKind {
 /// Defined separately because the evidence crate type lacks `Deserialize`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EvidenceKindLabel {
+    /// Evidence discovered via a `supersigil:` comment tag.
     #[serde(rename = "tag")]
     Tag,
+    /// Evidence matched by a file glob pattern.
     #[serde(rename = "file-glob")]
     FileGlob,
+    /// Evidence from a Rust `#[verifies(...)]` attribute.
     #[serde(rename = "rust-attribute")]
     RustAttribute,
+    /// Evidence from a JS/TS `verifies()` call.
     #[serde(rename = "js-verifies")]
     JsVerifies,
 }
@@ -180,16 +199,32 @@ pub enum EvidenceKindLabel {
 pub enum ProvenanceEntry {
     /// Evidence from a `<VerifiedBy>` tag in the spec.
     #[serde(rename = "verified-by-tag")]
-    VerifiedByTag { tag: String },
+    VerifiedByTag {
+        /// The tag value.
+        tag: String,
+    },
     /// Evidence from a file glob pattern match.
     #[serde(rename = "verified-by-file-glob")]
-    VerifiedByFileGlob { paths: Vec<String> },
+    VerifiedByFileGlob {
+        /// Matched file paths.
+        paths: Vec<String>,
+    },
     /// Evidence from a Rust `#[verifies(...)]` attribute.
     #[serde(rename = "rust-attribute")]
-    RustAttribute { file: String, line: usize },
+    RustAttribute {
+        /// Source file path.
+        file: String,
+        /// Source line number (1-based).
+        line: usize,
+    },
     /// Evidence from a JS/TS `verifies()` call or `meta.verifies` object.
     #[serde(rename = "js-verifies")]
-    JsVerifies { file: String, line: usize },
+    JsVerifies {
+        /// Source file path.
+        file: String,
+        /// Source line number (1-based).
+        line: usize,
+    },
 }
 
 // ---------------------------------------------------------------------------

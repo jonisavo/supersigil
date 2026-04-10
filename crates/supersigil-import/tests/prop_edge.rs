@@ -1,3 +1,5 @@
+//! Property-based edge-case tests for Kiro import.
+
 mod generators;
 
 use std::fmt::Write;

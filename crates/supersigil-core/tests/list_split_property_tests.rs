@@ -1,3 +1,5 @@
+//! Property-based tests for `split_list_attribute`.
+
 use proptest::prelude::*;
 use supersigil_core::split_list_attribute;
 

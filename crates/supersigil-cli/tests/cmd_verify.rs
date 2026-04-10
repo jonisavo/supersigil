@@ -1,3 +1,5 @@
+//! Integration tests for the `verify` command.
+
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;

@@ -4,10 +4,14 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
+/// A supersigil tag occurrence found in a source file.
 #[derive(Debug, Clone)]
 pub struct TagMatch {
+    /// Path to the file containing the tag.
     pub file: PathBuf,
+    /// Line number (1-based) where the tag was found.
     pub line: usize,
+    /// The tag value (e.g. `"prop:auth-login"`).
     pub tag: String,
 }
 

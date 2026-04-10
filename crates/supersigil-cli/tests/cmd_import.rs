@@ -1,3 +1,5 @@
+//! Integration tests for the `import` command.
+
 use std::fs;
 use std::path::Path;
 

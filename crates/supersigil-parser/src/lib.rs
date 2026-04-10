@@ -6,6 +6,7 @@
 mod frontmatter;
 mod markdown_fences;
 mod preprocess;
+/// Shared utility functions used across parser stages.
 pub mod util;
 mod xml_extract;
 mod xml_parser;

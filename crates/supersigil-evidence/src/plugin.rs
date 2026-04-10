@@ -19,7 +19,9 @@ use crate::types::{ProjectScope, VerificationEvidenceRecord};
 /// per-file issues. Fatal discovery failures still use `PluginError`.
 #[derive(Debug, Default)]
 pub struct PluginDiscoveryResult {
+    /// Evidence records discovered by the plugin.
     pub evidence: Vec<VerificationEvidenceRecord>,
+    /// Non-fatal diagnostics emitted during discovery.
     pub diagnostics: Vec<PluginDiagnostic>,
 }
 
@@ -41,7 +43,9 @@ impl PluginDiscoveryResult {
 /// Non-fatal plugin diagnostic emitted during a successful discovery pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginDiagnostic {
+    /// Human-readable diagnostic message.
     pub message: String,
+    /// File path associated with the diagnostic, if any.
     pub path: Option<PathBuf>,
 }
 
@@ -74,31 +78,49 @@ impl PluginDiagnostic {
 /// Plugin failures become verification findings rather than hard errors.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PluginErrorDetails {
+    /// File path where the error occurred.
     pub path: Option<PathBuf>,
+    /// One-based line number of the error.
     pub line: Option<usize>,
+    /// One-based column number of the error.
     pub column: Option<usize>,
+    /// Machine-readable error code.
     pub code: Option<String>,
+    /// Human-readable suggestion for fixing the error.
     pub suggestion: Option<String>,
 }
 
+/// Error surface for ecosystem plugin failures.
 #[derive(Debug, Error)]
 pub enum PluginError {
+    /// A source file could not be parsed.
     #[error("plugin {plugin}: failed to parse {file}: {message}")]
     ParseFailure {
+        /// Name of the plugin that failed.
         plugin: String,
+        /// File that failed to parse.
         file: PathBuf,
+        /// Human-readable parse error message.
         message: String,
     },
+    /// A general discovery-phase failure.
     #[error("plugin {plugin}: {message}")]
     Discovery {
+        /// Name of the plugin that failed.
         plugin: String,
+        /// Human-readable error message.
         message: String,
+        /// Optional structured error details.
         details: Option<Box<PluginErrorDetails>>,
     },
+    /// An I/O error during plugin execution.
     #[error("plugin {plugin}: I/O error on {path}: {source}")]
     Io {
+        /// Name of the plugin that failed.
         plugin: String,
+        /// Path that triggered the I/O error.
         path: PathBuf,
+        /// Underlying I/O error.
         #[source]
         source: std::io::Error,
     },

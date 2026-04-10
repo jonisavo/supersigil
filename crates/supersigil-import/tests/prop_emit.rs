@@ -1,3 +1,5 @@
+//! Property-based tests for Markdown emission.
+
 mod generators;
 
 use generators::{

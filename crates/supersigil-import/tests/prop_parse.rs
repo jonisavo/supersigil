@@ -1,3 +1,5 @@
+//! Property-based tests for spec parsing.
+
 mod generators;
 
 use std::fs;

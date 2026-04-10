@@ -15,8 +15,11 @@ use crate::ConfigError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
+    /// Rule is disabled.
     Off,
+    /// Rule violations produce warnings.
     Warning,
+    /// Rule violations produce errors.
     Error,
 }
 
@@ -28,7 +31,9 @@ pub enum Severity {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttributeDef {
+    /// Whether this attribute is required on the component.
     pub required: bool,
+    /// Whether this attribute accepts a comma-separated list.
     #[serde(default)]
     pub list: bool,
 }
@@ -41,16 +46,22 @@ pub struct AttributeDef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComponentDef {
+    /// Attribute schemas for this component.
     #[serde(default)]
     pub attributes: HashMap<String, AttributeDef>,
+    /// Whether instances of this component are referenceable by other documents.
     #[serde(default)]
     pub referenceable: bool,
+    /// Whether instances of this component can serve as verification targets.
     #[serde(default)]
     pub verifiable: bool,
+    /// The component that this component targets for verification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_component: Option<String>,
+    /// Human-readable description of the component.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Example usages of the component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<String>,
 }
@@ -63,10 +74,13 @@ pub struct ComponentDef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentTypeDef {
+    /// Valid status values for documents of this type.
     #[serde(default)]
     pub status: Vec<String>,
+    /// Components that must be present in documents of this type.
     #[serde(default)]
     pub required_components: Vec<String>,
+    /// Human-readable description of the document type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -79,6 +93,7 @@ pub struct DocumentTypeDef {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentsConfig {
+    /// Named document type definitions.
     #[serde(default)]
     pub types: HashMap<String, DocumentTypeDef>,
 }
@@ -91,8 +106,10 @@ pub struct DocumentsConfig {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerifyConfig {
+    /// Default severity for all rules when not individually overridden.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strictness: Option<Severity>,
+    /// Per-rule severity overrides.
     #[serde(default)]
     pub rules: HashMap<String, Severity>,
 }
@@ -189,6 +206,7 @@ impl Default for JsEcosystemConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EcosystemConfig {
+    /// Enabled ecosystem plugin names (e.g. `"rust"`, `"js"`).
     #[serde(default = "default_plugins")]
     pub plugins: Vec<String>,
     /// Per-plugin configuration for the Rust ecosystem plugin.
@@ -230,8 +248,10 @@ pub struct SkillsConfig {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TestResultsConfig {
+    /// Test result file format names (e.g. `"junit"`).
     #[serde(default)]
     pub formats: Vec<String>,
+    /// Glob patterns for locating test result files.
     #[serde(default)]
     pub paths: Vec<String>,
 }
@@ -244,9 +264,12 @@ pub struct TestResultsConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
+    /// Glob patterns for spec files belonging to this project.
     pub paths: Vec<String>,
+    /// Glob patterns for test files belonging to this project.
     #[serde(default)]
     pub tests: Vec<String>,
+    /// Whether this project is isolated from cross-project references.
     #[serde(default)]
     pub isolated: bool,
 }
@@ -259,9 +282,13 @@ pub struct ProjectConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RepositoryProvider {
+    /// GitHub (<https://github.com>).
     GitHub,
+    /// GitLab (<https://gitlab.com>).
     GitLab,
+    /// Bitbucket (<https://bitbucket.org>).
     Bitbucket,
+    /// Gitea (self-hosted).
     Gitea,
 }
 

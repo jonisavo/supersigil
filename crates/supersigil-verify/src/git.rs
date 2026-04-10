@@ -4,12 +4,18 @@ use std::path::{Path, PathBuf};
 use git2::{DiffOptions, Repository};
 use thiserror::Error;
 
+/// Errors from git operations used in staleness detection.
 #[derive(Debug, Error)]
 pub enum GitError {
+    /// An underlying `git2` library error.
     #[error("git error: {0}")]
     Git2(#[from] git2::Error),
+    /// The given ref could not be resolved.
     #[error("cannot resolve ref '{ref_str}'")]
-    UnresolvableRef { ref_str: String },
+    UnresolvableRef {
+        /// The unresolvable ref string.
+        ref_str: String,
+    },
 }
 
 /// Compute changed files since a reference commit.

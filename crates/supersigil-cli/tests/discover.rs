@@ -1,3 +1,5 @@
+//! Integration tests for spec document discovery.
+
 use std::fs;
 
 use tempfile::TempDir;
