@@ -29,10 +29,16 @@ jobs:
           cp dist/homebrew/supersigil.rb.tmpl /tmp/supersigil.rb
 
           sed -i "s/@@VERSION@@/${VERSION}/g" /tmp/supersigil.rb
-          sed -i "s/@@SHA256_AARCH64_APPLE@@/$(grep aarch64-apple-darwin /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
-          sed -i "s/@@SHA256_X86_64_APPLE@@/$(grep x86_64-apple-darwin /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
-          sed -i "s/@@SHA256_AARCH64_LINUX@@/$(grep aarch64-unknown-linux-musl /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
-          sed -i "s/@@SHA256_X86_64_LINUX@@/$(grep x86_64-unknown-linux-musl /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
+
+          sed -i "s/@@SHA256_SUPERSIGIL_AARCH64_APPLE@@/$(grep "supersigil-${VERSION}-aarch64-apple-darwin" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_SUPERSIGIL_X86_64_APPLE@@/$(grep "supersigil-${VERSION}-x86_64-apple-darwin" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_SUPERSIGIL_AARCH64_LINUX@@/$(grep "supersigil-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_SUPERSIGIL_X86_64_LINUX@@/$(grep "supersigil-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)/" /tmp/supersigil.rb
+
+          sed -i "s/@@SHA256_LSP_AARCH64_APPLE@@/$(grep "supersigil-lsp-${VERSION}-aarch64-apple-darwin" /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_LSP_X86_64_APPLE@@/$(grep "supersigil-lsp-${VERSION}-x86_64-apple-darwin" /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_LSP_AARCH64_LINUX@@/$(grep "supersigil-lsp-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
+          sed -i "s/@@SHA256_LSP_X86_64_LINUX@@/$(grep "supersigil-lsp-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)/" /tmp/supersigil.rb
 
       - name: Validate formula
         run: |

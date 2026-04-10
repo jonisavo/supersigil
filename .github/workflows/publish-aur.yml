@@ -9,34 +9,59 @@ on:
 
 jobs:
   aur:
-    name: Update AUR package
+    name: Update AUR (${{ matrix.pkgname }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkgname: supersigil-bin
+            update-sums: true
+          - pkgname: supersigil-lsp-bin
+            update-sums: true
+          - pkgname: supersigil
+            update-sums: false
+          - pkgname: supersigil-lsp
+            update-sums: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download release assets
+        if: matrix.update-sums
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release download "v${VERSION}" --pattern "SHA256SUMS" --dir /tmp
 
-      - name: Update PKGBUILD
+      - name: Update PKGBUILD version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          SHA256_X86_64=$(grep x86_64-unknown-linux-musl /tmp/SHA256SUMS | cut -d' ' -f1)
-          SHA256_AARCH64=$(grep aarch64-unknown-linux-musl /tmp/SHA256SUMS | cut -d' ' -f1)
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" dist/aur/${{ matrix.pkgname }}/PKGBUILD
 
-          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" dist/aur/supersigil-bin/PKGBUILD
-          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${SHA256_X86_64}')/" dist/aur/supersigil-bin/PKGBUILD
-          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${SHA256_AARCH64}')/" dist/aur/supersigil-bin/PKGBUILD
+      - name: Update binary checksums
+        if: matrix.update-sums
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKGBUILD="dist/aur/${{ matrix.pkgname }}/PKGBUILD"
+
+          if [ "${{ matrix.pkgname }}" = "supersigil-bin" ]; then
+            SHA256_X86_64=$(grep "supersigil-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)
+            SHA256_AARCH64=$(grep "supersigil-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)
+          else
+            SHA256_X86_64=$(grep "supersigil-lsp-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
+            SHA256_AARCH64=$(grep "supersigil-lsp-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
+          fi
+
+          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${SHA256_X86_64}')/" "${PKGBUILD}"
+          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${SHA256_AARCH64}')/" "${PKGBUILD}"
 
       - name: Publish to AUR
         uses: KSXGitHub/github-actions-deploy-aur@abe8ac26b51011c88be58c8809fd2ac674068ea5 #v4.1.2
         with:
-          pkgname: supersigil-bin
-          pkgbuild: dist/aur/supersigil-bin/PKGBUILD
+          pkgname: ${{ matrix.pkgname }}
+          pkgbuild: dist/aur/${{ matrix.pkgname }}/PKGBUILD
           commit_username: "Joni Savolainen"
           commit_email: "joni@savolainen.io"
           ssh_private_key: ${{ secrets.AUR_SSH_KEY }}

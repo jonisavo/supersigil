@@ -113,15 +113,16 @@ jobs:
       - name: Package
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE="supersigil-${VERSION}-${{ matrix.target }}.tar.gz"
-          tar -czf "${ARCHIVE}" \
-            -C target/${{ matrix.target }}/release \
-            supersigil supersigil-lsp
-          if command -v sha256sum &>/dev/null; then
-            sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          else
-            shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          fi
+          RELEASE_DIR="target/${{ matrix.target }}/release"
+          for bin in supersigil supersigil-lsp; do
+            ARCHIVE="${bin}-${VERSION}-${{ matrix.target }}.tar.gz"
+            tar -czf "${ARCHIVE}" -C "${RELEASE_DIR}" "${bin}"
+            if command -v sha256sum &>/dev/null; then
+              sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+            else
+              shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+            fi
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

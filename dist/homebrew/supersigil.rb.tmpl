@@ -7,26 +7,48 @@ class Supersigil < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-aarch64-apple-darwin.tar.gz"
-      sha256 "@@SHA256_AARCH64_APPLE@@"
+      sha256 "@@SHA256_SUPERSIGIL_AARCH64_APPLE@@"
+
+      resource "supersigil-lsp" do
+        url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-lsp-@@VERSION@@-aarch64-apple-darwin.tar.gz"
+        sha256 "@@SHA256_LSP_AARCH64_APPLE@@"
+      end
     else
       url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-x86_64-apple-darwin.tar.gz"
-      sha256 "@@SHA256_X86_64_APPLE@@"
+      sha256 "@@SHA256_SUPERSIGIL_X86_64_APPLE@@"
+
+      resource "supersigil-lsp" do
+        url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-lsp-@@VERSION@@-x86_64-apple-darwin.tar.gz"
+        sha256 "@@SHA256_LSP_X86_64_APPLE@@"
+      end
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "@@SHA256_AARCH64_LINUX@@"
+      sha256 "@@SHA256_SUPERSIGIL_AARCH64_LINUX@@"
+
+      resource "supersigil-lsp" do
+        url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-lsp-@@VERSION@@-aarch64-unknown-linux-musl.tar.gz"
+        sha256 "@@SHA256_LSP_AARCH64_LINUX@@"
+      end
     else
       url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-@@VERSION@@-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "@@SHA256_X86_64_LINUX@@"
+      sha256 "@@SHA256_SUPERSIGIL_X86_64_LINUX@@"
+
+      resource "supersigil-lsp" do
+        url "https://github.com/jonisavo/supersigil/releases/download/v@@VERSION@@/supersigil-lsp-@@VERSION@@-x86_64-unknown-linux-musl.tar.gz"
+        sha256 "@@SHA256_LSP_X86_64_LINUX@@"
+      end
     end
   end
 
   def install
     bin.install "supersigil"
-    bin.install "supersigil-lsp"
+    resource("supersigil-lsp").stage do
+      bin.install "supersigil-lsp"
+    end
   end
 
   test do
