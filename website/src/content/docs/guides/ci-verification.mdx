@@ -82,7 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Supersigil
-        run: cargo install supersigil-cli
+        run: cargo install supersigil
       - name: Verify Spec Graph
         run: supersigil verify --since main --merge-base --committed-only
 ```

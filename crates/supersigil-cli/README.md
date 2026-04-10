@@ -1,14 +1,11 @@
-# supersigil-cli
+# supersigil
 
-CLI tool for [supersigil](https://github.com/jonisavo/supersigil):
-spec-driven development with AI agents.
-
-This crate provides the `supersigil` binary and its command implementations.
+CLI tool and verification framework for spec-driven development with AI agents.
 
 ## Installation
 
 ```sh
-cargo install supersigil-cli
+cargo install supersigil
 ```
 
 ## Usage

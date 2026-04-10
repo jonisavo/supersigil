@@ -107,7 +107,7 @@ jobs:
         run: ${{ matrix.deps }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p supersigil-cli -p supersigil-lsp ${{ matrix.extra-args }}
+        run: cargo build --release --target ${{ matrix.target }} -p supersigil -p supersigil-lsp ${{ matrix.extra-args }}
 
       - name: Package
         run: |

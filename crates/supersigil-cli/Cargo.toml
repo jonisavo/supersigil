@@ -1,5 +1,5 @@
 [package]
-name = "supersigil-cli"
+name = "supersigil"
 version = "0.1.0"
 description = "CLI tool for spec-driven software development with AI agents"
 edition.workspace = true

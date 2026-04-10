@@ -18,7 +18,7 @@ run = [
     "cargo clippy --workspace --all-targets --all-features",
     "mise lint:js",
     "mise lint:types",
-    "cargo run -p supersigil-cli verify"
+    "cargo run -p supersigil verify"
 ]
 
 [tasks."lint:js"]

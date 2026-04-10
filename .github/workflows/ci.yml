@@ -86,7 +86,7 @@ jobs:
         run: cargo nextest run
 
       - name: Verify
-        run: cargo run -p supersigil-cli verify
+        run: cargo run -p supersigil verify
 
   cross-check:
     name: Cross-check (${{ matrix.target }})

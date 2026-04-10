@@ -31,7 +31,7 @@ jobs:
         id: verify
         run: |
           set +e
-          cargo run -p supersigil-cli -- verify \
+          cargo run -p supersigil -- verify \
             --since origin/main --merge-base --committed-only \
             --format json --detail full --color never \
             > verify.json
@@ -39,7 +39,7 @@ jobs:
 
       - name: Verify (Markdown)
         run: |
-          cargo run -p supersigil-cli -- verify \
+          cargo run -p supersigil -- verify \
             --since origin/main --merge-base --committed-only \
             --format markdown --color never \
             > verify.md
