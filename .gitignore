@@ -5,6 +5,7 @@
 .junie
 .superpowers
 .worktrees
+.env
 website/public/explore/graph.json
 website/public/explore/render-data.json
 website/public/explore/render-iife.js
