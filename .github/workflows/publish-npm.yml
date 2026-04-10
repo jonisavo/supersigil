@@ -25,13 +25,16 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Publish @supersigil/vitest
-        run: npm publish --provenance --access public
+        run: pnpm publish --no-git-checks --access public --provenance
         working-directory: packages/vitest
 
       - name: Publish @supersigil/eslint-plugin
-        run: npm publish --provenance --access public
+        run: pnpm publish --no-git-checks --access public --provenance
         working-directory: packages/eslint-plugin

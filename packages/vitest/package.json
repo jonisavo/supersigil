@@ -5,7 +5,7 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jonisavo/supersigil.git",
+    "url": "git+https://github.com/jonisavo/supersigil.git",
     "directory": "packages/vitest"
   },
   "homepage": "https://supersigil.org",
