@@ -2,6 +2,18 @@
   "name": "@supersigil/eslint-plugin",
   "version": "0.0.1",
   "description": "ESLint plugin for validating Supersigil criterion refs",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonisavo/supersigil.git",
+    "directory": "packages/eslint-plugin"
+  },
+  "homepage": "https://supersigil.org",
+  "bugs": "https://github.com/jonisavo/supersigil/issues",
+  "keywords": ["eslint", "eslintplugin", "eslint-plugin", "supersigil", "specification", "traceability"],
+  "engines": {
+    "node": ">=18"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -11,7 +23,8 @@
   },
   "files": [
     "dist/",
-    "src/"
+    "src/",
+    "README.md"
   ],
   "scripts": {
     "build": "node esbuild.mjs && tsc --emitDeclarationOnly --noEmit false --outDir dist",

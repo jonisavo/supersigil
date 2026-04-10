@@ -133,7 +133,7 @@ description = "Install all binaries locally"
 run = ["mise install-cli", "mise install-lsp"]
 
 [tasks.release]
-description = "Prepare a release: bump versions, commit, and tag."
+description = "Prepare a release: bump versions, update changelog, commit, and tag."
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -142,6 +142,13 @@ VERSION="${1:?Usage: mise release <version>}"
 
 # Strip leading 'v' if present
 VERSION="${VERSION#v}"
+
+# Require git-cliff for changelog generation
+if ! command -v git-cliff &>/dev/null; then
+  echo "error: git-cliff is required but not found"
+  echo "Install with: cargo install git-cliff"
+  exit 1
+fi
 
 echo "Preparing release v${VERSION}..."
 
@@ -153,8 +160,13 @@ done
 # Update workspace dependency version specifiers
 sed -i'' -e 's/version = "=[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*"/version = "='"${VERSION}"'"/' Cargo.toml
 
+# Update JS/TS package versions
+for pkg in packages/eslint-plugin/package.json packages/vitest/package.json; do
+  sed -i'' -e "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$pkg"
+done
+
 # Update VS Code extension version
-sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" editors/vscode/package.json
+sed -i'' -e "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" editors/vscode/package.json
 
 # Update IntelliJ plugin version
 sed -i'' -e "s/^pluginVersion = .*/pluginVersion = ${VERSION}/" editors/intellij/gradle.properties
@@ -162,12 +174,30 @@ sed -i'' -e "s/^pluginVersion = .*/pluginVersion = ${VERSION}/" editors/intellij
 # Update Cargo.lock
 cargo generate-lockfile
 
-echo "Updated versions to ${VERSION}. Review the changes:"
-git diff --stat
+# Generate changelog
+git-cliff --tag "v${VERSION}" --output CHANGELOG.md
+
+# Stage and commit
+git add \
+  Cargo.toml Cargo.lock \
+  crates/*/Cargo.toml \
+  packages/eslint-plugin/package.json \
+  packages/vitest/package.json \
+  editors/vscode/package.json \
+  editors/intellij/gradle.properties \
+  CHANGELOG.md
+
+git commit -m "chore(release): prepare v${VERSION}"
+git tag "v${VERSION}"
 
 echo ""
-echo "To finish the release:"
-echo "  git add -A && git commit -m 'chore(release): prepare v${VERSION}'"
-echo "  git tag v${VERSION}"
+echo "Release v${VERSION} prepared. Review with:"
+echo "  git log --oneline -1"
+echo "  git diff HEAD~1"
+echo ""
+echo "To publish:"
 echo "  git push && git push --tags"
+echo ""
+echo "To undo:"
+echo "  git tag -d v${VERSION} && git reset --soft HEAD~1"
 """

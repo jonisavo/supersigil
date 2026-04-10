@@ -147,6 +147,13 @@ jobs:
     secrets:
       CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
+  publish-npm:
+    name: Publish npm
+    needs: release
+    uses: ./.github/workflows/publish-npm.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   publish-homebrew:
     name: Publish Homebrew
     needs: release
