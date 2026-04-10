@@ -38,8 +38,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Build preview package
-        run: pnpm install --frozen-lockfile && pnpm --filter @supersigil/preview run build
+      - name: Bundle explore assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
 
       - name: Format
         run: cargo fmt --all -- --check
@@ -83,14 +83,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Install JS dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build preview package
-        run: pnpm --filter @supersigil/preview run build
-
-      - name: Bundle graph explorer
-        run: pnpm --filter supersigil-website run bundle:standalone
+      - name: Bundle explore assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
 
       - name: Test
         run: cargo nextest run
@@ -144,8 +138,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Build preview package
-        run: pnpm install --frozen-lockfile && pnpm --filter @supersigil/preview run build
+      - name: Bundle explore assets
+        run: pnpm install --frozen-lockfile && pnpm run bundle:explore-assets
 
       - name: Check
         run: cargo check --workspace --target ${{ matrix.target }} ${{ matrix.extra-args }}

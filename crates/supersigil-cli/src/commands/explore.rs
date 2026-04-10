@@ -18,13 +18,12 @@ use crate::plugins;
 use super::graph::json::build_graph_json;
 
 const TEMPLATE_HTML: &str = include_str!("explore_template.html");
-const TOKENS_CSS: &str = include_str!("../../../../website/src/styles/landing-tokens.css");
-const STYLES_CSS: &str = include_str!("../../../../website/src/components/explore/styles.css");
-const EXPLORER_JS: &str = include_str!("explore_standalone.js");
-const PREVIEW_CSS: &str =
-    include_str!("../../../../packages/preview/styles/supersigil-preview.css");
-const PREVIEW_JS: &str = include_str!("../../../../packages/preview/scripts/supersigil-preview.js");
-const RENDER_IIFE_JS: &str = include_str!("../../../../packages/preview/dist/render-iife.js");
+const TOKENS_CSS: &str = include_str!("explore_assets/landing-tokens.css");
+const STYLES_CSS: &str = include_str!("explore_assets/styles.css");
+const EXPLORER_JS: &str = include_str!("explore_assets/explore-standalone.js");
+const PREVIEW_CSS: &str = include_str!("explore_assets/supersigil-preview.css");
+const PREVIEW_JS: &str = include_str!("explore_assets/supersigil-preview.js");
+const RENDER_IIFE_JS: &str = include_str!("explore_assets/render-iife.js");
 
 /// Build render data (component trees with verification) for all documents.
 fn build_render_data(
