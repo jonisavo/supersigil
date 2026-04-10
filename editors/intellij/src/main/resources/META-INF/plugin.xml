@@ -3,9 +3,36 @@
     <name>Supersigil</name>
     <vendor>supersigil</vendor>
     <description><![CDATA[
-        Language support for Supersigil spec documents.
-        Connects to the supersigil-lsp language server to provide diagnostics,
-        completions, hover, navigation, and more for Markdown spec files.
+        <p>
+            Supersigil treats specification documents as code. This plugin connects to
+            the <code>supersigil-lsp</code> language server to give you real-time feedback,
+            navigation, and rich previews for Supersigil spec files.
+        </p>
+
+        <h2>Features</h2>
+        <ul>
+            <li><b>Diagnostics</b> &mdash; parse errors, broken cross-references, duplicate IDs,
+                circular dependencies, coverage gaps, and staleness warnings as you edit.</li>
+            <li><b>Go to definition</b> &mdash; follow refs, implements, and depends links
+                between spec documents.</li>
+            <li><b>Autocomplete</b> &mdash; document IDs, criterion IDs, and component attributes.</li>
+            <li><b>Hover</b> &mdash; document metadata and clickable links.</li>
+            <li><b>Code actions</b> &mdash; quick fixes for missing attributes, duplicate IDs,
+                broken references, and more.</li>
+            <li><b>Spec Explorer</b> &mdash; a tool window that organizes specs by project,
+                ID prefix, and document with type and status indicators.</li>
+            <li><b>Markdown preview</b> &mdash; <code>supersigil-xml</code> fences render as
+                rich components with verification status, collapsible evidence lists,
+                and clickable navigation links.</li>
+            <li><b>Verify action</b> &mdash; run cross-document verification from the Tools menu.</li>
+        </ul>
+
+        <h2>Requirements</h2>
+        <p>
+            The <code>supersigil-lsp</code> binary must be available on <code>$PATH</code>,
+            in <code>~/.cargo/bin</code>, or in <code>~/.local/bin</code>.
+            A custom path can be configured under <b>Settings &rarr; Tools &rarr; Supersigil</b>.
+        </p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
