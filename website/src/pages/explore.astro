@@ -24,14 +24,14 @@ import '../components/explore/styles.css';
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/supersigil/explore/supersigil-preview.css" />
+  <link rel="stylesheet" href="/explore/supersigil-preview.css" />
 </head>
 
 <body>
   <!-- Grain texture overlay -->
   <div class="grain" aria-hidden="true"></div>
 
-  <a href="/supersigil/getting-started/" class="explore-back" aria-label="Back to docs">
+  <a href="/getting-started/" class="explore-back" aria-label="Back to docs">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M10 12L6 8l4-4"/>
     </svg>
@@ -41,8 +41,8 @@ import '../components/explore/styles.css';
   <div id="explorer" class="explorer" style="height: 100vh;"></div>
 
   <!-- Preview kit: render-iife must load before detail-panel uses it -->
-  <script is:inline src="/supersigil/explore/render-iife.js"></script>
-  <script is:inline src="/supersigil/explore/supersigil-preview.js"></script>
+  <script is:inline src="/explore/render-iife.js"></script>
+  <script is:inline src="/explore/supersigil-preview.js"></script>
 
   <style>
     html, body {
@@ -94,8 +94,8 @@ import '../components/explore/styles.css';
   async function init() {
     try {
       const [graphResponse, renderResponse] = await Promise.all([
-        fetch('/supersigil/explore/graph.json'),
-        fetch('/supersigil/explore/render-data.json'),
+        fetch('/explore/graph.json'),
+        fetch('/explore/render-data.json'),
       ]);
       if (!graphResponse.ok) {
         throw new Error(`Failed to load graph data: ${graphResponse.status} ${graphResponse.statusText}`);

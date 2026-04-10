@@ -10,7 +10,7 @@ use crate::skills::{self, DEFAULT_SKILLS_PATH};
 
 const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.md"]
 
-# See https://supersigil.dev/reference/configuration/ for all options,
+# See https://supersigil.org/reference/configuration/ for all options,
 # including multi-project mode, ecosystem plugins, and verification rules.
 "#;
 

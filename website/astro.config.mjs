@@ -4,8 +4,7 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
-  base: '/supersigil',
-  site: 'https://supersigil.dev',
+  site: 'https://supersigil.org',
   integrations: [
     mermaid({
       autoTheme: true,

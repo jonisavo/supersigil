@@ -64,9 +64,9 @@ supersigil import --from kiro      # Import from Kiro format
 supersigil skills install          # Install or update agent skills
 ```
 
-See the [CLI reference](https://supersigil.dev/supersigil/reference/cli/) for
+See the [CLI reference](https://supersigil.org/reference/cli/) for
 flags and detailed usage, and the
-[configuration reference](https://supersigil.dev/supersigil/reference/configuration/)
+[configuration reference](https://supersigil.org/reference/configuration/)
 for `supersigil.toml` options.
 
 ## How it works

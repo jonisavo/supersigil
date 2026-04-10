@@ -18,7 +18,7 @@ Run the explorer from any project with a `supersigil.toml`:
 supersigil explore
 ```
 
-This generates a self-contained HTML file and opens it in your default browser. The visualization uses the same D3.js module that powers the [hosted explorer](/supersigil/explore/) on this docs site.
+This generates a self-contained HTML file and opens it in your default browser. The visualization uses the same D3.js module that powers the [hosted explorer](/explore/) on this docs site.
 
 To save the HTML to a file instead of opening it:
 
@@ -80,13 +80,13 @@ provider = "github"
 repo = "myorg/myproject"
 ```
 
-GitHub, GitLab, Bitbucket, and Gitea are supported. See the [configuration reference](/supersigil/reference/configuration/#documentation) for all options.
+GitHub, GitLab, Bitbucket, and Gitea are supported. See the [configuration reference](/reference/configuration/#documentation) for all options.
 
 When no repository info is configured or inferred, evidence locations display as plain text without links.
 
 ## Docs Site Integration
 
-The explorer is also available as a page on the docs site at [`/explore/`](/supersigil/explore/). Graph data is generated at build time via a prebuild script:
+The explorer is also available as a page on the docs site at [`/explore/`](/explore/). Graph data is generated at build time via a prebuild script:
 
 ```json
 {

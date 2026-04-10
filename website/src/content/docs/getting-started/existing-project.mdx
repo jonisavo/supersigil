@@ -8,7 +8,7 @@ supersigil:
 
 import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-The [Quickstart](/supersigil/getting-started/) walks through a greenfield setup. This guide covers the more common case: you have working code, existing tests,
+The [Quickstart](/getting-started/) walks through a greenfield setup. This guide covers the more common case: you have working code, existing tests,
 and want to start connecting them to verifiable specs without disrupting what already works.
 
 ## Strategy
@@ -26,7 +26,7 @@ Once that loop feels natural, expand to more modules.
    supersigil init
    ```
 
-   This creates `supersigil.toml` and installs agent skills. See the [Quickstart](/supersigil/getting-started/#install) for install options and the [CLI reference](/supersigil/reference/cli/#supersigil-init) for all `init` flags.
+   This creates `supersigil.toml` and installs agent skills. See the [Quickstart](/getting-started/#install) for install options and the [CLI reference](/reference/cli/#supersigil-init) for all `init` flags.
 
 2. **Pick one module and write a requirements spec**
 
@@ -145,7 +145,7 @@ Once the first module works:
 - **Let AI agents handle the next module.** The agent skills installed by `supersigil init` include a `retroactive-specification` skill designed for exactly this case — an agent reads existing code and tests, writes the spec, and wires up evidence. Point it at a module and let it follow the same loop you just did manually.
 
 <Aside type="tip">
-  For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in your criteria and add `// supersigil: auth:valid-creds` comments in test files instead. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for all options.
+  For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in your criteria and add `// supersigil: auth:valid-creds` comments in test files instead. See [Evidence Sources](/concepts/evidence-sources/) for all options.
 </Aside>
 
 ## CI integration
@@ -157,4 +157,4 @@ Once you have a few specs with solid evidence, add verification to CI. A simple 
   run: supersigil verify
 ```
 
-Use `supersigil verify --since main` in pull request checks to scope verification to changed specs. See the [CI Verification guide](/supersigil/guides/ci-verification/) for the full setup.
+Use `supersigil verify --since main` in pull request checks to scope verification to changed specs. See the [CI Verification guide](/guides/ci-verification/) for the full setup.
