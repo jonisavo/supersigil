@@ -26,9 +26,7 @@ Once that loop feels natural, expand to more modules.
    supersigil init
    ```
 
-   This creates `supersigil.toml` and installs agent skills to `.agents/skills/`.
-   The default `paths` glob (`specs/**/*.md`) is a good starting point — specs live in their own directory, separate from source code.
-   Use `--no-skills` if you don't need the agent skills.
+   This creates `supersigil.toml` and installs agent skills. See the [Quickstart](/supersigil/getting-started/#install) for install options and the [CLI reference](/supersigil/reference/cli/#supersigil-init) for all `init` flags.
 
 2. **Pick one module and write a requirements spec**
 
@@ -92,14 +90,15 @@ Once that loop feels natural, expand to more modules.
        ```
      </TabItem>
      <TabItem label="JS/TS (Vitest)">
-      Enable the JavaScript/TypeScript ecosystem plugin by adding `plugins = ["js"]` to `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
+      Enable the JavaScript/TypeScript ecosystem plugin in `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
 
       ```bash
       pnpm install --save-dev @supersigil/vitest
       ```
 
       ```toml title="supersigil.toml"
-      plugins = ["js"] # Enable JavaScript/TypeScript support
+      [ecosystem]
+      plugins = ["rust", "js"]
       ``` 
 
       ```typescript title="tests/auth/login.test.ts"

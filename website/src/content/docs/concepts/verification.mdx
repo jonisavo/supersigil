@@ -6,7 +6,7 @@ supersigil:
   type: documentation
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
 ```supersigil-xml
 <TrackedFiles paths="crates/supersigil-verify/src/**/*.rs" />
@@ -123,12 +123,7 @@ When you change `status` from `draft` to any other value, the full rule set appl
 
 ## Evidence Sources
 
-Supersigil recognizes two sources of verification evidence for criteria:
-
-1. **Explicit `<VerifiedBy>` mappings** -- Tag-based or file-glob-based test mappings authored directly in specs.
-2. **Ecosystem plugins** -- The Rust plugin discovers `#[verifies("doc#criterion")]` attributes in test code. The JS/TS plugin discovers `verifies()` calls in Vitest tests. Both produce evidence records automatically.
-
-All sources are merged into a unified artifact graph before coverage is evaluated. A criterion is covered if it has at least one evidence record from any source.
+A criterion is covered when the graph can resolve at least one evidence source for it -- explicit `<VerifiedBy>` mappings, ecosystem plugin discovery, or both. All sources are merged before coverage is evaluated. See [Evidence Sources](/supersigil/concepts/evidence-sources/) for the full details on each source type.
 
 ## Exit Codes
 
@@ -186,31 +181,4 @@ Additional flags control the git diff behavior:
 
 ## CI Integration
 
-<Tabs>
-  <TabItem label="GitHub Actions">
-    ```yaml title=".github/workflows/specs.yml"
-    name: Spec Verification
-    on: [push, pull_request]
-
-    jobs:
-      verify:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@v4
-          - name: Install Supersigil
-            run: cargo install supersigil
-          - run: supersigil verify --since main --merge-base
-    ```
-  </TabItem>
-  <TabItem label="Generic CI">
-    ```bash
-    # Any CI system
-    supersigil verify
-    # Exit code: 0 = clean, 1 = errors, 2 = warnings only
-    ```
-  </TabItem>
-</Tabs>
-
-:::tip
-Combine `supersigil verify --since main --merge-base` with `--committed-only` in CI to check only the changes in the current branch, using the merge-base to determine which files changed.
-:::
+See the [CI Verification guide](/supersigil/guides/ci-verification/) for complete GitHub Actions examples and practical policy for integrating verification into pull requests.

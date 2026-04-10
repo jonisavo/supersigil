@@ -65,13 +65,7 @@ missing evidence, and spec drift before a change lands.
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| `0` | Clean run |
-| `1` | Errors found |
-| `2` | Warnings only |
-
-This makes it easy to gate merges or post review comments conditionally.
+`supersigil verify` uses exit codes to signal results: 0 for clean, 1 for errors, 2 for warnings only. See the [Verification](/supersigil/concepts/verification/#exit-codes) page for the full table. This makes it easy to gate merges or post review comments conditionally.
 
 ## Example: GitHub Actions
 

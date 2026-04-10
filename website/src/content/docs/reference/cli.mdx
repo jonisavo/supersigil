@@ -64,7 +64,7 @@ supersigil new tasks auth
 supersigil new --project backend requirements auth
 ```
 
-The `type` argument is a document type (`requirements`, `design`, `tasks`, or any custom type defined in config). The `id` argument is the feature name used to derive the document ID and file path.
+The `type` argument is a document type: one of the four built-in types (`requirements`, `design`, `tasks`, `adr`) or any custom type defined in config. The `id` argument is the feature name used to derive the document ID and file path.
 
 Convention:
 - Document ID: `{id}/{type_short}` (e.g. `auth/req`, `auth/design`)

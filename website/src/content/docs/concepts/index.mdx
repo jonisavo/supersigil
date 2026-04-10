@@ -38,7 +38,7 @@ Your Markdown content goes here.
 ```
 
 **Required fields:**
-- `id` -- A stable, unique identifier for this document. Convention: `{feature}/{type}/{name}` (e.g., `auth/req/login`).
+- `id` -- A stable, unique identifier for this document. Convention: `{feature}/{type_short}` (e.g., `auth/req`, `auth/design`). The `supersigil new` command generates IDs in this format automatically. Deeper nesting (e.g., `auth/req/login`) is also valid for large feature areas.
 
 **Optional fields:**
 - `type` -- Classification tag. Four built-in types: `requirements`, `design`, `tasks`, `adr`. Custom types can be defined in config.

@@ -148,14 +148,15 @@ supersigil --version
       ```
     </TabItem>
     <TabItem label="JS/TS (Vitest)">
-      Enable the JavaScript/TypeScript ecosystem plugin by adding `plugins = ["js"]` to `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
+      Enable the JavaScript/TypeScript ecosystem plugin in `supersigil.toml`. Then use the `verifies` helper from the `@supersigil/vitest` package.
 
       ```bash
       pnpm install --save-dev @supersigil/vitest
       ```
 
       ```toml title="supersigil.toml"
-      plugins = ["js"] # Enable JavaScript/TypeScript support
+      [ecosystem]
+      plugins = ["rust", "js"]
       ``` 
 
       ```typescript title="tests/auth/login.test.ts"
