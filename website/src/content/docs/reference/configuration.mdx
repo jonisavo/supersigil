@@ -76,7 +76,6 @@ missing_test_files = "error"               # default
 zero_tag_matches = "warning"               # default
 status_inconsistency = "warning"           # default
 stale_tracked_files = "warning"            # default
-missing_required_component = "warning"     # default
 empty_tracked_glob = "warning"             # default
 orphan_test_tag = "warning"                # default
 invalid_id_pattern = "warning"             # default
@@ -118,7 +117,6 @@ status = ["draft", "ready", "in-progress", "done"]
 | Key | Type | Description |
 |-----|------|-------------|
 | `status` | string[] | Allowed status values for this type |
-| `required_components` | string[] | Components that must be present (produces `missing_required_component` diagnostic) |
 | `description` | string | Human-readable description (shown in `supersigil schema` output) |
 
 The four built-in types (`requirements`, `design`, `tasks`, `adr`) are always available even without explicit configuration. User-defined entries extend or override them.

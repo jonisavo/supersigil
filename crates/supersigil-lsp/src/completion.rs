@@ -649,7 +649,6 @@ mod tests {
                     "approved".into(),
                     "implemented".into(),
                 ],
-                required_components: vec![],
                 description: None,
             },
         );

@@ -585,7 +585,6 @@ fn complete_frontmatter_status_from_config() {
                 "approved".into(),
                 "implemented".into(),
             ],
-            required_components: vec![],
             description: None,
         },
     );

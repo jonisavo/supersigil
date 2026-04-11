@@ -212,7 +212,7 @@ mod tests {
 
     // -- actions() ----------------------------------------------------------
 
-    #[verifies("lsp-code-actions/req#req-4-7")]
+    #[verifies("lsp-code-actions/req#req-4-6")]
     #[test]
     fn wrap_rationale_in_decision() {
         let provider = InvalidPlacementProvider;

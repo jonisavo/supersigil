@@ -418,7 +418,7 @@ pub const BUILTIN_DOC_TYPES: &[&str] =
 ```
 
 Add the type definition with statuses `draft`, `review`, `accepted`,
-`superseded`. No `required_components`.
+`superseded`.
 
 ### `supersigil new adr` Scaffold
 

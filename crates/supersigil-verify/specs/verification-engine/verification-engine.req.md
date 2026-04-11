@@ -102,11 +102,12 @@ that draft recovery work and CI gating behave consistently.
     `missing_test_files`, `zero_tag_matches`, `stale_tracked_files`,
     `empty_tracked_glob`, `orphan_test_tag`, `invalid_id_pattern`,
     `isolated_document`, `status_inconsistency`,
-    `missing_required_component`, `invalid_verified_by_placement`,
+    `broken_ref`, `invalid_verified_by_placement`,
     `plugin_discovery_failure`, `sequential_id_order`, and
     `sequential_id_gap`, with `isolated_document` defaulting to `off`
-    and `missing_verification_evidence`, `missing_test_files`, and
-    `invalid_verified_by_placement` defaulting to `error`.
+    and `missing_verification_evidence`, `missing_test_files`,
+    `broken_ref`, and `invalid_verified_by_placement` defaulting to
+    `error`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
   </Criterion>
   <Criterion id="req-2-5">
@@ -195,10 +196,8 @@ discovery conventions, so that malformed docs and plugin failures are visible.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
-    WHEN a document declares a configured `doc_type`, THE structural rules SHALL
-    require every configured `required_components` entry and SHALL emit
-    `missing_required_component` for omissions. WHEN `id_pattern` is configured,
-    non-matching document IDs SHALL emit `invalid_id_pattern`.
+    WHEN `id_pattern` is configured, non-matching document IDs SHALL emit
+    `invalid_id_pattern`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/structural.rs" />
   </Criterion>
   <Criterion id="req-5-2">

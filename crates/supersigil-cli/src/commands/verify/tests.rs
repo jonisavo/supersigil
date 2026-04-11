@@ -615,7 +615,7 @@ fn scope_header_uses_count_styling() {
 #[test]
 fn shows_did_you_mean_when_suggestion_present() {
     let finding = Finding::new(
-        RuleName::MissingRequiredComponent,
+        RuleName::BrokenRef,
         Some("tasks/auth".to_string()),
         "broken ref `auth/reqs`".to_string(),
         None,
@@ -635,7 +635,7 @@ fn shows_did_you_mean_when_suggestion_present() {
 #[test]
 fn no_did_you_mean_when_suggestion_absent() {
     let finding = Finding::new(
-        RuleName::MissingRequiredComponent,
+        RuleName::BrokenRef,
         Some("tasks/auth".to_string()),
         "broken ref `completely/different`".to_string(),
         None,

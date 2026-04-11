@@ -81,7 +81,7 @@ configuration model.
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
     THE Config_Loader SHALL deserialize document-type definitions with
-    `status`, optional `required_components`, and optional `description`.
+    `status` and optional `description`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/component_defs_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-2-2">

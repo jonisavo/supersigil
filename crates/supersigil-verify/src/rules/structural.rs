@@ -9,38 +9,6 @@ use crate::rules::{find_components, has_component};
 use crate::scan::TagMatch;
 
 // ---------------------------------------------------------------------------
-// check_required_components
-// ---------------------------------------------------------------------------
-
-/// For typed documents, check that all `required_components` from the config
-/// type definition are present.
-pub fn check_required_components(graph: &DocumentGraph, config: &Config) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (doc_id, doc) in graph.documents() {
-        let Some(ref doc_type) = doc.frontmatter.doc_type else {
-            continue;
-        };
-        let Some(type_def) = config.documents.types.get(doc_type) else {
-            continue;
-        };
-        for required in &type_def.required_components {
-            let has_it = has_component(&doc.components, required);
-            if !has_it {
-                findings.push(Finding::new(
-                    RuleName::MissingRequiredComponent,
-                    Some(doc_id.to_owned()),
-                    format!(
-                        "document `{doc_id}` (type `{doc_type}`) is missing required component `{required}`"
-                    ),
-                    None,
-                ));
-            }
-        }
-    }
-    findings
-}
-
-// ---------------------------------------------------------------------------
 // check_id_pattern
 // ---------------------------------------------------------------------------
 

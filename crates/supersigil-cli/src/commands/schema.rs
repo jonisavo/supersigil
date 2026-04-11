@@ -53,8 +53,6 @@ struct SchemaDocumentTypeDef {
     description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     status: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    required_components: Vec<String>,
 }
 
 fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
@@ -62,7 +60,6 @@ fn default_document_types() -> BTreeMap<String, SchemaDocumentTypeDef> {
         SchemaDocumentTypeDef {
             description: Some(description.into()),
             status: status.iter().map(ToString::to_string).collect(),
-            required_components: Vec::new(),
         }
     }
 
@@ -137,7 +134,6 @@ impl From<&DocumentTypeDef> for SchemaDocumentTypeDef {
         Self {
             description: value.description.clone(),
             status: value.status.clone(),
-            required_components: value.required_components.clone(),
         }
     }
 }

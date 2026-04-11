@@ -154,7 +154,7 @@ mod tests {
 
     // -- actions() ----------------------------------------------------------
 
-    #[verifies("lsp-code-actions/req#req-4-6")]
+    #[verifies("lsp-code-actions/req#req-4-5")]
     #[test]
     fn insert_references_basic() {
         let provider = OrphanDecisionProvider;

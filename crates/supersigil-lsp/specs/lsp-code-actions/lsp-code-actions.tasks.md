@@ -67,16 +67,9 @@ with each task via TDD.
 </Task>
 ```
 
-```supersigil-xml
-<Task id="task-7" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-5">
-  Implement MissingComponentProvider. Insert a skeleton of the
-  required component at the appropriate location. Add insta
-  snapshot tests.
-</Task>
-```
 
 ```supersigil-xml
-<Task id="task-8" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-6">
+<Task id="task-7" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-5">
   Implement OrphanDecisionProvider. Add a References component
   with refs pointing to the parent document. Add insta snapshot
   tests.
@@ -84,21 +77,21 @@ with each task via TDD.
 ```
 
 ```supersigil-xml
-<Task id="task-9" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-7">
+<Task id="task-8" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-6">
   Implement InvalidPlacementProvider. Move the misplaced component
   to the correct parent. Add insta snapshot tests.
 </Task>
 ```
 
 ```supersigil-xml
-<Task id="task-10" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-8">
+<Task id="task-9" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-7">
   Implement SequentialIdProvider. Renumber component IDs to restore
   sequential order. Add insta snapshot tests.
 </Task>
 ```
 
 ```supersigil-xml
-<Task id="task-11" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-1, lsp-code-actions/req#req-5-1">
+<Task id="task-10" status="done" depends="task-3" implements="lsp-code-actions/req#req-4-1, lsp-code-actions/req#req-5-1">
   Implement BrokenRefProvider — the non-interactive path. Offer
   "remove broken ref" (edit attribute) and "create document" when
   the target path is unambiguous (direct WorkspaceEdit with
@@ -107,7 +100,7 @@ with each task via TDD.
 ```
 
 ```supersigil-xml
-<Task id="task-12" status="done" depends="task-11" implements="lsp-code-actions/req#req-5-4">
+<Task id="task-11" status="done" depends="task-10" implements="lsp-code-actions/req#req-5-4">
   Extract the supersigil new template logic into a shared function
   accessible to both CLI and LSP. Update the CLI new command to
   call the shared function.
@@ -115,7 +108,7 @@ with each task via TDD.
 ```
 
 ```supersigil-xml
-<Task id="task-13" status="done" depends="task-11, task-12" implements="lsp-code-actions/req#req-5-2, lsp-code-actions/req#req-5-3, lsp-code-actions/req#req-5-5">
+<Task id="task-12" status="done" depends="task-10, task-11" implements="lsp-code-actions/req#req-5-2, lsp-code-actions/req#req-5-3, lsp-code-actions/req#req-5-5">
   Implement the interactive create-document flow. Add the
   supersigil.createDocument command handler. Use
   window/showMessageRequest for project selection. Resolve spec
@@ -125,7 +118,7 @@ with each task via TDD.
 ```
 
 ```supersigil-xml
-<Task id="task-14" status="done" depends="task-4, task-5, task-6, task-7, task-8, task-9, task-10, task-11, task-13" implements="lsp-code-actions/req#req-6-1, lsp-code-actions/req#req-6-2">
+<Task id="task-13" status="done" depends="task-4, task-5, task-6, task-7, task-8, task-9, task-10, task-12" implements="lsp-code-actions/req#req-6-1, lsp-code-actions/req#req-6-2">
   Add the format_actions snapshot helper and integration tests that
   apply WorkspaceEdits to files and re-verify that diagnostics are
   resolved. Ensure all providers have snapshot coverage.

@@ -1,60 +1,7 @@
 use super::*;
 use crate::test_helpers::*;
-use supersigil_core::{ACCEPTANCE_CRITERIA, DocumentTypeDef};
 use supersigil_rust::verifies;
 use tempfile::TempDir;
-
-// -----------------------------------------------------------------------
-// check_required_components
-// -----------------------------------------------------------------------
-
-#[test]
-fn document_missing_required_component_emits_finding() {
-    let mut config = test_config();
-    config.documents.types.insert(
-        "requirements".into(),
-        DocumentTypeDef {
-            status: vec!["draft".into()],
-            required_components: vec![ACCEPTANCE_CRITERIA.to_owned()],
-            description: None,
-        },
-    );
-    let docs = vec![make_doc_typed(
-        "req/auth",
-        "requirements",
-        Some("draft"),
-        vec![],
-    )];
-    let graph = build_test_graph_with_config(docs, &config);
-    let findings = check_required_components(&graph, &config);
-    assert_eq!(findings.len(), 1);
-    assert_eq!(findings[0].rule, RuleName::MissingRequiredComponent);
-}
-
-#[test]
-fn document_with_required_component_is_clean() {
-    let mut config = test_config();
-    config.documents.types.insert(
-        "requirements".into(),
-        DocumentTypeDef {
-            status: vec!["draft".into()],
-            required_components: vec![ACCEPTANCE_CRITERIA.to_owned()],
-            description: None,
-        },
-    );
-    let docs = vec![make_doc_typed(
-        "req/auth",
-        "requirements",
-        Some("draft"),
-        vec![make_acceptance_criteria(
-            vec![make_criterion("req-1", 10)],
-            9,
-        )],
-    )];
-    let graph = build_test_graph_with_config(docs, &config);
-    let findings = check_required_components(&graph, &config);
-    assert!(findings.is_empty());
-}
 
 // -----------------------------------------------------------------------
 // check_id_pattern

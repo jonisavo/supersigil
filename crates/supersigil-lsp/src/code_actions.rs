@@ -5,7 +5,6 @@ mod duplicate_id;
 mod incomplete_decision;
 mod invalid_placement;
 mod missing_attribute;
-mod missing_component;
 mod orphan_decision;
 mod sequential_id;
 
@@ -14,7 +13,6 @@ pub use duplicate_id::DuplicateIdProvider;
 pub use incomplete_decision::IncompleteDecisionProvider;
 pub use invalid_placement::InvalidPlacementProvider;
 pub use missing_attribute::MissingAttributeProvider;
-pub use missing_component::MissingComponentProvider;
 pub use orphan_decision::OrphanDecisionProvider;
 pub use sequential_id::SequentialIdProvider;
 

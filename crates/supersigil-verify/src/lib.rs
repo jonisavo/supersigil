@@ -99,8 +99,7 @@ pub fn scoped_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<Str
 /// Rules included:
 /// - test mapping (`file_globs`, `tags`)
 /// - tracked files (`empty_globs`, `staleness`)
-/// - structural (`required_components`, `id_pattern`, `isolated`, `orphan_tags`,
-///   `verified_by_placement`)
+/// - structural (`id_pattern`, `isolated`, `orphan_tags`, `verified_by_placement`)
 /// - status
 ///
 /// # Errors
@@ -135,7 +134,6 @@ pub fn verify_structural(
     }
 
     // Structural
-    findings.extend(rules::structural::check_required_components(graph, config));
     findings.extend(rules::structural::check_id_pattern(graph, config));
     findings.extend(rules::structural::check_isolated(graph));
     findings.extend(rules::structural::check_orphan_tags(
@@ -314,7 +312,7 @@ fn graph_error_to_finding(error: &supersigil_core::GraphError, known_doc_ids: &[
             };
 
             let mut f = Finding::new(
-                RuleName::MissingRequiredComponent,
+                RuleName::BrokenRef,
                 Some(doc_id.clone()),
                 message,
                 Some(*position),
@@ -324,12 +322,7 @@ fn graph_error_to_finding(error: &supersigil_core::GraphError, known_doc_ids: &[
             }
             f
         }
-        other => Finding::new(
-            RuleName::MissingRequiredComponent,
-            None,
-            other.to_string(),
-            None,
-        ),
+        other => Finding::new(RuleName::BrokenRef, None, other.to_string(), None),
     };
 
     // All graph errors are fatal — mark as error severity.

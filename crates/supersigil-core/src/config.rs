@@ -70,16 +70,13 @@ pub struct ComponentDef {
 // DocumentTypeDef
 // ---------------------------------------------------------------------------
 
-/// Definition of a document type with valid statuses and required components.
+/// Definition of a document type with valid statuses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentTypeDef {
     /// Valid status values for documents of this type.
     #[serde(default)]
     pub status: Vec<String>,
-    /// Components that must be present in documents of this type.
-    #[serde(default)]
-    pub required_components: Vec<String>,
     /// Human-readable description of the document type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -405,7 +402,7 @@ pub const KNOWN_RULES: &[&str] = &[
     "invalid_id_pattern",
     "isolated_document",
     "status_inconsistency",
-    "missing_required_component",
+    "broken_ref",
     "invalid_verified_by_placement",
     "plugin_discovery_failure",
     "plugin_discovery_warning",

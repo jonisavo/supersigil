@@ -423,7 +423,7 @@ Some prose.
 
     // -- actions() ----------------------------------------------------------
 
-    #[verifies("lsp-code-actions/req#req-4-8")]
+    #[verifies("lsp-code-actions/req#req-4-7")]
     #[test]
     fn renumber_gap_in_sequence() {
         let provider = SequentialIdProvider;

@@ -99,7 +99,6 @@ impl SupersigilLsp {
                 Box::new(crate::code_actions::MissingAttributeProvider),
                 Box::new(crate::code_actions::DuplicateIdProvider),
                 Box::new(crate::code_actions::IncompleteDecisionProvider),
-                Box::new(crate::code_actions::MissingComponentProvider),
                 Box::new(crate::code_actions::OrphanDecisionProvider),
                 Box::new(crate::code_actions::InvalidPlacementProvider),
                 Box::new(crate::code_actions::SequentialIdProvider),

@@ -172,7 +172,6 @@ paths = ["specs/**/*.md"]
 
 [documents.types.requirement]
 status = ["draft", "review", "approved"]
-required_components = ["AcceptanceCriteria"]
 
 [documents.types.design]
 status = ["draft"]
@@ -194,8 +193,12 @@ status = ["draft"]
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert_eq!(
-        json["document_types"]["requirement"]["required_components"][0],
-        "AcceptanceCriteria"
+        json["document_types"]["requirement"]["status"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3,
+        "requirement type should have 3 statuses from config"
     );
     assert_eq!(json["document_types"]["design"]["status"][0], "draft");
 }

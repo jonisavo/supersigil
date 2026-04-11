@@ -25,11 +25,6 @@ would help users after upgrades.
 
 ## New Command
 
-### Required Components Not Hinted
-
-If the document type has `required_components`, the scaffold doesn't include
-examples. Users discover them only when verify fails.
-
 ### Template Comments
 
 HTML comments in scaffolds don't render in Markdown previewers. Use

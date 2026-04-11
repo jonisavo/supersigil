@@ -147,21 +147,16 @@ so that routine issues are one-click resolvable.
     Alternative component inside the Decision.
   </Criterion>
   <Criterion id="req-4-5">
-    A MissingComponentProvider SHALL handle missing-required-component
-    verification findings and offer to insert a skeleton of the required
-    component at the appropriate location.
-  </Criterion>
-  <Criterion id="req-4-6">
     An OrphanDecisionProvider SHALL handle orphan-decision verification
     findings and offer to add a References component with a refs
     attribute pointing to the parent document.
   </Criterion>
-  <Criterion id="req-4-7">
+  <Criterion id="req-4-6">
     An InvalidPlacementProvider SHALL handle invalid-rationale-placement,
     invalid-alternative-placement, and invalid-expected-placement findings
     and offer to move the component to the correct parent.
   </Criterion>
-  <Criterion id="req-4-8">
+  <Criterion id="req-4-7">
     A SequentialIdProvider SHALL handle sequential-id-gap and
     sequential-id-order findings and offer to renumber component IDs to
     restore sequential order.

@@ -141,10 +141,6 @@ pub enum ActionContext {
         decision_id: String,
         missing: Vec<String>,
     },
-    MissingComponent {
-        component: String,
-        parent_id: String,
-    },
     OrphanDecision {
         decision_id: String,
     },
@@ -194,7 +190,6 @@ Eight provider structs, each a unit struct implementing
 | `MissingAttributeProvider` | `Parse(MissingRequiredAttribute)` |
 | `DuplicateIdProvider` | `Graph(DuplicateDocumentId)`, `Graph(DuplicateComponentId)` |
 | `IncompleteDecisionProvider` | `Verify(IncompleteDecision)` |
-| `MissingComponentProvider` | `Verify(MissingRequiredComponent)` |
 | `OrphanDecisionProvider` | `Verify(OrphanDecision)` |
 | `InvalidPlacementProvider` | `Verify(InvalidRationalePlacement)`, `Verify(InvalidAlternativePlacement)` |
 | `SequentialIdProvider` | `Verify(SequentialIdGap)`, `Verify(SequentialIdOrder)` |

@@ -147,13 +147,12 @@ tests = ["tests/**/*.rs"]
 // ---------------------------------------------------------------------------
 
 #[test]
-fn document_type_with_status_and_required_components() {
+fn document_type_with_status() {
     let toml_str = r#"
 paths = ["specs/**/*.md"]
 
 [documents.types.requirements]
 status = ["draft", "approved", "deprecated"]
-required_components = ["AcceptanceCriteria"]
 
 [documents.types.design]
 status = ["draft", "final"]
@@ -170,10 +169,6 @@ status = ["draft", "final"]
             .map(String::from)
             .collect::<Vec<_>>()
     );
-    assert_eq!(
-        req_type.required_components,
-        vec!["AcceptanceCriteria".to_string()]
-    );
 
     let design_type = &types["design"];
     assert_eq!(
@@ -183,7 +178,6 @@ status = ["draft", "final"]
             .map(String::from)
             .collect::<Vec<_>>()
     );
-    assert!(design_type.required_components.is_empty());
 }
 
 #[test]

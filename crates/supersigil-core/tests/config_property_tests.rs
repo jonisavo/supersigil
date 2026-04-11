@@ -93,15 +93,10 @@ fn arb_component_def() -> impl Strategy<Value = ComponentDef> {
 }
 
 fn arb_document_type_def() -> impl Strategy<Value = DocumentTypeDef> {
-    (
-        prop::collection::vec(arb_ident(), 0..4),
-        prop::collection::vec("[A-Z][a-z]{2,8}", 0..3),
-    )
-        .prop_map(|(status, required_components)| DocumentTypeDef {
-            status,
-            required_components,
-            description: None,
-        })
+    prop::collection::vec(arb_ident(), 0..4).prop_map(|status| DocumentTypeDef {
+        status,
+        description: None,
+    })
 }
 
 fn arb_project_config() -> impl Strategy<Value = ProjectConfig> {

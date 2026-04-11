@@ -62,8 +62,8 @@ pub enum RuleName {
     IsolatedDocument,
     /// A document's status is inconsistent with its dependencies.
     StatusInconsistency,
-    /// A required component is missing from a document.
-    MissingRequiredComponent,
+    /// A graph construction error (broken ref, duplicate ID, cycle).
+    BrokenRef,
     /// A `VerifiedBy` component is placed in a disallowed position.
     InvalidVerifiedByPlacement,
     /// A plugin failed during evidence discovery.
@@ -104,7 +104,7 @@ impl RuleName {
         Self::InvalidIdPattern,
         Self::IsolatedDocument,
         Self::StatusInconsistency,
-        Self::MissingRequiredComponent,
+        Self::BrokenRef,
         Self::InvalidVerifiedByPlacement,
         Self::PluginDiscoveryFailure,
         Self::PluginDiscoveryWarning,
@@ -138,7 +138,7 @@ impl RuleName {
             Self::InvalidIdPattern => "invalid_id_pattern",
             Self::IsolatedDocument => "isolated_document",
             Self::StatusInconsistency => "status_inconsistency",
-            Self::MissingRequiredComponent => "missing_required_component",
+            Self::BrokenRef => "broken_ref",
             Self::InvalidVerifiedByPlacement => "invalid_verified_by_placement",
             Self::PluginDiscoveryFailure => "plugin_discovery_failure",
             Self::PluginDiscoveryWarning => "plugin_discovery_warning",
@@ -162,7 +162,8 @@ impl RuleName {
         match self {
             Self::MissingVerificationEvidence
             | Self::MissingTestFiles
-            | Self::InvalidVerifiedByPlacement => ReportSeverity::Error,
+            | Self::InvalidVerifiedByPlacement
+            | Self::BrokenRef => ReportSeverity::Error,
 
             Self::IsolatedDocument | Self::MissingDecisionCoverage => ReportSeverity::Off,
 
@@ -173,7 +174,6 @@ impl RuleName {
             | Self::OrphanTestTag
             | Self::InvalidIdPattern
             | Self::StatusInconsistency
-            | Self::MissingRequiredComponent
             | Self::PluginDiscoveryFailure
             | Self::PluginDiscoveryWarning
             | Self::SequentialIdOrder
@@ -614,6 +614,7 @@ mod tests {
         let expected = [
             (RuleName::MissingVerificationEvidence, ReportSeverity::Error),
             (RuleName::MissingTestFiles, ReportSeverity::Error),
+            (RuleName::BrokenRef, ReportSeverity::Error),
             (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
@@ -622,7 +623,6 @@ mod tests {
             (RuleName::OrphanTestTag, ReportSeverity::Warning),
             (RuleName::InvalidIdPattern, ReportSeverity::Warning),
             (RuleName::StatusInconsistency, ReportSeverity::Warning),
-            (RuleName::MissingRequiredComponent, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryFailure, ReportSeverity::Warning),
             (RuleName::PluginDiscoveryWarning, ReportSeverity::Warning),
             (RuleName::SequentialIdOrder, ReportSeverity::Warning),
@@ -1099,7 +1099,7 @@ mod tests {
     #[test]
     fn with_suggestion_sets_field() {
         let finding = Finding::new(
-            RuleName::MissingRequiredComponent,
+            RuleName::BrokenRef,
             Some("tasks/auth".into()),
             "broken ref".into(),
             None,
@@ -1114,7 +1114,7 @@ mod tests {
         let report = VerificationReport::new(
             vec![
                 Finding::new(
-                    RuleName::MissingRequiredComponent,
+                    RuleName::BrokenRef,
                     Some("tasks/auth".into()),
                     "broken ref `auth/reqs`".into(),
                     None,
@@ -1144,7 +1144,7 @@ mod tests {
     fn suggestion_absent_in_json_when_none() {
         let report = VerificationReport::new(
             vec![Finding::new(
-                RuleName::MissingRequiredComponent,
+                RuleName::BrokenRef,
                 Some("tasks/auth".into()),
                 "some finding".into(),
                 None,

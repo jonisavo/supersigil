@@ -99,13 +99,6 @@ pub enum ActionContext {
         /// The ID of the incomplete decision.
         decision_id: String,
     },
-    /// A required child component is missing from its parent.
-    MissingComponent {
-        /// The missing component type name.
-        component: String,
-        /// The parent component ID.
-        parent_id: String,
-    },
     /// A Decision component with no parent document reference.
     OrphanDecision {
         /// The ID of the orphan decision.
@@ -522,22 +515,6 @@ fn enrich_finding_context(finding: &Finding) -> ActionContext {
     let doc_id = finding.doc_id.clone().unwrap_or_default();
 
     match finding.rule {
-        RuleName::MissingRequiredComponent => {
-            // "document `{doc_id}` (type `{doc_type}`) is missing required component `{required}`"
-            if let Some(rest) = msg
-                .find("missing required component `")
-                .map(|p| p + "missing required component `".len())
-                && let Some(end) = msg[rest..].find('`')
-            {
-                let component = msg[rest..rest + end].to_string();
-                ActionContext::MissingComponent {
-                    component,
-                    parent_id: doc_id,
-                }
-            } else {
-                ActionContext::None
-            }
-        }
         RuleName::OrphanDecision => {
             // "Decision `{label}` in `{doc_id}` is orphan: ..."
             if let Some((decision_id, _)) = extract_backtick_token(msg, 0) {
@@ -1150,9 +1127,9 @@ mod tests {
         let path = std::path::PathBuf::from("/tmp/finding-data.md");
 
         let finding = Finding::new(
-            RuleName::MissingRequiredComponent,
+            RuleName::BrokenRef,
             Some("REQ-001".into()),
-            "missing required component".into(),
+            "broken reference".into(),
             None,
         );
 
@@ -1162,7 +1139,7 @@ mod tests {
 
         assert!(matches!(
             data.source,
-            DiagnosticSource::Verify(RuleName::MissingRequiredComponent)
+            DiagnosticSource::Verify(RuleName::BrokenRef)
         ));
         assert_eq!(data.doc_id.as_deref(), Some("REQ-001"));
         assert!(matches!(data.context, ActionContext::None));
@@ -1275,10 +1252,6 @@ mod tests {
             ActionContext::IncompleteDecision {
                 decision_id: "d".into(),
             },
-            ActionContext::MissingComponent {
-                component: "Criterion".into(),
-                parent_id: "REQ-001".into(),
-            },
             ActionContext::OrphanDecision {
                 decision_id: "DEC-001".into(),
             },
@@ -1306,40 +1279,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // enrich_finding_context
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn enrich_missing_required_component() {
-        let finding = Finding::new(
-            RuleName::MissingRequiredComponent,
-            Some("auth/req".into()),
-            "document `auth/req` (type `requirements`) is missing required component `AcceptanceCriteria`".into(),
-            None,
-        );
-        match enrich_finding_context(&finding) {
-            ActionContext::MissingComponent {
-                component,
-                parent_id,
-            } => {
-                assert_eq!(component, "AcceptanceCriteria");
-                assert_eq!(parent_id, "auth/req");
-            }
-            other => panic!("expected MissingComponent, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn enrich_missing_required_component_no_backtick() {
-        let finding = Finding::new(
-            RuleName::MissingRequiredComponent,
-            Some("auth/req".into()),
-            "some unusual message".into(),
-            None,
-        );
-        assert!(matches!(
-            enrich_finding_context(&finding),
-            ActionContext::None
-        ));
-    }
 
     #[test]
     fn enrich_orphan_decision() {
