@@ -1,6 +1,6 @@
 ---
 title: Graph Explorer
-description: Interactively explore the spec graph in your browser.
+description: Interactively explore the spec graph in your browser or inside VS Code.
 supersigil:
   id: website/guides/graph-explorer
   type: documentation
@@ -8,7 +8,7 @@ supersigil:
 
 import { Aside } from '@astrojs/starlight/components';
 
-The graph explorer is an interactive, browser-based visualization of your spec graph. It renders documents as nodes in a force-directed layout, grouped into clusters by prefix, with edges showing Implements, DependsOn, and References relationships.
+The graph explorer is an interactive visualization of your spec graph — available in your browser, as a standalone CLI command, or inside VS Code. It renders documents as nodes in a force-directed layout, grouped into clusters by prefix, with edges showing Implements, DependsOn, and References relationships.
 
 ## Quick Start
 
@@ -25,6 +25,36 @@ To save the HTML to a file instead of opening it:
 ```bash
 supersigil explore --output graph.html
 ```
+
+## In Your Editor
+
+The same graph explorer runs inside VS Code as a webview panel. Click the graph icon (⬡) in the editor title bar to open it.
+
+- **Context-aware** — the graph opens scoped to the workspace root of your active file, with that file's spec node auto-focused.
+- **Navigate to source** — click "Open File" in the detail panel to jump to the spec's Markdown source. Evidence links open test files at the exact line.
+- **Live updates** — the graph refreshes automatically when specs change. Your selection and filters are preserved across updates.
+- **Multiple panels** — open as many graph panels as you want, each scoped to a different workspace root. In multi-root workspaces, a root selector dropdown lets you switch roots within a panel.
+- **Supersigil Specifications tree** — the Explorer sidebar includes a "Supersigil Specifications" section listing all spec documents grouped by feature area. Hover over a document to see an inline button that opens it in the graph explorer.
+
+The in-editor graph uses the same D3.js visualization, the same detail panel with rendered spec content, and the same filtering and search as the standalone CLI output and the [hosted explorer](/explore/).
+
+<style>{`
+  .theme-dark-only { display: block; }
+  .theme-light-only { display: none; }
+  :root[data-theme='light'] .theme-dark-only { display: none; }
+  :root[data-theme='light'] .theme-light-only { display: block; }
+`}</style>
+
+<div class="theme-dark-only">
+  <a href="/images/graph-explorer-dark.webp" target="_blank" rel="noopener">
+    <img src="/images/graph-explorer-dark.webp" alt="Graph explorer inside VS Code" style="width: 100%; border-radius: 6px; border: 1px solid var(--sl-color-gray-5); margin-top: 1rem;" />
+  </a>
+</div>
+<div class="theme-light-only">
+  <a href="/images/graph-explorer-light.webp" target="_blank" rel="noopener">
+    <img src="/images/graph-explorer-light.webp" alt="Graph explorer inside VS Code" style="width: 100%; border-radius: 6px; border: 1px solid var(--sl-color-gray-5); margin-top: 1rem;" />
+  </a>
+</div>
 
 ## What You See
 
@@ -86,15 +116,8 @@ When no repository info is configured or inferred, evidence locations display as
 
 ## Docs Site Integration
 
-The explorer is also available as a page on the docs site at [`/explore/`](/explore/). Graph data is generated at build time via a prebuild script:
-
-```json
-{
-  "prebuild": "supersigil graph --format json > public/explore/graph.json"
-}
-```
-
-The hosted version uses the same visualization module and design system as the standalone CLI output.
+The explorer is also available as a page on the docs site at [`/explore/`](/explore/). The hosted version uses the same visualization module and
+design system as the standalone CLI output.
 
 ## JSON Graph Format
 

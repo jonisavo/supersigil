@@ -15,7 +15,7 @@ use crate::format::ColorConfig;
 use crate::loader;
 use crate::plugins;
 
-use super::graph::json::build_graph_json;
+use supersigil_verify::graph_json::build_graph_json;
 
 const TEMPLATE_HTML: &str = include_str!("explore_template.html");
 const TOKENS_CSS: &str = include_str!("explore_assets/landing-tokens.css");
@@ -78,8 +78,9 @@ pub(crate) fn build_html(
     graph: &DocumentGraph,
     render_data: &[DocumentComponentsResult],
     repository_info: Option<&RepositoryInfo>,
+    project_root: &Path,
 ) -> Result<String, CliError> {
-    let graph_json = build_graph_json(graph);
+    let graph_json = build_graph_json(graph, project_root);
     let json_str = serde_json::to_string_pretty(&graph_json)
         .map_err(std::io::Error::other)?
         .replace("</", "<\\/");
@@ -121,7 +122,7 @@ pub fn run(args: &ExploreArgs, config_path: &Path, color: ColorConfig) -> Result
     let assembled_plugins = plugins::assemble_plugins(&config);
     let repo_info =
         plugins::resolve_repository_info(&config, &assembled_plugins, project_root, color);
-    let html = build_html(&graph, &render_data, repo_info.as_ref())?;
+    let html = build_html(&graph, &render_data, repo_info.as_ref(), project_root)?;
 
     if let Some(output_path) = &args.output {
         std::fs::write(output_path, &html)?;
@@ -166,7 +167,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_doctype() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         assert!(html.starts_with("<!DOCTYPE html>"));
     }
 
@@ -174,7 +175,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_graph_json_inline() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         assert!(html.contains("\"req/auth\""));
         assert!(html.contains("\"design/auth\""));
         // Graph data is inlined directly in the template's <script> tag
@@ -185,7 +186,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_d3_cdn() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         assert!(html.contains("https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"));
     }
 
@@ -193,7 +194,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_explorer_js() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         assert!(html.contains("SupersigilExplorer"));
     }
 
@@ -201,7 +202,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_styles() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         // Check for landing tokens
         assert!(html.contains("--bg-deep"));
         assert!(html.contains("--gold"));
@@ -214,7 +215,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_is_self_contained() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         // Should contain <script> tags
         assert!(html.contains("<script>"));
         assert!(html.contains("</script>"));
@@ -237,7 +238,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_preview_assets() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         // Preview CSS
         assert!(html.contains("--supersigil-verified"));
         assert!(html.contains(".supersigil-block"));
@@ -252,7 +253,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-2-1")]
     fn html_contains_render_data() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         // Render data should be inlined as an empty JSON array
         assert!(html.contains("var renderData = []"));
     }
@@ -262,7 +263,7 @@ mod tests {
     fn output_flag_writes_to_file() {
         // This test verifies the --output path writes successfully
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let output_path = dir.path().join("explore.html");
         std::fs::write(&output_path, &html).unwrap();
@@ -276,7 +277,7 @@ mod tests {
     #[verifies("graph-explorer/req#req-11-1")]
     fn html_without_repository_info_contains_null() {
         let graph = sample_graph();
-        let html = build_html(&graph, &[], None).unwrap();
+        let html = build_html(&graph, &[], None, Path::new("")).unwrap();
         assert!(html.contains("var repositoryInfo = null;"));
     }
 
@@ -292,7 +293,7 @@ mod tests {
             host: "github.com".into(),
             main_branch: "main".into(),
         };
-        let html = build_html(&graph, &[], Some(&repo)).unwrap();
+        let html = build_html(&graph, &[], Some(&repo), Path::new("")).unwrap();
         assert!(html.contains("var repositoryInfo = {"));
         assert!(html.contains(r#""provider":"github""#));
         assert!(html.contains(r#""repo":"owner/repo""#));

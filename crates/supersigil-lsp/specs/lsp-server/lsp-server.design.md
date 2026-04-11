@@ -39,6 +39,9 @@ Editor ──stdio/JSON-RPC──▶ SupersigilLsp
                               ├── completion/hover/definition  (snapshot Arc)
                               │     └── concurrent future on graph snapshot
                               │
+                              ├── supersigil/graphData  (custom request)
+                              │     └── serialize DocumentGraph as GraphJson
+                              │
                               └── supersigil.verify  (command)
                                     └── run full verify pipeline
 ```
@@ -100,7 +103,8 @@ crates/supersigil-lsp/
 │   ├── completion.rs   # ref, component name, attribute value completions
 │   ├── definition.rs   # go-to-definition for refs
 │   ├── hover.rs        # component docs, ref target preview
-│   ├── commands.rs     # supersigil.verify command
+│   ├── commands.rs     # supersigil.verify, supersigil.graphData commands
+│   ├── graph_data.rs   # supersigil/graphData custom request type
 │   └── position.rs     # SourcePosition ↔ lsp_types::Position
 ```
 
@@ -221,10 +225,22 @@ Markdown: description, attribute table (name, required, list), flags
 title, document type and status, criterion body text (if fragment ref),
 verification evidence summary (if available from last verify run).
 
+### Custom requests
+
+**`supersigil/graphData`**: Returns the full `DocumentGraph` serialized as
+`GraphJson` (the same schema produced by `supersigil graph --format json`).
+Takes no parameters. The handler snapshots the current graph and serializes
+it. Used by the VS Code graph explorer webview to render the interactive
+visualization.
+
 ### Custom commands
 
 `supersigil.verify` runs the full verify pipeline and publishes all findings
 as diagnostics.
+
+`supersigil.graphData` mirrors the `supersigil/graphData` custom request
+but is available via the standard `workspace/executeCommand` endpoint.
+This accommodates LSP clients that cannot send custom JSON-RPC requests.
 
 ## Markdown Integration
 

@@ -52,5 +52,6 @@ pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target
 insta.workspace = true
 supersigil-core = { workspace = true, features = ["test-helpers"] }
 supersigil-rust-macros.workspace = true
+supersigil-verify = { workspace = true, features = ["test-helpers"] }
 tempfile.workspace = true
 yaml_serde.workspace = true

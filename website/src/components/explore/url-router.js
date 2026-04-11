@@ -148,7 +148,8 @@ export function parseHash(hash) {
       }
     }
 
-    state.doc = rest.slice(0, docEnd) || null;
+    const rawDoc = rest.slice(0, docEnd);
+    state.doc = rawDoc ? decodeURIComponent(rawDoc) : null;
     state.trace = actualTraceIdx !== -1;
 
     if (actualFilterIdx !== -1) {

@@ -1,0 +1,88 @@
+/* ===== VS Code Theme Adapter =====
+ *
+ * Maps the graph explorer's design tokens (from landing-tokens.css) to VS Code's
+ * built-in --vscode-* CSS custom properties so the explorer looks native inside
+ * the VS Code webview.
+ *
+ * Also maps preview kit tokens (--supersigil-*) used by .detail-spec-content.
+ *
+ * Google Fonts are NOT loaded here — VS Code font families are used instead.
+ */
+
+:root {
+  /* ===== Surface and background ===== */
+  --bg: var(--vscode-editor-background);
+  --bg-deep: var(--vscode-editor-background);
+  --bg-surface: var(--vscode-sideBar-background);
+  --bg-card: var(--vscode-editorWidget-background);
+  --bg-card-hover: var(--vscode-list-hoverBackground);
+
+  /* ===== Text ===== */
+  --text: var(--vscode-editor-foreground);
+  --text-muted: var(--vscode-descriptionForeground);
+  --text-dim: var(--vscode-disabledForeground);
+
+  /* ===== Borders ===== */
+  --border: var(--vscode-panel-border);
+  --border-hover: var(--vscode-focusBorder);
+
+  /* ===== Typography — VS Code font families replace Google Fonts ===== */
+  --font-body: var(--vscode-font-family);
+  --font-mono: var(--vscode-editor-font-family);
+  --font-heading: var(--vscode-font-family);
+  /* --font-display is used for detail panel titles; map to heading font */
+  --font-display: var(--vscode-font-family);
+
+  /* ===== Accent / highlight ===== */
+  --accent: var(--vscode-focusBorder);
+  --accent-hover: var(--vscode-focusBorder);
+
+  /* Semantic accent colours used for edge kinds, badges, and graph elements.
+     These map to VS Code chart colours which are available in both light and
+     dark themes.  Fall back to fixed values if the variables are absent. */
+  --gold: var(--vscode-charts-yellow, #c9a55c);
+  --gold-dim: color-mix(in srgb, var(--vscode-charts-yellow, #c9a55c) 40%, transparent);
+  --teal: var(--vscode-charts-blue, #5a8f9f);
+  --green: var(--vscode-charts-green, #6fbf73);
+
+  /* ===== Animation easing ===== */
+  --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  /* ===== Preview kit tokens (used by .detail-spec-content) ===== */
+  --supersigil-bg: transparent;
+  --supersigil-border: var(--vscode-panel-border);
+  --supersigil-text: var(--vscode-editor-foreground);
+  --supersigil-text-muted: var(--vscode-descriptionForeground);
+  --supersigil-font-mono: var(--vscode-editor-font-family);
+}
+
+/* ===== "Open file" button injected by the bootstrap script ===== */
+
+.open-file-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+}
+
+.open-file-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.root-selector {
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+  cursor: pointer;
+  flex-shrink: 0;
+}

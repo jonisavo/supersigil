@@ -37,11 +37,47 @@ function copyPreviewAssets() {
 copyPreviewAssets();
 
 // ---------------------------------------------------------------------------
-// esbuild config
+// Copy webview assets into dist/webview/
+// ---------------------------------------------------------------------------
+
+const webviewDir = join(__dirname, "dist", "webview");
+const websiteSrc = join(__dirname, "..", "..", "website", "src");
+
+function copyWebviewAssets() {
+  mkdirSync(webviewDir, { recursive: true });
+
+  /** @type {Array<[string, string]>} source path -> dest filename */
+  const copies = [
+    [join(websiteSrc, "styles", "landing-tokens.css"), "landing-tokens.css"],
+    [
+      join(websiteSrc, "components", "explore", "styles.css"),
+      "explorer-styles.css",
+    ],
+    [join(previewDist, "supersigil-preview.css"), "supersigil-preview.css"],
+    [join(previewDist, "render-iife.js"), "render-iife.js"],
+    [join(previewDist, "supersigil-preview.js"), "supersigil-preview.js"],
+    [
+      join(mediaDir, "vscode-theme-adapter.css"),
+      "vscode-theme-adapter.css",
+    ],
+  ];
+
+  for (const [src, destName] of copies) {
+    if (!existsSync(src)) {
+      throw new Error(`Webview asset not found: ${src}`);
+    }
+    copyFileSync(src, join(webviewDir, destName));
+  }
+}
+
+copyWebviewAssets();
+
+// ---------------------------------------------------------------------------
+// esbuild config — main extension
 // ---------------------------------------------------------------------------
 
 /** @type {esbuild.BuildOptions} */
-const buildOptions = {
+const extensionOptions = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
   format: "cjs",
@@ -56,10 +92,59 @@ const buildOptions = {
   sourcemap: !production,
 };
 
+// ---------------------------------------------------------------------------
+// esbuild config — webview: graph explorer
+// ---------------------------------------------------------------------------
+
+/** @type {esbuild.BuildOptions} */
+const explorerOptions = {
+  entryPoints: [
+    join(websiteSrc, "components", "explore", "graph-explorer.js"),
+  ],
+  bundle: true,
+  format: "iife",
+  globalName: "SupersigilExplorer",
+  platform: "browser",
+  target: "es2020",
+  outfile: join(webviewDir, "explorer.js"),
+  mainFields: ["module", "main"],
+  minify: production,
+  sourcemap: !production,
+};
+
+// ---------------------------------------------------------------------------
+// esbuild config — webview: bootstrap
+// ---------------------------------------------------------------------------
+
+/** @type {esbuild.BuildOptions} */
+const bootstrapOptions = {
+  entryPoints: ["src/explorerBootstrap.ts"],
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "es2020",
+  outfile: join(webviewDir, "bootstrap.js"),
+  external: ["vscode"],
+  minify: production,
+  sourcemap: !production,
+};
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
 if (watch) {
-  const ctx = await esbuild.context(buildOptions);
-  await ctx.watch();
+  const [extCtx, explorerCtx, bootstrapCtx] = await Promise.all([
+    esbuild.context(extensionOptions),
+    esbuild.context(explorerOptions),
+    esbuild.context(bootstrapOptions),
+  ]);
+  await Promise.all([extCtx.watch(), explorerCtx.watch(), bootstrapCtx.watch()]);
   console.log("Watching for changes...");
 } else {
-  await esbuild.build(buildOptions);
+  await Promise.all([
+    esbuild.build(extensionOptions),
+    esbuild.build(explorerOptions),
+    esbuild.build(bootstrapOptions),
+  ]);
 }

@@ -7,13 +7,7 @@ import {
   type EdgeData,
   type LinkResolver,
 } from "@supersigil/preview";
-import { DocumentEntry } from "./specExplorer";
-
-// ---------------------------------------------------------------------------
-// Protocol constants
-// ---------------------------------------------------------------------------
-
-const METHOD_DOCUMENT_COMPONENTS = "supersigil/documentComponents";
+import { DocumentEntry, METHOD_DOCUMENT_COMPONENTS } from "./specExplorer";
 
 // ---------------------------------------------------------------------------
 // LSP response types

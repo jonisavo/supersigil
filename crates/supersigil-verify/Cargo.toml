@@ -37,6 +37,7 @@ workspace = true
 proptest.workspace = true
 supersigil-core = { path = "../supersigil-core", features = ["test-helpers"] }
 supersigil-rust-macros.workspace = true
+yaml_serde.workspace = true
 
 [lints]
 workspace = true

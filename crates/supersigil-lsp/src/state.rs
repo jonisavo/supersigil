@@ -106,6 +106,7 @@ impl SupersigilLsp {
             ],
         });
         router.request::<crate::document_list::DocumentListRequest, _>(Self::handle_document_list);
+        router.request::<crate::graph_data::GraphDataRequest, _>(Self::handle_graph_data);
         router.request::<crate::document_components::DocumentComponentsRequest, _>(
             Self::handle_document_components,
         );
@@ -349,6 +350,18 @@ impl SupersigilLsp {
         let documents = crate::document_list::build_document_entries(&graph, &project_root);
 
         Box::pin(async move { Ok(crate::document_list::DocumentListResult { documents }) })
+    }
+
+    fn handle_graph_data(
+        &mut self,
+        _params: serde_json::Value,
+    ) -> BoxFuture<'static, Result<supersigil_verify::graph_json::GraphJson, ResponseError>> {
+        let graph = Arc::clone(&self.graph);
+        let project_root = self.project_root.clone().unwrap_or_default();
+
+        let result = supersigil_verify::graph_json::build_graph_json(&graph, &project_root);
+
+        Box::pin(async move { Ok(result) })
     }
 
     #[allow(
@@ -1099,6 +1112,14 @@ impl LanguageServer for SupersigilLsp {
             return Box::pin(
                 async move { Ok(Some(serde_json::to_value(result).unwrap_or_default())) },
             );
+        }
+
+        if params.command == commands::GRAPH_DATA_COMMAND {
+            let future = self.handle_graph_data(serde_json::Value::Null);
+            return Box::pin(async move {
+                let result = future.await?;
+                Ok(Some(serde_json::to_value(result).unwrap_or_default()))
+            });
         }
 
         if params.command == commands::DOCUMENT_COMPONENTS_COMMAND {

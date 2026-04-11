@@ -231,17 +231,11 @@ It hooks into the existing client lifecycle:
 
 ```jsonc
 {
-  "viewsContainers": {
-    "activitybar": [{
-      "id": "supersigil",
-      "title": "Supersigil",
-      "icon": "icon.svg"
-    }]
-  },
   "views": {
-    "supersigil": [{
+    "explorer": [{
       "id": "supersigil.specExplorer",
-      "name": "Spec Explorer"
+      "name": "Supersigil Specifications",
+      "icon": "icon.svg"
     }]
   },
   "viewsWelcome": [{
@@ -256,12 +250,17 @@ It hooks into the existing client lifecycle:
 }
 ```
 
+The tree view is registered under the built-in `explorer` sidebar
+rather than a custom activity bar view container. This keeps the
+Supersigil view co-located with the file explorer where users
+already navigate their project.
+
 The `supersigil.init` command opens a terminal and runs
 `supersigil init`. The `supersigil.noRoots` context key is set by
 the extension when no LSP clients are active.
 
-The `icon.svg` is a simplified monochrome version of the extension
-icon, suitable for the activity bar.
+Tree items default to `Collapsed` collapsible state so the view
+does not expand the entire tree on first load.
 
 ## Testing Strategy
 

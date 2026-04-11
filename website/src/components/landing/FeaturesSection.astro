@@ -47,7 +47,14 @@
         <h3>Specs rendered with live verification status.</h3>
         <p><a href="/guides/editor-setup/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">VS Code and IntelliJ extensions</a> render Markdown previews with verification badges, expandable evidence with test links, and navigation to related documents. Plus diagnostics, autocomplete, hover docs, and go-to-definition through the LSP server.</p>
         <div class="bento-visual" aria-hidden="true">
-          <img src="/images/spec-rendering.webp" alt="Editor preview with verification badges and evidence details" style="width: 100%; border-radius: 6px; border: 1px solid var(--border);"/>
+          <a class="theme-dark-only" href="/images/spec-rendering-dark.webp" target="_blank" rel="noopener"><img src="/images/spec-rendering-dark.webp" alt="Editor preview with verification badges and evidence details" style="width: 100%; border-radius: 6px; border: 1px solid var(--border);"/></a>
+          <a class="theme-light-only" href="/images/spec-rendering-light.webp" target="_blank" rel="noopener"><img src="/images/spec-rendering-light.webp" alt="Editor preview with verification badges and evidence details" style="width: 100%; border-radius: 6px; border: 1px solid var(--border);"/></a>
+        </div>
+        <h3 class="bento-second-heading">Navigate specs like code.</h3>
+        <p>The full <a href="/guides/graph-explorer/" style="color: var(--gold); text-decoration: underline; text-underline-offset: 2px;">interactive graph explorer</a> runs inside VS Code. Click a node to see its details, click "Open File" to jump to the source, or follow evidence links to the test that verifies a criterion. Specs and code share the same workspace — no context switch, no separate tool.</p>
+        <div class="bento-visual" aria-hidden="true">
+          <a class="theme-dark-only" href="/images/graph-explorer-dark.webp" target="_blank" rel="noopener"><img src="/images/graph-explorer-dark.webp" alt="Graph explorer inside VS Code showing the spec graph with detail panel" style="width: 100%; border-radius: 6px; border: 1px solid var(--border);"/></a>
+          <a class="theme-light-only" href="/images/graph-explorer-light.webp" target="_blank" rel="noopener"><img src="/images/graph-explorer-light.webp" alt="Graph explorer inside VS Code showing the spec graph with detail panel" style="width: 100%; border-radius: 6px; border: 1px solid var(--border);"/></a>
         </div>
       </div>
     </div>
@@ -107,6 +114,11 @@
     font-size: 0.88rem;
     line-height: 1.6;
   }
+  .bento-second-heading {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
   .bento-snippet {
     margin-top: 1rem;
     padding: 0.6rem 0.8rem;
@@ -139,4 +151,10 @@
   .graph-root  { fill: var(--gold); }
   .graph-mid   { fill: var(--teal); }
   .graph-leaf  { fill: var(--text-muted); }
+
+  /* Theme-dependent images */
+  .theme-light-only { display: none; }
+  .theme-dark-only  { display: block; }
+  :global([data-theme='light']) .theme-light-only { display: block; }
+  :global([data-theme='light']) .theme-dark-only  { display: none; }
 </style>

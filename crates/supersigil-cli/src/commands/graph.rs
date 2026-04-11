@@ -15,6 +15,7 @@ use crate::loader;
 /// Returns `CliError` if loading fails.
 pub fn run(args: &GraphArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
     let (_config, graph) = loader::load_graph(config_path)?;
+    let project_root = loader::project_root(config_path);
 
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -24,7 +25,7 @@ pub fn run(args: &GraphArgs, config_path: &Path, color: ColorConfig) -> Result<(
     let edge_count = match args.format {
         GraphFormat::Mermaid => write_mermaid(&mut out, &graph)?,
         GraphFormat::Dot => write_dot(&mut out, &graph)?,
-        GraphFormat::Json => write_json(&mut out, &graph)?,
+        GraphFormat::Json => write_json(&mut out, &graph, project_root)?,
     };
 
     // Summary on stderr so it doesn't pollute piped graph output.
@@ -125,6 +126,10 @@ fn mermaid_id(id: &str) -> String {
     id.replace(['/', '-'], "_")
 }
 
-fn write_json(out: &mut impl Write, graph: &supersigil_core::DocumentGraph) -> io::Result<usize> {
-    json::write_json(out, graph)
+fn write_json(
+    out: &mut impl Write,
+    graph: &supersigil_core::DocumentGraph,
+    project_root: &Path,
+) -> io::Result<usize> {
+    json::write_json(out, graph, project_root)
 }

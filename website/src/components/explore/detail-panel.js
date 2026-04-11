@@ -1,7 +1,6 @@
 /**
  * @module detail-panel
  * Sidebar rendering for document and component detail views.
- * Now includes full spec content via the preview kit's renderComponentTree.
  */
 
 import { componentColor } from './graph-data.js';
@@ -159,9 +158,10 @@ function createExplorerLinkResolver(repositoryInfo) {
  * @param {Edge[]} edges - All edges in the graph.
  * @param {any[]} renderData - The render data array from render-data.json.
  * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} repositoryInfo - Repository info for evidence links, or null for plain text.
+ * @param {Object} [linkResolver] - Optional pre-built link resolver. When provided, used instead of creating one from repositoryInfo.
  * @returns {void}
  */
-export function renderDetail(container, node, edges, renderData, repositoryInfo) {
+export function renderDetail(container, node, edges, renderData, repositoryInfo, linkResolver) {
   cancelPendingClear(container);
   const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
 
@@ -201,12 +201,12 @@ export function renderDetail(container, node, edges, renderData, repositoryInfo)
   // Render spec content using the preview kit
   let specContentHtml = '';
   if (renderDoc && typeof window !== 'undefined' && window.__supersigilRender) {
-    const linkResolver = createExplorerLinkResolver(repositoryInfo);
+    const resolvedLinkResolver = linkResolver ?? createExplorerLinkResolver(repositoryInfo);
     try {
       specContentHtml = window.__supersigilRender.renderComponentTree(
         renderDoc.fences,
         renderDoc.edges,
-        linkResolver,
+        resolvedLinkResolver,
       );
     } catch (err) {
       console.error('Failed to render spec content:', err);

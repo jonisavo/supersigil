@@ -50,7 +50,7 @@ paths = ["website/src/content/docs/**/*.mdx"]
 plugins = ["rust", "js"]
 
 [ecosystem.js]
-test_patterns = ["packages/**/*.test.ts"]
+test_patterns = ["packages/**/*.test.ts", "editors/vscode/src/**/*.test.ts"]
 
 [ecosystem.rust]
 validation = "dev"

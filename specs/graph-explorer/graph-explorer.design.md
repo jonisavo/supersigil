@@ -259,6 +259,10 @@ panel.
 Hash grammar: `#/doc/{id}`, `#/doc/{id}/trace`,
 `#/filter/type:{csv},status:{value}`.
 
+Document IDs in the hash are decoded with `decodeURIComponent` so
+that percent-encoded characters (e.g. from IDs containing `/`) are
+handled correctly.
+
 ## Visual Design
 
 All styling uses CSS custom properties from the existing design system.
@@ -332,10 +336,20 @@ template passes it to the `mount()` call.
 ### mount() Signature
 
 ```javascript
-export function mount(container, data, renderData, repositoryInfo)
+export function mount(container, data, renderData, repositoryInfo, linkResolver)
 ```
 
 `repositoryInfo` is `{ provider, repo, host, mainBranch } | null`.
+
+`linkResolver` is an optional pre-built link resolver object. When
+provided, it is passed directly to `renderDetail()` instead of
+creating one from `repositoryInfo`. This allows callers (e.g. the
+VS Code webview) to supply their own link resolution strategy.
+
+`mount()` returns `{ unmount }` — an object whose `unmount()`
+function tears down the D3 simulation, removes event listeners,
+and cleans up DOM nodes. Callers must invoke `unmount()` before
+discarding the container or re-mounting.
 
 ### Link Resolution
 

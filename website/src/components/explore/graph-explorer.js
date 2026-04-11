@@ -307,11 +307,14 @@ function shortLabel(id) {
  * @param {GraphJSON} data - The graph data to visualise.
  * @param {any[]} [renderData] - The render data array from render-data.json.
  * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} [repositoryInfo] - Repository info for evidence links.
+ * @param {Object} [linkResolver] - Optional pre-built link resolver. When provided, passed to renderDetail instead of creating one from repositoryInfo.
  * @returns {void}
  */
-export function mount(container, data, renderData, repositoryInfo) {
+export function mount(container, data, renderData, repositoryInfo, linkResolver) {
   const { documents, edges } = data;
-  if (!container || typeof container.getBoundingClientRect !== 'function') return;
+  if (!container || typeof container.getBoundingClientRect !== 'function') {
+    return { unmount() {} };
+  }
 
   /** @param {any} endpoint @returns {string} */
   function edgeEndpointId(endpoint) {
@@ -400,18 +403,21 @@ export function mount(container, data, renderData, repositoryInfo) {
     typeDropdown.classList.toggle('open');
   });
 
-  // Close menu when clicking outside
-  document.addEventListener('click', (e) => {
+  /** @param {MouseEvent} e */
+  function handleTypeDropdownClose(e) {
     if (!typeDropdown.contains(/** @type {Node} */ (e.target))) {
       typeDropdown.classList.remove('open');
     }
-  });
+  }
+  document.addEventListener('click', handleTypeDropdownClose);
 
   explorerBar.appendChild(typeDropdown);
 
   // Status dropdown — custom single-select matching type multiselect styling
   /** @type {HTMLDivElement|null} */
   let statusDropdown = null;
+  /** @type {((e: MouseEvent) => void)|null} */
+  let handleStatusDropdownClose = null;
   if (filterOptions.statuses.length > 0) {
     statusDropdown = document.createElement('div');
     statusDropdown.className = 'filter-select';
@@ -454,11 +460,12 @@ export function mount(container, data, renderData, repositoryInfo) {
       statusDropdown.classList.toggle('open');
     });
 
-    document.addEventListener('click', (e) => {
+    handleStatusDropdownClose = /** @param {MouseEvent} e */ (e) => {
       if (!statusDropdown.contains(/** @type {Node} */ (e.target))) {
         statusDropdown.classList.remove('open');
       }
-    });
+    };
+    document.addEventListener('click', handleStatusDropdownClose);
 
     explorerBar.appendChild(statusDropdown);
   }
@@ -684,26 +691,31 @@ export function mount(container, data, renderData, repositoryInfo) {
     document.body.style.userSelect = 'none';
   });
 
-  document.addEventListener('mousemove', (e) => {
+  let lastSplitPct = savedSplit ? Number.parseFloat(savedSplit) : 0;
+
+  /** @param {MouseEvent} e */
+  function handleDividerMousemove(e) {
     if (!isDragging) return;
     const splitRect = splitContainer.getBoundingClientRect();
     const x = e.clientX - splitRect.left;
     const totalWidth = splitRect.width;
     const pct = (x / totalWidth) * 100;
-    // Clamp between 20% and 80%
     const clamped = Math.max(20, Math.min(80, pct));
     graphPane.style.flex = `0 0 ${clamped}%`;
     specPane.style.width = `${100 - clamped}%`;
-    localStorage.setItem(SPLIT_KEY, String(clamped));
-  });
+    lastSplitPct = clamped;
+  }
+  document.addEventListener('mousemove', handleDividerMousemove);
 
-  document.addEventListener('mouseup', () => {
+  function handleDividerMouseup() {
     if (!isDragging) return;
     isDragging = false;
     divider.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-  });
+    localStorage.setItem(SPLIT_KEY, String(lastSplitPct));
+  }
+  document.addEventListener('mouseup', handleDividerMouseup);
 
   // Wrap SVG in a canvas container for proper flex layout
   const canvasDiv = document.createElement('div');
@@ -1403,6 +1415,8 @@ export function mount(container, data, renderData, repositoryInfo) {
       deselectCluster();
     }
 
+    clearTrace();
+
     // Remove previous selection ring
     nodesGroup.selectAll('g.node').classed('node-selected', false);
 
@@ -1418,7 +1432,7 @@ export function mount(container, data, renderData, repositoryInfo) {
     // Center the view on the selected node
     centerOnNode(d);
 
-    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryInfo ?? null);
+    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryInfo ?? null, linkResolver);
     selectedNodeId = d.id;
     syncHashToUrl();
   }
@@ -1671,14 +1685,13 @@ export function mount(container, data, renderData, repositoryInfo) {
     }
   }
 
-  // Global keyboard shortcuts
-  document.addEventListener('keydown', (event) => {
+  /** @param {KeyboardEvent} event */
+  function handleKeydown(event) {
     if (event.key === 'Escape') {
       clearTrace();
       clearSelection();
     }
 
-    // '/' focuses the search input (only when no other input/textarea is focused)
     if (
       event.key === '/' &&
       !event.ctrlKey &&
@@ -1690,7 +1703,8 @@ export function mount(container, data, renderData, repositoryInfo) {
       event.preventDefault();
       searchInput.focus();
     }
-  });
+  }
+  document.addEventListener('keydown', handleKeydown);
 
   // ===== Cluster selection (single-click on cluster rect or label) =====
 
@@ -1824,31 +1838,55 @@ export function mount(container, data, renderData, repositoryInfo) {
   // ===== Restore state from URL hash on initial load =====
   const initialState = parseHash(location.hash);
   if (initialState.doc || initialState.filter) {
-    let initialRestored = false;
-    const restoreOnce = () => {
-      if (initialRestored) return;
-      initialRestored = true;
-      simulation.on('end.restore', null);
-      restoreStateFromHash(initialState);
-    };
-    // Wait for the simulation to settle so node positions are available for zooming
-    simulation.on('end.restore', restoreOnce);
-    // Fallback: restore after a short delay in case simulation takes too long
-    const fallbackTimer = setTimeout(restoreOnce, 800);
-    const origRestore = restoreOnce;
-    // Cancel fallback timer once restoration runs (either path)
-    const restoreAndCleanup = () => {
-      clearTimeout(fallbackTimer);
-      origRestore();
-    };
-    simulation.on('end.restore', restoreAndCleanup);
+    // Apply filter and selection immediately (these don't need stable positions).
+    // But skip the zoom — positions are still being computed.
+    restoreStateFromHash(initialState);
+
+    // Defer the zoom to the selected node until positions are meaningful.
+    if (initialState.doc) {
+      const focusNode = nodes.find((n) => n.id === initialState.doc);
+      if (focusNode) {
+        let zoomApplied = false;
+        const zoomToFocus = () => {
+          if (zoomApplied) return;
+          if (focusNode.x == null || focusNode.y == null) return;
+          zoomApplied = true;
+          simulation.on('tick.initialZoom', null);
+          simulation.on('end.initialZoom', null);
+          centerOnNode(focusNode);
+        };
+        simulation.on('tick.initialZoom', () => {
+          if (simulation.alpha() < 0.3) zoomToFocus();
+        });
+        simulation.on('end.initialZoom', zoomToFocus);
+      }
+    }
   }
 
   // ===== Listen for hashchange (back/forward, manual URL edits) =====
-  // Note: this listener is not cleaned up on unmount. mount() is designed to be
-  // called once per page load (Astro page or standalone HTML). If mount() is ever
-  // called multiple times, a teardown mechanism should be added.
-  onHashChange((state) => {
+  const unsubscribeHashChange = onHashChange((state) => {
     restoreStateFromHash(state);
   });
+
+  // ===== Unmount =====
+  let unmounted = false;
+
+  function unmount() {
+    if (unmounted) return;
+    unmounted = true;
+
+    simulation.stop();
+
+    document.removeEventListener('click', handleTypeDropdownClose);
+    if (handleStatusDropdownClose) {
+      document.removeEventListener('click', handleStatusDropdownClose);
+    }
+    document.removeEventListener('mousemove', handleDividerMousemove);
+    document.removeEventListener('mouseup', handleDividerMouseup);
+    document.removeEventListener('keydown', handleKeydown);
+
+    unsubscribeHashChange();
+  }
+
+  return { unmount };
 }

@@ -9,6 +9,8 @@ mod error;
 pub(crate) mod explicit_evidence;
 /// Git diff helpers for staleness detection.
 pub mod git;
+/// JSON serialization of the document graph.
+pub mod graph_json;
 /// Language plugin discovery and evidence collection.
 pub mod plugins;
 mod report;

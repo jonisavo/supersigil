@@ -1,0 +1,230 @@
+/// <reference lib="dom" />
+export const EVIDENCE_SCHEME = "supersigil-evidence";
+
+export const linkResolver = {
+  evidenceLink: (file: string, line: number) =>
+    `${EVIDENCE_SCHEME}:${encodeURIComponent(file)}?line=${line}`,
+  documentLink: (docId: string) => `#/doc/${encodeURIComponent(docId)}`,
+  criterionLink: (docId: string, _criterionId: string) =>
+    `#/doc/${encodeURIComponent(docId)}`,
+};
+
+export function parseEvidenceHref(
+  href: string,
+): { path: string; line: number | undefined } | null {
+  const prefix = EVIDENCE_SCHEME + ":";
+  if (!href.startsWith(prefix)) return null;
+
+  const encoded = href.slice(prefix.length);
+  const [filePart, query] = encoded.split("?");
+  const line = query
+    ? new URLSearchParams(query).get("line")
+    : undefined;
+  return {
+    path: decodeURIComponent(filePart),
+    line: line ? parseInt(line, 10) : undefined,
+  };
+}
+
+export function injectOpenFileButton(
+  container: HTMLElement,
+  pathByDocId: Map<string, string>,
+  onClick?: (path: string) => void,
+): void {
+  const header = container.querySelector(".detail-panel-header");
+  if (!header || header.querySelector(".open-file-btn")) return;
+
+  const titleEl = header.querySelector(".detail-panel-title");
+  if (!titleEl) return;
+
+  const docId = titleEl.textContent?.trim();
+  if (!docId || !pathByDocId.has(docId)) return;
+
+  const path = pathByDocId.get(docId)!;
+  const btn = document.createElement("button");
+  btn.className = "open-file-btn";
+  btn.textContent = "Open File";
+  btn.title = `Open ${path}`;
+  btn.addEventListener("click", () => {
+    if (onClick) {
+      onClick(path);
+    }
+  });
+  header.insertBefore(btn, header.querySelector(".detail-panel-close"));
+}
+
+// ---------------------------------------------------------------------------
+// Webview bootstrap (runs only inside the VS Code webview)
+// ---------------------------------------------------------------------------
+
+declare function acquireVsCodeApi(): {
+  postMessage(msg: unknown): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+};
+
+declare const SupersigilExplorer: {
+  mount(
+    container: HTMLElement,
+    data: unknown,
+    renderData: unknown,
+    repositoryInfo: unknown,
+    linkResolver?: unknown,
+  ): { unmount: () => void } | undefined;
+};
+
+interface GraphDocument {
+  id: string;
+  path: string;
+}
+
+interface GraphData {
+  documents: GraphDocument[];
+  edges: unknown[];
+}
+
+if (typeof acquireVsCodeApi === "function") {
+  const vscode = acquireVsCodeApi();
+  const container = document.getElementById("explorer")!;
+
+  let pathByDocId: Map<string, string>;
+  let currentUnmount: (() => void) | null = null;
+  let detailObserver: MutationObserver | null = null;
+
+  function mountExplorer(
+    graph: GraphData,
+    renderData: unknown[],
+    focusDocumentId?: string,
+    isRootSwitch?: boolean,
+  ) {
+    pathByDocId = new Map(graph.documents.map((d) => [d.id, d.path]));
+
+    // Hash selection: root switch clears state, focus sets target, otherwise preserve
+    let targetHash: string | null;
+    if (isRootSwitch) {
+      targetHash = null;
+    } else if (focusDocumentId) {
+      targetHash = linkResolver.documentLink(focusDocumentId);
+    } else {
+      targetHash = window.location.hash || null;
+    }
+
+    // Clear hash before mount so the router doesn't pick up stale state
+    if (targetHash === null) {
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+
+    if (detailObserver) {
+      detailObserver.disconnect();
+      detailObserver = null;
+    }
+    if (currentUnmount) currentUnmount();
+
+    // Set hash before mount so the explorer's initial state parser picks it up
+    if (targetHash) {
+      window.location.hash = targetHash;
+    }
+
+    container.innerHTML = "";
+    lastRootSelectorKey = "";
+    const handle = SupersigilExplorer.mount(
+      container,
+      graph,
+      renderData,
+      null,
+      linkResolver,
+    );
+    currentUnmount = handle?.unmount ?? null;
+
+    observeDetailPanel();
+
+    // Inject button for any detail panel already rendered by mount's hash restore
+    injectOpenFileButton(container, pathByDocId, (path) => {
+      vscode.postMessage({ type: "openFile", path });
+    });
+  }
+
+  let lastRootSelectorKey = "";
+
+  function updateRootSelector(
+    currentRoot: { uri: string; name: string },
+    availableRoots: Array<{ uri: string; name: string }>,
+  ) {
+    // Skip rebuild if roots and selection haven't changed
+    const key = `${currentRoot.uri}|${availableRoots.map((r) => r.uri).join(",")}`;
+    if (key === lastRootSelectorKey) {
+      return;
+    }
+    lastRootSelectorKey = key;
+
+    const existing = container.querySelector(".root-selector");
+    if (existing) existing.remove();
+
+    if (availableRoots.length <= 1) return;
+
+    const bar = container.querySelector(".explorer-bar");
+    if (!bar) return;
+
+    const select = document.createElement("select");
+    select.className = "root-selector";
+    for (const root of availableRoots) {
+      const opt = document.createElement("option");
+      opt.value = root.uri;
+      opt.textContent = root.name;
+      opt.selected = root.uri === currentRoot.uri;
+      select.appendChild(opt);
+    }
+    select.addEventListener("change", () => {
+      vscode.postMessage({ type: "switchRoot", folderUri: select.value });
+    });
+    bar.prepend(select);
+  }
+
+  function observeDetailPanel() {
+    detailObserver = new MutationObserver((mutations) => {
+      // Only act when nodes are actually added (skip attribute-only mutations
+      // from d3 simulation ticks which fire at 60fps)
+      if (mutations.some((m) => m.addedNodes.length > 0)) {
+        injectOpenFileButton(container, pathByDocId, (path) => {
+          vscode.postMessage({ type: "openFile", path });
+        });
+      }
+    });
+    detailObserver.observe(container, { childList: true, subtree: true });
+  }
+
+  container.addEventListener("click", (e) => {
+    const anchor = (e.target as HTMLElement).closest("a");
+    if (!anchor) return;
+
+    const href = anchor.getAttribute("href") ?? "";
+    const parsed = parseEvidenceHref(href);
+    if (parsed) {
+      e.preventDefault();
+      vscode.postMessage({
+        type: "openFile",
+        path: parsed.path,
+        line: parsed.line,
+      });
+    }
+  });
+
+  window.addEventListener("message", (event) => {
+    const msg = event.data;
+    if (msg.type === "graphData") {
+      mountExplorer(
+        msg.graph,
+        msg.renderData,
+        msg.focusDocumentId,
+        msg.isRootSwitch,
+      );
+      updateRootSelector(msg.currentRoot, msg.availableRoots);
+      // Save state for webview serialization (VS Code restart recovery)
+      if (msg.currentRoot) {
+        vscode.setState({ clientKey: msg.currentRoot.uri });
+      }
+    }
+  });
+
+  vscode.postMessage({ type: "ready" });
+}

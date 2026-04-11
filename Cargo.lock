@@ -1816,6 +1816,7 @@ dependencies = [
  "supersigil-rust-macros",
  "tempfile",
  "thiserror",
+ "yaml_serde",
 ]
 
 [[package]]

@@ -20,6 +20,14 @@ pub const DOCUMENT_LIST_COMMAND: &str = "supersigil.documentList";
 /// clients that cannot send custom JSON-RPC requests.
 pub const DOCUMENT_COMPONENTS_COMMAND: &str = "supersigil.documentComponents";
 
+/// The command name for the graph data command.
+///
+/// Returns the full document graph as JSON matching the `GraphJson` schema.
+/// This duplicates the `supersigil/graphData` custom request but is also
+/// available via `workspace/executeCommand` for LSP clients that cannot send
+/// custom JSON-RPC requests.
+pub const GRAPH_DATA_COMMAND: &str = "supersigil.graphData";
+
 /// The command name for the interactive create-document command.
 ///
 /// Used when the target project is ambiguous (multi-project mode) and the

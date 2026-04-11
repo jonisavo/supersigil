@@ -35,6 +35,7 @@
     "vitest": ">=4.1.0"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

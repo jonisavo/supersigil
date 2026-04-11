@@ -30,7 +30,7 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: 'Spec Explorer',
+          label: 'Graph Explorer',
           link: '/explore/',
           attrs: { target: '_blank', class: 'external-link' },
         },

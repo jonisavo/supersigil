@@ -14,6 +14,7 @@ pub mod diagnostics;
 pub mod document_components;
 pub mod document_list;
 pub mod document_symbols;
+pub mod graph_data;
 pub mod hover;
 pub mod position;
 pub mod references;

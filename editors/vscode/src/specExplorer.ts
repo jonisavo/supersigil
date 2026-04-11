@@ -6,7 +6,9 @@ import { LanguageClient } from "vscode-languageclient/node";
 // ---------------------------------------------------------------------------
 
 export const METHOD_DOCUMENT_LIST = "supersigil/documentList";
+export const METHOD_DOCUMENT_COMPONENTS = "supersigil/documentComponents";
 export const METHOD_DOCUMENTS_CHANGED = "supersigil/documentsChanged";
+export const METHOD_GRAPH_DATA = "supersigil/graphData";
 
 // ---------------------------------------------------------------------------
 // LSP response types
@@ -311,7 +313,7 @@ export class SpecExplorerProvider
       case "workspace-root": {
         const item = new vscode.TreeItem(
           element.label,
-          vscode.TreeItemCollapsibleState.Expanded,
+          vscode.TreeItemCollapsibleState.Collapsed,
         );
         item.iconPath = new vscode.ThemeIcon("root-folder");
         item.contextValue = "workspaceRoot";
@@ -320,7 +322,7 @@ export class SpecExplorerProvider
       case "project": {
         const item = new vscode.TreeItem(
           element.label,
-          vscode.TreeItemCollapsibleState.Expanded,
+          vscode.TreeItemCollapsibleState.Collapsed,
         );
         const projectColor = this.worstChildColor(
           this.getDocumentsForProject(element.folderUri, element.label),
@@ -332,7 +334,7 @@ export class SpecExplorerProvider
       case "group": {
         const item = new vscode.TreeItem(
           element.label,
-          vscode.TreeItemCollapsibleState.Expanded,
+          vscode.TreeItemCollapsibleState.Collapsed,
         );
         const groupColor = this.worstChildColor(
           this.getDocumentsForGroup(

@@ -48,8 +48,33 @@
       {
         "command": "supersigil.findReferences",
         "title": "Supersigil: Find References"
+      },
+      {
+        "command": "supersigil.openExplorer",
+        "title": "Supersigil: Open Graph Explorer",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "supersigil.openExplorerAt",
+        "title": "Open in Graph Explorer",
+        "icon": "$(type-hierarchy)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "supersigil.openExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "supersigil.openExplorerAt",
+          "when": "view == supersigil.specExplorer && viewItem == document",
+          "group": "inline"
+        }
+      ]
+    },
     "markdown.markdownItPlugins": true,
     "markdown.previewStyles": [
       "./media/supersigil-preview.css"
@@ -57,20 +82,12 @@
     "markdown.previewScripts": [
       "./media/supersigil-preview.js"
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "supersigil",
-          "title": "Supersigil",
-          "icon": "icon.svg"
-        }
-      ]
-    },
     "views": {
-      "supersigil": [
+      "explorer": [
         {
           "id": "supersigil.specExplorer",
-          "name": "Spec Explorer"
+          "name": "Supersigil Specifications",
+          "icon": "icon.svg"
         }
       ]
     },
@@ -124,6 +141,7 @@
     "watch": "node esbuild.mjs --watch",
     "check-types": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
     "package": "pnpm run build && vsce package --no-dependencies"
   },
   "dependencies": {
@@ -133,7 +151,12 @@
     "@types/node": "catalog:",
     "@types/vscode": "^1.74.0",
     "@vscode/vsce": "^3.7.1",
+    "d3": "^7.9.0",
     "esbuild": "catalog:",
-    "typescript": "catalog:"
+    "force-in-a-box": "^1.0.2",
+    "jsdom": "^26.1.0",
+    "@supersigil/vitest": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

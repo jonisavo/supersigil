@@ -16,6 +16,7 @@ import {
   DocumentEntry,
 } from "./specExplorer";
 import { PreviewCache } from "./previewCache";
+import { openExplorerPanel, refreshPanelsForClient, restoreExplorerPanel } from "./explorerWebview";
 
 const clients = new Map<string, LanguageClient>();
 const clientOutputChannels = new Map<string, vscode.OutputChannel>();
@@ -265,6 +266,7 @@ async function startClientForFolder(
   client.onNotification(METHOD_DOCUMENTS_CHANGED, () => {
     specExplorer?.refresh();
     previewCache?.invalidateAll();
+    refreshPanelsForClient(key, clients);
 
     // Populate the shared documentListCache so link resolution and
     // goToCriterion work even before the tree view is expanded.
@@ -290,6 +292,9 @@ async function startClientForFolder(
   updateStatusBar();
   updateNoRootsContext();
   specExplorer?.refresh();
+
+  // Hydrate any explorer panels waiting for this client
+  refreshPanelsForClient(key, clients);
 }
 
 async function startAllClients(
@@ -603,6 +608,37 @@ export async function activate(
       specExplorer,
     ),
   );
+
+  // Explorer webview
+  context.subscriptions.push(
+    vscode.commands.registerCommand("supersigil.openExplorer", () =>
+      openExplorerPanel(context, clients),
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "supersigil.openExplorerAt",
+      (item: { folderUri?: vscode.Uri; path?: string }) => {
+        if (item?.folderUri && item.path) {
+          const fileUri = vscode.Uri.joinPath(item.folderUri, item.path);
+          openExplorerPanel(context, clients, fileUri);
+        }
+      },
+    ),
+  );
+
+  // Restore graph explorer panels after VS Code restart
+  vscode.window.registerWebviewPanelSerializer("supersigil.explorer", {
+    async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
+      restoreExplorerPanel(
+        panel,
+        (state as { clientKey?: string }) ?? {},
+        clients,
+        context.extensionUri,
+      );
+    },
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("supersigil.init", () => {

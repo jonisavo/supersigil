@@ -328,6 +328,7 @@
 .supersigil-link-pill {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
   font-size: 0.75rem;
 }
@@ -347,6 +348,7 @@
   color: var(--supersigil-text);
   text-decoration: none;
   font-family: var(--supersigil-font-mono);
+  word-break: break-all;
 }
 
 .supersigil-link-pill-ref:hover {

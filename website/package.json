@@ -31,6 +31,7 @@
     "eslint-plugin-astro": "^1.6.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "globals": "^17.4.0",
+    "jsdom": "^26.1.0",
     "starlight-llms-txt": "^0.8.0",
     "vitest": "catalog:"
   }
