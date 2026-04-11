@@ -18,10 +18,12 @@ import {
 import { PreviewCache } from "./previewCache";
 
 const clients = new Map<string, LanguageClient>();
+const clientOutputChannels = new Map<string, vscode.OutputChannel>();
 let statusBarItem: vscode.StatusBarItem;
 let specExplorer: SpecExplorerProvider;
 let previewCache: PreviewCache;
 let notFoundShown = false;
+let binaryNotFound = false;
 let outputChannel: vscode.OutputChannel;
 
 /** Shared cache for documentList results, keyed by document ID. */
@@ -79,9 +81,29 @@ function resolveServerBinary(): string | undefined {
 
   if (!notFoundShown) {
     notFoundShown = true;
+
+    let installHint: string;
+    switch (process.platform) {
+      case "darwin":
+        installHint =
+          "Install with `brew install jonisavo/supersigil/supersigil`";
+        break;
+      case "linux":
+        installHint =
+          "Install with your package manager or `cargo install supersigil-lsp`";
+        break;
+      case "win32":
+        installHint =
+          "Download from GitHub Releases or install with `cargo install supersigil-lsp`";
+        break;
+      default:
+        installHint = "Install with `cargo install supersigil-lsp`";
+    }
+
     vscode.window
       .showInformationMessage(
-        "Supersigil LSP server not found. Install with `cargo install supersigil-lsp` or configure `supersigil.lsp.serverPath`.",
+        `Supersigil LSP server not found. ${installHint}, or configure \`supersigil.lsp.serverPath\`.`,
+        "Retry",
         "Open Settings",
       )
       .then((action) => {
@@ -90,6 +112,8 @@ function resolveServerBinary(): string | undefined {
             "workbench.action.openSettings",
             "supersigil.lsp.serverPath",
           );
+        } else if (action === "Retry") {
+          vscode.commands.executeCommand("supersigil.retryBinaryResolution");
         }
       });
   }
@@ -105,14 +129,32 @@ function updateNoRootsContext(): void {
   );
 }
 
+function updateBinaryNotFoundContext(notFound: boolean): void {
+  binaryNotFound = notFound;
+  vscode.commands.executeCommand(
+    "setContext",
+    "supersigil.binaryNotFound",
+    notFound,
+  );
+}
+
 function updateStatusBar(): void {
   if (clients.size === 0) {
-    statusBarItem.text = "$(warning) Supersigil";
-    statusBarItem.backgroundColor = new vscode.ThemeColor(
-      "statusBarItem.warningBackground",
-    );
-    statusBarItem.tooltip =
-      "Supersigil LSP is not running. Click to restart.";
+    if (binaryNotFound) {
+      statusBarItem.text = "$(error) Supersigil";
+      statusBarItem.backgroundColor = new vscode.ThemeColor(
+        "statusBarItem.errorBackground",
+      );
+      statusBarItem.tooltip =
+        "Supersigil LSP server not installed. Click for details.";
+    } else {
+      statusBarItem.text = "$(warning) Supersigil";
+      statusBarItem.backgroundColor = new vscode.ThemeColor(
+        "statusBarItem.warningBackground",
+      );
+      statusBarItem.tooltip =
+        "Supersigil LSP is not running. Click to restart.";
+    }
     statusBarItem.show();
     return;
   }
@@ -176,6 +218,7 @@ async function startClientForFolder(
   const outputChannel = vscode.window.createOutputChannel(
     `Supersigil LSP (${folder.name})`,
   );
+  clientOutputChannels.set(key, outputChannel);
 
   // Watch for .md, .mdx, and supersigil.toml changes on disk (git
   // operations, branch switches, external edits) so the LSP re-indexes.
@@ -254,9 +297,13 @@ async function startAllClients(
 ): Promise<void> {
   const serverPath = resolveServerBinary();
   if (!serverPath) {
+    const hasRoots = findSupersigilRoots().length > 0;
+    updateBinaryNotFoundContext(hasRoots);
     updateStatusBar();
     return;
   }
+
+  updateBinaryNotFoundContext(false);
 
   const roots = findSupersigilRoots();
   await Promise.all(
@@ -269,6 +316,10 @@ async function stopAllClients(): Promise<void> {
   const stops = Array.from(clients.values()).map((c) => c.stop());
   await Promise.all(stops);
   clients.clear();
+  for (const ch of clientOutputChannels.values()) {
+    ch.dispose();
+  }
+  clientOutputChannels.clear();
   updateNoRootsContext();
   specExplorer?.refresh();
 }
@@ -279,10 +330,17 @@ async function showStatusMenu(
   const items: vscode.QuickPickItem[] = [];
 
   if (clients.size === 0) {
-    items.push({
-      label: "$(circle-slash) No supersigil roots found",
-      description: "No workspace folder contains supersigil.toml",
-    });
+    if (binaryNotFound) {
+      items.push({
+        label: "$(error) Supersigil LSP server not installed",
+        description: "Install supersigil-lsp to enable language features",
+      });
+    } else {
+      items.push({
+        label: "$(circle-slash) No supersigil roots found",
+        description: "No workspace folder contains supersigil.toml",
+      });
+    }
   } else {
     for (const [key, client] of clients) {
       const folder = vscode.workspace.workspaceFolders?.find(
@@ -554,6 +612,23 @@ export async function activate(
     }),
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "supersigil.retryBinaryResolution",
+      async () => {
+        notFoundShown = false;
+        await stopAllClients();
+        await startAllClients(context);
+        updateNoRootsContext();
+        if (clients.size > 0) {
+          vscode.window.showInformationMessage(
+            "Supersigil LSP server found and started.",
+          );
+        }
+      },
+    ),
+  );
+
   // Register supersigil.verify ourselves instead of letting each language
   // client auto-register it (which fails for the second client with
   // "command already exists"). Routes to the client for the active file.
@@ -652,15 +727,21 @@ export async function activate(
           await client.stop();
           clients.delete(key);
         }
+        clientOutputChannels.get(key)?.dispose();
+        clientOutputChannels.delete(key);
       }
 
       const serverPath = resolveServerBinary();
       if (serverPath) {
+        updateBinaryNotFoundContext(false);
         for (const added of e.added) {
           if (existsSync(join(added.uri.fsPath, "supersigil.toml"))) {
             await startClientForFolder(added, serverPath);
           }
         }
+      } else {
+        const hasRoots = findSupersigilRoots().length > 0;
+        updateBinaryNotFoundContext(hasRoots);
       }
       updateStatusBar();
       updateNoRootsContext();

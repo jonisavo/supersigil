@@ -78,7 +78,12 @@
       {
         "view": "supersigil.specExplorer",
         "contents": "No supersigil project found in this workspace.\n[Initialize Project](command:supersigil.init)",
-        "when": "supersigil.noRoots"
+        "when": "supersigil.noRoots && !supersigil.binaryNotFound"
+      },
+      {
+        "view": "supersigil.specExplorer",
+        "contents": "Supersigil LSP server not found.\n\nInstall it to enable spec previews, diagnostics, and navigation.\n\n[Installation Guide](https://supersigil.org/guides/editor-setup/)\n[Open Terminal](command:workbench.action.terminal.new)\n[Configure Path](command:workbench.action.openSettings?%5B%22supersigil.lsp.serverPath%22%5D)\n[Retry](command:supersigil.retryBinaryResolution)",
+        "when": "supersigil.binaryNotFound"
       }
     ],
     "languages": [
