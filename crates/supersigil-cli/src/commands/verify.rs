@@ -140,14 +140,7 @@ pub fn run(
 
     // -- Scope header (only when --since is used in terminal mode) --
     if is_terminal && let Some(ref since_ref) = args.since {
-        let affected = structural_findings
-            .iter()
-            .filter(|f| f.rule == supersigil_verify::RuleName::StaleTrackedFiles)
-            .filter_map(|f| f.doc_id.as_deref())
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        let total = graph.documents().count();
-        let header = format_scope_header(affected, total, since_ref, color);
+        let header = format_scope_header(doc_ids.len(), since_ref, color);
         progress(&header);
     }
 

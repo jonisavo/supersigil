@@ -75,6 +75,7 @@ pub enum ParseError {
 
 /// Errors produced by the config loader.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// An I/O error occurred while reading the config file.
     #[error("{path}: {source}")]
