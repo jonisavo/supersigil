@@ -150,11 +150,12 @@ needed.
 
 ### IntelliJ
 
-Install the **Supersigil** plugin from the
-[JetBrains Marketplace](https://plugins.jetbrains.com/). It provides
+Install the **Supersigil** plugin from the `editors/intellij` folder. It provides
 the same LSP-backed diagnostics, navigation, and completion as the
 VS Code extension, plus a Spec Explorer tool window. Compatible with
-IntelliJ IDEA 2024.2+.
+IntelliJ IDEA 2025.3+.
+
+The plugin will be published to the JetBrains Marketplace soon.
 
 ### Other editors
 
