@@ -8,6 +8,7 @@ url="https://github.com/jonisavo/supersigil"
 license=('MIT' 'Apache-2.0')
 provides=('supersigil-lsp')
 conflicts=('supersigil-lsp')
+options=(!debug)
 source_x86_64=("${url}/releases/download/v${pkgver}/supersigil-lsp-${pkgver}-x86_64-unknown-linux-musl.tar.gz")
 source_aarch64=("${url}/releases/download/v${pkgver}/supersigil-lsp-${pkgver}-aarch64-unknown-linux-musl.tar.gz")
 sha256sums_x86_64=('SKIP')
