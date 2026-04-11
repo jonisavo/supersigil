@@ -30,7 +30,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package
-        run: pnpm exec vsce package --no-dependencies
+        run: pnpm run package
         working-directory: editors/vscode
 
       - name: Publish to VS Code Marketplace
