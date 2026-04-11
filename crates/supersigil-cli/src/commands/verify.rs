@@ -185,7 +185,7 @@ pub fn run(
 
     match args.format {
         VerifyFormat::Terminal => {
-            let text = format_terminal(&report, color);
+            let text = format_terminal(&report, color, args.detail == format::Detail::Full);
             write!(out, "{text}")?;
             let timing_line = format_timing_summary(&timings, color);
             progress(&timing_line);
@@ -254,7 +254,7 @@ fn output_graph_error_findings(
 
     match args.format {
         VerifyFormat::Terminal => {
-            let text = format_terminal(&report, color);
+            let text = format_terminal(&report, color, args.detail == format::Detail::Full);
             write!(out, "{text}")?;
         }
         VerifyFormat::Json => {

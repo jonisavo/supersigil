@@ -32,7 +32,7 @@ fn groups_by_document() {
     let report = VerificationReport::new(findings, summary, None);
 
     // With color: Unicode symbols + ANSI
-    let out = format_terminal(&report, color());
+    let out = format_terminal(&report, color(), false);
     assert!(out.contains("req/auth"), "should contain doc_id header");
     assert!(out.contains("global"), "should contain global header");
     assert!(out.contains("✖"), "should contain error symbol");
@@ -47,7 +47,7 @@ fn groups_by_document() {
     );
 
     // Without color: ASCII symbols, no Unicode
-    let out_plain = format_terminal(&report, no_color());
+    let out_plain = format_terminal(&report, no_color(), false);
     assert!(
         out_plain.contains("[err]"),
         "no-color should use ASCII error, got: {out_plain}",
@@ -66,7 +66,7 @@ fn groups_by_document() {
 fn clean_report() {
     let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
 
-    let out = format_terminal(&report, color());
+    let out = format_terminal(&report, color(), false);
     assert!(
         out.contains("✔") && out.contains("Clean"),
         "colored clean report should show Unicode, got: {out}",
@@ -76,7 +76,7 @@ fn clean_report() {
         "clean report should show document count, got: {out}",
     );
 
-    let out_plain = format_terminal(&report, no_color());
+    let out_plain = format_terminal(&report, no_color(), false);
     assert!(
         out_plain.contains("[ok]") && out_plain.contains("Clean"),
         "plain clean report should show ASCII, got: {out_plain}",
@@ -97,7 +97,7 @@ fn clean_report_with_evidence_shows_criteria_count() {
     let criteria_count = evidence.coverage.len();
     let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), Some(evidence));
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("3 documents"),
         "should show document count, got: {out}",
@@ -125,7 +125,7 @@ fn draft_gating_hint_shown_when_findings_suppressed() {
         None,
     );
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("downgraded to info"),
         "should show draft gating hint, got:\n{out}"
@@ -140,7 +140,7 @@ fn draft_gating_hint_shown_when_findings_suppressed() {
 fn draft_gating_hint_not_shown_when_no_suppression() {
     let report = VerificationReport::new(vec![], Summary::from_findings(1, &[]), None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         !out.contains("downgraded"),
         "should not show draft hint for clean report, got:\n{out}"
@@ -162,7 +162,7 @@ fn collapses_repeated_rules() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("[missing_verification_evidence] 10 findings"),
         "should show collapsed count, got:\n{out}",
@@ -190,6 +190,36 @@ fn collapses_repeated_rules() {
 }
 
 #[test]
+fn detail_full_disables_collapsing() {
+    let findings: Vec<Finding> = (0..10)
+        .map(|i| {
+            Finding::new(
+                RuleName::MissingVerificationEvidence,
+                Some("req/auth".to_string()),
+                format!("criterion `req-{i}` has no validating property"),
+                None,
+            )
+        })
+        .collect();
+    let summary = Summary::from_findings(1, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    let out = format_terminal(&report, no_color(), true);
+    assert!(
+        out.contains("criterion `req-9`"),
+        "detail_full should show all findings, got:\n{out}",
+    );
+    assert!(
+        !out.contains("more"),
+        "detail_full should not collapse, got:\n{out}",
+    );
+    assert!(
+        !out.contains("--detail full"),
+        "detail_full should not show hint, got:\n{out}",
+    );
+}
+
+#[test]
 fn does_not_collapse_small_groups() {
     let findings: Vec<Finding> = (0..3)
         .map(|i| {
@@ -204,7 +234,7 @@ fn does_not_collapse_small_groups() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(out.contains("criterion `req-0`"), "got:\n{out}");
     assert!(out.contains("criterion `req-1`"), "got:\n{out}");
     assert!(out.contains("criterion `req-2`"), "got:\n{out}");
@@ -224,7 +254,7 @@ fn terminal_omits_evidence_summary_when_present() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, Some(sample_evidence_summary()));
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         !out.contains("test_login_flow"),
         "terminal output should omit evidence test names even when evidence_summary is present, got:\n{out}",
@@ -246,7 +276,7 @@ fn terminal_no_evidence_when_absent() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     // Should not contain evidence-related sections
     assert!(
         !out.contains("Evidence"),
@@ -274,7 +304,7 @@ fn shows_file_location_when_position_and_path_available() {
     let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
     let report = VerificationReport::new(vec![finding], summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("specs/auth/auth.req.md:42:15"),
         "should show file:line:col location, got:\n{out}",
@@ -293,7 +323,7 @@ fn no_location_line_when_position_missing() {
     let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
     let report = VerificationReport::new(vec![finding], summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     // Should not contain any path-like location line
     assert!(
         !out.contains(".md:"),
@@ -326,7 +356,7 @@ fn rule_breakdown_shown_after_summary() {
     let summary = Summary::from_findings(42, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains(
             "1 empty_tracked_glob, 1 missing_verification_evidence, 1 stale_tracked_files"
@@ -366,7 +396,7 @@ fn rule_breakdown_sorted_by_count_desc_then_alpha() {
     let summary = Summary::from_findings(10, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains(
             "2 stale_tracked_files, 1 empty_tracked_glob, 1 missing_verification_evidence"
@@ -396,7 +426,7 @@ fn rule_breakdown_skips_off_severity() {
     let summary = Summary::from_findings(5, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("1 missing_verification_evidence"),
         "should show active rule, got:\n{out}",
@@ -411,7 +441,7 @@ fn rule_breakdown_skips_off_severity() {
 fn rule_breakdown_not_shown_for_clean_report() {
     let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         !out.contains("missing_verification_evidence")
             && !out.contains("stale_tracked_files")
@@ -431,8 +461,8 @@ fn rule_breakdown_uses_hint_styling() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    let out_color = format_terminal(&report, color());
-    let out_plain = format_terminal(&report, no_color());
+    let out_color = format_terminal(&report, color(), false);
+    let out_plain = format_terminal(&report, no_color(), false);
 
     assert!(
         out_plain.contains("1 missing_verification_evidence"),
@@ -603,7 +633,7 @@ fn shows_did_you_mean_when_suggestion_present() {
     let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
     let report = VerificationReport::new(vec![finding], summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         out.contains("did you mean 'auth/req'?"),
         "should show 'did you mean' hint, got:\n{out}",
@@ -622,7 +652,7 @@ fn no_did_you_mean_when_suggestion_absent() {
     let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
     let report = VerificationReport::new(vec![finding], summary, None);
 
-    let out = format_terminal(&report, no_color());
+    let out = format_terminal(&report, no_color(), false);
     assert!(
         !out.contains("did you mean"),
         "should not show 'did you mean' when suggestion is absent, got:\n{out}",

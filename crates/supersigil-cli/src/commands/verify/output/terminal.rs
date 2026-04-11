@@ -14,8 +14,13 @@ const COLLAPSE_PREVIEW: usize = 2;
 /// Format a verification report for terminal output using the CLI's styling.
 ///
 /// Groups findings by `doc_id`, sub-groups by rule, and collapses repeated
-/// findings of the same rule when there are more than `COLLAPSE_THRESHOLD`.
-pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -> String {
+/// findings of the same rule when there are more than `COLLAPSE_THRESHOLD`
+/// (unless `detail_full` is `true`, which shows every finding).
+pub(crate) fn format_terminal(
+    report: &VerificationReport,
+    color: ColorConfig,
+    detail_full: bool,
+) -> String {
     let mut out = String::new();
 
     if report.result_status() == ResultStatus::Clean {
@@ -72,7 +77,7 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
             let rule_tag = format!("[{}]", first.rule.config_key());
             let rule_label = color.paint(Token::Hint, &rule_tag);
 
-            if group.len() <= COLLAPSE_THRESHOLD {
+            if detail_full || group.len() <= COLLAPSE_THRESHOLD {
                 for finding in group {
                     let _ = writeln!(out, "  {symbol} {rule_label} {}", finding.message);
                     write_location(&mut out, finding, color);
