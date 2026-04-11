@@ -7,37 +7,6 @@ documentation, and onboarding experience.
 
 ## Verify Command
 
-### Progress Feedback
-
-Long-running verifications are silent. The pipeline has distinct phases
-(config load, parse specs, build graph, scan evidence, run rules, produce
-report) but the user sees nothing until completion. On large monorepos this
-feels broken.
-
-**Suggestion:** Line-by-line phase indicators:
-`Parsing 42 documents... Scanning evidence... Running 14 rules...`
-
-### Timing Information
-
-No indication of how long verification took or where time was spent.
-
-**Suggestion:** After completion, show:
-`Verified 42 documents in 1.2s (parse: 0.3s, evidence: 0.7s, rules: 0.2s)`
-
-### Summary Granularity
-
-The summary shows error/warning counts but not what kinds of problems
-dominate. Users must read every finding to understand priorities.
-
-**Suggestion:** Breakdown by rule:
-`3 errors: 2 missing evidence, 1 broken ref | 5 warnings: 3 stale files, 2 empty globs`
-
-### Clean Message
-
-`Clean: no findings` is correct but doesn't convey what was checked.
-
-**Suggestion:** `Clean -- 42 documents, 87 criteria, 156 evidence records`
-
 ### Collapsed Findings
 
 Findings collapse after 3 of the same type with a hint to use `--format json`.
@@ -55,39 +24,11 @@ they're seeing a full scan or an incremental check.
 
 ## Error Messages
 
-### Config Not Found
-
-Doesn't mention parent directory searching. Users running from subdirectories
-get a confusing error.
-
-**Suggestion:** `No supersigil.toml found in {cwd} or any parent directory. Run 'supersigil init' in your project root.`
-
 ### Config Parse Errors
 
 Errors joined with newlines, no context. TOML parse errors can be cryptic.
 
 **Suggestion:** Wrap with context: `Error in supersigil.toml: unknown field 'plugin' in [ecosystem] -- did you mean 'plugins'?`
-
-### Graph Cycle Errors
-
-`dependency cycle detected` doesn't show which documents are involved.
-
-**Suggestion:** Show the cycle path: `Dependency cycle: auth/design -> api/design -> auth/design`
-
-### Broken Ref Suggestions
-
-The LSP code action suggests alternatives for broken refs, but the CLI
-verify output doesn't.
-
-**Suggestion:** Levenshtein-based suggestions: `Broken ref 'auth/reqs' -- did you mean 'auth/req'?`
-
-### ID Pattern Violations
-
-`supersigil new` creates documents without validating the generated ID
-against the configured `id_pattern` regex. Users discover violations on
-first verify.
-
-**Suggestion:** Validate ID against pattern at creation time.
 
 ## Init and Onboarding
 
@@ -136,11 +77,6 @@ binary version, or diff against embedded versions. `supersigil skills list`
 would help users after upgrades.
 
 ## New Command
-
-### Empty Title
-
-Scaffolded docs have `title: ""`. Should derive from the feature slug
-(e.g., "auth" becomes `title: "Auth"`).
 
 ### Required Components Not Hinted
 
@@ -216,14 +152,6 @@ make it much more useful for planning.
 `status` with no argument shows project-wide counts but no actionable
 direction. A hint like "Run 'supersigil plan' for outstanding work" would
 bridge the gap.
-
-## Shell Completions
-
-The CLI has no tab completions for bash/zsh/fish. For a CLI tool this is
-table-stakes polish. `clap` generates these with `clap_complete` — minimal
-effort for significant UX improvement. Completions for subcommands, flags,
-and potentially document IDs (via a shell function calling `supersigil ls`)
-would make the tool feel professional.
 
 ## Config Editing Experience
 
