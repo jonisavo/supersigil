@@ -91,6 +91,7 @@ supersigil render                  # Render documents with verification data
 supersigil explore                 # Interactive graph explorer (browser)
 supersigil import --from kiro      # Import from Kiro format
 supersigil skills install          # Install or update agent skills
+supersigil completions <shell>     # Generate shell completions
 ```
 
 See the [CLI reference](https://supersigil.org/reference/cli/) for

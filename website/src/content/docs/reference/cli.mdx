@@ -320,3 +320,18 @@ Use this after upgrading Supersigil to get the latest skill versions.
 | `--path <dir>` | Target directory (default: `.agents/skills/`, or `skills.path` from `supersigil.toml`) |
 
 Path resolution order: `--path` flag, then `skills.path` from `supersigil.toml`, then `.agents/skills/`. Does not require `supersigil.toml` to exist.
+
+## `supersigil completions <shell>`
+
+Generate shell completion scripts for tab completion.
+
+```bash
+supersigil completions bash   > ~/.local/share/bash-completion/completions/supersigil
+supersigil completions zsh    > ~/.zfunc/_supersigil
+supersigil completions fish   > ~/.config/fish/completions/supersigil.fish
+```
+
+Prints a completion script to stdout for the specified shell. Supported
+shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
+
+Does not require `supersigil.toml` to exist.
