@@ -86,42 +86,54 @@ pub enum ConfigError {
         source: std::io::Error,
     },
     /// The TOML content failed to parse.
-    #[error("TOML syntax error: {message}")]
+    #[error("{}: {message}", path.display())]
     TomlSyntax {
+        /// Path to the config file.
+        path: PathBuf,
         /// Description of the TOML syntax error.
         message: String,
     },
     /// Mutually exclusive config keys were both present.
-    #[error("keys are mutually exclusive: {}", keys.join(", "))]
+    #[error("{}: keys are mutually exclusive: {}", path.display(), keys.join(", "))]
     MutualExclusivity {
+        /// Path to the config file.
+        path: PathBuf,
         /// The conflicting key names.
         keys: Vec<String>,
     },
     /// A required config entry is missing.
-    #[error("missing required config: {message}")]
+    #[error("{}: missing required config: {message}", path.display())]
     MissingRequired {
+        /// Path to the config file.
+        path: PathBuf,
         /// Description of what is missing.
         message: String,
     },
     /// An unrecognized verification rule name was used.
-    #[error("unknown verification rule: `{rule}`{}", format_suggestion(.suggestion.as_deref()))]
+    #[error("{}: unknown verification rule: `{rule}`{}", path.display(), format_suggestion(.suggestion.as_deref()))]
     UnknownRule {
+        /// Path to the config file.
+        path: PathBuf,
         /// The unrecognized rule name.
         rule: String,
         /// A similar known rule name, if one exists.
         suggestion: Option<String>,
     },
     /// The `id_pattern` regex failed to compile.
-    #[error("invalid id_pattern `{pattern}`: {message}")]
+    #[error("{}: invalid id_pattern `{pattern}`: {message}", path.display())]
     InvalidIdPattern {
+        /// Path to the config file.
+        path: PathBuf,
         /// The invalid regex pattern.
         pattern: String,
         /// Description of the regex compilation error.
         message: String,
     },
     /// An unrecognized ecosystem plugin name was used.
-    #[error("unknown ecosystem plugin: `{plugin}`{}", format_suggestion(.suggestion.as_deref()))]
+    #[error("{}: unknown ecosystem plugin: `{plugin}`{}", path.display(), format_suggestion(.suggestion.as_deref()))]
     UnknownPlugin {
+        /// Path to the config file.
+        path: PathBuf,
         /// The unrecognized plugin name.
         plugin: String,
         /// A similar known plugin name, if one exists.

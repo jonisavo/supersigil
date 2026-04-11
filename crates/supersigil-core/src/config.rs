@@ -452,6 +452,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
 
     let config: Config = toml::from_str(&content).map_err(|e| {
         vec![ConfigError::TomlSyntax {
+            path: path.to_path_buf(),
             message: e.to_string(),
         }]
     })?;
@@ -466,16 +467,19 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
 
     if has_paths && has_projects {
         errors.push(ConfigError::MutualExclusivity {
+            path: path.to_path_buf(),
             keys: vec!["paths".into(), "projects".into()],
         });
     }
     if has_tests && has_projects {
         errors.push(ConfigError::MutualExclusivity {
+            path: path.to_path_buf(),
             keys: vec!["tests".into(), "projects".into()],
         });
     }
     if !has_paths && !has_projects {
         errors.push(ConfigError::MissingRequired {
+            path: path.to_path_buf(),
             message: "one of `paths` or `projects` is required".into(),
         });
     }
@@ -484,6 +488,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
     for rule_name in config.verify.rules.keys() {
         if !KNOWN_RULES.contains(&rule_name.as_str()) {
             errors.push(ConfigError::UnknownRule {
+                path: path.to_path_buf(),
                 suggestion: crate::suggest_similar(rule_name, KNOWN_RULES, 2).map(String::from),
                 rule: rule_name.clone(),
             });
@@ -494,6 +499,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
     for plugin in &config.ecosystem.plugins {
         if !KNOWN_PLUGINS.contains(&plugin.as_str()) {
             errors.push(ConfigError::UnknownPlugin {
+                path: path.to_path_buf(),
                 suggestion: crate::suggest_similar(plugin, KNOWN_PLUGINS, 2).map(String::from),
                 plugin: plugin.clone(),
             });
@@ -505,6 +511,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<Config, Vec<ConfigError>> {
         && let Err(e) = regex::Regex::new(pattern)
     {
         errors.push(ConfigError::InvalidIdPattern {
+            path: path.to_path_buf(),
             pattern: pattern.clone(),
             message: e.to_string(),
         });

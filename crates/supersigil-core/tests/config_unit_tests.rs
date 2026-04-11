@@ -456,7 +456,7 @@ paths = ["frontend/**/*.md"]
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
     assert!(
-        errs.iter().any(|e| matches!(e, ConfigError::MutualExclusivity { keys } if keys.contains(&"paths".to_string()) && keys.contains(&"projects".to_string()))),
+        errs.iter().any(|e| matches!(e, ConfigError::MutualExclusivity { keys, .. } if keys.contains(&"paths".to_string()) && keys.contains(&"projects".to_string()))),
         "expected MutualExclusivity error for paths+projects, got: {errs:?}"
     );
 }
@@ -473,7 +473,7 @@ paths = ["frontend/**/*.md"]
     );
     let errs = load_config(Path::new(&path)).unwrap_err();
     assert!(
-        errs.iter().any(|e| matches!(e, ConfigError::MutualExclusivity { keys } if keys.contains(&"tests".to_string()) && keys.contains(&"projects".to_string()))),
+        errs.iter().any(|e| matches!(e, ConfigError::MutualExclusivity { keys, .. } if keys.contains(&"tests".to_string()) && keys.contains(&"projects".to_string()))),
         "expected MutualExclusivity error for tests+projects, got: {errs:?}"
     );
 }
@@ -1618,4 +1618,138 @@ test_patterns = ["custom/**/*.test.ts"]
         .js
         .expect("ecosystem.js should survive round-trip");
     assert_eq!(js.test_patterns, vec!["custom/**/*.test.ts".to_string()]);
+}
+
+// ===========================================================================
+// Config error messages include file path context
+// ===========================================================================
+
+#[test]
+fn toml_syntax_error_includes_file_path() {
+    let path = write_temp_toml("this is not valid toml {{{{");
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let msg = errs[0].to_string();
+    let path_str = path.to_string_lossy();
+    assert!(
+        msg.contains(&*path_str),
+        "TomlSyntax error should include file path '{path_str}', got: {msg}"
+    );
+}
+
+#[test]
+fn unknown_field_error_includes_file_path() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+unknown_key = "oops"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let msg = errs[0].to_string();
+    let path_str = path.to_string_lossy();
+    assert!(
+        msg.contains(&*path_str),
+        "unknown field error should include file path '{path_str}', got: {msg}"
+    );
+}
+
+#[test]
+fn mutual_exclusivity_error_includes_file_path() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[projects.frontend]
+paths = ["frontend/**/*.md"]
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let path_str = path.to_string_lossy();
+    let has_path = errs
+        .iter()
+        .filter(|e| matches!(e, ConfigError::MutualExclusivity { .. }))
+        .any(|e| e.to_string().contains(&*path_str));
+    assert!(
+        has_path,
+        "MutualExclusivity error should include file path '{path_str}', got: {errs:?}"
+    );
+}
+
+#[test]
+fn missing_required_error_includes_file_path() {
+    let path = write_temp_toml("\n[documents]\n");
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let path_str = path.to_string_lossy();
+    let has_path = errs
+        .iter()
+        .filter(|e| matches!(e, ConfigError::MissingRequired { .. }))
+        .any(|e| e.to_string().contains(&*path_str));
+    assert!(
+        has_path,
+        "MissingRequired error should include file path '{path_str}', got: {errs:?}"
+    );
+}
+
+#[test]
+fn unknown_rule_error_includes_file_path() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[verify.rules]
+nonexistent_rule = "error"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let path_str = path.to_string_lossy();
+    let has_path = errs
+        .iter()
+        .filter(|e| matches!(e, ConfigError::UnknownRule { .. }))
+        .any(|e| e.to_string().contains(&*path_str));
+    assert!(
+        has_path,
+        "UnknownRule error should include file path '{path_str}', got: {errs:?}"
+    );
+}
+
+#[test]
+fn invalid_id_pattern_error_includes_file_path() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+id_pattern = "[invalid"
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let path_str = path.to_string_lossy();
+    let has_path = errs
+        .iter()
+        .filter(|e| matches!(e, ConfigError::InvalidIdPattern { .. }))
+        .any(|e| e.to_string().contains(&*path_str));
+    assert!(
+        has_path,
+        "InvalidIdPattern error should include file path '{path_str}', got: {errs:?}"
+    );
+}
+
+#[test]
+fn unknown_plugin_error_includes_file_path() {
+    let path = write_temp_toml(
+        r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem]
+plugins = ["nonexistent_plugin"]
+"#,
+    );
+    let errs = load_config(Path::new(&path)).unwrap_err();
+    let path_str = path.to_string_lossy();
+    let has_path = errs
+        .iter()
+        .filter(|e| matches!(e, ConfigError::UnknownPlugin { .. }))
+        .any(|e| e.to_string().contains(&*path_str));
+    assert!(
+        has_path,
+        "UnknownPlugin error should include file path '{path_str}', got: {errs:?}"
+    );
 }
