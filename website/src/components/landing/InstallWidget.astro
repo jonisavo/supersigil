@@ -1,0 +1,213 @@
+---
+// InstallWidget — tabbed install command box with OS auto-detection
+const uid = Math.random().toString(36).slice(2, 8);
+---
+
+<div class="install-widget">
+  <div class="install-tabs" role="tablist">
+    <button class="install-tab" role="tab" data-tab="homebrew" aria-selected="false" aria-controls={`panel-homebrew-${uid}`} id={`tab-homebrew-${uid}`}>Homebrew</button>
+    <button class="install-tab" role="tab" data-tab="aur" aria-selected="false" aria-controls={`panel-aur-${uid}`} id={`tab-aur-${uid}`}>AUR</button>
+    <button class="install-tab active" role="tab" data-tab="cargo" aria-selected="true" aria-controls={`panel-cargo-${uid}`} id={`tab-cargo-${uid}`}>Cargo</button>
+    <button class="install-tab" role="tab" data-tab="releases" aria-selected="false" aria-controls={`panel-releases-${uid}`} id={`tab-releases-${uid}`}>GitHub Releases</button>
+  </div>
+
+  <div class="install-panels">
+    <div class="install-panel" id={`panel-homebrew-${uid}`} role="tabpanel" aria-labelledby={`tab-homebrew-${uid}`} hidden>
+      <div class="install-box">
+        <span class="install-prompt">$</span>
+        <code>brew install jonisavo/supersigil/supersigil</code>
+        <button class="install-copy" aria-label="Copy to clipboard" type="button" data-copy="brew install jonisavo/supersigil/supersigil">
+          <svg class="icon-copy" viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg class="icon-check" viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="install-panel" id={`panel-aur-${uid}`} role="tabpanel" aria-labelledby={`tab-aur-${uid}`} hidden>
+      <div class="install-box">
+        <span class="install-prompt">$</span>
+        <code>yay -S supersigil-bin</code>
+        <button class="install-copy" aria-label="Copy to clipboard" type="button" data-copy="yay -S supersigil-bin">
+          <svg class="icon-copy" viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg class="icon-check" viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="install-panel active" id={`panel-cargo-${uid}`} role="tabpanel" aria-labelledby={`tab-cargo-${uid}`}>
+      <div class="install-box">
+        <span class="install-prompt">$</span>
+        <code>cargo install supersigil</code>
+        <button class="install-copy" aria-label="Copy to clipboard" type="button" data-copy="cargo install supersigil">
+          <svg class="icon-copy" viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg class="icon-check" viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="install-panel" id={`panel-releases-${uid}`} role="tabpanel" aria-labelledby={`tab-releases-${uid}`} hidden>
+      <div class="install-box">
+        <a class="install-link" href="https://github.com/jonisavo/supersigil/releases" target="_blank" rel="noopener">
+          Download from GitHub Releases
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9 2h5v5M14 2L6 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .install-widget {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .install-tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .install-tab {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    color: var(--text-dim);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    cursor: pointer;
+  }
+
+  :global([data-theme='light']) .install-tab {
+    background: rgba(42, 37, 32, 0.03);
+  }
+
+  .install-tab:hover {
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+
+  .install-tab.active {
+    color: var(--gold);
+    border-color: var(--gold-dim);
+    background: rgba(201, 165, 92, 0.06);
+  }
+
+  :global([data-theme='light']) .install-tab.active {
+    background: rgba(138, 108, 47, 0.08);
+  }
+
+  .install-panels {
+    display: flex;
+    justify-content: center;
+  }
+
+  .install-panel {
+    display: none;
+  }
+
+  .install-panel.active {
+    display: block;
+  }
+
+  .install-copy .icon-check {
+    display: none !important;
+  }
+
+  .install-copy .icon-check.visible {
+    display: inline-block !important;
+  }
+
+  .install-copy .icon-copy.hidden {
+    display: none !important;
+  }
+
+  .install-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .install-link:hover {
+    color: var(--gold);
+  }
+
+  .install-link svg {
+    display: inline-block;
+    flex-shrink: 0;
+  }
+</style>
+
+<script>
+  function initInstallWidget(widget: Element) {
+    const tabs = widget.querySelectorAll<HTMLButtonElement>('.install-tab');
+    const panels = widget.querySelectorAll<HTMLElement>('.install-panel');
+
+    function selectTab(tabId: string) {
+      tabs.forEach(tab => {
+        const isActive = tab.dataset.tab === tabId;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-selected', String(isActive));
+      });
+      panels.forEach(panel => {
+        const isActive = panel.id.startsWith(`panel-${tabId}-`);
+        panel.classList.toggle('active', isActive);
+        panel.hidden = !isActive;
+      });
+    }
+
+    // Tab click handlers
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabId = tab.dataset.tab;
+        if (tabId) selectTab(tabId);
+      });
+    });
+
+    // Copy button handlers
+    widget.querySelectorAll<HTMLButtonElement>('.install-copy').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const text = btn.dataset.copy;
+        if (!text) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          const iconCopy = btn.querySelector('.icon-copy') as HTMLElement;
+          const iconCheck = btn.querySelector('.icon-check') as HTMLElement;
+          if (iconCopy && iconCheck) {
+            iconCopy.classList.add('hidden');
+            iconCheck.classList.add('visible');
+            setTimeout(() => {
+              iconCopy.classList.remove('hidden');
+              iconCheck.classList.remove('visible');
+            }, 2000);
+          }
+        } catch (e) {
+          console.warn('Clipboard API unavailable:', e);
+        }
+      });
+    });
+
+    // OS auto-detection
+    function detectOS(): string {
+      const ua = navigator.userAgent.toLowerCase();
+      if (ua.includes('mac')) return 'homebrew';
+      if (ua.includes('linux')) return 'aur';
+      if (ua.includes('win')) return 'releases';
+      return 'cargo';
+    }
+
+    selectTab(detectOS());
+  }
+
+  document.querySelectorAll('.install-widget').forEach(initInstallWidget);
+</script>

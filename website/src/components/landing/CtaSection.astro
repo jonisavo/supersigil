@@ -1,5 +1,6 @@
 ---
 // CtaSection — CTA with constellation backdrop
+import InstallWidget from './InstallWidget.astro';
 ---
 
 <section class="cta-section">
@@ -59,7 +60,7 @@
       <h2>Let's build verifiable software.</h2>
       <p>See the first verification loop in a few minutes, then branch into agents, CI, or deeper authoring.</p>
       <div class="cta-install">
-        <code><span class="c-muted">$</span> cargo install supersigil</code>
+        <InstallWidget />
       </div>
       <a href="/getting-started/" class="btn btn-primary btn-lg">
         Open the quickstart
@@ -133,14 +134,6 @@
     display: flex;
     justify-content: center;
     margin-bottom: 1.5rem;
-  }
-  .cta-install code {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    padding: 0.55rem 1.25rem;
-    border-radius: 8px;
   }
 
   @keyframes astro-rotate-reverse {

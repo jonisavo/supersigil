@@ -1,6 +1,7 @@
 ---
 // Hero — hero section with astrolabe backdrop
 import Astrolabe from './Astrolabe.astro';
+import InstallWidget from './InstallWidget.astro';
 ---
 
 <section class="hero">
@@ -27,13 +28,7 @@ import Astrolabe from './Astrolabe.astro';
       </a>
     </div>
     <div class="hero-install reveal" style="--reveal-delay: 0.3s">
-      <div class="install-box" id="install-box">
-        <span class="install-prompt">$</span>
-        <code>cargo install supersigil</code>
-        <button class="install-copy" id="copy-btn" aria-label="Copy to clipboard" type="button">
-          <svg viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
-        </button>
-      </div>
+      <InstallWidget />
     </div>
     <div class="hero-proof reveal" style="--reveal-delay: 0.4s">
       <div class="hero-proof-card">
@@ -167,18 +162,3 @@ import Astrolabe from './Astrolabe.astro';
   }
 </style>
 
-<script>
-  // Copy install command
-  const copyBtn = document.getElementById('copy-btn');
-  copyBtn?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText('cargo install supersigil');
-      copyBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      setTimeout(() => {
-        copyBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
-      }, 2000);
-    } catch (e) {
-      console.warn('Clipboard API unavailable:', e);
-    }
-  });
-</script>
