@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0] - 2026-04-11
+
+### Bug Fixes
+
+- Update skill frontmatter names and cross-references to ss- prefix ([d87fb44](https://github.com/jonisavo/supersigil/commit/d87fb4407342b57ae3511c6a11e4fd661625ad5d))
+
+### Features
+
+- Add broken_ref rule name and remove required_components ([6f5058a](https://github.com/jonisavo/supersigil/commit/6f5058a84cc5e103b4ea9e6b61498579578f87d2))
+- Allow XML comments in supersigil-xml and rework scaffold templates ([29a4d51](https://github.com/jonisavo/supersigil/commit/29a4d51e4352a735c2d6687ab01d1ef4029aeee0))
+
+### Miscellaneous
+
+- Correct the IntelliJ info in README.md ([a822479](https://github.com/jonisavo/supersigil/commit/a82247953a3e3bdf59a6a07555fc1ac92226d948))
+
+### Refactoring
+
+- Rename embedded skills with ss- prefix and show chooser on install ([da3524b](https://github.com/jonisavo/supersigil/commit/da3524bee1b3cf728ca612bbc758403158d64524))
 ## [0.4.0] - 2026-04-11
 
 ### Bug Fixes
@@ -23,6 +41,10 @@
 - *(cli)* Replace init hint with structured next-steps guidance ([f8810af](https://github.com/jonisavo/supersigil/commit/f8810afc11d4c8f479b6c0c584f211b068cf6a15))
 - *(cli)* Include file path in config parse error messages ([aa26fd6](https://github.com/jonisavo/supersigil/commit/aa26fd68cb10a3e615d2ccc6e4cf51e1145b7856))
 - *(cli)* Show scope header when verify runs with --since ([243dc13](https://github.com/jonisavo/supersigil/commit/243dc13cc797c0320462d47127ca6a6921219b41))
+
+### Miscellaneous
+
+- *(release)* Prepare v0.4.0 ([2ff2366](https://github.com/jonisavo/supersigil/commit/2ff23660bd592d6fc5ac8f4a01b2558c511f932d))
 ## [0.3.0] - 2026-04-11
 
 ### CI/CD
