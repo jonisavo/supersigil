@@ -39,7 +39,7 @@ Deserialized into a `SkillsConfig` struct. The `path` field is `Option<String>`
 
 Owns the embedded data and write logic:
 
-- Uses the `include_dir` crate to embed the four skill directories from
+- Uses the `include_dir` crate to embed the skill directories from
   `.agents/skills/` at compile time.
 - Exposes `write_skills(dir: &Path) -> Result<usize, io::Error>` that
   recursively creates directories and writes all embedded files, returning
