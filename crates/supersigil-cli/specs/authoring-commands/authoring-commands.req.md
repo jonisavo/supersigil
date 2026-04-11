@@ -39,8 +39,10 @@ that I can start writing documents without hand-authoring the initial TOML.
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
     THE `init` command SHALL create `supersigil.toml` in the current directory
-    using the current single-project Config_Scaffold:
-    `paths = ["specs/**/*.md"]`.
+    using the single-project Config_Scaffold. The scaffold SHALL contain the
+    active setting `paths = ["specs/**/*.md"]` and commented-out examples for
+    common options (ecosystem plugins, verify rules) so that new users can
+    discover configuration surface without consulting external docs.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/init.rs" />
   </Criterion>
   <Criterion id="req-1-2">
@@ -49,8 +51,8 @@ that I can start writing documents without hand-authoring the initial TOML.
   </Criterion>
   <Criterion id="req-1-3">
     AFTER successful creation, `init` SHALL print the created path to stdout and
-    a next-step hint directing the operator to `supersigil new` and
-    `supersigil verify`.
+    a structured next-steps block listing numbered actions (create a spec,
+    edit it, run verify) so the operator has a clear onboarding path.
   </Criterion>
 </AcceptanceCriteria>
 ```
