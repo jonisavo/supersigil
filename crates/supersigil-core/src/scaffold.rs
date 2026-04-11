@@ -34,6 +34,29 @@ pub fn type_full_name(short: &str) -> &str {
     }
 }
 
+/// Convert a feature slug like `"user-auth"` to a title like `"User Auth"`.
+///
+/// The result is safe for embedding in a double-quoted YAML scalar: any `\`
+/// or `"` characters in the slug are escaped.
+fn slug_to_title(slug: &str) -> String {
+    slug.split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(c) => {
+                    let mut s = c.to_uppercase().to_string();
+                    s.push_str(chars.as_str());
+                    s
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
 /// Generate the full template content for a new spec document.
 ///
 /// The returned string includes YAML frontmatter and type-specific body
@@ -53,6 +76,7 @@ pub fn type_full_name(short: &str) -> &str {
 )]
 pub fn generate_template(doc_type: &str, id: &str, feature: &str, req_exists: bool) -> String {
     let status = "draft";
+    let title = slug_to_title(feature);
 
     let frontmatter = format!(
         r#"---
@@ -60,7 +84,7 @@ supersigil:
   id: {id}
   type: {doc_type}
   status: {status}
-title: ""
+title: "{title}"
 ---
 "#
     );
@@ -250,6 +274,30 @@ mod tests {
         assert_eq!(type_full_name("design"), "design");
         assert_eq!(type_full_name("tasks"), "tasks");
         assert_eq!(type_full_name("adr"), "adr");
+    }
+
+    #[test]
+    fn title_derived_from_feature_slug() {
+        let content = generate_template("requirements", "auth/req", "auth", false);
+        assert!(
+            content.contains("title: \"Auth\""),
+            "should title-case single word, got:\n{content}",
+        );
+
+        let content = generate_template("design", "user-auth/design", "user-auth", false);
+        assert!(
+            content.contains("title: \"User Auth\""),
+            "should title-case hyphenated slug, got:\n{content}",
+        );
+    }
+
+    #[test]
+    fn title_escapes_yaml_special_chars() {
+        let content = generate_template("requirements", "test/req", "a\"b\\c", false);
+        assert!(
+            content.contains(r#"title: "A\"b\\c""#),
+            "should escape quotes and backslashes, got:\n{content}",
+        );
     }
 
     #[test]
