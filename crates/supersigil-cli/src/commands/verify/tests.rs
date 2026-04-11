@@ -184,8 +184,8 @@ fn collapses_repeated_rules() {
         "should not show all messages, got:\n{out}",
     );
     assert!(
-        out.contains("--format json"),
-        "should hint about json format, got:\n{out}",
+        out.contains("--detail full"),
+        "should hint about --detail full, got:\n{out}",
     );
 }
 
@@ -210,7 +210,7 @@ fn does_not_collapse_small_groups() {
     assert!(out.contains("criterion `req-2`"), "got:\n{out}");
     assert!(!out.contains("findings"), "got:\n{out}");
     assert!(!out.contains("more"), "got:\n{out}");
-    assert!(!out.contains("--format json"), "got:\n{out}");
+    assert!(!out.contains("--detail full"), "got:\n{out}");
 }
 
 #[test]

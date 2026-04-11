@@ -112,7 +112,7 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
     if collapsed {
         let _ = writeln!(
             out,
-            "{} Use --format json to see all findings.",
+            "{} Use --detail full to see all findings.",
             color.paint(Token::Hint, "hint:"),
         );
     }
