@@ -55,15 +55,14 @@ graph TD
 1. Treat `init` as a config-free command.
 2. Attempt to create `supersigil.toml` in the current directory with
    `OpenOptions::create_new(true)`.
-3. Write the current default scaffold:
-
-```toml
-paths = ["specs/**/*.md"]
-```
+3. Write the default scaffold: `paths = ["specs/**/*.md"]` plus
+   commented-out examples for `[ecosystem]` plugins and `[verify.rules]`
+   severity overrides.
 
 4. Map `AlreadyExists` to a command failure message rather than overwriting.
 5. Print `Created supersigil.toml` to stdout.
-6. Print the `new` plus `lint` next-step hint to stderr.
+6. Print a structured numbered next-steps block to stderr (create a spec,
+   edit it, run verify).
 
 `init` does not currently branch on workspace mode or offer a `projects.*`
 scaffold path.

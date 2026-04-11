@@ -5,49 +5,7 @@
 UX gaps, rough edges, and improvement opportunities across the CLI, editors,
 documentation, and onboarding experience.
 
-## Verify Command
-
-### Collapsed Findings
-
-Findings collapse after 3 of the same type with a hint to use `--format json`.
-The hint doesn't show *how many* were collapsed, and JSON isn't the
-human-friendly alternative.
-
-**Suggestion:** Show count (`... and 12 more`) and suggest `--detail full`.
-
-### Since-Mode Transparency
-
-Running with `--since` gives no indication of scope. Users don't know whether
-they're seeing a full scan or an incremental check.
-
-**Suggestion:** Header line: `Checking documents affected since origin/main (12 of 42 documents)`
-
-## Error Messages
-
-### Config Parse Errors
-
-Errors joined with newlines, no context. TOML parse errors can be cryptic.
-
-**Suggestion:** Wrap with context: `Error in supersigil.toml: unknown field 'plugin' in [ecosystem] -- did you mean 'plugins'?`
-
 ## Init and Onboarding
-
-### Generated Config Too Minimal
-
-Default `supersigil.toml` has `paths = ["specs/**/*.md"]` and a URL. Users
-don't know what's possible.
-
-**Suggestion:** Generate commented-out examples:
-```toml
-paths = ["specs/**/*.md"]
-
-# [ecosystem]
-# plugins = ["rust"]
-# plugins = ["js"]
-
-# [verify.rules]
-# missing_verification_evidence = "warning"
-```
 
 ### Skills Installation Feedback
 
@@ -57,17 +15,6 @@ chooser guide listing all 6 skills with descriptions after installation,
 which is good. The remaining gap: `skills install` (standalone) doesn't
 show the chooser, and there's no `skills list` or `skills check` command
 to inspect what's installed or whether skills are up to date.
-
-### Post-Init Guidance
-
-After init, the "what's next" hint is a single line. A structured block
-would be more helpful:
-```
-Next steps:
-  1. supersigil new requirements <feature>   Create your first spec
-  2. Edit the generated file                 Add criteria
-  3. supersigil verify                       Check everything
-```
 
 ### No Skills Listing/Check Command
 
