@@ -196,12 +196,8 @@ fn init_config_contains_commented_ecosystem_example() {
         "should contain commented-out [ecosystem] section: {content}"
     );
     assert!(
-        content.contains(r#"# plugins = ["rust"]"#),
-        "should contain commented-out rust plugin example: {content}"
-    );
-    assert!(
-        content.contains(r#"# plugins = ["js"]"#),
-        "should contain commented-out js plugin example: {content}"
+        content.contains(r#"# plugins = ["rust", "js"]"#),
+        "should contain commented-out plugins example: {content}"
     );
 }
 
@@ -226,6 +222,34 @@ fn init_config_contains_commented_verify_rules_example() {
     assert!(
         content.contains(r#"# stale_tracked_files = "off""#),
         "should contain commented-out stale_tracked_files example: {content}"
+    );
+}
+
+#[test]
+fn init_prints_next_steps_block() {
+    let tmp = TempDir::new().unwrap();
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["init", "--no-skills"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Next steps:"),
+        "should print 'Next steps:' label to stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("supersigil new requirements"),
+        "should include 'supersigil new requirements' step: {stderr}"
+    );
+    assert!(
+        stderr.contains("supersigil verify"),
+        "should include 'supersigil verify' step: {stderr}"
+    );
+    assert!(
+        stderr.contains("1.") && stderr.contains("2.") && stderr.contains("3."),
+        "should have numbered steps: {stderr}"
     );
 }
 

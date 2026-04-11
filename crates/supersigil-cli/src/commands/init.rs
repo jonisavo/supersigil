@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::commands::InitArgs;
 use crate::error::CliError;
-use crate::format::{self, ColorConfig, Token};
+use crate::format::{ColorConfig, Token};
 use crate::prompt;
 use crate::skills::{self, DEFAULT_SKILLS_PATH};
 
@@ -12,8 +12,7 @@ const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.md"]
 
 # Ecosystem plugins discover test evidence from language-native annotations.
 # [ecosystem]
-# plugins = ["rust"]   # Enables #[verifies("doc#criterion")] attribute
-# plugins = ["js"]     # Enables verifies("doc#criterion") in Vitest/Jest
+# plugins = ["rust", "js"]
 
 # Override default severity for specific verification rules.
 # [verify.rules]
@@ -104,10 +103,7 @@ pub fn run(args: &InitArgs, color: ColorConfig) -> Result<(), CliError> {
         }
     }
 
-    format::hint(
-        color,
-        "Run `supersigil new <type> <name>` to create spec documents, then `supersigil verify` to validate them.",
-    );
+    print_next_steps(color);
 
     Ok(())
 }
@@ -178,6 +174,25 @@ fn as_resolution(path: String) -> SkillsResolution {
     } else {
         SkillsResolution::InstallAt(path)
     }
+}
+
+fn print_next_steps(color: ColorConfig) {
+    let err = io::stderr();
+    let mut w = err.lock();
+    let _ = writeln!(w);
+    let _ = writeln!(w, "{}", color.paint(Token::Hint, "Next steps:"));
+    let _ = writeln!(
+        w,
+        "  1. supersigil new requirements <feature>   Create your first spec"
+    );
+    let _ = writeln!(
+        w,
+        "  2. Edit the generated file                 Add criteria"
+    );
+    let _ = writeln!(
+        w,
+        "  3. supersigil verify                       Check everything"
+    );
 }
 
 fn print_skill_chooser(color: ColorConfig) {
