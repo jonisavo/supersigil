@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::*;
 use crate::format::ColorChoice;
 use supersigil_core::SourcePosition;
@@ -327,7 +329,6 @@ fn rule_breakdown_shown_after_summary() {
     let report = VerificationReport::new(findings, summary, None);
 
     let out = format_terminal(&report, no_color());
-    // All counts are 1, so sorted alphabetically
     assert!(
         out.contains(
             "1 empty_tracked_glob, 1 missing_verification_evidence, 1 stale_tracked_files"
@@ -368,8 +369,6 @@ fn rule_breakdown_sorted_by_count_desc_then_alpha() {
     let report = VerificationReport::new(findings, summary, None);
 
     let out = format_terminal(&report, no_color());
-    // stale_tracked_files has 2 findings, the other two have 1 each.
-    // Ties (count=1) should be sorted alphabetically: empty_tracked_glob before missing_verification_evidence.
     assert!(
         out.contains(
             "2 stale_tracked_files, 1 empty_tracked_glob, 1 missing_verification_evidence"
@@ -415,8 +414,6 @@ fn rule_breakdown_not_shown_for_clean_report() {
     let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
 
     let out = format_terminal(&report, no_color());
-    // Clean report returns early before the breakdown is written.
-    // Check that no rule config keys appear in the output.
     assert!(
         !out.contains("missing_verification_evidence")
             && !out.contains("stale_tracked_files")
@@ -436,11 +433,9 @@ fn rule_breakdown_uses_hint_styling() {
     let summary = Summary::from_findings(1, &findings);
     let report = VerificationReport::new(findings, summary, None);
 
-    // With color enabled, the breakdown line should use Token::Hint styling
     let out_color = format_terminal(&report, color());
     let out_plain = format_terminal(&report, no_color());
 
-    // Both should contain the breakdown content
     assert!(
         out_plain.contains("1 missing_verification_evidence"),
         "plain output should have breakdown, got:\n{out_plain}",
@@ -448,5 +443,83 @@ fn rule_breakdown_uses_hint_styling() {
     assert!(
         out_color.contains("1 missing_verification_evidence"),
         "color output should have breakdown, got:\n{out_color}",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Timing summary tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn timing_summary_includes_all_phases() {
+    use output::terminal::format_timing_summary;
+
+    let timings = PhaseTimings {
+        doc_count: 5,
+        parse: Duration::from_millis(120),
+        evidence: Duration::from_millis(340),
+        rules: Duration::from_millis(50),
+    };
+
+    let out = format_timing_summary(&timings, no_color());
+    assert!(
+        out.contains("5 documents"),
+        "should include document count, got:\n{out}"
+    );
+    assert!(
+        out.contains("0.1s") || out.contains("0.12s"),
+        "should include parse timing, got:\n{out}"
+    );
+    assert!(
+        out.contains("check:"),
+        "should include check label, got:\n{out}"
+    );
+    assert!(
+        out.contains("report:"),
+        "should include report label, got:\n{out}"
+    );
+}
+
+#[test]
+fn timing_summary_shows_total_elapsed() {
+    use output::terminal::format_timing_summary;
+
+    let timings = PhaseTimings {
+        doc_count: 10,
+        parse: Duration::from_millis(100),
+        evidence: Duration::from_millis(200),
+        rules: Duration::from_millis(50),
+    };
+
+    let out = format_timing_summary(&timings, no_color());
+    assert!(
+        out.contains("in 0.3s") || out.contains("in 0.4s"),
+        "should include total time, got:\n{out}"
+    );
+    assert!(
+        out.contains("Verified"),
+        "should start with 'Verified', got:\n{out}"
+    );
+}
+
+#[test]
+fn timing_summary_singular_document() {
+    use output::terminal::format_timing_summary;
+
+    let timings = PhaseTimings {
+        doc_count: 1,
+        parse: Duration::from_millis(50),
+        evidence: Duration::from_millis(100),
+        rules: Duration::from_millis(30),
+    };
+
+    let out = format_timing_summary(&timings, no_color());
+    assert!(
+        out.contains("1 document "),
+        "should use singular 'document' for count 1, got:\n{out}"
+    );
+    assert!(
+        !out.contains("documents"),
+        "should not use plural for count 1, got:\n{out}"
     );
 }

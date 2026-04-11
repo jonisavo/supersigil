@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 
 use supersigil_verify::{Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport};
 
+use super::super::PhaseTimings;
 use crate::format::{self, ColorConfig, Token};
 
 /// Maximum number of findings per (document, rule) group before collapsing.
@@ -190,4 +191,32 @@ fn severity_symbol(severity: ReportSeverity, color: ColorConfig) -> format::Pain
         ReportSeverity::Info => color.info(),
         ReportSeverity::Off => color.paint(Token::Hint, ""),
     }
+}
+
+/// Format the timing summary line for terminal output.
+///
+/// Produces a line like:
+/// `Verified 5 documents in 0.5s (parse: 0.1s, check: 0.3s, report: 0.1s)`
+pub(crate) fn format_timing_summary(timings: &PhaseTimings, color: ColorConfig) -> String {
+    let total = timings.parse + timings.evidence + timings.rules;
+    let noun = if timings.doc_count == 1 {
+        "document"
+    } else {
+        "documents"
+    };
+    let count_str = timings.doc_count.to_string();
+    let count = color.paint(Token::Count, &count_str);
+
+    let detail = format!(
+        "(parse: {:.1}s, check: {:.1}s, report: {:.1}s)",
+        timings.parse.as_secs_f64(),
+        timings.evidence.as_secs_f64(),
+        timings.rules.as_secs_f64(),
+    );
+    let detail_painted = color.paint(Token::Hint, &detail);
+
+    format!(
+        "Verified {count} {noun} in {:.1}s {detail_painted}\n",
+        total.as_secs_f64(),
+    )
 }
