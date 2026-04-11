@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::*;
 use crate::format::ColorChoice;
 use supersigil_core::SourcePosition;
