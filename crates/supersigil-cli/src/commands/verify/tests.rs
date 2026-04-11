@@ -300,3 +300,153 @@ fn no_location_line_when_position_missing() {
         "should not show location when position is missing, got:\n{out}",
     );
 }
+
+#[test]
+fn rule_breakdown_shown_after_summary() {
+    let findings = vec![
+        Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "criterion AC-1 not covered".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::StaleTrackedFiles,
+            Some("req/auth".to_string()),
+            "files changed since ref".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::EmptyTrackedGlob,
+            Some("req/auth".to_string()),
+            "glob matched nothing".to_string(),
+            None,
+        ),
+    ];
+    let summary = Summary::from_findings(42, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    let out = format_terminal(&report, no_color());
+    // All counts are 1, so sorted alphabetically
+    assert!(
+        out.contains(
+            "1 empty_tracked_glob, 1 missing_verification_evidence, 1 stale_tracked_files"
+        ),
+        "should show rule breakdown line, got:\n{out}",
+    );
+}
+
+#[test]
+fn rule_breakdown_sorted_by_count_desc_then_alpha() {
+    let findings = vec![
+        Finding::new(
+            RuleName::StaleTrackedFiles,
+            Some("req/auth".to_string()),
+            "stale 1".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::StaleTrackedFiles,
+            Some("req/login".to_string()),
+            "stale 2".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::EmptyTrackedGlob,
+            Some("req/auth".to_string()),
+            "glob 1".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "missing 1".to_string(),
+            None,
+        ),
+    ];
+    let summary = Summary::from_findings(10, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    let out = format_terminal(&report, no_color());
+    // stale_tracked_files has 2 findings, the other two have 1 each.
+    // Ties (count=1) should be sorted alphabetically: empty_tracked_glob before missing_verification_evidence.
+    assert!(
+        out.contains(
+            "2 stale_tracked_files, 1 empty_tracked_glob, 1 missing_verification_evidence"
+        ),
+        "should sort by count desc then alpha, got:\n{out}",
+    );
+}
+
+#[test]
+fn rule_breakdown_skips_off_severity() {
+    let mut off_finding = Finding::new(
+        RuleName::OrphanTestTag,
+        Some("req/auth".to_string()),
+        "tag orphaned".to_string(),
+        None,
+    );
+    off_finding.effective_severity = ReportSeverity::Off;
+
+    let active_finding = Finding::new(
+        RuleName::MissingVerificationEvidence,
+        Some("req/auth".to_string()),
+        "criterion AC-1 not covered".to_string(),
+        None,
+    );
+
+    let findings = vec![off_finding, active_finding];
+    let summary = Summary::from_findings(5, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    let out = format_terminal(&report, no_color());
+    assert!(
+        out.contains("1 missing_verification_evidence"),
+        "should show active rule, got:\n{out}",
+    );
+    assert!(
+        !out.contains("orphan_test_tag"),
+        "should not show Off-severity rule, got:\n{out}",
+    );
+}
+
+#[test]
+fn rule_breakdown_not_shown_for_clean_report() {
+    let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
+
+    let out = format_terminal(&report, no_color());
+    // Clean report returns early before the breakdown is written.
+    // Check that no rule config keys appear in the output.
+    assert!(
+        !out.contains("missing_verification_evidence")
+            && !out.contains("stale_tracked_files")
+            && !out.contains("empty_tracked_glob"),
+        "clean report should not have rule breakdown, got:\n{out}",
+    );
+}
+
+#[test]
+fn rule_breakdown_uses_hint_styling() {
+    let findings = vec![Finding::new(
+        RuleName::MissingVerificationEvidence,
+        Some("req/auth".to_string()),
+        "criterion AC-1 not covered".to_string(),
+        None,
+    )];
+    let summary = Summary::from_findings(1, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    // With color enabled, the breakdown line should use Token::Hint styling
+    let out_color = format_terminal(&report, color());
+    let out_plain = format_terminal(&report, no_color());
+
+    // Both should contain the breakdown content
+    assert!(
+        out_plain.contains("1 missing_verification_evidence"),
+        "plain output should have breakdown, got:\n{out_plain}",
+    );
+    assert!(
+        out_color.contains("1 missing_verification_evidence"),
+        "color output should have breakdown, got:\n{out_color}",
+    );
+}

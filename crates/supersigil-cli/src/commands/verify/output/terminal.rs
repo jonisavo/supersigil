@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 use supersigil_verify::{Finding, ReportSeverity, ResultStatus, RuleName, VerificationReport};
@@ -104,6 +104,7 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
         color.paint(Token::Count, &doc_count),
     );
 
+    write_rule_breakdown(&mut out, &report.findings, color);
     write_draft_gating_hint(&mut out, &report.findings, color);
 
     if collapsed {
@@ -115,6 +116,38 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
     }
 
     out
+}
+
+/// Emit an indented breakdown of findings grouped by rule name.
+///
+/// Only includes findings whose effective severity is not `Off`.
+/// Sorted by count descending, then alphabetically by rule name for ties.
+fn write_rule_breakdown(out: &mut String, findings: &[Finding], color: ColorConfig) {
+    let mut counts: HashMap<RuleName, usize> = HashMap::new();
+    for finding in findings {
+        if finding.effective_severity == ReportSeverity::Off {
+            continue;
+        }
+        *counts.entry(finding.rule).or_default() += 1;
+    }
+
+    if counts.is_empty() {
+        return;
+    }
+
+    let mut entries: Vec<(RuleName, usize)> = counts.into_iter().collect();
+    entries.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.config_key().cmp(b.0.config_key()))
+    });
+
+    let breakdown: String = entries
+        .iter()
+        .map(|(rule, count)| format!("{count} {}", rule.config_key()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let _ = writeln!(out, "  {}", color.paint(Token::Hint, &breakdown));
 }
 
 /// Emit a hint when draft gating suppressed findings that would otherwise be errors or warnings.
