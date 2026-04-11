@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.2.0] - 2026-04-11
+
+### Bug Fixes
+
+- Resolve npm trusted publishing for scoped packages ([b94166d](https://github.com/jonisavo/supersigil/commit/b94166de391352a7d8cfd0a2de6a45331815996a))
+
+### Build
+
+- *(aur)* Mention binary release in bin packages' description ([c4c6f73](https://github.com/jonisavo/supersigil/commit/c4c6f7306876148d8313143f64835ee203c6acb2))
+- *(aur)* Disable automatic debug package generation ([52f9093](https://github.com/jonisavo/supersigil/commit/52f90930a7dba0b90617b194aea9d87c3afc2ac9))
+- Add cargo-binstall metadata for prebuilt binary downloads ([2562782](https://github.com/jonisavo/supersigil/commit/256278219171eab8ade713919a9b2f6d856d61a4))
+
+### CI/CD
+
+- Use trusted publishing for npm packages ([3748ecb](https://github.com/jonisavo/supersigil/commit/3748ecb55dadaaf6527afd016644d572b0ae3f9e))
+- Fix vscode publish ([c77845c](https://github.com/jonisavo/supersigil/commit/c77845ca7d189582af640ea2eee5a7375c2d8c32))
+- Publish using npm instead of pnpm ([6802729](https://github.com/jonisavo/supersigil/commit/6802729e1d1e6a24942c6ed2e0f328c6fc1b5189))
+- Upgrade npm before publish ([7ce74cb](https://github.com/jonisavo/supersigil/commit/7ce74cb439bff6a4e39522cadc08c9336b80ea99))
+- Use Node 24 (with npm 11+) for publishing ([64407e7](https://github.com/jonisavo/supersigil/commit/64407e7121b55c6b3f329b9fa8d2653802d01d1b))
+- Replace release busy-wait with reusable CI workflow ([50fd594](https://github.com/jonisavo/supersigil/commit/50fd59498f8e7f1093b2154d8252ab6e7eaf4904))
+
+### Documentation
+
+- Update README.md with install info, IntelliJ plugin, ecosystem plugins ([420b97d](https://github.com/jonisavo/supersigil/commit/420b97dd12e27abf6767fe9257753318920db336))
+- Add onboarding improvement specs ([9a7e862](https://github.com/jonisavo/supersigil/commit/9a7e862a820785ddb7ad770899cfe3706dcdd119))
+
+### Features
+
+- *(website)* Add platform-aware install widget to landing page ([3d37904](https://github.com/jonisavo/supersigil/commit/3d379043ea38a9b4dec9fedcd6ed4b05791eb35c))
+- *(vscode)* Add actionable empty state when LSP binary is missing ([2a5f47f](https://github.com/jonisavo/supersigil/commit/2a5f47f486b172b02c3dc397b75cbf0b56d8a8b3))
+- *(intellij)* Add actionable empty state when LSP binary is missing ([3c4a165](https://github.com/jonisavo/supersigil/commit/3c4a165d0bb29c00fd90f8bbe539fa8da4d74024))
 ## [0.1.1] - 2026-04-10
 
 ### Bug Fixes
@@ -15,6 +46,7 @@
 - Provide packageManager in root package.json ([161ddb0](https://github.com/jonisavo/supersigil/commit/161ddb00ab5456d95f7ed0b9a434935026698f14))
 - Create skills directory before copying assets ([3fbb8fb](https://github.com/jonisavo/supersigil/commit/3fbb8fbd19b3a20254a5053e553ad5ee7fad0e5f))
 - Separate tarballs per binary and add AUR source packages ([77c28e6](https://github.com/jonisavo/supersigil/commit/77c28e6531fa0785e0ceb809b62d049bb312ac70))
+- *(release)* Extract CLI assets to crates/supersigil-cli ([125fea8](https://github.com/jonisavo/supersigil/commit/125fea8d7e5657bf7f421c4185fc9fe983a6e4a9))
 
 ### Documentation
 
@@ -26,6 +58,10 @@
 
 - *(lsp)* Use custom command for code lens Find References ([09c3bb6](https://github.com/jonisavo/supersigil/commit/09c3bb6272145891445acc52fa9928820d45fc09))
 - *(vscode)* Handle supersigil.findReferences code lens command ([4605241](https://github.com/jonisavo/supersigil/commit/4605241c7e1429c7c50b0cb18cf3d54f23fadff3))
+
+### Miscellaneous
+
+- *(release)* Prepare v0.1.1 ([d95b752](https://github.com/jonisavo/supersigil/commit/d95b7525cb4c2d1cea7119b633cdc11dfc482882))
 
 ### Refactoring
 

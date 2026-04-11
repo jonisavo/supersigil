@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-lsp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Language Server Protocol implementation for supersigil spec documents"
 edition.workspace = true
 rust-version.workspace = true
