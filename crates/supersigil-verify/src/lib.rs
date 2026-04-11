@@ -15,6 +15,8 @@ mod report;
 mod rules;
 mod scan;
 mod severity;
+/// Edit-distance suggestion engine for broken references.
+pub mod suggest;
 #[cfg(any(test, feature = "test-helpers"))]
 /// Test helpers for building spec documents and git repos.
 pub mod test_helpers;
@@ -261,6 +263,79 @@ pub fn artifact_conflict_findings(artifact_graph: &ArtifactGraph<'_>) -> Vec<Fin
             Finding::new(RuleName::PluginDiscoveryFailure, None, message, None)
         })
         .collect()
+}
+
+/// Convert [`GraphError`]s into [`Finding`]s, enriching broken-ref errors
+/// with "did you mean?" suggestions based on edit distance.
+///
+/// `known_doc_ids` provides the candidate set for suggestion matching.
+/// Non-`BrokenRef` errors are converted to findings without suggestions.
+#[must_use]
+pub fn graph_error_findings(
+    errors: &[supersigil_core::GraphError],
+    known_doc_ids: &[&str],
+) -> Vec<Finding> {
+    errors
+        .iter()
+        .map(|error| graph_error_to_finding(error, known_doc_ids))
+        .collect()
+}
+
+fn graph_error_to_finding(error: &supersigil_core::GraphError, known_doc_ids: &[&str]) -> Finding {
+    let mut finding = match error {
+        supersigil_core::GraphError::BrokenRef {
+            doc_id,
+            ref_str,
+            reason,
+            position,
+        } => {
+            let message = format!(
+                "{doc_id}:{}:{}: broken ref `{ref_str}`: {reason}",
+                position.line, position.column
+            );
+
+            // Only suggest when a document reference was not found —
+            // not for fragment-missing, task-dependency, cross-project, or
+            // component-type errors.
+            let is_doc_not_found = reason.starts_with("document ") && reason.contains("not found");
+            let suggestion = if is_doc_not_found {
+                let (target_doc_id, fragment) = match ref_str.find('#') {
+                    Some(pos) => (&ref_str[..pos], Some(&ref_str[pos..])),
+                    None => (ref_str.as_str(), None),
+                };
+                suggest::closest_match(target_doc_id, known_doc_ids.iter().copied()).map(
+                    |matched| match fragment {
+                        Some(frag) => format!("{matched}{frag}"),
+                        None => matched.to_owned(),
+                    },
+                )
+            } else {
+                None
+            };
+
+            let mut f = Finding::new(
+                RuleName::MissingRequiredComponent,
+                Some(doc_id.clone()),
+                message,
+                Some(*position),
+            );
+            if let Some(s) = suggestion {
+                f = f.with_suggestion(s);
+            }
+            f
+        }
+        other => Finding::new(
+            RuleName::MissingRequiredComponent,
+            None,
+            other.to_string(),
+            None,
+        ),
+    };
+
+    // All graph errors are fatal — mark as error severity.
+    finding.effective_severity = ReportSeverity::Error;
+    finding.raw_severity = ReportSeverity::Error;
+    finding
 }
 
 /// Build the empty-project warning finding when no documents are in scope.
@@ -1193,6 +1268,187 @@ mod verify_tests {
                 .iter()
                 .any(|f| f.rule == RuleName::SequentialIdOrder),
             "Off-severity sequential findings should be filtered out",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // graph_error_findings
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn broken_ref_finding_suggests_close_match() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "auth/reqs".into(),
+            reason: "document `auth/reqs` not found".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 5,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req", "design/auth"]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].suggestion.as_deref(),
+            Some("auth/req"),
+            "should suggest closest doc ID",
+        );
+        assert!(findings[0].message.contains("broken ref"));
+    }
+
+    #[test]
+    fn broken_ref_finding_no_suggestion_for_distant_match() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "completely/different".into(),
+            reason: "document `completely/different` not found".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 3,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req", "design/auth"]);
+
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].suggestion.is_none(),
+            "no suggestion for distant match",
+        );
+    }
+
+    #[test]
+    fn broken_ref_with_fragment_preserves_fragment_in_suggestion() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "auth/reqs#crit-1".into(),
+            reason: "document `auth/reqs` not found".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 7,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req", "design/auth"]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].suggestion.as_deref(),
+            Some("auth/req#crit-1"),
+            "should preserve fragment in suggestion",
+        );
+    }
+
+    #[test]
+    fn broken_ref_fragment_not_found_has_no_suggestion() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "auth/req#typo".into(),
+            reason: "fragment `typo` not found in document `auth/req`".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 5,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req", "design/auth"]);
+
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].suggestion.is_none(),
+            "fragment-not-found should not suggest a doc ID: {:?}",
+            findings[0].suggestion,
+        );
+    }
+
+    #[test]
+    fn non_broken_ref_graph_error_has_no_suggestion_and_error_severity() {
+        use supersigil_core::GraphError;
+
+        let errors = vec![GraphError::DuplicateId {
+            id: "auth/req".into(),
+            paths: vec!["a.md".into(), "b.md".into()],
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req"]);
+
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].suggestion.is_none(),
+            "non-BrokenRef errors should not have suggestions",
+        );
+        assert_eq!(
+            findings[0].effective_severity,
+            ReportSeverity::Error,
+            "graph errors should always be error severity",
+        );
+    }
+
+    #[test]
+    fn task_dependency_broken_ref_has_no_doc_suggestion() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "auth/req".into(),
+            reason: "task `auth/req` not found among sibling tasks".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 5,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req", "design/auth"]);
+
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].suggestion.is_none(),
+            "task dependency errors should not suggest document IDs: {:?}",
+            findings[0].suggestion,
+        );
+    }
+
+    #[test]
+    fn broken_ref_finding_always_error_severity() {
+        use supersigil_core::{GraphError, SourcePosition};
+
+        let errors = vec![GraphError::BrokenRef {
+            doc_id: "tasks/auth".into(),
+            ref_str: "auth/reqs".into(),
+            reason: "document `auth/reqs` not found".into(),
+            position: SourcePosition {
+                byte_offset: 0,
+                line: 5,
+                column: 1,
+            },
+        }];
+
+        let findings = graph_error_findings(&errors, &["auth/req"]);
+
+        assert_eq!(
+            findings[0].effective_severity,
+            ReportSeverity::Error,
+            "broken ref findings should be error severity",
+        );
+        assert_eq!(
+            findings[0].raw_severity,
+            ReportSeverity::Error,
+            "broken ref findings should have error raw severity",
         );
     }
 }

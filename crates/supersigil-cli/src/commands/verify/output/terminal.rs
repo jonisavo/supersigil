@@ -76,6 +76,7 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
                 for finding in group {
                     let _ = writeln!(out, "  {symbol} {rule_label} {}", finding.message);
                     write_location(&mut out, finding, color);
+                    write_suggestion(&mut out, finding, color);
                 }
             } else {
                 collapsed = true;
@@ -181,6 +182,15 @@ fn write_location(out: &mut String, finding: &Finding, color: ColorConfig) {
     };
     let loc = format!("{path}:{}:{}", pos.line, pos.column);
     let _ = writeln!(out, "      {}", color.paint(Token::Hint, &loc));
+}
+
+/// Write an indented "did you mean?" hint if the finding has a suggestion.
+fn write_suggestion(out: &mut String, finding: &Finding, color: ColorConfig) {
+    let Some(suggestion) = &finding.suggestion else {
+        return;
+    };
+    let hint = format!("did you mean '{suggestion}'?");
+    let _ = writeln!(out, "      {}", color.paint(Token::Hint, &hint));
 }
 
 /// Return the severity symbol for terminal output, styled with the CLI's tokens.

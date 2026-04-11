@@ -523,3 +523,46 @@ fn timing_summary_singular_document() {
         "should not use plural for count 1, got:\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Did-you-mean suggestion tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shows_did_you_mean_when_suggestion_present() {
+    let finding = Finding::new(
+        RuleName::MissingRequiredComponent,
+        Some("tasks/auth".to_string()),
+        "broken ref `auth/reqs`".to_string(),
+        None,
+    )
+    .with_suggestion("auth/req".to_string());
+
+    let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
+    let report = VerificationReport::new(vec![finding], summary, None);
+
+    let out = format_terminal(&report, no_color());
+    assert!(
+        out.contains("did you mean 'auth/req'?"),
+        "should show 'did you mean' hint, got:\n{out}",
+    );
+}
+
+#[test]
+fn no_did_you_mean_when_suggestion_absent() {
+    let finding = Finding::new(
+        RuleName::MissingRequiredComponent,
+        Some("tasks/auth".to_string()),
+        "broken ref `completely/different`".to_string(),
+        None,
+    );
+
+    let summary = Summary::from_findings(1, std::slice::from_ref(&finding));
+    let report = VerificationReport::new(vec![finding], summary, None);
+
+    let out = format_terminal(&report, no_color());
+    assert!(
+        !out.contains("did you mean"),
+        "should not show 'did you mean' when suggestion is absent, got:\n{out}",
+    );
+}

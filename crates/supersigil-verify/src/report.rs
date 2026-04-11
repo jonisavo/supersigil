@@ -212,6 +212,9 @@ pub struct Finding {
     /// Structured metadata for programmatic consumers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Box<FindingDetails>>,
+    /// A "did you mean?" suggestion for broken references.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 /// Structured metadata for programmatic remediation and source attribution.
@@ -258,6 +261,7 @@ impl Finding {
             raw_severity: severity,
             position,
             details: None,
+            suggestion: None,
         }
     }
 
@@ -265,6 +269,13 @@ impl Finding {
     #[must_use]
     pub fn with_details(mut self, details: FindingDetails) -> Self {
         self.details = Some(Box::new(details));
+        self
+    }
+
+    /// Attach a "did you mean?" suggestion for broken references.
+    #[must_use]
+    pub fn with_suggestion(mut self, suggestion: String) -> Self {
+        self.suggestion = Some(suggestion);
         self
     }
 }
@@ -667,6 +678,7 @@ mod tests {
                     column: 1,
                 }),
                 details: None,
+                suggestion: None,
             }],
             Summary {
                 total_documents: 1,
@@ -736,6 +748,7 @@ mod tests {
                 raw_severity: ReportSeverity::Error,
                 position: None,
                 details: None,
+                suggestion: None,
             }],
             Summary {
                 total_documents: 1,
@@ -770,6 +783,7 @@ mod tests {
                     raw_severity: ReportSeverity::Error,
                     position: None,
                     details: None,
+                    suggestion: None,
                 },
                 Finding {
                     rule: RuleName::ZeroTagMatches,
@@ -779,6 +793,7 @@ mod tests {
                     raw_severity: ReportSeverity::Warning,
                     position: None,
                     details: None,
+                    suggestion: None,
                 },
             ],
             Summary {
@@ -902,6 +917,7 @@ mod tests {
                 raw_severity: ReportSeverity::Error,
                 position: None,
                 details: None,
+                suggestion: None,
             }],
             Summary {
                 total_documents: 1,
@@ -946,6 +962,7 @@ mod tests {
                 raw_severity: ReportSeverity::Error,
                 position: None,
                 details: None,
+                suggestion: None,
             }],
             Summary {
                 total_documents: 1,
@@ -1072,6 +1089,79 @@ mod tests {
         assert!(
             !without_json.contains("\"details\""),
             "details should be skipped when absent: {without_json}",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Finding::with_suggestion
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn with_suggestion_sets_field() {
+        let finding = Finding::new(
+            RuleName::MissingRequiredComponent,
+            Some("tasks/auth".into()),
+            "broken ref".into(),
+            None,
+        )
+        .with_suggestion("auth/req".into());
+
+        assert_eq!(finding.suggestion.as_deref(), Some("auth/req"));
+    }
+
+    #[test]
+    fn suggestion_serializes_in_json_when_present() {
+        let report = VerificationReport::new(
+            vec![
+                Finding::new(
+                    RuleName::MissingRequiredComponent,
+                    Some("tasks/auth".into()),
+                    "broken ref `auth/reqs`".into(),
+                    None,
+                )
+                .with_suggestion("auth/req".into()),
+            ],
+            Summary {
+                total_documents: 1,
+                error_count: 1,
+                warning_count: 0,
+                info_count: 0,
+            },
+            None,
+        );
+
+        let json = format_json(&report);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("should parse as valid JSON");
+
+        assert_eq!(
+            parsed["findings"][0]["suggestion"], "auth/req",
+            "JSON should contain suggestion field, got: {json}",
+        );
+    }
+
+    #[test]
+    fn suggestion_absent_in_json_when_none() {
+        let report = VerificationReport::new(
+            vec![Finding::new(
+                RuleName::MissingRequiredComponent,
+                Some("tasks/auth".into()),
+                "some finding".into(),
+                None,
+            )],
+            Summary {
+                total_documents: 1,
+                error_count: 1,
+                warning_count: 0,
+                info_count: 0,
+            },
+            None,
+        );
+
+        let json = format_json(&report);
+        assert!(
+            !json.contains("\"suggestion\""),
+            "suggestion should be absent when None, got: {json}",
         );
     }
 }

@@ -44,6 +44,10 @@ pub(crate) struct PhaseTimings {
 ///
 /// Progress lines and timing summary are emitted to stderr in terminal mode.
 ///
+/// When graph construction fails (e.g. broken refs), the command converts
+/// graph errors into findings with "did you mean?" suggestions instead of
+/// aborting immediately.
+///
 /// # Errors
 ///
 /// Returns `CliError` if loading fails or verification encounters a fatal error.
@@ -64,11 +68,31 @@ pub fn run(
     }
     let parse_start = Instant::now();
 
-    let (config, graph) = loader::load_graph(config_path).inspect_err(|_| {
+    let (config, documents, parse_errors) = loader::parse_all(config_path).inspect_err(|_| {
         if is_terminal {
             progress("\n");
         }
     })?;
+    if !parse_errors.is_empty() {
+        if is_terminal {
+            progress("\n");
+        }
+        return Err(CliError::Parse(parse_errors));
+    }
+
+    let doc_ids: Vec<String> = documents.iter().map(|d| d.frontmatter.id.clone()).collect();
+
+    let graph = match supersigil_core::build_graph(documents, &config) {
+        Ok(graph) => graph,
+        Err(graph_errors) => {
+            if is_terminal {
+                progress("\n");
+            }
+            let known: Vec<&str> = doc_ids.iter().map(String::as_str).collect();
+            let findings = supersigil_verify::graph_error_findings(&graph_errors, &known);
+            return output_graph_error_findings(args, findings, doc_ids.len(), color);
+        }
+    };
     let project_root = loader::project_root(config_path);
 
     let options = VerifyOptions {
@@ -200,6 +224,37 @@ pub fn run(
             Ok(ExitStatus::VerifyWarnings)
         }
     }
+}
+
+/// Output findings from graph construction errors and return an error exit.
+fn output_graph_error_findings(
+    args: &VerifyArgs,
+    findings: Vec<supersigil_verify::Finding>,
+    doc_count: usize,
+    color: ColorConfig,
+) -> Result<ExitStatus, CliError> {
+    let summary = supersigil_verify::Summary::from_findings(doc_count, &findings);
+    let report = supersigil_verify::VerificationReport::new(findings, summary, None);
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    match args.format {
+        VerifyFormat::Terminal => {
+            let text = format_terminal(&report, color);
+            write!(out, "{text}")?;
+        }
+        VerifyFormat::Json => {
+            let text = format_json(&report);
+            writeln!(out, "{text}")?;
+        }
+        VerifyFormat::Markdown => {
+            let text = format_markdown(&report);
+            write!(out, "{text}")?;
+        }
+    }
+
+    Ok(ExitStatus::VerifyFailed)
 }
 
 // ===========================================================================

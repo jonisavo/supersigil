@@ -1807,6 +1807,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "strsim",
  "supersigil-core",
  "supersigil-evidence",
  "supersigil-js",

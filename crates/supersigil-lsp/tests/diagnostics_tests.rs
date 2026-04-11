@@ -203,6 +203,7 @@ fn finding_warning_maps_to_lsp_warning() {
         raw_severity: ReportSeverity::Warning,
         position: None,
         details: None,
+        suggestion: None,
     };
 
     let (_, diag) =
@@ -223,6 +224,7 @@ fn finding_info_maps_to_lsp_hint() {
         raw_severity: ReportSeverity::Info,
         position: None,
         details: None,
+        suggestion: None,
     };
 
     let (_, diag) =
@@ -242,6 +244,7 @@ fn finding_off_is_filtered_out() {
         raw_severity: ReportSeverity::Off,
         position: None,
         details: None,
+        suggestion: None,
     };
 
     assert!(
@@ -260,6 +263,7 @@ fn finding_without_doc_id_returns_none_when_no_lookup() {
         raw_severity: ReportSeverity::Warning,
         position: None,
         details: None,
+        suggestion: None,
     };
 
     assert!(
@@ -283,6 +287,7 @@ fn finding_with_position_uses_source_position() {
             column: 5,
         }),
         details: None,
+        suggestion: None,
     };
 
     let (url, diag) =
@@ -312,6 +317,7 @@ fn finding_with_details_path_uses_details_path() {
             column: Some(2),
             ..FindingDetails::default()
         })),
+        suggestion: None,
     };
 
     let (url, diag) =
