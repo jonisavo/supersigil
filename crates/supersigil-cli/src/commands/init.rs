@@ -10,8 +10,15 @@ use crate::skills::{self, DEFAULT_SKILLS_PATH};
 
 const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.md"]
 
-# See https://supersigil.org/reference/configuration/ for all options,
-# including multi-project mode, ecosystem plugins, and verification rules.
+# Ecosystem plugins discover test evidence from language-native annotations.
+# [ecosystem]
+# plugins = ["rust"]   # Enables #[verifies("doc#criterion")] attribute
+# plugins = ["js"]     # Enables verifies("doc#criterion") in Vitest/Jest
+
+# Override default severity for specific verification rules.
+# [verify.rules]
+# missing_verification_evidence = "warning"   # Downgrade from error
+# stale_tracked_files = "off"                 # Disable staleness checks
 "#;
 
 /// Resolved skills installation decision.

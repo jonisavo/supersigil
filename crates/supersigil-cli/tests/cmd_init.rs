@@ -181,6 +181,54 @@ fn init_prints_skill_chooser() {
     );
 }
 
+#[test]
+fn init_config_contains_commented_ecosystem_example() {
+    let tmp = TempDir::new().unwrap();
+    cargo_bin_cmd!("supersigil")
+        .args(["init", "--no-skills"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(tmp.path().join("supersigil.toml")).unwrap();
+    assert!(
+        content.contains("# [ecosystem]"),
+        "should contain commented-out [ecosystem] section: {content}"
+    );
+    assert!(
+        content.contains(r#"# plugins = ["rust"]"#),
+        "should contain commented-out rust plugin example: {content}"
+    );
+    assert!(
+        content.contains(r#"# plugins = ["js"]"#),
+        "should contain commented-out js plugin example: {content}"
+    );
+}
+
+#[test]
+fn init_config_contains_commented_verify_rules_example() {
+    let tmp = TempDir::new().unwrap();
+    cargo_bin_cmd!("supersigil")
+        .args(["init", "--no-skills"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(tmp.path().join("supersigil.toml")).unwrap();
+    assert!(
+        content.contains("# [verify.rules]"),
+        "should contain commented-out [verify.rules] section: {content}"
+    );
+    assert!(
+        content.contains(r#"# missing_verification_evidence = "warning""#),
+        "should contain commented-out missing_verification_evidence example: {content}"
+    );
+    assert!(
+        content.contains(r#"# stale_tracked_files = "off""#),
+        "should contain commented-out stale_tracked_files example: {content}"
+    );
+}
+
 #[verifies("authoring-commands/req#req-1-2")]
 #[test]
 fn init_fails_if_config_exists() {
