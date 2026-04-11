@@ -155,9 +155,40 @@ jobs:
       CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
   publish-npm:
+    # npm publish needs to be inline.
+    # If it were in a separate workflow, both release.yml and publish-npm.yml
+    # would be included in the signed provenance statement, which causes npm
+    # to reject publishing.
     name: Publish npm
     needs: release
-    uses: ./.github/workflows/publish-npm.yml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish @supersigil/vitest
+        run: npm publish --no-git-checks --access public --provenance
+        working-directory: packages/vitest
+
+      - name: Publish @supersigil/eslint-plugin
+        run: npm publish --no-git-checks --access public --provenance
+        working-directory: packages/eslint-plugin
 
   publish-homebrew:
     name: Publish Homebrew
