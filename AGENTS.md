@@ -5,7 +5,7 @@
 - Use `cargo fmt` for formatting code
 - Use `cargo clippy` for linting.
 - Use `cargo nextest run` for testing.
-- Use your Rust skills while doing work on the Rust codebase.
+- When bootstrapping a new worktree, use `mise trust` and `mise setup'.
 
 Run all three before finalizing work:
 
