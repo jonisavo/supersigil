@@ -2,7 +2,7 @@
 pkgname=supersigil-lsp-bin
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Language server for Supersigil spec documents"
+pkgdesc="Language server for Supersigil spec documents (binary release)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/jonisavo/supersigil"
 license=('MIT' 'Apache-2.0')

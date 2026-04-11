@@ -2,7 +2,7 @@
 pkgname=supersigil-bin
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="CLI tool and verification framework for spec-driven development"
+pkgdesc="CLI tool and verification framework for spec-driven development (binary release)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/jonisavo/supersigil"
 license=('MIT' 'Apache-2.0')
