@@ -23,22 +23,22 @@ fn init_non_tty_creates_config_and_skills() {
     assert!(tmp.path().join("supersigil.toml").exists());
     assert!(
         tmp.path()
-            .join(".agents/skills/feature-development/SKILL.md")
+            .join(".agents/skills/ss-feature-development/SKILL.md")
             .exists()
     );
     assert!(
         tmp.path()
-            .join(".agents/skills/feature-specification/SKILL.md")
+            .join(".agents/skills/ss-feature-specification/SKILL.md")
             .exists()
     );
     assert!(
         tmp.path()
-            .join(".agents/skills/retroactive-specification/SKILL.md")
+            .join(".agents/skills/ss-retroactive-specification/SKILL.md")
             .exists()
     );
     assert!(
         tmp.path()
-            .join(".agents/skills/spec-driven-development/SKILL.md")
+            .join(".agents/skills/ss-spec-driven-development/SKILL.md")
             .exists()
     );
 }
@@ -69,7 +69,7 @@ fn init_skills_path_writes_to_custom_dir_and_updates_toml() {
 
     assert!(
         tmp.path()
-            .join("custom/skills/feature-development/SKILL.md")
+            .join("custom/skills/ss-feature-development/SKILL.md")
             .exists()
     );
 
@@ -93,7 +93,7 @@ fn init_skills_flag_without_path_uses_default() {
 
     assert!(
         tmp.path()
-            .join(".agents/skills/feature-development/SKILL.md")
+            .join(".agents/skills/ss-feature-development/SKILL.md")
             .exists()
     );
 
@@ -117,7 +117,7 @@ fn init_yes_flag_creates_config_and_skills() {
     assert!(tmp.path().join("supersigil.toml").exists());
     assert!(
         tmp.path()
-            .join(".agents/skills/feature-development/SKILL.md")
+            .join(".agents/skills/ss-feature-development/SKILL.md")
             .exists()
     );
 }
@@ -172,11 +172,11 @@ fn init_prints_skill_chooser() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("feature-development"),
+        stderr.contains("ss-feature-development"),
         "should print skill chooser to stderr: {stderr}"
     );
     assert!(
-        stderr.contains("feature-specification"),
+        stderr.contains("ss-feature-specification"),
         "should print skill chooser to stderr: {stderr}"
     );
 }

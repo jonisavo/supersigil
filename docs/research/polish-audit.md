@@ -7,15 +7,6 @@ documentation, and onboarding experience.
 
 ## Init and Onboarding
 
-### Skills Installation Feedback
-
-`supersigil skills install` prints `Installed 6 skills to {path}` — count
-and path only, no individual skill names. The `init` command does print a
-chooser guide listing all 6 skills with descriptions after installation,
-which is good. The remaining gap: `skills install` (standalone) doesn't
-show the chooser, and there's no `skills list` or `skills check` command
-to inspect what's installed or whether skills are up to date.
-
 ### No Skills Listing/Check Command
 
 No way to check which skills are installed, whether they match the current

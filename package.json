@@ -5,7 +5,7 @@
   "scripts": {
     "lint:eslint": "eslint packages/",
     "bundle:explore-assets": "mkdir -p crates/supersigil-cli/src/commands/explore_assets && pnpm --filter @supersigil/preview run build && pnpm --filter supersigil-website run bundle:standalone && cp website/src/styles/landing-tokens.css website/src/components/explore/styles.css packages/preview/styles/supersigil-preview.css packages/preview/scripts/supersigil-preview.js packages/preview/dist/render-iife.js crates/supersigil-cli/src/commands/explore_assets/",
-    "bundle:cli-assets": "pnpm run bundle:explore-assets && mkdir -p crates/supersigil-cli/skills && cp -r .agents/skills/ci-review .agents/skills/feature-development .agents/skills/feature-specification .agents/skills/refactoring .agents/skills/retroactive-specification .agents/skills/spec-driven-development crates/supersigil-cli/skills/"
+    "bundle:cli-assets": "pnpm run bundle:explore-assets && rm -rf crates/supersigil-cli/skills && mkdir -p crates/supersigil-cli/skills && for skill in ci-review feature-development feature-specification refactoring retroactive-specification spec-driven-development; do cp -r .agents/skills/$skill crates/supersigil-cli/skills/ss-$skill; done"
   },
   "devDependencies": {
     "@supersigil/eslint-plugin": "workspace:*",

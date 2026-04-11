@@ -37,6 +37,8 @@ fn run_install(
         color.paint(Token::Path, &dir.display().to_string()),
     )?;
 
+    skills::print_chooser(color);
+
     Ok(())
 }
 

@@ -142,7 +142,7 @@ Once the first module works:
 - **Use `TrackedFiles` early.** Even before criteria have full evidence, tracked files give you drift detection. You will know when code changes and a spec might need review.
 - **Use `supersigil status`** to see coverage across all specs at a glance.
 - **Keep new specs in `draft`** until evidence is wired up. This prevents verify from blocking CI on work-in-progress specs.
-- **Let AI agents handle the next module.** The agent skills installed by `supersigil init` include a `retroactive-specification` skill designed for exactly this case — an agent reads existing code and tests, writes the spec, and wires up evidence. Point it at a module and let it follow the same loop you just did manually.
+- **Let AI agents handle the next module.** The agent skills installed by `supersigil init` include an `ss-retroactive-specification` skill designed for exactly this case — an agent reads existing code and tests, writes the spec, and wires up evidence. Point it at a module and let it follow the same loop you just did manually.
 
 <Aside type="tip">
   For non-Rust projects, you can use `<VerifiedBy strategy="tag" tag="auth:valid-creds" />` in your criteria and add `// supersigil: auth:valid-creds` comments in test files instead. See [Evidence Sources](/concepts/evidence-sources/) for all options.

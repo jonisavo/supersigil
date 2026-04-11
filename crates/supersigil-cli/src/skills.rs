@@ -1,9 +1,11 @@
 //! Embedded agent skills and write logic.
 
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 
 use include_dir::{Dir, include_dir};
+
+use crate::format::{ColorConfig, Token};
 
 /// Default directory for installed skills.
 pub const DEFAULT_SKILLS_PATH: &str = ".agents/skills";
@@ -11,28 +13,28 @@ pub const DEFAULT_SKILLS_PATH: &str = ".agents/skills";
 /// The supersigil agent skills, embedded at compile time.
 const SKILL_DIRS: &[(&str, Dir<'_>)] = &[
     (
-        "ci-review",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/ci-review"),
+        "ss-ci-review",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-ci-review"),
     ),
     (
-        "feature-development",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/feature-development"),
+        "ss-feature-development",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-feature-development"),
     ),
     (
-        "feature-specification",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/feature-specification"),
+        "ss-feature-specification",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-feature-specification"),
     ),
     (
-        "refactoring",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/refactoring"),
+        "ss-refactoring",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-refactoring"),
     ),
     (
-        "retroactive-specification",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/retroactive-specification"),
+        "ss-retroactive-specification",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-retroactive-specification"),
     ),
     (
-        "spec-driven-development",
-        include_dir!("$CARGO_MANIFEST_DIR/skills/spec-driven-development"),
+        "ss-spec-driven-development",
+        include_dir!("$CARGO_MANIFEST_DIR/skills/ss-spec-driven-development"),
     ),
 ];
 
@@ -48,6 +50,43 @@ pub fn write_skills(dir: &Path) -> io::Result<usize> {
         write_dir_recursive(&dir.join(name), embedded)?;
     }
     Ok(SKILL_DIRS.len())
+}
+
+/// Print the skill chooser guide to stderr.
+pub fn print_chooser(color: ColorConfig) {
+    let err = io::stderr();
+    let mut w = err.lock();
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "  Build or fix with existing specs  -> {}",
+        color.paint(Token::DocId, "ss-feature-development")
+    );
+    let _ = writeln!(
+        w,
+        "  Write or repair specs             -> {}",
+        color.paint(Token::DocId, "ss-feature-specification")
+    );
+    let _ = writeln!(
+        w,
+        "  Existing code, no specs           -> {}",
+        color.paint(Token::DocId, "ss-retroactive-specification")
+    );
+    let _ = writeln!(
+        w,
+        "  Behavior-preserving cleanup       -> {}",
+        color.paint(Token::DocId, "ss-refactoring")
+    );
+    let _ = writeln!(
+        w,
+        "  CI / PR verification              -> {}",
+        color.paint(Token::DocId, "ss-ci-review")
+    );
+    let _ = writeln!(
+        w,
+        "  Full guided flow                  -> {}",
+        color.paint(Token::DocId, "ss-spec-driven-development")
+    );
 }
 
 fn write_dir_recursive(target: &Path, dir: &Dir<'_>) -> io::Result<()> {
@@ -83,12 +122,12 @@ mod tests {
         let count = write_skills(&dir).unwrap();
 
         assert_eq!(count, 6, "should write 6 skills");
-        assert!(dir.join("ci-review/SKILL.md").exists());
-        assert!(dir.join("feature-development/SKILL.md").exists());
-        assert!(dir.join("feature-specification/SKILL.md").exists());
-        assert!(dir.join("refactoring/SKILL.md").exists());
-        assert!(dir.join("retroactive-specification/SKILL.md").exists());
-        assert!(dir.join("spec-driven-development/SKILL.md").exists());
+        assert!(dir.join("ss-ci-review/SKILL.md").exists());
+        assert!(dir.join("ss-feature-development/SKILL.md").exists());
+        assert!(dir.join("ss-feature-specification/SKILL.md").exists());
+        assert!(dir.join("ss-refactoring/SKILL.md").exists());
+        assert!(dir.join("ss-retroactive-specification/SKILL.md").exists());
+        assert!(dir.join("ss-spec-driven-development/SKILL.md").exists());
     }
 
     #[verifies("skills-install/req#req-1-1")]
@@ -99,14 +138,17 @@ mod tests {
         write_skills(&dir).unwrap();
 
         assert!(
-            dir.join("feature-development/references/implementation-loop.md")
+            dir.join("ss-feature-development/references/implementation-loop.md")
                 .exists()
         );
         assert!(
-            dir.join("feature-specification/references/templates.md")
+            dir.join("ss-feature-specification/references/templates.md")
                 .exists()
         );
-        assert!(dir.join("feature-development/agents/openai.yaml").exists());
+        assert!(
+            dir.join("ss-feature-development/agents/openai.yaml")
+                .exists()
+        );
     }
 
     #[test]
@@ -115,12 +157,14 @@ mod tests {
         let dir = tmp.path().join("skills");
 
         write_skills(&dir).unwrap();
-        let original = std::fs::read_to_string(dir.join("feature-development/SKILL.md")).unwrap();
+        let original =
+            std::fs::read_to_string(dir.join("ss-feature-development/SKILL.md")).unwrap();
 
-        std::fs::write(dir.join("feature-development/SKILL.md"), "tampered").unwrap();
+        std::fs::write(dir.join("ss-feature-development/SKILL.md"), "tampered").unwrap();
 
         write_skills(&dir).unwrap();
-        let restored = std::fs::read_to_string(dir.join("feature-development/SKILL.md")).unwrap();
+        let restored =
+            std::fs::read_to_string(dir.join("ss-feature-development/SKILL.md")).unwrap();
 
         assert_eq!(original, restored);
         assert_ne!(restored, "tampered");
