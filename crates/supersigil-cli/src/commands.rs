@@ -1,5 +1,7 @@
 /// Documents affected by file changes since a git ref.
 pub mod affected;
+/// Shell completion script generation.
+pub mod completions;
 /// Structured context view of a single document.
 pub mod context;
 /// Interactive graph explorer served in the browser.
@@ -80,6 +82,8 @@ pub enum Command {
     Explore(ExploreArgs),
     /// Render component trees with verification data for all documents
     Render(RenderArgs),
+    /// Generate shell completion scripts
+    Completions(CompletionsArgs),
 }
 
 /// Arguments for the `ls` command.
@@ -338,6 +342,13 @@ pub struct RenderArgs {
     /// Output format
     #[arg(long, default_value = "json")]
     pub format: RenderFormat,
+}
+
+/// Arguments for the `completions` command.
+#[derive(Debug, clap::Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for
+    pub shell: clap_complete::Shell,
 }
 
 fn parse_import_prefix(raw: &str) -> Result<String, String> {

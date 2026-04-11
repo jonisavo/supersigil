@@ -42,6 +42,10 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
             supersigil_cli::commands::init::run(args, color)?;
             return Ok(ExitStatus::Success);
         }
+        supersigil_cli::Command::Completions(ref args) => {
+            supersigil_cli::commands::completions::run(args)?;
+            return Ok(ExitStatus::Success);
+        }
         supersigil_cli::Command::Skills(ref args) => {
             supersigil_cli::commands::skills::run(args, color)?;
             return Ok(ExitStatus::Success);
@@ -90,6 +94,7 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
         }
         supersigil_cli::Command::Import(_)
         | supersigil_cli::Command::Init(_)
+        | supersigil_cli::Command::Completions(_)
         | supersigil_cli::Command::Skills(_) => unreachable!(),
     }
 
