@@ -1,11 +1,13 @@
 package org.supersigil.intellij
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
@@ -99,7 +101,6 @@ private fun scheduleRefreshWithRetry(
     val retryAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, toolWindow.disposable)
     val refreshAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, toolWindow.disposable)
     var listenerAttached = false
-    var serverStartAttempted = false
 
     fun tryRefresh() {
         if (project.isDisposed) return
@@ -107,9 +108,10 @@ private fun scheduleRefreshWithRetry(
         // Proactively start the LSP server if it hasn't been started yet.
         // The IntelliJ LSP framework normally only starts the server when a
         // matching file is opened in the editor, but the spec explorer needs
-        // the server before any file is opened.
-        if (!serverStartAttempted) {
-            serverStartAttempted = true
+        // the server before any file is opened. Retry on each poll so that
+        // installing the binary while the IDE is open is picked up
+        // automatically.
+        if (supersigilServers(project).isEmpty()) {
             ensureLspServerStarted(project)
         }
 
@@ -126,10 +128,12 @@ private fun scheduleRefreshWithRetry(
         }
 
         val root = fetchTreeRoot(project)
+        val settings = SupersigilSettings.getInstance()
+        val hasBinary = resolveServerBinary(settings.serverPath) != null
 
         ToolWindowManager.getInstance(project).invokeLater {
             if (project.isDisposed) return@invokeLater
-            updateTree(tree, root, project)
+            updateTree(tree, root, project, hasBinary)
 
             // Keep retrying until the listener is attached. Once it is,
             // the documentsChanged notification handles all future updates.
@@ -162,10 +166,39 @@ private fun ensureLspServerStarted(project: Project) {
     )
 }
 
+private val LINK_ATTRIBUTES =
+    SimpleTextAttributes(
+        SimpleTextAttributes.STYLE_PLAIN,
+        JBColor.namedColor("Link.activeForeground", JBColor(0x2470B3, 0x589DF6)),
+    )
+
+private fun setNotInstalledEmptyText(
+    tree: Tree,
+    project: Project,
+) {
+    tree.emptyText.clear()
+    tree.emptyText.setText("Supersigil LSP server not found. Install to get started")
+    tree.emptyText.appendLine(
+        "This panel updates automatically",
+        SimpleTextAttributes.GRAYED_ATTRIBUTES,
+        null,
+    )
+    tree.emptyText.appendLine("")
+    tree.emptyText.appendLine("Installation guide", LINK_ATTRIBUTES) { _: java.awt.event.ActionEvent ->
+        BrowserUtil.browse(EDITOR_SETUP_URL)
+    }
+    tree.emptyText.appendLine("Open Settings", LINK_ATTRIBUTES) { _: java.awt.event.ActionEvent ->
+        ShowSettingsUtil
+            .getInstance()
+            .showSettingsDialog(project, SupersigilSettingsConfigurable::class.java)
+    }
+}
+
 private fun updateTree(
     tree: Tree,
     root: DefaultMutableTreeNode,
     project: Project,
+    hasBinary: Boolean,
 ) {
     val model = tree.model as DefaultTreeModel
     model.setRoot(root)
@@ -176,8 +209,10 @@ private fun updateTree(
     if (root.childCount == 0) {
         if (hasRunningSupersigil(project)) {
             tree.emptyText.setText("No spec documents found")
-        } else {
+        } else if (hasBinary) {
             tree.emptyText.setText("Waiting for language server\u2026")
+        } else {
+            setNotInstalledEmptyText(tree, project)
         }
     }
 }
@@ -189,9 +224,11 @@ private fun scheduleRefresh(
     ApplicationManager.getApplication().executeOnPooledThread {
         if (project.isDisposed) return@executeOnPooledThread
         val root = fetchTreeRoot(project)
+        val settings = SupersigilSettings.getInstance()
+        val hasBinary = resolveServerBinary(settings.serverPath) != null
         ToolWindowManager.getInstance(project).invokeLater {
             if (project.isDisposed) return@invokeLater
-            updateTree(tree, root, project)
+            updateTree(tree, root, project, hasBinary)
         }
     }
 }
