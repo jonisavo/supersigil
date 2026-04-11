@@ -40,6 +40,14 @@ serde.workspace = true
 serde_json.workspace = true
 glob.workspace = true
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.'cfg(all(target_os = "linux", target_env = "gnu"))']
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target-arch }-unknown-linux-musl.tar.gz"
+
 [dev-dependencies]
 insta.workspace = true
 supersigil-core = { workspace = true, features = ["test-helpers"] }
