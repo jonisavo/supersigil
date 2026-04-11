@@ -13,9 +13,6 @@ jobs:
   vscode:
     name: Publish VS Code extension
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: editors/vscode
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -34,13 +31,16 @@ jobs:
 
       - name: Package
         run: pnpm exec vsce package --no-dependencies
+        working-directory: editors/vscode
 
       - name: Publish to VS Code Marketplace
         run: pnpm exec vsce publish --packagePath ./*.vsix
+        working-directory: editors/vscode
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
         run: pnpm dlx ovsx publish ./*.vsix
+        working-directory: editors/vscode
         env:
           OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
