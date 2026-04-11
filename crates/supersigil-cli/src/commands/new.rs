@@ -42,6 +42,18 @@ pub fn run(args: &NewArgs, config_path: &Path, color: ColorConfig) -> Result<(),
 
     // Convention: ID = {feature}/{type_short}, path = {spec_dir}{feature}/{feature}.{type_short}.md
     let doc_id = format!("{}/{type_short}", args.id);
+
+    // Early validation: check ID against configured pattern before writing any files.
+    if let Some(pattern) = &config.id_pattern {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            if !re.is_match(&doc_id) {
+                return Err(CliError::CommandFailed(format!(
+                    "generated ID '{doc_id}' does not match the configured id_pattern '{pattern}'"
+                )));
+            }
+        }
+    }
+
     let output_path = format!("{spec_dir}{}/{}.{type_short}.md", args.id, args.id);
     let output = Path::new(&output_path);
 

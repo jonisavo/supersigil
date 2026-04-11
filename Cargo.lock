@@ -1648,6 +1648,7 @@ dependencies = [
  "include_dir",
  "open",
  "predicates",
+ "regex",
  "serde",
  "serde_json",
  "supersigil-core",
