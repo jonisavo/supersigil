@@ -1,5 +1,5 @@
 ---
-name: refactoring
+name: ss-refactoring
 description: Use when restructuring code that has Supersigil specs and behavior must not change. Activates for module extraction, file moves, renames, hierarchy flattening, or any structural cleanup. Keeps specs, criteria, tracked files, and verification evidence valid throughout.
 ---
 
@@ -23,8 +23,8 @@ supersigil verify
 ```
 
 If the spec graph is missing, broken, or incomplete for the area being
-refactored, stop and hand the job to `retroactive-specification` or
-`feature-specification` first. Do not refactor code that has no
+refactored, stop and hand the job to `ss-retroactive-specification` or
+`ss-feature-specification` first. Do not refactor code that has no
 behavioral contract.
 
 ## Workflow
@@ -67,7 +67,7 @@ behavioral contract.
    does or what the specs say it should do.
    If the refactoring reveals that a criterion is wrong or missing,
    stop the refactoring for that area and hand it to
-   `feature-specification`.
+   `ss-feature-specification`.
 
 7. Verify the refactoring preserved the contract.
    Run `supersigil verify` and compare against the baseline snapshot.
@@ -107,9 +107,9 @@ behavioral contract.
 
 ## Handoff
 
-If the refactoring reveals missing specs, suggest `retroactive-specification`
-or `feature-specification`.
+If the refactoring reveals missing specs, suggest `ss-retroactive-specification`
+or `ss-feature-specification`.
 If the refactoring is preparation for a new feature, suggest
-`spec-driven-development` or `feature-development` for the next phase.
+`ss-spec-driven-development` or `ss-feature-development` for the next phase.
 If the user wants to continue with more structural changes, stay in this
 skill for the next bounded refactoring.

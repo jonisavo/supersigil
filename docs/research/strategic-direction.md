@@ -110,7 +110,7 @@ and teams that update specs continuously alongside code.
 **What already exists:**
 - `supersigil affected --since <ref>` detects which specs are stale after
   code changes. This is the foundation.
-- Agent skills (feature-development) already encourage updating `<Task
+- Agent skills (ss-feature-development) already encourage updating `<Task
   status="...">` and spec docs when implementation reveals changes.
 - `status: draft` gating lets teams work iteratively without breaking CI.
 
@@ -125,7 +125,7 @@ and teams that update specs continuously alongside code.
   specs, suggest which sections likely need updating based on which tracked
   files changed.
 - **Agent skill for spec maintenance.** A dedicated skill (not just guidance
-  in feature-development) that agents invoke after implementation to review
+  in ss-feature-development) that agents invoke after implementation to review
   and update affected specs. The skill would run `affected`, read the changed
   specs, and update criteria/tasks/status to match the new reality.
 - **Spec changelog tracking.** When specs change, record what changed and
@@ -185,7 +185,7 @@ via naming conventions. Powerful for disciplined teams but needs careful
 design to avoid false positives.
 
 **Reverse traceability** -- generate specs from existing test suites. The
-`retroactive-specification` skill is a start; a `supersigil analyze` command
+`ss-retroactive-specification` skill is a start; a `supersigil analyze` command
 could provide structured input for the skill.
 
 **WASM plugins** -- custom verification rules and evidence discovery via

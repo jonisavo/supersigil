@@ -8,7 +8,7 @@ title: "Kiro Import Tasks"
 
 ## Overview
 
-This tasks document tracks the bounded retroactive-specification pass for the
+This tasks document tracks the bounded ss-retroactive-specification pass for the
 current Kiro import domain.
 
 ```supersigil-xml

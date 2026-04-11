@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Development"
+  short_description: "Fix bugs, add features, and implement against Supersigil specs"
+  default_prompt: "Use $ss-feature-development to implement, fix, or extend code in a project with existing Supersigil specs. Keeps tasks, tests, and verification in sync."

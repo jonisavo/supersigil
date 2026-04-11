@@ -8,7 +8,7 @@ title: "Rust Plugin Tasks"
 
 ## Overview
 
-This tasks document tracks the retroactive-specification pass for the runtime
+This tasks document tracks the ss-retroactive-specification pass for the runtime
 Rust plugin surface.
 
 ```supersigil-xml

@@ -1,6 +1,6 @@
 ---
-name: spec-driven-development
-description: Use ONLY when the user explicitly requests the full end-to-end Supersigil workflow — from feature idea through verified specs to implementation. This is the guided "omakase" flow. For just writing specs, use feature-specification. For just implementing, use feature-development.
+name: ss-spec-driven-development
+description: Use ONLY when the user explicitly requests the full end-to-end Supersigil workflow — from feature idea through verified specs to implementation. This is the guided "omakase" flow. For just writing specs, use ss-feature-specification. For just implementing, use ss-feature-development.
 ---
 
 # Spec-Driven Development
@@ -12,8 +12,8 @@ Use this skill only when the user explicitly wants the full guided Supersigil wo
 Treat this as a directive wrapper over a conditional planning round plus the two lower-level Supersigil skills:
 
 - a structured planning round in the conversation when the starting request is underspecified, or whenever the user explicitly asks for planning
-- `feature-specification` for requirements, design, and tasks
-- `feature-development` for implementation against the finished spec graph
+- `ss-feature-specification` for requirements, design, and tasks
+- `ss-feature-development` for implementation against the finished spec graph
 
 If those skills are not available, fall back to the embedded summaries below instead of failing.
 Do not author requirements or design from guessed intent when the planning round is required.
@@ -23,12 +23,12 @@ Do not author requirements or design from guessed intent when the planning round
 This skill delegates to the lower-level skills at explicit phase boundaries:
 
 1. **Planning phase** — owned by this skill directly (conversational).
-2. **Specification phase** — delegate to `feature-specification`.
+2. **Specification phase** — delegate to `ss-feature-specification`.
    Follow its full workflow: inspect state, scaffold, author requirements,
    pause for feedback, author design, pause for feedback, author tasks,
    pause for feedback. Run `supersigil verify` and `supersigil verify` as
    that skill prescribes.
-3. **Implementation phase** — delegate to `feature-development`.
+3. **Implementation phase** — delegate to `ss-feature-development`.
    Follow its full workflow: read plan, pick a slice, implement with TDD,
    add evidence, update task statuses, run verify.
 
@@ -58,7 +58,7 @@ transitions — it does not override the lower-level skill's internal logic.
    Get explicit user confirmation or corrections before authoring requirements.
 
 4. Run the specification phase first.
-   Use the `feature-specification` workflow to produce or repair the requirement, design, and tasks docs.
+   Use the `ss-feature-specification` workflow to produce or repair the requirement, design, and tasks docs.
    Derive requirement criteria from the approved planning brief when one exists.
    Derive design from the reviewed requirement shape plus the confirmed constraints, risks, and verification strategy.
    Keep docs at `status: draft` while the graph is still moving.
@@ -71,13 +71,13 @@ transitions — it does not override the lower-level skill's internal logic.
    `Specs are complete and verified. Switching to implementation.`
 
 6. Run the implementation phase second.
-   Use the `feature-development` workflow to select the next criterion or task chain, implement it, add verification evidence, and keep task states current.
+   Use the `ss-feature-development` workflow to select the next criterion or task chain, implement it, add verification evidence, and keep task states current.
    Promote document statuses as tasks complete: tasks doc to `done`, design to `approved`, requirements to `implemented`.
    The `status_inconsistency` verify rule will catch any missed promotions.
 
 7. Close with the graph, not just the code.
    Summarize the planning brief when one was used, plus `supersigil status`, `supersigil plan`, and `supersigil verify` for the scoped feature.
-   If the user stops after specs only, suggest `feature-development` for the next session.
+   If the user stops after specs only, suggest `ss-feature-development` for the next session.
 
 ## Embedded Fallback Summary
 
@@ -113,14 +113,14 @@ Use this only when the lower-level skills are unavailable.
 - Do not continue spec authoring on guessed intent; return to planning when material ambiguity appears.
 - Do not implement before the spec phase is genuinely ready.
 - Do not keep the user in this wrapper if they only want one phase.
-  If they only want spec authoring, use `feature-specification`.
-  If they only want implementation against existing specs, use `feature-development`.
-  If they want to recover specs from existing code, use `retroactive-specification`.
+  If they only want spec authoring, use `ss-feature-specification`.
+  If they only want implementation against existing specs, use `ss-feature-development`.
+  If they want to recover specs from existing code, use `ss-retroactive-specification`.
 
 ## Handoff
 
 Use this skill to get through the full flow, then hand future work to the narrower skill that matches the next task:
 
-- `feature-specification` for further spec edits
-- `feature-development` for implementation follow-up
-- `retroactive-specification` for brownfield capture work
+- `ss-feature-specification` for further spec edits
+- `ss-feature-development` for implementation follow-up
+- `ss-retroactive-specification` for brownfield capture work

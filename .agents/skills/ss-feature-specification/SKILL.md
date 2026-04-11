@@ -1,5 +1,5 @@
 ---
-name: feature-specification
+name: ss-feature-specification
 description: "Default skill for authoring or repairing Supersigil specification documents: requirements, design docs, tasks, and ADRs. Use when turning an agreed feature idea or imported material into verifiable docs, refining acceptance criteria, or bringing specs to an implementation-ready state. Works alongside brainstorming and planning skills."
 ---
 
@@ -145,7 +145,7 @@ Write string literal attributes only. Even if `schema` examples still show JSX e
 
 ## Handoff
 
-When requirements, design, and tasks have each had their review pass, and the scoped docs are lint-clean and verify-clean enough for honest execution, suggest `feature-development` if that skill exists. Otherwise hand off by pointing the user to:
+When requirements, design, and tasks have each had their review pass, and the scoped docs are lint-clean and verify-clean enough for honest execution, suggest `ss-feature-development` if that skill exists. Otherwise hand off by pointing the user to:
 
 - `supersigil context <main-id>` for relationship review
 - `supersigil plan <feature-prefix>` for outstanding work

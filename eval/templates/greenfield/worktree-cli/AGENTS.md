@@ -6,7 +6,7 @@ worktrees. Use supersigil for spec-driven development throughout.
 ## Getting Started
 
 1. Run `supersigil init` to initialize the project (this also installs skills)
-2. Use the `spec-driven-development` skill to guide you through the full
+2. Use the `ss-spec-driven-development` skill to guide you through the full
    spec → implement → verify workflow
 
 ## Target Application

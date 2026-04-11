@@ -21,8 +21,8 @@ installation, and skill removal.
 ## Definitions
 
 - **Embedded_Skills**: The four supersigil-specific agent skills compiled into
-  the binary: `feature-development`, `feature-specification`,
-  `retroactive-specification`, and `spec-driven-development`. Each skill is a
+  the binary: `ss-feature-development`, `ss-feature-specification`,
+  `ss-retroactive-specification`, and `ss-spec-driven-development`. Each skill is a
   directory containing a `SKILL.md` entry point and optional companion files
   (e.g., `references/`, `agents/`).
 - **Skills_Dir**: The directory where skills are written. Defaults to

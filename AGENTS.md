@@ -1,7 +1,7 @@
 # Guidelines
 
 - Follow Test Driven Development. Keep TDD in mind when creating implementation plans.
-- For feature development (i.e. implementation), use the feature-development and test-driven-development skills.
+- For feature development (i.e. implementation), use the ss-feature-development and test-driven-development skills.
 - Use `cargo fmt` for formatting code
 - Use `cargo clippy` for linting.
 - Use `cargo nextest run` for testing.

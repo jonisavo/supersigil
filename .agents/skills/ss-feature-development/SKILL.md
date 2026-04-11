@@ -1,5 +1,5 @@
 ---
-name: feature-development
+name: ss-feature-development
 description: Default skill for behavior-changing code work in projects that already have Supersigil specs. Use when fixing bugs, adding features, implementing endpoints, updating tests, repairing verification coverage, or completing tasks linked to existing requirement, design, or tasks documents. Works alongside TDD, code review, and language-specific skills.
 ---
 
@@ -25,7 +25,7 @@ Use [references/implementation-loop.md](references/implementation-loop.md) for t
 Use [references/test-tagging.md](references/test-tagging.md) when adding or repairing `VerifiedBy` evidence.
 Use [references/status-lifecycle.md](references/status-lifecycle.md) for document and task status promotion rules.
 
-If the spec graph is missing, broken, or obviously incomplete, stop and hand the job back to `feature-specification` instead of improvising new structure during implementation.
+If the spec graph is missing, broken, or obviously incomplete, stop and hand the job back to `ss-feature-specification` instead of improvising new structure during implementation.
 
 ## Workflow
 
@@ -90,13 +90,13 @@ If the spec graph is missing, broken, or obviously incomplete, stop and hand the
 ## Failure Modes
 
 - Do not implement before reading the current spec state.
-- Do not silently rewrite a broken or underspecified feature during implementation; hand it back to `feature-specification`.
+- Do not silently rewrite a broken or underspecified feature during implementation; hand it back to `ss-feature-specification`.
 - Do not mark tasks or documents complete because the code "probably" works.
 - Do not add tests without reconnecting them to `VerifiedBy` when the feature depends on verification coverage.
 - Do not ignore `verify` findings just because the code compiles or the local tests pass.
 
 ## Handoff
 
-If the user discovers the feature was underspecified, suggest `feature-specification`.
-If the user has working code but no specs, suggest `retroactive-specification`.
-If the user wants the full guided loop for a new feature, suggest `spec-driven-development`.
+If the user discovers the feature was underspecified, suggest `ss-feature-specification`.
+If the user has working code but no specs, suggest `ss-retroactive-specification`.
+If the user wants the full guided loop for a new feature, suggest `ss-spec-driven-development`.

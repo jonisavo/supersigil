@@ -1,5 +1,5 @@
 ---
-name: retroactive-specification
+name: ss-retroactive-specification
 description: Use when code exists but Supersigil specs do not, or when existing specs have gone stale. Activates when the user wants to document current behavior, baseline before a refactor, add spec coverage to a brownfield module, or reconcile drifted specs with the codebase.
 ---
 
@@ -81,9 +81,9 @@ Use [references/source-gathering.md](references/source-gathering.md) for the evi
 
 ## Handoff
 
-If the user wants to continue implementing against the recovered specs, suggest `feature-development`.
-If the recovered work reveals a planned refactor or behavior change, suggest `spec-driven-development`.
-If the change is purely structural (reorganize code, no behavior change), suggest `refactoring`.
+If the user wants to continue implementing against the recovered specs, suggest `ss-feature-development`.
+If the recovered work reveals a planned refactor or behavior change, suggest `ss-spec-driven-development`.
+If the change is purely structural (reorganize code, no behavior change), suggest `ss-refactoring`.
 
 ## Stale Spec Refresh
 

@@ -1,5 +1,5 @@
 ---
-name: ci-review
+name: ss-ci-review
 description: Use when setting up CI gates, reviewing pull requests, interpreting verification failures, or adding Supersigil checks to automated pipelines. Activates on CI configuration, PR review workflows, and verification output triage.
 ---
 
@@ -135,7 +135,7 @@ summarizing what work remains for a feature.
 
 ## Handoff
 
-If CI reveals broken or missing specs, suggest `feature-specification`
-or `retroactive-specification` to repair them.
+If CI reveals broken or missing specs, suggest `ss-feature-specification`
+or `ss-retroactive-specification` to repair them.
 If CI reveals implementation gaps (criteria without evidence), suggest
-`feature-development` to close the coverage.
+`ss-feature-development` to close the coverage.

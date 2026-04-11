@@ -8,7 +8,7 @@ title: "Verifies Macro Tasks"
 
 ## Overview
 
-This tasks document tracks the retroactive-specification pass for the
+This tasks document tracks the ss-retroactive-specification pass for the
 `supersigil-rust-macros` surface.
 
 ```supersigil-xml

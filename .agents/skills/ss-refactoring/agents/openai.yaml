@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refactoring"
+  short_description: "Restructure code while keeping specs and evidence valid"
+  default_prompt: "Use $ss-refactoring to restructure code that has Supersigil specs without changing behavior. Keeps tracked files, criteria, and verification intact."

@@ -35,7 +35,7 @@ requiring a real TTY.
   <Task id="task-2-1" status="done">
     Write unit tests: `write_skills` to a temp dir produces the expected
     directory structure with key files present (e.g.,
-    `feature-development/SKILL.md`); calling it twice overwrites without
+    `ss-feature-development/SKILL.md`); calling it twice overwrites without
     error; returned count matches the number of embedded skills.
   </Task>
 

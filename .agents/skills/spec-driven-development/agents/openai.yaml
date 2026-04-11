@@ -1,4 +1,0 @@
-interface:
-  display_name: "Spec-Driven Development"
-  short_description: "Full guided workflow from idea to verified implementation"
-  default_prompt: "Use $spec-driven-development for the full end-to-end Supersigil flow: feature idea through specs to implementation. Only when explicitly requested."
