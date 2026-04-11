@@ -326,9 +326,17 @@ Path resolution order: `--path` flag, then `skills.path` from `supersigil.toml`,
 Generate shell completion scripts for tab completion.
 
 ```bash
-supersigil completions bash   > ~/.local/share/bash-completion/completions/supersigil
-supersigil completions zsh    > ~/.zfunc/_supersigil
-supersigil completions fish   > ~/.config/fish/completions/supersigil.fish
+# Bash
+mkdir -p ~/.local/share/bash-completion/completions
+supersigil completions bash > ~/.local/share/bash-completion/completions/supersigil
+
+# Zsh (ensure ~/.zfunc is in your fpath)
+mkdir -p ~/.zfunc
+supersigil completions zsh > ~/.zfunc/_supersigil
+
+# Fish
+mkdir -p ~/.config/fish/completions
+supersigil completions fish > ~/.config/fish/completions/supersigil.fish
 ```
 
 Prints a completion script to stdout for the specified shell. Supported
