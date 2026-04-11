@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0] - 2026-04-11
+
+### Bug Fixes
+
+- *(cli)* Thread --detail full into terminal output to disable collapsing ([3bd654f](https://github.com/jonisavo/supersigil/commit/3bd654fd6b7fef8ee79c29a84cc1eea20822bbfe))
+- *(cli)* Address adversarial review findings ([c450f61](https://github.com/jonisavo/supersigil/commit/c450f613cc47b8144a35f8027170e8ee598cd3f7))
+
+### CI/CD
+
+- Build vscode extension before packaging in publish workflow ([16def58](https://github.com/jonisavo/supersigil/commit/16def58f0ea5bf1583c9ddfd34b50f1b97d9ec41))
+
+### Documentation
+
+- Update init spec for richer config scaffold and structured guidance ([08804d0](https://github.com/jonisavo/supersigil/commit/08804d015a71a06e5f013fa0a3441e9b985b666c))
+- Update CLI reference for --detail full and remove completed polish items ([97fc1ed](https://github.com/jonisavo/supersigil/commit/97fc1edd4320c6f6b048a63118d7f4d3959eaa3b))
+
+### Features
+
+- *(cli)* Enrich init config scaffold with commented-out examples ([cccb612](https://github.com/jonisavo/supersigil/commit/cccb6122c2e20f7b7578b0df48c4154df75cd2f0))
+- *(cli)* Suggest --detail full instead of --format json for collapsed findings ([3333f96](https://github.com/jonisavo/supersigil/commit/3333f9606e39d1f9d810861399780fdd215dedf6))
+- *(cli)* Replace init hint with structured next-steps guidance ([f8810af](https://github.com/jonisavo/supersigil/commit/f8810afc11d4c8f479b6c0c584f211b068cf6a15))
+- *(cli)* Include file path in config parse error messages ([aa26fd6](https://github.com/jonisavo/supersigil/commit/aa26fd68cb10a3e615d2ccc6e4cf51e1145b7856))
+- *(cli)* Show scope header when verify runs with --since ([243dc13](https://github.com/jonisavo/supersigil/commit/243dc13cc797c0320462d47127ca6a6921219b41))
 ## [0.3.0] - 2026-04-11
 
 ### CI/CD
@@ -29,6 +52,7 @@
 
 - Add instructions for new worktrees in AGENTS.md ([fd18d32](https://github.com/jonisavo/supersigil/commit/fd18d32cff24605c5ebaaf430f2e39d4b936fcb8))
 - Add research docs for future endeavors ([a818029](https://github.com/jonisavo/supersigil/commit/a81802968c1b3507d8c71650ada081cae7446d7c))
+- *(release)* Prepare v0.3.0 ([f4841b2](https://github.com/jonisavo/supersigil/commit/f4841b2d13fcadee0469928f737815ab7b705537))
 
 ### Refactoring
 
