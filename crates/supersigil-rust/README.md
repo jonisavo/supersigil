@@ -23,7 +23,7 @@ supersigil-rust = "0.1"
 ```rust,ignore
 use supersigil_rust::verifies;
 
-#[verifies("REQ-auth#login")]
+#[verifies("auth/req#login")]
 #[test]
 fn test_login_succeeds() {
     // ...

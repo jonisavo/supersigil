@@ -14,7 +14,7 @@ the macro.
 ```rust,ignore
 use supersigil_rust::verifies;
 
-#[verifies("REQ-auth#login")]
+#[verifies("auth/req#login")]
 #[test]
 fn test_login_succeeds() {
     // ...

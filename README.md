@@ -31,6 +31,35 @@ are checked by CI.
   start with the criterion you care about. The tool tells you what's
   missing — it doesn't prescribe an order.
 
+## Installation
+
+### Homebrew (macOS / Linux)
+
+```sh
+brew install jonisavo/supersigil/supersigil
+```
+
+This installs both `supersigil` and `supersigil-lsp`.
+
+### AUR (Arch Linux)
+
+```sh
+yay -S supersigil-bin supersigil-lsp-bin   # prebuilt binaries
+yay -S supersigil supersigil-lsp           # build from source
+```
+
+### Cargo
+
+```sh
+cargo install supersigil supersigil-lsp
+```
+
+### GitHub Releases
+
+Download prebuilt binaries for macOS (Intel / Apple Silicon) and Linux
+(x86_64 / aarch64) from the
+[releases page](https://github.com/jonisavo/supersigil/releases).
+
 ## Quick start
 
 ```sh
@@ -100,26 +129,59 @@ IDs, and hover documentation.
 
 ### VS Code
 
-Install the **Supersigil** extension from `editors/vscode/`. It
-activates automatically when a workspace contains `supersigil.toml` and
-discovers the `supersigil-lsp` binary from your `$PATH`,
-`~/.cargo/bin/`, or `~/.local/bin/`.
+Install the **Supersigil** extension from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/publishers/supersigil)
+or [Open VSX](https://open-vsx.org/). It activates automatically when a
+workspace contains `supersigil.toml` and discovers the `supersigil-lsp`
+binary from your `$PATH`, `~/.cargo/bin/`, or `~/.local/bin/`.
 
 Features:
 - Inline diagnostics (parse errors, broken refs, coverage gaps)
 - Go-to-definition for cross-references
 - Autocomplete for document IDs, criterion IDs, and component attributes
 - Hover tooltips with document context and clickable links
+- Spec Explorer sidebar tree view
 - Status bar indicator with server health
 - Commands: **Supersigil: Verify**, **Restart Server**, **Show Status**
 
 Configure a custom server path with `supersigil.lsp.serverPath` if
 needed.
 
+### IntelliJ
+
+Install the **Supersigil** plugin from the
+[JetBrains Marketplace](https://plugins.jetbrains.com/). It provides
+the same LSP-backed diagnostics, navigation, and completion as the
+VS Code extension, plus a Spec Explorer tool window. Compatible with
+IntelliJ IDEA 2024.2+.
+
 ### Other editors
 
 Any editor with LSP support can use `supersigil-lsp` directly. Point
-your editor's LSP client at the binary and register it for Markdown files.
+your editor's LSP client at the binary and register it for Markdown
+files.
+
+## Ecosystem packages
+
+### Rust
+
+The `supersigil-rust` crate provides a `#[verifies("doc-id#criterion-id")]`
+attribute macro that links Rust test functions to spec criteria.
+
+```sh
+cargo add supersigil-rust
+```
+
+### JavaScript / TypeScript
+
+- **[@supersigil/vitest](https://www.npmjs.com/package/@supersigil/vitest)** —
+  Vitest helper for annotating tests with criterion refs.
+- **[@supersigil/eslint-plugin](https://www.npmjs.com/package/@supersigil/eslint-plugin)** —
+  ESLint plugin for validating criterion refs.
+
+```sh
+pnpm add -D @supersigil/vitest @supersigil/eslint-plugin
+```
 
 ## Project structure
 
