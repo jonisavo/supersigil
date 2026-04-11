@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 mod output;
 mod report_phase;
 
-use output::terminal::format_timing_summary;
+use output::terminal::{format_scope_header, format_timing_summary};
 use output::{format_terminal, remediation_hints};
 use report_phase::{ReportPhaseInput, assemble_report};
 
@@ -136,6 +136,19 @@ pub fn run(
     let evidence_elapsed = evidence_start.elapsed();
     if is_terminal {
         progress(" done\n");
+    }
+
+    // -- Scope header (only when --since is used in terminal mode) --
+    if is_terminal && let Some(ref since_ref) = args.since {
+        let affected = structural_findings
+            .iter()
+            .filter(|f| f.rule == supersigil_verify::RuleName::StaleTrackedFiles)
+            .filter_map(|f| f.doc_id.as_deref())
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        let total = graph.documents().count();
+        let header = format_scope_header(affected, total, since_ref, color);
+        progress(&header);
     }
 
     // -- Phase 3: Report assembly --

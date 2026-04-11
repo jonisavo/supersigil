@@ -203,6 +203,28 @@ fn severity_symbol(severity: ReportSeverity, color: ColorConfig) -> format::Pain
     }
 }
 
+/// Format a scope header showing how many documents are affected by `--since`.
+///
+/// Produces a line like:
+/// `Checking 3 of 42 documents affected since origin/main`
+pub(crate) fn format_scope_header(
+    affected: usize,
+    total: usize,
+    since_ref: &str,
+    color: ColorConfig,
+) -> String {
+    let noun = if affected == 1 {
+        "document"
+    } else {
+        "documents"
+    };
+    let affected_str = affected.to_string();
+    let total_str = total.to_string();
+    let affected_painted = color.paint(Token::Count, &affected_str);
+    let total_painted = color.paint(Token::Count, &total_str);
+    format!("Checking {affected_painted} of {total_painted} {noun} affected since {since_ref}\n")
+}
+
 /// Format the timing summary line for terminal output.
 ///
 /// Produces a line like:

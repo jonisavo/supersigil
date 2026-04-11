@@ -523,6 +523,70 @@ fn timing_summary_singular_document() {
 }
 
 // ---------------------------------------------------------------------------
+// Scope header tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scope_header_shows_affected_and_total_counts() {
+    use output::terminal::format_scope_header;
+
+    let header = format_scope_header(3, 42, "origin/main", no_color());
+    assert!(
+        header.contains('3'),
+        "should contain affected count, got:\n{header}",
+    );
+    assert!(
+        header.contains("42"),
+        "should contain total count, got:\n{header}",
+    );
+    assert!(
+        header.contains("origin/main"),
+        "should contain the since ref, got:\n{header}",
+    );
+    assert!(
+        header.contains("documents"),
+        "should contain the word 'documents', got:\n{header}",
+    );
+}
+
+#[test]
+fn scope_header_singular_document() {
+    use output::terminal::format_scope_header;
+
+    let header = format_scope_header(1, 10, "HEAD~3", no_color());
+    assert!(
+        header.contains("1 of 10"),
+        "should show '1 of 10', got:\n{header}",
+    );
+    assert!(
+        header.contains("document "),
+        "should use singular 'document' for count 1, got:\n{header}",
+    );
+    assert!(
+        !header.contains("documents"),
+        "should not use plural for count 1, got:\n{header}",
+    );
+}
+
+#[test]
+fn scope_header_uses_count_styling() {
+    use output::terminal::format_scope_header;
+
+    let header_color = format_scope_header(5, 20, "main", color());
+    let header_plain = format_scope_header(5, 20, "main", no_color());
+
+    // Both should contain the essential information
+    assert!(
+        header_plain.contains("5 of 20"),
+        "plain should show counts, got:\n{header_plain}",
+    );
+    assert!(
+        header_color.contains('5') && header_color.contains("20"),
+        "color should show counts, got:\n{header_color}",
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Did-you-mean suggestion tests
 // ---------------------------------------------------------------------------
 
