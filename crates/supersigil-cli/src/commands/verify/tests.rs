@@ -71,11 +71,40 @@ fn clean_report() {
         out.contains("✔") && out.contains("Clean"),
         "colored clean report should show Unicode, got: {out}",
     );
+    assert!(
+        out.contains("3 documents verified"),
+        "clean report should show document count, got: {out}",
+    );
 
     let out_plain = format_terminal(&report, no_color());
     assert!(
         out_plain.contains("[ok]") && out_plain.contains("Clean"),
         "plain clean report should show ASCII, got: {out_plain}",
+    );
+    assert!(
+        out_plain.contains("3 documents verified"),
+        "plain clean report should show document count, got: {out_plain}",
+    );
+    assert!(
+        !out_plain.contains('—'),
+        "plain clean report should not contain em dash, got: {out_plain}",
+    );
+}
+
+#[test]
+fn clean_report_with_evidence_shows_criteria_count() {
+    let evidence = sample_evidence_summary();
+    let criteria_count = evidence.coverage.len();
+    let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), Some(evidence));
+
+    let out = format_terminal(&report, no_color());
+    assert!(
+        out.contains("3 documents"),
+        "should show document count, got: {out}",
+    );
+    assert!(
+        out.contains(&format!("{criteria_count} criteria")),
+        "should show criteria count when evidence present, got: {out}",
     );
 }
 

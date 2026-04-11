@@ -18,7 +18,23 @@ pub(crate) fn format_terminal(report: &VerificationReport, color: ColorConfig) -
     let mut out = String::new();
 
     if report.result_status() == ResultStatus::Clean {
-        let _ = writeln!(out, "{} Clean: no findings", color.ok());
+        let doc_count = report.summary.total_documents;
+        let clean_detail = if let Some(ev) = &report.evidence_summary {
+            let criteria = ev.coverage.len();
+            let evidence = ev.records.len();
+            format!(
+                "{doc_count} documents, {criteria} criteria, {evidence} evidence records verified"
+            )
+        } else {
+            format!("{doc_count} documents verified")
+        };
+        let sep = if color.use_unicode() { "—" } else { "-" };
+        let _ = writeln!(
+            out,
+            "{} Clean {sep} {}",
+            color.ok(),
+            color.paint(Token::Hint, &clean_detail),
+        );
         write_draft_gating_hint(&mut out, &report.findings, color);
         return out;
     }
