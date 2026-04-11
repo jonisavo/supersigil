@@ -165,14 +165,7 @@ fn reject_unsupported(content: &str, path: &Path) -> Result<(), ParseError> {
                     "DTD declarations (`<!DOCTYPE ...>`) are not supported",
                 ));
             }
-            if bytes[i..].starts_with(b"<!--") {
-                return Err(make_error(
-                    content,
-                    i,
-                    path,
-                    "XML comments (`<!-- ... -->`) are not supported",
-                ));
-            }
+            // XML comments are allowed and silently skipped during parsing.
         }
         i += 1;
     }
@@ -378,16 +371,10 @@ fn parse_children(
                 ));
             }
 
+            // XML comments are silently skipped.
+            Ok(Event::Comment(_)) => {}
+
             // Constructs rejected by pre-scan but caught here as a safety net.
-            Ok(Event::Comment(_)) => {
-                let off = content_offset(event_pos, root_tag_len);
-                return Err(make_error(
-                    content,
-                    off,
-                    path,
-                    "XML comments (`<!-- ... -->`) are not supported",
-                ));
-            }
             Ok(Event::CData(_)) => {
                 let off = content_offset(event_pos, root_tag_len);
                 return Err(make_error(
@@ -1041,10 +1028,30 @@ mod tests {
     }
 
     #[test]
-    fn comment_rejected() {
-        let err = parse("<!-- comment -->").unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("comment"), "got: {msg}");
+    fn comment_ignored() {
+        let nodes = parse("<!-- comment -->").unwrap();
+        assert!(nodes.is_empty(), "comments should produce no nodes");
+    }
+
+    #[test]
+    fn comment_between_elements_ignored() {
+        let nodes = parse(r#"<Task id="t-1" status="draft">text</Task><!-- skip --><Task id="t-2" status="draft">more</Task>"#).unwrap();
+        assert_eq!(
+            nodes.len(),
+            2,
+            "should parse both elements, ignoring comment"
+        );
+    }
+
+    #[test]
+    fn comment_inside_element_ignored() {
+        let nodes = parse(r#"<AcceptanceCriteria><!-- placeholder --><Criterion id="c-1">desc</Criterion></AcceptanceCriteria>"#).unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let XmlNode::Element { children, .. } = &nodes[0] {
+            assert_eq!(children.len(), 1, "comment should not appear as child");
+        } else {
+            panic!("expected element");
+        }
     }
 
     #[test]

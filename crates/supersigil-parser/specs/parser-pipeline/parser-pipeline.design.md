@@ -124,7 +124,7 @@ the parser compatible with any standard Markdown tooling.
 
 The content of `supersigil-xml` fences is parsed as a restricted XML subset:
 PascalCase elements, double-quoted string attributes, nesting, and text
-content. No processing instructions, CDATA, DTD, namespaces, comments, or
+content. No processing instructions, CDATA, DTD, namespaces, or
 entity references beyond `&amp;`, `&lt;`, `&gt;`, `&quot;`. This can be
 implemented with `quick-xml` configured strictly, or with a small custom
 parser.

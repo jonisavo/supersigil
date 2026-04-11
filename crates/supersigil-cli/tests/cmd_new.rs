@@ -411,7 +411,7 @@ fn new_adr_with_existing_req_includes_references() {
         .success();
 }
 
-/// When no requirements doc exists, the ADR scaffold has a commented-out References placeholder.
+/// When no requirements doc exists, the ADR scaffold has a commented-out References.
 #[test]
 fn new_adr_without_req_has_commented_references() {
     let tmp = TempDir::new().unwrap();
@@ -428,6 +428,11 @@ fn new_adr_without_req_has_commented_references() {
     assert!(
         !content.contains(r#"<References refs="auth/req" />"#),
         "adr without req should not have active References, got:\n{content}"
+    );
+    // Should have a commented-out placeholder
+    assert!(
+        content.contains("<!-- <References refs=\"\" /> -->"),
+        "adr without req should have commented References, got:\n{content}"
     );
 }
 

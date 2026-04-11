@@ -94,11 +94,11 @@ title: "{title}"
             r#"{frontmatter}
 ## Introduction
 
-<!-- What problem does this feature solve? What is in scope and out of scope? -->
+**TODO:** Describe what problem this feature solves. What is in scope and out of scope?
 
 ## Definitions
 
-<!-- Domain terms used in the requirements below. Use bold for the term name. -->
+**TODO:** Define domain terms used in the requirements below.
 
 - **Term**: Definition.
 
@@ -114,60 +114,51 @@ As a [role], I want [capability], so that [benefit].
 </AcceptanceCriteria>
 ```
 
-<!-- To link criteria to test evidence, nest a VerifiedBy inside the Criterion:
+**TODO:** To link criteria to test evidence, nest a VerifiedBy inside the Criterion:
 
 ```supersigil-xml
-<AcceptanceCriteria>
-  <Criterion id="req-1-2">
-    Criterion description.
-    <VerifiedBy strategy="tag" tag="{feature}/req#req-1-2" />
-  </Criterion>
-</AcceptanceCriteria>
+<!-- <VerifiedBy strategy="tag" tag="{feature}/req#req-1-1" /> -->
 ```
--->
 "#
         ),
         "design" => {
             let implements_block = if req_exists {
                 format!("```supersigil-xml\n<Implements refs=\"{feature}/req\" />\n```")
             } else {
-                "<!-- ```supersigil-xml\n<Implements refs=\"\" />\n``` -->".to_owned()
+                "```supersigil-xml\n<!-- <Implements refs=\"\" /> -->\n```".to_owned()
             };
             format!(
                 r#"{frontmatter}
 {implements_block}
 
-<!-- ```supersigil-xml
-<DependsOn refs="" />
-``` -->
-
-<!-- ```supersigil-xml
-<TrackedFiles paths="" />
-``` -->
+```supersigil-xml
+<!-- <DependsOn refs="" /> -->
+<!-- <TrackedFiles paths="" /> -->
+```
 
 ## Overview
 
-<!-- High-level summary of the design approach. -->
+**TODO:** High-level summary of the design approach.
 
 ## Architecture
 
-<!-- System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged. -->
+**TODO:** System structure, data flow, crate/module boundaries. Mermaid diagrams encouraged.
 
 ## Key Types
 
-<!-- Core data structures and their relationships. Rust type sketches encouraged. -->
+**TODO:** Core data structures and their relationships. Rust type sketches encouraged.
 
 ## Error Handling
 
-<!-- Error types, failure modes, recovery strategies. -->
+**TODO:** Error types, failure modes, recovery strategies.
 
 ## Testing Strategy
 
-<!-- How correctness will be verified: property tests, unit tests, integration tests. -->
+**TODO:** How correctness will be verified: property tests, unit tests, integration tests.
 
 ## Alternatives Considered
 
-<!-- Approaches that were evaluated and rejected, with rationale. -->
+**TODO:** Approaches that were evaluated and rejected, with rationale.
 "#
             )
         }
@@ -175,7 +166,7 @@ As a [role], I want [capability], so that [benefit].
             r#"{frontmatter}
 ## Overview
 
-<!-- Brief description of the implementation sequence and approach. -->
+**TODO:** Brief description of the implementation sequence and approach.
 
 ```supersigil-xml
 <Task id="task-1" status="draft">
@@ -183,26 +174,27 @@ As a [role], I want [capability], so that [benefit].
 </Task>
 ```
 
-<!-- Subtasks are optional — nest them inside the parent Task:
+**TODO:** Subtasks are optional — nest them inside the parent Task:
 
 ```supersigil-xml
-<Task id="task-1" status="draft">
-  <Task id="task-1-1" status="draft" implements="">
+<!--
+<Task id="task-2" status="draft">
+  <Task id="task-2-1" status="draft" implements="">
     Subtask description.
   </Task>
-  <Task id="task-1-2" status="draft" depends="task-1-1">
-    Subtask that depends on task-1-1.
+  <Task id="task-2-2" status="draft" depends="task-2-1">
+    Subtask that depends on task-2-1.
   </Task>
 </Task>
-```
 -->
+```
 "#
         ),
         "adr" => {
             let references_block = if req_exists {
                 format!("```supersigil-xml\n<References refs=\"{feature}/req\" />\n```")
             } else {
-                "<!-- ```supersigil-xml\n<References refs=\"\" />\n``` -->".to_owned()
+                "```supersigil-xml\n<!-- <References refs=\"\" /> -->\n```".to_owned()
             };
             format!(
                 r#"{frontmatter}
@@ -210,11 +202,11 @@ As a [role], I want [capability], so that [benefit].
 
 ## Context
 
-<!-- What is the situation that motivates this decision? What forces are at play? -->
+**TODO:** What is the situation that motivates this decision? What forces are at play?
 
 ## Decision
 
-<!-- What decision was made? State it clearly and directly. -->
+**TODO:** What decision was made? State it clearly and directly.
 
 ```supersigil-xml
 <Decision id="decision-1">
@@ -226,21 +218,19 @@ As a [role], I want [capability], so that [benefit].
 </Decision>
 ```
 
-<!-- Add alternatives inside the Decision element:
+**TODO:** Add alternatives inside the Decision element:
 
 ```supersigil-xml
-<Decision id="decision-1">
-  ...
-  <Alternative id="alt-1" status="rejected">
-    Describe the alternative and why it was not chosen.
-  </Alternative>
-</Decision>
-```
+<!--
+<Alternative id="alt-1" status="rejected">
+  Describe the alternative and why it was not chosen.
+</Alternative>
 -->
+```
 
 ## Consequences
 
-<!-- What are the expected outcomes, positive and negative, of this decision? -->
+**TODO:** What are the expected outcomes, positive and negative, of this decision?
 "#
             )
         }
@@ -313,7 +303,7 @@ mod tests {
     fn template_design_without_req() {
         let content = generate_template("design", "auth/design", "auth", false);
         assert!(content.contains("type: design"));
-        assert!(content.contains("<!-- ```supersigil-xml\n<Implements refs=\"\" />\n``` -->"));
+        assert!(content.contains("<!-- <Implements refs=\"\" /> -->"));
     }
 
     #[test]
@@ -334,7 +324,7 @@ mod tests {
     fn template_adr_without_req() {
         let content = generate_template("adr", "auth/adr", "auth", false);
         assert!(content.contains("type: adr"));
-        assert!(content.contains("<!-- ```supersigil-xml\n<References refs=\"\" />\n``` -->"));
+        assert!(content.contains("<!-- <References refs=\"\" /> -->"));
     }
 
     #[test]

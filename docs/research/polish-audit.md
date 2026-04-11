@@ -14,13 +14,6 @@ binary version, or diff against embedded versions. `supersigil skills list`
 (show installed) or `supersigil skills check` (compare against embedded)
 would help users after upgrades.
 
-## New Command
-
-### Template Comments
-
-HTML comments in scaffolds don't render in Markdown previewers. Use
-Markdown-visible guidance or make the scaffold verify-clean out of the box.
-
 ## LSP and Editor Integration
 
 ### Binary Resolution Transparency
