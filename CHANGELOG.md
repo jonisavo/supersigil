@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.3.0] - 2026-04-11
+
+### CI/CD
+
+- Install deps correctly before publishing VSCode extension ([d81cc5c](https://github.com/jonisavo/supersigil/commit/d81cc5c1f09c89fdceed0ea27a94315a781e524a))
+- Use `npm publish` instead of `pnpm publish` ([3cce797](https://github.com/jonisavo/supersigil/commit/3cce7978df80565d229f2c6bd1b88d334e70d7ed))
+- *(release)* Do npm publish inline to avoid provenance issues ([ad32b18](https://github.com/jonisavo/supersigil/commit/ad32b18b1e6cc0ffc9bf9e8af6867dbf050b1244))
+
+### Documentation
+
+- Remove incorrect skill count from skills-install design ([dff12ef](https://github.com/jonisavo/supersigil/commit/dff12ef175a1c190010c93d39318537777c77632))
+- Remove completed items from polish audit ([2a3203b](https://github.com/jonisavo/supersigil/commit/2a3203b1c531bf28ffef08e366ca06661421c3c6))
+- Add shell completions to CLI reference and README ([aba7a5e](https://github.com/jonisavo/supersigil/commit/aba7a5e5e453028cca2c4a9f4f43fe3e567b88e6))
+- Add mkdir instructions to shell completions examples ([a623047](https://github.com/jonisavo/supersigil/commit/a6230470718fa4370db235027c147e104a3a020e))
+
+### Features
+
+- *(cli)* Show document and evidence counts in verify clean message ([4c3ed1c](https://github.com/jonisavo/supersigil/commit/4c3ed1c85bfa557c2f271389726617d5722f5680))
+- *(cli)* Derive document title from feature slug in new command ([6284181](https://github.com/jonisavo/supersigil/commit/62841812170ac691a441cfdea788bc4ab0b7632d))
+- *(cli)* Validate generated ID against id_pattern in new command ([87f6fdc](https://github.com/jonisavo/supersigil/commit/87f6fdc0d4a95ca2153f0848be3b4951b504df50))
+- *(cli)* Show rule breakdown in verify summary ([870c6c0](https://github.com/jonisavo/supersigil/commit/870c6c0d8d817f771105c178b3b2301f8b24711e))
+- *(cli)* Add shell completion generation via clap_complete ([1a9ebae](https://github.com/jonisavo/supersigil/commit/1a9ebae3ef05d673a9ee016ea4f8ac6440c95e24))
+- *(cli)* Add progress feedback and timing to verify command ([aa7895f](https://github.com/jonisavo/supersigil/commit/aa7895f96b7f23a7e64304e3e720a442221b312e))
+- Add did-you-mean suggestions for broken refs in verify ([5addc1e](https://github.com/jonisavo/supersigil/commit/5addc1e61603d2f9ef192328a14a10c43199eb12))
+
+### Miscellaneous
+
+- Add instructions for new worktrees in AGENTS.md ([fd18d32](https://github.com/jonisavo/supersigil/commit/fd18d32cff24605c5ebaaf430f2e39d4b936fcb8))
+- Add research docs for future endeavors ([a818029](https://github.com/jonisavo/supersigil/commit/a81802968c1b3507d8c71650ada081cae7446d7c))
+
+### Refactoring
+
+- *(verify)* Remove redundant import statement ([e8ed3b3](https://github.com/jonisavo/supersigil/commit/e8ed3b3f9ab7a5b5f58e1f6015da2a32b77ade7b))
 ## [0.2.0] - 2026-04-11
 
 ### Bug Fixes
@@ -31,6 +64,10 @@
 - *(website)* Add platform-aware install widget to landing page ([3d37904](https://github.com/jonisavo/supersigil/commit/3d379043ea38a9b4dec9fedcd6ed4b05791eb35c))
 - *(vscode)* Add actionable empty state when LSP binary is missing ([2a5f47f](https://github.com/jonisavo/supersigil/commit/2a5f47f486b172b02c3dc397b75cbf0b56d8a8b3))
 - *(intellij)* Add actionable empty state when LSP binary is missing ([3c4a165](https://github.com/jonisavo/supersigil/commit/3c4a165d0bb29c00fd90f8bbe539fa8da4d74024))
+
+### Miscellaneous
+
+- *(release)* Prepare v0.2.0 ([7e66472](https://github.com/jonisavo/supersigil/commit/7e664724e37d56e4a4260db6127d66b49efea306))
 ## [0.1.1] - 2026-04-10
 
 ### Bug Fixes
