@@ -32,12 +32,6 @@ Marketplace. Users must build from source to install.
 
 ## Context and Status Commands
 
-### Context Missing Verification State
-
-The `context` command shows document structure and relationships but not
-whether criteria are verified. Adding coverage status per criterion would
-make it much more useful for planning.
-
 ### Status Output Sparseness
 
 `status` with no argument shows project-wide counts but no actionable

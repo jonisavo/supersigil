@@ -24,6 +24,12 @@ impl EvidenceId {
     pub fn new(id: usize) -> Self {
         Self(id)
     }
+
+    /// Return the underlying index for direct vec access.
+    #[must_use]
+    pub fn index(self) -> usize {
+        self.0
+    }
 }
 
 // ---------------------------------------------------------------------------

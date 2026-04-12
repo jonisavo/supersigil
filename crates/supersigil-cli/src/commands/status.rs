@@ -336,23 +336,7 @@ fn collect_targets_status(
                 .children
                 .iter()
                 .filter(|child| child.name == VERIFIED_BY)
-                .map(|child| {
-                    let strategy = child
-                        .attributes
-                        .get("strategy")
-                        .map_or("unknown", String::as_str);
-                    match strategy {
-                        "tag" => {
-                            let tag = child.attributes.get("tag").map_or("?", String::as_str);
-                            format!("tag:{tag}")
-                        }
-                        "file-glob" => {
-                            let paths = child.attributes.get("paths").map_or("?", String::as_str);
-                            format!("file-glob:{paths}")
-                        }
-                        other => other.to_owned(),
-                    }
-                })
+                .map(format::verified_by_label)
                 .collect();
 
             let covered = artifact_graph.has_evidence(doc_id, crit_id);

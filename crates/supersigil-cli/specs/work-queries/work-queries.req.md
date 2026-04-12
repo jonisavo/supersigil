@@ -206,3 +206,47 @@ responses efficiently without wading through redundant or debug-level data.
   </Criterion>
 </AcceptanceCriteria>
 ```
+
+## Requirement 7: Context Verification State
+
+As a developer, I want `context` to show whether each verification target is
+covered and how it is verified, so that I can assess document health from one
+command without switching to `status`.
+
+### Definitions
+
+- **Evidence_Entry**: A discovered test that provides verification evidence for
+  a criterion. Includes the test function name, file path, and source line
+  number.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    THE `context` command SHALL build plugin evidence and construct an
+    ArtifactGraph before rendering output, using the same evidence pipeline
+    as `status` and `plan`.
+  </Criterion>
+  <Criterion id="req-7-2">
+    In terminal mode, each verification target SHALL display a `[covered]` or
+    `[uncovered]` marker after the criterion body text. Covered markers SHALL
+    use `Token::StatusGood` coloring; uncovered markers SHALL use
+    `Token::StatusBad`.
+  </Criterion>
+  <Criterion id="req-7-3">
+    In terminal mode, each verification target SHALL display its VerifiedBy
+    strategies and Evidence_Entry items as indented lines between the criterion
+    line and any "Referenced by" lines. VerifiedBy lines SHALL use the format
+    `verified by: strategy:value`. Evidence lines SHALL use the format
+    `evidence: test_name (file:line)`.
+  </Criterion>
+  <Criterion id="req-7-4">
+    In JSON mode, each criterion object SHALL include a `covered` boolean
+    field, a `verified_by` string array, and an `evidence` array. These
+    fields SHALL always be present, using empty arrays when no strategies
+    or evidence exist. Each evidence entry SHALL contain `test_name`,
+    `file`, and `line` fields. The enriched criterion type SHALL be a
+    CLI-layer struct that wraps the core `TargetContext` without modifying
+    `supersigil-core`.
+  </Criterion>
+</AcceptanceCriteria>
+```

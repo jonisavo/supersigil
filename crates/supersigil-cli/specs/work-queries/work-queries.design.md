@@ -2,7 +2,7 @@
 supersigil:
   id: work-queries/design
   type: design
-  status: implemented
+  status: approved
 title: "CLI Work Queries"
 ---
 
@@ -38,6 +38,7 @@ graph TD
     PLANQ["graph.plan(query)"]
     EVIDENCE["plugins::build_evidence"]
     FILTER["ArtifactGraph has_evidence filter"]
+    CTXENRICH["enrich context with coverage + evidence"]
     CTXOUT["context terminal/json output"]
     PLANOUT["plan terminal/json output"]
 
@@ -49,7 +50,9 @@ graph TD
     GRAPH --> EVIDENCE
     PLANQ --> FILTER
     EVIDENCE --> FILTER
-    CONTEXTQ --> CTXOUT
+    EVIDENCE --> CTXENRICH
+    CONTEXTQ --> CTXENRICH
+    CTXENRICH --> CTXOUT
     FILTER --> PLANOUT
 ```
 
@@ -57,17 +60,24 @@ graph TD
 
 ### `context`
 
-1. Reuse the shared CLI runtime to load a fully linked graph.
+1. Reuse the shared CLI runtime to load config and graph.
 2. Resolve one explicit document ID through `graph.context(id)`.
 3. If the document is missing, print the shared `supersigil ls` hint and return
    a query failure.
-4. Render either:
-   - JSON: the `ContextOutput` structure as-is
-   - terminal: heading, status, then non-empty sections for criteria,
-     implementing docs, referencing docs, and linked tasks
+4. Build plugin evidence via `plugins::build_evidence` to obtain an
+   `ArtifactGraph` with coverage data. Warn about plugin findings on stderr.
+5. Enrich each criterion with coverage state, VerifiedBy strategies, and
+   evidence entries from the `ArtifactGraph`.
+6. Render either:
+   - JSON: an `EnrichedContextOutput` with `covered`, `verified_by`, and
+     `evidence` fields on each criterion
+   - terminal: heading, status, then non-empty sections for criteria (with
+     coverage markers, verified-by lines, and evidence lines), implementing
+     docs, referencing docs, and linked tasks
 
-The CLI layer does not compute the context graph itself. It delegates that to
-`supersigil-core` and only shapes the operator-facing output.
+The CLI layer delegates graph queries to `supersigil-core` and evidence
+assembly to `supersigil-verify`. It owns the enrichment step that merges
+these two sources into the operator-facing output.
 
 ### `plan`
 
@@ -320,6 +330,99 @@ pub enum Detail {
 }
 ```
 
+## Context Verification State
+
+### Problem
+
+The `context` command shows the structural neighborhood of a document —
+criteria, references, implementations, tasks — but not whether criteria are
+actually covered by tests. Users must run `status <id>` separately to see
+coverage, breaking their flow when exploring a document.
+
+### Evidence Pipeline
+
+`context` reuses the same evidence pipeline as `status` and `plan`:
+
+```rust
+let (config, graph) = loader::load_graph(config_path)?;
+let project_root = loader::project_root(config_path);
+let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
+let (artifact_graph, plugin_findings) =
+    plugins::build_evidence(&config, &graph, project_root, None, &inputs);
+plugins::warn_plugin_findings(&plugin_findings, color);
+```
+
+This adds evidence discovery overhead to `context`, but the same overhead
+already exists in `status` and `plan`, and users benefit from seeing coverage
+inline.
+
+### Enriched Output Types
+
+The core `TargetContext` stays unchanged (supersigil-core remains
+evidence-unaware). The CLI defines enrichment types:
+
+```rust
+#[derive(Debug, Serialize)]
+struct EnrichedContextOutput {
+    document: SpecDocument,
+    criteria: Vec<EnrichedTargetContext>,
+    decisions: Vec<DecisionContext>,
+    linked_decisions: Vec<LinkedDecision>,
+    implemented_by: Vec<DocRef>,
+    referenced_by: Vec<String>,
+    tasks: Vec<TaskInfo>,
+}
+
+#[derive(Debug, Serialize)]
+struct EnrichedTargetContext {
+    id: String,
+    target_ref: String,
+    body_text: Option<String>,
+    covered: bool,
+    verified_by: Vec<String>,
+    evidence: Vec<EvidenceEntry>,
+    referenced_by: Vec<DocRef>,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceEntry {
+    test_name: String,
+    file: String,
+    line: usize,
+}
+```
+
+The enrichment step walks each criterion's component children to extract
+VerifiedBy strategy labels (reusing the same formatting as `status.rs`), looks
+up `artifact_graph.has_evidence(doc_id, crit_id)` for the covered flag, and
+queries `artifact_graph.evidence_for(doc_id, crit_id)` for evidence records.
+
+Evidence file paths are made project-root-relative for display.
+
+### Terminal Rendering
+
+```
+## Verification targets:
+- login-succeeds: WHEN valid credentials ... [covered]
+  verified by: tag:auth-login
+  evidence: test_user_login (tests/auth.rs:42)
+  evidence: test_login_with_mfa (tests/auth.rs:87)
+  -> Referenced by: auth/design (in-progress)
+- login-fails: WHEN invalid credentials ... [uncovered]
+  verified by: tag:auth-fail
+  -> Referenced by: auth/design (in-progress)
+```
+
+- `[covered]` uses `Token::StatusGood`, `[uncovered]` uses `Token::StatusBad`
+- `verified by:` and `evidence:` lines are indented under the criterion
+- Evidence lines appear after verified-by lines and before "Referenced by" lines
+
+### JSON Rendering
+
+For JSON output, the `EnrichedContextOutput` replaces `ContextOutput` as the
+serialization target. The `--detail compact` behavior (clearing
+`document.components`) applies to the enriched struct the same way.
+
 ## Testing Strategy
 
 - [cmd_context.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_context.rs)
@@ -351,6 +454,16 @@ New test coverage for Requirement 6:
   for a clean verify run does not contain `evidence_summary.records`; with
   `--detail full` it does.
 
+New test coverage for Requirement 7:
+
+- Unit tests in `context.rs` for the enrichment logic: a criterion with
+  evidence shows `[covered]`, verified-by lines, and evidence lines in
+  terminal output. A criterion without evidence shows `[uncovered]`.
+- Unit tests for JSON enrichment: enriched output includes `covered`,
+  `verified_by`, and `evidence` fields on each criterion.
+- Existing integration tests in `cmd_context.rs` continue to pass (the output
+  is a superset of the previous output).
+
 ## Design Notes
 
 - The evidence-aware filtering step for `plan` lives in CLI glue rather than
@@ -362,3 +475,6 @@ New test coverage for Requirement 6:
 - Qualifying `depends_on` at build time (when `TaskInfo` is constructed from
   parsed components) keeps the qualification logic in one place rather than
   scattering it across consumers.
+- The `context` enrichment with verification state follows the same boundary:
+  `supersigil-core` stays evidence-unaware, the CLI assembles evidence and
+  enriches the context output. The enriched types are CLI-private.

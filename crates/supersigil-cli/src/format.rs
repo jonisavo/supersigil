@@ -325,6 +325,32 @@ pub fn status_token(status: &str) -> Token {
     }
 }
 
+/// Format a `VerifiedBy` component as a human-readable label.
+///
+/// Returns strings like `"tag:my_tag"`, `"file-glob:tests/**"`, or the raw
+/// strategy name for unknown strategies.
+#[must_use]
+pub fn verified_by_label(component: &supersigil_core::ExtractedComponent) -> String {
+    let strategy = component
+        .attributes
+        .get("strategy")
+        .map_or("unknown", String::as_str);
+    match strategy {
+        "tag" => {
+            let tag = component.attributes.get("tag").map_or("?", String::as_str);
+            format!("tag:{tag}")
+        }
+        "file-glob" => {
+            let paths = component
+                .attributes
+                .get("paths")
+                .map_or("?", String::as_str);
+            format!("file-glob:{paths}")
+        }
+        other => other.to_owned(),
+    }
+}
+
 /// Write a collapsed summary of completed tasks, grouped by tasks doc.
 ///
 /// Each group shows the doc ID, contiguous ranges of task IDs, and a count.

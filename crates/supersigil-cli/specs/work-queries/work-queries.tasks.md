@@ -102,3 +102,32 @@ This tasks document tracks the bounded recovery pass for the CLI `context` and
   evidence_summary.records; --detail full includes them.
 </Task>
 ```
+
+## Context Verification State
+
+```supersigil-xml
+<Task id="task-13" status="done" implements="work-queries/req#req-7-1, work-queries/req#req-7-4">
+  Wire the evidence pipeline into the context command and define the
+  enriched output types. TDD: write unit tests for enrichment first
+  (EnrichedTargetContext with covered/uncovered criteria, verified_by
+  strategies, evidence entries, and empty arrays when no data exists),
+  then implement. Add plugins::build_evidence and warn_plugin_findings
+  calls after load_graph matching the pattern in status.rs. Add
+  EnrichedContextOutput, EnrichedTargetContext, and EvidenceEntry structs.
+  Build the enrichment function that maps ContextOutput criteria to
+  EnrichedTargetContext by looking up coverage, extracting VerifiedBy
+  strategies from component children, and querying evidence records from
+  the ArtifactGraph. Wire JSON output to serialize EnrichedContextOutput.
+  The verified_by and evidence fields SHALL always be present as arrays.
+</Task>
+
+<Task id="task-14" status="done" depends="task-13" implements="work-queries/req#req-7-2, work-queries/req#req-7-3">
+  Update the terminal renderer for context verification state. TDD:
+  write unit tests for terminal output first (covered criterion with
+  marker, verified-by lines, and evidence lines; uncovered criterion
+  with marker and no evidence), then implement. Add [covered]/[uncovered]
+  markers after criterion body text using Token::StatusGood and
+  Token::StatusBad. Add indented verified-by and evidence lines between
+  the criterion line and Referenced-by lines.
+</Task>
+```
