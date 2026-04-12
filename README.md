@@ -17,6 +17,14 @@ files into a verifiable graph of criteria, evidence, and test mappings.
 Specs are code: they render as documentation, provide agent context, and
 are checked by CI.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/public/images/graph-explorer-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="website/public/images/graph-explorer-light.webp" />
+    <img alt="Image of spec authoring inside Visual Studio Code" src="website/public/images/graph-explorer-dark.webp" width="900" />
+  </picture>
+</p>
+
 ## Principles
 
 - **Everything-as-code.** Specs are Markdown files in your repository,
