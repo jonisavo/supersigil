@@ -5,15 +5,6 @@
 UX gaps, rough edges, and improvement opportunities across the CLI, editors,
 documentation, and onboarding experience.
 
-## Init and Onboarding
-
-### No Skills Listing/Check Command
-
-No way to check which skills are installed, whether they match the current
-binary version, or diff against embedded versions. `supersigil skills list`
-(show installed) or `supersigil skills check` (compare against embedded)
-would help users after upgrades.
-
 ## LSP and Editor Integration
 
 ### Binary Resolution Transparency
@@ -46,24 +37,6 @@ same-project docs. Higher relevance first.
 A `publish-intellij` workflow exists but is currently commented out in the
 release pipeline. The plugin is not yet published on the JetBrains
 Marketplace. Users must build from source to install.
-
-## Documentation Gaps
-
-### Missing Pages
-
-- **Troubleshooting / FAQ**: "0 documents found" (wrong paths), "LSP not
-  starting" (binary not in PATH), common verify errors explained.
-- **Migration guide**: Changes between versions, upgrade path.
-- **Large project guide**: Performance, multi-project best practices,
-  `--project` filtering, monorepo spec organization.
-- **Custom components guide**: When/how to define custom components.
-- **Common errors reference**: Each verify rule explained with fix examples.
-
-### Existing Page Improvements
-
-- Editor setup guide lacks troubleshooting section
-- No performance characteristics documented
-- Multi-project pitfalls not covered (cross-project refs, isolated mode)
 
 ## Context and Status Commands
 
