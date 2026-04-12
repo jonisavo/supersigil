@@ -30,14 +30,6 @@ A `publish-intellij` workflow exists but is currently commented out in the
 release pipeline. The plugin is not yet published on the JetBrains
 Marketplace. Users must build from source to install.
 
-## Context and Status Commands
-
-### Status Output Sparseness
-
-`status` with no argument shows project-wide counts but no actionable
-direction. A hint like "Run 'supersigil plan' for outstanding work" would
-bridge the gap.
-
 ## Config Editing Experience
 
 No JSON Schema exists for `supersigil.toml`. Users editing config in VS Code

@@ -186,7 +186,7 @@ fn write_project_terminal(
     if uncovered > 0 {
         format::hint(
             color,
-            "Some verification targets are uncovered. Run `supersigil verify` to see details.",
+            "Some verification targets are uncovered. Run `supersigil plan` for outstanding work or `supersigil verify` to see details.",
         );
     } else {
         format::hint(
