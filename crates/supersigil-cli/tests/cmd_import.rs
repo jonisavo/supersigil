@@ -230,6 +230,36 @@ fn import_write_conflict_with_force_overwrites() {
         .success();
 }
 
+#[test]
+fn import_summary_shows_ambiguity_breakdown() {
+    let project = TempDir::new().unwrap();
+    let specs_dir = project.path().join(".kiro/specs");
+
+    // Create a feature with a design doc but no requirements doc
+    // This triggers a missing_context ambiguity marker.
+    let feature_dir = specs_dir.join("broken-refs");
+    fs::create_dir_all(&feature_dir).unwrap();
+    fs::write(
+        feature_dir.join("design.md"),
+        "# Design: Broken Refs\n\n## Overview\n\nSome content.\n",
+    )
+    .unwrap();
+
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--dry-run",
+            "--output-dir",
+            project.path().join("out").to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("missing_context:"));
+}
+
 /// Write mode prints a `supersigil verify` next-step hint on stderr.
 #[verifies("kiro-import/req#req-4-3")]
 #[test]

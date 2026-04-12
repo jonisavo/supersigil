@@ -33,7 +33,8 @@ This property validates against requirements.
 This property validates against a design decision.
 
 **Validates: Design Decision 5**
-<!-- TODO(supersigil-import): Validates line references non-requirement target: 'Design Decision 5' -->
+
+> **TODO(supersigil-import):** Validates line references non-requirement target: 'Design Decision 5'
 
 ### Property 3: Another standard property
 

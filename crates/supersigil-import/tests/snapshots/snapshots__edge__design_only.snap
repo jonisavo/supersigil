@@ -10,7 +10,7 @@ supersigil:
 title: "Standalone Design"
 ---
 
-<!-- TODO(supersigil-import): No requirements document found for this feature; cannot emit <Implements> component -->
+> **TODO(supersigil-import):** No requirements document found for this feature; cannot emit <Implements> component
 
 ## Overview
 
@@ -31,4 +31,4 @@ graph TD
 
 The output is always non-empty.
 
-<!-- TODO(supersigil-import): Could not resolve Validates references in '**Validates: Requirements 1.1**' -->
+> **TODO(supersigil-import):** Could not resolve Validates references in '**Validates: Requirements 1.1**'

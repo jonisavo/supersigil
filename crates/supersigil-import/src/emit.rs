@@ -41,3 +41,36 @@ pub(crate) fn emit_front_matter(out: &mut String, doc_id: &str, doc_type: &str, 
     let _ = writeln!(out, "---");
     out.push('\n');
 }
+
+/// Marker prefix used in all import ambiguity markers.
+///
+/// This substring appears in every marker and can be used for scanning.
+pub const MARKER_PREFIX: &str = "TODO(supersigil-import)";
+
+/// Format an import ambiguity marker as a visible Markdown blockquote.
+///
+/// Produces: `> **TODO(supersigil-import):** {message}`
+#[must_use]
+pub fn format_marker(message: &str) -> String {
+    format!("> **{MARKER_PREFIX}:** {message}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_marker_produces_visible_blockquote() {
+        let marker = format_marker("Duplicate ID 'task-1', renamed to 'task-1-2'");
+        assert_eq!(
+            marker,
+            "> **TODO(supersigil-import):** Duplicate ID 'task-1', renamed to 'task-1-2'"
+        );
+    }
+
+    #[test]
+    fn format_marker_contains_greppable_prefix() {
+        let marker = format_marker("some message");
+        assert!(marker.contains(MARKER_PREFIX));
+    }
+}

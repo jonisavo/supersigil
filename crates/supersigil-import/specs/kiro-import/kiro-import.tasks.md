@@ -2,7 +2,7 @@
 supersigil:
   id: kiro-import/tasks
   type: tasks
-  status: done
+  status: active
 title: "Kiro Import Tasks"
 ---
 
@@ -66,5 +66,18 @@ current Kiro import domain.
   Fix document ID generation to use `{feature}/{type}` convention instead of
   `{type}/{feature}`, matching `supersigil new`. Update `make_document_id`,
   its call sites, and all snapshot and property-based tests.
+</Task>
+
+<Task id="task-10" status="ready" implements="kiro-import/req#req-6-1, kiro-import/req#req-6-2, kiro-import/req#req-7-1, kiro-import/req#req-7-2">
+  Add AmbiguityKind, AmbiguityBreakdown types and format_marker helper.
+  Switch all marker emission sites from HTML comments to visible Markdown
+  blockquotes. Thread AmbiguityBreakdown through the emit pipeline,
+  replacing ambiguity_count: usize. Update all tests and snapshots.
+</Task>
+
+<Task id="task-11" status="ready" depends="task-10" implements="kiro-import/req#req-7-3">
+  Update the CLI import summary to display the per-category ambiguity
+  breakdown. Change import::run return type from Result&lt;(), CliError&gt; to
+  Result&lt;ExitStatus, CliError&gt; to support non-zero exits.
 </Task>
 ```

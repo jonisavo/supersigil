@@ -20,6 +20,69 @@ pub mod write;
 
 use std::path::PathBuf;
 
+/// Categories of import ambiguity markers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum AmbiguityKind {
+    /// A duplicate ID was detected and renamed.
+    DuplicateId,
+    /// A requirement reference could not be resolved.
+    UnresolvedRef,
+    /// A reference token could not be parsed.
+    UnparseableRef,
+    /// Required context (e.g. requirements document) was missing.
+    MissingContext,
+    /// A Kiro feature has no supersigil equivalent.
+    UnsupportedFeature,
+}
+
+/// Per-category counts of ambiguity markers emitted during import.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct AmbiguityBreakdown {
+    /// Duplicate IDs that were renamed with a suffix.
+    pub duplicate_id: usize,
+    /// Requirement references that could not be resolved.
+    pub unresolved_ref: usize,
+    /// Reference tokens that could not be parsed.
+    pub unparseable_ref: usize,
+    /// Missing structural context (e.g. no requirements document).
+    pub missing_context: usize,
+    /// Kiro features with no supersigil equivalent.
+    pub unsupported_feature: usize,
+}
+
+impl AmbiguityBreakdown {
+    /// Total number of ambiguity markers across all categories.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.duplicate_id
+            + self.unresolved_ref
+            + self.unparseable_ref
+            + self.missing_context
+            + self.unsupported_feature
+    }
+
+    /// Increment the count for the given ambiguity kind.
+    pub fn record(&mut self, kind: AmbiguityKind) {
+        match kind {
+            AmbiguityKind::DuplicateId => self.duplicate_id += 1,
+            AmbiguityKind::UnresolvedRef => self.unresolved_ref += 1,
+            AmbiguityKind::UnparseableRef => self.unparseable_ref += 1,
+            AmbiguityKind::MissingContext => self.missing_context += 1,
+            AmbiguityKind::UnsupportedFeature => self.unsupported_feature += 1,
+        }
+    }
+}
+
+impl std::ops::AddAssign for AmbiguityBreakdown {
+    fn add_assign(&mut self, rhs: Self) {
+        self.duplicate_id += rhs.duplicate_id;
+        self.unresolved_ref += rhs.unresolved_ref;
+        self.unparseable_ref += rhs.unparseable_ref;
+        self.missing_context += rhs.missing_context;
+        self.unsupported_feature += rhs.unsupported_feature;
+    }
+}
+
 /// Configuration for a Kiro-to-supersigil import operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportConfig {
@@ -38,8 +101,8 @@ pub struct ImportConfig {
 pub struct ImportResult {
     /// Files successfully written to disk.
     pub files_written: Vec<OutputFile>,
-    /// Number of ambiguity markers emitted during conversion.
-    pub ambiguity_count: usize,
+    /// Per-category breakdown of ambiguity markers emitted during conversion.
+    pub ambiguity_breakdown: AmbiguityBreakdown,
     /// Aggregate statistics for the import.
     pub summary: ImportSummary,
     /// Non-fatal warnings and skipped-directory notices.
@@ -51,8 +114,8 @@ pub struct ImportResult {
 pub struct ImportPlan {
     /// Documents that would be written.
     pub documents: Vec<PlannedDocument>,
-    /// Number of ambiguity markers that would be emitted.
-    pub ambiguity_count: usize,
+    /// Per-category breakdown of ambiguity markers that would be emitted.
+    pub ambiguity_breakdown: AmbiguityBreakdown,
     /// Aggregate statistics for the planned import.
     pub summary: ImportSummary,
     /// Non-fatal warnings and skipped-directory notices.
@@ -155,7 +218,7 @@ pub fn import_kiro(config: &ImportConfig) -> Result<ImportResult, ImportError> {
 
     Ok(ImportResult {
         files_written,
-        ambiguity_count: plan.ambiguity_count,
+        ambiguity_breakdown: plan.ambiguity_breakdown,
         summary: plan.summary,
         diagnostics: plan.diagnostics,
     })
@@ -175,7 +238,7 @@ pub fn plan_kiro_import(config: &ImportConfig) -> Result<ImportPlan, ImportError
 
     let mut acc = PlanAccumulator {
         documents: Vec::new(),
-        total_ambiguity: 0,
+        breakdown: AmbiguityBreakdown::default(),
         summary: ImportSummary::default(),
         diagnostics,
     };
@@ -188,7 +251,7 @@ pub fn plan_kiro_import(config: &ImportConfig) -> Result<ImportPlan, ImportError
 
     Ok(ImportPlan {
         documents: acc.documents,
-        ambiguity_count: acc.total_ambiguity,
+        ambiguity_breakdown: acc.breakdown,
         summary: acc.summary,
         diagnostics: acc.diagnostics,
     })
@@ -272,7 +335,7 @@ struct FeatureContext<'a> {
 /// Accumulator for building an `ImportPlan` across multiple features.
 struct PlanAccumulator {
     documents: Vec<PlannedDocument>,
-    total_ambiguity: usize,
+    breakdown: AmbiguityBreakdown,
     summary: ImportSummary,
     diagnostics: Vec<Diagnostic>,
 }
@@ -284,9 +347,9 @@ impl PlanAccumulator {
         type_hint: &str,
         doc_id: &str,
         content: String,
-        ambiguity: usize,
+        ambiguity: AmbiguityBreakdown,
     ) {
-        self.total_ambiguity += ambiguity;
+        self.breakdown += ambiguity;
         self.documents.push(PlannedDocument {
             output_path: ctx
                 .output_dir
@@ -312,14 +375,14 @@ fn emit_requirements(
         });
     }
 
-    let (content, amb) =
+    let (content, breakdown) =
         emit::requirements::emit_requirements_md(reqs, ctx.req_doc_id, ctx.feature_title);
     acc.summary.criteria_converted += reqs
         .requirements
         .iter()
         .map(|r| r.criteria.len())
         .sum::<usize>();
-    acc.push_document(ctx, "req", ctx.req_doc_id, content, amb);
+    acc.push_document(ctx, "req", ctx.req_doc_id, content, breakdown);
 }
 
 fn emit_design(
@@ -329,7 +392,7 @@ fn emit_design(
     ctx: &FeatureContext<'_>,
     acc: &mut PlanAccumulator,
 ) {
-    let (content, amb, validates_resolved) = emit::design::emit_design_md(
+    let (content, breakdown, validates_resolved) = emit::design::emit_design_md(
         design,
         design_doc_id,
         req_index,
@@ -337,7 +400,7 @@ fn emit_design(
         ctx.feature_title,
     );
     acc.summary.validates_resolved += validates_resolved;
-    acc.push_document(ctx, "design", design_doc_id, content, amb);
+    acc.push_document(ctx, "design", design_doc_id, content, breakdown);
 }
 
 fn emit_tasks(
@@ -350,7 +413,7 @@ fn emit_tasks(
     for task in &tasks.tasks {
         acc.summary.tasks_converted += 1 + task.sub_tasks.len();
     }
-    let (content, amb, validates_resolved) = emit::tasks::emit_tasks_md(
+    let (content, breakdown, validates_resolved) = emit::tasks::emit_tasks_md(
         tasks,
         tasks_doc_id,
         req_index,
@@ -358,7 +421,7 @@ fn emit_tasks(
         ctx.feature_title,
     );
     acc.summary.validates_resolved += validates_resolved;
-    acc.push_document(ctx, "tasks", tasks_doc_id, content, amb);
+    acc.push_document(ctx, "tasks", tasks_doc_id, content, breakdown);
 }
 
 #[cfg(test)]
@@ -375,5 +438,40 @@ mod tests {
         };
         let summary = ImportSummary::default();
         assert_eq!(summary.criteria_converted, 0);
+    }
+
+    #[test]
+    fn ambiguity_breakdown_total() {
+        let mut b = AmbiguityBreakdown::default();
+        assert_eq!(b.total(), 0);
+        b.record(AmbiguityKind::DuplicateId);
+        b.record(AmbiguityKind::UnresolvedRef);
+        b.record(AmbiguityKind::UnresolvedRef);
+        b.record(AmbiguityKind::UnparseableRef);
+        b.record(AmbiguityKind::MissingContext);
+        b.record(AmbiguityKind::UnsupportedFeature);
+        assert_eq!(b.total(), 6);
+        assert_eq!(b.duplicate_id, 1);
+        assert_eq!(b.unresolved_ref, 2);
+        assert_eq!(b.unparseable_ref, 1);
+        assert_eq!(b.missing_context, 1);
+        assert_eq!(b.unsupported_feature, 1);
+    }
+
+    #[test]
+    fn ambiguity_breakdown_add_assign() {
+        let mut a = AmbiguityBreakdown::default();
+        a.record(AmbiguityKind::DuplicateId);
+        a.record(AmbiguityKind::UnresolvedRef);
+
+        let mut b = AmbiguityBreakdown::default();
+        b.record(AmbiguityKind::MissingContext);
+        b.record(AmbiguityKind::UnresolvedRef);
+
+        a += b;
+        assert_eq!(a.duplicate_id, 1);
+        assert_eq!(a.unresolved_ref, 2);
+        assert_eq!(a.missing_context, 1);
+        assert_eq!(a.total(), 4);
     }
 }

@@ -1,24 +1,26 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use supersigil_import::{Diagnostic, ImportConfig, ImportSummary, import_kiro, plan_kiro_import};
+use supersigil_import::{
+    AmbiguityBreakdown, Diagnostic, ImportConfig, ImportSummary, import_kiro, plan_kiro_import,
+};
 
 use crate::commands::{ImportArgs, ImportSource};
 use crate::error::CliError;
-use crate::format::{self, ColorConfig, Token};
+use crate::format::{self, ColorConfig, ExitStatus, Token};
 
 /// Run the import command, reading Kiro specs and writing spec documents.
 ///
 /// # Errors
 ///
 /// Returns `CliError` on I/O failure or import errors.
-pub fn run(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError> {
+pub fn run(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, CliError> {
     match args.from {
         ImportSource::Kiro => run_kiro_import(args, color),
     }
 }
 
-fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError> {
+fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, CliError> {
     let kiro_specs_dir = args
         .source_dir
         .clone()
@@ -42,44 +44,47 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        let c = color;
         writeln!(
             out,
             "Dry run: {} documents planned",
-            c.paint(Token::Count, &plan.documents.len().to_string()),
+            color.paint(Token::Count, &plan.documents.len().to_string()),
         )?;
         for doc in &plan.documents {
             let path_str = doc.output_path.display().to_string();
             writeln!(
                 out,
                 "  {} -> {}",
-                c.paint(Token::DocId, &doc.document_id),
-                c.paint(Token::Path, &path_str),
+                color.paint(Token::DocId, &doc.document_id),
+                color.paint(Token::Path, &path_str),
             )?;
         }
-        print_summary(&mut out, &plan.summary, plan.ambiguity_count)?;
+        print_summary(&mut out, &plan.summary, &plan.ambiguity_breakdown, color)?;
     } else {
         let result = import_kiro(&config)?;
         print_diagnostics(&result.diagnostics)?;
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        let c = color;
         writeln!(
             out,
             "Imported {} files",
-            c.paint(Token::Count, &result.files_written.len().to_string()),
+            color.paint(Token::Count, &result.files_written.len().to_string()),
         )?;
         for file in &result.files_written {
             let path_str = file.path.display().to_string();
             writeln!(
                 out,
                 "  {} -> {}",
-                c.paint(Token::DocId, &file.document_id),
-                c.paint(Token::Path, &path_str),
+                color.paint(Token::DocId, &file.document_id),
+                color.paint(Token::Path, &path_str),
             )?;
         }
-        print_summary(&mut out, &result.summary, result.ambiguity_count)?;
+        print_summary(
+            &mut out,
+            &result.summary,
+            &result.ambiguity_breakdown,
+            color,
+        )?;
 
         // Next-step hint
         if std::path::Path::new(supersigil_core::CONFIG_FILENAME).exists() {
@@ -95,7 +100,7 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<(), CliError
         }
     }
 
-    Ok(())
+    Ok(ExitStatus::Success)
 }
 
 fn print_diagnostics(diagnostics: &[Diagnostic]) -> io::Result<()> {
@@ -110,13 +115,34 @@ fn print_diagnostics(diagnostics: &[Diagnostic]) -> io::Result<()> {
 fn print_summary(
     out: &mut impl Write,
     summary: &ImportSummary,
-    ambiguity_count: usize,
+    breakdown: &AmbiguityBreakdown,
+    color: ColorConfig,
 ) -> io::Result<()> {
     writeln!(out, "\nSummary:")?;
     writeln!(out, "  features_processed: {}", summary.features_processed)?;
     writeln!(out, "  criteria_converted: {}", summary.criteria_converted)?;
     writeln!(out, "  validates_resolved: {}", summary.validates_resolved)?;
     writeln!(out, "  tasks_converted: {}", summary.tasks_converted)?;
-    writeln!(out, "  ambiguity_count: {ambiguity_count}")?;
+    let total = breakdown.total();
+    if total > 0 {
+        writeln!(
+            out,
+            "  ambiguities: {}",
+            color.paint(Token::Warning, &format!("{total} total")),
+        )?;
+        for (name, count) in [
+            ("duplicate_id", breakdown.duplicate_id),
+            ("unresolved_ref", breakdown.unresolved_ref),
+            ("unparseable_ref", breakdown.unparseable_ref),
+            ("missing_context", breakdown.missing_context),
+            ("unsupported_feature", breakdown.unsupported_feature),
+        ] {
+            if count > 0 {
+                writeln!(out, "    {name}: {count}")?;
+            }
+        }
+    } else {
+        writeln!(out, "  ambiguities: 0")?;
+    }
     Ok(())
 }

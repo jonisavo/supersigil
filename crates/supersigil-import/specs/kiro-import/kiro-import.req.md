@@ -2,7 +2,7 @@
 supersigil:
   id: kiro-import/req
   type: requirements
-  status: implemented
+  status: active
 title: "Kiro Import"
 ---
 
@@ -28,9 +28,14 @@ project-aware workspace import.
 - **Import_Plan**: The dry-run result returned by `plan_kiro_import`,
   containing planned documents, summary counters, ambiguity count, and
   diagnostics.
-- **Ambiguity_Marker**: A `<!-- TODO(supersigil-import): ... -->` comment
-  emitted when the current import model cannot represent or fully resolve
-  source content.
+- **Ambiguity_Marker**: A visible Markdown blockquote
+  (`> **TODO(supersigil-import):** ...`) emitted when the current import
+  model cannot represent or fully resolve source content. Legacy imports
+  may contain the older HTML comment format
+  (`<!-- TODO(supersigil-import): ... -->`).
+- **Ambiguity_Kind**: One of `duplicate_id`, `unresolved_ref`,
+  `unparseable_ref`, `missing_context`, or `unsupported_feature`,
+  categorizing the nature of an Ambiguity_Marker.
 
 ## Requirement 1: Discovery and Planning
 
@@ -59,8 +64,8 @@ inspect the conversion safely.
   <Criterion id="req-1-4">
     `plan_kiro_import` SHALL return one `PlannedDocument` per present source
     file and SHALL report `features_processed`, `criteria_converted`,
-    `validates_resolved`, `tasks_converted`, diagnostics, and
-    `ambiguity_count` without writing output files.
+    `validates_resolved`, `tasks_converted`, diagnostics, and an
+    `AmbiguityBreakdown` without writing output files.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
   </Criterion>
 </AcceptanceCriteria>
@@ -145,9 +150,9 @@ without hiding unresolved cases.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/unit.rs" />
   </Criterion>
   <Criterion id="req-3-5">
-    THE reported `ambiguity_count` in an Import_Plan or Import_Result SHALL
-    equal the total number of emitted Ambiguity_Markers across the generated
-    documents.
+    THE reported `ambiguity_breakdown.total()` in an Import_Plan or
+    Import_Result SHALL equal the total number of emitted Ambiguity_Markers
+    across the generated documents.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
   </Criterion>
 </AcceptanceCriteria>
@@ -207,6 +212,53 @@ conflict behavior, so that reruns and partial failures are understandable.
     THE current write phase SHALL be best-effort and non-transactional: if a
     later write fails, earlier successful writes SHALL NOT be rolled back.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/write.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 6: Ambiguity Marker Visibility
+
+As a user resolving import markers, I want markers to be visible in Markdown
+preview, so that I can discover them without reading raw source.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    ALL emitted Ambiguity_Markers SHALL use the Markdown blockquote format
+    `> **TODO(supersigil-import):** {message}` instead of HTML comments.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
+  </Criterion>
+  <Criterion id="req-6-2">
+    ALL emitted Ambiguity_Markers SHALL contain the literal substring
+    `TODO(supersigil-import)` to support scanning by both the `--check` flag
+    and manual grep.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_edge.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 7: Ambiguity Breakdown by Category
+
+As a user reviewing an import summary, I want to see a breakdown of markers by
+category, so that I can prioritize resolution by type.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-7-1">
+    THE import pipeline SHALL categorize each Ambiguity_Marker as one of the
+    Ambiguity_Kind values: `duplicate_id`, `unresolved_ref`,
+    `unparseable_ref`, `missing_context`, or `unsupported_feature`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/unit.rs" />
+  </Criterion>
+  <Criterion id="req-7-2">
+    Import_Plan and Import_Result SHALL carry an `AmbiguityBreakdown` with
+    per-category counts whose total equals the number of emitted markers.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/tests/prop_plan.rs" />
+  </Criterion>
+  <Criterion id="req-7-3">
+    THE CLI summary SHALL display the per-category breakdown when the total
+    ambiguity count is greater than zero, showing only non-zero categories.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_import.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

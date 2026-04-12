@@ -3,10 +3,11 @@ use std::fmt::Write;
 use crate::emit::{emit_front_matter, xml_escape};
 use crate::ids::{deduplicate_ids, make_criterion_id};
 use crate::parse::requirements::ParsedRequirements;
+use crate::{AmbiguityBreakdown, AmbiguityKind};
 
 /// Emit a requirements spec document from parsed Kiro requirements.
 ///
-/// Returns `(md_content, ambiguity_count)`.
+/// Returns `(md_content, ambiguity_breakdown)`.
 #[must_use]
 #[allow(
     clippy::missing_panics_doc,
@@ -16,9 +17,9 @@ pub fn emit_requirements_md(
     parsed: &ParsedRequirements,
     doc_id: &str,
     feature_title: &str,
-) -> (String, usize) {
+) -> (String, AmbiguityBreakdown) {
     let mut out = String::new();
-    let mut ambiguity_count = 0;
+    let mut breakdown = AmbiguityBreakdown::default();
 
     emit_front_matter(&mut out, doc_id, "requirements", feature_title);
 
@@ -45,7 +46,9 @@ pub fn emit_requirements_md(
         })
         .collect();
     let (deduped_ids, dedup_markers) = deduplicate_ids(&raw_ids);
-    ambiguity_count += dedup_markers.len();
+    for _ in &dedup_markers {
+        breakdown.record(AmbiguityKind::DuplicateId);
+    }
     let mut id_iter = deduped_ids.iter();
 
     // Per-requirement sections
@@ -92,5 +95,5 @@ pub fn emit_requirements_md(
         let _ = writeln!(out, "{marker}");
     }
 
-    (out, ambiguity_count)
+    (out, breakdown)
 }

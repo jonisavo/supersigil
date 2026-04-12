@@ -35,8 +35,7 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
     // Commands that don't need a project config.
     match cli.command {
         supersigil_cli::Command::Import(ref args) => {
-            supersigil_cli::commands::import::run(args, color)?;
-            return Ok(ExitStatus::Success);
+            return supersigil_cli::commands::import::run(args, color);
         }
         supersigil_cli::Command::Init(ref args) => {
             supersigil_cli::commands::init::run(args, color)?;

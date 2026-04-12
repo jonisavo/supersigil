@@ -186,9 +186,10 @@ fn parse_validates_block(raw_line: &str, value: &str) -> DesignBlock {
     let (refs, markers) = parse_requirement_refs(value);
     if refs.is_empty() {
         DesignBlock::Prose(format!(
-            "{raw_line}\n\
-             <!-- TODO(supersigil-import): Validates line references non-requirement \
-             target: '{value}' -->"
+            "{raw_line}\n\n{}",
+            crate::emit::format_marker(&format!(
+                "Validates line references non-requirement target: '{value}'"
+            ))
         ))
     } else {
         DesignBlock::ValidatesLine {

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use regex::Regex;
 use std::sync::LazyLock;
 
+use crate::emit::format_marker;
 use crate::parse::RawRef;
 use crate::parse::requirements::{ParsedRequirement, ParsedRequirements};
 
@@ -32,9 +33,9 @@ pub fn parse_requirement_refs(input: &str) -> (Vec<RawRef>, Vec<String>) {
         .trim();
 
     if body.is_empty() {
-        markers.push(format!(
-            "<!-- TODO(supersigil-import): Empty reference string in '{input}' -->"
-        ));
+        markers.push(format_marker(&format!(
+            "Empty reference string in '{input}'"
+        )));
         return (refs, markers);
     }
 
@@ -58,9 +59,9 @@ pub fn parse_requirement_refs(input: &str) -> (Vec<RawRef>, Vec<String>) {
             });
         } else {
             // Unparseable token
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Could not parse reference token '{token}' -->"
-            ));
+            markers.push(format_marker(&format!(
+                "Could not parse reference token '{token}'"
+            )));
         }
     }
 
@@ -95,27 +96,25 @@ fn try_parse_range(token: &str, markers: &mut Vec<String>) -> Option<Vec<RawRef>
             // If the requirement numbers differ, that's unusual but we still expand
             // using the start requirement number (the range pattern matched)
             if req_start != req_end {
-                markers.push(format!(
-                    "<!-- TODO(supersigil-import): Range has different requirement numbers: \
-                     '{req_start}' vs '{req_end}' in '{token}' -->"
-                ));
+                markers.push(format_marker(&format!(
+                    "Range has different requirement numbers: \
+                     '{req_start}' vs '{req_end}' in '{token}'"
+                )));
             }
 
             Some(expanded)
         }
         (Some(s), Some(e)) if s > e => {
             // Reversed range
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Range has start > end: '{token}' -->"
-            ));
+            markers.push(format_marker(&format!("Range has start > end: '{token}'")));
             Some(vec![])
         }
         _ => {
             // Non-numeric indices in range
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Non-numeric range indices in '{token}', \
-                 cannot expand -->"
-            ));
+            markers.push(format_marker(&format!(
+                "Non-numeric range indices in '{token}', \
+                 cannot expand"
+            )));
             Some(vec![])
         }
     }
@@ -184,11 +183,11 @@ pub fn resolve_refs(
             .copied();
 
         let Some(req) = req else {
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Could not resolve reference \
-                 'Requirements {}.{}' to a criterion ID — requirement {} not found -->",
+            markers.push(format_marker(&format!(
+                "Could not resolve reference \
+                 'Requirements {}.{}' to a criterion ID — requirement {} not found",
                 raw.requirement_number, raw.criterion_index, raw.requirement_number
-            ));
+            )));
             continue;
         };
 
@@ -199,15 +198,15 @@ pub fn resolve_refs(
                 crate::ids::make_criterion_id(&raw.requirement_number, &raw.criterion_index);
             resolved.push(format!("{doc_id_base}#{crit_id}"));
         } else {
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Could not resolve reference \
+            markers.push(format_marker(&format!(
+                "Could not resolve reference \
                  'Requirements {}.{}' to a criterion ID — criterion index {} \
-                 not found in requirement {} -->",
+                 not found in requirement {}",
                 raw.requirement_number,
                 raw.criterion_index,
                 raw.criterion_index,
                 raw.requirement_number
-            ));
+            )));
         }
     }
 

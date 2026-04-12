@@ -2,14 +2,14 @@
 supersigil:
   id: kiro-import/design
   type: design
-  status: implemented
+  status: active
 title: "Kiro Import"
 ---
 
 ```supersigil-xml
 <Implements refs="kiro-import/req" />
 <DependsOn refs="cli-runtime/design, parser-pipeline/design, document-graph/design, workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/unit.rs, crates/supersigil-cli/tests/cmd_import.rs" />
+<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/emit.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/unit.rs, crates/supersigil-cli/tests/cmd_import.rs" />
 ```
 
 ## Overview
@@ -99,6 +99,19 @@ graph TD
   task traceability into `implements`, and appends TODO markers when Kiro data
   cannot be represented exactly by the current `<Task>` model.
 
+### Marker Format
+
+All ambiguity markers use visible Markdown blockquotes:
+
+```
+> **TODO(supersigil-import):** {message}
+```
+
+This format renders visibly in Markdown preview (unlike the previous HTML
+comment format) and contains the `TODO(supersigil-import)` substring for
+scanning. Each marker is categorized by `AmbiguityKind` during emission, and
+the `AmbiguityBreakdown` accumulates per-kind counts through the pipeline.
+
 ## Key Types
 
 ```rust
@@ -111,7 +124,7 @@ pub struct ImportConfig {
 
 pub struct ImportPlan {
     pub documents: Vec<PlannedDocument>,
-    pub ambiguity_count: usize,
+    pub ambiguity_breakdown: AmbiguityBreakdown,
     pub summary: ImportSummary,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -121,6 +134,22 @@ pub struct ImportSummary {
     pub validates_resolved: usize,
     pub tasks_converted: usize,
     pub features_processed: usize,
+}
+
+pub enum AmbiguityKind {
+    DuplicateId,
+    UnresolvedRef,
+    UnparseableRef,
+    MissingContext,
+    UnsupportedFeature,
+}
+
+pub struct AmbiguityBreakdown {
+    pub duplicate_id: usize,
+    pub unresolved_ref: usize,
+    pub unparseable_ref: usize,
+    pub missing_context: usize,
+    pub unsupported_feature: usize,
 }
 
 pub enum Diagnostic {
@@ -186,8 +215,6 @@ only at the compatibility boundary.
 - Import targeting is not project-aware. Output roots and ID prefixes are still
   explicit/manual rather than selected from `projects.*`.
 - The write phase is best-effort and non-transactional.
-- Diagnostics are intentionally coarse; they do not currently expose a richer
-  per-feature warning taxonomy.
 - The CLI tests cover the main command surface, but not every next-step hint
   branch or every write-conflict path end-to-end.
 

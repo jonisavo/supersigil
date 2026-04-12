@@ -522,6 +522,6 @@ Build the `supersigil-core::graph` module following TDD: for each pipeline stage
 
 - All code goes in `crates/supersigil-core/src/graph/` with tests in `crates/supersigil-core/src/graph/tests/`
 
-<!-- TODO(supersigil-import): Kiro metadata for task task-1-2: all (generators support all property tests) -->
-<!-- TODO(supersigil-import): Kiro metadata for task task-16-3: Requirements 11.3 (context half) -->
-<!-- TODO(supersigil-import): Kiro metadata for task task-17-5: Requirements 11.3 (plan half) -->
+> **TODO(supersigil-import):** Kiro metadata for task task-1-2: all (generators support all property tests)
+> **TODO(supersigil-import):** Kiro metadata for task task-16-3: Requirements 11.3 (context half)
+> **TODO(supersigil-import):** Kiro metadata for task task-17-5: Requirements 11.3 (plan half)

@@ -11,13 +11,15 @@ use supersigil_rust::verifies;
 
 /// Count occurrences of the ambiguity marker prefix in a string.
 fn count_ambiguity_markers(content: &str) -> usize {
-    content.matches("<!-- TODO(supersigil-import):").count()
+    content
+        .matches(supersigil_import::emit::MARKER_PREFIX)
+        .count()
 }
 
 // Feature: kiro-import, Property 18: Ambiguity marker count consistency
 //
 // For any import result or plan, the reported `ambiguity_count` equals the
-// number of `<!-- TODO(supersigil-import):` occurrences across all generated
+// number of `**TODO(supersigil-import):**` occurrences across all generated
 // spec documents.
 //
 // Validates: Requirements 13.3, 14.3
@@ -56,10 +58,10 @@ proptest! {
             .sum();
 
         prop_assert_eq!(
-            plan.ambiguity_count,
+            plan.ambiguity_breakdown.total(),
             actual_marker_count,
-            "Reported ambiguity_count ({}) != actual marker occurrences ({}) in generated output",
-            plan.ambiguity_count,
+            "Reported ambiguity total ({}) != actual marker occurrences ({}) in generated output",
+            plan.ambiguity_breakdown.total(),
             actual_marker_count,
         );
     }

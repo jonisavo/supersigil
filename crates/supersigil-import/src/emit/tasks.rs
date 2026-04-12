@@ -1,9 +1,10 @@
 use std::fmt::Write;
 
-use crate::emit::{emit_front_matter, xml_escape};
+use crate::emit::{emit_front_matter, format_marker, xml_escape};
 use crate::ids::{deduplicate_ids, make_task_id};
 use crate::parse::tasks::{ParsedSubTask, ParsedTasks, TaskRefs, TaskStatus};
 use crate::refs::{self, RequirementIndex};
+use crate::{AmbiguityBreakdown, AmbiguityKind};
 
 /// Return the length of the longest run of consecutive backtick characters in `text`.
 fn max_backtick_run(text: &str) -> usize {
@@ -51,19 +52,19 @@ fn emit_task_body(
     title: &str,
     description: &[String],
     ctx: TaskBodyCtx<'_>,
-    ambiguity_count: &mut usize,
+    breakdown: &mut AmbiguityBreakdown,
     task_markers: &mut Vec<String>,
 ) {
     let _ = writeln!(out, "{}  {}", ctx.indent, xml_escape(title));
 
     if ctx.is_optional {
-        let marker = format!(
-            "<!-- TODO(supersigil-import): This task was marked as optional in Kiro; \
-             supersigil <Task> has no optional attribute (task: {}) -->",
+        let marker = format_marker(&format!(
+            "This task was marked as optional in Kiro; \
+             supersigil <Task> has no optional attribute (task: {})",
             ctx.task_id
-        );
+        ));
         task_markers.push(marker);
-        *ambiguity_count += 1;
+        breakdown.record(AmbiguityKind::UnsupportedFeature);
     }
 
     for desc in description {
@@ -77,13 +78,12 @@ fn emit_task_body(
     }
 
     if let TaskRefs::Comment(comment) = ctx.refs {
-        let comment = comment.replace("--", "- -");
-        let marker = format!(
-            "<!-- TODO(supersigil-import): Kiro metadata for task {}: {comment} -->",
+        let marker = format_marker(&format!(
+            "Kiro metadata for task {}: {comment}",
             ctx.task_id
-        );
+        ));
         task_markers.push(marker);
-        *ambiguity_count += 1;
+        breakdown.record(AmbiguityKind::UnsupportedFeature);
     }
 }
 
@@ -103,10 +103,9 @@ fn resolve_task_implements(
 
     let Some(index) = req_index else {
         let refs_str = format_raw_refs(raw_refs);
-        let marker = format!(
-            "<!-- TODO(supersigil-import): Could not resolve implements references \
-             '{refs_str}' for task {task_id} -->"
-        );
+        let marker = format_marker(&format!(
+            "Could not resolve implements references '{refs_str}' for task {task_id}"
+        ));
         return (None, vec![marker], 0);
     };
 
@@ -116,16 +115,15 @@ fn resolve_task_implements(
     if resolved_count < raw_refs.len() {
         let refs_str = format_raw_refs(raw_refs);
         let marker = if resolved_count == 0 {
-            format!(
-                "<!-- TODO(supersigil-import): Could not resolve implements references \
-                 '{refs_str}' for task {task_id} -->"
-            )
+            format_marker(&format!(
+                "Could not resolve implements references '{refs_str}' for task {task_id}"
+            ))
         } else {
-            format!(
-                "<!-- TODO(supersigil-import): Only {resolved_count} of {} implements \
-                 references resolved for task {task_id} (from '{refs_str}') -->",
+            format_marker(&format!(
+                "Only {resolved_count} of {} implements \
+                 references resolved for task {task_id} (from '{refs_str}')",
                 raw_refs.len()
-            )
+            ))
         };
         markers.push(marker);
     }
@@ -151,7 +149,7 @@ fn format_raw_refs(refs: &[crate::parse::RawRef]) -> String {
 /// When `req_index` is provided, task requirement refs are resolved inline
 /// against the index. When absent, unresolvable-ref markers are emitted.
 ///
-/// Returns `(md_content, ambiguity_count, validates_resolved)`.
+/// Returns `(md_content, ambiguity_breakdown, validates_resolved)`.
 #[must_use]
 pub fn emit_tasks_md(
     parsed: &ParsedTasks,
@@ -159,9 +157,9 @@ pub fn emit_tasks_md(
     req_index: Option<&RequirementIndex<'_>>,
     req_doc_id: &str,
     feature_title: &str,
-) -> (String, usize, usize) {
+) -> (String, AmbiguityBreakdown, usize) {
     let mut out = String::new();
-    let mut ambiguity_count = 0;
+    let mut breakdown = AmbiguityBreakdown::default();
     let mut validates_resolved = 0;
     let mut task_markers: Vec<String> = Vec::new();
 
@@ -185,7 +183,9 @@ pub fn emit_tasks_md(
         }
     }
     let (deduped_ids, dedup_markers) = deduplicate_ids(&raw_ids);
-    ambiguity_count += dedup_markers.len();
+    for _ in &dedup_markers {
+        breakdown.record(AmbiguityKind::DuplicateId);
+    }
 
     // Task components
     let mut id_cursor = 0;
@@ -198,7 +198,9 @@ pub fn emit_tasks_md(
         let (implements, impl_markers, resolved_count) =
             resolve_task_implements(&task.requirement_refs, task_id, req_index, req_doc_id);
         validates_resolved += resolved_count;
-        ambiguity_count += impl_markers.len();
+        for _ in &impl_markers {
+            breakdown.record(AmbiguityKind::UnresolvedRef);
+        }
         task_markers.extend(impl_markers);
 
         let attrs = task_attrs(task_id, &task.status, prev_top_id, implements.as_deref());
@@ -231,7 +233,7 @@ pub fn emit_tasks_md(
                 refs: &task.requirement_refs,
                 indent: "",
             },
-            &mut ambiguity_count,
+            &mut breakdown,
             &mut task_markers,
         );
 
@@ -243,7 +245,7 @@ pub fn emit_tasks_md(
             &mut id_cursor,
             req_index,
             req_doc_id,
-            &mut ambiguity_count,
+            &mut breakdown,
             &mut validates_resolved,
             &mut task_markers,
         );
@@ -273,7 +275,7 @@ pub fn emit_tasks_md(
         let _ = writeln!(out, "{marker}");
     }
 
-    (out, ambiguity_count, validates_resolved)
+    (out, breakdown, validates_resolved)
 }
 
 #[allow(
@@ -287,7 +289,7 @@ fn emit_sub_tasks(
     id_cursor: &mut usize,
     req_index: Option<&RequirementIndex<'_>>,
     req_doc_id: &str,
-    ambiguity_count: &mut usize,
+    breakdown: &mut AmbiguityBreakdown,
     validates_resolved: &mut usize,
     task_markers: &mut Vec<String>,
 ) {
@@ -300,7 +302,9 @@ fn emit_sub_tasks(
         let (implements, impl_markers, resolved_count) =
             resolve_task_implements(&sub.requirement_refs, sub_id, req_index, req_doc_id);
         *validates_resolved += resolved_count;
-        *ambiguity_count += impl_markers.len();
+        for _ in &impl_markers {
+            breakdown.record(AmbiguityKind::UnresolvedRef);
+        }
         task_markers.extend(impl_markers);
 
         out.push('\n');
@@ -317,7 +321,7 @@ fn emit_sub_tasks(
                 refs: &sub.requirement_refs,
                 indent: "  ",
             },
-            ambiguity_count,
+            breakdown,
             task_markers,
         );
 

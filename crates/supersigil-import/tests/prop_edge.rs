@@ -140,7 +140,7 @@ proptest! {
                     if text.contains(&format!("**Validates: {target}**")) {
                         found_prose_with_target = true;
                     }
-                    if text.contains("<!-- TODO(supersigil-import):") && text.contains(&target) {
+                    if text.contains("**TODO(supersigil-import):**") && text.contains(&target) {
                         found_ambiguity_in_prose = true;
                     }
                 }
@@ -163,7 +163,7 @@ proptest! {
 
         // When emitted, the ambiguity marker should appear in the output
         let title = parsed.title.as_deref().unwrap_or("Edge Test");
-        let (output, ambiguity_count, _) = emit_design_md(
+        let (output, breakdown, _) = emit_design_md(
             &parsed,
             "edge-test/design",
             None,
@@ -173,15 +173,15 @@ proptest! {
 
         // The output should contain the ambiguity marker about the non-requirement target
         prop_assert!(
-            output.contains("<!-- TODO(supersigil-import):"),
+            output.contains("**TODO(supersigil-import):**"),
             "Emitted output should contain ambiguity marker for non-requirement target"
         );
 
         // Ambiguity count should be at least 1 (the non-req target marker,
         // plus potentially the missing-requirements marker)
         prop_assert!(
-            ambiguity_count >= 1,
-            "Ambiguity count should be >= 1, got {ambiguity_count}"
+            breakdown.total() >= 1,
+            "Ambiguity total should be >= 1, got {}", breakdown.total()
         );
     }
 }
@@ -230,7 +230,7 @@ proptest! {
 
         // When emitted, optional tasks should produce ambiguity markers
         let title = parsed.title.as_deref().unwrap_or("Optional Test");
-        let (output, ambiguity_count, _) = emit_tasks_md(
+        let (output, breakdown, _) = emit_tasks_md(
             &parsed,
             "optional-test/tasks",
             None,
@@ -242,7 +242,7 @@ proptest! {
 
         // Each optional task should produce an ambiguity marker
         let optional_marker_count = output
-            .matches("<!-- TODO(supersigil-import): This task was marked as optional")
+            .matches("> **TODO(supersigil-import):** This task was marked as optional")
             .count();
         prop_assert_eq!(
             optional_marker_count, optional_count,
@@ -252,9 +252,9 @@ proptest! {
 
         // Ambiguity count should include the optional markers
         prop_assert!(
-            ambiguity_count >= optional_count,
-            "Ambiguity count ({}) should be >= optional task count ({})",
-            ambiguity_count, optional_count
+            breakdown.total() >= optional_count,
+            "Ambiguity total ({}) should be >= optional task count ({})",
+            breakdown.total(), optional_count
         );
 
         // All tasks (including optional ones) should appear in the output

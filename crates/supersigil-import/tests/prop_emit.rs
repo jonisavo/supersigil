@@ -266,7 +266,7 @@ proptest! {
 
         // Must NOT contain an ambiguity marker about missing requirements
         prop_assert!(
-            !output.contains("<!-- TODO(supersigil-import): No requirements document"),
+            !output.contains("> **TODO(supersigil-import):** No requirements document"),
             "design output should not have missing-requirements marker when req_doc_id is present"
         );
     }
@@ -278,7 +278,7 @@ proptest! {
         let doc_id = "test-feature/design";
         let title = parsed.title.as_deref().unwrap_or("Test Feature");
 
-        let (output, ambiguity_count, _) = emit_design_md(
+        let (output, breakdown, _) = emit_design_md(
             &parsed,
             doc_id,
             None,
@@ -294,14 +294,14 @@ proptest! {
 
         // Must contain an ambiguity marker about missing requirements
         prop_assert!(
-            output.contains("<!-- TODO(supersigil-import):"),
+            output.contains("**TODO(supersigil-import):**"),
             "design output should have ambiguity marker when no requirements exist"
         );
 
         // Ambiguity count must be at least 1 (for the missing requirements marker)
         prop_assert!(
-            ambiguity_count >= 1,
-            "Ambiguity count should be >= 1 when no requirements exist, got {ambiguity_count}"
+            breakdown.total() >= 1,
+            "Ambiguity total should be >= 1 when no requirements exist, got {}", breakdown.total()
         );
     }
 }

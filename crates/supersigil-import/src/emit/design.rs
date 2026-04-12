@@ -1,8 +1,9 @@
 use std::fmt::Write;
 
-use crate::emit::emit_front_matter;
+use crate::emit::{MARKER_PREFIX, emit_front_matter, format_marker};
 use crate::parse::design::{DesignBlock, ParsedDesign};
 use crate::refs::{self, RequirementIndex};
+use crate::{AmbiguityBreakdown, AmbiguityKind};
 
 /// Emit a design spec document from parsed Kiro design.
 ///
@@ -10,7 +11,7 @@ use crate::refs::{self, RequirementIndex};
 /// the requirement index. When absent, an ambiguity marker is emitted instead
 /// of the `<Implements>` component.
 ///
-/// Returns `(md_content, ambiguity_count, validates_resolved)`.
+/// Returns `(md_content, ambiguity_breakdown, validates_resolved)`.
 #[must_use]
 pub fn emit_design_md(
     parsed: &ParsedDesign,
@@ -18,9 +19,9 @@ pub fn emit_design_md(
     req_index: Option<&RequirementIndex<'_>>,
     req_doc_id: &str,
     feature_title: &str,
-) -> (String, usize, usize) {
+) -> (String, AmbiguityBreakdown, usize) {
     let mut out = String::new();
-    let mut ambiguity_count = 0;
+    let mut breakdown = AmbiguityBreakdown::default();
     let mut validates_resolved = 0;
 
     emit_front_matter(&mut out, doc_id, "design", feature_title);
@@ -32,11 +33,12 @@ pub fn emit_design_md(
         let _ = writeln!(out, "```");
         out.push('\n');
     } else {
-        let marker = "<!-- TODO(supersigil-import): No requirements document found for this \
-                       feature; cannot emit <Implements> component -->";
+        let marker = format_marker(
+            "No requirements document found for this feature; cannot emit <Implements> component",
+        );
         let _ = writeln!(out, "{marker}");
         out.push('\n');
-        ambiguity_count += 1;
+        breakdown.record(AmbiguityKind::MissingContext);
     }
 
     // Emit sections
@@ -53,7 +55,10 @@ pub fn emit_design_md(
                 DesignBlock::Prose(text) => {
                     // Count any ambiguity markers embedded in prose (e.g., from
                     // non-requirement Validates targets converted to prose during parsing).
-                    ambiguity_count += text.matches("<!-- TODO(supersigil-import):").count();
+                    let count = text.matches(MARKER_PREFIX).count();
+                    for _ in 0..count {
+                        breakdown.record(AmbiguityKind::UnsupportedFeature);
+                    }
                     out.push_str(text);
                     out.push_str("\n\n");
                 }
@@ -73,7 +78,7 @@ pub fn emit_design_md(
                         validates_resolved += resolved.len();
                         for marker in res_markers {
                             let _ = writeln!(out, "{marker}");
-                            ambiguity_count += 1;
+                            breakdown.record(AmbiguityKind::UnresolvedRef);
                         }
                         resolved
                     } else {
@@ -95,22 +100,21 @@ pub fn emit_design_md(
                     // Emit parse-time ambiguity markers from this validates line
                     for marker in markers {
                         let _ = writeln!(out, "{marker}");
-                        ambiguity_count += 1;
+                        breakdown.record(AmbiguityKind::UnparseableRef);
                     }
 
                     // Emit resolution-phase marker if refs couldn't resolve
                     if resolved.is_empty() && !refs.is_empty() {
-                        let marker = format!(
-                            "<!-- TODO(supersigil-import): Could not resolve Validates \
-                             references in '{raw}' -->"
-                        );
+                        let marker = format_marker(&format!(
+                            "Could not resolve Validates references in '{raw}'"
+                        ));
                         let _ = writeln!(out, "{marker}");
-                        ambiguity_count += 1;
+                        breakdown.record(AmbiguityKind::UnresolvedRef);
                     }
                 }
             }
         }
     }
 
-    (out, ambiguity_count, validates_resolved)
+    (out, breakdown, validates_resolved)
 }

@@ -1183,7 +1183,7 @@ mod fix_task_comment_syntax {
     #[test]
     fn comment_emitted_as_marker_outside_fence() {
         let parsed = make_parsed_tasks_with_comment("test infrastructure");
-        let (output, ambiguity, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
+        let (output, breakdown, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
 
         // Must NOT contain JSX/MDX comment syntax
         assert!(
@@ -1194,9 +1194,9 @@ mod fix_task_comment_syntax {
             !output.contains("*/}"),
             "output must not contain JSX comment syntax `*/}}`, got:\n{output}"
         );
-        // Comment should appear as an HTML comment marker outside fences
+        // Comment should appear as a blockquote marker outside fences
         assert!(
-            output.contains("<!-- TODO(supersigil-import): Kiro metadata for task"),
+            output.contains("> **TODO(supersigil-import):** Kiro metadata for task"),
             "output must contain marker comment, got:\n{output}"
         );
         assert!(
@@ -1204,23 +1204,77 @@ mod fix_task_comment_syntax {
             "marker must contain the original comment text, got:\n{output}"
         );
         // Comment should count as an ambiguity
-        assert!(ambiguity >= 1, "comment should increase ambiguity count");
+        assert!(
+            breakdown.total() >= 1,
+            "comment should increase ambiguity count"
+        );
     }
 
     #[test]
-    fn comment_marker_escapes_double_dash() {
-        // XML comments must not contain `--`; the emitter should replace it with `- -`.
+    fn comment_marker_preserves_double_dash() {
+        // Blockquote format does not require escaping `--` (unlike HTML comments).
         let parsed = make_parsed_tasks_with_comment("note -- important");
         let (output, _, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
 
         assert!(
-            !output.contains("{/*"),
-            "output must not contain JSX comment syntax"
+            output.contains("note -- important"),
+            "output must preserve original `--` in blockquote marker, got:\n{output}"
         );
-        // The raw `--` in the comment body must be escaped to `- -`
-        assert!(
-            output.contains("note - - important"),
-            "output must escape `--` to `- -` inside XML comment, got:\n{output}"
-        );
+    }
+}
+
+mod ambiguity_breakdown_tracking {
+    use supersigil_import::emit::design::emit_design_md;
+    use supersigil_import::emit::tasks::emit_tasks_md;
+    use supersigil_import::parse::design::parse_design;
+    use supersigil_import::parse::tasks::{ParsedTask, ParsedTasks, TaskRefs, TaskStatus};
+
+    #[test]
+    fn design_without_requirements_reports_missing_context() {
+        let design_md = "# Design: Test\n\n## Overview\n\nSome content.\n";
+        let parsed = parse_design(design_md);
+        let (_, breakdown, _) = emit_design_md(&parsed, "test/design", None, "", "Test");
+        assert_eq!(breakdown.missing_context, 1);
+        assert_eq!(breakdown.total(), 1);
+    }
+
+    #[test]
+    fn optional_task_reports_unsupported_feature() {
+        let parsed = ParsedTasks {
+            title: None,
+            preamble: vec![],
+            postamble: vec![],
+            tasks: vec![ParsedTask {
+                number: "1".to_string(),
+                title: "Optional task".to_string(),
+                status: TaskStatus::Ready,
+                is_optional: true,
+                description: vec![],
+                requirement_refs: TaskRefs::None,
+                sub_tasks: vec![],
+            }],
+        };
+        let (_, breakdown, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
+        assert_eq!(breakdown.unsupported_feature, 1);
+    }
+
+    #[test]
+    fn task_metadata_comment_reports_unsupported_feature() {
+        let parsed = ParsedTasks {
+            title: None,
+            preamble: vec![],
+            postamble: vec![],
+            tasks: vec![ParsedTask {
+                number: "1".to_string(),
+                title: "Do something".to_string(),
+                status: TaskStatus::Ready,
+                is_optional: false,
+                description: vec![],
+                requirement_refs: TaskRefs::Comment("test note".to_string()),
+                sub_tasks: vec![],
+            }],
+        };
+        let (_, breakdown, _) = emit_tasks_md(&parsed, "test/tasks", None, "", "Test");
+        assert_eq!(breakdown.unsupported_feature, 1);
     }
 }

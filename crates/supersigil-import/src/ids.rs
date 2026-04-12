@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::emit::format_marker;
+
 /// Construct a document ID from an optional prefix, feature name, and type hint.
 ///
 /// Without prefix: `{feature_name}/{type_hint}`.
@@ -63,9 +65,9 @@ pub fn deduplicate_ids(ids: &[String]) -> (Vec<String>, Vec<String>) {
                 suffix += 1;
                 suffixed = format!("{id}-{suffix}");
             }
-            markers.push(format!(
-                "<!-- TODO(supersigil-import): Duplicate ID '{id}', renamed to '{suffixed}' -->"
-            ));
+            markers.push(format_marker(&format!(
+                "Duplicate ID '{id}', renamed to '{suffixed}'"
+            )));
             used.insert(suffixed.clone());
             deduped.push(suffixed);
         }
