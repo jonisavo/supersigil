@@ -11,9 +11,6 @@ use crate::format::{COL_GAP, ColorConfig, OutputFormat, Token, write_json};
 use crate::loader;
 use crate::scope;
 
-/// Maximum body text length shown in terminal mode.
-const MAX_BODY_LEN: usize = 72;
-
 /// A single criterion ref entry for listing or JSON output.
 #[derive(Debug, Serialize)]
 pub struct CriterionRefEntry {
@@ -90,20 +87,20 @@ pub fn run(args: &RefsArgs, config_path: &Path, color: ColorConfig) -> Result<()
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();
-            write_terminal_table(&mut out, &entries, color)?;
+            write_terminal_table(&mut out, &entries, color, args.width)?;
         }
     }
 
     Ok(())
 }
 
-/// Truncate body text for terminal display.
+/// Truncate body text for terminal display. A `max_len` of 0 disables truncation.
 fn truncate_body(text: &str, max_len: usize) -> String {
     let text = text.replace('\n', " ");
-    if text.len() <= max_len {
+    if max_len == 0 || text.len() <= max_len {
         text
     } else {
-        let boundary = text.floor_char_boundary(max_len - 3);
+        let boundary = text.floor_char_boundary(max_len.saturating_sub(3));
         format!("{}...", &text[..boundary])
     }
 }
@@ -112,6 +109,7 @@ fn write_terminal_table(
     out: &mut impl Write,
     entries: &[CriterionRefEntry],
     color: ColorConfig,
+    body_width: usize,
 ) -> io::Result<()> {
     if entries.is_empty() {
         writeln!(out, "No criterion refs found.")?;
@@ -131,7 +129,7 @@ fn write_terminal_table(
         write!(out, "{ref_painted}{:>pad$}{COL_GAP}", "", pad = ref_pad)?;
         match &entry.body_text {
             Some(text) => {
-                let truncated = truncate_body(text, MAX_BODY_LEN);
+                let truncated = truncate_body(text, body_width);
                 writeln!(out, "{}", color.paint(Token::Path, &truncated))?;
             }
             None => writeln!(out)?,
@@ -188,7 +186,7 @@ mod tests {
             ),
         ];
         let mut buf = Vec::new();
-        write_terminal_table(&mut buf, &entries, no_color()).unwrap();
+        write_terminal_table(&mut buf, &entries, no_color(), 72).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         assert!(
@@ -218,7 +216,7 @@ mod tests {
             ),
         ];
         let mut buf = Vec::new();
-        write_terminal_table(&mut buf, &entries, no_color()).unwrap();
+        write_terminal_table(&mut buf, &entries, no_color(), 72).unwrap();
         let output = String::from_utf8(buf).unwrap();
         let lines: Vec<&str> = output.lines().collect();
 
@@ -237,7 +235,7 @@ mod tests {
         let long_body = "A".repeat(100);
         let entries = vec![entry("doc#a", "doc", "a", Some(&long_body))];
         let mut buf = Vec::new();
-        write_terminal_table(&mut buf, &entries, no_color()).unwrap();
+        write_terminal_table(&mut buf, &entries, no_color(), 72).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         assert!(
@@ -255,7 +253,7 @@ mod tests {
     fn terminal_table_handles_no_body_text() {
         let entries = vec![entry("doc#a", "doc", "a", None)];
         let mut buf = Vec::new();
-        write_terminal_table(&mut buf, &entries, no_color()).unwrap();
+        write_terminal_table(&mut buf, &entries, no_color(), 72).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("doc#a"), "should contain ref: {output}");
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     fn terminal_table_empty_shows_message() {
         let mut buf = Vec::new();
-        write_terminal_table(&mut buf, &[], no_color()).unwrap();
+        write_terminal_table(&mut buf, &[], no_color(), 72).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("No criterion refs found"), "got: {output}");
     }
@@ -343,6 +341,14 @@ mod tests {
         let text = "line one\nline two";
         let result = truncate_body(text, 72);
         assert_eq!(result, "line one line two");
+    }
+
+    #[verifies("ref-discovery/req#req-2-4")]
+    #[test]
+    fn truncate_body_width_zero_disables_truncation() {
+        let text = "A".repeat(200);
+        let result = truncate_body(&text, 0);
+        assert_eq!(result.len(), 200, "width 0 should not truncate");
     }
 
     #[verifies("ref-discovery/req#req-2-2")]

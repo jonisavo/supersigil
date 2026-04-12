@@ -279,6 +279,9 @@ pub struct RefsArgs {
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
+    /// Maximum body text width in terminal mode (0 = no truncation)
+    #[arg(long, default_value = "72")]
+    pub width: usize,
 }
 
 /// Arguments for the `init` command.

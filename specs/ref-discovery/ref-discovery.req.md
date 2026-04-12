@@ -92,7 +92,9 @@ reverse-engineer the ref format from spec files.
   </Criterion>
   <Criterion id="req-2-4">
     In terminal mode, each entry SHALL display the full Criterion_Ref and a
-    truncated body-text summary on a single line.
+    truncated body-text summary on a single line. The truncation width SHALL
+    default to 72 characters and SHALL be configurable via a `--width` flag.
+    A width of 0 SHALL disable truncation.
   </Criterion>
   <Criterion id="req-2-5">
     In JSON mode, THE `refs` command SHALL write an array of objects containing

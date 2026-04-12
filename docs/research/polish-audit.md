@@ -76,8 +76,6 @@ Terminal output is a clean aligned table; JSON output has structured fields.
 **Polish issues:**
 - The context scoping hint goes to stderr (`Showing refs scoped to: ...`),
   which is correct but may be missed in piped usage.
-- No `--doc-type` filter (e.g., show only refs from requirements docs).
-- Body text truncation at 72 chars is hardcoded — no way to control width.
 
 ## Render Command
 
