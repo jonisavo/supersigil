@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-parser"
-version = "0.5.0"
+version = "0.6.0"
 description = "Parsing pipeline for supersigil Markdown spec documents"
 edition.workspace = true
 rust-version.workspace = true

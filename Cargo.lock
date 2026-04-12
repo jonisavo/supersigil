@@ -1649,7 +1649,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "supersigil"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -1676,7 +1676,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "glob",
  "proptest",
@@ -1691,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-evidence"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-import"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "insta",
  "proptest",
@@ -1717,7 +1717,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-js"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "globset",
  "ignore",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-lsp"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-lsp",
  "futures",
@@ -1759,7 +1759,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-parser"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "markdown",
  "proptest",
@@ -1771,7 +1771,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "glob",
  "proc-macro2",
@@ -1787,7 +1787,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust-macros"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1799,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-verify"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "git2",
  "glob",

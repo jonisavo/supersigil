@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-04-12
+
+### Features
+
+- *(vscode)* Add graph explorer webview panel ([2512c87](https://github.com/jonisavo/supersigil/commit/2512c8748eede46f3325a7a44e106d8ca04d5712))
+
+### Miscellaneous
+
+- Add image of spec authoring to README.md ([76b8e13](https://github.com/jonisavo/supersigil/commit/76b8e1374eecae2e7020bc850db87613c150751e))
 ## [0.5.0] - 2026-04-11
 
 ### Bug Fixes
@@ -14,6 +23,7 @@
 ### Miscellaneous
 
 - Correct the IntelliJ info in README.md ([a822479](https://github.com/jonisavo/supersigil/commit/a82247953a3e3bdf59a6a07555fc1ac92226d948))
+- *(release)* Prepare v0.5.0 ([4a0d170](https://github.com/jonisavo/supersigil/commit/4a0d170187cb10bced273951e8ba246ae0e33acb))
 
 ### Refactoring
 
