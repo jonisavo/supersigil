@@ -25,6 +25,10 @@ pub enum CompletionContext {
     RefDocId {
         /// The text typed so far.
         prefix: String,
+        /// The attribute name that triggered the completion (e.g., `"implements"`).
+        attribute: String,
+        /// The enclosing component name, if any (e.g., `"Implements"`).
+        component: Option<String>,
     },
     /// Inside a ref-accepting attribute value after `doc-id#`.
     RefFragment {
@@ -124,8 +128,15 @@ pub fn detect_context(content: &str, line: u32, character: u32) -> CompletionCon
                 };
             }
 
+            let component = if in_frontmatter {
+                None
+            } else {
+                find_enclosing_component(content, line as usize)
+            };
             return CompletionContext::RefDocId {
                 prefix: token.to_owned(),
+                attribute: (*attr).to_owned(),
+                component,
             };
         }
     }
@@ -251,11 +262,25 @@ fn find_enclosing_component(content: &str, line: usize) -> Option<String> {
 // Completion providers
 // ---------------------------------------------------------------------------
 
-/// Return all document IDs that start with `prefix`.
+/// Return all document IDs that start with `prefix`, prioritized by context.
+///
+/// - For `implements` attribute or `Implements` component: requirement
+///   documents sort first.
+/// - For `refs` / `depends`: same-project documents sort first.
+/// - Otherwise: alphabetical.
 ///
 /// Each item has kind `REFERENCE` and detail set to the document type or ID.
 #[must_use]
-pub fn complete_document_ids(prefix: &str, graph: &DocumentGraph) -> Vec<CompletionItem> {
+pub fn complete_document_ids(
+    prefix: &str,
+    graph: &DocumentGraph,
+    attribute: Option<&str>,
+    component: Option<&str>,
+    current_doc_id: Option<&str>,
+) -> Vec<CompletionItem> {
+    let current_project = current_doc_id.and_then(|id| id.split('/').next());
+    let prefer_requirements = attribute == Some("implements") || component == Some("Implements");
+
     let mut items: Vec<CompletionItem> = graph
         .documents()
         .filter(|(id, _)| id.starts_with(prefix))
@@ -266,17 +291,32 @@ pub fn complete_document_ids(prefix: &str, graph: &DocumentGraph) -> Vec<Complet
                 .as_deref()
                 .or(Some(id))
                 .map(str::to_owned);
+
+            let preferred = if prefer_requirements {
+                doc.frontmatter.doc_type.as_deref() == Some("requirements")
+            } else {
+                match attribute {
+                    Some("refs" | "depends") => {
+                        current_project.is_some_and(|proj| id.split('/').next() == Some(proj))
+                    }
+                    _ => false,
+                }
+            };
+
+            let sort_text = Some(format!("{}:{}", if preferred { '0' } else { '1' }, id,));
+
             CompletionItem {
                 label: id.to_owned(),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail,
+                sort_text,
                 ..CompletionItem::default()
             }
         })
         .collect();
 
-    // Sort for deterministic ordering.
-    items.sort_by(|a, b| a.label.cmp(&b.label));
+    // Sort for deterministic ordering matching sort_text.
+    items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
     items
 }
 
@@ -458,6 +498,10 @@ fn filter_to_completion_items(candidates: &[&str], prefix: &str) -> Vec<Completi
 /// Detects context and dispatches to the appropriate provider.
 /// Returns an empty vec if no completions are available.
 #[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "dispatch hub — parameters are all independent"
+)]
 pub fn complete(
     content: &str,
     line: u32,
@@ -466,9 +510,20 @@ pub fn complete(
     defs: &ComponentDefs,
     config: Option<&Config>,
     doc_type: Option<&str>,
+    current_doc_id: Option<&str>,
 ) -> Vec<CompletionItem> {
     match detect_context(content, line, character) {
-        CompletionContext::RefDocId { prefix } => complete_document_ids(&prefix, graph),
+        CompletionContext::RefDocId {
+            prefix,
+            attribute,
+            component,
+        } => complete_document_ids(
+            &prefix,
+            graph,
+            Some(&attribute),
+            component.as_deref(),
+            current_doc_id,
+        ),
         CompletionContext::RefFragment { doc_id, prefix } => {
             complete_fragment_ids(&doc_id, &prefix, graph)
         }
@@ -693,5 +748,116 @@ mod tests {
         let items = complete_strategy("t", Some("VerifiedBy"));
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "tag");
+    }
+
+    // -- complete_document_ids prioritization --
+
+    fn test_graph() -> DocumentGraph {
+        use supersigil_core::test_helpers::{make_doc, single_project_config};
+        use supersigil_core::{Frontmatter, SpecDocument};
+
+        let docs = vec![
+            SpecDocument {
+                frontmatter: Frontmatter {
+                    id: "auth/req".into(),
+                    doc_type: Some("requirements".into()),
+                    status: None,
+                },
+                ..make_doc("auth/req", vec![])
+            },
+            SpecDocument {
+                frontmatter: Frontmatter {
+                    id: "auth/design".into(),
+                    doc_type: Some("design".into()),
+                    status: None,
+                },
+                ..make_doc("auth/design", vec![])
+            },
+            SpecDocument {
+                frontmatter: Frontmatter {
+                    id: "billing/req".into(),
+                    doc_type: Some("requirements".into()),
+                    status: None,
+                },
+                ..make_doc("billing/req", vec![])
+            },
+            SpecDocument {
+                frontmatter: Frontmatter {
+                    id: "billing/design".into(),
+                    doc_type: Some("design".into()),
+                    status: None,
+                },
+                ..make_doc("billing/design", vec![])
+            },
+        ];
+        let config = single_project_config();
+        supersigil_core::build_graph(docs, &config).unwrap()
+    }
+
+    #[test]
+    #[verifies("lsp-server/req#req-3-5")]
+    fn implements_attr_prefers_requirement_docs() {
+        let graph = test_graph();
+        let items = complete_document_ids("", &graph, Some("implements"), None, None);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["auth/req", "billing/req", "auth/design", "billing/design"]
+        );
+    }
+
+    #[test]
+    #[verifies("lsp-server/req#req-3-5")]
+    fn implements_component_prefers_requirement_docs() {
+        let graph = test_graph();
+        // <Implements refs=""> uses attribute "refs" but component "Implements"
+        let items = complete_document_ids(
+            "",
+            &graph,
+            Some("refs"),
+            Some("Implements"),
+            Some("auth/design"),
+        );
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["auth/req", "billing/req", "auth/design", "billing/design"]
+        );
+    }
+
+    #[test]
+    #[verifies("lsp-server/req#req-3-5")]
+    fn refs_prefers_same_project() {
+        let graph = test_graph();
+        let items = complete_document_ids("", &graph, Some("refs"), None, Some("auth/design"));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["auth/design", "auth/req", "billing/design", "billing/req"]
+        );
+    }
+
+    #[test]
+    #[verifies("lsp-server/req#req-3-5")]
+    fn depends_prefers_same_project() {
+        let graph = test_graph();
+        let items =
+            complete_document_ids("", &graph, Some("depends"), None, Some("billing/design"));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["billing/design", "billing/req", "auth/design", "auth/req"]
+        );
+    }
+
+    #[test]
+    fn no_attribute_context_sorts_alphabetically() {
+        let graph = test_graph();
+        let items = complete_document_ids("", &graph, None, None, None);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["auth/design", "auth/req", "billing/design", "billing/req"]
+        );
     }
 }

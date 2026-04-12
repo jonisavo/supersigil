@@ -87,7 +87,9 @@ fn detect_refs_attribute_doc_id_prefix() {
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
-            prefix: "auth-".to_owned()
+            prefix: "auth-".to_owned(),
+            attribute: "refs".to_owned(),
+            component: Some("References".to_owned()),
         }
     );
 }
@@ -100,7 +102,9 @@ fn detect_implements_attribute_doc_id_prefix() {
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
-            prefix: "design/".to_owned()
+            prefix: "design/".to_owned(),
+            attribute: "implements".to_owned(),
+            component: Some("Task".to_owned()),
         }
     );
 }
@@ -113,7 +117,9 @@ fn detect_depends_attribute_empty_prefix() {
     assert_eq!(
         ctx,
         CompletionContext::RefDocId {
-            prefix: String::new()
+            prefix: String::new(),
+            attribute: "depends".to_owned(),
+            component: Some("Task".to_owned()),
         }
     );
 }
@@ -308,7 +314,7 @@ fn complete_doc_ids_returns_matching_items() {
     ];
     let graph = build_graph(docs, &default_config()).expect("graph must build");
 
-    let items = complete_document_ids("auth/", &graph);
+    let items = complete_document_ids("auth/", &graph, None, None, None);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"auth/req"), "should include auth/req");
@@ -334,7 +340,7 @@ fn complete_doc_ids_empty_prefix_returns_all() {
         make_doc("b/req", None, vec![]),
     ];
     let graph = build_graph(docs, &default_config()).expect("graph must build");
-    let items = complete_document_ids("", &graph);
+    let items = complete_document_ids("", &graph, None, None, None);
     assert_eq!(items.len(), 2);
 }
 
@@ -343,7 +349,7 @@ fn complete_doc_ids_empty_prefix_returns_all() {
 fn complete_doc_ids_no_match_returns_empty() {
     let docs = vec![make_doc("auth/req", None, vec![])];
     let graph = build_graph(docs, &default_config()).expect("graph must build");
-    let items = complete_document_ids("zzz", &graph);
+    let items = complete_document_ids("zzz", &graph, None, None, None);
     assert!(items.is_empty());
 }
 

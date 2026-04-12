@@ -7,22 +7,12 @@ documentation, and onboarding experience.
 
 ## LSP and Editor Integration
 
-### Version Mismatch Detection
-
-No warning when the LSP server version doesn't match the extension version.
-
 ### Code Action Gaps
 
 - No action for "add a Criterion to satisfy coverage gap"
 - Sequential ID gap warning has no renumbering action
 - Missing attribute insertion uses empty placeholders instead of
   context-aware defaults (e.g., status enum values)
-
-### Completion Prioritization
-
-Autocomplete for `refs=` shows all document IDs without prioritization.
-`<Implements>` should prefer requirement docs. `<References>` should prefer
-same-project docs. Higher relevance first.
 
 ### IntelliJ Marketplace
 

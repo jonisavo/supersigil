@@ -1454,11 +1454,16 @@ impl LanguageServer for SupersigilLsp {
         let defs = Arc::clone(&self.component_defs);
         let config = self.config.clone();
 
-        // Look up the current file's document type from parsed frontmatter.
-        let doc_type = self
-            .uri_to_relative_key(&uri)
-            .and_then(|rel| self.file_parses.get(&rel))
-            .and_then(|doc| doc.frontmatter.doc_type.clone());
+        // Look up the current file's document type and ID from parsed frontmatter,
+        // falling back to partial parses so completions work during editing errors.
+        let rel_key = self.uri_to_relative_key(&uri);
+        let parsed = rel_key.as_ref().and_then(|rel| {
+            self.file_parses
+                .get(rel)
+                .or_else(|| self.partial_file_parses.get(rel))
+        });
+        let doc_type = parsed.and_then(|doc| doc.frontmatter.doc_type.clone());
+        let doc_id = parsed.map(|doc| doc.frontmatter.id.clone());
 
         Box::pin(async move {
             let Some(content) = content else {
@@ -1473,6 +1478,7 @@ impl LanguageServer for SupersigilLsp {
                 &defs,
                 config.as_ref(),
                 doc_type.as_deref(),
+                doc_id.as_deref(),
             );
             if items.is_empty() {
                 Ok(None)

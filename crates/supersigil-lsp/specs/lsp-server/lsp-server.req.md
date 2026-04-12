@@ -134,6 +134,14 @@ namespace.
     - For `strategy` on `VerifiedBy`: `tag`, `file-glob`.
     - For other free-form contexts: no completions.
   </Criterion>
+  <Criterion id="req-3-5">
+    Document ID completions SHALL be prioritized by context. For
+    `implements`, requirement documents SHALL sort before other types.
+    For `refs` and `depends`, documents sharing the same project prefix
+    (text before the first `/` in the current document's ID) SHALL sort
+    before others. Non-preferred documents SHALL still appear in the
+    list, sorted alphabetically after the preferred group.
+  </Criterion>
 </AcceptanceCriteria>
 ```
 
