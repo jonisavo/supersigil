@@ -1,6 +1,6 @@
 {
   "name": "@supersigil/vitest",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Vitest helper for annotating tests with Supersigil criterion refs",
   "license": "MIT OR Apache-2.0",
   "repository": {

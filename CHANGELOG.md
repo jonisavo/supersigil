@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0] - 2026-04-12
+
+### Bug Fixes
+
+- *(cli)* Graceful fallback when browser cannot be opened in explore command ([6ba137e](https://github.com/jonisavo/supersigil/commit/6ba137ec3bf10990a20dd308e8fd9977927ce646))
+
+### Features
+
+- *(cli)* Add verification coverage badges to explore graph nodes ([6378ce3](https://github.com/jonisavo/supersigil/commit/6378ce3930d284733aec2872ef44630be1c10c87))
+- *(vscode)* Detect version mismatch between LSP server and extension ([e621676](https://github.com/jonisavo/supersigil/commit/e621676b590e6e896079a2b2b9feadab615cbfa2))
+- *(lsp)* Prioritize document ID completions by context ([cbece10](https://github.com/jonisavo/supersigil/commit/cbece10d2539d898bbfad24aefdaf8d187ea9519))
+- *(lsp)* Use context-aware defaults in missing attribute code action ([882fee4](https://github.com/jonisavo/supersigil/commit/882fee4789ae1d21ffe42b0e568813d26b566c20))
+
+### Miscellaneous
+
+- Update project structure in README.md ([c12be03](https://github.com/jonisavo/supersigil/commit/c12be03101c70c9019cc415f5399073657a60671))
+
 ## [0.7.0] - 2026-04-12
 
 ### ⚠ Breaking Changes
@@ -25,7 +42,7 @@
 
 - Remove local test-driven-development skill ([bca9234](https://github.com/jonisavo/supersigil/commit/bca92344606d5f5c0c140b2fe63fc01825e54e60))
 - Remove unnecessary items from polish-audit.md ([d84a68c](https://github.com/jonisavo/supersigil/commit/d84a68cc7cbec1d64a4eebced8b19af848e23a99))
-- *(release)* Prepare v0.7.0 ([fde99f2](https://github.com/jonisavo/supersigil/commit/fde99f2339e6e392f8501fd3fedb47edda526960))
+- *(release)* Prepare v0.7.0 ([cf331c8](https://github.com/jonisavo/supersigil/commit/cf331c83094e4690646c8d2150ac5ab2ef031e91))
 
 ## [0.6.0] - 2026-04-12
 
