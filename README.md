@@ -207,13 +207,16 @@ crates/
   supersigil-lsp/          # Language Server Protocol server
   supersigil-js/           # JS/TS ecosystem plugin
   supersigil-cli/          # CLI entry point
+dist/
+  aur/                     # Arch User Repository build files
+  homebrew/                # Homebrew formula template
+editors/
+  intellij/                # IntelliJ extension
+  vscode/                  # VS Code extension
 packages/
   eslint-plugin/           # ESLint plugin for Supersigil criterion refs
-  vitest/                  # Vitest helpers for Supersigil criterion refs
   preview/                 # Shared JS/CSS rendering assets
-editors/
-  vscode/                  # VS Code extension
-  intellij/                # IntelliJ extension
+  vitest/                  # Vitest helpers for Supersigil criterion refs
 ```
 
 ## License
