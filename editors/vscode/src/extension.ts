@@ -308,6 +308,7 @@ async function startAllClients(
     return;
   }
 
+  outputChannel.appendLine(`[extension] Using server binary: ${serverPath}`);
   updateBinaryNotFoundContext(false);
 
   const roots = findSupersigilRoots();

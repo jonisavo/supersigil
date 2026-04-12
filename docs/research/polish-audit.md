@@ -7,14 +7,6 @@ documentation, and onboarding experience.
 
 ## LSP and Editor Integration
 
-### Binary Resolution Transparency
-
-The VS Code extension doesn't indicate *which* binary was found on success.
-Only failures produce messages.
-
-**Suggestion:** Log `Supersigil LSP: using /path/to/supersigil-lsp` to
-the output channel.
-
 ### Version Mismatch Detection
 
 No warning when the LSP server version doesn't match the extension version.
