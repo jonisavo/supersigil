@@ -14,8 +14,9 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location,
     MessageType, NumberOrString, PositionEncodingKind, ProgressParams, ProgressParamsValue,
-    PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, Url, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    PublishDiagnosticsParams, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, Url, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd,
 };
 
 use supersigil_core::{
@@ -661,7 +662,10 @@ impl LanguageServer for SupersigilLsp {
 
         let result = InitializeResult {
             capabilities,
-            ..InitializeResult::default()
+            server_info: Some(ServerInfo {
+                name: "supersigil-lsp".to_owned(),
+                version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            }),
         };
 
         Box::pin(async move { Ok(result) })
@@ -2085,6 +2089,37 @@ supersigil:
             }
             other => panic!("expected CodeActionOptions with quickfix kind, got {other:?}"),
         }
+    }
+
+    #[verifies("version-mismatch/req#req-1-1")]
+    #[test]
+    fn initialize_returns_server_info_with_version() {
+        let mut server = SupersigilLsp {
+            client: ClientSocket::new_closed(),
+            config: None,
+            project_root: None,
+
+            open_files: HashMap::new(),
+            file_parses: HashMap::new(),
+            partial_file_parses: HashMap::new(),
+            graph: Arc::new(empty_graph()),
+            component_defs: Arc::new(ComponentDefs::defaults()),
+            file_diagnostics: HashMap::new(),
+            graph_diagnostics: HashMap::new(),
+            evidence_by_target: None,
+            evidence_records: None,
+            providers: Vec::new(),
+        };
+
+        let params = InitializeParams::default();
+        let result = block_on(server.initialize(params)).unwrap();
+
+        let info = result
+            .server_info
+            .expect("InitializeResult should include server_info");
+        assert_eq!(info.name, "supersigil-lsp");
+        let version = info.version.expect("server_info should include version");
+        assert!(!version.is_empty(), "version should not be empty");
     }
 
     #[verifies("lsp-code-actions/req#req-3-3")]

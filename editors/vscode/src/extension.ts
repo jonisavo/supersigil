@@ -17,6 +17,7 @@ import {
 } from "./specExplorer";
 import { PreviewCache } from "./previewCache";
 import { openExplorerPanel, refreshPanelsForClient, restoreExplorerPanel } from "./explorerWebview";
+import { checkVersionMismatch } from "./version";
 
 const clients = new Map<string, LanguageClient>();
 const clientOutputChannels = new Map<string, vscode.OutputChannel>();
@@ -25,6 +26,7 @@ let specExplorer: SpecExplorerProvider;
 let previewCache: PreviewCache;
 let notFoundShown = false;
 let binaryNotFound = false;
+let mismatchShown = false;
 let outputChannel: vscode.OutputChannel;
 
 /** Shared cache for documentList results, keyed by document ID. */
@@ -289,6 +291,42 @@ async function startClientForFolder(
   } catch {
     // Status bar will reflect the error state
   }
+
+  // Check for version mismatch between server and extension.
+  if (!mismatchShown && client.isRunning()) {
+    const serverVersion =
+      client.initializeResult?.serverInfo?.version;
+    const extensionVersion = vscode.extensions.getExtension(
+      "supersigil.supersigil",
+    )?.packageJSON?.version as string | undefined;
+
+    const result = checkVersionMismatch(serverVersion, extensionVersion);
+    if (result.kind === "mismatch") {
+      mismatchShown = true;
+      outputChannel.appendLine(
+        `[extension] Version mismatch: server v${result.serverVersion}, extension v${result.extensionVersion}`,
+      );
+
+      const message =
+        `Supersigil version mismatch: server is v${result.serverVersion} but this extension is v${result.extensionVersion}. This may cause unexpected behavior.`;
+
+      if (result.serverNewer) {
+        vscode.window
+          .showInformationMessage(message, "Update Extension")
+          .then((action) => {
+            if (action === "Update Extension") {
+              vscode.commands.executeCommand(
+                "workbench.extensions.action.showExtensionsWithIds",
+                ["supersigil.supersigil"],
+              );
+            }
+          });
+      } else {
+        vscode.window.showInformationMessage(message);
+      }
+    }
+  }
+
   updateStatusBar();
   updateNoRootsContext();
   specExplorer?.refresh();
