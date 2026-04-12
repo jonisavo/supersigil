@@ -21,7 +21,7 @@ extension, Starlight dynamic pages).
 ```
 Rust LSP/CLI
   supersigil/documentComponents (per-document, fence-grouped)
-  supersigil render --format json (all documents, build-time)
+  supersigil export --format json (all documents, build-time)
         |
 @supersigil/preview  (packages/preview/)
   renderComponentTree(fences, edges, linkResolver) -> HTML
@@ -169,9 +169,9 @@ extraction step. Each `ExtractedComponent` carries `offset` and
 the document's fence ranges and assigns each top-level component to
 the fence whose byte range contains the component's offset.
 
-### CLI: `supersigil render`
+### CLI: `supersigil export`
 
-New subcommand in `crates/supersigil-cli/src/commands/render.rs`.
+New subcommand in `crates/supersigil-cli/src/commands/export.rs`.
 Reuses the same `DocumentComponentsResult` serialization. Iterates
 all documents in the graph, builds the same fence-grouped component
 tree with verification data, and outputs a JSON array of
@@ -181,7 +181,7 @@ Accepts `--format json` (only format initially). Added to the
 website's `prebuild` script:
 
 ```json
-"prebuild": "supersigil graph --format json > public/explore/graph.json && supersigil render --format json > public/specs/render-data.json"
+"prebuild": "supersigil graph --format json > public/explore/graph.json && supersigil export --format json > public/specs/render-data.json"
 ```
 
 ## Shared Presentation Kit
@@ -567,7 +567,7 @@ provides the correct script and style resource paths. JBCefJSQuery
 handler tested with mock bridge calls. The rendering itself is tested
 via the shared presentation kit tests (same JS runs in all hosts).
 
-**Starlight:** Build smoke test — `supersigil render --format json`
+**Starlight:** Build smoke test — `supersigil export --format json`
 produces valid JSON, and `astro build` completes without errors.
 
 ## Decisions

@@ -171,18 +171,18 @@ for each criterion.
   implements="spec-rendering/req#req-1-5"
   depends="task-2"
 >
-  Add `supersigil render --format json` CLI subcommand in
-  `crates/supersigil-cli/src/commands/render.rs`. Iterate all
+  Add `supersigil export --format json` CLI subcommand in
+  `crates/supersigil-cli/src/commands/export.rs`. Iterate all
   documents in the graph, build fence-grouped component trees with
   verification data using the same logic as the LSP handler, and
   output a JSON array of `DocumentComponentsResult` objects.
 
   TDD: write integration tests first:
-  (a) render output for a multi-document project matches expected
+  (a) export output for a multi-document project matches expected
       JSON structure,
-  (b) render output includes verification status when verify data
+  (b) export output includes verification status when verify data
       is available,
-  (c) render with `--format json` flag produces valid JSON to stdout.
+  (c) export with `--format json` flag produces valid JSON to stdout.
 
   Register the subcommand in the CLI's command dispatch.
 </Task>
@@ -195,7 +195,7 @@ for each criterion.
 >
   Build the Starlight spec browser.
 
-  Add `supersigil render --format json > public/specs/render-data.json`
+  Add `supersigil export --format json > public/specs/render-data.json`
   to the website's `prebuild` script.
 
   Create `website/src/pages/specs/index.astro`: read render data,
@@ -212,7 +212,7 @@ for each criterion.
   Import `supersigil-preview.css` and include
   `supersigil-preview.js` as a client-side script for interactivity.
 
-  Test: build smoke test — `supersigil render --format json` produces
+  Test: build smoke test — `supersigil export --format json` produces
   valid JSON for the project's own specs, and `astro build` completes
   without errors.
 </Task>

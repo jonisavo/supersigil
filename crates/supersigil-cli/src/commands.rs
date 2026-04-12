@@ -6,6 +6,8 @@ pub mod completions;
 pub mod context;
 /// Interactive graph explorer served in the browser.
 pub mod explore;
+/// Export component trees with verification data.
+pub mod export;
 /// Document dependency graph visualization.
 pub mod graph;
 /// Import specs from external formats.
@@ -20,8 +22,6 @@ pub mod new;
 pub mod plan;
 /// List criterion refs in the project.
 pub mod refs;
-/// Render component trees with verification data.
-pub mod render;
 /// Output component and document type schema.
 pub mod schema;
 /// Manage embedded agent skills.
@@ -80,8 +80,8 @@ pub enum Command {
     Skills(SkillsArgs),
     /// Open an interactive graph explorer in the browser
     Explore(ExploreArgs),
-    /// Render component trees with verification data for all documents
-    Render(RenderArgs),
+    /// Export component trees with verification data for all documents
+    Export(ExportArgs),
     /// Generate shell completion scripts
     Completions(CompletionsArgs),
 }
@@ -332,19 +332,19 @@ pub struct ExploreArgs {
     pub output: Option<PathBuf>,
 }
 
-/// Render output format.
+/// Export output format.
 #[derive(Debug, Clone, clap::ValueEnum)]
-pub enum RenderFormat {
+pub enum ExportFormat {
     /// JSON output.
     Json,
 }
 
-/// Arguments for the `render` command.
+/// Arguments for the `export` command.
 #[derive(Debug, clap::Args)]
-pub struct RenderArgs {
+pub struct ExportArgs {
     /// Output format
     #[arg(long, default_value = "json")]
-    pub format: RenderFormat,
+    pub format: ExportFormat,
 }
 
 /// Arguments for the `completions` command.

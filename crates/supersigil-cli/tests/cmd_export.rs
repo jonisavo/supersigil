@@ -1,4 +1,4 @@
-//! Integration tests for the `render` command.
+//! Integration tests for the `export` command.
 
 mod common;
 
@@ -7,12 +7,12 @@ use supersigil_rust::verifies;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
-// (a) Render output for a multi-document project matches expected JSON structure
+// (a) Export output for a multi-document project matches expected JSON structure
 // ---------------------------------------------------------------------------
 
 #[test]
 #[verifies("spec-rendering/req#req-1-5")]
-fn render_multi_document_project_produces_json_array() {
+fn export_multi_document_project_produces_json_array() {
     let dir = TempDir::new().unwrap();
     common::setup_project(dir.path());
 
@@ -39,12 +39,12 @@ fn render_multi_document_project_produces_json_array() {
     );
 
     let output = cargo_bin_cmd!("supersigil")
-        .args(["render", "--format", "json"])
+        .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "render should succeed");
+    assert!(output.status.success(), "export should succeed");
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("should produce valid JSON");
@@ -104,12 +104,12 @@ fn render_multi_document_project_produces_json_array() {
 }
 
 // ---------------------------------------------------------------------------
-// (b) Render output includes verification status when verify data is available
+// (b) Export output includes verification status when verify data is available
 // ---------------------------------------------------------------------------
 
 #[test]
 #[verifies("spec-rendering/req#req-1-5")]
-fn render_includes_verification_status() {
+fn export_includes_verification_status() {
     let dir = TempDir::new().unwrap();
     common::setup_project_with_rust_plugin_and_tests(dir.path(), "tests/**/*.rs", "");
 
@@ -137,12 +137,12 @@ fn render_includes_verification_status() {
     .unwrap();
 
     let output = cargo_bin_cmd!("supersigil")
-        .args(["render", "--format", "json"])
+        .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "render should succeed");
+    assert!(output.status.success(), "export should succeed");
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("should produce valid JSON");
@@ -183,12 +183,12 @@ fn render_includes_verification_status() {
 }
 
 // ---------------------------------------------------------------------------
-// (c) Render with --format json flag produces valid JSON to stdout
+// (c) Export with --format json flag produces valid JSON to stdout
 // ---------------------------------------------------------------------------
 
 #[test]
 #[verifies("spec-rendering/req#req-1-5")]
-fn render_format_json_produces_valid_json_stdout() {
+fn export_format_json_produces_valid_json_stdout() {
     let dir = TempDir::new().unwrap();
     common::setup_project(dir.path());
 
@@ -202,12 +202,12 @@ fn render_format_json_produces_valid_json_stdout() {
     );
 
     let output = cargo_bin_cmd!("supersigil")
-        .args(["render", "--format", "json"])
+        .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "render should succeed");
+    assert!(output.status.success(), "export should succeed");
 
     // stdout should be valid JSON.
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
@@ -222,7 +222,7 @@ fn render_format_json_produces_valid_json_stdout() {
     // stderr should have a summary message (similar to graph command).
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("Render:") || stderr.contains("document"),
+        stderr.contains("Export:") || stderr.contains("document"),
         "stderr should have a summary, got: {stderr}",
     );
 }

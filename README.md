@@ -95,7 +95,7 @@ supersigil affected --since <ref>  # Docs affected by file changes
 supersigil schema                  # Component and type definitions
 supersigil graph                   # Document dependency graph (Mermaid/Graphviz)
 supersigil refs                    # List criterion refs
-supersigil render                  # Render documents with verification data
+supersigil export                  # Export component trees with verification data
 supersigil explore                 # Interactive graph explorer (browser)
 supersigil import --from kiro      # Import from Kiro format
 supersigil skills install          # Install or update agent skills

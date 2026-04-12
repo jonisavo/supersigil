@@ -251,12 +251,12 @@ The explorer provides:
 |------|-------------|
 | `--output <path>` | Write HTML to this path instead of opening in browser |
 
-## `supersigil render`
+## `supersigil export`
 
-Render component trees with verification data for all documents.
+Export component trees with verification data for all documents.
 
 ```bash
-supersigil render --format json
+supersigil export --format json
 ```
 
 Outputs the parsed component hierarchy for every spec document, enriched with verification status and evidence entries. Each document produces a JSON object containing its fences (source-ordered `supersigil-xml` blocks with their component trees) and outgoing graph edges.

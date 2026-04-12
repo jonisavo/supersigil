@@ -86,7 +86,7 @@ preview can render rich spec blocks without shelling out to the CLI.
     range matching is unreliable due to shifted offsets.
   </Criterion>
   <Criterion id="req-1-5">
-    THE CLI SHALL provide a `supersigil render --format json` command
+    THE CLI SHALL provide a `supersigil export --format json` command
     that outputs the same component-tree-with-verification JSON for all
     documents in the project, for use by the Starlight build pipeline.
   </Criterion>
@@ -240,8 +240,8 @@ documents with verification data alongside the component graph.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
-    THE graph explorer SHALL load render data from the build-time
-    `supersigil render --format json` output and display rendered
+    THE graph explorer SHALL load export data from the build-time
+    `supersigil export --format json` output and display rendered
     spec components in a detail panel when a document node is
     selected.
     <VerifiedBy strategy="file-glob" paths="website/src/components/explore/detail-panel.js" />
@@ -262,7 +262,7 @@ documents with verification data alongside the component graph.
   </Criterion>
   <Criterion id="req-5-4">
     THE website prebuild script SHALL run
-    `supersigil render --format json` alongside the existing
+    `supersigil export --format json` alongside the existing
     `supersigil graph --format json` to generate static data for the
     spec browser.
     <VerifiedBy strategy="file-glob" paths="website/package.json" />

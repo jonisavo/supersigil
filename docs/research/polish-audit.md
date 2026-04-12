@@ -67,27 +67,6 @@ rather than guessing — but users need guidance on resolving them.
   back. `--force` re-run recovers, but this isn't documented.
 - Summary shows `ambiguity_count` but doesn't break down by type.
 
-## Refs Command
-
-The `refs` command is well-implemented with context-aware scoping (filters
-refs by TrackedFiles matching the cwd, follows Implements relationships).
-Terminal output is a clean aligned table; JSON output has structured fields.
-
-**Polish issues:**
-- The context scoping hint goes to stderr (`Showing refs scoped to: ...`),
-  which is correct but may be missed in piped usage.
-
-## Render Command
-
-The `render` command produces structured data for the spec renderer (preview
-package). The name suggests it renders HTML, but it actually emits JSON data
-that a separate renderer consumes.
-
-**Suggestion:** Consider renaming to `supersigil render-data` or
-`supersigil export` to avoid the implication that it produces rendered
-output. Alternatively, keep the name but improve `--help` to clarify that
-it emits renderer input data, not rendered documents.
-
 ## Explore Command
 
 ### No Headless Fallback

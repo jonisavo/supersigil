@@ -6,18 +6,18 @@ use supersigil_verify::document_components::{
     BuildComponentsInput, DocumentComponentsResult, build_document_components,
 };
 
-use crate::commands::{RenderArgs, RenderFormat};
+use crate::commands::{ExportArgs, ExportFormat};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, Token};
 use crate::loader;
 use crate::plugins;
 
 #[derive(Serialize)]
-struct RenderOutput {
+struct ExportOutput {
     documents: Vec<DocumentComponentsResult>,
 }
 
-/// Run the `render` command: output component trees with verification data.
+/// Run the `export` command: output component trees with verification data.
 ///
 /// Iterates all documents in the graph, builds fence-grouped component trees
 /// with verification status, and outputs a JSON object containing
@@ -26,7 +26,7 @@ struct RenderOutput {
 /// # Errors
 ///
 /// Returns `CliError` if loading fails or an I/O error occurs.
-pub fn run(args: &RenderArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
+pub fn run(args: &ExportArgs, config_path: &Path, color: ColorConfig) -> Result<(), CliError> {
     let (config, graph) = loader::load_graph(config_path)?;
     let project_root = loader::project_root(config_path);
 
@@ -84,8 +84,8 @@ pub fn run(args: &RenderArgs, config_path: &Path, color: ColorConfig) -> Result<
     let doc_count = results.len();
 
     match args.format {
-        RenderFormat::Json => {
-            let json = serde_json::to_string_pretty(&RenderOutput { documents: results })
+        ExportFormat::Json => {
+            let json = serde_json::to_string_pretty(&ExportOutput { documents: results })
                 .map_err(|e| CliError::Io(io::Error::other(e)))?;
             writeln!(out, "{json}")?;
         }
@@ -93,13 +93,13 @@ pub fn run(args: &RenderArgs, config_path: &Path, color: ColorConfig) -> Result<
 
     // Summary on stderr so it doesn't pollute piped JSON output.
     eprintln!(
-        "{} {} documents rendered",
-        color.paint(Token::Header, "Render:"),
+        "{} {} documents exported",
+        color.paint(Token::Header, "Export:"),
         color.paint(Token::Count, &doc_count.to_string()),
     );
     format::hint(
         color,
-        "Pipe to a file, e.g. `supersigil render --format json > components.json`.",
+        "Pipe to a file, e.g. `supersigil export --format json > components.json`.",
     );
 
     Ok(())

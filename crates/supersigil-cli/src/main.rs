@@ -89,8 +89,8 @@ fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::erro
         supersigil_cli::Command::Explore(ref args) => {
             supersigil_cli::commands::explore::run(args, &config_path, color)?;
         }
-        supersigil_cli::Command::Render(ref args) => {
-            supersigil_cli::commands::render::run(args, &config_path, color)?;
+        supersigil_cli::Command::Export(ref args) => {
+            supersigil_cli::commands::export::run(args, &config_path, color)?;
         }
         supersigil_cli::Command::Import(_)
         | supersigil_cli::Command::Init(_)
