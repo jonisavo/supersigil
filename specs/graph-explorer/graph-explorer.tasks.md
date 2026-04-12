@@ -124,4 +124,10 @@ command). Tasks are dependency-ordered so each builds on the previous.
   Update the Astro page at `website/src/pages/explore.astro` to pass
   repository info to `mount()`.
 </Task>
+
+<Task id="task-17" status="done" implements="graph-explorer/req#req-2-3">
+  Handle open::that() failure gracefully. Instead of propagating the error,
+  catch it and print a diagnostic message to stderr suggesting --output.
+  Still print the temp file path. Exit successfully.
+</Task>
 ```

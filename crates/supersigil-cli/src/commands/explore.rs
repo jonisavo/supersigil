@@ -137,7 +137,12 @@ pub fn run(args: &ExploreArgs, config_path: &Path, color: ColorConfig) -> Result
             .keep()
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         eprintln!("Opening explorer in browser...");
-        open::that(&path)?;
+        if let Err(e) = open::that(&path) {
+            eprintln!(
+                "Could not open browser: {e}\n\
+                 Use --output <path> to write the HTML file directly."
+            );
+        }
         eprintln!("Wrote explorer to {}", path.display());
     }
 

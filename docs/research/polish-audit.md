@@ -69,11 +69,6 @@ rather than guessing — but users need guidance on resolving them.
 
 ## Explore Command
 
-### No Headless Fallback
-
-On headless/remote systems, `open` fails with a cryptic error. Should detect
-headless environments and suggest `--output file.html` instead.
-
 ### No Verification Overlay
 
 The graph explorer shows document relationships but not verification status.

@@ -84,6 +84,12 @@ landscape without configuring anything.
     browser. An `--output` flag SHALL allow writing to a specified path
     instead.
   </Criterion>
+  <Criterion id="req-2-3">
+    WHEN the system browser cannot be opened, the command SHALL print a
+    diagnostic message to stderr including the error reason and a suggestion
+    to use `--output`, and SHALL exit successfully.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/explore.rs" />
+  </Criterion>
 </AcceptanceCriteria>
 ```
 
