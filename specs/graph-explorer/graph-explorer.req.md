@@ -308,3 +308,29 @@ directly to the relevant code.
   </Criterion>
 </AcceptanceCriteria>
 ```
+
+## Requirement 12: Verification Status Overlay
+
+As a developer viewing the graph, I want to see verification coverage on each
+document node at a glance, so that I can assess project health without clicking
+into individual documents.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-12-1">
+    Document nodes with criteria SHALL display a small colored badge
+    indicating verification coverage: green for 100% verified, gold for
+    partial (1–99%), red for 0% verified.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/explore_assets/explore-standalone.js" />
+  </Criterion>
+  <Criterion id="req-12-2">
+    Document nodes with no criteria SHALL NOT display a verification badge.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/explore_assets/explore-standalone.js" />
+  </Criterion>
+  <Criterion id="req-12-3">
+    THE badge SHALL appear on both the initial graph render and when a
+    collapsed cluster is re-rendered after drill-down collapse.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/explore_assets/explore-standalone.js" />
+  </Criterion>
+</AcceptanceCriteria>
+```

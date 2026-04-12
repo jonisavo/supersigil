@@ -67,10 +67,3 @@ rather than guessing — but users need guidance on resolving them.
   back. `--force` re-run recovers, but this isn't documented.
 - Summary shows `ambiguity_count` but doesn't break down by type.
 
-## Explore Command
-
-### No Verification Overlay
-
-The graph explorer shows document relationships but not verification status.
-Green/red/yellow badges on nodes would make it immediately useful for
-assessing project health at a glance.

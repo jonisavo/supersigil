@@ -6,7 +6,7 @@
 
 import * as d3 from 'd3';
 import forceInABox from 'force-in-a-box';
-import { clearDetail, renderClusterDetail, renderDetail, renderEmpty } from './detail-panel.js';
+import { buildCoverageMap, clearDetail, renderClusterDetail, renderDetail, renderEmpty } from './detail-panel.js';
 import {
   componentColor,
   extractFilterOptions,
@@ -312,6 +312,35 @@ function shortLabel(id) {
  */
 export function mount(container, data, renderData, repositoryInfo, linkResolver) {
   const { documents, edges } = data;
+
+  const coverageMap = buildCoverageMap(renderData);
+
+  function badgeColor(docId) {
+    const cov = coverageMap.get(docId);
+    if (!cov) return null;
+    if (cov.verified === cov.total) return 'var(--green)';
+    if (cov.verified === 0) return 'var(--red)';
+    return 'var(--gold)';
+  }
+
+  function appendVerificationBadges(selection) {
+    selection.each(function (d) {
+      if (/** @type {any} */ (d).componentId) return;
+      const color = badgeColor(/** @type {any} */ (d).id);
+      if (!color) return;
+      const offset = /** @type {any} */ (d).radius * Math.SQRT1_2;
+      d3.select(this)
+        .append('circle')
+        .attr('class', 'verification-badge')
+        .attr('cx', offset)
+        .attr('cy', -offset)
+        .attr('r', 4)
+        .attr('fill', color)
+        .attr('stroke', 'var(--bg-deep)')
+        .attr('stroke-width', 1.5);
+    });
+  }
+
   if (!container || typeof container.getBoundingClientRect !== 'function') {
     return { unmount() {} };
   }
@@ -839,6 +868,8 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
     .attr('stroke', (d) => nodeStrokeColor(d))
     .attr('stroke-width', 2);
 
+  appendVerificationBadges(nodeGroups);
+
   nodeGroups
     .append('text')
     .attr('fill', 'var(--text)')
@@ -1197,6 +1228,8 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
               const cn = /** @type {any} */ (d);
               return cn.label ?? shortLabel(cn.id);
             });
+
+          appendVerificationBadges(g);
 
           g.transition().duration(300).attr('opacity', 1);
 

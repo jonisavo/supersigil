@@ -130,4 +130,13 @@ command). Tasks are dependency-ordered so each builds on the previous.
   catch it and print a diagnostic message to stderr suggesting --output.
   Still print the temp file path. Exit successfully.
 </Task>
+
+<Task id="task-18" implements="graph-explorer/req#req-12-1, graph-explorer/req#req-12-2, graph-explorer/req#req-12-3">
+  Add --red color token to landing-tokens.css for both dark and light themes.
+  Build a coverage map from renderData at mount time using countCriteria().
+  Append a small SVG circle badge to document nodes positioned at the
+  top-right, colored green/gold/red by coverage percentage. Skip badge for
+  documents with no criteria. Apply in both initial render and drilldown
+  enter handler.
+</Task>
 ```

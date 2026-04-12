@@ -83,7 +83,7 @@ export function buildBadgeClass(category, value) {
  * @param {any[]} fences
  * @returns {{ total: number, verified: number }}
  */
-function countCriteria(fences) {
+export function countCriteria(fences) {
   let total = 0;
   let verified = 0;
 
@@ -102,6 +102,25 @@ function countCriteria(fences) {
     if (fence.components) visit(fence.components);
   }
   return { total, verified };
+}
+
+/**
+ * Build a map of document ID → { total, verified } criteria counts.
+ *
+ * @param {any[]|null} renderData
+ * @returns {Map<string, { total: number, verified: number }>}
+ */
+export function buildCoverageMap(renderData) {
+  const map = new Map();
+  if (renderData) {
+    for (const doc of renderData) {
+      const cov = countCriteria(doc.fences || []);
+      if (cov.total > 0) {
+        map.set(doc.document_id, cov);
+      }
+    }
+  }
+  return map;
 }
 
 /**
@@ -398,16 +417,7 @@ export function renderEmpty(container, graphData, renderData) {
     return;
   }
 
-  // Build coverage map from render data (reuses countCriteria)
-  const coverageMap = new Map();
-  if (renderData) {
-    for (const doc of renderData) {
-      const cov = countCriteria(doc.fences || []);
-      if (cov.total > 0) {
-        coverageMap.set(doc.document_id, cov);
-      }
-    }
-  }
+  const coverageMap = buildCoverageMap(renderData);
 
   // Detect multi-project: any document has a project field
   const isMultiProject = graphData.documents.some((d) => d.project);
