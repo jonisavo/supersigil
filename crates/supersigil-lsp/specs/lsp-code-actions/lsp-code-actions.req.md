@@ -133,8 +133,8 @@ so that routine issues are one-click resolvable.
   </Criterion>
   <Criterion id="req-4-2">
     A MissingAttributeProvider SHALL handle missing-required-attribute
-    parse errors and offer to insert the attribute with a placeholder
-    value at the component's opening tag.
+    parse errors and offer to insert the attribute at the component's
+    opening tag.
   </Criterion>
   <Criterion id="req-4-3">
     A DuplicateIdProvider SHALL handle duplicate document ID and duplicate
@@ -160,6 +160,15 @@ so that routine issues are one-click resolvable.
     A SequentialIdProvider SHALL handle sequential-id-gap and
     sequential-id-order findings and offer to renumber component IDs to
     restore sequential order.
+  </Criterion>
+  <Criterion id="req-4-8">
+    WHEN inserting a missing attribute, THE MissingAttributeProvider
+    SHALL use context-aware defaults instead of empty placeholders:
+    - `status` on `Task`: `"draft"`.
+    - `strategy` on `VerifiedBy`: `"tag"`.
+    - `id` on sequential components (Criterion, Task, Alternative,
+      Decision): the next sequential ID based on existing siblings.
+    - All other attributes: empty string (unchanged).
   </Criterion>
 </AcceptanceCriteria>
 ```

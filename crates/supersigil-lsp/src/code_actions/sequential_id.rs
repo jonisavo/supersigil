@@ -111,7 +111,7 @@ struct IdOccurrence {
 /// Parse an ID into (prefix, number) by splitting at the last `-`.
 ///
 /// Returns `None` if the ID doesn't end with a numeric segment.
-fn parse_sequential_id(id: &str) -> Option<(String, usize)> {
+pub(crate) fn parse_sequential_id(id: &str) -> Option<(String, usize)> {
     let last_dash = id.rfind('-')?;
     let prefix = &id[..last_dash];
     let num_str = &id[last_dash + 1..];

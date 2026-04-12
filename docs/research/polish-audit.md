@@ -7,13 +7,6 @@ documentation, and onboarding experience.
 
 ## LSP and Editor Integration
 
-### Code Action Gaps
-
-- No action for "add a Criterion to satisfy coverage gap"
-- Sequential ID gap warning has no renumbering action
-- Missing attribute insertion uses empty placeholders instead of
-  context-aware defaults (e.g., status enum values)
-
 ### IntelliJ Marketplace
 
 A `publish-intellij` workflow exists but is currently commented out in the

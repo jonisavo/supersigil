@@ -1035,6 +1035,7 @@ impl LanguageServer for SupersigilLsp {
             config,
             component_defs: &self.component_defs,
             file_parses: &self.file_parses,
+            partial_file_parses: &self.partial_file_parses,
             project_root,
             file_uri: &uri,
             file_content: &content,

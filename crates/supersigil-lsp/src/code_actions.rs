@@ -73,6 +73,8 @@ pub struct ActionRequestContext<'a> {
     pub component_defs: &'a ComponentDefs,
     /// Per-file parse results keyed by project-relative path.
     pub file_parses: &'a HashMap<PathBuf, SpecDocument>,
+    /// Partial parse results for files with recoverable errors.
+    pub partial_file_parses: &'a HashMap<PathBuf, SpecDocument>,
     /// Absolute path to the project root directory.
     pub project_root: &'a Path,
     /// URI of the file the code action request targets.
@@ -91,6 +93,16 @@ impl ActionRequestContext<'_> {
                 .map(Path::to_path_buf)
                 .unwrap_or(abs),
         )
+    }
+
+    /// Look up the current file's parsed document, falling back to partial
+    /// parses for files with recoverable errors.
+    #[must_use]
+    pub fn current_doc(&self) -> Option<&SpecDocument> {
+        let key = self.file_relative_key()?;
+        self.file_parses
+            .get(&key)
+            .or_else(|| self.partial_file_parses.get(&key))
     }
 
     /// Build a `WorkspaceEdit` with text edits on the current file.
@@ -158,6 +170,7 @@ pub(crate) mod test_helpers {
         pub config: Config,
         pub component_defs: ComponentDefs,
         pub file_parses: HashMap<PathBuf, SpecDocument>,
+        pub partial_file_parses: HashMap<PathBuf, SpecDocument>,
         pub uri: Url,
     }
 
@@ -168,6 +181,7 @@ pub(crate) mod test_helpers {
                 config: Config::default(),
                 component_defs: ComponentDefs::defaults(),
                 file_parses: HashMap::new(),
+                partial_file_parses: HashMap::new(),
                 uri: Url::parse("file:///tmp/project/spec.md").unwrap(),
             }
         }
@@ -178,6 +192,7 @@ pub(crate) mod test_helpers {
                 config: &self.config,
                 component_defs: &self.component_defs,
                 file_parses: &self.file_parses,
+                partial_file_parses: &self.partial_file_parses,
                 project_root: Path::new("/tmp/project"),
                 file_uri: &self.uri,
                 file_content: content,
@@ -369,6 +384,7 @@ mod tests {
             config: &config,
             component_defs: &component_defs,
             file_parses: &file_parses,
+            partial_file_parses: &file_parses,
             project_root: &project_root,
             file_uri: &file_uri,
             file_content,
