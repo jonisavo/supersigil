@@ -54,6 +54,9 @@ The JS plugin discovers `verifies()` calls in Vitest test files. Enable it in
 your config and install the helper package:
 
 ```toml title="supersigil.toml"
+paths = ["specs/**/*.md"]
+tests = ["tests/**/*.test.ts"]
+
 [ecosystem]
 plugins = ["rust", "js"]
 ```

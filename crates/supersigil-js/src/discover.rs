@@ -1,18 +1,13 @@
 //! File discovery and `verifies()` extraction for JS/TS test files.
 //!
-//! Uses the `ignore` crate to walk the project root respecting `.gitignore`
-//! and matches files against configured glob patterns (defaulting to
-//! `**/*.test.{ts,tsx,js,jsx}` and `**/*.spec.{ts,tsx,js,jsx}`).
-//!
-//! Once test files are found, parses each with `oxc` and extracts
-//! `verifies()` call expressions from `test()` / `it()` calls.
+//! Filters the shared project-level test files to JS/TS extensions and
+//! parses each with `oxc` to extract `verifies()` call expressions from
+//! `test()` / `it()` calls.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::WalkBuilder;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpression, CallExpression, Expression, ObjectPropertyKind, PropertyKey,
@@ -38,64 +33,15 @@ const PLUGIN_NAME: &str = "js";
 /// Discovers `verifies()` evidence by parsing JavaScript and TypeScript
 /// test files with `oxc`.
 #[derive(Debug)]
-pub struct JsPlugin {
-    glob_set: Option<GlobSet>,
-}
+pub struct JsPlugin;
 
-impl JsPlugin {
-    /// Create a new JS/TS plugin with the given test file glob patterns.
-    #[must_use]
-    pub fn new(test_patterns: &[String]) -> Self {
-        let glob_set = build_glob_set(test_patterns);
-        Self { glob_set }
-    }
-}
+const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "js", "jsx"];
 
-// ---------------------------------------------------------------------------
-// File discovery
-// ---------------------------------------------------------------------------
-
-/// Build a `GlobSet` from the given patterns, silently dropping invalid ones.
-fn build_glob_set(patterns: &[String]) -> Option<GlobSet> {
-    let mut builder = GlobSetBuilder::new();
-    let mut count = 0usize;
-    for pattern in patterns {
-        if let Ok(glob) = Glob::new(pattern) {
-            builder.add(glob);
-            count += 1;
-        }
-    }
-    if count == 0 {
-        return None;
-    }
-    builder.build().ok()
-}
-
-/// Walk `project_root` and return files matching the prebuilt `GlobSet`
-/// while respecting `.gitignore` rules.
-fn discover_test_files(project_root: &Path, glob_set: Option<&GlobSet>) -> Vec<PathBuf> {
-    let Some(glob_set) = glob_set else {
-        return Vec::new();
-    };
-
-    let walker = WalkBuilder::new(project_root)
-        .standard_filters(true)
-        .build();
-
-    let mut files: Vec<PathBuf> = Vec::new();
-    for entry in walker.flatten() {
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        let path = entry.into_path();
-        let relative = path.strip_prefix(project_root).unwrap_or(&path);
-        if glob_set.is_match(relative) {
-            files.push(path);
-        }
-    }
-
-    files.sort();
-    files
+/// Check whether a path has a JS/TS file extension.
+fn is_js_ts_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| JS_TS_EXTENSIONS.contains(&ext))
 }
 
 // ---------------------------------------------------------------------------
@@ -109,13 +55,15 @@ impl EcosystemPlugin for JsPlugin {
 
     fn plan_discovery_inputs<'a>(
         &self,
-        _test_files: &'a [PathBuf],
-        scope: &ProjectScope,
+        test_files: &'a [PathBuf],
+        _scope: &ProjectScope,
     ) -> Cow<'a, [PathBuf]> {
-        Cow::Owned(discover_test_files(
-            &scope.project_root,
-            self.glob_set.as_ref(),
-        ))
+        let js_files: Vec<PathBuf> = test_files
+            .iter()
+            .filter(|p| is_js_ts_file(p))
+            .cloned()
+            .collect();
+        Cow::Owned(js_files)
     }
 
     fn workspace_metadata(&self, _workspace_root: &Path) -> Result<WorkspaceMetadata, PluginError> {
@@ -508,31 +456,7 @@ fn offset_to_line_col(source: &str, offset: u32) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use supersigil_rust_macros::verifies;
-    use tempfile::TempDir;
-
-    /// Helper: create a file (and any parent dirs) under the given root.
-    fn create_file(root: &Path, relative: &str) {
-        let path = root.join(relative);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(&path, "// test").unwrap();
-    }
-
-    /// Helper: write a `.gitignore` file under the given directory.
-    fn write_gitignore(dir: &Path, contents: &str) {
-        fs::write(dir.join(".gitignore"), contents).unwrap();
-    }
-
-    fn default_patterns() -> Vec<String> {
-        supersigil_core::JsEcosystemConfig::default().test_patterns
-    }
-
-    fn default_glob_set() -> Option<GlobSet> {
-        build_glob_set(&default_patterns())
-    }
 
     // -----------------------------------------------------------------------
     // name()
@@ -540,215 +464,8 @@ mod tests {
 
     #[test]
     fn plugin_name_returns_js() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         assert_eq!(plugin.name(), "js");
-    }
-
-    // -----------------------------------------------------------------------
-    // Default pattern matching
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn discovers_test_ts_files() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "src/auth.test.ts");
-        create_file(root, "src/utils.spec.ts");
-        create_file(root, "src/auth.ts"); // not a test file
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"auth.test.ts"));
-        assert!(names.contains(&"utils.spec.ts"));
-        assert!(!names.contains(&"auth.ts"));
-    }
-
-    #[test]
-    fn discovers_test_js_files() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "tests/login.test.js");
-        create_file(root, "tests/login.spec.jsx");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"login.test.js"));
-        assert!(names.contains(&"login.spec.jsx"));
-    }
-
-    #[test]
-    fn discovers_tsx_test_files() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "src/components/Button.test.tsx");
-        create_file(root, "src/components/Button.spec.tsx");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"Button.test.tsx"));
-        assert!(names.contains(&"Button.spec.tsx"));
-    }
-
-    // -----------------------------------------------------------------------
-    // Gitignore filtering
-    // -----------------------------------------------------------------------
-
-    #[test]
-    #[verifies("js-plugin/req#req-3-2")]
-    fn respects_gitignore_node_modules() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        // Initialize a git repo so .gitignore is respected.
-        init_git_repo(root);
-
-        write_gitignore(root, "node_modules/\n");
-        create_file(root, "node_modules/some-lib/index.test.ts");
-        create_file(root, "src/app.test.ts");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"app.test.ts"));
-        assert!(
-            !names.contains(&"index.test.ts"),
-            "node_modules should be excluded by .gitignore"
-        );
-    }
-
-    #[test]
-    fn respects_gitignore_dist_directory() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        init_git_repo(root);
-
-        write_gitignore(root, "dist/\n");
-        create_file(root, "dist/bundle.test.js");
-        create_file(root, "src/core.test.ts");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"core.test.ts"));
-        assert!(
-            !names.contains(&"bundle.test.js"),
-            "dist/ should be excluded by .gitignore"
-        );
-    }
-
-    #[test]
-    fn respects_nested_gitignore() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        init_git_repo(root);
-
-        // Root-level gitignore
-        write_gitignore(root, "");
-        // Nested gitignore excluding generated files
-        fs::create_dir_all(root.join("packages/ui")).unwrap();
-        write_gitignore(&root.join("packages/ui"), "generated/\n");
-
-        create_file(root, "packages/ui/generated/helpers.test.ts");
-        create_file(root, "packages/ui/src/Button.test.ts");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"Button.test.ts"));
-        assert!(
-            !names.contains(&"helpers.test.ts"),
-            "nested .gitignore should exclude generated/"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Custom patterns
-    // -----------------------------------------------------------------------
-
-    #[test]
-    #[verifies("js-plugin/req#req-1-6", "js-plugin/req#req-3-1")]
-    fn custom_patterns_are_respected() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "tests/auth_test.ts");
-        create_file(root, "tests/auth.test.ts");
-
-        let custom_patterns = vec!["**/*_test.ts".to_string()];
-        let glob_set = build_glob_set(&custom_patterns);
-        let files = discover_test_files(root, glob_set.as_ref());
-        let names: Vec<&str> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
-
-        assert!(names.contains(&"auth_test.ts"));
-        assert!(
-            !names.contains(&"auth.test.ts"),
-            "only custom pattern should match"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Empty scope handling
-    // -----------------------------------------------------------------------
-
-    #[test]
-    #[verifies("js-plugin/req#req-3-3")]
-    fn empty_directory_returns_empty_list() {
-        let tmp = TempDir::new().unwrap();
-        let files = discover_test_files(tmp.path(), default_glob_set().as_ref());
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn no_matching_files_returns_empty_list() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        // Only non-test files.
-        create_file(root, "src/index.ts");
-        create_file(root, "src/utils.js");
-
-        let files = discover_test_files(root, default_glob_set().as_ref());
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn empty_patterns_returns_empty_list() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "src/auth.test.ts");
-
-        let files = discover_test_files(root, None);
-        assert!(files.is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -756,28 +473,41 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn plan_discovery_inputs_ignores_shared_test_files() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-
-        create_file(root, "src/app.test.ts");
-
-        let plugin = JsPlugin::new(&default_patterns());
-        let shared: Vec<PathBuf> = vec![PathBuf::from("/some/other/test.rs")];
+    #[verifies("js-plugin/req#req-1-6", "js-plugin/req#req-3-1")]
+    fn plan_discovery_inputs_filters_by_extension() {
+        let plugin = JsPlugin;
+        let ts = PathBuf::from("/project/tests/auth.test.ts");
+        let tsx = PathBuf::from("/project/tests/component.test.tsx");
+        let js = PathBuf::from("/project/tests/legacy.test.js");
+        let jsx = PathBuf::from("/project/tests/utils.spec.jsx");
+        let rs = PathBuf::from("/project/tests/rust_test.rs");
+        let json = PathBuf::from("/project/tests/data.json");
+        let shared = vec![ts.clone(), tsx.clone(), js.clone(), jsx.clone(), rs, json];
         let scope = ProjectScope {
             project: None,
-            project_root: root.to_path_buf(),
+            project_root: PathBuf::from("/project"),
         };
 
         let result = plugin.plan_discovery_inputs(&shared, &scope);
-        let names: Vec<&str> = result
-            .iter()
-            .map(|p| p.file_name().unwrap().to_str().unwrap())
-            .collect();
 
-        // Should find our JS test file, not the shared Rust file.
-        assert!(names.contains(&"app.test.ts"));
-        assert!(!names.contains(&"test.rs"));
+        assert_eq!(result.as_ref(), &[ts, tsx, js, jsx]);
+    }
+
+    #[test]
+    #[verifies("js-plugin/req#req-3-2")]
+    fn plan_discovery_inputs_empty_when_no_js_files() {
+        let plugin = JsPlugin;
+        let shared: Vec<PathBuf> = vec![
+            PathBuf::from("/project/tests/foo.rs"),
+            PathBuf::from("/project/tests/bar.py"),
+        ];
+        let scope = ProjectScope {
+            project: None,
+            project_root: PathBuf::from("/project"),
+        };
+
+        let result = plugin.plan_discovery_inputs(&shared, &scope);
+        assert!(result.is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -799,7 +529,7 @@ mod tests {
 
     #[test]
     fn discover_empty_file_list_returns_empty_result() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: PathBuf::from("/tmp"),
@@ -813,7 +543,7 @@ mod tests {
     #[test]
     #[verifies("js-plugin/req#req-4-1")]
     fn discover_syntax_error_produces_diagnostic_and_skips_file() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -845,7 +575,7 @@ mod tests {
     #[test]
     #[verifies("js-plugin/req#req-4-2")]
     fn discover_clean_file_returns_empty_evidence() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -861,7 +591,7 @@ mod tests {
 
     #[test]
     fn discover_empty_file_returns_empty_evidence() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -877,7 +607,7 @@ mod tests {
 
     #[test]
     fn discover_mixed_files_skips_broken_continues_clean() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -904,7 +634,7 @@ mod tests {
 
     #[test]
     fn discover_nonexistent_file_produces_diagnostic() {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -925,27 +655,12 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Helper: initialize a bare git repo so .gitignore is respected
-    // -----------------------------------------------------------------------
-
-    /// Initialize a minimal git repository so the `ignore` crate respects
-    /// `.gitignore` files.
-    fn init_git_repo(root: &Path) {
-        use std::process::Command;
-        Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(root)
-            .status()
-            .expect("git init failed");
-    }
-
-    // -----------------------------------------------------------------------
-    // discover – verifies() extraction (Task 4)
+    // discover – verifies() extraction
     // -----------------------------------------------------------------------
 
     /// Helper: run discover on a single fixture file.
     fn discover_fixture(name: &str) -> Result<PluginDiscoveryResult, PluginError> {
-        let plugin = JsPlugin::new(&default_patterns());
+        let plugin = JsPlugin;
         let scope = ProjectScope {
             project: None,
             project_root: fixtures_dir(),
@@ -1103,7 +818,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // discover – raw meta.verifies extraction (Task 5)
+    // discover – raw meta.verifies extraction
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1170,7 +885,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // discover – describe nesting (Task 6)
+    // discover – describe nesting
     // -----------------------------------------------------------------------
 
     #[test]

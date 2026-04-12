@@ -2,9 +2,7 @@
 //               15.1-15.2, 16.1-16.3, 17.1-17.4, 18.1-18.2, 19.1-19.5, 24.1
 
 use serde::Deserialize;
-use supersigil_core::{
-    Config, DocumentationConfig, EcosystemConfig, JsEcosystemConfig, Severity, VerifyConfig,
-};
+use supersigil_core::{Config, DocumentationConfig, EcosystemConfig, Severity, VerifyConfig};
 
 // ---------------------------------------------------------------------------
 // Minimal config (Req 24)
@@ -1449,120 +1447,7 @@ plugins = ["js", "python"]
 }
 
 // ---------------------------------------------------------------------------
-// 5. JsEcosystemConfig default test_patterns
-// ---------------------------------------------------------------------------
-
-#[test]
-fn js_ecosystem_config_default_test_patterns() {
-    let default = JsEcosystemConfig::default();
-    assert_eq!(
-        default.test_patterns,
-        vec![
-            "**/*.test.{ts,tsx,js,jsx}".to_string(),
-            "**/*.spec.{ts,tsx,js,jsx}".to_string(),
-        ],
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 6. [ecosystem.js] section parses with default test_patterns
-// ---------------------------------------------------------------------------
-
-#[test]
-fn ecosystem_js_section_defaults() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[ecosystem.js]
-"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    let js = config.ecosystem.js.expect("ecosystem.js should be present");
-    assert_eq!(
-        js.test_patterns,
-        vec![
-            "**/*.test.{ts,tsx,js,jsx}".to_string(),
-            "**/*.spec.{ts,tsx,js,jsx}".to_string(),
-        ],
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 7. [ecosystem.js] with custom test_patterns
-// ---------------------------------------------------------------------------
-
-#[test]
-fn ecosystem_js_custom_test_patterns() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[ecosystem.js]
-test_patterns = ["src/**/*.test.ts", "tests/**/*.spec.js"]
-"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    let js = config.ecosystem.js.expect("ecosystem.js should be present");
-    assert_eq!(
-        js.test_patterns,
-        vec![
-            "src/**/*.test.ts".to_string(),
-            "tests/**/*.spec.js".to_string(),
-        ],
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 8. No [ecosystem.js] section → js is None
-// ---------------------------------------------------------------------------
-
-#[test]
-fn ecosystem_js_absent_is_none() {
-    let toml_str = r#"paths = ["specs/**/*.md"]"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    assert!(config.ecosystem.js.is_none());
-}
-
-// ---------------------------------------------------------------------------
-// 9. Unknown field in [ecosystem.js] is rejected
-// ---------------------------------------------------------------------------
-
-#[test]
-fn ecosystem_js_unknown_field_rejected() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[ecosystem.js]
-test_patterns = ["**/*.test.ts"]
-unknown = "bad"
-"#;
-    toml::from_str::<Config>(toml_str).unwrap_err();
-}
-
-// ---------------------------------------------------------------------------
-// 10. [ecosystem.js] via load_config
-// ---------------------------------------------------------------------------
-
-#[test]
-fn load_config_ecosystem_js_section() {
-    let path = write_temp_toml(
-        r#"
-paths = ["specs/**/*.md"]
-
-[ecosystem]
-plugins = ["js"]
-
-[ecosystem.js]
-test_patterns = ["src/**/*.test.ts"]
-"#,
-    );
-    let config = load_config(Path::new(&path)).unwrap();
-    let js = config
-        .ecosystem
-        .js
-        .expect("ecosystem.js should be present via load_config");
-    assert_eq!(js.test_patterns, vec!["src/**/*.test.ts".to_string()]);
-}
-
-// ---------------------------------------------------------------------------
-// 11. Both ecosystem.rust and ecosystem.js can coexist
+// Ecosystem: Rust and JS coexistence
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1576,9 +1461,6 @@ plugins = ["rust", "js"]
 
 [ecosystem.rust]
 validation = "all"
-
-[ecosystem.js]
-test_patterns = ["tests/**/*.spec.ts"]
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
@@ -1587,31 +1469,7 @@ test_patterns = ["tests/**/*.spec.ts"]
         .rust
         .expect("ecosystem.rust should be present");
     assert_eq!(rust.validation, RustValidationPolicy::All);
-
-    let js = config.ecosystem.js.expect("ecosystem.js should be present");
-    assert_eq!(js.test_patterns, vec!["tests/**/*.spec.ts".to_string()]);
-}
-
-// ---------------------------------------------------------------------------
-// 12. JsEcosystemConfig round-trip serialization
-// ---------------------------------------------------------------------------
-
-#[test]
-fn js_ecosystem_config_round_trip() {
-    let toml_str = r#"
-paths = ["specs/**/*.md"]
-
-[ecosystem.js]
-test_patterns = ["custom/**/*.test.ts"]
-"#;
-    let config: Config = toml::from_str(toml_str).unwrap();
-    let serialized = toml::to_string(&config).unwrap();
-    let deserialized: Config = toml::from_str(&serialized).unwrap();
-    let js = deserialized
-        .ecosystem
-        .js
-        .expect("ecosystem.js should survive round-trip");
-    assert_eq!(js.test_patterns, vec!["custom/**/*.test.ts".to_string()]);
+    assert_eq!(config.ecosystem.plugins, vec!["rust", "js"]);
 }
 
 // ===========================================================================

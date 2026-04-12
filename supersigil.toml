@@ -33,10 +33,12 @@ paths = [
   "crates/supersigil-rust-macros/specs/**/*.md",
   "crates/supersigil-js/specs/**/*.md",
 ]
+tests = ["packages/**/*.test.ts"]
 
 # VS Code extension and editor-side features.
 [projects.vscode]
 paths = ["editors/vscode/specs/**/*.md"]
+tests = ["editors/vscode/src/**/*.test.ts"]
 
 # IntelliJ plugin and editor-side features.
 [projects.intellij]
@@ -49,9 +51,6 @@ paths = ["website/src/content/docs/**/*.mdx"]
 [ecosystem]
 plugins = ["rust", "js"]
 
-[ecosystem.js]
-test_patterns = ["packages/**/*.test.ts", "editors/vscode/src/**/*.test.ts"]
-
 [ecosystem.rust]
 validation = "dev"
 project_scope = [
@@ -62,6 +61,7 @@ project_scope = [
   { manifest_dir_prefix = "crates/supersigil-import", project = "import" },
   { manifest_dir_prefix = "crates/supersigil-evidence", project = "ecosystem" },
   { manifest_dir_prefix = "crates/supersigil-rust", project = "ecosystem" },
+  { manifest_dir_prefix = "crates/supersigil-js", project = "ecosystem" },
   { manifest_dir_prefix = "crates/supersigil-lsp", project = "lsp" },
 ]
 

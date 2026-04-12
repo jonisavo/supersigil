@@ -26,16 +26,14 @@ The JS/TS ecosystem plugin has three components:
 
 ```mermaid
 graph TD
-    CFG["supersigil.toml / ecosystem.js config"]
-    GITIGNORE[".gitignore"]
+    SHARED["shared test files"]
     PLAN["JsPlugin::plan_discovery_inputs"]
     FILES["matched test files"]
     OXC["oxc_parser"]
     AST["AST walker"]
     EVID["VerificationEvidenceRecord"]
 
-    CFG -->|test_patterns| PLAN
-    GITIGNORE -->|exclusions| PLAN
+    SHARED -->|extension filter| PLAN
     PLAN --> FILES
     FILES --> OXC
     OXC --> AST
@@ -60,20 +58,17 @@ registers as `"js"` in the plugin name surface. The plugin assembly in
 `supersigil-verify/src/plugins.rs` gains a match arm for `"js"` (the CLI
 re-exports this via `supersigil-cli/src/plugins.rs`).
 
-Config adds `ecosystem.js.test_patterns` to `supersigil-core`, defaulting to
-`["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]`. The known
-built-in plugin set in config validation expands to include `"js"`.
+The known built-in plugin set in config validation includes `"js"`. The JS
+plugin requires no plugin-specific config — test file paths are declared via
+the project-level `tests` globs.
 
 ### File Discovery
 
-`JsPlugin::plan_discovery_inputs` ignores the shared test-file baseline (which
-is Rust-oriented) and instead walks the project root using the configured
-`test_patterns` globs. It respects `.gitignore` files via the `ignore` crate
-(same crate ripgrep uses), which handles nested `.gitignore` files and
-`.git/info/exclude` automatically.
-
-If no files match, discovery succeeds with an empty evidence set (unlike the
-Rust plugin which errors on zero supported test items).
+`JsPlugin::plan_discovery_inputs` filters the shared test-file baseline to
+files with JS/TS extensions (`.ts`, `.tsx`, `.js`, `.jsx`). It does not walk
+the filesystem or read `.gitignore` files — that responsibility belongs to the
+shared test-file resolver. If no JS/TS files exist in the baseline, discovery
+succeeds with an empty evidence set.
 
 ### AST Extraction
 
@@ -271,17 +266,10 @@ pub enum PluginProvenance {
 
 ## Config Extensions
 
-```toml
-[ecosystem]
-plugins = ["rust", "js"]
-
-[ecosystem.js]
-test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
-```
-
-The `test_patterns` field is optional with the default shown above. The known
-built-in plugin set expands from `["rust"]` to `["rust", "js"]`. The default
-`ecosystem.plugins` remains `["rust"]` — JS must be opted into explicitly.
+The JS plugin requires no plugin-specific config. JS/TS test file paths are
+declared via the project-level `tests` globs (either top-level in
+single-project mode or per-project in multi-project mode). The plugin is
+activated by including `"js"` in `ecosystem.plugins`.
 
 ## Spec Browser and Preview Integration
 

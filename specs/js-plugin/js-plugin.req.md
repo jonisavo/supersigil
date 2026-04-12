@@ -70,8 +70,8 @@ JS runtime, so that `supersigil verify` works with zero Node.js dependency.
     test names in the form `"describe > test"`.
   </Criterion>
   <Criterion id="req-1-6">
-    THE plugin SHALL scan only files matching the configured test patterns
-    and SHALL ignore non-matching files.
+    THE plugin SHALL scan only files with JS/TS extensions from the shared
+    test-file baseline and SHALL ignore non-matching files.
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -123,16 +123,10 @@ using configured patterns and standard exclusion mechanisms.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
-    THE plugin SHALL use configurable glob patterns from `ecosystem.js.test_patterns`
-    to discover test files, defaulting to
-    `["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]`.
+    THE plugin SHALL filter the shared test-file baseline to files with JS/TS
+    extensions (`.ts`, `.tsx`, `.js`, `.jsx`).
   </Criterion>
   <Criterion id="req-3-2">
-    THE plugin SHALL respect `.gitignore` files when discovering test files,
-    so that `node_modules`, `dist`, build output, and other ignored paths are
-    excluded automatically.
-  </Criterion>
-  <Criterion id="req-3-3">
     IF the discovery scope contains no matching test files, THEN the plugin
     SHALL succeed with an empty evidence set.
   </Criterion>

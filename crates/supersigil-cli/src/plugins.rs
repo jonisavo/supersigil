@@ -137,7 +137,6 @@ mod tests {
             ecosystem: EcosystemConfig {
                 plugins: vec![],
                 rust: None,
-                js: None,
             },
             ..Config::default()
         }

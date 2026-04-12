@@ -35,11 +35,11 @@ first, then implement until the tests pass.
   mapping in `supersigil-evidence`.
 </Task>
 
-<Task id="task-3" status="done" depends="task-1, task-2" implements="js-plugin/req#req-1-1, js-plugin/req#req-1-6, js-plugin/req#req-3-1, js-plugin/req#req-3-2, js-plugin/req#req-3-3">
+<Task id="task-3" status="done" depends="task-1, task-2" implements="js-plugin/req#req-1-1, js-plugin/req#req-1-6, js-plugin/req#req-3-1, js-plugin/req#req-3-2">
   Create the `supersigil-js` crate. Implement `JsPlugin` struct with
-  `EcosystemPlugin` trait. Implement `plan_discovery_inputs` using configured
-  test patterns and `.gitignore` respect via the `ignore` crate. Register `"js"`
-  in the plugin assembly match arm in `supersigil-verify/src/plugins.rs`.
+  `EcosystemPlugin` trait. Implement `plan_discovery_inputs` filtering the
+  shared test-file baseline to JS/TS extensions. Register `"js"` in the plugin
+  assembly match arm in `supersigil-verify/src/plugins.rs`.
 
   TDD: write tests first for file discovery with gitignore filtering,
   pattern matching, and empty-scope handling. Create fixture directory

@@ -179,9 +179,6 @@ plugins = ["rust", "js"]
 
 [ecosystem.rust]
 validation = "dev"
-
-[ecosystem.js]
-test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 ```
 
 | Key | Type | Default | Description |
@@ -189,10 +186,6 @@ test_patterns = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]
 | `plugins` | string[] | `["rust"]` | Active plugins |
 | `rust.validation` | `"off"` \| `"dev"` \| `"all"` | `"dev"` | Which Cargo manifests to validate |
 | `rust.project_scope` | array of `{manifest_dir_prefix, project}` | `[]` | Map manifest directories to projects in multi-project mode |
-| `js.test_patterns` | string[] | `["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"]` | Glob patterns for discovering JS/TS test files |
-
-The JS plugin respects `.gitignore` files automatically, so `node_modules`,
-`dist`, and other ignored paths are excluded without extra configuration.
 
 ## Skills
 

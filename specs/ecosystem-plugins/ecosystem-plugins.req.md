@@ -54,9 +54,7 @@ that plugin-backed evidence can be enabled, disabled, and scoped predictably.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
   <Criterion id="req-1-5">
-    THE config model SHALL expose the JS-specific ecosystem policy surface
-    under `ecosystem.js`, including `test_patterns`. The known built-in plugin
-    set SHALL include both `"rust"` and `"js"`.
+    THE known built-in plugin set SHALL include both `"rust"` and `"js"`.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>

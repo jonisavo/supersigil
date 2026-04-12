@@ -30,10 +30,7 @@ pub fn assemble_plugins(config: &Config) -> Vec<Box<dyn EcosystemPlugin>> {
         match name.as_str() {
             "rust" => plugins.push(Box::new(supersigil_rust::RustPlugin)),
             "js" => {
-                let js_config = config.ecosystem.js.clone().unwrap_or_default();
-                plugins.push(Box::new(supersigil_js::JsPlugin::new(
-                    &js_config.test_patterns,
-                )));
+                plugins.push(Box::new(supersigil_js::JsPlugin));
             }
             _ => {
                 // Unknown plugins are rejected at config load time.

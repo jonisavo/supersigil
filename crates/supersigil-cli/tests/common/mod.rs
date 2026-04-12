@@ -88,7 +88,7 @@ pub fn write_spec_doc(
 pub fn setup_project_with_js_plugin(dir: &Path) {
     fs::write(
         dir.join("supersigil.toml"),
-        "paths = [\"specs/**/*.md\"]\n\n[ecosystem]\nplugins = [\"js\"]\n",
+        "paths = [\"specs/**/*.md\"]\ntests = [\"tests/**/*.test.ts\"]\n\n[ecosystem]\nplugins = [\"js\"]\n",
     )
     .unwrap();
     fs::create_dir_all(dir.join("specs")).unwrap();
