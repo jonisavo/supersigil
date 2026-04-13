@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.0] - 2026-04-13
+
+### ⚠ Breaking Changes
+
+- *(cli)* Remove ecosystem.js.test_patterns in favor of project-level tests ([d600661](https://github.com/jonisavo/supersigil/commit/d600661ca03fcd457c54505ad2a5bbeb96ed3417))
+
+  The JS plugin no longer has its own file discovery mechanism. Instead of
+  walking the filesystem with configurable glob patterns, it filters the
+  shared test-file baseline (from project-level `tests` globs) to JS/TS
+  extensions (.ts, .tsx, .js, .jsx).
+
+  This is a breaking change: the `[ecosystem.js]` config section is removed.
+  Users must declare JS/TS test paths via `tests` in their project config.
+
+### Features
+
+- *(cli)* Remove ecosystem.js.test_patterns in favor of project-level tests ([d600661](https://github.com/jonisavo/supersigil/commit/d600661ca03fcd457c54505ad2a5bbeb96ed3417))
+- *(import)* Visible ambiguity markers with per-category breakdown ([c413583](https://github.com/jonisavo/supersigil/commit/c413583a602b1c06e04c23aa662e8545c31377c6))
+- *(import)* Add --check flag to scan for unresolved TODO markers ([e77055b](https://github.com/jonisavo/supersigil/commit/e77055b2bf275c6c7290bc8b8f9ad52caecaddc1))
+- Compact JSON defaults for plan and verify commands ([e205e7d](https://github.com/jonisavo/supersigil/commit/e205e7d4dc5d03415a08c5c72bb3ed79b6194f37))
+
 ## [0.8.0] - 2026-04-12
 
 ### Bug Fixes
@@ -16,6 +37,7 @@
 ### Miscellaneous
 
 - Update project structure in README.md ([c12be03](https://github.com/jonisavo/supersigil/commit/c12be03101c70c9019cc415f5399073657a60671))
+- *(release)* Prepare v0.8.0 ([932b602](https://github.com/jonisavo/supersigil/commit/932b6027c2e525c75cdfe9022146680dc5c938ad))
 
 ## [0.7.0] - 2026-04-12
 

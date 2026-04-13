@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-js"
-version = "0.8.0"
+version = "0.9.0"
 description = "JavaScript/TypeScript ecosystem plugin for the supersigil verification framework"
 edition.workspace = true
 rust-version.workspace = true
