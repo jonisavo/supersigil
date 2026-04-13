@@ -8,7 +8,7 @@ use crate::commands::PlanArgs;
 use crate::error::CliError;
 use crate::format::{
     self, ColorConfig, OutputFormat, Token, write_completed_summary, write_dependency_graph,
-    write_json, write_tasks,
+    write_json, write_json_value, write_tasks,
 };
 use crate::loader;
 use crate::plugins;
@@ -42,10 +42,25 @@ pub fn run(args: &PlanArgs, config_path: &Path, color: ColorConfig) -> Result<()
     plugins::warn_plugin_findings(&plugin_findings, color);
     plan.outstanding_targets
         .retain(|c| !artifact_graph.has_evidence(&c.doc_id, &c.target_id));
-    let plan = plan;
 
     match args.format {
-        OutputFormat::Json => write_json(&plan)?,
+        OutputFormat::Json => {
+            if args.detail == format::Detail::Compact {
+                for task in &mut plan.pending_tasks {
+                    task.body_text = None;
+                }
+                for target in &mut plan.outstanding_targets {
+                    target.body_text = None;
+                }
+                let mut value = serde_json::to_value(&plan).map_err(io::Error::other)?;
+                if let Some(obj) = value.as_object_mut() {
+                    obj.remove("completed_tasks");
+                }
+                write_json_value(&value)?;
+            } else {
+                write_json(&plan)?;
+            }
+        }
         OutputFormat::Terminal => {
             let stdout = io::stdout();
             let mut out = stdout.lock();

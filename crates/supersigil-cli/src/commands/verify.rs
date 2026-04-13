@@ -17,7 +17,7 @@ use supersigil_verify::{
 
 use crate::commands::{VerifyArgs, VerifyFormat};
 use crate::error::CliError;
-use crate::format::{self, ColorConfig, ExitStatus};
+use crate::format::{self, ColorConfig, ExitStatus, write_json_value};
 use crate::loader;
 use crate::plugins;
 
@@ -150,7 +150,7 @@ pub fn run(
     }
     let rules_start = Instant::now();
 
-    let mut report = assemble_report(ReportPhaseInput {
+    let report = assemble_report(ReportPhaseInput {
         graph: &graph,
         config: &config,
         doc_ids: &doc_ids,
@@ -184,14 +184,20 @@ pub fn run(
             progress(&timing_line);
         }
         VerifyFormat::Json => {
-            if args.detail == format::Detail::Compact
-                && report.result_status() == ResultStatus::Clean
-                && let Some(ref mut summary) = report.evidence_summary
-            {
-                summary.records.clear();
+            if args.detail == format::Detail::Compact && status == ResultStatus::Clean {
+                let mut value = serde_json::to_value(&report).map_err(io::Error::other)?;
+                if let Some(es) = value
+                    .get_mut("evidence_summary")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    es.remove("records");
+                    es.remove("coverage");
+                }
+                write_json_value(&value)?;
+            } else {
+                let text = format_json(&report);
+                writeln!(out, "{text}")?;
             }
-            let text = format_json(&report);
-            writeln!(out, "{text}")?;
         }
         VerifyFormat::Markdown => {
             let text = format_markdown(&report);

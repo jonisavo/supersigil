@@ -520,3 +520,131 @@ fn plan_json_qualified_task_refs() {
         "depends_on should be qualified: {deps:?}"
     );
 }
+
+/// Set up a fixture with both completed and pending tasks for compact/full testing.
+fn setup_plan_compact_fixture(root: &std::path::Path) {
+    common::setup_project(root);
+    common::write_spec_doc(
+        root,
+        "specs/req.md",
+        "test/req",
+        Some("requirements"),
+        Some("approved"),
+        r#"# Req
+
+<AcceptanceCriteria>
+  <Criterion id="c1">First criterion.</Criterion>
+  <Criterion id="c2">Second criterion.</Criterion>
+</AcceptanceCriteria>
+"#,
+    );
+    common::write_spec_doc(
+        root,
+        "specs/tasks.md",
+        "test/tasks",
+        Some("tasks"),
+        None,
+        r#"# Tasks
+
+<Task id="task-1" status="done" implements="test/req#c1">
+  Completed task body text.
+</Task>
+
+<Task id="task-2" implements="test/req#c2">
+  Pending task body text.
+</Task>
+"#,
+    );
+}
+
+#[verifies("work-queries/req#req-6-5")]
+#[test]
+fn plan_json_compact_omits_completed_and_body_text() {
+    let tmp = TempDir::new().unwrap();
+    setup_plan_compact_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["plan", "--format", "json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    // completed_tasks should be absent in compact mode.
+    assert!(
+        json.get("completed_tasks").is_none(),
+        "compact plan should omit completed_tasks key, got: {json}",
+    );
+
+    // pending_tasks should exist but without body_text.
+    let pending = json["pending_tasks"]
+        .as_array()
+        .expect("pending_tasks should be array");
+    assert!(!pending.is_empty(), "should have pending tasks");
+    for task in pending {
+        assert!(
+            task.get("body_text").is_none(),
+            "compact plan should omit body_text from pending tasks, got: {task}",
+        );
+    }
+
+    // outstanding_targets should exist but without body_text.
+    let targets = json["outstanding_targets"]
+        .as_array()
+        .expect("outstanding_targets should be array");
+    for target in targets {
+        assert!(
+            target.get("body_text").is_none(),
+            "compact plan should omit body_text from targets, got: {target}",
+        );
+    }
+
+    // Structural fields should still be present.
+    assert!(json.get("actionable_tasks").is_some());
+    assert!(json.get("blocked_tasks").is_some());
+}
+
+#[verifies("work-queries/req#req-6-6")]
+#[test]
+fn plan_json_detail_full_includes_completed_and_body_text() {
+    let tmp = TempDir::new().unwrap();
+    setup_plan_compact_fixture(tmp.path());
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args(["plan", "--format", "json", "--detail", "full"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+
+    // completed_tasks should be present and non-empty.
+    let completed = json["completed_tasks"]
+        .as_array()
+        .expect("completed_tasks should be array");
+    assert!(
+        !completed.is_empty(),
+        "full detail plan should have non-empty completed_tasks",
+    );
+
+    // completed_tasks should have body_text.
+    assert!(
+        completed[0].get("body_text").is_some(),
+        "full detail plan should include body_text on completed tasks",
+    );
+
+    // pending_tasks should have body_text.
+    let pending = json["pending_tasks"]
+        .as_array()
+        .expect("pending_tasks should be array");
+    assert!(!pending.is_empty(), "should have pending tasks");
+    assert!(
+        pending[0].get("body_text").is_some(),
+        "full detail plan should include body_text on pending tasks",
+    );
+}

@@ -195,14 +195,26 @@ responses efficiently without wading through redundant or debug-level data.
   </Criterion>
   <Criterion id="req-6-3">
     In JSON mode, THE `verify` command SHALL omit `evidence_summary.records`
-    when the overall result is `Clean`. The `evidence_summary.coverage` and
-    `evidence_summary.conflict_count` fields SHALL remain present when an
+    and `evidence_summary.coverage` when the overall result is `Clean`. The
+    `evidence_summary.conflict_count` field SHALL remain present when an
     evidence summary exists.
   </Criterion>
   <Criterion id="req-6-4">
     WHEN the `--detail full` flag is passed, THE `verify` command SHALL
-    include the full `evidence_summary.records` array regardless of result
-    status.
+    include the full `evidence_summary.records` and `evidence_summary.coverage`
+    arrays regardless of result status.
+  </Criterion>
+  <Criterion id="req-6-5">
+    In JSON mode, THE `plan` command SHALL omit `completed_tasks` and
+    `body_text` from task and target items by default. The
+    `outstanding_targets`, `pending_tasks`, `actionable_tasks`, and
+    `blocked_tasks` fields SHALL remain present, with task and target items
+    containing only structural fields (IDs, status, implements, depends_on).
+  </Criterion>
+  <Criterion id="req-6-6">
+    WHEN the `--detail full` flag is passed, THE `plan` command SHALL include
+    the complete `PlanOutput` with `completed_tasks` and all `body_text`
+    fields.
   </Criterion>
 </AcceptanceCriteria>
 ```

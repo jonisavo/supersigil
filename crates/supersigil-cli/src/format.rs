@@ -270,6 +270,22 @@ pub fn write_json<T: Serialize>(value: &T) -> io::Result<()> {
     Ok(())
 }
 
+/// Write a pre-built `serde_json::Value` as pretty-printed JSON to stdout.
+///
+/// Use this when the caller needs to manipulate the JSON tree (e.g. removing
+/// keys for compact output) before writing.
+///
+/// # Errors
+///
+/// Returns an I/O error if writing fails.
+pub fn write_json_value(value: &serde_json::Value) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer_pretty(&mut handle, value).map_err(io::Error::other)?;
+    writeln!(handle)?;
+    Ok(())
+}
+
 /// Write a value as YAML to stdout.
 ///
 /// # Errors

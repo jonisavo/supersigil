@@ -144,6 +144,9 @@ pub struct PlanArgs {
     /// Show all criteria and full task details including completed items
     #[arg(long)]
     pub full: bool,
+    /// JSON detail level (compact omits completed tasks and body text; full includes everything)
+    #[arg(long, default_value = "compact")]
+    pub detail: Detail,
 }
 
 /// Supported import source formats.

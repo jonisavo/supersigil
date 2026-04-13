@@ -373,22 +373,20 @@ fn verify_json_compact_omits_records_on_clean_run() {
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert_eq!(report["overall_status"], "clean");
 
-    // Compact mode (default) should strip records on clean runs.
-    let records = report["evidence_summary"]["records"]
-        .as_array()
-        .expect("records should be present");
+    // Compact mode (default) should omit records and coverage on clean runs.
+    let es = &report["evidence_summary"];
     assert!(
-        records.is_empty(),
-        "compact clean verify should have empty records, got: {records:?}",
+        es.get("records").is_none(),
+        "compact clean verify should omit records key, got: {es}",
     );
-
-    // Coverage should still be present.
-    let coverage = report["evidence_summary"]["coverage"]
-        .as_array()
-        .expect("coverage should be present");
     assert!(
-        !coverage.is_empty(),
-        "compact clean verify should still have coverage"
+        es.get("coverage").is_none(),
+        "compact clean verify should omit coverage key, got: {es}",
+    );
+    // conflict_count should remain.
+    assert!(
+        es.get("conflict_count").is_some(),
+        "compact clean verify should keep conflict_count, got: {es}",
     );
 }
 
@@ -416,6 +414,14 @@ fn verify_json_detail_full_includes_records_on_clean_run() {
     assert!(
         !records.is_empty(),
         "full detail verify should have non-empty records"
+    );
+
+    let coverage = report["evidence_summary"]["coverage"]
+        .as_array()
+        .expect("coverage should be present");
+    assert!(
+        !coverage.is_empty(),
+        "full detail verify should have non-empty coverage"
     );
 }
 

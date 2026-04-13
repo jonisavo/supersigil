@@ -260,9 +260,14 @@ qualified ref to disambiguate.
 same tree. Agents use the derived fields; the raw components are redundant
 debug data that inflates the payload.
 
-`verify --format json` always attaches `evidence_summary.records` when any
-evidence exists, even on clean runs. Agents checking for clean status don't
-need per-record detail.
+`verify --format json` always attaches `evidence_summary.records` and
+`evidence_summary.coverage` when any evidence exists, even on clean runs.
+Agents checking for clean status don't need per-record or per-target detail.
+
+`plan --format json` includes the full `completed_tasks` array with `body_text`
+on every task. When a project has hundreds of completed tasks, this can be
+>100 KB of data that agents rarely need. The `body_text` field on remaining
+items similarly inflates the payload with prose that duplicates the spec files.
 
 ### Detail Levels
 
@@ -270,7 +275,7 @@ Introduce a `--detail` flag with two levels:
 
 | Level | Behavior |
 |-------|----------|
-| `compact` (default) | Omit `document.components` from context; omit `evidence_summary.records` from verify when clean |
+| `compact` (default) | Omit `document.components` from context; omit `evidence_summary.records` and `evidence_summary.coverage` from verify when clean; omit `completed_tasks` and `body_text` from plan |
 | `full` | Include everything |
 
 The flag is `--detail compact|full`. The default is `compact` so existing
@@ -307,12 +312,35 @@ serialization when the result is clean:
 if detail == Detail::Compact && report.overall_status == ResultStatus::Clean {
     if let Some(ref mut summary) = report.evidence_summary {
         summary.records.clear();
+        summary.coverage.clear();
     }
 }
 ```
 
-This keeps `coverage` and `conflict_count` visible so agents can still see
-which criteria are covered, without the per-record bulk.
+This keeps `conflict_count` visible while removing the per-record and
+per-target bulk that dominates clean-run payloads.
+
+### Implementation: Plan
+
+Strip `completed_tasks` and `body_text` from the output before serialization
+in compact mode:
+
+```rust
+// In plan.rs JSON path:
+if detail == Detail::Compact {
+    plan.completed_tasks.clear();
+    for task in &mut plan.pending_tasks {
+        task.body_text = None;
+    }
+    for target in &mut plan.outstanding_targets {
+        target.body_text = None;
+    }
+}
+```
+
+This keeps the structural data (IDs, status, implements, depends_on,
+actionable/blocked) intact while dropping the prose that duplicates
+the spec files.
 
 ### Detail Flag Placement
 
@@ -450,9 +478,11 @@ New test coverage for Requirement 6:
 
 - Integration test in `cmd_context.rs`: default JSON output does not contain
   `components` key inside `document`; with `--detail full` it does.
-- Integration test in `cmd_plan.rs` or a new `cmd_verify.rs`: default JSON
-  for a clean verify run does not contain `evidence_summary.records`; with
-  `--detail full` it does.
+- Integration test in `cmd_verify.rs`: default JSON for a clean verify run
+  does not contain `evidence_summary.records` or non-empty
+  `evidence_summary.coverage`; with `--detail full` it does.
+- Integration test in `cmd_plan.rs`: default JSON output omits
+  `completed_tasks` and `body_text`; with `--detail full` they are present.
 
 New test coverage for Requirement 7:
 

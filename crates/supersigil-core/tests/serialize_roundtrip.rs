@@ -170,7 +170,6 @@ fn plan_output_serializes_to_json() {
             "tasks_doc_id": "tasks/1",
             "task_id": "t1",
             "status": "ready",
-            "body_text": null,
             "implements": [["req/1", "c1"]],
             "depends_on": [],
         }])

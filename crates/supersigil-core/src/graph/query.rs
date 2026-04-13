@@ -132,6 +132,7 @@ pub struct TaskInfo {
     #[serde(serialize_with = "serialize_status_pending")]
     pub status: Option<String>,
     /// Body text of the task component.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub body_text: Option<String>,
     /// Verification targets this task implements: `(doc_id, target_id)`.
     pub implements: Vec<(String, String)>,
@@ -174,6 +175,7 @@ pub struct OutstandingTarget {
     /// The target's component ID.
     pub target_id: String,
     /// Body text of the target component.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub body_text: Option<String>,
 }
 
