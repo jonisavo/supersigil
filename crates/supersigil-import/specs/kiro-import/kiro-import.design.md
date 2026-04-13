@@ -9,7 +9,7 @@ title: "Kiro Import"
 ```supersigil-xml
 <Implements refs="kiro-import/req" />
 <DependsOn refs="cli-runtime/design, parser-pipeline/design, document-graph/design, workspace-projects/design" />
-<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/emit.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/unit.rs, crates/supersigil-cli/tests/cmd_import.rs" />
+<TrackedFiles paths="crates/supersigil-import/src/lib.rs, crates/supersigil-import/src/discover.rs, crates/supersigil-import/src/ids.rs, crates/supersigil-import/src/refs.rs, crates/supersigil-import/src/write.rs, crates/supersigil-import/src/check.rs, crates/supersigil-import/src/emit.rs, crates/supersigil-import/src/emit/requirements.rs, crates/supersigil-import/src/emit/design.rs, crates/supersigil-import/src/emit/tasks.rs, crates/supersigil-cli/src/commands.rs, crates/supersigil-cli/src/commands/import.rs, crates/supersigil-import/tests/e2e_pipeline.rs, crates/supersigil-import/tests/prop_plan.rs, crates/supersigil-import/tests/prop_write.rs, crates/supersigil-import/tests/serialize_import.rs, crates/supersigil-import/tests/unit.rs, crates/supersigil-cli/tests/cmd_import.rs" />
 ```
 
 ## Overview
@@ -40,6 +40,7 @@ graph TD
     EMIT["document emission"]
     PLAN["ImportPlan"]
     WRITE["write_files"]
+    CHECK["check_markers (--check)"]
     OUT["stdout/stderr summaries and hints"]
 
     CLI --> CFG
@@ -50,9 +51,11 @@ graph TD
     RESOLVE --> EMIT
     EMIT --> PLAN
     PLAN --> WRITE
+    CLI --> CHECK
     CLI --> OUT
     PLAN --> OUT
     WRITE --> OUT
+    CHECK --> OUT
 ```
 
 ## Runtime Flow
@@ -111,6 +114,18 @@ This format renders visibly in Markdown preview (unlike the previous HTML
 comment format) and contains the `TODO(supersigil-import)` substring for
 scanning. Each marker is categorized by `AmbiguityKind` during emission, and
 the `AmbiguityBreakdown` accumulates per-kind counts through the pipeline.
+
+### Check Mode
+
+When `--check` is set, the CLI skips the import pipeline entirely and runs
+`check::check_markers()` against the output directory. This function:
+
+1. Recursively finds `.md` files under the output directory.
+2. Scans each file line-by-line for the `TODO(supersigil-import):` needle.
+3. Categorizes each match by message content into an `AmbiguityKind`.
+4. Returns `CheckResult` with marker locations and a breakdown.
+
+The scanner recognizes both blockquote and legacy HTML comment formats.
 
 ## Key Types
 

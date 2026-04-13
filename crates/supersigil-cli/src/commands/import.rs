@@ -16,7 +16,13 @@ use crate::format::{self, ColorConfig, ExitStatus, Token};
 /// Returns `CliError` on I/O failure or import errors.
 pub fn run(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, CliError> {
     match args.from {
-        ImportSource::Kiro => run_kiro_import(args, color),
+        ImportSource::Kiro => {
+            if args.check {
+                run_kiro_check(args, color)
+            } else {
+                run_kiro_import(args, color)
+            }
+        }
     }
 }
 
@@ -86,7 +92,6 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, 
             color,
         )?;
 
-        // Next-step hint
         if std::path::Path::new(supersigil_core::CONFIG_FILENAME).exists() {
             format::hint(
                 color,
@@ -101,6 +106,55 @@ fn run_kiro_import(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, 
     }
 
     Ok(ExitStatus::Success)
+}
+
+fn run_kiro_check(args: &ImportArgs, color: ColorConfig) -> Result<ExitStatus, CliError> {
+    let output_dir = args
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("specs"));
+
+    let result = supersigil_import::check::check_markers(&output_dir)?;
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let total = result.breakdown.total();
+
+    if total == 0 {
+        writeln!(
+            out,
+            "{} 0 import TODOs remaining",
+            color.paint(Token::Success, "ok:"),
+        )?;
+        return Ok(ExitStatus::Success);
+    }
+
+    writeln!(
+        out,
+        "{} import TODOs remaining\n",
+        color.paint(Token::Warning, &total.to_string()),
+    )?;
+
+    for marker in &result.markers {
+        let path_str = marker.file.display().to_string();
+        writeln!(
+            out,
+            "  {}:{} — {}",
+            color.paint(Token::Path, &path_str),
+            marker.line,
+            marker.message,
+        )?;
+    }
+
+    writeln!(out)?;
+    writeln!(out, "Breakdown:")?;
+    for (name, count) in result.breakdown.iter_named() {
+        if count > 0 {
+            writeln!(out, "  {name}: {count}")?;
+        }
+    }
+
+    Ok(ExitStatus::VerifyFailed)
 }
 
 fn print_diagnostics(diagnostics: &[Diagnostic]) -> io::Result<()> {
@@ -130,13 +184,7 @@ fn print_summary(
             "  ambiguities: {}",
             color.paint(Token::Warning, &format!("{total} total")),
         )?;
-        for (name, count) in [
-            ("duplicate_id", breakdown.duplicate_id),
-            ("unresolved_ref", breakdown.unresolved_ref),
-            ("unparseable_ref", breakdown.unparseable_ref),
-            ("missing_context", breakdown.missing_context),
-            ("unsupported_feature", breakdown.unsupported_feature),
-        ] {
+        for (name, count) in breakdown.iter_named() {
             if count > 0 {
                 writeln!(out, "    {name}: {count}")?;
             }

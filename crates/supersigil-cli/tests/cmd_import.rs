@@ -295,3 +295,75 @@ fn import_write_mode_prints_lint_hint() {
         "stderr should contain a verify hint after write mode, got: {stderr}"
     );
 }
+
+#[test]
+fn import_check_finds_markers_in_imported_files() {
+    let project = TempDir::new().unwrap();
+    let specs_dir = project.path().join(".kiro/specs");
+
+    // Create a feature with design but no requirements — produces a missing_context marker
+    let feature_dir = specs_dir.join("check-test");
+    fs::create_dir_all(&feature_dir).unwrap();
+    fs::write(
+        feature_dir.join("design.md"),
+        "# Design: Check Test\n\n## Overview\n\nContent.\n",
+    )
+    .unwrap();
+
+    let out_dir = project.path().join("specs");
+
+    // First, import the files (this writes markers)
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    // Then, check for markers
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--check",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .failure() // non-zero exit when markers found
+        .stdout(predicate::str::contains("import TODO"))
+        .stdout(predicate::str::contains("missing_context:"));
+}
+
+#[test]
+fn import_check_succeeds_when_no_markers() {
+    let project = TempDir::new().unwrap();
+    let out_dir = project.path().join("specs");
+    fs::create_dir_all(&out_dir).unwrap();
+    fs::write(
+        out_dir.join("clean.md"),
+        "---\nsupersigil:\n  id: test\n  type: requirements\n---\n\n# Clean doc\n",
+    )
+    .unwrap();
+
+    cargo_bin_cmd!("supersigil")
+        .args([
+            "import",
+            "--from",
+            "kiro",
+            "--check",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0 import TODOs"));
+}

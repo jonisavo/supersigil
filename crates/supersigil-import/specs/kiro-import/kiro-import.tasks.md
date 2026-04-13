@@ -80,4 +80,10 @@ current Kiro import domain.
   breakdown. Change import::run return type from Result&lt;(), CliError&gt; to
   Result&lt;ExitStatus, CliError&gt; to support non-zero exits.
 </Task>
+
+<Task id="task-12" status="ready" depends="task-11" implements="kiro-import/req#req-8-1, kiro-import/req#req-8-2, kiro-import/req#req-8-3, kiro-import/req#req-8-4">
+  Add check module with check_markers() for scanning previously-imported
+  files. Add --check CLI flag, handler, and integration tests. Exit
+  non-zero when markers are found.
+</Task>
 ```

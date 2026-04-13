@@ -262,3 +262,35 @@ category, so that I can prioritize resolution by type.
   </Criterion>
 </AcceptanceCriteria>
 ```
+
+## Requirement 8: Import Check Mode
+
+As a user tracking import resolution progress, I want to scan previously-imported
+files for remaining markers, so that I can measure how many remain and where.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-8-1">
+    WHEN `--check` is set, THE CLI SHALL scan the output directory recursively
+    for `.md` files containing Ambiguity_Markers and SHALL NOT run the import
+    pipeline.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_import.rs" />
+  </Criterion>
+  <Criterion id="req-8-2">
+    THE check output SHALL report each marker's file path, line number, and
+    message text.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_import.rs" />
+  </Criterion>
+  <Criterion id="req-8-3">
+    WHEN markers are found, `--check` SHALL exit with a non-zero exit code.
+    WHEN no markers are found, it SHALL exit with code 0.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/tests/cmd_import.rs" />
+  </Criterion>
+  <Criterion id="req-8-4">
+    THE check scanner SHALL recognize both the current blockquote format and
+    the legacy HTML comment format so that files imported before the format
+    change are still detected.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-import/src/check.rs" />
+  </Criterion>
+</AcceptanceCriteria>
+```

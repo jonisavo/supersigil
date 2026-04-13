@@ -5,6 +5,8 @@
 //! Markdown-based format. It provides a plan-then-execute workflow: first
 //! preview what would be imported, then write the output files.
 
+/// Post-import scanning for unresolved TODO markers.
+pub mod check;
 /// Discovery of Kiro spec directories on the filesystem.
 pub mod discover;
 /// Emission of supersigil Markdown from parsed intermediate representations.
@@ -59,6 +61,18 @@ impl AmbiguityBreakdown {
             + self.unparseable_ref
             + self.missing_context
             + self.unsupported_feature
+    }
+
+    /// Iterate over `(name, count)` pairs for each category.
+    #[must_use]
+    pub fn iter_named(&self) -> [(&'static str, usize); 5] {
+        [
+            ("duplicate_id", self.duplicate_id),
+            ("unresolved_ref", self.unresolved_ref),
+            ("unparseable_ref", self.unparseable_ref),
+            ("missing_context", self.missing_context),
+            ("unsupported_feature", self.unsupported_feature),
+        ]
     }
 
     /// Increment the count for the given ambiguity kind.

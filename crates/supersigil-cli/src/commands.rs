@@ -174,6 +174,9 @@ pub struct ImportArgs {
     /// Overwrite existing files
     #[arg(long)]
     pub force: bool,
+    /// Scan output directory for unresolved import TODO markers
+    #[arg(long)]
+    pub check: bool,
 }
 
 /// Verify output format (terminal includes color, markdown for CI).
