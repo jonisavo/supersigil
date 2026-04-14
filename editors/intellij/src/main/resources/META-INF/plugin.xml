@@ -11,20 +11,22 @@
 
         <h2>Features</h2>
         <ul>
-            <li><b>Diagnostics</b> &mdash; parse errors, broken cross-references, duplicate IDs,
+            <li><b>Diagnostics:</b> parse errors, broken cross-references, duplicate IDs,
                 circular dependencies, coverage gaps, and staleness warnings as you edit.</li>
-            <li><b>Go to definition</b> &mdash; follow refs, implements, and depends links
+            <li><b>Go to definition:</b> follow refs, implements, and depends links
                 between spec documents.</li>
-            <li><b>Autocomplete</b> &mdash; document IDs, criterion IDs, and component attributes.</li>
-            <li><b>Hover</b> &mdash; document metadata and clickable links.</li>
-            <li><b>Code actions</b> &mdash; quick fixes for missing attributes, duplicate IDs,
+            <li><b>Autocomplete:</b> document IDs, criterion IDs, and component attributes.</li>
+            <li><b>Hover:</b> document metadata and clickable links.</li>
+            <li><b>Code actions:</b> quick fixes for missing attributes, duplicate IDs,
                 broken references, and more.</li>
-            <li><b>Spec Explorer</b> &mdash; a tool window that organizes specs by project,
+            <li><b>Spec Explorer:</b> a tool window that organizes specs by project,
                 ID prefix, and document with type and status indicators.</li>
-            <li><b>Markdown preview</b> &mdash; <code>supersigil-xml</code> fences render as
+            <li><b>Graph Explorer:</b> an interactive graph visualization of spec relationships
+                with filtering and navigation capabilities.</li>
+            <li><b>Markdown preview:</b> <code>supersigil-xml</code> fences render as
                 rich components with verification status, collapsible evidence lists,
                 and clickable navigation links.</li>
-            <li><b>Verify action</b> &mdash; run cross-document verification from the Tools menu.</li>
+            <li><b>Verify action:</b> run cross-document verification from the Tools menu.</li>
         </ul>
 
         <h2>Requirements</h2>
