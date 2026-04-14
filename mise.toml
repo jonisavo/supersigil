@@ -11,13 +11,16 @@ run = [
 description = "Format the workspace."
 run = "cargo fmt --all"
 
+[tasks.verify]
+description = "Verify the Supersigil specifications."
+run = "cargo run -p supersigil verify"
+
 [tasks.lint]
 description = "Lint the workspace."
 run = [
   "cargo clippy --workspace --all-targets --all-features",
   "mise lint:js",
-  "mise lint:types",
-  "cargo run -p supersigil verify",
+  "mise lint:types"
 ]
 
 [tasks."lint:js"]
@@ -112,7 +115,7 @@ dir = "scripts/release-targets"
 
 [tasks.qa]
 description = "Run all tooling to ensure the repository is squeaky clean."
-run = ["mise format", "mise lint", "mise build", "mise test"]
+run = ["mise format", "mise lint", "mise build", "mise test", "mise verify"]
 
 [tasks.install-cli]
 description = "Install the CLI locally"
@@ -138,6 +141,10 @@ depends = "qa"
 [tasks.install-all]
 description = "Install all binaries locally"
 run = ["mise install-cli", "mise install-lsp"]
+
+[tasks."release:detect"]
+description = "Detect what will be released based on git history and print a summary."
+run = "node scripts/release-targets/index.mjs detect"
 
 [tasks.release]
 description = "Prepare a release: bump versions, update changelog, commit, and tag."
