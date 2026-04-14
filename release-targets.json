@@ -1,0 +1,101 @@
+{
+  "targets": [
+    {
+      "id": "intellij",
+      "enabled": true,
+      "versionFile": "editors/intellij/gradle.properties",
+      "versionKind": "gradle-property",
+      "versionKey": "pluginVersion",
+      "changelogFile": "editors/intellij/CHANGELOG.md",
+      "cliffConfig": "cliff.intellij.toml",
+      "impactPaths": [
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "editors/intellij/build.gradle.kts",
+        "editors/intellij/gradle.properties",
+        "editors/intellij/settings.gradle.kts",
+        "editors/intellij/gradle/libs.versions.toml",
+        "editors/intellij/src/main/**",
+        "packages/preview/src/**",
+        "packages/preview/styles/**",
+        "packages/preview/scripts/**",
+        "packages/preview/esbuild.mjs",
+        "packages/preview/package.json"
+      ],
+      "excludePaths": [
+        "editors/intellij/src/test/**",
+        "packages/preview/**/__tests__/**",
+        "packages/preview/**/*.test.ts",
+        "packages/preview/**/*.snap"
+      ]
+    },
+    {
+      "id": "vscode",
+      "enabled": true,
+      "versionFile": "editors/vscode/package.json",
+      "versionKind": "package-json",
+      "versionKey": "version",
+      "impactPaths": [
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "editors/vscode/package.json",
+        "editors/vscode/README.md",
+        "editors/vscode/LICENSE",
+        "editors/vscode/esbuild.mjs",
+        "editors/vscode/src/**",
+        "editors/vscode/media/**",
+        "editors/vscode/syntaxes/**",
+        "editors/vscode/icon.svg",
+        "editors/vscode/icon.png",
+        "packages/preview/src/**",
+        "packages/preview/styles/**",
+        "packages/preview/scripts/**",
+        "packages/preview/esbuild.mjs",
+        "packages/preview/package.json",
+        "website/src/components/explore/**",
+        "website/src/styles/landing-tokens.css"
+      ],
+      "excludePaths": [
+        "editors/vscode/src/**/*.test.ts"
+      ]
+    },
+    {
+      "id": "npm-vitest",
+      "enabled": true,
+      "versionFile": "packages/vitest/package.json",
+      "versionKind": "package-json",
+      "versionKey": "version",
+      "impactPaths": [
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "packages/vitest/package.json",
+        "packages/vitest/src/**",
+        "packages/vitest/esbuild.mjs",
+        "packages/vitest/tsconfig.json",
+        "packages/vitest/README.md"
+      ],
+      "excludePaths": [
+        "packages/vitest/tests/**"
+      ]
+    },
+    {
+      "id": "npm-eslint-plugin",
+      "enabled": true,
+      "versionFile": "packages/eslint-plugin/package.json",
+      "versionKind": "package-json",
+      "versionKey": "version",
+      "impactPaths": [
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "packages/eslint-plugin/package.json",
+        "packages/eslint-plugin/src/**",
+        "packages/eslint-plugin/esbuild.mjs",
+        "packages/eslint-plugin/tsconfig.json",
+        "packages/eslint-plugin/README.md"
+      ],
+      "excludePaths": [
+        "packages/eslint-plugin/tests/**"
+      ]
+    }
+  ]
+}

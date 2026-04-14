@@ -1,6 +1,7 @@
 # Root-level specs that describe workspace-wide or cross-cutting behavior.
 [projects.workspace]
 paths = ["specs/**/*.md"]
+tests = ["scripts/release-targets/**/*.test.js"]
 
 # Foundational parsing and graph behavior shared across the core libraries.
 [projects.foundation]

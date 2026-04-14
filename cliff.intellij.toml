@@ -13,10 +13,6 @@ body = """
 ## [Unreleased]
 {% endif -%}
 
-{%- if version == "v0.1.0" %}
-Initial release.
-{% else -%}
-
 {%- if commits | filter(attribute="breaking", value=true) | length > 0 %}
 ### ⚠ Breaking Changes
 {% for commit in commits | filter(attribute="breaking", value=true) %}
@@ -36,7 +32,6 @@ Initial release.
   ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
-{%- endif %}
 """
 trim = false
 
@@ -45,7 +40,6 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 protect_breaking_commits = true
-# Keep in sync with cog.toml commit_types
 commit_parsers = [
     { message = "^chore\\(release\\): prepare", skip = true },
     { message = "^feat", group = "Features" },

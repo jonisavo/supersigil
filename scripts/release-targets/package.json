@@ -1,0 +1,13 @@
+{
+  "name": "@supersigil/release-targets",
+  "private": true,
+  "type": "module",
+  "exports": "./index.mjs",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@supersigil/vitest": "workspace:*",
+    "vitest": "catalog:"
+  }
+}

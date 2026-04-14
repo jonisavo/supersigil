@@ -147,6 +147,30 @@ jobs:
             artifacts/supersigil-*.tar.gz
             artifacts/SHA256SUMS
 
+  target-metadata:
+    name: Release Target Metadata
+    needs: release
+    runs-on: ubuntu-latest
+    outputs:
+      publish_intellij: ${{ steps.targets.outputs.publish_intellij }}
+      publish_vscode: ${{ steps.targets.outputs.publish_vscode }}
+      publish_npm_vitest: ${{ steps.targets.outputs.publish_npm_vitest }}
+      publish_npm_eslint_plugin: ${{ steps.targets.outputs.publish_npm_eslint_plugin }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+
+      - name: Detect impacted release targets
+        id: targets
+        run: node scripts/release-targets/index.mjs detect --head-ref "${GITHUB_REF_NAME}" --github-output "${GITHUB_OUTPUT}"
+
   publish-crates:
     name: Publish crates.io
     needs: release
@@ -160,7 +184,8 @@ jobs:
     # would be included in the signed provenance statement, which causes npm
     # to reject publishing.
     name: Publish npm
-    needs: release
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_npm_vitest == 'true' || needs.target-metadata.outputs.publish_npm_eslint_plugin == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -183,10 +208,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Publish @supersigil/vitest
+        if: needs.target-metadata.outputs.publish_npm_vitest == 'true'
         run: npm publish --no-git-checks --access public --provenance
         working-directory: packages/vitest
 
       - name: Publish @supersigil/eslint-plugin
+        if: needs.target-metadata.outputs.publish_npm_eslint_plugin == 'true'
         run: npm publish --no-git-checks --access public --provenance
         working-directory: packages/eslint-plugin
 
@@ -206,16 +233,17 @@ jobs:
 
   publish-vscode:
     name: Publish VS Code
-    needs: release
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_vscode == 'true'
     uses: ./.github/workflows/publish-vscode.yml
     secrets:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
-  # TODO: re-enable once plugin is listed on JetBrains Marketplace
-  # publish-intellij:
-  #   name: Publish IntelliJ
-  #   needs: release
-  #   uses: ./.github/workflows/publish-intellij.yml
-  #   secrets:
-  #     JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+  publish-intellij:
+    name: Publish IntelliJ
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_intellij == 'true'
+    uses: ./.github/workflows/publish-intellij.yml
+    secrets:
+      JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}

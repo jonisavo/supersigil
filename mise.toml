@@ -1,10 +1,10 @@
 [tasks.setup]
 description = "Set up the development environment."
 run = [
-    "pnpm install",
-    "mise bundle-cli",
-    "cargo build --workspace",
-    "lefthook install"
+  "pnpm install",
+  "mise bundle-cli",
+  "cargo build --workspace",
+  "lefthook install",
 ]
 
 [tasks.format]
@@ -14,10 +14,10 @@ run = "cargo fmt --all"
 [tasks.lint]
 description = "Lint the workspace."
 run = [
-    "cargo clippy --workspace --all-targets --all-features",
-    "mise lint:js",
-    "mise lint:types",
-    "cargo run -p supersigil verify"
+  "cargo clippy --workspace --all-targets --all-features",
+  "mise lint:js",
+  "mise lint:types",
+  "cargo run -p supersigil verify",
 ]
 
 [tasks."lint:js"]
@@ -31,9 +31,9 @@ run = "pnpm -r check-types"
 [tasks.fix]
 description = "Apply fixes in the workspace."
 run = [
-    "cargo fmt --all",
-    "cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged",
-    "mise fix:js",
+  "cargo fmt --all",
+  "cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged",
+  "mise fix:js",
 ]
 
 [tasks."fix:js"]
@@ -46,7 +46,11 @@ run = "pnpm run bundle:cli-assets"
 
 [tasks.build]
 description = "Build the workspace."
-run = ["cargo build --workspace --release", "mise build:vscode", "mise build:intellij"]
+run = [
+  "cargo build --workspace --release",
+  "mise build:vscode",
+  "mise build:intellij",
+]
 depends = ["bundle-cli", "build:js"]
 
 [tasks."build:js"]
@@ -79,7 +83,12 @@ run = ["cargo nextest run", "mise test:js"]
 
 [tasks."test:js"]
 description = "Run JS/TS package tests."
-run = ["mise test:eslint-plugin", "mise test:vitest", "mise test:preview"]
+run = [
+  "mise test:eslint-plugin",
+  "mise test:vitest",
+  "mise test:preview",
+  "mise test:release-targets",
+]
 
 [tasks."test:eslint-plugin"]
 description = "Run eslint-plugin tests."
@@ -95,6 +104,11 @@ dir = "packages/vitest"
 description = "Run preview package tests."
 run = "pnpm test"
 dir = "packages/preview"
+
+[tasks."test:release-targets"]
+description = "Run release-target helper tests."
+run = "pnpm test"
+dir = "scripts/release-targets"
 
 [tasks.qa]
 description = "Run all tooling to ensure the repository is squeaky clean."
@@ -153,16 +167,10 @@ done
 # Update workspace dependency version specifiers
 sed -i'' -e 's/version = "=[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*"/version = "='"${VERSION}"'"/' Cargo.toml
 
-# Update JS/TS package versions
-for pkg in packages/eslint-plugin/package.json packages/vitest/package.json; do
-  sed -i'' -e 's/"version": "[^"]*"/"version": "'"${VERSION}"'"/' "$pkg"
-done
-
-# Update VS Code extension version
-sed -i'' -e 's/"version": "[^"]*"/"version": "'"${VERSION}"'"/' editors/vscode/package.json
-
-# Update IntelliJ plugin version
-sed -i'' -e 's/^pluginVersion = .*/pluginVersion = '"${VERSION}"'/' editors/intellij/gradle.properties
+# Prepare selective release-target metadata
+node scripts/release-targets/index.mjs prepare \
+  --version "${VERSION}" \
+  --git-cliff-bin "$(command -v git-cliff)"
 
 # Update lockfiles
 cargo generate-lockfile
@@ -179,6 +187,7 @@ git add \
   packages/vitest/package.json \
   editors/vscode/package.json \
   editors/intellij/gradle.properties \
+  editors/intellij/CHANGELOG.md \
   pnpm-lock.yaml \
   CHANGELOG.md
 

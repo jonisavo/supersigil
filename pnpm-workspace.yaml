@@ -1,5 +1,6 @@
 packages:
   - eval
+  - scripts/release-targets
   - website
   - packages/*
   - editors/*

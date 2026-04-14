@@ -1,3 +1,4 @@
+import org.gradle.api.GradleException
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
@@ -48,10 +49,10 @@ intellijPlatform {
         val changelog = project.changelog
         changeNotes = providers.gradleProperty("pluginVersion").map { pluginVersion ->
             with(changelog) {
+                val item = getOrNull(pluginVersion)
+                    ?: throw GradleException("CHANGELOG.md is missing a section for pluginVersion=$pluginVersion")
                 renderItem(
-                    (getOrNull(pluginVersion) ?: getUnreleased())
-                        .withHeader(false)
-                        .withEmptySections(false),
+                    item.withHeader(false).withEmptySections(false),
                     Changelog.OutputType.HTML,
                 )
             }
@@ -78,10 +79,6 @@ changelog {
 tasks {
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
-    }
-
-    publishPlugin {
-        dependsOn(patchChangelog)
     }
 
     // Build the preview kit if dist/ is missing (clean checkout / CI).

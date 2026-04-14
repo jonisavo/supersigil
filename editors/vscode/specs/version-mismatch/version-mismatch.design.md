@@ -66,8 +66,12 @@ dialogs across multi-root workspace folder starts.
 ## Version Comparison
 
 Mismatch detection uses simple string equality (`serverVersion !==
-extensionVersion`). Both versions follow semver and are always
-published in lockstep. No need for range-based comparison.
+extensionVersion`). Both versions follow semver, and the runtime contract
+between the VS Code extension and the `supersigil-lsp` binary is still exact
+version match. Selective release automation may skip publishing the extension
+on repository tags that do not affect it, but when the extension starts a
+server with a different version, the mismatch warning remains the correct
+behavior. No compatibility ranges are promised.
 
 For the "server newer" check (to decide whether to show the "Update
 Extension" button), split both versions on `.` and compare
@@ -94,15 +98,18 @@ mismatched binary and confirm the dialog appears.
   checking.
 
   <Rationale>
-    All crates and the extension are published at the same version on
-    every release. There are no independent version tracks to compare
-    ranges against. String equality is the simplest correct check.
+    The compatibility contract is exact match, not "some semver range".
+    Even if repository release automation later skips publishing the extension
+    on unrelated tagged releases, the extension and the binary it launches are
+    still expected to agree on one concrete version string. String equality is
+    therefore the simplest correct check.
   </Rationale>
 
   <Alternative id="semver-range" status="rejected">
     Use semver-aware comparison with compatibility ranges. Rejected
-    because there is no independent versioning — all components share
-    a single version number, so range compatibility is meaningless.
+    because the project does not define a compatibility-range policy between
+    extension and server releases. Adding semver ranges here would invent a
+    compatibility contract that the release process does not guarantee.
   </Alternative>
 </Decision>
 ```
