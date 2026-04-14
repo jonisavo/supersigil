@@ -502,7 +502,7 @@ is extracted to a testable function that takes a list of document
 URIs and a command executor, returning the assembled render data.
 Tested with mock responses.
 
-**Tool window registration**: Verified via `./gradlew runPluginVerifier`
+**Tool window registration**: Verified via `./gradlew verifyPlugin`
 for binary compatibility with target platforms.
 
 **Visual correctness**: Manual testing — open the tool window, verify

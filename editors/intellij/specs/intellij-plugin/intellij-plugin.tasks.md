@@ -136,6 +136,6 @@ task is independently verifiable.
   work, hover shows component info, go-to-definition navigates to
   targets, Spec Explorer populates, verify action triggers
   verification, and `supersigil-xml` blocks have XML highlighting.
-  Run `./gradlew runPluginVerifier` for binary compatibility checks.
+  Run `./gradlew verifyPlugin` for binary compatibility checks.
 </Task>
 ```

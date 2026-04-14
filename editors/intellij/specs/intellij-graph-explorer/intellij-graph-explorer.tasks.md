@@ -178,7 +178,7 @@ independently verifiable.
   the detail panel with verification status, "Open File" button opens
   the spec file, evidence links navigate to source files, live updates
   refresh the graph when specs change, light and dark themes display
-  correct colors. Run ./gradlew runPluginVerifier for binary
+  correct colors. Run ./gradlew verifyPlugin for binary
   compatibility checks.
 </Task>
 ```

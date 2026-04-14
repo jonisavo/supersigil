@@ -261,7 +261,7 @@ Requires a plugin dependency on `org.intellij.plugins.markdown`
   logic into a pure function that takes candidate paths and a
   file-exists predicate.
 - **LSP integration**: Manual testing for v1.
-- **Plugin verification**: `./gradlew runPluginVerifier` validates
+- **Plugin verification**: `./gradlew verifyPlugin` validates
   binary compatibility with target platform versions.
 
 ## Decisions

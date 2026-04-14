@@ -11,12 +11,21 @@ jobs:
   intellij:
     name: Publish IntelliJ plugin
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: editors/intellij
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Setup Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -27,10 +36,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
 
-      - name: Build plugin
-        run: ./gradlew buildPlugin
+      - name: Build preview assets
+        run: pnpm --dir packages/preview run build
+
+      - name: Verify and build plugin
+        run: ./gradlew test verifyPlugin buildPlugin
+        working-directory: editors/intellij
 
       - name: Publish plugin
         run: ./gradlew publishPlugin
+        working-directory: editors/intellij
         env:
-          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+          ORG_GRADLE_PROJECT_intellijPlatformPublishingToken: ${{ secrets.JETBRAINS_TOKEN }}
