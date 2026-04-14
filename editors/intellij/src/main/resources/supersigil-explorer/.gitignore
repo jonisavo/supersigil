@@ -1,0 +1,5 @@
+# Copied by the copyExplorerAssets Gradle task at build time
+*.js
+*.css
+!explorer-bridge.js
+!intellij-theme-adapter.css

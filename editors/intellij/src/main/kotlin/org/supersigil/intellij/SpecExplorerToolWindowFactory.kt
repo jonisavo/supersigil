@@ -15,7 +15,6 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
@@ -112,7 +111,7 @@ private fun scheduleRefreshWithRetry(
         // installing the binary while the IDE is open is picked up
         // automatically.
         if (supersigilServers(project).isEmpty()) {
-            ensureLspServerStarted(project)
+            ensureSupersigilServerStarted(project)
         }
 
         // Try to attach the documentsChanged listener if we haven't yet.
@@ -144,26 +143,6 @@ private fun scheduleRefreshWithRetry(
     }
 
     retryAlarm.addRequest(::tryRefresh, 0)
-}
-
-/**
- * Trigger LSP server startup if no Supersigil server is running yet.
- *
- * The IntelliJ LSP framework normally starts servers in response to
- * file-open events. `LspServerManager.ensureServerStarted` lets us
- * provide a descriptor directly so the server starts without requiring
- * any file to be open in the editor.
- */
-private fun ensureLspServerStarted(project: Project) {
-    if (supersigilServers(project).isNotEmpty()) return
-
-    val settings = SupersigilSettings.getInstance()
-    val binaryPath = resolveServerBinary(settings.serverPath) ?: return
-
-    LspServerManager.getInstance(project).ensureServerStarted(
-        SupersigilLspServerSupportProvider::class.java,
-        SupersigilLspServerDescriptor(project, binaryPath),
-    )
 }
 
 private val LINK_ATTRIBUTES =

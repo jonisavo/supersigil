@@ -1,0 +1,47 @@
+:root {
+  color-scheme: light;
+  --bg-deep: #ffffff;
+  --bg-surface: #f5f5f5;
+  --bg-card: #ffffff;
+  --bg-card-hover: #ececec;
+  --text: #1e1f22;
+  --text-muted: #6c707e;
+  --text-dim: #8b8d98;
+  --gold: #0a7aff;
+  --gold-dim: rgba(10, 122, 255, 0.2);
+  --teal: #1a8a9d;
+  --green: #4caf50;
+  --red: #d93025;
+  --border: rgba(31, 35, 40, 0.12);
+  --border-hover: rgba(31, 35, 40, 0.18);
+  --font-body: system-ui, sans-serif;
+  --font-heading: system-ui, sans-serif;
+  --font-display: var(--font-heading);
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+html.dark {
+  color-scheme: dark;
+  --bg-deep: #1e1f22;
+  --bg-surface: #2b2d30;
+  --bg-card: #31343a;
+  --bg-card-hover: #3b3f46;
+  --text: #dfe1e5;
+  --text-muted: #a7adb8;
+  --text-dim: #7e8594;
+  --gold: #4da3ff;
+  --gold-dim: rgba(77, 163, 255, 0.2);
+  --teal: #5db7d5;
+  --green: #6fbf73;
+  --red: #f16c6c;
+  --border: rgba(255, 255, 255, 0.12);
+  --border-hover: rgba(255, 255, 255, 0.18);
+  --font-body: system-ui, sans-serif;
+  --font-heading: system-ui, sans-serif;
+  --font-display: var(--font-heading);
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+body {
+  font-family: var(--font-body);
+}

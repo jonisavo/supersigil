@@ -57,10 +57,14 @@
     </actions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Supersigil"
+        <toolWindow id="Supersigil Specifications"
                     anchor="right"
                     icon="/icons/supersigil.svg"
                     factoryClass="org.supersigil.intellij.SpecExplorerToolWindowFactory"/>
+        <toolWindow id="Graph Explorer"
+                    anchor="right"
+                    icon="/icons/supersigil-graph.svg"
+                    factoryClass="org.supersigil.intellij.GraphExplorerToolWindowFactory"/>
 
         <platform.lsp.serverSupportProvider
                 implementation="org.supersigil.intellij.SupersigilLspServerSupportProvider"/>

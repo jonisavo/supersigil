@@ -44,6 +44,10 @@ tests = ["editors/vscode/src/**/*.test.ts"]
 # IntelliJ plugin and editor-side features.
 [projects.intellij]
 paths = ["editors/intellij/specs/**/*.md"]
+tests = [
+  "editors/intellij/src/test/**/*.kt",
+  "website/src/components/explore/explorer-bridge.test.js",
+]
 
 # The documentation site.
 [projects.website]

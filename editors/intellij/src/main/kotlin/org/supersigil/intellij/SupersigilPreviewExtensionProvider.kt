@@ -1,11 +1,7 @@
 package org.supersigil.intellij
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.ui.jcef.JBCefJSQuery
 import org.cef.browser.CefBrowser
@@ -245,114 +241,7 @@ private class SupersigilPreviewExtension(
      * Action format: `open-file:<path>:<line>` or
      *                `open-criterion:<docId>:<criterionId>`
      */
-    private fun handleAction(action: String) {
-        val parts = splitAction(action)
-        if (parts.isEmpty()) return
-
-        when (parts[0]) {
-            "open-file" -> {
-                if (parts.size >= 3) {
-                    val path = parts[1]
-                    val line = parts[2].toIntOrNull() ?: 0
-                    openFile(path, line)
-                }
-            }
-
-            "open-criterion" -> {
-                if (parts.size >= 3) {
-                    val docId = parts[1]
-                    val criterionId = parts[2]
-                    openCriterion(docId, criterionId)
-                }
-            }
-        }
-    }
-
-    /**
-     * Open a file at the given line in the editor.
-     */
-    private fun openFile(
-        path: String,
-        line: Int,
-    ) {
-        ApplicationManager.getApplication().invokeLater {
-            for (project in ProjectManager.getInstance().openProjects) {
-                if (project.isDisposed) continue
-                val basePath = project.basePath ?: continue
-
-                val file =
-                    LocalFileSystem
-                        .getInstance()
-                        .findFileByPath("$basePath/$path")
-                        ?: continue
-
-                val descriptor = OpenFileDescriptor(project, file, maxOf(0, line - 1), 0)
-                FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
-                return@invokeLater
-            }
-        }
-    }
-
-    /**
-     * Open a criterion by resolving its location via the LSP server.
-     * Falls back to opening the document file if the criterion cannot
-     * be resolved to an exact position.
-     */
-    private fun openCriterion(
-        docId: String,
-        criterionId: String,
-    ) {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            for (project in ProjectManager.getInstance().openProjects) {
-                if (project.isDisposed) continue
-
-                for (server in supersigilServers(project)) {
-                    if (server.state != LspServerState.Running) continue
-
-                    try {
-                        @Suppress("UNCHECKED_CAST")
-                        val listResult =
-                            server.sendRequestSync { languageServer ->
-                                languageServer.workspaceService.executeCommand(
-                                    ExecuteCommandParams(
-                                        COMMAND_DOCUMENT_LIST,
-                                        emptyList(),
-                                    ),
-                                ) as java.util.concurrent.CompletableFuture<Any?>
-                            }
-
-                        val documents = parseDocumentListResponse(listResult)
-                        val targetDoc = documents.find { it.id == docId } ?: continue
-
-                        if (criterionId.isBlank()) {
-                            openFile(targetDoc.path, 1)
-                            return@executeOnPooledThread
-                        }
-
-                        val basePath = project.basePath ?: continue
-                        val fileUri = "file://$basePath/${targetDoc.path}"
-
-                        @Suppress("UNCHECKED_CAST")
-                        val compResult =
-                            server.sendRequestSync { languageServer ->
-                                languageServer.workspaceService.executeCommand(
-                                    ExecuteCommandParams(
-                                        COMMAND_DOCUMENT_COMPONENTS,
-                                        listOf(fileUri),
-                                    ),
-                                ) as java.util.concurrent.CompletableFuture<Any?>
-                            }
-
-                        val line = findCriterionLine(compResult, criterionId)
-                        openFile(targetDoc.path, line ?: 1)
-                        return@executeOnPooledThread
-                    } catch (e: Exception) {
-                        LOG.debug("Failed to resolve criterion location", e)
-                    }
-                }
-            }
-        }
-    }
+    private fun handleAction(action: String) = dispatchGraphExplorerAction(action)
 }
 
 // ---------------------------------------------------------------------------
@@ -381,93 +270,6 @@ private class SupersigilResourceProvider : ResourceProvider {
                 ?: return null
         return ResourceProvider.Resource(stream.readAllBytes())
     }
-}
-
-// ---------------------------------------------------------------------------
-// Action string parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Split an action string by unescaped colons.
- * Backslash-escaped colons (`\:`) are preserved as literal colons.
- */
-internal fun splitAction(action: String): List<String> {
-    val parts = mutableListOf<String>()
-    val current = StringBuilder()
-
-    var i = 0
-    while (i < action.length) {
-        when {
-            action[i] == '\\' && i + 1 < action.length -> {
-                current.append(action[i + 1])
-                i += 2
-            }
-
-            action[i] == ':' -> {
-                parts.add(current.toString())
-                current.clear()
-                i++
-            }
-
-            else -> {
-                current.append(action[i])
-                i++
-            }
-        }
-    }
-    parts.add(current.toString())
-    return parts
-}
-
-// ---------------------------------------------------------------------------
-// Criterion lookup helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Find the source line of a criterion by ID in a document components
- * response. Walks the untyped JSON (LinkedTreeMap from Gson) to find
- * a component with the matching criterion ID.
- */
-@Suppress("UNCHECKED_CAST")
-internal fun findCriterionLine(
-    result: Any?,
-    criterionId: String,
-): Int? {
-    val map = result as? Map<*, *> ?: return null
-    val fences = map["fences"] as? List<*> ?: return null
-
-    for (fence in fences) {
-        val fenceMap = fence as? Map<*, *> ?: continue
-        val components = fenceMap["components"] as? List<*> ?: continue
-        val line = findCriterionInComponents(components, criterionId)
-        if (line != null) return line
-    }
-    return null
-}
-
-@Suppress("UNCHECKED_CAST")
-private fun findCriterionInComponents(
-    components: List<*>,
-    criterionId: String,
-): Int? {
-    for (comp in components) {
-        val compMap = comp as? Map<*, *> ?: continue
-        val id = compMap["id"] as? String
-        if (id == criterionId) {
-            val sourceRange = compMap["source_range"] as? Map<*, *>
-            val startLine = sourceRange?.get("start_line")
-            return when (startLine) {
-                is Number -> startLine.toInt()
-                else -> null
-            }
-        }
-        val children = compMap["children"] as? List<*>
-        if (children != null) {
-            val found = findCriterionInComponents(children, criterionId)
-            if (found != null) return found
-        }
-    }
-    return null
 }
 
 // ---------------------------------------------------------------------------

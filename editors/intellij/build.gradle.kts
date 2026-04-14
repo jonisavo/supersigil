@@ -85,8 +85,15 @@ tasks {
     val buildPreviewKit by registering(Exec::class) {
         workingDir = file("../../packages/preview")
         commandLine("pnpm", "run", "build")
-        val marker = layout.projectDirectory.file("../../packages/preview/dist/render-iife.js")
-        onlyIf { !marker.asFile.exists() }
+        inputs.dir(layout.projectDirectory.dir("../../packages/preview/src"))
+        inputs.dir(layout.projectDirectory.dir("../../packages/preview/styles"))
+        inputs.dir(layout.projectDirectory.dir("../../packages/preview/scripts"))
+        inputs.file(layout.projectDirectory.file("../../packages/preview/package.json"))
+        inputs.file(layout.projectDirectory.file("../../packages/preview/esbuild.mjs"))
+        inputs.file(layout.projectDirectory.file("../../packages/preview/tsconfig.json"))
+        inputs.file(layout.projectDirectory.file("../../pnpm-workspace.yaml"))
+        inputs.file(layout.projectDirectory.file("../../pnpm-lock.yaml"))
+        outputs.file(layout.projectDirectory.file("../../packages/preview/dist/render-iife.js"))
     }
 
     // Copy shared presentation kit assets from packages/preview/dist/
@@ -102,7 +109,41 @@ tasks {
         into("src/main/resources/supersigil-preview")
     }
 
+    // Build the explorer IIFE bundle if dist/ is missing (clean checkout / CI).
+    val buildExplorerKit by registering(Exec::class) {
+        workingDir = file("../../website")
+        commandLine("pnpm", "run", "build:explorer-iife")
+        inputs.dir(layout.projectDirectory.dir("../../website/src/components/explore"))
+        inputs.file(layout.projectDirectory.file("../../website/build-explorer-iife.mjs"))
+        inputs.file(layout.projectDirectory.file("../../website/package.json"))
+        inputs.file(layout.projectDirectory.file("../../website/tsconfig.json"))
+        inputs.file(layout.projectDirectory.file("../../pnpm-workspace.yaml"))
+        inputs.file(layout.projectDirectory.file("../../pnpm-lock.yaml"))
+        outputs.file(layout.projectDirectory.file("../../website/dist/explorer-iife/explorer.js"))
+    }
+
+    // Copy graph explorer assets into plugin resources before building the JAR.
+    val copyExplorerAssets by registering(Copy::class) {
+        dependsOn(buildExplorerKit, buildPreviewKit)
+        from("../../website/dist/explorer-iife") {
+            include("explorer.js")
+        }
+        from("../../website/src/styles") {
+            include("landing-tokens.css")
+        }
+        from("../../website/src/components/explore") {
+            include("styles.css")
+            rename("styles.css", "explorer-styles.css")
+        }
+        from("../../packages/preview/dist") {
+            include("render-iife.js")
+            include("supersigil-preview.js")
+            include("supersigil-preview.css")
+        }
+        into("src/main/resources/supersigil-explorer")
+    }
+
     processResources {
-        dependsOn(copyPreviewAssets)
+        dependsOn(copyPreviewAssets, copyExplorerAssets)
     }
 }

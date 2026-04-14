@@ -13,6 +13,28 @@ A `publish-intellij` workflow exists but is currently commented out in the
 release pipeline. The plugin is not yet published on the JetBrains
 Marketplace. Users must build from source to install.
 
+### Graph Explorer Initial Load
+
+The graph explorer's first paint is heavier than the spec list in both
+IntelliJ and VS Code. Today both editors fetch `graphData`, then wait for a
+full `documentComponents` / `renderData` batch before the first mount. That
+means larger workspaces pay the full per-document hydration cost up front,
+even when the user only needs the graph shell at first.
+
+This is not an IntelliJ-only regression. The current architecture is shared in
+practice across both editor integrations, so the fix should be designed once
+and applied to both editors rather than patched ad hoc in one host.
+
+**Likely follow-up options:**
+- Two-phase load: mount immediately from `graphData`, then push a second update
+  once `renderData` finishes.
+- True lazy hydration: fetch `documentComponents` only for the selected
+  document, or incrementally in the background.
+
+The first option is the smaller change. The second is the more principled
+design, but it likely requires a shared update model in the explorer modules
+rather than a host-only tweak.
+
 ## Config Editing Experience
 
 No JSON Schema exists for `supersigil.toml`. Users editing config in VS Code
@@ -74,4 +96,3 @@ rather than guessing — but users need guidance on resolving them.
 - Partial write failure: if import fails midway, partial files are not rolled
   back. `--force` re-run recovers, but this isn't documented.
 - Summary shows `ambiguity_count` but doesn't break down by type.
-
