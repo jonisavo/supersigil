@@ -251,7 +251,6 @@ runtime file resolution or network access.
     supersigil-preview.css), design tokens CSS, explorer styles CSS,
     a theme adapter CSS, and a bridge script.
     <VerifiedBy strategy="tag" tag="intellij-graph-explorer-bundled-assets" />
-    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/resources/supersigil-explorer/explorer.js, editors/intellij/src/main/resources/supersigil-explorer/render-iife.js, editors/intellij/src/main/resources/supersigil-explorer/supersigil-preview.js, editors/intellij/src/main/resources/supersigil-explorer/supersigil-preview.css, editors/intellij/src/main/resources/supersigil-explorer/landing-tokens.css, editors/intellij/src/main/resources/supersigil-explorer/explorer-styles.css, editors/intellij/src/main/resources/supersigil-explorer/intellij-theme-adapter.css, editors/intellij/src/main/resources/supersigil-explorer/explorer-bridge.js" />
   </Criterion>
   <Criterion id="req-7-3">
     A resource provider SHALL serve the bundled assets to the JCEF
