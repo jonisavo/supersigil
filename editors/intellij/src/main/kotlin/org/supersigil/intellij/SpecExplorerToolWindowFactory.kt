@@ -173,6 +173,35 @@ private fun setNotInstalledEmptyText(
     }
 }
 
+private fun setCompatibilityFailureEmptyText(
+    tree: Tree,
+    project: Project,
+    failure: CompatibilityResult.Incompatible,
+) {
+    tree.emptyText.clear()
+    val message =
+        if (failure.reason == CompatibilityFailureReason.Mismatch) {
+            "Supersigil LSP server is incompatible. Update to get started"
+        } else {
+            "Supersigil LSP compatibility check failed. Update or reconfigure to get started"
+        }
+    tree.emptyText.setText(message)
+    tree.emptyText.appendLine(
+        "This panel updates automatically",
+        SimpleTextAttributes.GRAYED_ATTRIBUTES,
+        null,
+    )
+    tree.emptyText.appendLine("")
+    tree.emptyText.appendLine("Installation guide", LINK_ATTRIBUTES) { _: java.awt.event.ActionEvent ->
+        BrowserUtil.browse(EDITOR_SETUP_URL)
+    }
+    tree.emptyText.appendLine("Open Settings", LINK_ATTRIBUTES) { _: java.awt.event.ActionEvent ->
+        ShowSettingsUtil
+            .getInstance()
+            .showSettingsDialog(project, SupersigilSettingsConfigurable::class.java)
+    }
+}
+
 private fun updateTree(
     tree: Tree,
     root: DefaultMutableTreeNode,
@@ -186,8 +215,11 @@ private fun updateTree(
         tree.expandRow(i)
     }
     if (root.childCount == 0) {
+        val compatibilityFailure = lastCompatibilityFailure(project)
         if (hasRunningSupersigil(project)) {
             tree.emptyText.setText("No spec documents found")
+        } else if (compatibilityFailure != null) {
+            setCompatibilityFailureEmptyText(tree, project, compatibilityFailure)
         } else if (hasBinary) {
             tree.emptyText.setText("Waiting for language server\u2026")
         } else {

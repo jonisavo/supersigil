@@ -15,11 +15,7 @@ class SupersigilLspServerSupportProvider : LspServerSupportProvider {
         if (!hasSupersigilConfig(project)) return
 
         val settings = SupersigilSettings.getInstance()
-        val binaryPath =
-            resolveServerBinary(settings.serverPath) ?: run {
-                notifyBinaryNotFound(project, settings.serverPath)
-                return
-            }
+        val binaryPath = resolveCompatibleServerBinary(project, settings.serverPath) ?: return
 
         serverStarter.ensureServerStarted(
             SupersigilLspServerDescriptor(project, binaryPath),
