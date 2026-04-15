@@ -7,12 +7,6 @@ documentation, and onboarding experience.
 
 ## LSP and Editor Integration
 
-### IntelliJ Marketplace
-
-A `publish-intellij` workflow exists but is currently commented out in the
-release pipeline. The plugin is not yet published on the JetBrains
-Marketplace. Users must build from source to install.
-
 ### Graph Explorer Initial Load
 
 The graph explorer's first paint is heavier than the spec list in both

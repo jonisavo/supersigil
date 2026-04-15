@@ -158,12 +158,13 @@ needed.
 
 ### IntelliJ
 
-Install the **Supersigil** plugin from the `editors/intellij` folder. It provides
-the same LSP-backed diagnostics, navigation, and completion as the
-VS Code extension, plus a Spec Explorer tool window. Compatible with
-IntelliJ IDEA 2025.3+.
+Install the **Supersigil** plugin from the
+[JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31213-supersigil)
+or search for `Supersigil` in **Settings > Plugins > Marketplace**.
 
-The plugin will be published to the JetBrains Marketplace soon.
+It provides the same LSP-backed diagnostics, navigation, and completion as the
+VS Code extension, plus a Graph Explorer tool window. Compatible with IntelliJ
+IDEA 2025.3+ and other IntelliJ-based IDEs that include the LSP client module.
 
 ### Other editors
 

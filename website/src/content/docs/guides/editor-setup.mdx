@@ -46,18 +46,16 @@ Run verification from the command palette with **Supersigil: Verify**. Multi-roo
 </TabItem>
 <TabItem label="IntelliJ IDEA">
 
-Build and install the plugin from the repository:
+Install from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31213-supersigil) or open **Settings > Plugins > Marketplace** and search for `Supersigil`.
+
+For local development, you can still build and install the plugin from the repository:
 
 ```bash
 cd editors/intellij
 ./gradlew buildPlugin
 ```
 
-Then in IntelliJ: **Settings > Plugins > gear icon > Install Plugin from Disk...** and select `build/distributions/supersigil-intellij-0.1.0.zip`. Restart when prompted.
-
-<Aside>
-  The plugin will be published to the JetBrains Marketplace in a future release. For now, install from the built `.zip` file.
-</Aside>
+Then in IntelliJ: **Settings > Plugins > gear icon > Install Plugin from Disk...** and select the generated `.zip` from `build/distributions/`. Restart when prompted.
 
 Open any project containing a `supersigil.toml` and open a `.md` or `.mdx` file. The plugin starts the language server automatically. The **Supersigil** tool window appears in the right sidebar with a tree view of all specs and a verify button.
 
