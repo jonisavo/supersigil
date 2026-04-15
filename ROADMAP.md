@@ -7,10 +7,6 @@
   during authoring. Requires file watching and incremental verification
   (re-verify only documents whose files or dependencies changed).
 
-- **MCP server**: `supersigil mcp` exposing context, verify,
-  affected, and plan as MCP tools for direct agent integration
-  without shelling out to the CLI.
-
 - **Additional ecosystem plugins**: Language-specific plugins for
   Python, Go, and others — each understanding native test frameworks
   for automatic evidence discovery (like the Rust plugin's
