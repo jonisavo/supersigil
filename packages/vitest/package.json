@@ -1,6 +1,6 @@
 {
   "name": "@supersigil/vitest",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Vitest helper for annotating tests with Supersigil criterion refs",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -10,7 +10,13 @@
   },
   "homepage": "https://supersigil.org",
   "bugs": "https://github.com/jonisavo/supersigil/issues",
-  "keywords": ["vitest", "testing", "supersigil", "specification", "traceability"],
+  "keywords": [
+    "vitest",
+    "testing",
+    "supersigil",
+    "specification",
+    "traceability"
+  ],
   "engines": {
     "node": ">=18"
   },

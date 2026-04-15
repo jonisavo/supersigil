@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.10.0] - 2026-04-15
+
+### CI/CD
+
+- Add release target detection and publish gating ([a752a3d](https://github.com/jonisavo/supersigil/commit/a752a3d8a0e6a00b40435dd19126c97dbbde1d85))
+- *(intellij)* Prepare workflows for automatic publishing ([e0d4a28](https://github.com/jonisavo/supersigil/commit/e0d4a280ff4d488bb7052dd505b2ee73a7b8d1a1))
+
+### Documentation
+
+- *(intellij)* Mention Graph Explorer in plugin description ([367d963](https://github.com/jonisavo/supersigil/commit/367d963c1660b421853bcdc3f1fc9cd0aa7eebfc))
+- Add link to the published IntelliJ plugin ([ae79811](https://github.com/jonisavo/supersigil/commit/ae79811e82bbf863dcb227de707dd1ca6703818e))
+- *(website)* Align Editor Setup and Architecture Decisions slugs ([6116b01](https://github.com/jonisavo/supersigil/commit/6116b01d1a7886d37a6cfc6252a8242cee62769e))
+
+### Features
+
+- *(intellij)* Add graph explorer ([1a24731](https://github.com/jonisavo/supersigil/commit/1a24731581b421b399b191836fce57edef33d2de))
+
+### Miscellaneous
+
+- Run spec verification last in `mise qa` ([3bc986c](https://github.com/jonisavo/supersigil/commit/3bc986ccabb9002d60c0bd5995e7bc29f87339ba))
+- Remove MCP server from ROADMAP.md ([b25bf8d](https://github.com/jonisavo/supersigil/commit/b25bf8d72c538b9457b985c7d09ab28444739779))
+- Remove import command item from polish-audit.md ([95a7a06](https://github.com/jonisavo/supersigil/commit/95a7a06ba66e572fe301f267d74bff041b5715d3))
+
 ## [0.9.0] - 2026-04-13
 
 ### ⚠ Breaking Changes
@@ -37,7 +60,6 @@
 ### Miscellaneous
 
 - Update project structure in README.md ([c12be03](https://github.com/jonisavo/supersigil/commit/c12be03101c70c9019cc415f5399073657a60671))
-- *(release)* Prepare v0.8.0 ([932b602](https://github.com/jonisavo/supersigil/commit/932b6027c2e525c75cdfe9022146680dc5c938ad))
 
 ## [0.7.0] - 2026-04-12
 
@@ -64,7 +86,6 @@
 
 - Remove local test-driven-development skill ([bca9234](https://github.com/jonisavo/supersigil/commit/bca92344606d5f5c0c140b2fe63fc01825e54e60))
 - Remove unnecessary items from polish-audit.md ([d84a68c](https://github.com/jonisavo/supersigil/commit/d84a68cc7cbec1d64a4eebced8b19af848e23a99))
-- *(release)* Prepare v0.7.0 ([cf331c8](https://github.com/jonisavo/supersigil/commit/cf331c83094e4690646c8d2150ac5ab2ef031e91))
 
 ## [0.6.0] - 2026-04-12
 
@@ -75,7 +96,6 @@
 ### Miscellaneous
 
 - Add image of spec authoring to README.md ([76b8e13](https://github.com/jonisavo/supersigil/commit/76b8e1374eecae2e7020bc850db87613c150751e))
-- *(release)* Prepare v0.6.0 ([bd61d67](https://github.com/jonisavo/supersigil/commit/bd61d67f3b2c36bb07ed2bcd4415725e6d095e71))
 
 ## [0.5.0] - 2026-04-11
 
@@ -91,7 +111,6 @@
 ### Miscellaneous
 
 - Correct the IntelliJ info in README.md ([a822479](https://github.com/jonisavo/supersigil/commit/a82247953a3e3bdf59a6a07555fc1ac92226d948))
-- *(release)* Prepare v0.5.0 ([4a0d170](https://github.com/jonisavo/supersigil/commit/4a0d170187cb10bced273951e8ba246ae0e33acb))
 
 ### Refactoring
 
@@ -120,10 +139,6 @@
 - *(cli)* Replace init hint with structured next-steps guidance ([f8810af](https://github.com/jonisavo/supersigil/commit/f8810afc11d4c8f479b6c0c584f211b068cf6a15))
 - *(cli)* Include file path in config parse error messages ([aa26fd6](https://github.com/jonisavo/supersigil/commit/aa26fd68cb10a3e615d2ccc6e4cf51e1145b7856))
 - *(cli)* Show scope header when verify runs with --since ([243dc13](https://github.com/jonisavo/supersigil/commit/243dc13cc797c0320462d47127ca6a6921219b41))
-
-### Miscellaneous
-
-- *(release)* Prepare v0.4.0 ([2ff2366](https://github.com/jonisavo/supersigil/commit/2ff23660bd592d6fc5ac8f4a01b2558c511f932d))
 
 ## [0.3.0] - 2026-04-11
 
@@ -154,7 +169,6 @@
 
 - Add instructions for new worktrees in AGENTS.md ([fd18d32](https://github.com/jonisavo/supersigil/commit/fd18d32cff24605c5ebaaf430f2e39d4b936fcb8))
 - Add research docs for future endeavors ([a818029](https://github.com/jonisavo/supersigil/commit/a81802968c1b3507d8c71650ada081cae7446d7c))
-- *(release)* Prepare v0.3.0 ([f4841b2](https://github.com/jonisavo/supersigil/commit/f4841b2d13fcadee0469928f737815ab7b705537))
 
 ### Refactoring
 
@@ -192,10 +206,6 @@
 - *(vscode)* Add actionable empty state when LSP binary is missing ([2a5f47f](https://github.com/jonisavo/supersigil/commit/2a5f47f486b172b02c3dc397b75cbf0b56d8a8b3))
 - *(intellij)* Add actionable empty state when LSP binary is missing ([3c4a165](https://github.com/jonisavo/supersigil/commit/3c4a165d0bb29c00fd90f8bbe539fa8da4d74024))
 
-### Miscellaneous
-
-- *(release)* Prepare v0.2.0 ([7e66472](https://github.com/jonisavo/supersigil/commit/7e664724e37d56e4a4260db6127d66b49efea306))
-
 ## [0.1.1] - 2026-04-10
 
 ### Bug Fixes
@@ -223,10 +233,6 @@
 
 - *(lsp)* Use custom command for code lens Find References ([09c3bb6](https://github.com/jonisavo/supersigil/commit/09c3bb6272145891445acc52fa9928820d45fc09))
 - *(vscode)* Handle supersigil.findReferences code lens command ([4605241](https://github.com/jonisavo/supersigil/commit/4605241c7e1429c7c50b0cb18cf3d54f23fadff3))
-
-### Miscellaneous
-
-- *(release)* Prepare v0.1.1 ([d95b752](https://github.com/jonisavo/supersigil/commit/d95b7525cb4c2d1cea7119b633cdc11dfc482882))
 
 ### Refactoring
 

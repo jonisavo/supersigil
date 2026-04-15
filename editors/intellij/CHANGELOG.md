@@ -1,6 +1,21 @@
 # Changelog
 
-## [0.6.0] - 2026-04-13
+## [0.10.0] - 2026-04-15
+
+### CI/CD
+
+- Add release target detection and publish gating ([a752a3d](https://github.com/jonisavo/supersigil/commit/a752a3d8a0e6a00b40435dd19126c97dbbde1d85))
+- *(intellij)* Prepare workflows for automatic publishing ([e0d4a28](https://github.com/jonisavo/supersigil/commit/e0d4a280ff4d488bb7052dd505b2ee73a7b8d1a1))
+
+### Documentation
+
+- *(intellij)* Mention Graph Explorer in plugin description ([367d963](https://github.com/jonisavo/supersigil/commit/367d963c1660b421853bcdc3f1fc9cd0aa7eebfc))
+
+### Features
+
+- *(intellij)* Add graph explorer ([1a24731](https://github.com/jonisavo/supersigil/commit/1a24731581b421b399b191836fce57edef33d2de))
+
+## [0.6.0] - 2026-04-12
 
 ### Features
 
@@ -34,6 +49,9 @@
 ### Miscellaneous
 
 - Set up pnpm workspace ([119d92e](https://github.com/jonisavo/supersigil/commit/119d92ea7bb1ad4c28b309040ce948364991f8d4))
+- Switch to pnpm in the eval folder ([332b92f](https://github.com/jonisavo/supersigil/commit/332b92f83a0e3f2bc7e82f36fd82e8587e25f243))
+- Upgrade vitest to 4.1.2 ([c66ffb2](https://github.com/jonisavo/supersigil/commit/c66ffb2410a7a4027dfdf1972a6691b89095c497))
+- *(website)* Migrate to eslint ([da2378b](https://github.com/jonisavo/supersigil/commit/da2378b8f3f9ff552ee27ed4f0cbca5577922232))
 - Update dependencies across Rust, JS/TS, and website ([a5c9cd0](https://github.com/jonisavo/supersigil/commit/a5c9cd03357da20a1ac8fe5bc534171e4e737307))
 
 ### Refactoring
