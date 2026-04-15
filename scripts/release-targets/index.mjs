@@ -85,14 +85,96 @@ function readUtf8File(path, label) {
   }
 }
 
+function replaceCargoPackageVersion(contents, version) {
+  const lines = contents.split("\n");
+  let section = "";
+  let replaced = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const sectionMatch = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      continue;
+    }
+
+    if (replaced || section !== "package") {
+      continue;
+    }
+
+    const versionMatch = line.match(/^(\s*version\s*=\s*")([^"]+)(".*)$/);
+    if (!versionMatch) {
+      continue;
+    }
+
+    lines[index] = `${versionMatch[1]}${version}${versionMatch[3]}`;
+    replaced = true;
+  }
+
+  return replaced ? lines.join("\n") : null;
+}
+
+function replaceCargoWorkspacePins(contents, version) {
+  const lines = contents.split("\n");
+  let section = "";
+  let replaced = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const sectionMatch = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      continue;
+    }
+
+    if (section !== "workspace.dependencies") {
+      continue;
+    }
+
+    if (!line.includes('path = "crates/')) {
+      continue;
+    }
+
+    const nextLine = line.replace(
+      /version\s*=\s*"=[^"]+"/,
+      `version = "=${version}"`,
+    );
+    if (nextLine !== line) {
+      lines[index] = nextLine;
+      replaced = true;
+    }
+  }
+
+  return replaced ? lines.join("\n") : null;
+}
+
+function isCargoWorkspaceManifestPath(path) {
+  return /^crates\/[^/]+\/Cargo\.toml$/.test(path);
+}
+
+function listCargoWorkspaceManifestPaths(target) {
+  const manifestPaths = new Set([target.versionFile]);
+  for (const path of gitTrimmedLines(["ls-files", "--", ":(glob)crates/*/Cargo.toml"])) {
+    manifestPaths.add(path);
+  }
+  return [...manifestPaths];
+}
+
 const VERSION_STRATEGIES = {
   "package-json": {
+    requiresVersionKey: true,
+    supportsPath(target, path = target.versionFile) {
+      return path === target.versionFile;
+    },
     /**
      * @param {ReleaseTarget} target
      * @param {string} contents
      * @returns {string | null}
      */
-    normalize(target, contents) {
+    normalize(target, contents, path = target.versionFile) {
+      if (path !== target.versionFile) {
+        return null;
+      }
       try {
         const parsed = JSON.parse(contents);
         if (!(target.versionKey in parsed)) {
@@ -110,7 +192,10 @@ const VERSION_STRATEGIES = {
      * @param {string} version
      * @returns {string}
      */
-    update(target, contents, version) {
+    update(target, contents, version, path = target.versionFile) {
+      if (path !== target.versionFile) {
+        fail(`target "${target.id}" cannot update unsupported path ${path}`);
+      }
       let parsed;
       try {
         parsed = JSON.parse(contents);
@@ -123,12 +208,19 @@ const VERSION_STRATEGIES = {
     },
   },
   "gradle-property": {
+    requiresVersionKey: true,
+    supportsPath(target, path = target.versionFile) {
+      return path === target.versionFile;
+    },
     /**
      * @param {ReleaseTarget} target
      * @param {string} contents
      * @returns {string | null}
      */
-    normalize(target, contents) {
+    normalize(target, contents, path = target.versionFile) {
+      if (path !== target.versionFile) {
+        return null;
+      }
       const linePattern = new RegExp(`^${target.versionKey}\\s*=.*$`, "m");
       if (!linePattern.test(contents)) {
         return null;
@@ -145,7 +237,10 @@ const VERSION_STRATEGIES = {
      * @param {string} version
      * @returns {string}
      */
-    update(target, contents, version) {
+    update(target, contents, version, path = target.versionFile) {
+      if (path !== target.versionFile) {
+        fail(`target "${target.id}" cannot update unsupported path ${path}`);
+      }
       const linePattern = new RegExp(`^${target.versionKey}\\s*=.*$`, "m");
       if (!linePattern.test(contents)) {
         fail(
@@ -154,6 +249,43 @@ const VERSION_STRATEGIES = {
       }
 
       return contents.replace(linePattern, `${target.versionKey} = ${version}`);
+    },
+  },
+  "cargo-workspace": {
+    requiresVersionKey: false,
+    supportsPath(target, path = target.versionFile) {
+      return path === target.versionFile || isCargoWorkspaceManifestPath(path);
+    },
+    normalize(target, contents, path = target.versionFile) {
+      if (path === target.versionFile) {
+        return replaceCargoWorkspacePins(
+          contents,
+          "__RELEASE_TARGET_VERSION__",
+        );
+      }
+      if (isCargoWorkspaceManifestPath(path)) {
+        return replaceCargoPackageVersion(contents, "__RELEASE_TARGET_VERSION__");
+      }
+      return null;
+    },
+    update(target, contents, version, path = target.versionFile) {
+      if (path === target.versionFile) {
+        const updated = replaceCargoWorkspacePins(contents, version);
+        if (updated === null) {
+          fail(
+            `target "${target.id}" could not find workspace crate pins in ${target.versionFile}`,
+          );
+        }
+        return updated;
+      }
+      if (isCargoWorkspaceManifestPath(path)) {
+        const updated = replaceCargoPackageVersion(contents, version);
+        if (updated === null) {
+          fail(`target "${target.id}" could not find package version in ${path}`);
+        }
+        return updated;
+      }
+      fail(`target "${target.id}" cannot update unsupported path ${path}`);
     },
   },
 };
@@ -294,8 +426,8 @@ function resolveBaseRef(explicitBaseRef, headRef) {
  *
  * @param {ReleaseTarget} target
  * @returns {{
- *   normalize: (target: ReleaseTarget, contents: string) => string | null,
- *   update: (target: ReleaseTarget, contents: string, version: string) => string,
+ *   normalize: (target: ReleaseTarget, contents: string, path?: string) => string | null,
+ *   update: (target: ReleaseTarget, contents: string, version: string, path?: string) => string,
  * }}
  */
 function getVersionStrategy(target) {
@@ -305,13 +437,15 @@ function getVersionStrategy(target) {
   if (typeof target.versionKind !== "string" || target.versionKind === "") {
     fail(`target "${target.id}" is missing "versionKind"`);
   }
-  if (typeof target.versionKey !== "string" || target.versionKey === "") {
-    fail(`target "${target.id}" is missing "versionKey"`);
-  }
-
   const strategy = VERSION_STRATEGIES[target.versionKind];
   if (!strategy) {
     fail(`unsupported versionKind for target "${target.id}": ${target.versionKind}`);
+  }
+  if (
+    strategy.requiresVersionKey &&
+    (typeof target.versionKey !== "string" || target.versionKey === "")
+  ) {
+    fail(`target "${target.id}" is missing "versionKey"`);
   }
 
   return strategy;
@@ -396,17 +530,8 @@ function gitFileAtRef(ref, path) {
   return result.stdout;
 }
 
-/**
- * Normalizes a versioned file by replacing the configured version field with a
- * stable placeholder. This lets the helper ignore version-only edits while
- * still treating other metadata changes in the same file as impactful.
- *
- * @param {ReleaseTarget} target
- * @param {string} contents
- * @returns {string | null}
- */
-function normalizeVersionedContents(target, contents) {
-  return getVersionStrategy(target).normalize(target, contents);
+function normalizeVersionedPathContents(target, path, contents) {
+  return getVersionStrategy(target).normalize(target, contents, path);
 }
 
 /**
@@ -418,11 +543,18 @@ function normalizeVersionedContents(target, contents) {
  *   headRef: string,
  *   path: string,
  *   target: ReleaseTarget,
+ *   strategy: {
+ *     supportsPath: (target: ReleaseTarget, path?: string) => boolean,
+ *     normalize: (target: ReleaseTarget, contents: string, path?: string) => string | null,
+ *   },
  * }} args
  * @returns {boolean}
  */
-function isVersionOnlyFileChange({ baseRef, headRef, path, target }) {
-  if (baseRef === null || path !== target.versionFile) {
+function isVersionOnlyFileChange({ baseRef, headRef, path, target, strategy }) {
+  if (baseRef === null) {
+    return false;
+  }
+  if (!strategy.supportsPath(target, path)) {
     return false;
   }
 
@@ -432,8 +564,16 @@ function isVersionOnlyFileChange({ baseRef, headRef, path, target }) {
     return false;
   }
 
-  const normalizedBase = normalizeVersionedContents(target, baseContents);
-  const normalizedHead = normalizeVersionedContents(target, headContents);
+  const normalizedBase = normalizeVersionedPathContents(
+    target,
+    path,
+    baseContents,
+  );
+  const normalizedHead = normalizeVersionedPathContents(
+    target,
+    path,
+    headContents,
+  );
 
   return normalizedBase !== null && normalizedBase === normalizedHead;
 }
@@ -459,6 +599,7 @@ function isIgnoredOutputFileChange({ path, target }) {
  * @returns {DetectionResult}
  */
 function detectTarget({ baseRef, headRef, target }) {
+  const strategy = getVersionStrategy(target);
   const args =
     baseRef === null
       ? ["ls-files", "--"]
@@ -479,7 +620,7 @@ function detectTarget({ baseRef, headRef, target }) {
   const impactfulFiles = changedFiles.filter(
     (path) =>
       !isIgnoredOutputFileChange({ path, target }) &&
-      !isVersionOnlyFileChange({ baseRef, headRef, path, target }),
+      !isVersionOnlyFileChange({ baseRef, headRef, path, target, strategy }),
   );
 
   return {
@@ -495,14 +636,15 @@ function detectTarget({ baseRef, headRef, target }) {
  *
  * @param {ReleaseTarget} target
  * @param {string} version
- * @returns {void}
+ * @param {string} [path]
+ * @returns {string}
  */
-function buildUpdatedVersionContents(target, version) {
+function buildUpdatedVersionContents(target, version, path = target.versionFile) {
   const original = readUtf8File(
-    target.versionFile,
-    `target version file ${target.versionFile}`,
+    path,
+    `target version file ${path}`,
   );
-  return getVersionStrategy(target).update(target, original, version);
+  return getVersionStrategy(target).update(target, original, version, path);
 }
 
 /**
@@ -608,14 +750,27 @@ function validateGitCliffExecutable(gitCliffBin) {
  * }} args
  * @returns {{
  *   target: ReleaseTarget,
- *   versionContents: string,
+ *   versionWrites: Array<{ path: string, contents: string }>,
  *   changelogContents: string | null,
  * }}
  */
 function planTargetWrites({ target, version, gitCliffBin }) {
+  const versionWrites =
+    target.versionKind === "cargo-workspace"
+      ? listCargoWorkspaceManifestPaths(target).map((path) => ({
+          path,
+          contents: buildUpdatedVersionContents(target, version, path),
+        }))
+      : [
+          {
+            path: target.versionFile,
+            contents: buildUpdatedVersionContents(target, version),
+          },
+        ];
+
   return {
     target,
-    versionContents: buildUpdatedVersionContents(target, version),
+    versionWrites,
     changelogContents: renderTargetChangelog({ target, version, gitCliffBin }),
   };
 }
@@ -625,13 +780,15 @@ function planTargetWrites({ target, version, gitCliffBin }) {
  *
  * @param {{
  *   target: ReleaseTarget,
- *   versionContents: string,
+ *   versionWrites: Array<{ path: string, contents: string }>,
  *   changelogContents: string | null,
  * }} plan
  * @returns {void}
  */
 function applyTargetWrites(plan) {
-  writeFileSync(plan.target.versionFile, plan.versionContents, "utf8");
+  for (const versionWrite of plan.versionWrites) {
+    writeFileSync(versionWrite.path, versionWrite.contents, "utf8");
+  }
   if (
     typeof plan.target.changelogFile === "string" &&
     plan.changelogContents !== null

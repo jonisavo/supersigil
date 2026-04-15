@@ -2097,7 +2097,6 @@ supersigil:
         }
     }
 
-    #[verifies("version-mismatch/req#req-1-1")]
     #[test]
     fn initialize_returns_server_info_with_version() {
         let mut server = SupersigilLsp {

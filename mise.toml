@@ -166,37 +166,85 @@ fi
 
 echo "Preparing release v${VERSION}..."
 
-# Update all crate versions
-for crate in crates/*/Cargo.toml; do
-  sed -i'' -e 's/^version = ".*"/version = "'"${VERSION}"'"/' "$crate"
-done
-
-# Update workspace dependency version specifiers
-sed -i'' -e 's/version = "=[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*"/version = "='"${VERSION}"'"/' Cargo.toml
-
 # Prepare selective release-target metadata
-node scripts/release-targets/index.mjs prepare \
+PREPARE_JSON="$(node scripts/release-targets/index.mjs prepare \
   --version "${VERSION}" \
-  --git-cliff-bin "$(command -v git-cliff)"
+  --git-cliff-bin "$(command -v git-cliff)" \
+  --json)"
+
+target_is_impacted() {
+  local target_id="${1}"
+  node -e '
+const data = JSON.parse(process.argv[1]);
+const targetId = process.argv[2];
+process.exit(data.targets[targetId]?.impacted ? 0 : 1);
+' "${PREPARE_JSON}" "${target_id}"
+}
+
+any_pnpm_target_impacted() {
+  node -e '
+const data = JSON.parse(process.argv[1]);
+const { readFileSync } = require("node:fs");
+const registry = JSON.parse(readFileSync("release-targets.json", "utf8"));
+const impacted = registry.targets
+  .filter((target) => target.versionKind !== "cargo-workspace")
+  .some((target) => data.targets[target.id]?.impacted);
+process.exit(impacted ? 0 : 1);
+' "${PREPARE_JSON}"
+}
+
+stage_if_changed() {
+  local path="${1}"
+  if git diff --quiet -- "${path}"; then
+    return 0
+  fi
+  git add "${path}"
+}
 
 # Update lockfiles
-cargo generate-lockfile
-pnpm install --lockfile-only
+if target_is_impacted "crates"; then
+  cargo generate-lockfile
+fi
+
+if any_pnpm_target_impacted; then
+  pnpm install --lockfile-only
+fi
 
 # Generate changelog
 git-cliff --tag "v${VERSION}" --output CHANGELOG.md
 
 # Stage and commit
-git add \
-  Cargo.toml Cargo.lock \
-  crates/*/Cargo.toml \
-  packages/eslint-plugin/package.json \
-  packages/vitest/package.json \
-  editors/vscode/package.json \
-  editors/intellij/gradle.properties \
-  editors/intellij/CHANGELOG.md \
-  pnpm-lock.yaml \
-  CHANGELOG.md
+if target_is_impacted "crates"; then
+  stage_if_changed Cargo.toml
+  stage_if_changed Cargo.lock
+  for crate in crates/*/Cargo.toml; do
+    stage_if_changed "${crate}"
+  done
+fi
+
+if target_is_impacted "npm-eslint-plugin"; then
+  stage_if_changed packages/eslint-plugin/package.json
+fi
+
+if target_is_impacted "npm-vitest"; then
+  stage_if_changed packages/vitest/package.json
+fi
+
+if target_is_impacted "vscode"; then
+  stage_if_changed editors/vscode/package.json
+  stage_if_changed editors/vscode/CHANGELOG.md
+fi
+
+if target_is_impacted "intellij"; then
+  stage_if_changed editors/intellij/gradle.properties
+  stage_if_changed editors/intellij/CHANGELOG.md
+fi
+
+if any_pnpm_target_impacted; then
+  stage_if_changed pnpm-lock.yaml
+fi
+
+stage_if_changed CHANGELOG.md
 
 git commit -m "chore(release): prepare v${VERSION}"
 git tag "v${VERSION}"

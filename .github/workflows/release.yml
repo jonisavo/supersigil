@@ -152,6 +152,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     outputs:
+      publish_crates: ${{ steps.targets.outputs.publish_crates }}
       publish_intellij: ${{ steps.targets.outputs.publish_intellij }}
       publish_vscode: ${{ steps.targets.outputs.publish_vscode }}
       publish_npm_vitest: ${{ steps.targets.outputs.publish_npm_vitest }}
@@ -173,7 +174,8 @@ jobs:
 
   publish-crates:
     name: Publish crates.io
-    needs: release
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_crates == 'true'
     uses: ./.github/workflows/publish-crates.yml
     secrets:
       CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
@@ -219,22 +221,24 @@ jobs:
 
   publish-homebrew:
     name: Publish Homebrew
-    needs: release
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_crates == 'true'
     uses: ./.github/workflows/publish-homebrew.yml
     secrets:
       HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
 
   publish-aur:
     name: Publish AUR
-    needs: release
+    needs: [release, target-metadata]
+    if: needs.target-metadata.outputs.publish_crates == 'true'
     uses: ./.github/workflows/publish-aur.yml
     secrets:
       AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
   publish-vscode:
     name: Publish VS Code
-    needs: [release, target-metadata]
-    if: needs.target-metadata.outputs.publish_vscode == 'true'
+    needs: [release, target-metadata, publish-crates]
+    if: needs.target-metadata.outputs.publish_vscode == 'true' && (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped')
     uses: ./.github/workflows/publish-vscode.yml
     secrets:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -242,8 +246,8 @@ jobs:
 
   publish-intellij:
     name: Publish IntelliJ
-    needs: [release, target-metadata]
-    if: needs.target-metadata.outputs.publish_intellij == 'true'
+    needs: [release, target-metadata, publish-crates]
+    if: needs.target-metadata.outputs.publish_intellij == 'true' && (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped')
     uses: ./.github/workflows/publish-intellij.yml
     secrets:
       JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}

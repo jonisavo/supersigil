@@ -12,9 +12,10 @@ title: "Release Targets"
 
 ## Overview
 
-Implement the release-target layer in four slices: test harness and fixture
-repos first, then the registry and helper, then local release integration, and
-finally GitHub Actions plus IntelliJ metadata wiring.
+Tasks `task-1` through `task-7` capture the first release-target pass that is
+already in place. The next pass starts at `task-8` and adds aggregate crate
+publishing, shared editor changelog generation, and publish ordering between
+crates and editors.
 
 ```supersigil-xml
 <Task
@@ -57,7 +58,7 @@ finally GitHub Actions plus IntelliJ metadata wiring.
   id="task-4"
   status="done"
   depends="task-2"
-  implements="release-targets/req#req-5-1, release-targets/req#req-5-2, release-targets/req#req-5-3, release-targets/req#req-5-4"
+  implements="release-targets/req#req-5-3, release-targets/req#req-5-4, release-targets/req#req-5-5, release-targets/req#req-5-6"
 >
   Update the IntelliJ plugin release metadata flow: generate
   `editors/intellij/CHANGELOG.md` only when the IntelliJ target is impacted,
@@ -79,15 +80,9 @@ finally GitHub Actions plus IntelliJ metadata wiring.
   Marketplace publishing remains disabled.
 </Task>
 
-<Task
-  id="task-6"
-  status="done"
-  depends="task-3, task-4, task-5"
-  implements="release-targets/req#req-6-1"
->
-  Update release-related docs and specs that still describe universal lockstep
-  target publishing, including the VS Code version-mismatch design rationale,
-  so operator guidance matches the selective target release model.
+<Task id="task-6" status="done">
+  Historical first-pass cleanup: align release-related docs and design notes
+  with the initial selective-release model.
 </Task>
 
 <Task
@@ -99,5 +94,66 @@ finally GitHub Actions plus IntelliJ metadata wiring.
   `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`,
   and `cargo nextest run`. Perform one manual IntelliJ metadata smoke check by
   building the plugin and inspecting the generated change notes source.
+</Task>
+
+<Task
+  id="task-8"
+  status="done"
+  depends="task-2"
+  implements="release-targets/req#req-1-3, release-targets/req#req-1-4, release-targets/req#req-1-6, release-targets/req#req-2-1, release-targets/req#req-2-2, release-targets/req#req-2-4, release-targets/req#req-3-5, release-targets/req#req-3-6"
+>
+  Extend the release-target registry, helper, and fixture tests for an
+  aggregate `crates` target. Add a `cargo-workspace` version strategy that
+  bumps all workspace crates and root `=version` pins together when the crates
+  target is impacted, and leaves them untouched otherwise. Model the crates
+  target from shipped crate inputs, including bundled CLI asset sources and any
+  needed exclusions for non-shipping files.
+</Task>
+
+<Task
+  id="task-9"
+  status="done"
+  depends="task-2"
+  implements="release-targets/req#req-2-3, release-targets/req#req-2-5, release-targets/req#req-2-6, release-targets/req#req-5-1, release-targets/req#req-5-2, release-targets/req#req-5-3, release-targets/req#req-5-5"
+>
+  Replace `cliff.intellij.toml` with a shared `cliff.editor.toml`, add
+  `editors/vscode/CHANGELOG.md`, and update release-target preparation so both
+  editor changelogs are generated from target-local commits while omitting
+  `ci(...)` commits entirely.
+</Task>
+
+<Task
+  id="task-10"
+  status="done"
+  depends="task-8, task-9"
+  implements="release-targets/req#req-3-1, release-targets/req#req-3-2, release-targets/req#req-3-3, release-targets/req#req-3-4, release-targets/req#req-3-5, release-targets/req#req-3-6"
+>
+  Update `mise release` to delegate all target-local version edits to the
+  release-target helper, regenerate `Cargo.lock` only when crates are bumped,
+  and stage only the files changed by impacted targets.
+</Task>
+
+<Task
+  id="task-11"
+  status="done"
+  depends="task-8, task-9"
+  implements="release-targets/req#req-4-1, release-targets/req#req-4-2, release-targets/req#req-4-3, release-targets/req#req-4-4, release-targets/req#req-4-5, release-targets/req#req-4-6"
+>
+  Update `.github/workflows/release.yml` so `publish-crates` is gated by the
+  aggregate crates target, Homebrew and AUR reuse that same gate for the CLI
+  distribution jobs, editor publish jobs wait for crate publishing when
+  needed, and skipped crate publishes do not suppress editor releases that are
+  otherwise required.
+</Task>
+
+<Task
+  id="task-12"
+  status="done"
+  depends="task-10, task-11"
+>
+  Run the full verification loop again: `cargo run -p supersigil verify`,
+  `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`,
+  and `cargo nextest run`. Perform manual packaging checks for VS Code
+  changelog inclusion and IntelliJ change-notes rendering.
 </Task>
 ```

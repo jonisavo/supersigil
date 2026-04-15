@@ -1,13 +1,55 @@
 {
   "targets": [
     {
+      "id": "crates",
+      "enabled": true,
+      "versionFile": "Cargo.toml",
+      "versionKind": "cargo-workspace",
+      "impactPaths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/*/Cargo.toml",
+        "crates/*/examples/**",
+        "crates/*/README.md",
+        "crates/*/src/**",
+        "crates/*/tests/**",
+        "crates/*/build.rs",
+        "crates/supersigil-cli/src/commands/explore_assets/**",
+        "crates/supersigil-cli/skills/**",
+        ".agents/skills/ss-ci-review/**",
+        ".agents/skills/ss-feature-development/**",
+        ".agents/skills/ss-feature-specification/**",
+        ".agents/skills/ss-refactoring/**",
+        ".agents/skills/ss-retroactive-specification/**",
+        ".agents/skills/ss-spec-driven-development/**",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "packages/preview/src/**",
+        "packages/preview/styles/**",
+        "packages/preview/scripts/**",
+        "packages/preview/esbuild.mjs",
+        "packages/preview/package.json",
+        "website/build-explorer-iife.mjs",
+        "website/package.json",
+        "website/src/components/explore/**",
+        "website/src/styles/landing-tokens.css"
+      ],
+      "excludePaths": [
+        "packages/preview/**/__tests__/**",
+        "packages/preview/**/*.test.ts",
+        "packages/preview/**/*.snap",
+        "website/src/components/explore/**/*.test.js"
+      ]
+    },
+    {
       "id": "intellij",
       "enabled": true,
       "versionFile": "editors/intellij/gradle.properties",
       "versionKind": "gradle-property",
       "versionKey": "pluginVersion",
       "changelogFile": "editors/intellij/CHANGELOG.md",
-      "cliffConfig": "cliff.intellij.toml",
+      "cliffConfig": "cliff.editor.toml",
       "impactPaths": [
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",
@@ -35,6 +77,8 @@
       "versionFile": "editors/vscode/package.json",
       "versionKind": "package-json",
       "versionKey": "version",
+      "changelogFile": "editors/vscode/CHANGELOG.md",
+      "cliffConfig": "cliff.editor.toml",
       "impactPaths": [
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",

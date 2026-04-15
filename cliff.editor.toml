@@ -13,6 +13,10 @@ body = """
 ## [Unreleased]
 {% endif -%}
 
+{%- if version == "v0.1.0" %}
+Initial release.
+{% else -%}
+
 {%- if commits | filter(attribute="breaking", value=true) | length > 0 %}
 ### ⚠ Breaking Changes
 {% for commit in commits | filter(attribute="breaking", value=true) %}
@@ -32,6 +36,7 @@ body = """
   ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
+{%- endif %}
 """
 trim = false
 
@@ -42,17 +47,17 @@ split_commits = false
 protect_breaking_commits = true
 commit_parsers = [
     { message = "^chore\\(release\\): prepare", skip = true },
+    { message = "^ci", skip = true },
     { message = "^feat", group = "Features" },
     { message = "^fix", group = "Bug Fixes" },
     { message = "^refactor", group = "Refactoring" },
     { message = "^perf", group = "Performance" },
     { message = "^docs", group = "Documentation" },
-    { message = "^test", group = "Testing" },
-    { message = "^ci", group = "CI/CD" },
-    { message = "^build", group = "Build" },
-    { message = "^style", group = "Styling" },
+    { message = "^test", skip = true },
+    { message = "^build", skip = true },
+    { message = "^style", skip = true },
     { message = "^revert", group = "Reverts" },
-    { message = "^chore", group = "Miscellaneous" },
+    { message = "^chore", skip = true },
 ]
 filter_commits = false
 tag_pattern = "v[0-9].*"

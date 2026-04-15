@@ -8,24 +8,29 @@ title: "Release Targets"
 
 ```supersigil-xml
 <Implements refs="release-targets/req" />
-<TrackedFiles paths="release-targets.json, cliff.intellij.toml, scripts/release-targets/index.mjs, scripts/release-targets/package.json, scripts/release-targets/release-targets.test.js, mise.toml, .github/workflows/release.yml, .github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml, editors/intellij/build.gradle.kts, editors/intellij/CHANGELOG.md, editors/intellij/gradle.properties, editors/vscode/specs/version-mismatch/version-mismatch.design.md" />
+<TrackedFiles paths="release-targets.json, cliff.editor.toml, scripts/release-targets/index.mjs, scripts/release-targets/package.json, scripts/release-targets/release-targets.test.js, mise.toml, Cargo.toml, crates/**/Cargo.toml, .github/workflows/release.yml, .github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml, .github/workflows/publish-crates.yml, editors/intellij/build.gradle.kts, editors/intellij/CHANGELOG.md, editors/intellij/gradle.properties, editors/vscode/CHANGELOG.md, editors/vscode/package.json" />
 ```
 
 ## Overview
 
-Introduce a small release-target layer on top of the existing tagged release
-flow. The repository continues to cut one tagged release version, but editor
-and package artifacts no longer have to adopt that version unless their shipped
-artifact changed in the release range.
+Keep the existing release-target layer, but extend it in three directions:
 
-The implementation has three pieces:
+1. Add one aggregate `crates` target so any qualifying crate change bumps and
+   publishes all workspace crates together, while crate-only releases can still
+   skip editor publishes.
+2. Generate target-local changelogs for both editor extensions from a shared
+   editor changelog config that drops `ci(...)` commits entirely.
+3. Keep editor/server compatibility separate from release-target detection.
 
-1. A checked-in target registry describing which files make each target
-   "changed" and how to edit its version/changelog metadata.
-2. A repo-local helper script that can detect impacted targets and prepare
-   target metadata for a new tagged release.
-3. Workflow wiring so `mise release` and GitHub Actions consume the same
-   impact results.
+The implementation stays intentionally small:
+
+1. A checked-in target registry that now includes `crates`, `vscode`,
+   `intellij`, `npm-vitest`, and `npm-eslint-plugin`.
+2. A repo-local helper script that detects impacted targets and prepares
+   target-local metadata, including aggregate crate version bumps.
+3. Workflow wiring so release prep and GitHub Actions consume the same impact
+   results, and editor publishes wait for crate publishes when crates are
+   being released.
 
 ## Architecture
 
@@ -33,114 +38,103 @@ The implementation has three pieces:
 repo tag version (vX.Y.Z)
         │
         ├─ root release prep
-        │   ├─ bump Rust / root release artifacts as today
-        │   └─ generate root CHANGELOG.md
+        │   ├─ root CHANGELOG.md
+        │   └─ lockfile refresh only when impacted targets need it
         │
-        └─ release target layer
-            ├─ release-targets.json
-            │    └─ target definitions
-            │         ├─ intellij
-            │         ├─ vscode
-            │         ├─ npm-vitest
-            │         └─ npm-eslint-plugin
-            │
-            └─ scripts/release-targets/
-                 ├─ index.mjs             -> detect + prepare commands
-                 ├─ package.json
-                 └─ release-targets.test.js
+        ├─ release target layer
+        │   ├─ release-targets.json
+        │   │    ├─ crates          (aggregate)
+        │   │    ├─ vscode
+        │   │    ├─ intellij
+        │   │    ├─ npm-vitest
+        │   │    └─ npm-eslint-plugin
+        │   ├─ cliff.editor.toml
+        │   └─ scripts/release-targets/index.mjs
+        │
 ```
 
-### Target Registry
+## Target Registry
 
-Add a checked-in JSON file at the repository root, `release-targets.json`.
-JSON keeps the helper script dependency-free and easy to consume from Node in
-CI without introducing a TOML parser or custom YAML handling.
+Keep `release-targets.json` as the single checked-in registry. JSON remains the
+right fit because the helper script runs in local release prep and GitHub
+Actions without adding extra runtime dependencies.
 
-Each target entry contains:
+Each target entry continues to describe:
 
-- `id`: stable target ID
-- `enabled`: whether publish gating should ever allow the target to publish
-- `versionFile`: path of the target-local version file
-- `versionKind`: edit strategy such as `package-json` or `gradle-property`
-- `versionKey`: file-local key to update when the target is impacted
-- `changelogFile`: optional target changelog output path
-- `cliffConfig`: optional git-cliff config path for target notes
-- `impactPaths`: source inputs that affect the target's packaged artifact
-- `excludePaths`: optional non-shipping paths ignored during impact detection
-- `publishJob`: optional GitHub workflow job key used for CI outputs
+- `id`
+- `enabled`
+- `versionFile`
+- `versionKind`
+- `versionKey`
+- `changelogFile`
+- `cliffConfig`
+- `impactPaths`
+- `excludePaths`
 
-Initial targets:
+This pass adds one more supported shape: an Aggregate_Target with a
+multi-file version-edit strategy.
 
-- `intellij`
+Initial targets become:
+
+- `crates`
 - `vscode`
+- `intellij`
 - `npm-vitest`
 - `npm-eslint-plugin`
 
-The registry does not own Cargo crate versioning in the first pass. The Rust
-release flow remains repository-wide.
+`vscode` and `intellij` should both point at `cliff.editor.toml` for their
+target changelogs. The crates target should not have a target-local changelog;
+crate publishing still relies on the root release notes and crates.io metadata.
 
-### Impact Path Modeling
+## Impact Path Modeling
 
-Impact paths are source inputs, not release outputs. Generated changelog files
-are always excluded from impact classification, and version-only edits must not
-cause a target to look impacted by themselves. Some version files still remain
-in `impactPaths` because they also carry shipped metadata or build inputs, such
-as `package.json` contribution metadata or IntelliJ Gradle properties. The
-helper therefore classifies impact as `matches any impactPath` minus `matches
-any excludePath`, with one extra semantic rule: if a changed file is the
-configured `versionFile`, the configured `versionKey` is normalized away before
-comparing the file contents across the release range.
+Impact paths remain explicit and reviewable.
 
-For IntelliJ, impact rules should model the packaged plugin inputs rather than
-whole source trees. On the current main branch, the plugin packages shared
-preview assets but does not yet bundle the website graph explorer assets, so
-the initial target should include:
+For editor targets, keep modeling shipped artifact inputs rather than broad
+directories. That means:
 
-- `editors/intellij/build.gradle.kts`
-- `editors/intellij/gradle.properties`
-- `editors/intellij/settings.gradle.kts`
-- `editors/intellij/gradle/libs.versions.toml`
-- `editors/intellij/src/main/**`
-- `packages/preview/src/**`
-- `packages/preview/styles/**`
-- `packages/preview/scripts/**`
-- `packages/preview/esbuild.mjs`
-- `packages/preview/package.json`
+- `vscode` continues to include extension sources plus shared preview and
+  explorer inputs that affect the packaged `.vsix`
+- `intellij` continues to include plugin sources plus shared preview inputs that
+  affect the packaged plugin
+- editor test files remain in `excludePaths`
 
-With exclusions such as:
+For `crates`, impact paths should cover published crate inputs, not generated
+release outputs. The aggregate target should include:
 
-- `editors/intellij/src/test/**`
-- `packages/preview/**/__tests__/**`
-- `packages/preview/**/*.test.ts`
-- `packages/preview/**/*.snap`
+- root Cargo metadata that changes workspace publish behavior
+- each workspace crate manifest
+- crate source trees and build inputs that affect published packages
+- source inputs for assets bundled into published crates, such as the CLI's
+  checked-in `explore_assets/` files, bundled `skills/`, and the upstream
+  sources that regenerate those shipped assets
 
-This matches the current plugin build, which copies shared preview assets into
-the packaged plugin.
+The helper should keep ignoring generated changelog outputs and version-only
+changes in configured version files, just as it does today for the editor and
+package targets.
 
-### Helper Script
+## Helper Script
 
-Add `scripts/release-targets/index.mjs` with two subcommands.
+Keep `scripts/release-targets/index.mjs` with the same two subcommands:
+`detect` and `prepare`.
 
-#### `detect`
+### `detect`
 
 Inputs:
 
-- `--base-ref <ref>` and `--head-ref <ref>` for explicit release range
-- or a convenience mode that resolves the previous reachable release tag
+- `--base-ref <ref>` and `--head-ref <ref>`, or
+- convenience resolution of the previous reachable release tag
 
 Behavior:
 
 1. Load `release-targets.json`.
-2. Resolve changed files in the release range using `git diff --name-only`.
-3. Mark a target impacted if any changed file matches any of its
-   `impactPaths` and none of its `excludePaths`.
-4. Emit JSON to stdout and, when requested, GitHub Actions outputs in
-   `key=value` form.
+2. Resolve changed files in the release range.
+3. Mark each target impacted when changed files intersect its
+   `impactPaths` minus `excludePaths`.
+4. Emit JSON and optional GitHub Actions outputs such as
+   `publish_crates`, `publish_vscode`, and `publish_intellij`.
 
-This subcommand is used in GitHub Actions after a tag push. It is also used by
-local release prep when deciding which target-local files to update.
-
-#### `prepare`
+### `prepare`
 
 Inputs:
 
@@ -150,195 +144,184 @@ Inputs:
 Behavior:
 
 1. Reuse the same impact detection logic.
-2. For each impacted target, update the target's version file to the tagged
-   release version.
-3. For each impacted target with a changelog file, invoke `git-cliff` with the
-   target's `cliffConfig` and the target's `impactPaths` to render a
-   target-specific changelog.
-4. Leave unimpacted target-local version and changelog files untouched.
-5. Emit the impacted target map so the caller can decide what to stage or
-   publish.
+2. For each impacted target, apply its version-edit strategy.
+3. For each impacted target with a changelog file, render a target-local
+   changelog with its configured `cliffConfig`.
+4. Leave unimpacted targets untouched.
+5. Emit the impacted target map so the caller can decide what to stage.
 
-The helper remains intentionally narrow: it does not replace the whole release
-task, only the selective target portion.
+This pass adds one new version-edit strategy:
 
-### Release Preparation Flow
+- `cargo-workspace`: rewrite all workspace crate `Cargo.toml` files and the
+  root workspace `=version` pins as one coordinated unit when the `crates`
+  target is impacted
 
-Update `mise release` so the target flow happens before staging:
+Existing strategies remain:
 
-1. Determine the new release version from the user argument.
-2. Run the existing repository-wide version bumps and root changelog generation.
-3. Run `node scripts/release-targets/index.mjs prepare --version "$VERSION"`.
-4. Stage only the target-local files that were actually changed.
+- `package-json`
+- `gradle-property`
 
-This keeps the current release tag as the global repository version while
-allowing selected targets to lag if they were unaffected by a release.
+## Release Preparation Flow
 
-### GitHub Actions Flow
+Update `mise release` so the selective target helper owns all target-local
+version edits, including crates:
 
-Add a small detection step in `.github/workflows/release.yml` after checkout:
+1. Determine the release version from the user argument.
+2. Run `node scripts/release-targets/index.mjs prepare --version "$VERSION"`.
+3. If `crates` is impacted, regenerate `Cargo.lock`.
+4. If any pnpm-managed target is impacted, regenerate `pnpm-lock.yaml`.
+5. Generate the root `CHANGELOG.md`.
+6. Stage only the files that actually changed.
 
-1. Set up Node in the release job.
-2. Run `node scripts/release-targets/index.mjs detect --base-ref <previous-tag> --head-ref
-   "$GITHUB_REF_NAME"`.
-3. Expose outputs such as `publish_intellij`, `publish_vscode`,
-   `publish_npm_vitest`, and `publish_npm_eslint_plugin`.
+The main behavior shift is that `mise release` no longer unconditionally bumps
+every crate. Crate versions now move only when the `crates` target is
+impacted.
 
-Downstream publish jobs use `if:` guards against those outputs. For npm, keep
-the existing single inline `publish-npm` job, but gate each package publish
-step separately with step-level `if:` conditions so `@supersigil/vitest` and
-`@supersigil/eslint-plugin` can publish independently.
+## GitHub Actions Flow
 
-Target-specific publish workflows may continue exposing `workflow_dispatch` as
-an explicit break-glass path. Tagged release automation remains the normal
-target-aware path and still uses impact detection outputs from
-`scripts/release-targets/index.mjs`, but maintainers may manually publish a
-target when recovery or republish work is needed after a failing or incomplete
-release run.
+`target-metadata` should continue to run after the GitHub release is created,
+but now it exposes `publish_crates` alongside the existing target outputs.
 
-The IntelliJ publish job remains commented out, but the detection output is
-still produced so Marketplace enablement later is only a workflow toggle.
+Publish sequencing becomes:
 
-### IntelliJ Changelog Integration
+1. `publish-crates` depends on `release` and `target-metadata`.
+2. `publish-crates` runs only when `publish_crates == true`.
+3. `publish-homebrew` and `publish-aur` depend on `release` and
+   `target-metadata`, and they reuse `publish_crates` as their gate because
+   they distribute the same Rust-built CLI artifact through other channels.
+4. `publish-vscode` and `publish-intellij` depend on `publish-crates` as an
+   ordering barrier in addition to their own target metadata.
+5. Their `if:` guards must accept both `needs.publish-crates.result == 'success'`
+   and `needs.publish-crates.result == 'skipped'`, so a skipped crates publish
+   does not suppress an otherwise-needed editor publish.
 
-Keep JetBrains' Gradle Changelog Plugin as the renderer for `changeNotes`, but
-make `editors/intellij/CHANGELOG.md` the generated source of truth.
+This preserves the intended rule:
 
-`build.gradle.kts` keeps rendering:
+- if crates are not publishing, editor jobs run according to their own target
+  booleans
+- if crates are publishing, editor jobs wait for that publish to finish first
 
-- the section matching `pluginVersion` from `editors/intellij/CHANGELOG.md`
-- in HTML for JetBrains Marketplace
-- and fails if that section is missing, instead of falling back to
-  `Unreleased`
+Manual `workflow_dispatch` publish workflows remain available as break-glass
+recovery paths.
 
-The publish path stops depending on `patchChangelog`, because target changelog
-generation is owned by git-cliff during release prep, not by Gradle during
-publish.
+## Editor Changelog Integration
 
-If the IntelliJ target is not impacted, `pluginVersion` and the local
-changelog remain unchanged. That means no IntelliJ Marketplace publish should
-run for that release.
+Replace the IntelliJ-only changelog config with one shared
+`cliff.editor.toml`.
+
+That config should:
+
+- keep editor-local commit grouping
+- skip `chore(release): prepare ...` commits
+- skip all `ci(...)` commits entirely
+
+`vscode` should gain `editors/vscode/CHANGELOG.md` at the extension root.
+That file is both the checked-in target changelog and the root-level changelog
+file for the packaged extension.
+
+`intellij` keeps using `editors/intellij/CHANGELOG.md` as the source of truth
+for `changeNotes`, and Gradle should continue to fail if the changelog section
+for `pluginVersion` is missing.
+
+If an editor target is not impacted, release prep should leave both its version
+file and its changelog untouched.
 
 ## Key Types
 
-Conceptual target registry shape:
+Conceptual registry examples:
 
 ```json
 {
   "targets": [
     {
-      "id": "intellij",
-      "enabled": false,
-      "versionFile": "editors/intellij/gradle.properties",
-      "versionKind": "gradle-property",
-      "versionKey": "pluginVersion",
-      "changelogFile": "editors/intellij/CHANGELOG.md",
-      "cliffConfig": "cliff.intellij.toml",
+      "id": "crates",
+      "enabled": true,
+      "versionFile": "Cargo.toml",
+      "versionKind": "cargo-workspace",
+      "versionKey": "workspace-version",
       "impactPaths": [
-        "editors/intellij/build.gradle.kts",
-        "editors/intellij/gradle.properties",
-        "editors/intellij/settings.gradle.kts",
-        "editors/intellij/gradle/libs.versions.toml",
-        "editors/intellij/src/main/**",
+        "Cargo.toml",
+        "crates/**/Cargo.toml",
+        "crates/**/src/**",
+        "crates/**/build.rs"
+      ],
+      "excludePaths": []
+    },
+    {
+      "id": "vscode",
+      "enabled": true,
+      "versionFile": "editors/vscode/package.json",
+      "versionKind": "package-json",
+      "versionKey": "version",
+      "changelogFile": "editors/vscode/CHANGELOG.md",
+      "cliffConfig": "cliff.editor.toml",
+      "impactPaths": [
+        "editors/vscode/src/**",
         "packages/preview/src/**",
-        "packages/preview/styles/**",
-        "packages/preview/scripts/**",
-        "packages/preview/esbuild.mjs",
-        "packages/preview/package.json"
+        "website/src/components/explore/**"
       ],
       "excludePaths": [
-        "editors/intellij/src/test/**",
-        "packages/preview/**/__tests__/**",
-        "packages/preview/**/*.test.ts",
-        "packages/preview/**/*.snap"
-      ],
-      "publishJob": "intellij"
+        "editors/vscode/src/**/*.test.ts"
+      ]
     }
   ]
 }
 ```
 
-Helper-script concepts:
-
-- `ReleaseTarget`: one parsed registry entry
-- `ImpactResult`: `{ targetId, impacted, changedFiles[] }`
-- `PrepareResult`: impacted map plus the list of files rewritten
-
-Supported version-editing strategies in the first pass:
-
-- `package-json`: parse JSON and replace the top-level `version`
-- `gradle-property`: replace one `key = value` line in `gradle.properties`
-
-Helper execution configuration in the first pass:
-
-- `gitCliffBin`: optional CLI flag or environment override for the
-  `git-cliff` executable path
-
 ## Error Handling
 
-- If the registry is malformed, the helper exits non-zero with a file and field
-  specific error.
+- If the registry is malformed, the helper exits non-zero with a file and
+  field-specific error.
 - If a target references an unsupported `versionKind`, the helper exits
   non-zero before touching files.
 - If `git-cliff` is unavailable during `prepare`, the helper exits non-zero and
   leaves the release task incomplete.
-- If the injected `gitCliffBin` path is invalid, the helper exits non-zero
-  before any target files are rewritten.
-- If a target is marked impacted but its `versionFile` or `versionKey` cannot
-  be updated, the helper exits non-zero instead of silently skipping it.
+- If the `cargo-workspace` strategy cannot update one of the coordinated Cargo
+  manifests, the helper exits non-zero instead of partially bumping crates.
 - If the IntelliJ build cannot find the changelog section matching
-  `pluginVersion`, Gradle should fail immediately instead of rendering fallback
+  `pluginVersion`, Gradle fails immediately instead of rendering fallback
   notes.
-- If the release range has no previous tag, detection falls back to the
-  repository root range so the first tagged release still works.
+- If `publish-crates` is skipped, editor jobs should still be able to run when
+  their own target booleans are true.
 
 ## Testing Strategy
 
-Drive the feature through Rust integration tests that invoke the helper script
-against fixture git repositories. This keeps the coverage inside
-`cargo nextest run`, which is already required by the repository. The tests
-should inject a fixture `git-cliff` binary path so they do not depend on a
-globally installed tool.
+Extend the existing `scripts/release-targets` test harness rather than adding
+new release-detection machinery.
 
-Test cases:
+Cover at least:
 
-- only CLI changes -> no editor or npm targets impacted
-- `editors/intellij/**` changes -> `intellij` impacted
-- shared preview asset changes -> `intellij` impacted
-- preview test-only changes -> `intellij` not impacted
-- version-only changes in target version files -> target not impacted
-- `editors/vscode/**` changes -> only `vscode` impacted
-- `packages/vitest/**` changes -> only `npm-vitest` impacted
-- `prepare` rewrites only impacted target version files
-- `prepare` rewrites only impacted target changelogs
-- invalid `git-cliff` path fails before target files are rewritten
-- target changelog output omits `chore(release)` commits
+- crate-source changes -> `crates` impacted
+- crate version-only changes -> `crates` not impacted
+- no crate changes -> `publish_crates=false`
+- shared editor-source changes -> only the relevant editor target impacted
+- VS Code target prepare -> rewrites `editors/vscode/package.json` and
+  `editors/vscode/CHANGELOG.md`
+- editor changelog generation -> omits `ci(...)` commits entirely
+- crates impacted + editor impacted -> release workflow outputs require editors
+  to wait for crates publishing
 
-Manual verification still matters for the IntelliJ side:
+Manual checks still matter for packaging:
 
-- build the plugin after generating a target changelog
-- confirm `changeNotes` in the patched plugin metadata contains only the
-  IntelliJ-target release notes
+- package the VS Code extension and confirm `CHANGELOG.md` is present at the
+  extension root
+- build the IntelliJ plugin and confirm `changeNotes` renders from the
+  generated changelog
 
 ## Alternatives Considered
 
-### Ad hoc per-target release logic
+### Keep crates outside the release-target registry
 
-Rejected. It is the fastest short-term change for IntelliJ alone, but it would
-duplicate target impact logic across `mise`, release workflows, and future
-publish jobs.
+Rejected. It preserves the current unconditional crate publish path and creates
+two sources of truth for impact detection.
 
-### Full build-graph inference
+### Force editor publishes whenever crates publish
 
-Rejected. Automatically deriving every target's artifact inputs from build
-graphs would be more general, but the repository does not need that complexity
-yet. Explicit `impactPaths` are easier to review and maintain.
+Rejected. It restores package-version lockstep through workflow policy, which
+undercuts selective editor releases and creates empty editor publishes.
 
-### Rust-only helper
+### Put compatibility ranges into the release-target design
 
-Rejected for the first pass. A Rust helper would fit the repository's main
-language, but the release workflow job that needs target detection does not
-currently install Rust. A small Node script is simpler to run in both local
-release prep and GitHub Actions, while a local Vitest suite next to the helper
-keeps the tests in the same ecosystem and feeds `@supersigil/vitest` evidence
-into the graph directly.
+Rejected. Release-targets should answer "what gets bumped and published," not
+"which editor/server versions are compatible." That policy belongs in the
+shared editor/server compatibility spec.

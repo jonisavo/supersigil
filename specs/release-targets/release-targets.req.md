@@ -8,29 +8,43 @@ title: "Release Targets"
 
 ## Introduction
 
-Release preparation currently assumes that every editor and package target
-bumps and publishes on every tagged repository release. That works for the
-root changelog and Rust binaries, but it produces misleading target metadata
-for artifacts that did not actually change. The immediate problem is the
-IntelliJ plugin changelog: JetBrains Marketplace expects target-specific
-change notes, while the repository changelog contains unrelated workspace
-changes.
+The current release-target layer covers IntelliJ, VS Code, and the npm
+packages, but Rust crates still bump and publish on every tagged release.
+That leaves two gaps in the workflow. First, the VS Code extension still lacks
+its own target changelog even though the IntelliJ plugin already relies on one.
+Second, crate publishing is still unconditional and is not sequenced ahead of
+the editor publishes that may depend on the latest crate release.
+
+This next pass keeps the selective-release model, but broadens it in three
+ways:
+
+1. Add an aggregate `crates` target so any qualifying crate change bumps and
+   publishes all workspace crates together, while crate-only releases can still
+   skip editor publishes.
+2. Generate target-local changelogs for both editor extensions, with CI commits
+   omitted entirely from those editor changelogs.
+3. Keep editor/server compatibility as a separate concern from release-target
+   detection and publish ordering.
 
 ### Scope
 
 - **In scope:** a checked-in release-target registry, impact detection from git
-  history, selective target version bumps, target-specific changelog
-  generation, GitHub Actions publish gating, and IntelliJ Marketplace
-  changelog integration.
-- **Out of scope:** changing the repository-wide Rust release flow,
-  compatibility-range semantics between independently versioned artifacts, and
-  publishing the IntelliJ plugin before Marketplace acceptance.
+  history, aggregate crate release detection, selective target version bumps,
+  target-specific editor changelog generation, GitHub Actions publish gating,
+  and publish ordering so crates are released before editor extensions when the
+  crate target publishes.
+- **Out of scope:** automatic compatibility negotiation between editors and the
+  server, semver range handling for compatibility, and publishing the IntelliJ
+  plugin before Marketplace acceptance.
 
 ## Definitions
 
 - **Release_Target**: A releasable artifact whose version, changelog, or
   publish step can be managed independently from other artifacts within the
   same tagged repository release.
+- **Aggregate_Target**: A Release_Target whose impact drives one coordinated
+  version bump and publish decision for multiple artifacts, such as all
+  workspace crates.
 - **Impact_Paths**: The set of source files and build inputs that determine
   whether a Release_Target's shipped artifact changed in a release range.
 - **Impact_Exclusions**: Optional path filters that remove known non-shipping
@@ -69,9 +83,14 @@ local release prep and GitHub Actions evaluate the same target boundaries.
     <VerifiedBy strategy="file-glob" paths="release-targets.json, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-1-5">
-    Adding a new target that uses an existing version-editing and changelog
+    Adding a new target that uses an existing version-editing or changelog
     strategy SHALL require registry data changes rather than a new
     target-specific detection code path.
+    <VerifiedBy strategy="file-glob" paths="release-targets.json, scripts/release-targets/index.mjs" />
+  </Criterion>
+  <Criterion id="req-1-6">
+    THE registry SHALL support an Aggregate_Target for the Cargo workspace so
+    one publish decision can represent all crates.io releases.
     <VerifiedBy strategy="file-glob" paths="release-targets.json, scripts/release-targets/index.mjs" />
   </Criterion>
 </AcceptanceCriteria>
@@ -97,7 +116,7 @@ history, so that release prep and publishing only touch changed artifacts.
   <Criterion id="req-2-3">
     Target-specific changelog generation SHALL exclude release-preparation
     commits such as `chore(release): prepare vX.Y.Z` from rendered notes.
-    <VerifiedBy strategy="file-glob" paths="cliff.intellij.toml, scripts/release-targets/index.mjs" />
+    <VerifiedBy strategy="file-glob" paths="cliff.editor.toml, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-2-4">
     Impact detection SHALL support Impact_Exclusions so shared source trees can
@@ -108,6 +127,11 @@ history, so that release prep and publishing only touch changed artifacts.
   <Criterion id="req-2-5">
     Automated tests for target-specific changelog generation SHALL NOT require
     a globally installed `git-cliff` binary.
+  </Criterion>
+  <Criterion id="req-2-6">
+    Editor target changelog generation SHALL omit `ci` commits entirely rather
+    than rendering them under a `CI/CD` section or any fallback group.
+    <VerifiedBy strategy="file-glob" paths="cliff.editor.toml, scripts/release-targets/index.mjs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -139,6 +163,18 @@ unchanged artifacts keep their previous version and changelog state.
     version file and changelog file unchanged.
     <VerifiedBy strategy="file-glob" paths="scripts/release-targets/index.mjs" />
   </Criterion>
+  <Criterion id="req-3-5">
+    WHEN the `crates` Aggregate_Target is impacted, repository release prep
+    SHALL bump all workspace crate versions and the workspace `=version` pins
+    as one coordinated unit.
+    <VerifiedBy strategy="file-glob" paths="mise.toml, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
+  </Criterion>
+  <Criterion id="req-3-6">
+    WHEN the `crates` Aggregate_Target is not impacted, repository release prep
+    SHALL leave the workspace crate versions and workspace `=version` pins
+    unchanged.
+    <VerifiedBy strategy="file-glob" paths="mise.toml, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
+  </Criterion>
 </AcceptanceCriteria>
 ```
 
@@ -151,12 +187,13 @@ only publishes artifacts whose shipped contents changed.
 <AcceptanceCriteria>
   <Criterion id="req-4-1">
     GitHub Actions release automation SHALL expose per-target publish booleans
-    derived from impact detection.
+    derived from impact detection, including the aggregate `crates` target.
     <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-4-2">
-    Publish jobs for targets with dedicated release workflows SHALL run only
-    when their per-target publish boolean is true.
+    Publish jobs for targets with dedicated release workflows, and binary
+    distribution jobs that reuse the aggregate `crates` decision, SHALL run
+    only when their relevant publish boolean is true.
     <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml" />
   </Criterion>
   <Criterion id="req-4-3">
@@ -168,58 +205,63 @@ only publishes artifacts whose shipped contents changed.
     Manually triggered publish workflows MAY remain available as an explicit
     break-glass path for recovery or republish scenarios, even when they bypass
     impact detection used by tagged release automation.
-    <VerifiedBy strategy="file-glob" paths=".github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml" />
+    <VerifiedBy strategy="file-glob" paths=".github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml, .github/workflows/publish-crates.yml" />
+  </Criterion>
+  <Criterion id="req-4-5">
+    WHEN the `crates` Aggregate_Target is being published, the VS Code and
+    IntelliJ publish jobs SHALL wait for crate publishing to finish before
+    starting.
+    <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml" />
+  </Criterion>
+  <Criterion id="req-4-6">
+    WHEN the `crates` Aggregate_Target is not impacted, the crates.io publish
+    workflow SHALL be skipped rather than running as a no-op publish attempt.
+    <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml" />
   </Criterion>
 </AcceptanceCriteria>
 ```
 
-## Requirement 5: IntelliJ Marketplace Metadata
+## Requirement 5: Editor Release Metadata
 
-As a maintainer, I want the IntelliJ plugin to publish target-specific change
-notes, so that Marketplace metadata reflects only plugin changes.
+As a maintainer, I want the editor extensions to publish target-specific change
+notes, so that Marketplace metadata reflects only editor changes.
 
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
+    WHEN the VS Code target is impacted, release prep SHALL generate
+    `editors/vscode/CHANGELOG.md` from only the commits that affect the
+    VS Code target, including shared explorer and preview sources that change
+    the packaged extension.
+    <VerifiedBy strategy="file-glob" paths="release-targets.json, cliff.editor.toml, scripts/release-targets/index.mjs, editors/vscode/CHANGELOG.md" />
+  </Criterion>
+  <Criterion id="req-5-2">
+    THE VS Code target changelog SHALL live at `editors/vscode/CHANGELOG.md`,
+    the extension root.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/CHANGELOG.md" />
+  </Criterion>
+  <Criterion id="req-5-3">
     WHEN the IntelliJ target is impacted, release prep SHALL generate
     `editors/intellij/CHANGELOG.md` from only the commits that affect the
     IntelliJ target, including shared embedded asset sources that change the
     packaged plugin.
-    <VerifiedBy strategy="file-glob" paths="release-targets.json, cliff.intellij.toml, scripts/release-targets/index.mjs, editors/intellij/CHANGELOG.md" />
+    <VerifiedBy strategy="file-glob" paths="release-targets.json, cliff.editor.toml, scripts/release-targets/index.mjs, editors/intellij/CHANGELOG.md" />
   </Criterion>
-  <Criterion id="req-5-2">
-    The IntelliJ Gradle build SHALL render JetBrains `changeNotes` from the
+  <Criterion id="req-5-4">
+    THE IntelliJ Gradle build SHALL render JetBrains `changeNotes` from the
     generated `editors/intellij/CHANGELOG.md`.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/build.gradle.kts" />
   </Criterion>
-  <Criterion id="req-5-3">
-    WHEN the IntelliJ target is not impacted, release prep SHALL NOT bump
-    `editors/intellij/gradle.properties` `pluginVersion` and SHALL NOT
-    rewrite `editors/intellij/CHANGELOG.md`.
+  <Criterion id="req-5-5">
+    WHEN an editor target is not impacted, release prep SHALL NOT bump its
+    version file and SHALL NOT rewrite its changelog file.
     <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release-targets/index.mjs" />
   </Criterion>
-  <Criterion id="req-5-4">
+  <Criterion id="req-5-6">
     WHEN the IntelliJ Gradle build cannot find a changelog section matching
     `pluginVersion`, it SHALL fail rather than render fallback change notes
     such as `Unreleased`.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/build.gradle.kts" />
-  </Criterion>
-</AcceptanceCriteria>
-```
-
-## Requirement 6: Release Documentation Alignment
-
-As a maintainer, I want release-related docs to match the selective target
-release model, so that operator guidance does not claim universal lockstep
-publishing.
-
-```supersigil-xml
-<AcceptanceCriteria>
-  <Criterion id="req-6-1">
-    Documentation that describes editor or package version relationships SHALL
-    NOT claim those targets are bumped or published on every tagged release
-    once selective target releases exist.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/specs/version-mismatch/version-mismatch.design.md" />
   </Criterion>
 </AcceptanceCriteria>
 ```
