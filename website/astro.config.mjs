@@ -39,7 +39,7 @@ export default defineConfig({
           items: [
             { label: 'Quickstart', slug: 'getting-started' },
             { label: 'Existing Projects', slug: 'getting-started/existing-project' },
-            { label: 'Editor Setup', slug: 'guides/editor-setup' },
+            { label: 'Editor Setup', slug: 'getting-started/editor-setup' },
           ],
         },
         {
@@ -57,7 +57,7 @@ export default defineConfig({
             { label: 'The Component Graph', slug: 'concepts/component-graph' },
             { label: 'Verification', slug: 'concepts/verification' },
             { label: 'Evidence Sources', slug: 'concepts/evidence-sources' },
-            { label: 'Architecture Decisions', slug: 'guides/architecture-decisions' },
+            { label: 'Architecture Decisions', slug: 'concepts/architecture-decisions' },
           ],
         },
         {
