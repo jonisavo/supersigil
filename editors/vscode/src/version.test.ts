@@ -1,71 +1,141 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { verifies } from "@supersigil/vitest";
-import { isNewerVersion, checkVersionMismatch } from "./version";
+import {
+  COMPATIBILITY_INFO_TIMEOUT_MS,
+  SUPPORTED_COMPATIBILITY_VERSION,
+  checkCompatibilityInfo,
+  parseCompatibilityInfo,
+  queryCompatibilityInfo,
+} from "./version";
 
-describe("isNewerVersion", () => {
-  it("returns true when first version is newer", verifies("version-mismatch/req#req-3-3"), () => {
-    expect(isNewerVersion("0.7.0", "0.6.0")).toBe(true);
-    expect(isNewerVersion("1.0.0", "0.9.0")).toBe(true);
-    expect(isNewerVersion("0.6.1", "0.6.0")).toBe(true);
-  });
+describe("parseCompatibilityInfo", () => {
+  it(
+    "parses compatibility info JSON from the server preflight",
+    verifies(
+      "editor-server-compatibility/req#req-1-1",
+      "editor-server-compatibility/req#req-1-2",
+    ),
+    () => {
+      expect(
+        parseCompatibilityInfo(
+          '{"compatibility_version":1,"server_version":"0.10.0"}',
+        ),
+      ).toEqual({
+        compatibilityVersion: 1,
+        serverVersion: "0.10.0",
+      });
+    },
+  );
 
-  it("handles double-digit segments correctly", verifies("version-mismatch/req#req-3-3"), () => {
-    expect(isNewerVersion("0.10.0", "0.9.0")).toBe(true);
-    expect(isNewerVersion("0.9.0", "0.10.0")).toBe(false);
-  });
-
-  it("returns false when versions are equal", () => {
-    expect(isNewerVersion("0.6.0", "0.6.0")).toBe(false);
-  });
-
-  it("returns false when first version is older", () => {
-    expect(isNewerVersion("0.5.0", "0.6.0")).toBe(false);
-  });
-
-  it("returns false for non-numeric segments", () => {
-    expect(isNewerVersion("0.6.0-beta", "0.5.0")).toBe(false);
-  });
-
-  it("handles versions with different segment counts", () => {
-    expect(isNewerVersion("1.0.0.1", "1.0.0")).toBe(true);
-    expect(isNewerVersion("1.0.0", "1.0.0.1")).toBe(false);
-  });
+  it(
+    "returns null when the compatibility version is missing",
+    verifies("editor-server-compatibility/req#req-2-3"),
+    () => {
+      expect(
+        parseCompatibilityInfo('{"server_version":"0.10.0"}'),
+      ).toBeNull();
+    },
+  );
 });
 
-describe("checkVersionMismatch", () => {
-  it("returns skip when server version is undefined", verifies("version-mismatch/req#req-2-2"), () => {
-    expect(checkVersionMismatch(undefined, "0.6.0")).toEqual({ kind: "skip" });
-  });
+describe("checkCompatibilityInfo", () => {
+  it(
+    "accepts a matching compatibility version",
+    verifies(
+      "editor-server-compatibility/req#req-2-1",
+      "editor-server-compatibility/req#req-4-1",
+    ),
+    () => {
+      expect(
+        checkCompatibilityInfo({
+          compatibilityVersion: SUPPORTED_COMPATIBILITY_VERSION,
+          serverVersion: "0.10.0",
+        }),
+      ).toEqual({
+        kind: "compatible",
+        supportedVersion: SUPPORTED_COMPATIBILITY_VERSION,
+        reportedVersion: SUPPORTED_COMPATIBILITY_VERSION,
+        serverVersion: "0.10.0",
+      });
+    },
+  );
 
-  it("returns skip when extension version is undefined", verifies("version-mismatch/req#req-2-2"), () => {
-    expect(checkVersionMismatch("0.6.0", undefined)).toEqual({ kind: "skip" });
-  });
+  it(
+    "rejects a mismatched compatibility version",
+    verifies(
+      "editor-server-compatibility/req#req-2-1",
+      "editor-server-compatibility/req#req-3-1",
+      "editor-server-compatibility/req#req-3-2",
+      "editor-server-compatibility/req#req-3-4",
+    ),
+    () => {
+      expect(
+        checkCompatibilityInfo({
+          compatibilityVersion: SUPPORTED_COMPATIBILITY_VERSION + 1,
+          serverVersion: "0.11.0",
+        }),
+      ).toEqual({
+        kind: "incompatible",
+        reason: "mismatch",
+        supportedVersion: SUPPORTED_COMPATIBILITY_VERSION,
+        reportedVersion: SUPPORTED_COMPATIBILITY_VERSION + 1,
+        serverVersion: "0.11.0",
+      });
+    },
+  );
 
-  it("returns skip when both are undefined", verifies("version-mismatch/req#req-2-2"), () => {
-    expect(checkVersionMismatch(undefined, undefined)).toEqual({ kind: "skip" });
-  });
+  it(
+    "treats a missing compatibility payload as incompatible",
+    verifies("editor-server-compatibility/req#req-2-3"),
+    () => {
+      expect(checkCompatibilityInfo(null)).toEqual({
+        kind: "incompatible",
+        reason: "invalid-response",
+        supportedVersion: SUPPORTED_COMPATIBILITY_VERSION,
+        reportedVersion: null,
+        serverVersion: null,
+      });
+    },
+  );
+});
 
-  it("returns match when versions are identical", verifies("version-mismatch/req#req-2-1"), () => {
-    expect(checkVersionMismatch("0.6.0", "0.6.0")).toEqual({ kind: "match" });
-  });
+describe("queryCompatibilityInfo", () => {
+  it("runs the preflight query with a timeout", () => {
+    queryCompatibilityInfo("/tmp/supersigil-lsp", (_command, _args, options) => {
+      expect(options).toMatchObject({
+        encoding: "utf8",
+        timeout: COMPATIBILITY_INFO_TIMEOUT_MS,
+        killSignal: "SIGKILL",
+      });
 
-  it("returns mismatch with serverNewer=true when server is ahead", verifies("version-mismatch/req#req-2-1", "version-mismatch/req#req-3-3"), () => {
-    const result = checkVersionMismatch("0.7.0", "0.6.0");
-    expect(result).toEqual({
-      kind: "mismatch",
-      serverVersion: "0.7.0",
-      extensionVersion: "0.6.0",
-      serverNewer: true,
+      return {
+        status: 1,
+        stdout: "",
+        stderr: "boom",
+      };
     });
   });
 
-  it("returns mismatch with serverNewer=false when extension is ahead", verifies("version-mismatch/req#req-2-1"), () => {
-    const result = checkVersionMismatch("0.5.0", "0.6.0");
-    expect(result).toEqual({
-      kind: "mismatch",
-      serverVersion: "0.5.0",
-      extensionVersion: "0.6.0",
-      serverNewer: false,
-    });
-  });
+  it(
+    "treats a failed preflight command as incompatible",
+    verifies("editor-server-compatibility/req#req-2-3"),
+    () => {
+      const result = queryCompatibilityInfo(
+        "/tmp/supersigil-lsp",
+        () => ({
+          status: 1,
+          stdout: "",
+          stderr: "boom",
+        }),
+      );
+
+      expect(result).toEqual({
+        kind: "incompatible",
+        reason: "query-failed",
+        supportedVersion: SUPPORTED_COMPATIBILITY_VERSION,
+        reportedVersion: null,
+        serverVersion: null,
+      });
+    },
+  );
 });

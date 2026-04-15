@@ -17,7 +17,10 @@ import {
 } from "./specExplorer";
 import { PreviewCache } from "./previewCache";
 import { openExplorerPanel, refreshPanelsForClient, restoreExplorerPanel } from "./explorerWebview";
-import { checkVersionMismatch } from "./version";
+import {
+  queryCompatibilityInfo,
+  type CompatibilityResult,
+} from "./version";
 
 const clients = new Map<string, LanguageClient>();
 const clientOutputChannels = new Map<string, vscode.OutputChannel>();
@@ -26,7 +29,7 @@ let specExplorer: SpecExplorerProvider;
 let previewCache: PreviewCache;
 let notFoundShown = false;
 let binaryNotFound = false;
-let mismatchShown = false;
+let compatibilityBlocked = false;
 let outputChannel: vscode.OutputChannel;
 
 /** Shared cache for documentList results, keyed by document ID. */
@@ -141,6 +144,10 @@ function updateBinaryNotFoundContext(notFound: boolean): void {
   );
 }
 
+function updateCompatibilityBlocked(blocked: boolean): void {
+  compatibilityBlocked = blocked;
+}
+
 function updateStatusBar(): void {
   if (clients.size === 0) {
     if (binaryNotFound) {
@@ -150,6 +157,13 @@ function updateStatusBar(): void {
       );
       statusBarItem.tooltip =
         "Supersigil LSP server not installed. Click for details.";
+    } else if (compatibilityBlocked) {
+      statusBarItem.text = "$(error) Supersigil";
+      statusBarItem.backgroundColor = new vscode.ThemeColor(
+        "statusBarItem.errorBackground",
+      );
+      statusBarItem.tooltip =
+        "Supersigil LSP compatibility check failed. Click for details.";
     } else {
       statusBarItem.text = "$(warning) Supersigil";
       statusBarItem.backgroundColor = new vscode.ThemeColor(
@@ -292,41 +306,6 @@ async function startClientForFolder(
     // Status bar will reflect the error state
   }
 
-  // Check for version mismatch between server and extension.
-  if (!mismatchShown && client.isRunning()) {
-    const serverVersion =
-      client.initializeResult?.serverInfo?.version;
-    const extensionVersion = vscode.extensions.getExtension(
-      "supersigil.supersigil",
-    )?.packageJSON?.version as string | undefined;
-
-    const result = checkVersionMismatch(serverVersion, extensionVersion);
-    if (result.kind === "mismatch") {
-      mismatchShown = true;
-      outputChannel.appendLine(
-        `[extension] Version mismatch: server v${result.serverVersion}, extension v${result.extensionVersion}`,
-      );
-
-      const message =
-        `Supersigil version mismatch: server is v${result.serverVersion} but this extension is v${result.extensionVersion}. This may cause unexpected behavior.`;
-
-      if (result.serverNewer) {
-        vscode.window
-          .showInformationMessage(message, "Update Extension")
-          .then((action) => {
-            if (action === "Update Extension") {
-              vscode.commands.executeCommand(
-                "workbench.extensions.action.showExtensionsWithIds",
-                ["supersigil.supersigil"],
-              );
-            }
-          });
-      } else {
-        vscode.window.showInformationMessage(message);
-      }
-    }
-  }
-
   updateStatusBar();
   updateNoRootsContext();
   specExplorer?.refresh();
@@ -335,21 +314,81 @@ async function startClientForFolder(
   refreshPanelsForClient(key, clients);
 }
 
+function reportedCompatibilityVersion(result: CompatibilityResult): string {
+  return result.reportedVersion === null
+    ? "unavailable"
+    : String(result.reportedVersion);
+}
+
+function showCompatibilityFailure(
+  serverPath: string,
+  result: Extract<CompatibilityResult, { kind: "incompatible" }>,
+): void {
+  const reportedVersion = reportedCompatibilityVersion(result);
+  const serverVersion = result.serverVersion ?? "unavailable";
+  const message =
+    result.reason === "mismatch"
+      ? `Supersigil compatibility mismatch: this extension supports compatibility version ${result.supportedVersion}, but ${serverPath} reports ${reportedVersion} (server package version ${serverVersion}). Update the extension or supersigil-lsp before continuing.`
+      : `Supersigil could not verify compatibility for ${serverPath}. This extension supports compatibility version ${result.supportedVersion}, but the server reported ${reportedVersion}. Update the extension or supersigil-lsp, or check the configured server path before continuing.`;
+
+  vscode.window
+    .showErrorMessage(message, "Update Extension", "Open Settings")
+    .then((action) => {
+      if (action === "Update Extension") {
+        vscode.commands.executeCommand(
+          "workbench.extensions.action.showExtensionsWithIds",
+          ["supersigil.supersigil"],
+        );
+      } else if (action === "Open Settings") {
+        vscode.commands.executeCommand(
+          "workbench.action.openSettings",
+          "supersigil.lsp.serverPath",
+        );
+      }
+    });
+}
+
+function ensureCompatibleServerBinary(serverPath: string): boolean {
+  const result = queryCompatibilityInfo(serverPath);
+  if (result.kind === "compatible") {
+    updateCompatibilityBlocked(false);
+    return true;
+  }
+
+  updateCompatibilityBlocked(true);
+  outputChannel.appendLine(
+    `[extension] Compatibility check failed for ${serverPath}: supported=${result.supportedVersion}, reported=${reportedCompatibilityVersion(result)}, serverVersion=${result.serverVersion ?? "unavailable"}, reason=${result.reason}`,
+  );
+  showCompatibilityFailure(serverPath, result);
+  return false;
+}
+
 async function startAllClients(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  const roots = findSupersigilRoots();
+  if (roots.length === 0) {
+    updateBinaryNotFoundContext(false);
+    updateCompatibilityBlocked(false);
+    updateStatusBar();
+    return;
+  }
+
   const serverPath = resolveServerBinary();
   if (!serverPath) {
-    const hasRoots = findSupersigilRoots().length > 0;
-    updateBinaryNotFoundContext(hasRoots);
+    updateBinaryNotFoundContext(true);
+    updateCompatibilityBlocked(false);
     updateStatusBar();
     return;
   }
 
   outputChannel.appendLine(`[extension] Using server binary: ${serverPath}`);
   updateBinaryNotFoundContext(false);
+  if (!ensureCompatibleServerBinary(serverPath)) {
+    updateStatusBar();
+    return;
+  }
 
-  const roots = findSupersigilRoots();
   await Promise.all(
     roots.map((folder) => startClientForFolder(folder, serverPath)),
   );
@@ -378,6 +417,11 @@ async function showStatusMenu(
       items.push({
         label: "$(error) Supersigil LSP server not installed",
         description: "Install supersigil-lsp to enable language features",
+      });
+    } else if (compatibilityBlocked) {
+      items.push({
+        label: "$(error) Supersigil LSP compatibility check failed",
+        description: "Update the extension or supersigil-lsp before continuing",
       });
     } else {
       items.push({
@@ -806,17 +850,33 @@ export async function activate(
         clientOutputChannels.delete(key);
       }
 
+      const roots = findSupersigilRoots();
+      if (roots.length === 0) {
+        updateBinaryNotFoundContext(false);
+        updateCompatibilityBlocked(false);
+        updateStatusBar();
+        updateNoRootsContext();
+        specExplorer?.refresh();
+        return;
+      }
+
       const serverPath = resolveServerBinary();
       if (serverPath) {
         updateBinaryNotFoundContext(false);
+        if (!ensureCompatibleServerBinary(serverPath)) {
+          updateStatusBar();
+          updateNoRootsContext();
+          specExplorer?.refresh();
+          return;
+        }
         for (const added of e.added) {
           if (existsSync(join(added.uri.fsPath, "supersigil.toml"))) {
             await startClientForFolder(added, serverPath);
           }
         }
       } else {
-        const hasRoots = findSupersigilRoots().length > 0;
-        updateBinaryNotFoundContext(hasRoots);
+        updateBinaryNotFoundContext(true);
+        updateCompatibilityBlocked(false);
       }
       updateStatusBar();
       updateNoRootsContext();
