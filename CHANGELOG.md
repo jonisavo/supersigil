@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0] - 2026-04-15
+
+### Features
+
+- *(release)* Add crates target and compatibility protocol ([083b457](https://github.com/jonisavo/supersigil/commit/083b45713bf73a241cabd601c2c4ec62b4d53cb7))
+- *(vscode)* Add changelog and compatibility preflight ([cfc28cf](https://github.com/jonisavo/supersigil/commit/cfc28cf03d7a0537f6f9da7dd25dcb5141bf1555))
+- *(intellij)* Add changelog and compatibility preflight ([2726bad](https://github.com/jonisavo/supersigil/commit/2726badc1b3c5dadad92da422e8577fe3ab3e010))
+
 ## [0.10.0] - 2026-04-15
 
 ### CI/CD
@@ -12,6 +20,7 @@
 - *(intellij)* Mention Graph Explorer in plugin description ([367d963](https://github.com/jonisavo/supersigil/commit/367d963c1660b421853bcdc3f1fc9cd0aa7eebfc))
 - Add link to the published IntelliJ plugin ([ae79811](https://github.com/jonisavo/supersigil/commit/ae79811e82bbf863dcb227de707dd1ca6703818e))
 - *(website)* Align Editor Setup and Architecture Decisions slugs ([6116b01](https://github.com/jonisavo/supersigil/commit/6116b01d1a7886d37a6cfc6252a8242cee62769e))
+- Do not use generated artifacts as evidence ([03a6635](https://github.com/jonisavo/supersigil/commit/03a6635fa4cb9ec0bb3bbae5a49e80dfeadedcef))
 
 ### Features
 

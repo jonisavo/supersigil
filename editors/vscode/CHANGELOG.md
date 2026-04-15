@@ -1,10 +1,11 @@
 # Changelog
 
-## [0.10.0] - 2026-04-15
+## [0.11.0] - 2026-04-15
 
 ### Features
 
 - *(intellij)* Add graph explorer ([1a24731](https://github.com/jonisavo/supersigil/commit/1a24731581b421b399b191836fce57edef33d2de))
+- *(vscode)* Add changelog and compatibility preflight ([cfc28cf](https://github.com/jonisavo/supersigil/commit/cfc28cf03d7a0537f6f9da7dd25dcb5141bf1555))
 
 ## [0.8.0] - 2026-04-12
 
