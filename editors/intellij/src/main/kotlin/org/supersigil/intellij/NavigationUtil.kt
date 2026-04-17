@@ -119,7 +119,8 @@ internal fun resolveNavigationPath(
     }
 
 internal fun isAbsoluteNavigationPath(path: String): Boolean =
-    Path.of(path).isAbsolute ||
+    path.startsWith("/") ||
+        Path.of(path).isAbsolute ||
         path.matches(Regex("""^[A-Za-z]:[\\/].*""")) ||
         path.startsWith("""\\""")
 

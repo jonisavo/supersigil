@@ -142,11 +142,11 @@ there is no separate "ASCII with color" mode.
 
 ## Testing Strategy
 
-- [clap_parse.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/clap_parse.rs)
+- [clap_parse.rs](../../tests/clap_parse.rs)
   covers the public clap surface and argument parsing.
-- [loader.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/loader.rs)
+- [loader.rs](../../tests/loader.rs)
   covers upward config discovery, parse-all behavior, and fatal graph loading.
-- [format.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/src/format.rs)
+- [format.rs](../../src/format.rs)
   contains unit coverage for color resolution helpers, semantic paint behavior,
   symbol fallback, completed-task summaries, and dependency-graph rendering.
 

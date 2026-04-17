@@ -25,6 +25,8 @@ supersigil-js.workspace = true
 supersigil-parser.workspace = true
 supersigil-rust.workspace = true
 thiserror.workspace = true
+pathdiff = "0.2.3"
+url = "2.5.8"
 
 [features]
 test-helpers = ["supersigil-core/test-helpers"]

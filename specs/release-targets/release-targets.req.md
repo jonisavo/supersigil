@@ -8,31 +8,31 @@ title: "Release Targets"
 
 ## Introduction
 
-The current release-target layer covers IntelliJ, VS Code, and the npm
-packages, but Rust crates still bump and publish on every tagged release.
-That leaves two gaps in the workflow. First, the VS Code extension still lacks
-its own target changelog even though the IntelliJ plugin already relies on one.
-Second, crate publishing is still unconditional and is not sequenced ahead of
-the editor publishes that may depend on the latest crate release.
+The current release-target layer covers workspace crates, editor extensions,
+and npm packages with selective version bumps and publish gating. Native
+Windows support adds two follow-up gaps. First, tagged releases still build and
+package only macOS and Linux binary artifacts even though the product surface
+is expanding to native Windows usage. Second, the asset-bundling steps that
+feed shipped CLI artifacts still rely on Unix shell commands, which blocks the
+same release-prep flow from running cleanly on native Windows hosts.
 
 This next pass keeps the selective-release model, but broadens it in three
 ways:
 
-1. Add an aggregate `crates` target so any qualifying crate change bumps and
-   publishes all workspace crates together, while crate-only releases can still
-   skip editor publishes.
-2. Generate target-local changelogs for both editor extensions, with CI commits
-   omitted entirely from those editor changelogs.
+1. Add native Windows binary artifacts for the CLI and LSP to tagged releases.
+2. Keep shipped-asset preparation runnable from native Windows hosts by
+   removing Unix-only bundling commands from the release-prep path.
 3. Keep editor/server compatibility as a separate concern from release-target
-   detection and publish ordering.
+   detection, version bumps, and publish ordering.
 
 ### Scope
 
 - **In scope:** a checked-in release-target registry, impact detection from git
   history, aggregate crate release detection, selective target version bumps,
   target-specific editor changelog generation, GitHub Actions publish gating,
-  and publish ordering so crates are released before editor extensions when the
-  crate target publishes.
+  publish ordering so crates are released before editor extensions when the
+  crate target publishes, native Windows binary artifact packaging, and
+  host-compatible asset bundling for shipped CLI inputs.
 - **Out of scope:** automatic compatibility negotiation between editors and the
   server, semver range handling for compatibility, and publishing the IntelliJ
   plugin before Marketplace acceptance.
@@ -55,6 +55,8 @@ ways:
   affect one Release_Target.
 - **Disabled_Target**: A Release_Target whose metadata is prepared and
   evaluated in CI even though its publish job is intentionally inactive.
+- **Platform_Binary_Artifact**: One OS/architecture-specific archive uploaded
+  to a tagged GitHub release, such as a Linux tarball or a Windows zip file.
 
 ## Requirement 1: Release Target Registry
 
@@ -146,17 +148,17 @@ unchanged artifacts keep their previous version and changelog state.
   <Criterion id="req-3-1">
     Repository release prep SHALL continue to generate the root
     `CHANGELOG.md` for the full tagged release.
-    <VerifiedBy strategy="file-glob" paths="mise.toml" />
+    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release.mjs, scripts/release.sh, scripts/release.ps1" />
   </Criterion>
   <Criterion id="req-3-2">
     Repository release prep SHALL bump a target's version to the tagged
     release version only when that target is impacted.
-    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release-targets/index.mjs" />
+    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release.mjs, scripts/release.sh, scripts/release.ps1, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-3-3">
     Repository release prep SHALL regenerate a target's Target_Changelog only
     when that target is impacted.
-    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release-targets/index.mjs" />
+    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release.mjs, scripts/release.sh, scripts/release.ps1, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-3-4">
     WHEN a target is not impacted, release prep SHALL leave that target's
@@ -167,13 +169,13 @@ unchanged artifacts keep their previous version and changelog state.
     WHEN the `crates` Aggregate_Target is impacted, repository release prep
     SHALL bump all workspace crate versions and the workspace `=version` pins
     as one coordinated unit.
-    <VerifiedBy strategy="file-glob" paths="mise.toml, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
+    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release.mjs, scripts/release.sh, scripts/release.ps1, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
   </Criterion>
   <Criterion id="req-3-6">
     WHEN the `crates` Aggregate_Target is not impacted, repository release prep
     SHALL leave the workspace crate versions and workspace `=version` pins
     unchanged.
-    <VerifiedBy strategy="file-glob" paths="mise.toml, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
+    <VerifiedBy strategy="file-glob" paths="mise.toml, scripts/release.mjs, scripts/release.sh, scripts/release.ps1, Cargo.toml, crates/**/Cargo.toml, scripts/release-targets/index.mjs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -262,6 +264,36 @@ notes, so that Marketplace metadata reflects only editor changes.
     `pluginVersion`, it SHALL fail rather than render fallback change notes
     such as `Unreleased`.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/build.gradle.kts" />
+  </Criterion>
+</AcceptanceCriteria>
+```
+
+## Requirement 6: Native Windows Release Artifacts
+
+As a Windows user and maintainer, I want tagged releases and release prep to
+treat Windows as a first-class binary platform, so that native installs and
+packaging do not depend on Unix hosts or manual repackaging.
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id="req-6-1">
+    WHEN the `crates` Aggregate_Target is being published, GitHub Actions
+    release automation SHALL build native Windows binaries for both
+    `supersigil` and `supersigil-lsp` for at least `x86_64-pc-windows-msvc`
+    alongside the existing macOS and Linux targets.
+    <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml" />
+  </Criterion>
+  <Criterion id="req-6-2">
+    Windows Platform_Binary_Artifacts SHALL package `supersigil.exe` and
+    `supersigil-lsp.exe` in a Windows-appropriate archive format and SHALL
+    publish matching checksums with the rest of the GitHub release assets.
+    <VerifiedBy strategy="file-glob" paths=".github/workflows/release.yml" />
+  </Criterion>
+  <Criterion id="req-6-3">
+    Repository asset-bundling steps that feed shipped CLI artifacts SHALL be
+    runnable on native Windows hosts and SHALL NOT depend on Unix-only shell
+    commands such as `mkdir`, `cp`, or `rm`.
+    <VerifiedBy strategy="file-glob" paths="mise.toml, package.json, website/package.json" />
   </Criterion>
 </AcceptanceCriteria>
 ```

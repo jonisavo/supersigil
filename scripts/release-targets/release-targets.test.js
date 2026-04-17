@@ -10,6 +10,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, afterEach } from "vitest";
 import { verifies } from "@supersigil/vitest";
 import { commandDetect, commandPrepare } from "./index.mjs";
@@ -71,6 +72,18 @@ function writeAndCommit(dir, relativePath, contents, message) {
 
 function readRepoFile(dir, relativePath) {
   return readFileSync(join(dir, relativePath), "utf8");
+}
+
+function checkedInPath(relativePath) {
+  return join(dirname(fileURLToPath(import.meta.url)), relativePath);
+}
+
+function readCheckedInFile(relativePath) {
+  return readFileSync(checkedInPath(relativePath), "utf8");
+}
+
+function normalizeNewlines(contents) {
+  return contents.replaceAll("\r\n", "\n");
 }
 
 function expectRepoFileContains(dir, relativePath, text) {
@@ -312,9 +325,7 @@ ${writeOutputSource}
 }
 
 function readCheckedInReleaseTargets() {
-  return JSON.parse(
-    readFileSync(new URL("../../release-targets.json", import.meta.url), "utf8"),
-  );
+  return JSON.parse(readCheckedInFile("../../release-targets.json"));
 }
 
 function getCheckedInTarget(targetId) {
@@ -482,9 +493,8 @@ describe("release-targets helper", () => {
       "release-targets/req#req-4-6",
     ),
     () => {
-      const workflow = readFileSync(
-        new URL("../../.github/workflows/release.yml", import.meta.url),
-        "utf8",
+      const workflow = normalizeNewlines(
+        readCheckedInFile("../../.github/workflows/release.yml"),
       );
 
       expect(workflow).toContain(
@@ -514,15 +524,22 @@ describe("release-targets helper", () => {
       "release-targets/req#req-3-6",
     ),
     () => {
-      const mise = readFileSync(
-        new URL("../../mise.toml", import.meta.url),
-        "utf8",
-      );
+      const mise = readCheckedInFile("../../mise.toml");
+      const releaseScript = readCheckedInFile("../../scripts/release.mjs");
+      const unixWrapper = readCheckedInFile("../../scripts/release.sh");
+      const windowsWrapper = readCheckedInFile("../../scripts/release.ps1");
 
-      expect(mise).toContain('PREPARE_JSON="$(node scripts/release-targets/index.mjs prepare');
-      expect(mise).toContain("target_is_impacted()");
-      expect(mise).toContain("cargo generate-lockfile");
-      expect(mise).toContain("stage_if_changed");
+      expect(mise).toContain('run = "bash scripts/release.sh"');
+      expect(mise).toContain(
+        'run_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1"',
+      );
+      expect(releaseScript).toContain("commandPrepare(");
+      expect(releaseScript).toContain("generate-lockfile");
+      expect(releaseScript).toContain("stageIfChanged");
+      expect(unixWrapper).toContain("release.mjs");
+      expect(unixWrapper).toContain("node");
+      expect(windowsWrapper).toContain("release.mjs");
+      expect(windowsWrapper).toContain("node");
     },
   );
 

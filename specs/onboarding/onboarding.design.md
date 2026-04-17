@@ -46,7 +46,8 @@ Extract a new `InstallWidget.astro` component used by both Hero and CtaSection. 
   - **Unknown** → Cargo
 - Clicking a tab switches the displayed command. Only one command is visible at a time.
 - Each command has a copy-to-clipboard button (reusing the existing `install-copy` pattern).
-- The GitHub Releases tab shows a link instead of a shell command, opening the releases page in a new tab.
+- The GitHub Releases tab shows a link instead of a shell command, opening the
+  native Windows release download page in a new tab.
 
 #### Tab content
 
@@ -55,7 +56,7 @@ Extract a new `InstallWidget.astro` component used by both Hero and CtaSection. 
 | Homebrew         | `brew install jonisavo/supersigil/supersigil`        |
 | AUR              | `yay -S supersigil-bin`                              |
 | Cargo            | `cargo install supersigil`                           |
-| GitHub Releases  | Link to `github.com/jonisavo/supersigil/releases`    |
+| GitHub Releases  | Link to the Windows release page for `supersigil.exe` and `supersigil-lsp.exe` |
 
 #### Styling
 
@@ -111,7 +112,7 @@ The "Open Terminal" action uses VS Code's built-in `workbench.action.terminal.ne
 Replace the current generic `showInformationMessage` with one that checks `process.platform`:
 - **darwin**: "Install with `brew install jonisavo/supersigil/supersigil`"
 - **linux**: "Install with your package manager or `cargo install supersigil-lsp`"
-- **win32**: "Download from GitHub Releases or install with `cargo install supersigil-lsp`"
+- **win32**: "Download the native Windows archive from GitHub Releases, add its unpacked directory to `PATH`, or install with `cargo install supersigil-lsp`"
 
 The notification keeps the "Open Settings" action and adds a "Retry" action.
 
@@ -143,7 +144,7 @@ Enrich `notifyBinaryNotFound()` for the unconfigured case:
 - Detect OS using `System.getProperty("os.name")`:
   - **macOS**: "Install with `brew install jonisavo/supersigil/supersigil`"
   - **Linux**: "Install with your package manager or `cargo install supersigil-lsp`"
-  - **Windows**: "Download from GitHub Releases or install with `cargo install supersigil-lsp`"
+- **Windows**: "Download the native Windows archive from GitHub Releases, add its unpacked directory to `PATH`, or install with `cargo install supersigil-lsp`"
 - Change notification type from BALLOON to STICKY_BALLOON so it persists until dismissed.
 - Add actions:
   - **"Open Terminal"**: Opens the IntelliJ terminal tool window via `ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)`.

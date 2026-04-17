@@ -205,7 +205,7 @@ describe("injectOpenFileButton", () => {
     const btn = container.querySelector(".open-file-btn") as HTMLElement;
     btn.click();
 
-    expect(onClick).toHaveBeenCalledWith("specs/proj/design.md");
+    expect(onClick).toHaveBeenCalledWith("specs/proj/design.md", undefined);
   });
 
   it("inserts button before the close button", () => {
@@ -451,6 +451,7 @@ describe("bootstrap webview runtime", () => {
           {
             id: "proj/requirements",
             path: "specs/proj/requirements.md",
+            file_uri: "file:///shared/specs/proj/requirements.md",
           },
         ],
         edges: [],
@@ -528,6 +529,7 @@ describe("bootstrap webview runtime", () => {
     expect(postMessage).toHaveBeenCalledWith({
       type: "openFile",
       path: "specs/proj/requirements.md",
+      uri: "file:///shared/specs/proj/requirements.md",
     });
   });
 

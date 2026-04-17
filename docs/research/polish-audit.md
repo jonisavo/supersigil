@@ -1,6 +1,6 @@
 # Polish Audit
 
-*April 2026 — v0.2.0*
+*April 2026 — v0.11.0*
 
 UX gaps, rough edges, and improvement opportunities across the CLI, editors,
 documentation, and onboarding experience.
@@ -36,13 +36,6 @@ or IntelliJ get no autocomplete, no validation, no hover docs. A published
 JSON Schema (or TOML-compatible equivalent) would make config authoring much
 smoother. The `schema` command exists for component schemas but not the
 config file itself. A `supersigil schema --config` could emit this.
-
-## Windows Support
-
-Not currently built or tested. CI targets macOS and Linux (musl) only. This
-is intentional for now — Windows support is planned once hardware is
-available. Binary size is 5-7 MB (with LTO and stripping), which is
-reasonable for all platforms.
 
 ## Shared Test File Resolver and .gitignore
 

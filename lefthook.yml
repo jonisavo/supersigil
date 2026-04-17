@@ -2,7 +2,7 @@ commit-msg:
   commands:
     cocogitto:
       run: >-
-        cog verify "$(cat {1})"
+        cog verify --file "{1}"
 
 pre-push:
   commands:

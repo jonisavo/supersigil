@@ -1,12 +1,33 @@
 package org.supersigil.intellij
 
 import java.nio.file.Files
+import java.nio.file.Path
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CompatibilityCheckTest {
+    private fun tempCommandScript(
+        prefix: String,
+        unixBody: String,
+        windowsBody: String,
+    ): Path {
+        val suffix = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) ".cmd" else ".sh"
+        val body =
+            if (suffix == ".cmd") {
+                windowsBody
+            } else {
+                unixBody
+            }
+
+        return Files.createTempFile(prefix, suffix).also { path ->
+            Files.writeString(path, body)
+            path.toFile().setExecutable(true)
+            path.toFile().deleteOnExit()
+        }
+    }
+
     @After
     fun clearCache() {
         clearCompatibilityInfoCache()
@@ -100,18 +121,21 @@ class CompatibilityCheckTest {
     @Test
     fun `accepts valid stdout even when stderr contains warnings`() {
         val script =
-            Files.createTempFile("supersigil-compatibility-stderr", ".sh").also { path ->
-                Files.writeString(
-                    path,
+            tempCommandScript(
+                prefix = "supersigil-compatibility-stderr",
+                unixBody =
                     """
-                    |#!/usr/bin/env bash
+                    |#!/usr/bin/env sh
                     |printf 'warning: wrapper noise\n' >&2
                     |printf '{"compatibility_version":1,"server_version":"0.10.0"}\n'
                     """.trimMargin(),
-                )
-                path.toFile().setExecutable(true)
-                path.toFile().deleteOnExit()
-            }
+                windowsBody =
+                    """
+                    |@echo off
+                    |echo warning: wrapper noise 1>&2
+                    |echo {"compatibility_version":1,"server_version":"0.10.0"}
+                    """.trimMargin(),
+            )
 
         assertEquals(
             CompatibilityResult.Compatible(
@@ -126,17 +150,19 @@ class CompatibilityCheckTest {
     @Test(timeout = 1000)
     fun `treats a hanging preflight command as incompatible`() {
         val script =
-            Files.createTempFile("supersigil-compatibility-hang", ".sh").also { path ->
-                Files.writeString(
-                    path,
+            tempCommandScript(
+                prefix = "supersigil-compatibility-hang",
+                unixBody =
                     """
-                    |#!/usr/bin/env bash
+                    |#!/usr/bin/env sh
                     |sleep 5
                     """.trimMargin(),
-                )
-                path.toFile().setExecutable(true)
-                path.toFile().deleteOnExit()
-            }
+                windowsBody =
+                    """
+                    |@echo off
+                    |timeout /t 5 /nobreak >nul
+                    """.trimMargin(),
+            )
 
         assertEquals(
             CompatibilityResult.Incompatible(

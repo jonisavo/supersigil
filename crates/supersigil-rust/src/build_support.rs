@@ -100,6 +100,15 @@ mod tests {
         (temp, minimal_config(), root, manifest_dir)
     }
 
+    fn emitted_paths(output: &[u8]) -> Vec<PathBuf> {
+        String::from_utf8(output.to_vec())
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("cargo:rerun-if-changed="))
+            .map(PathBuf::from)
+            .collect()
+    }
+
     // -----------------------------------------------------------------------
     // validation_input_paths (req-5-3, req-5-4)
     // -----------------------------------------------------------------------
@@ -161,12 +170,9 @@ mod tests {
 
         emit_rerun_if_changed(&mut output, &config, &root, &manifest_dir).unwrap();
 
-        let text = String::from_utf8(output).unwrap();
+        let paths = emitted_paths(&output);
         assert!(
-            text.contains(&format!(
-                "cargo:rerun-if-changed={}",
-                root.join("supersigil.toml").display()
-            )),
+            paths.contains(&root.join("supersigil.toml")),
             "must emit rerun-if-changed for supersigil.toml"
         );
     }
@@ -179,15 +185,9 @@ mod tests {
 
         emit_rerun_if_changed(&mut output, &config, &root, &manifest_dir).unwrap();
 
-        let text = String::from_utf8(output).unwrap();
-        assert!(text.contains(&format!(
-            "cargo:rerun-if-changed={}",
-            root.join("specs/auth.md").display()
-        )));
-        assert!(text.contains(&format!(
-            "cargo:rerun-if-changed={}",
-            root.join("specs/api.md").display()
-        )));
+        let paths = emitted_paths(&output);
+        assert!(paths.contains(&root.join("specs/auth.md")));
+        assert!(paths.contains(&root.join("specs/api.md")));
     }
 
     #[test]

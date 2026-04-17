@@ -9,7 +9,7 @@ title: "IntelliJ Plugin"
 ```supersigil-xml
 <Implements refs="intellij-plugin/req" />
 <DependsOn refs="lsp-server/design" />
-<TrackedFiles paths="editors/intellij/src/**/*.kt, editors/intellij/src/main/resources/META-INF/plugin.xml" />
+<TrackedFiles paths="editors/intellij/src/**/*.kt, editors/intellij/src/main/resources/META-INF/plugin.xml, crates/supersigil-lsp/src/main.rs" />
 ```
 
 ## Overview
@@ -17,7 +17,8 @@ title: "IntelliJ Plugin"
 A thin IntelliJ IDEA plugin that launches `supersigil-lsp` over stdio
 using the platform's built-in LSP client API. The plugin adds binary
 discovery, a Spec Explorer tool window, a verify action, and Markdown
-code fence language injection on top of the LSP client.
+code fence language injection on top of the LSP client, with native startup
+behavior across macOS, Linux, and Windows.
 
 ## Architecture
 
@@ -116,7 +117,8 @@ found, it creates a `SupersigilLspServerDescriptor`.
 The platform's LSP client handles stdio transport, JSON-RPC framing,
 capability negotiation, and crash recovery. File change notifications
 (`workspace/didChangeWatchedFiles`) are sent automatically by the
-platform.
+platform. On Windows, the descriptor still points directly at the native
+`supersigil-lsp.exe` binary; no WSL or Unix-only bridge process is involved.
 
 ### Graceful Degradation
 
@@ -132,16 +134,20 @@ automatically via standard capability negotiation.
 
 1. Read `serverPath` from `SupersigilSettings`. If set and the file
    exists, return it. If set but invalid, show an error notification.
-2. Search `$PATH` for `supersigil-lsp` using
+2. Search `$PATH` for the host executable name using
    `PathEnvironmentVariableUtil.findInPath()`.
-3. Check `~/.cargo/bin/supersigil-lsp` and
-   `~/.local/bin/supersigil-lsp`.
+3. Check common install locations:
+   - macOS/Linux: `~/.cargo/bin/supersigil-lsp`,
+     `~/.local/bin/supersigil-lsp`
+   - Windows: `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`
 4. Show a notification balloon with install instructions and a link
    to Settings > Tools > Supersigil. Return null.
 
 When null is returned, the LSP server is not started. The user can
 install the binary and reopen a file to trigger a new resolution
-attempt.
+attempt. Windows release-archive installs are expected to add the unpacked
+directory to `PATH` or use the explicit settings override; the plugin does not
+scan arbitrary download folders.
 
 ## Spec Explorer Tool Window
 
@@ -259,8 +265,15 @@ Requires a plugin dependency on `org.intellij.plugins.markdown`
   documents. Test icon and status mapping.
 - **Binary resolution**: Unit-testable by extracting the resolution
   logic into a pure function that takes candidate paths and a
-  file-exists predicate.
-- **LSP integration**: Manual testing for v1.
+  file-exists predicate, including Windows executable names and fallback
+  paths.
+- **LSP integration**: Cover the descriptor and tool-window behavior with the
+  existing plugin tests, then run `./gradlew test buildPlugin` on the target
+  host so the packaged plugin still assembles cleanly.
+- **Windows startup coverage**: Unit-test the Windows command-line helper and
+  binary-resolution helpers, then run the native Windows Gradle loop to confirm
+  the built-in LSP client still launches `supersigil-lsp.exe` over stdio
+  without WSL.
 - **Plugin verification**: `./gradlew verifyPlugin` validates
   binary compatibility with target platform versions.
 

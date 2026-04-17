@@ -31,6 +31,7 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
 import org.eclipse.lsp4j.ExecuteCommandParams
+import java.net.URI
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Future
@@ -196,7 +197,7 @@ private class GraphExplorerPanel(
                     return com.google.gson.Gson().toJson(result)
                 }
             } catch (e: Exception) {
-                LOG.debug("Failed to fetch document components from LSP server", e)
+                LOG.debug("Failed to fetch document components from LSP server for $uri", e)
             }
         }
 
@@ -443,12 +444,17 @@ internal data class ResolvedGraphExplorerData(
 internal fun graphExplorerDocumentUri(
     projectBasePath: String,
     documentPath: String,
-): String = navigationFileUri(projectBasePath, documentPath)
+    documentFileUri: String? = null,
+): String = documentFileUri ?: navigationFileUri(projectBasePath, documentPath)
 
 internal fun graphExplorerDocumentAbsolutePath(
     projectBasePath: String,
     documentPath: String,
-): String = resolveNavigationPath(projectBasePath, documentPath)
+    documentFileUri: String? = null,
+): String = documentFileUri?.let(::graphExplorerPathFromFileUri) ?: resolveNavigationPath(projectBasePath, documentPath)
+
+private fun graphExplorerPathFromFileUri(documentFileUri: String): String =
+    Path.of(URI(documentFileUri)).toString()
 
 internal fun resolveGraphExplorerData(
     graphData: Any?,
@@ -463,9 +469,10 @@ internal fun resolveGraphExplorerData(
         val document = element.asJsonObject
         val id = document.get("id")?.asString ?: continue
         val path = document.get("path")?.asString ?: continue
-        val resolvedPath = graphExplorerDocumentAbsolutePath(projectBasePath, path)
+        val fileUri = document.get("file_uri")?.asString
+        val resolvedPath = graphExplorerDocumentAbsolutePath(projectBasePath, path, fileUri)
         document.addProperty("filePath", resolvedPath)
-        documentTargets += GraphExplorerDocumentTarget(id, Path.of(resolvedPath).toUri().toString())
+        documentTargets += GraphExplorerDocumentTarget(id, graphExplorerDocumentUri(projectBasePath, path, fileUri))
     }
 
     return ResolvedGraphExplorerData(
@@ -617,9 +624,11 @@ internal fun fetchGraphExplorerRenderData(
                     val index = nextIndex.getAndIncrement()
                     if (index >= documentTargets.size) return@submit
 
+                    val target = documentTargets[index]
                     try {
-                        results[index] = fetchDocumentComponents(documentTargets[index].uri)
-                    } catch (_: Exception) {
+                        val result = fetchDocumentComponents(target.uri)
+                        results[index] = result
+                    } catch (e: Exception) {
                         results[index] = null
                     }
                 }

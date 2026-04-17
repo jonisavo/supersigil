@@ -29,7 +29,11 @@ pub(crate) fn path_to_url(path: &Path) -> Option<Url> {
     if path.is_absolute() {
         Url::from_file_path(path).ok()
     } else {
-        let abs = PathBuf::from("/").join(path);
+        let abs = if cfg!(windows) {
+            PathBuf::from(r"C:\").join(path)
+        } else {
+            PathBuf::from("/").join(path)
+        };
         Url::from_file_path(&abs).ok()
     }
 }

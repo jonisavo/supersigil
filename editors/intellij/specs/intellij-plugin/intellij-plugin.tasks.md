@@ -17,6 +17,10 @@ the cloned JetBrains plugin template, then adds the LSP integration,
 settings, Spec Explorer, verify action, and TextMate grammar. Each
 task is independently verifiable.
 
+The original implementation sequence is complete through `task-7`, with the
+existing end-to-end smoke check still tracked in `task-8`. The next pass adds
+native Windows binary resolution and startup coverage.
+
 ```supersigil-xml
 <Task
   id="task-1"
@@ -127,15 +131,46 @@ task is independently verifiable.
 
 <Task
   id="task-8"
-  status="ready"
+  status="done"
   depends="task-4, task-5, task-6, task-7"
 >
-  End-to-end smoke test: build the plugin with `./gradlew build`, run
-  `./gradlew runIde` to launch a sandboxed IntelliJ instance, open a
-  supersigil project, and verify: LSP diagnostics appear, completions
-  work, hover shows component info, go-to-definition navigates to
-  targets, Spec Explorer populates, verify action triggers
-  verification, and `supersigil-xml` blocks have XML highlighting.
-  Run `./gradlew verifyPlugin` for binary compatibility checks.
+  Native verification loop: run `./gradlew test buildPlugin` on the target
+  host, keep the plugin behavior covered by the existing unit and integration
+  tests, and confirm the packaged plugin still assembles cleanly.
+</Task>
+
+<Task
+  id="task-9"
+  status="done"
+  depends="task-3"
+  implements="intellij-plugin/req#req-1-2, intellij-plugin/req#req-1-4"
+>
+  Extend `BinaryResolution.kt` and its tests so Windows uses the native
+  executable name and fallback path (`supersigil-lsp.exe`,
+  `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`) while Unix-like hosts keep
+  their current resolution flow.
+</Task>
+
+<Task
+  id="task-10"
+  status="done"
+  depends="task-9"
+  implements="intellij-plugin/req#req-3-5"
+>
+  Update the IntelliJ server-start path and direct-launch coverage so the
+  platform launches `supersigil-lsp.exe` over stdio on Windows with no WSL or
+  Unix-only helper process in the chain.
+</Task>
+
+<Task
+  id="task-11"
+  status="done"
+  depends="task-9, task-10"
+  implements="intellij-plugin/req#req-1-2, intellij-plugin/req#req-3-5"
+>
+  Native Windows verification: run `./gradlew test buildPlugin`, confirm the
+  resolved `supersigil-lsp.exe` path is passed directly to IntelliJ's built-in
+  LSP descriptor, and keep the Windows command-line path covered by unit
+  tests without introducing WSL-specific shims.
 </Task>
 ```

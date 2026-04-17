@@ -158,6 +158,11 @@ private fun setNotInstalledEmptyText(
     tree.emptyText.clear()
     tree.emptyText.setText("Supersigil LSP server not found. Install to get started")
     tree.emptyText.appendLine(
+        notInstalledDetailLine(),
+        SimpleTextAttributes.GRAYED_ATTRIBUTES,
+        null,
+    )
+    tree.emptyText.appendLine(
         "This panel updates automatically",
         SimpleTextAttributes.GRAYED_ATTRIBUTES,
         null,
@@ -172,6 +177,9 @@ private fun setNotInstalledEmptyText(
             .showSettingsDialog(project, SupersigilSettingsConfigurable::class.java)
     }
 }
+
+private fun notInstalledDetailLine(): String =
+    binaryInstallHint().plainText
 
 private fun setCompatibilityFailureEmptyText(
     tree: Tree,

@@ -125,16 +125,16 @@ Two current serialization details matter for downstream consumers:
 
 ## Testing Strategy
 
-- [cmd_ls.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_ls.rs)
+- [cmd_ls.rs](../../tests/cmd_ls.rs)
   covers list success, `type` and `status` filtering, JSON output, empty
   results, the `list` alias, and multi-project `--project` filtering.
-- [ls.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/src/commands/ls.rs)
+- [ls.rs](../../src/commands/ls.rs)
   contains unit coverage for aligned table layout, Unicode-versus-ASCII
   separators, relative path display, empty-result messaging, and count output.
-- [cmd_schema.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_schema.rs)
+- [cmd_schema.rs](../../tests/cmd_schema.rs)
   covers config-only schema export, JSON/YAML formats, built-in schema content,
   configured overrides, field omission, and missing-config failure.
-- [clap_parse.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/clap_parse.rs)
+- [clap_parse.rs](../../tests/clap_parse.rs)
   covers the current parse surface for `graph` and its `--format` flag.
 
 ## Current Gaps

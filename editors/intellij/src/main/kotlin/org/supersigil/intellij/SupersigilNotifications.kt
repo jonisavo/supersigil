@@ -11,6 +11,11 @@ import com.intellij.openapi.wm.ToolWindowManager
 private const val NOTIFICATION_GROUP = "Supersigil"
 internal const val EDITOR_SETUP_URL = "https://supersigil.org/guides/editor-setup/"
 
+internal data class BinaryInstallHint(
+    val html: String,
+    val plainText: String,
+)
+
 private val notifiedProjects = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Project, Boolean>())
 private val compatibilityNotifications =
     java.util.WeakHashMap<Project, String>()
@@ -25,6 +30,30 @@ private fun openSupersigilSettingsAction(project: Project) =
 private fun openInstallationGuideAction() =
     com.intellij.notification.NotificationAction.createSimpleExpiring("Installation Guide") {
         BrowserUtil.browse(EDITOR_SETUP_URL)
+    }
+
+internal fun binaryInstallHint(): BinaryInstallHint =
+    when {
+        SystemInfo.isMac ->
+            BinaryInstallHint(
+                html = "Install with <code>brew install jonisavo/supersigil/supersigil</code>",
+                plainText = "On macOS, install with Homebrew or cargo.",
+            )
+        SystemInfo.isWindows ->
+            BinaryInstallHint(
+                html =
+                    "Download the native Windows archive from " +
+                        "<a href=\"https://github.com/jonisavo/supersigil/releases\">GitHub Releases</a> " +
+                        " and add its unpacked directory to <code>PATH</code>, " +
+                        "or install with <code>cargo install supersigil-lsp</code>",
+                plainText =
+                    "On Windows, download the native release zip and add its unpacked directory to PATH.",
+            )
+        else ->
+            BinaryInstallHint(
+                html = "Install with your package manager or <code>cargo install supersigil-lsp</code>",
+                plainText = "On Linux, install with your package manager or cargo.",
+            )
     }
 
 fun notifyBinaryNotFound(
@@ -44,16 +73,7 @@ fun notifyBinaryNotFound(
         return
     }
 
-    val installHint =
-        when {
-            SystemInfo.isMac ->
-                "Install with <code>brew install jonisavo/supersigil/supersigil</code>"
-            SystemInfo.isWindows ->
-                "Download from <a href=\"https://github.com/jonisavo/supersigil/releases\">GitHub Releases</a> " +
-                    "or install with <code>cargo install supersigil-lsp</code>"
-            else ->
-                "Install with your package manager or <code>cargo install supersigil-lsp</code>"
-        }
+    val installHint = binaryInstallHint().html
 
     NotificationGroupManager
         .getInstance()

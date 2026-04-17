@@ -156,6 +156,30 @@ pub(crate) mod test_helpers {
 
     use super::ActionRequestContext;
 
+    const SNAPSHOT_ROOT_URI: &str = "file:///tmp/project";
+
+    pub fn test_project_root() -> &'static Path {
+        if cfg!(windows) {
+            Path::new(r"C:\tmp\project")
+        } else {
+            Path::new("/tmp/project")
+        }
+    }
+
+    pub fn test_file_url(relative_path: &str) -> Url {
+        crate::path_to_url(&test_project_root().join(relative_path))
+            .expect("test file path should convert into a file:// URL")
+    }
+
+    fn format_uri(uri: &Url) -> String {
+        let rendered = uri.to_string();
+        if cfg!(windows) {
+            rendered.replace("file:///C:/tmp/project", SNAPSHOT_ROOT_URI)
+        } else {
+            rendered
+        }
+    }
+
     /// Encapsulates common test setup for code action provider tests.
     ///
     /// Replaces the 5-line boilerplate (`graph`, `config`, `file_parses`, `uri`,
@@ -182,7 +206,7 @@ pub(crate) mod test_helpers {
                 component_defs: ComponentDefs::defaults(),
                 file_parses: HashMap::new(),
                 partial_file_parses: HashMap::new(),
-                uri: Url::parse("file:///tmp/project/spec.md").unwrap(),
+                uri: test_file_url("spec.md"),
             }
         }
 
@@ -193,7 +217,7 @@ pub(crate) mod test_helpers {
                 component_defs: &self.component_defs,
                 file_parses: &self.file_parses,
                 partial_file_parses: &self.partial_file_parses,
-                project_root: Path::new("/tmp/project"),
+                project_root: test_project_root(),
                 file_uri: &self.uri,
                 file_content: content,
             }
@@ -213,7 +237,7 @@ pub(crate) mod test_helpers {
             if let Some(edit) = &action.edit {
                 if let Some(changes) = &edit.changes {
                     for (uri, edits) in changes {
-                        let _ = writeln!(out, "  edit: {uri}");
+                        let _ = writeln!(out, "  edit: {}", format_uri(uri));
                         for te in edits {
                             format_text_edit(&mut out, te, "    ");
                         }
@@ -224,7 +248,11 @@ pub(crate) mod test_helpers {
                     match doc_changes {
                         DocumentChanges::Edits(edits) => {
                             for tde in edits {
-                                let _ = writeln!(out, "    edit {}", tde.text_document.uri);
+                                let _ = writeln!(
+                                    out,
+                                    "    edit {}",
+                                    format_uri(&tde.text_document.uri),
+                                );
                                 for edit in &tde.edits {
                                     match edit {
                                         OneOf::Left(te) => {
@@ -242,21 +270,28 @@ pub(crate) mod test_helpers {
                                 match op {
                                     DocumentChangeOperation::Op(res_op) => match res_op {
                                         ResourceOp::Create(cf) => {
-                                            let _ = writeln!(out, "    create {}", cf.uri);
+                                            let _ =
+                                                writeln!(out, "    create {}", format_uri(&cf.uri));
                                         }
                                         ResourceOp::Rename(rf) => {
                                             let _ = writeln!(
                                                 out,
                                                 "    rename {} -> {}",
-                                                rf.old_uri, rf.new_uri
+                                                format_uri(&rf.old_uri),
+                                                format_uri(&rf.new_uri),
                                             );
                                         }
                                         ResourceOp::Delete(df) => {
-                                            let _ = writeln!(out, "    delete {}", df.uri);
+                                            let _ =
+                                                writeln!(out, "    delete {}", format_uri(&df.uri));
                                         }
                                     },
                                     DocumentChangeOperation::Edit(tde) => {
-                                        let _ = writeln!(out, "    edit {}", tde.text_document.uri);
+                                        let _ = writeln!(
+                                            out,
+                                            "    edit {}",
+                                            format_uri(&tde.text_document.uri),
+                                        );
                                         for edit in &tde.edits {
                                             match edit {
                                                 OneOf::Left(te) => {

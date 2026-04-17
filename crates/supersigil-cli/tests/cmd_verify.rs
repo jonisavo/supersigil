@@ -682,6 +682,7 @@ fn verify_empty_project_warns() {
 #[test]
 fn broken_pipe_does_not_panic() {
     use std::fmt::Write;
+    use std::io::Read;
     use std::process::{Command, Stdio};
 
     let dir = TempDir::new().unwrap();
@@ -729,18 +730,27 @@ fn broken_pipe_does_not_panic() {
     }
 
     let bin = assert_cmd::cargo::cargo_bin("supersigil");
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(format!(
-            "{} verify --format json 2>&1 | head -1; exit ${{PIPESTATUS[0]}}",
-            bin.display()
-        ))
+    let mut child = Command::new(bin)
+        .args(["verify", "--format", "json"])
         .current_dir(dir.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .expect("failed to run pipeline");
+        .spawn()
+        .expect("failed to start verify process");
 
+    let mut stdout = child.stdout.take().expect("child stdout should be piped");
+    let mut first_chunk = [0_u8; 256];
+    let bytes_read = stdout
+        .read(&mut first_chunk)
+        .expect("should read at least one chunk from stdout");
+    assert!(bytes_read > 0, "verify should emit JSON output");
+
+    // Drop the read end early so the child sees a broken pipe while writing.
+    drop(stdout);
+
+    let output = child
+        .wait_with_output()
+        .expect("failed to wait on verify process");
     let code = output.status.code().unwrap_or(-1);
 
     assert_ne!(

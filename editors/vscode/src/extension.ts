@@ -6,8 +6,6 @@ import * as vscode from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
-  ServerOptions,
-  TransportKind,
 } from "vscode-languageclient/node";
 import {
   METHOD_DOCUMENT_LIST,
@@ -21,6 +19,11 @@ import {
   queryCompatibilityInfo,
   type CompatibilityResult,
 } from "./version";
+import {
+  defaultServerBinaryCandidates,
+  pathLookupCommand,
+} from "./binaryResolution";
+import { createServerOptions } from "./serverOptions";
 
 const clients = new Map<string, LanguageClient>();
 const clientOutputChannels = new Map<string, vscode.OutputChannel>();
@@ -65,20 +68,19 @@ function resolveServerBinary(): string | undefined {
   }
 
   try {
-    const cmd =
-      process.platform === "win32"
-        ? "where.exe supersigil-lsp"
-        : "which supersigil-lsp";
-    return execSync(cmd, { encoding: "utf-8" }).trim();
+    const fromPath = execSync(pathLookupCommand(process.platform), {
+      encoding: "utf-8",
+    })
+      .split(/\r?\n/u)
+      .find((entry) => entry.trim().length > 0);
+    if (fromPath) {
+      return fromPath.trim();
+    }
   } catch {
     // Not on $PATH
   }
 
-  const home = homedir();
-  const candidates = [
-    join(home, ".cargo", "bin", "supersigil-lsp"),
-    join(home, ".local", "bin", "supersigil-lsp"),
-  ];
+  const candidates = defaultServerBinaryCandidates(homedir(), process.platform);
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return candidate;
@@ -91,8 +93,7 @@ function resolveServerBinary(): string | undefined {
     let installHint: string;
     switch (process.platform) {
       case "darwin":
-        installHint =
-          "Install with `brew install jonisavo/supersigil/supersigil`";
+        installHint = "Install with Homebrew or `cargo install supersigil-lsp`";
         break;
       case "linux":
         installHint =
@@ -100,7 +101,7 @@ function resolveServerBinary(): string | undefined {
         break;
       case "win32":
         installHint =
-          "Download from GitHub Releases or install with `cargo install supersigil-lsp`";
+          "Download the native Windows archive from GitHub Releases and add its unpacked directory to `PATH`, or install with `cargo install supersigil-lsp`";
         break;
       default:
         installHint = "Install with `cargo install supersigil-lsp`";
@@ -227,10 +228,7 @@ async function startClientForFolder(
     return;
   }
 
-  const serverOptions: ServerOptions = {
-    command: serverPath,
-    transport: TransportKind.stdio,
-  };
+  const serverOptions = createServerOptions(serverPath);
 
   const outputChannel = vscode.window.createOutputChannel(
     `Supersigil LSP (${folder.name})`,

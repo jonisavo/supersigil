@@ -122,6 +122,14 @@ impl SupersigilLsp {
             .unwrap_or_else(ComponentDefs::defaults)
     }
 
+    fn normalize_live_content(content: String) -> Arc<String> {
+        if content.contains('\r') || content.starts_with('\u{feff}') {
+            Arc::new(supersigil_parser::normalize(&content))
+        } else {
+            Arc::new(content)
+        }
+    }
+
     fn publish_merged_diagnostics(&self, uri: &Url) {
         let file = self.file_diagnostics.get(uri).cloned().unwrap_or_default();
         let graph = self.graph_diagnostics.get(uri).cloned().unwrap_or_default();
@@ -763,13 +771,13 @@ impl LanguageServer for SupersigilLsp {
         if !self.uri_is_owned(&uri) {
             return ControlFlow::Continue(());
         }
-        let content = params.text_document.text;
+        let content = Self::normalize_live_content(params.text_document.text);
 
         // Only reparse when config is loaded (server is active).
         if self.config.is_some() {
-            self.reparse_and_publish(&uri, &content);
+            self.reparse_and_publish(&uri, content.as_ref());
         }
-        self.open_files.insert(uri, Arc::new(content));
+        self.open_files.insert(uri, content);
         ControlFlow::Continue(())
     }
 
@@ -783,11 +791,11 @@ impl LanguageServer for SupersigilLsp {
         }
 
         if let Some(change) = params.content_changes.into_iter().last() {
-            let content = change.text;
+            let content = Self::normalize_live_content(change.text);
             if self.config.is_some() {
-                self.reparse_and_publish(&uri, &content);
+                self.reparse_and_publish(&uri, content.as_ref());
             }
-            self.open_files.insert(uri, Arc::new(content));
+            self.open_files.insert(uri, content);
         }
 
         ControlFlow::Continue(())
@@ -1887,6 +1895,68 @@ supersigil:
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].name, "Criterion");
         assert_eq!(children[1].name, "ok-1");
+    }
+
+    #[test]
+    #[verifies("spec-rendering/req#req-1-1")]
+    fn document_components_normalize_open_crlf_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/crlf.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+
+        let crlf_buffer = "\
+---\r
+supersigil:\r
+  id: crlf/req\r
+  type: requirements\r
+  status: approved\r
+---\r
+\r
+```supersigil-xml\r
+<AcceptanceCriteria>\r
+  <Criterion id=\"c1\">ok</Criterion>\r
+</AcceptanceCriteria>\r
+```\r
+";
+        std::fs::write(&abs_path, crlf_buffer).unwrap();
+
+        let mut state = test_state(root);
+        let uri = Url::from_file_path(&abs_path).unwrap();
+
+        let _ = state.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "markdown".into(),
+                version: 1,
+                text: crlf_buffer.into(),
+            },
+        });
+
+        let stored = state
+            .open_files
+            .get(&uri)
+            .expect("open file should be tracked");
+        assert!(
+            !stored.contains('\r'),
+            "open buffer should be normalized before reparsing",
+        );
+
+        let result = block_on(state.handle_document_components(
+            crate::document_components::DocumentComponentsParams {
+                uri: uri.to_string(),
+            },
+        ))
+        .unwrap();
+
+        assert_eq!(result.document_id, "crlf/req");
+        assert_eq!(result.fences.len(), 1);
+        assert_eq!(result.fences[0].components.len(), 1);
+        let root_component = &result.fences[0].components[0];
+        assert_eq!(root_component.kind, "AcceptanceCriteria");
+        assert_eq!(root_component.children.len(), 1);
+        assert_eq!(root_component.children[0].kind, "Criterion");
     }
 
     fn make_code_action_params(diagnostics: Vec<Diagnostic>) -> CodeActionParams {

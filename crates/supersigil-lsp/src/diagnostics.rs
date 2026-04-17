@@ -664,13 +664,17 @@ mod tests {
         serde_json::from_value(value.clone()).expect("data should deserialize to DiagnosticData")
     }
 
+    fn test_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(name)
+    }
+
     // -----------------------------------------------------------------------
     // graph_error_to_diagnostic
     // -----------------------------------------------------------------------
 
     #[test]
     fn duplicate_id_produces_one_diagnostic_per_path() {
-        let path = std::path::PathBuf::from("/tmp/spec-a.md");
+        let path = test_path("spec-a.md");
         let err = GraphError::DuplicateId {
             id: "REQ-001".into(),
             paths: vec![path.clone()],
@@ -688,10 +692,7 @@ mod tests {
     fn duplicate_id_with_multiple_paths_produces_multiple_diagnostics() {
         let err = GraphError::DuplicateId {
             id: "REQ-002".into(),
-            paths: vec![
-                std::path::PathBuf::from("/tmp/a.md"),
-                std::path::PathBuf::from("/tmp/b.md"),
-            ],
+            paths: vec![test_path("a.md"), test_path("b.md")],
         };
 
         let pairs = graph_error_to_diagnostic(&err);
@@ -736,7 +737,7 @@ mod tests {
 
     #[test]
     fn broken_ref_with_lookup_produces_diagnostic() {
-        let path = std::path::PathBuf::from("/tmp/req-001.md");
+        let path = test_path("req-001.md");
         let err = GraphError::BrokenRef {
             doc_id: "REQ-001".into(),
             ref_str: "REQ-999".into(),
@@ -774,7 +775,7 @@ mod tests {
 
     #[test]
     fn duplicate_component_id_with_lookup_produces_one_diagnostic_per_position() {
-        let path = std::path::PathBuf::from("/tmp/req-comp.md");
+        let path = test_path("req-comp.md");
         let err = GraphError::DuplicateComponentId {
             doc_id: "REQ-001".into(),
             component_id: "crit-1".into(),
@@ -802,7 +803,7 @@ mod tests {
     fn finding_with_position_and_details_path_but_no_line_uses_position() {
         // When attach_doc_paths sets details.path but not details.line/column,
         // the diagnostic should use finding.position, not default to (0, 0).
-        let path = std::path::PathBuf::from("/tmp/test-doc.md");
+        let path = test_path("test-doc.md");
 
         // Write a minimal file so source_to_lsp_from_file can read it.
         let _ = std::fs::write(
@@ -839,7 +840,7 @@ mod tests {
     #[test]
     fn finding_with_details_path_and_line_uses_details_line() {
         // When details has both path AND line, those should be used (existing behavior).
-        let path = std::path::PathBuf::from("/tmp/test-doc2.md");
+        let path = test_path("test-doc2.md");
         let _ = std::fs::write(&path, "line1\nline2\nline3\nline4\nline5\n");
 
         let mut finding = Finding::new(
@@ -871,7 +872,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn task_dependency_cycle_with_lookup_produces_diagnostic() {
-        let path = std::path::PathBuf::from("/tmp/tasks.md");
+        let path = test_path("tasks.md");
         let err = GraphError::TaskDependencyCycle {
             doc_id: "TASKS".into(),
             cycle: vec!["TASK-A".into(), "TASK-B".into()],
@@ -893,7 +894,7 @@ mod tests {
     #[verifies("lsp-code-actions/req#req-1-2")]
     #[test]
     fn parse_error_missing_attribute_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/parse-attr.md");
+        let path = test_path("parse-attr.md");
         let err = ParseError::MissingRequiredAttribute {
             path: path.clone(),
             component: "Criterion".into(),
@@ -927,7 +928,7 @@ mod tests {
 
     #[test]
     fn parse_error_xml_syntax_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/parse-xml.md");
+        let path = test_path("parse-xml.md");
         let err = ParseError::XmlSyntaxError {
             path: path.clone(),
             line: 3,
@@ -947,7 +948,7 @@ mod tests {
 
     #[test]
     fn parse_error_unclosed_frontmatter_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/parse-fm.md");
+        let path = test_path("parse-fm.md");
         let err = ParseError::UnclosedFrontMatter { path: path.clone() };
 
         let (_, diag) = parse_error_to_diagnostic(&err, None).unwrap();
@@ -961,7 +962,7 @@ mod tests {
 
     #[test]
     fn parse_error_other_variants_attach_other_kind() {
-        let path = std::path::PathBuf::from("/tmp/parse-id.md");
+        let path = test_path("parse-id.md");
         let err = ParseError::MissingId { path: path.clone() };
 
         let (_, diag) = parse_error_to_diagnostic(&err, None).unwrap();
@@ -982,10 +983,7 @@ mod tests {
     fn graph_error_duplicate_id_attaches_data() {
         let err = GraphError::DuplicateId {
             id: "REQ-001".into(),
-            paths: vec![
-                std::path::PathBuf::from("/tmp/a.md"),
-                std::path::PathBuf::from("/tmp/b.md"),
-            ],
+            paths: vec![test_path("graph-a.md"), test_path("graph-b.md")],
         };
 
         let pairs = graph_error_to_diagnostic(&err);
@@ -1018,7 +1016,7 @@ mod tests {
 
     #[test]
     fn graph_error_broken_ref_with_lookup_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/broken-ref.md");
+        let path = test_path("broken-ref.md");
         let err = GraphError::BrokenRef {
             doc_id: "REQ-001".into(),
             ref_str: "REQ-999".into(),
@@ -1047,7 +1045,7 @@ mod tests {
 
     #[test]
     fn graph_error_duplicate_component_id_with_lookup_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/dup-comp.md");
+        let path = test_path("dup-comp.md");
         let err = GraphError::DuplicateComponentId {
             doc_id: "REQ-001".into(),
             component_id: "crit-1".into(),
@@ -1075,7 +1073,7 @@ mod tests {
 
     #[test]
     fn graph_error_task_dependency_cycle_with_lookup_attaches_data() {
-        let path = std::path::PathBuf::from("/tmp/cycle.md");
+        let path = test_path("cycle.md");
         let err = GraphError::TaskDependencyCycle {
             doc_id: "TASKS".into(),
             cycle: vec!["A".into(), "B".into()],
@@ -1095,8 +1093,8 @@ mod tests {
 
     #[test]
     fn graph_error_document_dependency_cycle_with_lookup_attaches_data() {
-        let path_a = std::path::PathBuf::from("/tmp/cycle-a.md");
-        let path_b = std::path::PathBuf::from("/tmp/cycle-b.md");
+        let path_a = test_path("cycle-a.md");
+        let path_b = test_path("cycle-b.md");
         let err = GraphError::DocumentDependencyCycle {
             cycle: vec!["DOC-A".into(), "DOC-B".into()],
         };
@@ -1124,7 +1122,7 @@ mod tests {
     #[verifies("lsp-code-actions/req#req-1-1")]
     #[test]
     fn finding_diagnostic_attaches_verify_data() {
-        let path = std::path::PathBuf::from("/tmp/finding-data.md");
+        let path = test_path("finding-data.md");
 
         let finding = Finding::new(
             RuleName::BrokenRef,

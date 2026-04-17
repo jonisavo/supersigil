@@ -453,14 +453,14 @@ serialization target. The `--detail compact` behavior (clearing
 
 ## Testing Strategy
 
-- [cmd_context.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_context.rs)
+- [cmd_context.rs](../../tests/cmd_context.rs)
   covers basic success output, JSON output, and unknown-ID failure for
   `context`.
-- [cmd_plan.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_plan.rs)
+- [cmd_plan.rs](../../tests/cmd_plan.rs)
   covers exact and prefix query selection, dependency graph rendering,
   actionable filtering, `--full` mode, JSON output, and stderr-only plugin
   warnings.
-- [query.rs](/home/joni/.local/src/supersigil/crates/supersigil-core/src/graph/query.rs)
+- [query.rs](../../../supersigil-core/src/graph/query.rs)
   contains unit coverage for `PlanQuery::parse` and the task-blocking partition
   logic that the CLI reuses for default `plan` output.
 

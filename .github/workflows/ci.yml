@@ -11,8 +11,38 @@ env:
 
 jobs:
   check:
-    name: Check
-    runs-on: ubuntu-latest
+    name: Check (${{ matrix.name }})
+    strategy:
+      matrix:
+        include:
+          - name: ubuntu
+            runner: ubuntu-latest
+            clippy-args: ""
+            commit-check: true
+            fmt-check: true
+          - name: windows
+            runner: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            clippy-args: --target x86_64-pc-windows-msvc
+          - name: x86_64-apple-darwin
+            runner: macos-26-intel
+            rust-target: x86_64-apple-darwin
+            clippy-args: --target x86_64-apple-darwin
+          - name: aarch64-apple-darwin
+            runner: macos-latest
+            rust-target: aarch64-apple-darwin
+            clippy-args: --target aarch64-apple-darwin
+          - name: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            rust-target: x86_64-unknown-linux-musl
+            deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            clippy-args: --target x86_64-unknown-linux-musl --features supersigil-verify/vendored-openssl
+          - name: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            rust-target: aarch64-unknown-linux-musl
+            deps: sudo apt-get update && sudo apt-get install -y musl-tools
+            clippy-args: --target aarch64-unknown-linux-musl --features supersigil-verify/vendored-openssl
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -24,9 +54,14 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+          targets: ${{ matrix.rust-target }}
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install dependencies
+        if: matrix.deps
+        run: ${{ matrix.deps }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -38,22 +73,33 @@ jobs:
           cache: pnpm
 
       - name: Bundle CLI assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run bundle:cli-assets
 
       - name: Format
+        if: matrix.fmt-check
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features ${{ matrix.clippy-args }}
 
       - name: Conventional commit check
+        if: matrix.commit-check
         uses: cocogitto/cocogitto-action@9a9fe03b31c47444290c0d7f9b1ee1b44ee13f20 # v4.1.0
         with:
           command: check
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.name }})
+    strategy:
+      matrix:
+        include:
+          - name: ubuntu
+            runner: ubuntu-latest
+          - name: windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -81,60 +127,12 @@ jobs:
           cache: pnpm
 
       - name: Bundle CLI assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run bundle:cli-assets
 
       - name: Test
         run: cargo nextest run
 
       - name: Verify
         run: cargo run -p supersigil verify --detail full
-
-  cross-check:
-    name: Cross-check (${{ matrix.target }})
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-            runner: macos-26-intel
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-latest
-            deps: sudo apt-get update && sudo apt-get install -y musl-tools
-            extra-args: --features supersigil-verify/vendored-openssl
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-24.04-arm
-            deps: sudo apt-get update && sudo apt-get install -y musl-tools
-            extra-args: --features supersigil-verify/vendored-openssl
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master, "Add 1.94.1 patch release"
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - name: Install dependencies
-        if: matrix.deps
-        run: ${{ matrix.deps }}
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Bundle CLI assets
-        run: pnpm install --frozen-lockfile && pnpm run bundle:cli-assets
-
-      - name: Check
-        run: cargo check --workspace --target ${{ matrix.target }} ${{ matrix.extra-args }}

@@ -46,6 +46,12 @@ As a visitor to the landing page, I want to see install instructions relevant to
     The CTA section at the bottom of the landing page SHALL use the same platform-aware install widget as the hero.
     <VerifiedBy strategy="file-glob" paths="website/src/components/landing/CtaSection.astro" />
   </Criterion>
+  <Criterion id="req-1-6">
+    WHEN the Windows install option is shown, THE widget SHALL present GitHub
+    Releases as the native Windows download path for `supersigil.exe` and
+    `supersigil-lsp.exe`, rather than as only a Rust-toolchain-first fallback.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro" />
+  </Criterion>
 </AcceptanceCriteria>
 ```
 
@@ -60,7 +66,7 @@ As a VS Code user who has installed the Supersigil extension but not the LSP bin
     <VerifiedBy strategy="file-glob" paths="editors/vscode/package.json" />
   </Criterion>
   <Criterion id="req-2-2">
-    The empty state SHALL show platform-appropriate install commands (Homebrew on macOS/Linux, cargo install as a fallback, link to GitHub Releases on Windows).
+    The empty state SHALL show platform-appropriate install commands (Homebrew on macOS/Linux, cargo install as a fallback, link to the native Windows GitHub Releases download path on Windows).
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts" />
   </Criterion>
   <Criterion id="req-2-3">
@@ -85,7 +91,7 @@ As an IntelliJ user who has installed the Supersigil plugin but not the LSP bina
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilNotifications.kt" />
   </Criterion>
   <Criterion id="req-3-2">
-    The notification SHALL show platform-appropriate install commands (Homebrew on macOS/Linux, cargo install as a fallback, link to GitHub Releases on Windows).
+    The notification SHALL show platform-appropriate install commands (Homebrew on macOS/Linux, cargo install as a fallback, link to the native Windows GitHub Releases download path on Windows).
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilNotifications.kt" />
   </Criterion>
   <Criterion id="req-3-3">

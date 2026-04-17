@@ -16,6 +16,10 @@ Implementation sequence for the VS Code extension. Starts with project
 scaffolding and build tooling, then the core extension logic, then
 packaging. Each task is independently verifiable.
 
+The original implementation sequence is complete through `task-6`. The next
+pass adds native Windows binary resolution and startup coverage without
+reintroducing platform-specific shims.
+
 ```supersigil-xml
 <Task
   id="task-1"
@@ -90,5 +94,41 @@ packaging. Each task is independently verifiable.
   icon or readme. Smoke test: install the `.vsix` in VS Code, open a
   Supersigil project, verify diagnostics, completions, go-to-definition,
   and hover work through the LSP.
+</Task>
+
+<Task
+  id="task-7"
+  status="done"
+  depends="task-2"
+  implements="vscode-extension/req#req-1-2, vscode-extension/req#req-1-4"
+>
+  Extend `resolveServerBinary()` and any extracted binary-resolution helpers
+  so Windows uses the native executable name and fallback path
+  (`supersigil-lsp.exe`, `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`) while
+  Unix-like hosts keep their current resolution flow. Add coverage for Windows
+  PATH and fallback hits.
+</Task>
+
+<Task
+  id="task-8"
+  status="done"
+  depends="task-7"
+  implements="vscode-extension/req#req-3-6"
+>
+  Update the VS Code startup path and direct-launch coverage so native Windows
+  sessions launch `supersigil-lsp.exe` over stdio from the editor host process
+  with no WSL or Unix-only helper process in the chain.
+</Task>
+
+<Task
+  id="task-9"
+  status="done"
+  depends="task-7, task-8"
+  implements="vscode-extension/req#req-1-2, vscode-extension/req#req-3-6"
+>
+  Native Windows verification: run `pnpm test`, `pnpm build`, and
+  `pnpm package`, verify the packaged extension still builds on Windows, and
+  confirm the binary-resolution and direct-stdio launch helpers keep
+  `supersigil-lsp.exe` on the editor-host side with no WSL bridge.
 </Task>
 ```

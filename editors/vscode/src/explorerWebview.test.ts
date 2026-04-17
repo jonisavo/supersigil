@@ -183,7 +183,12 @@ vi.mock("vscode-languageclient/node", () => ({
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
-import { openExplorerPanel, refreshPanelsForClient, openPanels } from "./explorerWebview";
+import {
+  openExplorerPanel,
+  refreshPanelsForClient,
+  openPanels,
+} from "./explorerWebview";
+import type { GraphDocument } from "./explorerWebview";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 // ---------------------------------------------------------------------------
@@ -203,7 +208,10 @@ function makeMockClient(
 const METHOD_GRAPH_DATA = "supersigil/graphData";
 const METHOD_DOCUMENT_COMPONENTS = "supersigil/documentComponents";
 
-function makeGraphDataResponse() {
+function makeGraphDataResponse(): {
+  documents: GraphDocument[];
+  edges: { from: string; to: string; kind: string }[];
+} {
   return {
     documents: [
       {
@@ -807,6 +815,33 @@ describe("openExplorerPanel", () => {
       expect(showArgs[1]).not.toHaveProperty("selection");
     });
 
+    it("opens document by explicit file URI when provided", async () => {
+      const sendRequest = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_GRAPH_DATA)
+          return Promise.resolve({ documents: [], edges: [] });
+        return Promise.resolve(makeDocumentComponentsResponse("any"));
+      });
+
+      clients.set("file:///workspace", makeMockClient(true, sendRequest));
+
+      openExplorerPanel(makeMockExtensionContext(), clients);
+
+      const lastCb = onDidReceiveMessageCallbacks[onDidReceiveMessageCallbacks.length - 1];
+      lastCb({
+        type: "openFile",
+        path: "../shared/specs/requirements.md",
+        uri: "file:///shared/specs/requirements.md",
+      });
+
+      await vi.waitFor(() => {
+        expect(mockOpenTextDocument).toHaveBeenCalledTimes(1);
+      });
+
+      const openUri = mockOpenTextDocument.mock.calls[0][0];
+      expect(openUri.toString()).toBe("file:///shared/specs/requirements.md");
+      expect(mockShowWarningMessage).not.toHaveBeenCalled();
+    });
+
     it("opens document with line selection when line is provided", async () => {
       const sendRequest = vi.fn().mockImplementation((method: string) => {
         if (method === METHOD_GRAPH_DATA)
@@ -849,6 +884,37 @@ describe("openExplorerPanel", () => {
       lastCb({ type: "unknownType" });
 
       expect(mockOpenTextDocument).not.toHaveBeenCalled();
+    });
+
+    it("uses file_uri for documentComponents requests when present", async () => {
+      const graphData = makeGraphDataResponse();
+      graphData.documents[0] = {
+        ...graphData.documents[0],
+        path: "../shared/specs/proj/requirements.md",
+        file_uri: "file:///shared/specs/proj/requirements.md",
+      };
+
+      const sendRequest = vi.fn().mockImplementation((method: string, params?: unknown) => {
+        if (method === METHOD_GRAPH_DATA) return Promise.resolve(graphData);
+        if (method === METHOD_DOCUMENT_COMPONENTS) {
+          const p = params as { uri: string };
+          if (p.uri.includes("shared/specs/proj/requirements.md")) {
+            return Promise.resolve(makeDocumentComponentsResponse("proj/requirements"));
+          }
+          return Promise.resolve(makeDocumentComponentsResponse("proj/design"));
+        }
+        return Promise.reject(new Error("unknown method"));
+      });
+
+      clients.set("file:///workspace", makeMockClient(true, sendRequest));
+
+      openExplorerPanel(makeMockExtensionContext(), clients);
+      await sendReady();
+
+      expect(sendRequest).toHaveBeenCalledWith(
+        METHOD_DOCUMENT_COMPONENTS,
+        expect.objectContaining({ uri: "file:///shared/specs/proj/requirements.md" }),
+      );
     });
   });
 

@@ -1,3 +1,6 @@
+# GitHub Actions pull_request jobs check out a synthetic merge commit.
+ignore_merge_commits = true
+
 # Keep in sync with cliff.toml commit_parsers
 [commit_types]
 feat = { changelog_title = "Features" }

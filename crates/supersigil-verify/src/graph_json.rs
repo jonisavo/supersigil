@@ -1,7 +1,7 @@
 //! JSON serialization of the document graph matching the `Graph_JSON` schema.
 
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use supersigil_core::{DECISION, DocumentGraph, ExtractedComponent, SpecDocument, TASK};
@@ -32,6 +32,9 @@ pub struct DocumentNode {
     pub title: String,
     /// Workspace-folder-relative file path.
     pub path: String,
+    /// Absolute file URI for editor-side fetch and navigation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_uri: Option<String>,
     /// The project this document belongs to, if using multi-project config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
@@ -119,12 +122,8 @@ fn build_document_node(
     let components = doc.components.iter().map(build_component).collect();
     let project = graph.doc_project(id).map(str::to_owned);
 
-    let rel_path = doc
-        .path
-        .strip_prefix(project_root)
-        .unwrap_or(&doc.path)
-        .to_string_lossy()
-        .into_owned();
+    let rel_path = graph_json_path(&doc.path, project_root);
+    let file_uri = graph_json_file_uri(&doc.path);
 
     DocumentNode {
         id: id.to_owned(),
@@ -132,9 +131,33 @@ fn build_document_node(
         status: doc.frontmatter.status.clone(),
         title,
         path: rel_path,
+        file_uri,
         project,
         components,
     }
+}
+
+fn graph_json_path(path: &Path, project_root: &Path) -> String {
+    graph_json_relative_path(path, project_root)
+        .as_deref()
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn graph_json_relative_path(path: &Path, project_root: &Path) -> Option<PathBuf> {
+    if project_root.as_os_str().is_empty() {
+        return None;
+    }
+
+    path.strip_prefix(project_root)
+        .map(Path::to_path_buf)
+        .ok()
+        .or_else(|| pathdiff::diff_paths(path, project_root))
+}
+
+fn graph_json_file_uri(path: &Path) -> Option<String> {
+    url::Url::from_file_path(path).ok().map(Into::into)
 }
 
 fn build_component(comp: &ExtractedComponent) -> Component {
@@ -186,7 +209,6 @@ pub fn write_json(
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::path::PathBuf;
     use supersigil_core::Frontmatter;
     use supersigil_rust::verifies;
 
@@ -296,6 +318,53 @@ mod tests {
         let graph = build_test_graph(vec![doc]);
         let json = build_graph_json(&graph, Path::new("/project/root"));
         assert_eq!(json.documents[0].path, "specs/design/auth.md");
+    }
+
+    #[test]
+    #[verifies("graph-explorer/req#req-1-2")]
+    fn document_node_normalizes_windows_style_separators() {
+        let doc = SpecDocument {
+            path: PathBuf::from(r"specs\design\auth.md"),
+            frontmatter: Frontmatter {
+                id: "design/auth".into(),
+                doc_type: Some("design".into()),
+                status: None,
+            },
+            extra: HashMap::new(),
+            components: vec![],
+        };
+        let graph = build_test_graph(vec![doc]);
+        let json = build_graph_json(&graph, Path::new(""));
+        assert_eq!(json.documents[0].path, "specs/design/auth.md");
+    }
+
+    #[test]
+    #[verifies("graph-explorer/req#req-1-2")]
+    fn document_node_relativizes_out_of_root_paths_and_keeps_file_uri() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().join("project");
+        let doc_path = temp.path().join("shared/specs/design/auth.md");
+
+        let doc = SpecDocument {
+            path: doc_path.clone(),
+            frontmatter: Frontmatter {
+                id: "design/auth".into(),
+                doc_type: Some("design".into()),
+                status: None,
+            },
+            extra: HashMap::new(),
+            components: vec![],
+        };
+        let graph = build_test_graph(vec![doc]);
+        let json = build_graph_json(&graph, &project_root);
+
+        assert_eq!(json.documents[0].path, "../shared/specs/design/auth.md");
+        let file_uri = json.documents[0]
+            .file_uri
+            .as_deref()
+            .expect("absolute doc path should produce file URI");
+        let parsed = url::Url::parse(file_uri).expect("valid file URI");
+        assert_eq!(parsed.to_file_path().expect("file path"), doc_path);
     }
 
     // -- req-1-3: Component fields -------------------------------------------

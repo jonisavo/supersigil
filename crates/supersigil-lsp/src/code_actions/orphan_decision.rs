@@ -96,7 +96,9 @@ mod tests {
     use supersigil_verify::RuleName;
 
     use crate::code_actions::CodeActionProvider;
-    use crate::code_actions::test_helpers::{TestContext, format_actions};
+    use crate::code_actions::test_helpers::{
+        TestContext, format_actions, test_file_url, test_project_root,
+    };
     use crate::diagnostics::{ActionContext, DiagnosticData, DiagnosticSource};
 
     use super::OrphanDecisionProvider;
@@ -287,9 +289,8 @@ id: adr/design
     #[test]
     fn prefill_refs_from_implements_component() {
         use std::collections::HashMap;
-        use std::path::{Path, PathBuf};
+        use std::path::PathBuf;
 
-        use lsp_types::Url;
         use supersigil_core::{
             ComponentDefs, Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument,
             build_graph,
@@ -319,7 +320,7 @@ id: auth/adr
         let graph = build_graph(Vec::new(), &Config::default()).unwrap();
         let config = Config::default();
         let component_defs = ComponentDefs::defaults();
-        let uri = Url::parse("file:///tmp/project/specs/auth/auth.adr.md").unwrap();
+        let uri = test_file_url("specs/auth/auth.adr.md");
 
         // Build a file_parses map with a document that has an Implements component.
         let mut file_parses = HashMap::new();
@@ -359,7 +360,7 @@ id: auth/adr
             component_defs: &component_defs,
             file_parses: &file_parses,
             partial_file_parses: &file_parses,
-            project_root: Path::new("/tmp/project"),
+            project_root: test_project_root(),
             file_uri: &uri,
             file_content: content,
         };
@@ -375,9 +376,8 @@ id: auth/adr
     #[test]
     fn prefill_refs_from_top_level_references_component() {
         use std::collections::HashMap;
-        use std::path::{Path, PathBuf};
+        use std::path::PathBuf;
 
-        use lsp_types::Url;
         use supersigil_core::{
             ComponentDefs, Config, ExtractedComponent, Frontmatter, SourcePosition, SpecDocument,
             build_graph,
@@ -407,7 +407,7 @@ id: auth/adr
         let graph = build_graph(Vec::new(), &Config::default()).unwrap();
         let config = Config::default();
         let component_defs = ComponentDefs::defaults();
-        let uri = Url::parse("file:///tmp/project/specs/auth/auth.adr.md").unwrap();
+        let uri = test_file_url("specs/auth/auth.adr.md");
 
         // Build a file_parses map with a document that has a top-level References
         // component (the standard ADR pattern, not Implements).
@@ -448,7 +448,7 @@ id: auth/adr
             component_defs: &component_defs,
             file_parses: &file_parses,
             partial_file_parses: &file_parses,
-            project_root: Path::new("/tmp/project"),
+            project_root: test_project_root(),
             file_uri: &uri,
             file_content: content,
         };
