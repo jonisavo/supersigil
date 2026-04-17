@@ -55,6 +55,8 @@ jobs:
             runner: macos-26-intel
           - target: aarch64-apple-darwin
             runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -90,7 +92,9 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p supersigil -p supersigil-lsp ${{ matrix.extra-args }}
 
-      - name: Package
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           RELEASE_DIR="target/${{ matrix.target }}/release"
@@ -104,6 +108,20 @@ jobs:
             fi
           done
 
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $releaseDir = "target/${{ matrix.target }}/release"
+          $archive = "supersigil-$version-${{ matrix.target }}.zip"
+          Compress-Archive -Path @(
+            (Join-Path $releaseDir "supersigil.exe"),
+            (Join-Path $releaseDir "supersigil-lsp.exe")
+          ) -DestinationPath $archive -Force
+          $hash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "$archive.sha256" -Value "$hash  $archive"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -111,6 +129,8 @@ jobs:
           path: |
             supersigil-*.tar.gz
             supersigil-*.tar.gz.sha256
+            supersigil-*.zip
+            supersigil-*.zip.sha256
 
   release:
     name: GitHub Release
@@ -145,6 +165,7 @@ jobs:
           body_path: RELEASE_NOTES.md
           files: |
             artifacts/supersigil-*.tar.gz
+            artifacts/supersigil-*.zip
             artifacts/SHA256SUMS
 
   target-metadata:

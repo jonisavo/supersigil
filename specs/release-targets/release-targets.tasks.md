@@ -15,7 +15,7 @@ title: "Release Targets"
 Tasks `task-1` through `task-7` capture the first release-target pass that is
 already in place. The next pass starts at `task-8` and adds aggregate crate
 publishing, shared editor changelog generation, and publish ordering between
-crates and editors.
+crates and editors. The follow-up Windows pass starts at `task-13`.
 
 ```supersigil-xml
 <Task
@@ -155,5 +155,40 @@ crates and editors.
   `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`,
   and `cargo nextest run`. Perform manual packaging checks for VS Code
   changelog inclusion and IntelliJ change-notes rendering.
+</Task>
+
+<Task
+  id="task-13"
+  status="done"
+  depends="task-11"
+  implements="release-targets/req#req-6-1, release-targets/req#req-6-2"
+>
+  Extend `.github/workflows/release.yml` so the binary build matrix includes
+  `x86_64-pc-windows-msvc`, packages `supersigil.exe` and
+  `supersigil-lsp.exe` into a Windows-appropriate archive, and uploads matching
+  checksum files with the rest of the GitHub release assets.
+</Task>
+
+<Task
+  id="task-14"
+  status="done"
+  depends="task-10"
+  implements="release-targets/req#req-6-3"
+>
+  Replace Unix-only bundled-asset shell commands in `mise.toml`,
+  `package.json`, and `website/package.json` with host-compatible build steps
+  so shipped CLI assets can be regenerated on native Windows hosts.
+</Task>
+
+<Task
+  id="task-15"
+  status="done"
+  depends="task-13, task-14"
+  implements="release-targets/req#req-6-1, release-targets/req#req-6-2, release-targets/req#req-6-3"
+>
+  Run the full verification loop again and perform native Windows manual
+  checks: regenerate bundled CLI assets, produce at least one Windows release
+  archive containing both `.exe` binaries, and confirm release checksums and
+  uploaded artifact names are correct.
 </Task>
 ```

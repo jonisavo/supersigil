@@ -30,8 +30,11 @@ IntelliJ IDEA users.
 - **Server_Binary**: The `supersigil-lsp` executable that the plugin
   launches as a child process over stdio.
 - **Binary_Resolution**: The process for locating the Server_Binary:
-  setting override, `$PATH` lookup, common install location fallbacks
-  (`~/.cargo/bin`, `~/.local/bin`), then not-found notification.
+  setting override, `$PATH` lookup for the host-appropriate executable
+  name, common install location fallbacks (`~/.cargo/bin/supersigil-lsp`,
+  `~/.local/bin/supersigil-lsp`,
+  `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`), then not-found
+  notification.
 - **Spec Explorer**: A sidebar tool window showing spec documents
   grouped by feature area for navigation and status visibility.
 
@@ -52,9 +55,12 @@ configuration.
   </Criterion>
   <Criterion id="req-1-2">
     WHEN `supersigil.lsp.serverPath` is not set, THE plugin SHALL
-    search `$PATH` for `supersigil-lsp`, then check common install
-    locations (`~/.cargo/bin/supersigil-lsp`,
-    `~/.local/bin/supersigil-lsp`), and use the first match found.
+    search `$PATH` for the host-appropriate executable name
+    (`supersigil-lsp` on Unix-like hosts, `supersigil-lsp.exe` on Windows),
+    then check common install locations (`~/.cargo/bin/supersigil-lsp`,
+    `~/.local/bin/supersigil-lsp`,
+    `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`), and use the first match
+    found.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/test/kotlin/org/supersigil/intellij/BinaryResolutionTest.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/BinaryResolution.kt" />
   </Criterion>
   <Criterion id="req-1-3">
@@ -62,6 +68,12 @@ configuration.
     SHALL show a notification balloon with install instructions and a
     link to open the Settings page.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilNotifications.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerSupportProvider.kt" />
+  </Criterion>
+  <Criterion id="req-1-4">
+    ON Windows, Binary_Resolution SHALL remain native to the IDE host
+    environment and SHALL NOT require WSL or bash-based shims to locate the
+    Server_Binary.
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/test/kotlin/org/supersigil/intellij/BinaryResolutionTest.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/BinaryResolution.kt" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -123,6 +135,12 @@ intelligence with standard IntelliJ behavior.
     runs on IntelliJ 2026.1 or later, via standard LSP capability
     negotiation. No plugin-side conditional code is needed.
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerDescriptor.kt" />
+  </Criterion>
+  <Criterion id="req-3-5">
+    ON Windows, THE plugin SHALL be able to start the resolved native
+    `supersigil-lsp.exe` process through IntelliJ's built-in LSP client over
+    stdio, without WSL or Unix-only helper processes.
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerSupportProvider.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerDescriptor.kt, crates/supersigil-lsp/src/main.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

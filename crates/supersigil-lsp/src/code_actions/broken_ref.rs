@@ -270,7 +270,8 @@ fn resolve_spec_dir(ctx: &ActionRequestContext) -> Option<String> {
     let rel_path = file_path
         .strip_prefix(ctx.project_root)
         .ok()?
-        .to_string_lossy();
+        .to_string_lossy()
+        .replace('\\', "/");
 
     // Find matching projects by checking if the file path matches any project pattern.
     let mut matching_dirs: Vec<String> = Vec::new();
@@ -295,15 +296,15 @@ fn resolve_spec_dir(ctx: &ActionRequestContext) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use lsp_types::{Diagnostic, Position, Range};
     use std::collections::HashMap;
-    use std::path::Path;
-
-    use lsp_types::{Diagnostic, Position, Range, Url};
     use supersigil_core::{ComponentDefs, Config, ProjectConfig, build_graph};
 
     use supersigil_rust_macros::verifies;
 
-    use crate::code_actions::test_helpers::{TestContext, format_actions};
+    use crate::code_actions::test_helpers::{
+        TestContext, format_actions, test_file_url, test_project_root,
+    };
     use crate::code_actions::{ActionRequestContext, CodeActionProvider};
     use crate::diagnostics::{
         ActionContext, DiagnosticData, DiagnosticSource, GraphDiagnosticKind,
@@ -551,14 +552,14 @@ mod tests {
         let component_defs = ComponentDefs::defaults();
         let file_parses = HashMap::new();
         // File is under backend/specs/
-        let uri = Url::parse("file:///tmp/project/backend/specs/doc/doc.req.md").unwrap();
+        let uri = test_file_url("backend/specs/doc/doc.req.md");
         let ctx = ActionRequestContext {
             graph: &graph,
             config: &config,
             component_defs: &component_defs,
             file_parses: &file_parses,
             partial_file_parses: &file_parses,
-            project_root: Path::new("/tmp/project"),
+            project_root: test_project_root(),
             file_uri: &uri,
             file_content: content,
         };
@@ -610,14 +611,14 @@ mod tests {
         let component_defs = ComponentDefs::defaults();
         let file_parses = HashMap::new();
         // File is NOT under any project's spec dir — ambiguous.
-        let uri = Url::parse("file:///tmp/project/shared/doc.req.md").unwrap();
+        let uri = test_file_url("shared/doc.req.md");
         let ctx = ActionRequestContext {
             graph: &graph,
             config: &config,
             component_defs: &component_defs,
             file_parses: &file_parses,
             partial_file_parses: &file_parses,
-            project_root: Path::new("/tmp/project"),
+            project_root: test_project_root(),
             file_uri: &uri,
             file_content: content,
         };
@@ -700,14 +701,14 @@ mod tests {
         };
         let component_defs = ComponentDefs::defaults();
         let file_parses = HashMap::new();
-        let uri = Url::parse("file:///tmp/project/shared/doc.req.md").unwrap();
+        let uri = test_file_url("shared/doc.req.md");
         let ctx = ActionRequestContext {
             graph: &graph,
             config: &config,
             component_defs: &component_defs,
             file_parses: &file_parses,
             partial_file_parses: &file_parses,
-            project_root: Path::new("/tmp/project"),
+            project_root: test_project_root(),
             file_uri: &uri,
             file_content: content,
         };

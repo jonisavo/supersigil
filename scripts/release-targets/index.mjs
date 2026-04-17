@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import {
   appendFileSync,
   mkdtempSync,
@@ -11,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { buildCommandInvocation } from "../command-invocation.mjs";
 
 /**
  * Repo-local helper for selective release target detection and preparation.
@@ -325,6 +324,11 @@ function parseArgs(argv) {
   }
 
   return { positional, options };
+}
+
+function spawnCommand(command, args, options) {
+  const invocation = buildCommandInvocation(command, args);
+  return spawnSync(invocation.command, invocation.args, options);
 }
 
 /**
@@ -685,7 +689,7 @@ function renderTargetChangelog({ target, version, gitCliffBin }) {
   }
 
   try {
-    const result = spawnSync(gitCliffBin, args, {
+    const result = spawnCommand(gitCliffBin, args, {
       cwd: process.cwd(),
       encoding: "utf8",
     });
@@ -720,7 +724,7 @@ function renderTargetChangelog({ target, version, gitCliffBin }) {
  * @returns {void}
  */
 function validateGitCliffExecutable(gitCliffBin) {
-  const result = spawnSync(gitCliffBin, ["--version"], {
+  const result = spawnCommand(gitCliffBin, ["--version"], {
     cwd: process.cwd(),
     encoding: "utf8",
   });

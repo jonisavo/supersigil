@@ -153,6 +153,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytes"
+version = "1.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+
+[[package]]
 name = "castaway"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1695,6 +1701,7 @@ dependencies = [
  "supersigil-verify",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tower",
  "tracing",
  "tracing-subscriber",
@@ -1747,6 +1754,7 @@ version = "0.11.0"
 dependencies = [
  "git2",
  "glob",
+ "pathdiff",
  "proptest",
  "regex",
  "serde",
@@ -1760,6 +1768,7 @@ dependencies = [
  "supersigil-rust-macros",
  "tempfile",
  "thiserror",
+ "url",
  "yaml_serde",
 ]
 
@@ -1892,6 +1901,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-io",
+ "futures-sink",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

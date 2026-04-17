@@ -99,7 +99,7 @@
       },
       {
         "view": "supersigil.specExplorer",
-        "contents": "Supersigil LSP server not found.\n\nInstall it to enable spec previews, diagnostics, and navigation.\n\n[Installation Guide](https://supersigil.org/guides/editor-setup/)\n[Open Terminal](command:workbench.action.terminal.new)\n[Configure Path](command:workbench.action.openSettings?%5B%22supersigil.lsp.serverPath%22%5D)\n[Retry](command:supersigil.retryBinaryResolution)",
+        "contents": "Supersigil LSP server not found.\n\nOn Windows, download the native release zip from GitHub Releases and add its unpacked directory to `PATH`, or set `supersigil.lsp.serverPath`.\n\nOn macOS and Linux, install with Homebrew, your package manager, or `cargo install supersigil-lsp`.\n\n[Installation Guide](https://supersigil.org/guides/editor-setup/)\n[Open Terminal](command:workbench.action.terminal.new)\n[Configure Path](command:workbench.action.openSettings?%5B%22supersigil.lsp.serverPath%22%5D)\n[Retry](command:supersigil.retryBinaryResolution)",
         "when": "supersigil.binaryNotFound"
       }
     ],

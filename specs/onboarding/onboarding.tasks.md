@@ -12,7 +12,11 @@ title: Onboarding improvements
 
 ## Overview
 
-Three independent tracks that can be worked in parallel. Within each track, tasks are dependency-ordered.
+Three independent tracks that can be worked in parallel. Within each track,
+tasks are dependency-ordered.
+
+The original onboarding work is complete. The next pass aligns Windows-facing
+copy and manual checks with native Windows release artifacts.
 
 ## Track 1: Landing Page Install Widget
 
@@ -37,6 +41,14 @@ Three independent tracks that can be worked in parallel. Within each track, task
 ```supersigil-xml
 <Task id="task-1-4" status="done" depends="task-1-2, task-1-3">
   Manual testing: verify OS detection, tab switching, copy button, responsive layout, light/dark themes in both Hero and CTA sections.
+</Task>
+```
+
+```supersigil-xml
+<Task id="task-1-5" status="done" depends="task-1-1" implements="onboarding/req#req-1-6">
+  Update the InstallWidget copy so the Windows tab is described as the native
+  download path for `supersigil.exe` and `supersigil-lsp.exe`, while still
+  linking to GitHub Releases.
 </Task>
 ```
 
@@ -72,6 +84,14 @@ Three independent tracks that can be worked in parallel. Within each track, task
 </Task>
 ```
 
+```supersigil-xml
+<Task id="task-2-6" status="done" depends="task-2-4" implements="onboarding/req#req-2-2">
+  Update the VS Code empty-state and notification copy so Windows users are
+  directed to the native GitHub Releases download path and reminded to add the
+  unpacked binary directory to `PATH` or configure `supersigil.lsp.serverPath`.
+</Task>
+```
+
 ## Track 3: IntelliJ Plugin Empty State
 
 ```supersigil-xml
@@ -89,5 +109,13 @@ Three independent tracks that can be worked in parallel. Within each track, task
 ```supersigil-xml
 <Task id="task-3-3" status="done" depends="task-3-1, task-3-2">
   Manual testing: install IntelliJ plugin without supersigil-lsp. Verify notification content, persistence, and actions. Verify Spec Explorer empty text links work.
+</Task>
+```
+
+```supersigil-xml
+<Task id="task-3-4" status="done" depends="task-3-1" implements="onboarding/req#req-3-2">
+  Update the IntelliJ install guidance so Windows users are directed to the
+  native GitHub Releases download path and reminded to add the unpacked binary
+  directory to `PATH` or configure the plugin's server path.
 </Task>
 ```

@@ -29,7 +29,8 @@ export function parseEvidenceHref(
 export function injectOpenFileButton(
   container: HTMLElement,
   pathByDocId: Map<string, string>,
-  onClick?: (path: string) => void,
+  onClick?: (path: string, uri?: string) => void,
+  uriByDocId?: Map<string, string | undefined>,
 ): void {
   const header = container.querySelector(".detail-panel-header");
   if (!header || header.querySelector(".open-file-btn")) return;
@@ -41,13 +42,14 @@ export function injectOpenFileButton(
   if (!docId || !pathByDocId.has(docId)) return;
 
   const path = pathByDocId.get(docId)!;
+  const uri = uriByDocId?.get(docId);
   const btn = document.createElement("button");
   btn.className = "open-file-btn";
   btn.textContent = "Open File";
   btn.title = `Open ${path}`;
   btn.addEventListener("click", () => {
     if (onClick) {
-      onClick(path);
+      onClick(path, uri);
     }
   });
   header.insertBefore(btn, header.querySelector(".detail-panel-close"));
@@ -76,6 +78,7 @@ declare const SupersigilExplorer: {
 interface GraphDocument {
   id: string;
   path: string;
+  file_uri?: string | null;
 }
 
 interface GraphData {
@@ -88,6 +91,7 @@ if (typeof acquireVsCodeApi === "function") {
   const container = document.getElementById("explorer")!;
 
   let pathByDocId: Map<string, string>;
+  let uriByDocId: Map<string, string | undefined>;
   let currentUnmount: (() => void) | null = null;
   let detailObserver: MutationObserver | null = null;
 
@@ -98,6 +102,7 @@ if (typeof acquireVsCodeApi === "function") {
     isRootSwitch?: boolean,
   ) {
     pathByDocId = new Map(graph.documents.map((d) => [d.id, d.path]));
+    uriByDocId = new Map(graph.documents.map((d) => [d.id, d.file_uri ?? undefined]));
 
     // Hash selection: root switch clears state, focus sets target, otherwise preserve
     let targetHash: string | null;
@@ -139,9 +144,9 @@ if (typeof acquireVsCodeApi === "function") {
     observeDetailPanel();
 
     // Inject button for any detail panel already rendered by mount's hash restore
-    injectOpenFileButton(container, pathByDocId, (path) => {
-      vscode.postMessage({ type: "openFile", path });
-    });
+    injectOpenFileButton(container, pathByDocId, (path, uri) => {
+      vscode.postMessage({ type: "openFile", path, uri });
+    }, uriByDocId);
   }
 
   let lastRootSelectorKey = "";
@@ -185,9 +190,9 @@ if (typeof acquireVsCodeApi === "function") {
       // Only act when nodes are actually added (skip attribute-only mutations
       // from d3 simulation ticks which fire at 60fps)
       if (mutations.some((m) => m.addedNodes.length > 0)) {
-        injectOpenFileButton(container, pathByDocId, (path) => {
-          vscode.postMessage({ type: "openFile", path });
-        });
+        injectOpenFileButton(container, pathByDocId, (path, uri) => {
+          vscode.postMessage({ type: "openFile", path, uri });
+        }, uriByDocId);
       }
     });
     detailObserver.observe(container, { childList: true, subtree: true });

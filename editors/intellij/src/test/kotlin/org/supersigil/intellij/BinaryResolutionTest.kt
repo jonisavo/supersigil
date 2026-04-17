@@ -6,6 +6,17 @@ import org.junit.Test
 
 class BinaryResolutionTest {
     @Test
+    fun `uses native executable naming on Windows`() {
+        assertEquals("supersigil-lsp.exe", binaryNameForOs("Windows 11"))
+    }
+
+    @Test
+    fun `keeps Unix executable naming on non-Windows hosts`() {
+        assertEquals("supersigil-lsp", binaryNameForOs("Linux"))
+        assertEquals("supersigil-lsp", binaryNameForOs("Mac OS X"))
+    }
+
+    @Test
     fun `configured path is used when file exists`() {
         val result =
             resolveBinaryPath(
@@ -102,5 +113,25 @@ class BinaryResolutionTest {
                 fallbackPaths = listOf("/home/user/.cargo/bin/supersigil-lsp"),
             )
         assertEquals("/usr/bin/supersigil-lsp", result)
+    }
+
+    @Test
+    fun `windows fallback path uses the native cargo bin exe`() {
+        assertEquals(
+            listOf("C:\\Users\\example-user\\.cargo\\bin\\supersigil-lsp.exe"),
+            defaultFallbackPaths("C:\\Users\\example-user", "Windows 11"),
+        )
+    }
+
+    @Test
+    fun `windows fallback is used when PATH lookup fails`() {
+        val result =
+            resolveBinaryPath(
+                configuredPath = null,
+                fileExists = { it == "C:\\Users\\example-user\\.cargo\\bin\\supersigil-lsp.exe" },
+                pathLookup = { null },
+                fallbackPaths = defaultFallbackPaths("C:\\Users\\example-user", "Windows 11"),
+            )
+        assertEquals("C:\\Users\\example-user\\.cargo\\bin\\supersigil-lsp.exe", result)
     }
 }

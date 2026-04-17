@@ -9,7 +9,7 @@ title: "VS Code Extension"
 ```supersigil-xml
 <Implements refs="vscode-extension/req" />
 <DependsOn refs="lsp-server/design" />
-<TrackedFiles paths="editors/vscode/src/**/*.ts, editors/vscode/package.json" />
+<TrackedFiles paths="editors/vscode/src/**/*.ts, editors/vscode/package.json, crates/supersigil-lsp/src/main.rs" />
 ```
 
 ## Overview
@@ -17,7 +17,8 @@ title: "VS Code Extension"
 A thin VS Code extension that launches `supersigil-lsp` over stdio and
 wires it into the editor via `vscode-languageclient`. The extension adds
 binary discovery, command palette entries, and a status bar indicator on
-top of the LSP client.
+top of the LSP client, with host-aware startup behavior across macOS,
+Linux, and Windows.
 
 ## Architecture
 
@@ -84,9 +85,15 @@ editors/vscode/
 1. Read `supersigil.lsp.serverPath` from workspace configuration. If set
    and the file exists and is executable, return it. If set but invalid,
    show an error notification and return `undefined`.
-2. Search `$PATH` for `supersigil-lsp` using Node's `child_process.execSync('which supersigil-lsp')` (Unix) or `where.exe` (Windows). If
-   found, return the resolved path.
-3. Show an informational notification: "Supersigil LSP server not found.
+2. Search `$PATH` for the host executable name:
+   - `supersigil-lsp` via `which` on macOS and Linux
+   - `supersigil-lsp.exe` via `where.exe` on Windows
+   If found, return the resolved path.
+3. Check common install locations:
+   - macOS/Linux: `~/.cargo/bin/supersigil-lsp`,
+     `~/.local/bin/supersigil-lsp`
+   - Windows: `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`
+4. Show an informational notification: "Supersigil LSP server not found.
    Install with `cargo install supersigil-lsp` or configure
    `supersigil.lsp.serverPath`." Include an "Open Settings" action button.
    Track that the notification was shown to avoid repeating it in the same
@@ -94,7 +101,10 @@ editors/vscode/
 
 When `undefined` is returned, the extension activates but does not start
 the language client. The status bar shows the error state. The user can
-install the binary and use "Restart Server" to connect.
+install the binary and use "Restart Server" to connect. Windows release-archive
+installs are expected to add the unpacked directory to `PATH` or use the
+explicit `supersigil.lsp.serverPath` override; the extension does not scan
+arbitrary download folders.
 
 ## Language Client Configuration
 
@@ -115,7 +125,9 @@ const clientOptions: LanguageClientOptions = {
 
 The `outputChannel` captures server stderr for debugging. The
 `vscode-languageclient` library handles capability negotiation, request
-routing, and crash recovery.
+routing, and crash recovery. On Windows, `serverPath` still points directly to
+the native `supersigil-lsp.exe` binary; the extension does not shell out
+through WSL or bash to establish stdio transport.
 
 ## Status Bar
 
@@ -191,12 +203,17 @@ host at runtime.
 
 ## Testing Strategy
 
-- **Manual smoke test**: Install locally via `pnpm package` → install
-  `.vsix`, open a Supersigil project, verify diagnostics, completions,
-  go-to-definition, and hover all work through the LSP.
+- **Packaging check**: Run `pnpm build` and `pnpm package` on a native host
+  and confirm the `.vsix` still contains the bundled extension output and
+  shipped runtime assets.
 - **Unit testable structure**: Binary resolution and status bar state
-  logic are pure functions that can be tested without the VS Code API.
-  This enables future automated tests without complex mocking.
+  logic are pure functions that can be tested without the VS Code API,
+  including host-specific executable names and fallback paths. This enables
+  future automated tests without complex mocking.
+- **Windows startup coverage**: Unit-test the direct server options helper and
+  binary-resolution helpers on Windows path shapes, then run `pnpm test` on a
+  native Windows host to confirm the extension keeps `supersigil-lsp.exe` on
+  the editor-host side over stdio without a WSL/bash bridge.
 - **Future e2e tests**: The extension is structured so that
   `@vscode/test-electron` can launch a VS Code instance with a test
   workspace and use `vscode.executeCompletionItemProvider` /

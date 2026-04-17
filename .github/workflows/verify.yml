@@ -27,6 +27,20 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Bundle CLI assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run bundle:cli-assets
+
       - name: Verify (JSON)
         id: verify
         run: |
@@ -38,25 +52,38 @@ jobs:
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Verify (Markdown)
+        id: verify_markdown
         run: |
+          set +e
           cargo run -p supersigil -- verify \
             --since origin/main --merge-base --committed-only \
             --format markdown --color never \
             > verify.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Affected
+        run: |
+          cargo run -p supersigil -- affected \
+            --since origin/main --merge-base --committed-only \
+            > affected.txt
 
       - name: Post PR comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BODY=$(cat verify.md)
+          cp verify.md verify-comment.md
+          printf '\n\n## Affected\n\n```text\n' >> verify-comment.md
+          cat affected.txt >> verify-comment.md
+          printf '\n```\n' >> verify-comment.md
           gh pr comment "${{ github.event.pull_request.number }}" \
-            --body "$BODY" --edit-last \
+            --body-file verify-comment.md --edit-last \
           || gh pr comment "${{ github.event.pull_request.number }}" \
-            --body "$BODY"
+            --body-file verify-comment.md
 
       - name: Fail if verify failed
-        if: steps.verify.outputs.exit_code != '0'
+        if: steps.verify.outputs.exit_code != '0' && steps.verify.outputs.exit_code != '2'
         run: |
           echo "::error::Supersigil verification failed"
+          echo "verify exit code: ${{ steps.verify.outputs.exit_code }}"
           cat verify.json
           exit 1

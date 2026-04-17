@@ -26,8 +26,11 @@ LSP server features (diagnostics, completions, etc.) are already specified in
 - **Server_Binary**: The `supersigil-lsp` executable that the extension
   launches as a child process over stdio.
 - **Binary_Resolution**: The process for locating the Server_Binary:
-  setting override, `$PATH` lookup, common install location fallbacks
-  (`~/.cargo/bin`, `~/.local/bin`), then not-found notification.
+  setting override, `$PATH` lookup for the host-appropriate executable
+  name, common install location fallbacks (`~/.cargo/bin/supersigil-lsp`,
+  `~/.local/bin/supersigil-lsp`,
+  `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`), then not-found
+  notification.
 
 ## Requirement 1: Binary Discovery
 
@@ -45,9 +48,12 @@ configuration.
   </Criterion>
   <Criterion id="req-1-2">
     WHEN `supersigil.lsp.serverPath` is not set, THE extension SHALL search
-    `$PATH` for `supersigil-lsp`, then check common install locations
-    (`~/.cargo/bin/supersigil-lsp`, `~/.local/bin/supersigil-lsp`), and
-    use the first match found.
+    `$PATH` for the host-appropriate executable name (`supersigil-lsp` on
+    Unix-like hosts, `supersigil-lsp.exe` on Windows), then check common
+    install locations (`~/.cargo/bin/supersigil-lsp`,
+    `~/.local/bin/supersigil-lsp`,
+    `%USERPROFILE%\.cargo\bin\supersigil-lsp.exe`), and use the first match
+    found.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts" />
   </Criterion>
   <Criterion id="req-1-3">
@@ -55,6 +61,12 @@ configuration.
     SHALL show an informational notification with install instructions and an
     "Open Settings" action. THE notification SHALL appear at most once per
     session.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts" />
+  </Criterion>
+  <Criterion id="req-1-4">
+    ON Windows, Binary_Resolution SHALL remain native to the editor host
+    environment and SHALL NOT require WSL or bash-based shims to locate the
+    Server_Binary.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts" />
   </Criterion>
 </AcceptanceCriteria>
@@ -116,6 +128,12 @@ so that I do not lose language intelligence during editing sessions.
     start or stop clients dynamically for folders that contain
     `supersigil.toml`.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts" />
+  </Criterion>
+  <Criterion id="req-3-6">
+    ON Windows, EACH client SHALL launch the resolved native
+    `supersigil-lsp.exe` process over stdio from the VS Code host process,
+    without delegating through WSL or Unix-only helper processes.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts, crates/supersigil-lsp/src/main.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

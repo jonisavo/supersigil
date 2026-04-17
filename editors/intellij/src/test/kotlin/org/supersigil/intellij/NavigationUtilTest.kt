@@ -12,6 +12,9 @@ class NavigationUtilTest {
         val basePath: String? = null,
     )
 
+    private fun testProjectBasePath(name: String): String =
+        Path.of(System.getProperty("java.io.tmpdir"), name).toString()
+
     @Test
     fun `splitAction splits on unescaped colons`() {
         val parts = splitAction("open-file:src/main.rs:42")
@@ -142,14 +145,19 @@ class NavigationUtilTest {
 
     @Test
     fun `navigation path resolution resolves relative paths against the project base`() {
-        assertEquals("/workspace/specs/doc.md", resolveNavigationPath("/workspace", "specs/doc.md"))
+        val projectBasePath = testProjectBasePath("workspace")
+        assertEquals(
+            Path.of(projectBasePath, "specs/doc.md").toString(),
+            resolveNavigationPath(projectBasePath, "specs/doc.md"),
+        )
     }
 
     @Test
     fun `navigation file uri resolves relative paths through the shared path resolver`() {
+        val projectBasePath = testProjectBasePath("workspace")
         assertEquals(
-            Path.of("/workspace", "specs/my doc.md").toUri().toString(),
-            navigationFileUri("/workspace", "specs/my doc.md"),
+            Path.of(projectBasePath, "specs/my doc.md").toUri().toString(),
+            navigationFileUri(projectBasePath, "specs/my doc.md"),
         )
     }
 
@@ -165,8 +173,12 @@ class NavigationUtilTest {
     // supersigil: intellij-graph-explorer-open-file-navigation
     fun `open file across projects opens the first matching spec file in the editor`() {
         val openCalls = mutableListOf<Triple<FakeProject, String, Int>>()
-        val firstProject = FakeProject(basePath = "/workspace-a")
-        val secondProject = FakeProject(basePath = "/workspace-b")
+        val firstProjectBasePath = testProjectBasePath("workspace-a")
+        val secondProjectBasePath = testProjectBasePath("workspace-b")
+        val secondProjectFilePath = Path.of(secondProjectBasePath, "specs/doc.md").toString()
+        val secondProjectFileUri = Path.of(secondProjectFilePath).toUri().toString()
+        val firstProject = FakeProject(basePath = firstProjectBasePath)
+        val secondProject = FakeProject(basePath = secondProjectBasePath)
 
         val opened =
             openFileAcrossProjects(
@@ -177,7 +189,7 @@ class NavigationUtilTest {
                 projectBasePath = { it.basePath },
                 findFileByPath = { resolvedPath ->
                     when (resolvedPath) {
-                        "/workspace-b/specs/doc.md" -> "file:///workspace-b/specs/doc.md"
+                        secondProjectFilePath -> secondProjectFileUri
                         else -> null
                     }
                 },
@@ -189,7 +201,7 @@ class NavigationUtilTest {
         assertTrue(opened)
         assertEquals(
             listOf(
-                Triple(secondProject, "file:///workspace-b/specs/doc.md", 6),
+                Triple(secondProject, secondProjectFileUri, 6),
             ),
             openCalls,
         )
@@ -199,12 +211,14 @@ class NavigationUtilTest {
     // supersigil: intellij-graph-explorer-evidence-navigation
     fun `open file across projects preserves evidence line numbers when opening the editor`() {
         val openCalls = mutableListOf<Pair<String, Int>>()
+        val projectBasePath = testProjectBasePath("workspace")
+        val absolutePath = Path.of(projectBasePath, "specs/doc.md").toString()
 
         val opened =
             openFileAcrossProjects(
-                path = "/workspace/specs/doc.md",
+                path = absolutePath,
                 line = 42,
-                projects = listOf(FakeProject(basePath = "/workspace")),
+                projects = listOf(FakeProject(basePath = projectBasePath)),
                 isDisposed = { it.disposed },
                 projectBasePath = { it.basePath },
                 findFileByPath = { resolvedPath -> resolvedPath },
@@ -214,6 +228,6 @@ class NavigationUtilTest {
             )
 
         assertTrue(opened)
-        assertEquals(listOf("/workspace/specs/doc.md" to 41), openCalls)
+        assertEquals(listOf(absolutePath to 41), openCalls)
     }
 }

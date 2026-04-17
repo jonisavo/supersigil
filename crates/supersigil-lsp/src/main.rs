@@ -52,10 +52,23 @@ async fn run_lsp() {
         .with_writer(std::io::stderr)
         .init();
 
+    #[cfg(unix)]
     let (stdin, stdout) = (
         async_lsp::stdio::PipeStdin::lock_tokio().unwrap(),
         async_lsp::stdio::PipeStdout::lock_tokio().unwrap(),
     );
+
+    #[cfg(not(unix))]
+    let (stdin, stdout) = {
+        use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+
+        // async-lsp needs futures::AsyncRead/AsyncWrite; Tokio stdio keeps the
+        // transport native on Windows without a Unix-only fd wrapper.
+        (
+            tokio::io::stdin().compat(),
+            tokio::io::stdout().compat_write(),
+        )
+    };
 
     server.run_buffered(stdin, stdout).await.unwrap();
 }

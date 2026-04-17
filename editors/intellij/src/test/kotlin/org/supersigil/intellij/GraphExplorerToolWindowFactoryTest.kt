@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class GraphExplorerToolWindowFactoryTest {
+    private fun testProjectBasePath(): String = Path.of(System.getProperty("java.io.tmpdir"), "supersigil-graph-explorer-project").toString()
+
     // supersigil: intellij-graph-explorer-availability
     @Test
     fun `availability requires supersigil config and JCEF support`() {
@@ -137,6 +139,7 @@ class GraphExplorerToolWindowFactoryTest {
 
     @Test
     fun `graph data documents are converted into file uris`() {
+        val projectBasePath = testProjectBasePath()
         val targets =
             graphExplorerDocumentTargets(
                 mapOf(
@@ -147,13 +150,13 @@ class GraphExplorerToolWindowFactoryTest {
                         ),
                     "edges" to emptyList<Any>(),
                 ),
-                "/tmp/project",
+                projectBasePath,
             )
 
         assertEquals(
             listOf(
-                GraphExplorerDocumentTarget("doc/a", "file:///tmp/project/specs/doc-a.md"),
-                GraphExplorerDocumentTarget("doc/b", "file:///tmp/project/specs/doc-b.md"),
+                GraphExplorerDocumentTarget("doc/a", navigationFileUri(projectBasePath, "specs/doc-a.md")),
+                GraphExplorerDocumentTarget("doc/b", navigationFileUri(projectBasePath, "specs/doc-b.md")),
             ),
             targets,
         )
@@ -177,6 +180,53 @@ class GraphExplorerToolWindowFactoryTest {
         val document = (resolvedGraphData["documents"] as List<*>).single() as Map<*, *>
         assertEquals("specs/doc-a.md", document["path"])
         assertEquals(Path.of("/tmp/project", "specs/doc-a.md").toString(), document["filePath"])
+    }
+
+    @Test
+    fun `graph data document targets prefer file uri when present`() {
+        val targets =
+            graphExplorerDocumentTargets(
+                mapOf(
+                    "documents" to
+                        listOf(
+                            mapOf(
+                                "id" to "doc/a",
+                                "path" to "../shared/specs/doc-a.md",
+                                "file_uri" to "file:///tmp/shared/specs/doc-a.md",
+                            ),
+                        ),
+                    "edges" to emptyList<Any>(),
+                ),
+                "/tmp/project",
+            )
+
+        assertEquals(
+            listOf(GraphExplorerDocumentTarget("doc/a", "file:///tmp/shared/specs/doc-a.md")),
+            targets,
+        )
+    }
+
+    @Test
+    fun `graph data documents derive navigation file path from file uri when present`() {
+        val resolvedGraphData =
+            resolveGraphExplorerDocumentPaths(
+                mapOf(
+                    "documents" to
+                        listOf(
+                            mapOf(
+                                "id" to "doc/a",
+                                "path" to "../shared/specs/doc-a.md",
+                                "file_uri" to "file:///tmp/shared/specs/doc-a.md",
+                            ),
+                        ),
+                    "edges" to emptyList<Any>(),
+                ),
+                "/tmp/project",
+            ) as Map<*, *>
+
+        val document = (resolvedGraphData["documents"] as List<*>).single() as Map<*, *>
+        assertEquals("../shared/specs/doc-a.md", document["path"])
+        assertEquals(Path.of("/tmp/shared/specs/doc-a.md").toString(), document["filePath"])
     }
 
     @Test
@@ -334,11 +384,12 @@ class GraphExplorerToolWindowFactoryTest {
             Thread(runnable, "graph-explorer-test").apply { isDaemon = true }
         }
         try {
+            val projectBasePath = testProjectBasePath()
             val scripts = mutableListOf<String>()
 
             val pushed =
                 pushGraphExplorerData(
-                    projectBasePath = "/tmp/project",
+                    projectBasePath = projectBasePath,
                     fetchGraphData = {
                         mapOf(
                             "documents" to
@@ -362,7 +413,11 @@ class GraphExplorerToolWindowFactoryTest {
             assertTrue(scripts.single().startsWith("window.__supersigilReceiveData("))
             assertTrue(scripts.single().contains("\"graphData\""))
             assertTrue(scripts.single().contains("\"renderData\""))
-            assertTrue(scripts.single().contains("\"document_id\":\"file:///tmp/project/specs/doc-a.md\""))
+        assertTrue(
+            scripts.single().contains(
+                "\"document_id\":\"${navigationFileUri(projectBasePath, "specs/doc-a.md")}\"",
+            ),
+        )
         } finally {
             executor.shutdownNow()
         }

@@ -1113,8 +1113,8 @@ mod tests {
         let mut open_files = HashMap::new();
         // make_doc uses relative paths like "specs/test/req.md";
         // path_to_url prepends "/" for non-absolute paths.
-        let req_uri = Url::from_file_path("/specs/test/req.md").unwrap();
-        let design_uri = Url::from_file_path("/specs/test/design.md").unwrap();
+        let req_uri = path_to_url(std::path::Path::new("specs/test/req.md")).unwrap();
+        let design_uri = path_to_url(std::path::Path::new("specs/test/design.md")).unwrap();
         open_files.insert(
             req_uri.clone(),
             Arc::new(
@@ -1265,7 +1265,7 @@ mod tests {
 
         let graph = build_graph(vec![req_doc, task_doc], &Config::default()).unwrap();
 
-        let task_uri = Url::from_file_path("/specs/test/tasks.md").unwrap();
+        let task_uri = path_to_url(std::path::Path::new("specs/test/tasks.md")).unwrap();
         let mut open_files = HashMap::new();
         open_files.insert(
             task_uri.clone(),

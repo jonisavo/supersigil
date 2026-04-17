@@ -5,6 +5,9 @@ import java.io.File
 
 private const val BINARY_NAME = "supersigil-lsp"
 
+internal fun binaryNameForOs(osName: String = System.getProperty("os.name")): String =
+    if (osName.startsWith("Windows", ignoreCase = true)) "$BINARY_NAME.exe" else BINARY_NAME
+
 /**
  * Returns the path to the supersigil-lsp binary, or null if not found.
  *
@@ -45,14 +48,22 @@ fun resolveServerBinary(configuredPath: String?): String? =
         configuredPath = configuredPath,
         fileExists = { File(it).let { f -> f.exists() && f.canExecute() } },
         pathLookup = {
-            PathEnvironmentVariableUtil.findInPath(BINARY_NAME)?.absolutePath
+            PathEnvironmentVariableUtil.findInPath(binaryNameForOs())?.absolutePath
         },
     )
 
-fun defaultFallbackPaths(): List<String> {
-    val home = System.getProperty("user.home")
-    return listOf(
-        "$home/.cargo/bin/$BINARY_NAME",
-        "$home/.local/bin/$BINARY_NAME",
-    )
+fun defaultFallbackPaths(
+    home: String = System.getProperty("user.home"),
+    osName: String = System.getProperty("os.name"),
+): List<String> {
+    val binaryName = binaryNameForOs(osName)
+
+    return if (osName.startsWith("Windows", ignoreCase = true)) {
+        listOf("$home\\.cargo\\bin\\$binaryName")
+    } else {
+        listOf(
+            "$home/.cargo/bin/$binaryName",
+            "$home/.local/bin/$binaryName",
+        )
+    }
 }

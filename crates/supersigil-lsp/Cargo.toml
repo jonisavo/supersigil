@@ -28,7 +28,8 @@ async-lsp = { version = "0.2", features = ["client-monitor", "omni-trait", "stdi
 futures = "0.3"
 lsp-types = "0.95"
 tower = "0.5"
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 supersigil-core.workspace = true
@@ -47,6 +48,10 @@ bin-dir = "{ bin }{ binary-ext }"
 
 [package.metadata.binstall.overrides.'cfg(all(target_os = "linux", target_env = "gnu"))']
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target-arch }-unknown-linux-musl.tar.gz"
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-url = "{ repo }/releases/download/v{ version }/supersigil-{ version }-{ target }.zip"
+pkg-fmt = "zip"
 
 [dev-dependencies]
 insta.workspace = true

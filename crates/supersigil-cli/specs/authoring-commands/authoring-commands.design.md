@@ -155,13 +155,13 @@ selected project's first glob pattern.
 
 ## Testing Strategy
 
-- [cmd_new.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/cmd_new.rs)
+- [cmd_new.rs](../../tests/cmd_new.rs)
   covers lint-clean requirements/tasks scaffolds, graph-safe design scaffolds,
   auto-filled `Implements` when the sibling requirement exists, multi-project
   file placement, workspace project fallback to `specs/`, unknown project
   errors, single-project mode rejection of `--project`, and sibling req
   detection under project-local directories.
-- [clap_parse.rs](/home/joni/.local/src/supersigil/crates/supersigil-cli/tests/clap_parse.rs)
+- [clap_parse.rs](../../tests/clap_parse.rs)
   covers the parse surface for `init` and `new`, including `--project`/`-p`.
 
 ## Current Gaps

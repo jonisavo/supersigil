@@ -1,6 +1,6 @@
 //! Integration tests for diagnostics conversion (req-1-1 through req-1-5).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use lsp_types::{DiagnosticSeverity, Url};
 use supersigil_core::{ParseError, SourcePosition};
@@ -14,14 +14,16 @@ use supersigil_verify::{Finding, ReportSeverity, RuleName};
 // Helper
 // ---------------------------------------------------------------------------
 
-/// Build a `file://` URL for a given absolute path string.
-fn file_url(path: &str) -> Url {
+/// Build a `file://` URL for a given absolute path.
+fn file_url(path: &Path) -> Url {
     Url::from_file_path(path).expect("valid file path")
 }
 
 /// Build a dummy absolute path that can be turned into a `file://` URL.
 fn abs_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/tmp/test/{name}"))
+    std::env::temp_dir()
+        .join("supersigil-lsp-diagnostics-tests")
+        .join(PathBuf::from(name))
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ fn xml_syntax_error_maps_to_error_with_position() {
 
     let (url, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/spec.md"));
+    assert_eq!(url, file_url(&path));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     // LSP positions are 0-based.
     assert_eq!(diag.range.start.line, 4);
@@ -57,7 +59,7 @@ fn missing_id_maps_to_error_at_origin() {
 
     let (url, diag) = parse_error_to_diagnostic(&err, None).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/spec.md"));
+    assert_eq!(url, file_url(&path));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     assert_eq!(diag.range.start.line, 0);
     assert_eq!(diag.range.start.character, 0);
@@ -293,7 +295,7 @@ fn finding_with_position_uses_source_position() {
     let (url, diag) =
         finding_to_diagnostic(&finding, path_lookup).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/req/auth.md"));
+    assert_eq!(url, file_url(&abs_path("req/auth.md")));
     // 1-based (3, 5) → 0-based (2, 4)
     assert_eq!(diag.range.start.line, 2);
     assert_eq!(diag.range.start.character, 4);
@@ -312,7 +314,7 @@ fn finding_with_details_path_uses_details_path() {
         raw_severity: ReportSeverity::Error,
         position: None,
         details: Some(Box::new(FindingDetails {
-            path: Some("/tmp/test/req/auth.md".to_owned()),
+            path: Some(abs_path("req/auth.md").to_string_lossy().into_owned()),
             line: Some(7),
             column: Some(2),
             ..FindingDetails::default()
@@ -323,7 +325,7 @@ fn finding_with_details_path_uses_details_path() {
     let (url, diag) =
         finding_to_diagnostic(&finding, no_path_lookup).expect("should produce diagnostic");
 
-    assert_eq!(url, file_url("/tmp/test/req/auth.md"));
+    assert_eq!(url, file_url(&abs_path("req/auth.md")));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
     // 1-based (7, 2) → 0-based (6, 1)
     assert_eq!(diag.range.start.line, 6);

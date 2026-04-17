@@ -13,6 +13,7 @@ export interface GraphDocument {
   title: string;
   project: string | null;
   path: string;
+  file_uri?: string | null;
   components: unknown[];
 }
 
@@ -191,7 +192,7 @@ function wirePanel(
 
   openPanels.push(entry);
 
-  panel.webview.onDidReceiveMessage((msg: { type: string; path?: string; line?: number; folderUri?: string }) => {
+  panel.webview.onDidReceiveMessage((msg: { type: string; path?: string; uri?: string; line?: number; folderUri?: string }) => {
     if (msg.type === "ready") {
       pushData(entry, clients, { focusPath });
       focusPath = null;
@@ -321,9 +322,21 @@ async function pushData(
 // ---------------------------------------------------------------------------
 
 function handleOpenFile(
-  msg: { path?: string; line?: number },
+  msg: { path?: string; uri?: string; line?: number },
   folderUri: vscode.Uri,
 ): void {
+  if (msg.uri) {
+    const fileUri = vscode.Uri.parse(msg.uri);
+    if (!fileUri.toString().startsWith("file:")) {
+      vscode.window.showWarningMessage(
+        `Supersigil: Blocked navigation to unsupported URI: ${msg.uri}`,
+      );
+      return;
+    }
+    openFileAtUri(fileUri, msg);
+    return;
+  }
+
   if (!msg.path) return;
   if (!isPathSafe(msg.path)) {
     vscode.window.showWarningMessage(
@@ -331,6 +344,7 @@ function handleOpenFile(
     );
     return;
   }
+
   const fileUri = vscode.Uri.joinPath(folderUri, msg.path);
   if (!fileUri.fsPath.startsWith(folderUri.fsPath)) {
     vscode.window.showWarningMessage(
@@ -338,6 +352,13 @@ function handleOpenFile(
     );
     return;
   }
+  openFileAtUri(fileUri, msg);
+}
+
+function openFileAtUri(
+  fileUri: vscode.Uri,
+  msg: { path?: string; line?: number },
+): void {
   const openOpts: { selection?: vscode.Range } = {};
   if (msg.line !== undefined && Number.isFinite(msg.line) && msg.line > 0) {
     const line = msg.line - 1;
@@ -429,14 +450,17 @@ async function fetchAllComponents(
   async function worker(): Promise<void> {
     while (idx < documents.length) {
       const doc = documents[idx++];
-      const docUri = vscode.Uri.joinPath(folderUri, doc.path);
+      const docUri = doc.file_uri
+        ? vscode.Uri.parse(doc.file_uri)
+        : vscode.Uri.joinPath(folderUri, doc.path);
       try {
         const result = await client.sendRequest<DocumentComponentsResult>(
           METHOD_DOCUMENT_COMPONENTS,
           { uri: docUri.toString() },
         );
         results.push(result);
-      } catch {
+      } catch (err) {
+        void err;
         // Individual failures are tolerated.
       }
     }

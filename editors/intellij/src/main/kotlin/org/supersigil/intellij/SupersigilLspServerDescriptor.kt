@@ -20,9 +20,7 @@ class SupersigilLspServerDescriptor(
         return extension == "md" || extension == "mdx"
     }
 
-    override fun createCommandLine(): GeneralCommandLine =
-        GeneralCommandLine(binaryPath)
-            .withWorkDirectory(project.basePath)
+    override fun createCommandLine(): GeneralCommandLine = createSupersigilCommandLine(binaryPath, project.basePath)
 
     override fun createLsp4jClient(handler: LspServerNotificationsHandler): Lsp4jClient =
         SupersigilLsp4jClient(handler) {
@@ -41,3 +39,10 @@ class SupersigilLspServerDescriptor(
         }
     }
 }
+
+internal fun createSupersigilCommandLine(
+    binaryPath: String,
+    workDirectory: String?,
+): GeneralCommandLine =
+    GeneralCommandLine(binaryPath)
+        .withWorkDirectory(workDirectory)

@@ -8,29 +8,30 @@ title: "Release Targets"
 
 ```supersigil-xml
 <Implements refs="release-targets/req" />
-<TrackedFiles paths="release-targets.json, cliff.editor.toml, scripts/release-targets/index.mjs, scripts/release-targets/package.json, scripts/release-targets/release-targets.test.js, mise.toml, Cargo.toml, crates/**/Cargo.toml, .github/workflows/release.yml, .github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml, .github/workflows/publish-crates.yml, editors/intellij/build.gradle.kts, editors/intellij/CHANGELOG.md, editors/intellij/gradle.properties, editors/vscode/CHANGELOG.md, editors/vscode/package.json" />
+<TrackedFiles paths="release-targets.json, cliff.editor.toml, scripts/release-targets/index.mjs, scripts/release-targets/package.json, scripts/release-targets/release-targets.test.js, scripts/release.mjs, scripts/release.sh, scripts/release.ps1, mise.toml, package.json, website/package.json, Cargo.toml, crates/**/Cargo.toml, .github/workflows/release.yml, .github/workflows/publish-vscode.yml, .github/workflows/publish-intellij.yml, .github/workflows/publish-crates.yml, editors/intellij/build.gradle.kts, editors/intellij/CHANGELOG.md, editors/intellij/gradle.properties, editors/vscode/CHANGELOG.md, editors/vscode/package.json" />
 ```
 
 ## Overview
 
-Keep the existing release-target layer, but extend it in three directions:
+Keep the existing release-target layer, but extend it in two more directions:
 
-1. Add one aggregate `crates` target so any qualifying crate change bumps and
-   publishes all workspace crates together, while crate-only releases can still
-   skip editor publishes.
-2. Generate target-local changelogs for both editor extensions from a shared
-   editor changelog config that drops `ci(...)` commits entirely.
-3. Keep editor/server compatibility separate from release-target detection.
+1. Add native Windows binary artifacts for the CLI and LSP to the tagged
+   release workflow.
+2. Keep bundled-asset preparation host-compatible so the same shipped inputs
+   can be regenerated from native Windows hosts.
 
-The implementation stays intentionally small:
+The implementation still stays intentionally small:
 
-1. A checked-in target registry that now includes `crates`, `vscode`,
+1. The checked-in target registry continues to describe `crates`, `vscode`,
    `intellij`, `npm-vitest`, and `npm-eslint-plugin`.
-2. A repo-local helper script that detects impacted targets and prepares
-   target-local metadata, including aggregate crate version bumps.
-3. Workflow wiring so release prep and GitHub Actions consume the same impact
-   results, and editor publishes wait for crate publishes when crates are
-   being released.
+2. The repo-local helper script continues to own impact detection and target
+   preparation, including aggregate crate version bumps.
+3. Root release prep uses one shared Node implementation with thin Unix and
+   Windows wrappers so host-specific launch details stay small.
+4. Workflow wiring continues to reuse those impact results, but now the binary
+   build matrix also includes native Windows packaging.
+5. The asset-generation commands that feed shipped CLI artifacts avoid
+   Unix-only shell fragments so `mise` tasks can run on native Windows hosts.
 
 ## Architecture
 
@@ -177,6 +178,12 @@ The main behavior shift is that `mise release` no longer unconditionally bumps
 every crate. Crate versions now move only when the `crates` target is
 impacted.
 
+The bundled-asset steps that feed shipped CLI artifacts should also stay
+host-compatible. `mise bundle-cli`, the root `package.json` asset commands, and
+the website standalone bundle step should avoid Unix-only commands such as
+`mkdir`, `cp`, and `rm`, so native Windows contributors can regenerate the same
+checked-in shipped assets before release prep or verification.
+
 ## GitHub Actions Flow
 
 `target-metadata` should continue to run after the GitHub release is created,
@@ -194,6 +201,11 @@ Publish sequencing becomes:
 5. Their `if:` guards must accept both `needs.publish-crates.result == 'success'`
    and `needs.publish-crates.result == 'skipped'`, so a skipped crates publish
    does not suppress an otherwise-needed editor publish.
+6. The binary build matrix for tagged releases includes a native Windows target
+   in addition to the existing macOS and Linux targets.
+7. Windows packaging emits zip archives that contain `supersigil.exe` and
+   `supersigil-lsp.exe`, while non-Windows targets keep their existing tarball
+   format.
 
 This preserves the intended rule:
 
@@ -300,6 +312,10 @@ Cover at least:
 - editor changelog generation -> omits `ci(...)` commits entirely
 - crates impacted + editor impacted -> release workflow outputs require editors
   to wait for crates publishing
+- crates impacted -> release workflow builds and uploads a Windows artifact with
+  `.exe` binaries and matching checksums
+- native Windows host -> bundled CLI asset generation runs without Unix-only
+  shell commands
 
 Manual checks still matter for packaging:
 
@@ -307,6 +323,8 @@ Manual checks still matter for packaging:
   extension root
 - build the IntelliJ plugin and confirm `changeNotes` renders from the
   generated changelog
+- prepare bundled CLI assets and at least one release artifact path on a native
+  Windows host
 
 ## Alternatives Considered
 

@@ -325,12 +325,20 @@ struct FenceByteRange {
 /// Extract fence byte ranges from document content by re-parsing the markdown
 /// to find supersigil-xml fence boundaries.
 fn extract_fence_byte_ranges(content: &str) -> Vec<FenceByteRange> {
+    let normalized_storage;
+    let normalized = if content.contains('\r') || content.starts_with('\u{feff}') {
+        normalized_storage = supersigil_parser::normalize(content);
+        normalized_storage.as_str()
+    } else {
+        content
+    };
+
     // Extract front matter to compute body offset.
-    let body_offset = match extract_front_matter(content, std::path::Path::new("")) {
-        Ok(Some((_yaml, body))) => content.len() - body.len(),
+    let body_offset = match extract_front_matter(normalized, std::path::Path::new("")) {
+        Ok(Some((_yaml, body))) => normalized.len() - body.len(),
         _ => 0,
     };
-    let body = &content[body_offset..];
+    let body = &normalized[body_offset..];
 
     let fences = extract_markdown_fences(body, body_offset);
 
@@ -1246,6 +1254,11 @@ mod tests {
             }
         }
 
+        fn parse_doc_from_raw_content(content: &str) -> SpecDocument {
+            let normalized = supersigil_parser::normalize(content);
+            parse_doc(&normalized)
+        }
+
         fn parse_doc_with_errors(content: &str) -> (Option<SpecDocument>, bool) {
             let defs = supersigil_core::ComponentDefs::defaults();
             match supersigil_parser::parse_content_recovering(
@@ -1428,6 +1441,46 @@ Some prose between fences.
                 fence1.byte_range[1] <= fence2.byte_range[0],
                 "fences should be ordered by position",
             );
+        }
+
+        #[test]
+        #[verifies("spec-rendering/req#req-1-1")]
+        fn raw_crlf_content_still_maps_components_into_fences() {
+            let content = "\
+---\r
+supersigil:\r
+  id: test/crlf\r
+  type: requirements\r
+  status: approved\r
+---\r
+\r
+```supersigil-xml\r
+<AcceptanceCriteria>\r
+  <Criterion id=\"c1\">\r
+    Users SHALL authenticate.\r
+    <VerifiedBy strategy=\"file-glob\" paths=\"src/main.rs\" />\r
+  </Criterion>\r
+</AcceptanceCriteria>\r
+```\r
+";
+            let doc = parse_doc_from_raw_content(content);
+            let graph = build_graph_with_docs(vec![doc.clone()]);
+
+            let result = build_document_components(&BuildComponentsInput {
+                doc: &doc,
+                stale: false,
+                content,
+                graph: &graph,
+                evidence_by_target: None,
+                evidence_records: None,
+                project_root: Path::new(""),
+            });
+
+            assert_eq!(result.fences.len(), 1);
+            assert_eq!(result.fences[0].components.len(), 1);
+            assert_eq!(result.fences[0].components[0].kind, "AcceptanceCriteria");
+            assert_eq!(result.fences[0].components[0].children.len(), 1);
+            assert_eq!(result.fences[0].components[0].children[0].kind, "Criterion");
         }
 
         // -----------------------------------------------------------------

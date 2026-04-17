@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "prebuild": "cd ../packages/preview && pnpm run build && cd ../../website && cp ../packages/preview/dist/supersigil-preview.css ../packages/preview/dist/render-iife.js ../packages/preview/dist/supersigil-preview.js public/explore/ && supersigil graph --format json > public/explore/graph.json && (supersigil export --format json > public/explore/render-data.json || true)",
+    "prebuild": "node scripts/prebuild.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
@@ -15,7 +15,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint --fix src/",
     "build:explorer-iife": "node build-explorer-iife.mjs",
-    "bundle:standalone": "mkdir -p ../crates/supersigil-cli/src/commands/explore_assets && esbuild src/components/explore/graph-explorer.js --bundle --format=iife --global-name=SupersigilExplorer --alias:d3=./src/components/explore/d3-global.cjs --main-fields=module,main --outfile=../crates/supersigil-cli/src/commands/explore_assets/explore-standalone.js"
+    "bundle:standalone": "node scripts/bundle-standalone.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.3",
