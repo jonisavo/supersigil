@@ -14,7 +14,17 @@ import {
   DocumentEntry,
 } from "./specExplorer";
 import { PreviewCache } from "./previewCache";
-import { openExplorerPanel, refreshPanelsForClient, restoreExplorerPanel } from "./explorerWebview";
+import {
+  openExplorerPanel,
+  openGraphFile,
+  openGraphFileWithOptions,
+  refreshPanelsForClient,
+  restoreExplorerPanel,
+} from "./explorerWebview";
+import {
+  OPEN_GRAPH_FILE_COMMAND,
+  type OpenGraphFileTarget,
+} from "./explorerLinks";
 import {
   queryCompatibilityInfo,
   type CompatibilityResult,
@@ -709,6 +719,15 @@ export async function activate(
     ),
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      OPEN_GRAPH_FILE_COMMAND,
+      (target: OpenGraphFileTarget) => {
+        openGraphFile(target ?? {});
+      },
+    ),
+  );
+
   // Restore graph explorer panels after VS Code restart
   vscode.window.registerWebviewPanelSerializer("supersigil.explorer", {
     async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
@@ -806,18 +825,17 @@ export async function activate(
             const filePath = params.get("path");
             if (!filePath) return;
             const line = parseInt(params.get("line") ?? "1", 10);
-            const fileUri = vscode.Uri.file(filePath);
-            const doc = await vscode.workspace.openTextDocument(fileUri);
-            const selection = new vscode.Range(
-              Math.max(0, line - 1), 0,
-              Math.max(0, line - 1), 0,
+            openGraphFileWithOptions(
+              {
+                uri: vscode.Uri.file(filePath).toString(),
+                line,
+              },
+              {
+                viewColumn: vscode.ViewColumn.Beside,
+                preserveFocus: true,
+                preview: true,
+              },
             );
-            await vscode.window.showTextDocument(doc, {
-              selection,
-              viewColumn: vscode.ViewColumn.Beside,
-              preserveFocus: true,
-              preview: true,
-            });
             break;
           }
           case "/open-criterion": {

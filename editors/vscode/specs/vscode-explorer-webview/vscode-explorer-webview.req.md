@@ -55,8 +55,13 @@ features beyond what the website already provides.
   shape `[{ document_id, fences, edges }]` matches what the website
   explorer's `mount()` function expects as `renderData`.
 - **Message protocol**: The `postMessage` API between the VS Code
-  extension host and the webview, used to push data in and receive
-  navigation actions out.
+  extension host and the webview, used to push graph data in and
+  receive panel-lifecycle actions (`ready`, `switchRoot`) out.
+- **Open-file command URI**: A `command:supersigil.openGraphFile`
+  link whose JSON arguments tell the extension which file or line
+  to open. These links are global to the extension, so they keep
+  working even if the webview's panel-local message bridge is lost
+  during an extension-host restart.
 
 ## Requirement 1: LSP Graph Data Endpoint
 
@@ -122,10 +127,11 @@ relationships and drill into document details inside the editor.
     THE webview SHALL load the bundled explorer modules and call the
     `mount()` function with graph data, render data, and a
     host-provided link resolver. THE link resolver SHALL generate
-    evidence links using an interceptable URI scheme and hash-based
-    URIs for in-explorer document navigation. THE webview bootstrap
-    script SHALL intercept evidence link clicks and convert them to
-    `postMessage` calls (`openFile`) instead of navigating.
+    evidence links using the registered `command:supersigil.openGraphFile`
+    URI and hash-based URIs for in-explorer document navigation.
+    THE webview bootstrap script MAY preserve interception for the
+    legacy `supersigil-evidence:` scheme as a compatibility fallback,
+    but the primary file-opening path SHALL be the command URI.
     In-explorer document navigation (node selection, edge clicks)
     SHALL proceed normally without interception.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.ts, editors/vscode/src/explorerBootstrap.test.ts" />
@@ -198,14 +204,16 @@ visualization to code without manual file searching.
 <AcceptanceCriteria>
   <Criterion id="req-4-1">
     THE detail panel SHALL include an "Open File" button in the
-    document header. Clicking it SHALL send a message to the
-    extension that opens the corresponding spec file in the editor.
+    document header. Clicking it SHALL invoke the registered
+    `supersigil.openGraphFile` command so the corresponding spec file
+    opens in the editor even after an extension-host restart.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts" />
   </Criterion>
   <Criterion id="req-4-2">
     Evidence source links (test file + line number) in the detail
-    panel SHALL be clickable. Clicking one SHALL send a message to
-    the extension that opens the file at the specified line.
+    panel SHALL be clickable. Clicking one SHALL invoke the registered
+    `supersigil.openGraphFile` command so the file opens at the
+    specified line even after an extension-host restart.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts" />
   </Criterion>
   <Criterion id="req-4-3">
@@ -243,12 +251,14 @@ testable.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerWebview.test.ts" />
   </Criterion>
   <Criterion id="req-5-2">
-    THE webview SHALL send messages of type `openFile` to the
-    extension containing a `path` field (workspace-folder-relative) and an
-    optional `line` field (1-based line number). Document-to-file
-    resolution SHALL happen in the webview using the `path` field
-    from graph data; no extension round-trip is needed.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts" />
+    THE webview SHALL encode file-opening actions as
+    `command:supersigil.openGraphFile` URIs whose JSON argument object
+    contains either a `uri` field or a workspace-folder-relative
+    `path` plus `folderUri`, and MAY include an optional `line`
+    field (1-based line number). THE extension SHALL register the
+    `supersigil.openGraphFile` command and use the provided payload
+    to resolve and open the target file.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts, editors/vscode/src/explorerWebview.test.ts, editors/vscode/src/extension.ts" />
   </Criterion>
   <Criterion id="req-5-3">
     THE webview SHALL send messages of type `switchRoot` to the

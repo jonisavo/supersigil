@@ -13,24 +13,80 @@ import {
   EVIDENCE_SCHEME,
   linkResolver,
   parseEvidenceHref,
+  createLinkResolver,
   injectOpenFileButton,
 } from "./explorerBootstrap";
+import {
+  OPEN_GRAPH_FILE_COMMAND,
+  buildOpenFileCommandHref,
+} from "./explorerLinks";
 
-describe("linkResolver", () => {
+function decodeCommandHref(href: string): { command: string; args: unknown[] } {
+  const [command, encodedArgs = ""] = href.split("?");
+  return {
+    command,
+    args: JSON.parse(decodeURIComponent(encodedArgs)),
+  };
+}
+
+describe("buildOpenFileCommandHref", () => {
+  it("encodes open-file targets as a command URI argument array", () => {
+    const href = buildOpenFileCommandHref({
+      path: "src/main.rs",
+      line: 42,
+      folderUri: "file:///workspace",
+    });
+
+    expect(decodeCommandHref(href)).toEqual({
+      command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+      args: [
+        {
+          path: "src/main.rs",
+          line: 42,
+          folderUri: "file:///workspace",
+        },
+      ],
+    });
+  });
+});
+
+describe("createLinkResolver", () => {
   describe("evidenceLink", () => {
-    it("generates evidence scheme URI with encoded path and line", () => {
-      const result = linkResolver.evidenceLink("src/main.rs", 42);
-      expect(result).toBe(`${EVIDENCE_SCHEME}:src%2Fmain.rs?line=42`);
-    });
-
-    it("encodes special characters in file paths", () => {
-      const result = linkResolver.evidenceLink("path with spaces/file.ts", 1);
-      expect(result).toBe(
-        `${EVIDENCE_SCHEME}:path%20with%20spaces%2Ffile.ts?line=1`,
+    it("generates a command URI with folder-scoped file arguments", () => {
+      const result = createLinkResolver("file:///workspace").evidenceLink(
+        "src/main.rs",
+        42,
       );
+      expect(decodeCommandHref(result)).toEqual({
+        command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+        args: [
+          {
+            path: "src/main.rs",
+            line: 42,
+            folderUri: "file:///workspace",
+          },
+        ],
+      });
     });
 
-    it("encodes unicode characters", () => {
+    it("preserves special characters in encoded command arguments", () => {
+      const result = createLinkResolver("file:///workspace").evidenceLink(
+        "path with spaces/日本語.ts",
+        1,
+      );
+      expect(decodeCommandHref(result)).toEqual({
+        command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+        args: [
+          {
+            path: "path with spaces/日本語.ts",
+            line: 1,
+            folderUri: "file:///workspace",
+          },
+        ],
+      });
+    });
+
+    it("preserves unicode characters in encoded command arguments", () => {
       const result = linkResolver.evidenceLink("src/日本語.rs", 10);
       expect(result).toBe(
         `${EVIDENCE_SCHEME}:src%2F%E6%97%A5%E6%9C%AC%E8%AA%9E.rs?line=10`,
@@ -112,16 +168,16 @@ describe("parseEvidenceHref", () => {
 
 describe("injectOpenFileButton", () => {
   let container: HTMLElement;
-  const pathByDocId = new Map([
-    ["proj/requirements", "specs/proj/requirements.md"],
-    ["proj/design", "specs/proj/design.md"],
+  const fileByDocId = new Map([
+    ["proj/requirements", { path: "specs/proj/requirements.md" }],
+    ["proj/design", { path: "specs/proj/design.md" }],
   ]);
 
   beforeEach(() => {
     container = document.createElement("div");
   });
 
-  it("injects button when detail-panel-header with known doc ID appears", () => {
+  it("injects a command link for workspace-relative documents", () => {
     container.innerHTML = `
       <div class="detail-panel-header">
         <div class="detail-panel-title">proj/requirements</div>
@@ -129,14 +185,23 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
-    const btn = container.querySelector(".open-file-btn");
+    const btn = container.querySelector(".open-file-btn") as HTMLAnchorElement;
     expect(btn).not.toBeNull();
     expect(btn!.textContent).toBe("Open File");
     expect(btn!.getAttribute("title")).toBe(
       "Open specs/proj/requirements.md",
     );
+    expect(decodeCommandHref(btn.getAttribute("href")!)).toEqual({
+      command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+      args: [
+        {
+          path: "specs/proj/requirements.md",
+          folderUri: "file:///workspace",
+        },
+      ],
+    });
   });
 
   it("does not inject button when doc ID is unknown", () => {
@@ -147,7 +212,7 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
     expect(container.querySelector(".open-file-btn")).toBeNull();
   });
@@ -161,7 +226,7 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
     const buttons = container.querySelectorAll(".open-file-btn");
     expect(buttons.length).toBe(1);
@@ -174,7 +239,7 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
     expect(container.querySelector(".open-file-btn")).toBeNull();
   });
@@ -186,12 +251,12 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
     expect(container.querySelector(".open-file-btn")).toBeNull();
   });
 
-  it("button click calls the provided callback with correct path", () => {
+  it("injects a command link using the canonical file URI when available", () => {
     container.innerHTML = `
       <div class="detail-panel-header">
         <div class="detail-panel-title">proj/design</div>
@@ -199,13 +264,40 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    const onClick = vi.fn();
-    injectOpenFileButton(container, pathByDocId, onClick);
+    const fileInfoByDocId = new Map([
+      [
+        "proj/design",
+        {
+          path: "specs/proj/design.md",
+          uri: "file:///shared/specs/proj/design.md",
+        },
+      ],
+    ]);
+    injectOpenFileButton(container, fileInfoByDocId);
 
-    const btn = container.querySelector(".open-file-btn") as HTMLElement;
-    btn.click();
+    const btn = container.querySelector(".open-file-btn")!;
+    expect(btn.tagName).toBe("A");
+    expect(decodeCommandHref(btn.getAttribute("href")!)).toEqual({
+      command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+      args: [
+        {
+          uri: "file:///shared/specs/proj/design.md",
+        },
+      ],
+    });
+  });
 
-    expect(onClick).toHaveBeenCalledWith("specs/proj/design.md", undefined);
+  it("does not inject a link when no command target can be resolved", () => {
+    container.innerHTML = `
+      <div class="detail-panel-header">
+        <div class="detail-panel-title">proj/design</div>
+        <button class="detail-panel-close" aria-label="Close">\u2715</button>
+      </div>
+    `;
+
+    injectOpenFileButton(container, fileByDocId);
+
+    expect(container.querySelector(".open-file-btn")).toBeNull();
   });
 
   it("inserts button before the close button", () => {
@@ -216,7 +308,7 @@ describe("injectOpenFileButton", () => {
       </div>
     `;
 
-    injectOpenFileButton(container, pathByDocId);
+    injectOpenFileButton(container, fileByDocId, "file:///workspace");
 
     const header = container.querySelector(".detail-panel-header")!;
     const children = Array.from(header.children);
@@ -501,7 +593,7 @@ describe("bootstrap webview runtime", () => {
     delete globals.SupersigilExplorer;
   });
 
-  it("injects Open File button when mount restores a detail panel synchronously", () => {
+  it("injects restart-safe Open File links when mount restores a detail panel synchronously", () => {
     window.location.hash = "#/doc/proj%2Frequirements";
     mountImpl = vi.fn((container: HTMLElement) => {
       container.innerHTML = `
@@ -520,16 +612,38 @@ describe("bootstrap webview runtime", () => {
 
     const btn = bootstrapContainer.querySelector(
       ".open-file-btn",
-    ) as HTMLButtonElement | null;
+    ) as HTMLAnchorElement | null;
     expect(btn).not.toBeNull();
     expect(btn!.textContent).toBe("Open File");
+    expect(decodeCommandHref(btn!.getAttribute("href")!)).toEqual({
+      command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+      args: [
+        {
+          uri: "file:///shared/specs/proj/requirements.md",
+        },
+      ],
+    });
+  });
 
-    btn!.click();
+  it("passes a root-aware link resolver to the explorer runtime", () => {
+    window.dispatchEvent(
+      new MessageEvent("message", { data: graphDataMessage() }),
+    );
 
-    expect(postMessage).toHaveBeenCalledWith({
-      type: "openFile",
-      path: "specs/proj/requirements.md",
-      uri: "file:///shared/specs/proj/requirements.md",
+    const resolver = vi.mocked(mountImpl).mock.calls[0]?.[4] as
+      | { evidenceLink: (file: string, line: number) => string }
+      | undefined;
+
+    expect(resolver).toBeDefined();
+    expect(decodeCommandHref(resolver!.evidenceLink("src/main.rs", 42))).toEqual({
+      command: `command:${OPEN_GRAPH_FILE_COMMAND}`,
+      args: [
+        {
+          path: "src/main.rs",
+          line: 42,
+          folderUri: "file:///ws-a",
+        },
+      ],
     });
   });
 

@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
 import { METHOD_GRAPH_DATA, METHOD_DOCUMENT_COMPONENTS } from "./specExplorer";
+import {
+  OPEN_GRAPH_FILE_COMMAND,
+  type OpenGraphFileTarget,
+} from "./explorerLinks";
 
 // ---------------------------------------------------------------------------
 // LSP response types
@@ -138,6 +142,7 @@ export function openExplorerPanel(
     `Spec Explorer (${folderName})`,
     vscode.ViewColumn.Beside,
     {
+      enableCommandUris: [OPEN_GRAPH_FILE_COMMAND],
       enableScripts: true,
       retainContextWhenHidden: true,
       localResourceRoots: [webviewDistUri],
@@ -194,8 +199,12 @@ function wirePanel(
 
   panel.webview.onDidReceiveMessage((msg: { type: string; path?: string; uri?: string; line?: number; folderUri?: string }) => {
     if (msg.type === "ready") {
-      pushData(entry, clients, { focusPath });
-      focusPath = null;
+      if (panel.visible) {
+        pushData(entry, clients, { focusPath });
+        focusPath = null;
+      } else {
+        entry.staleWhileHidden = true;
+      }
       return;
     }
     if (msg.type === "switchRoot") {
@@ -213,7 +222,8 @@ function wirePanel(
   panel.onDidChangeViewState((e) => {
     if (e.webviewPanel.visible && entry.staleWhileHidden) {
       entry.staleWhileHidden = false;
-      pushData(entry, clients);
+      pushData(entry, clients, { focusPath });
+      focusPath = null;
     }
   });
 
@@ -321,9 +331,30 @@ async function pushData(
 // handleOpenFile
 // ---------------------------------------------------------------------------
 
+export function openGraphFile(target: OpenGraphFileTarget): void {
+  openGraphFileWithOptions(target, {});
+}
+
+export function openGraphFileWithOptions(
+  target: OpenGraphFileTarget,
+  showOptions: vscode.TextDocumentShowOptions,
+): void {
+  if (target.uri) {
+    handleOpenFile(target, undefined, showOptions);
+    return;
+  }
+
+  if (!target.path || !target.folderUri) {
+    return;
+  }
+
+  handleOpenFile(target, vscode.Uri.parse(target.folderUri), showOptions);
+}
+
 function handleOpenFile(
   msg: { path?: string; uri?: string; line?: number },
-  folderUri: vscode.Uri,
+  folderUri?: vscode.Uri,
+  showOptions: vscode.TextDocumentShowOptions = {},
 ): void {
   if (msg.uri) {
     const fileUri = vscode.Uri.parse(msg.uri);
@@ -333,11 +364,11 @@ function handleOpenFile(
       );
       return;
     }
-    openFileAtUri(fileUri, msg);
+    openFileAtUri(fileUri, msg, showOptions);
     return;
   }
 
-  if (!msg.path) return;
+  if (!msg.path || !folderUri) return;
   if (!isPathSafe(msg.path)) {
     vscode.window.showWarningMessage(
       `Supersigil: Blocked navigation to unsafe path: ${msg.path}`,
@@ -352,14 +383,15 @@ function handleOpenFile(
     );
     return;
   }
-  openFileAtUri(fileUri, msg);
+  openFileAtUri(fileUri, msg, showOptions);
 }
 
 function openFileAtUri(
   fileUri: vscode.Uri,
   msg: { path?: string; line?: number },
+  showOptions: vscode.TextDocumentShowOptions,
 ): void {
-  const openOpts: { selection?: vscode.Range } = {};
+  const openOpts: vscode.TextDocumentShowOptions = { ...showOptions };
   if (msg.line !== undefined && Number.isFinite(msg.line) && msg.line > 0) {
     const line = msg.line - 1;
     const pos = new vscode.Position(line, 0);

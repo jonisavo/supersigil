@@ -20,7 +20,8 @@
   ],
   "activationEvents": [
     "workspaceContains:**/supersigil.toml",
-    "onUri"
+    "onUri",
+    "onWebviewPanel:supersigil.explorer"
   ],
   "main": "./dist/extension.js",
   "contributes": {
