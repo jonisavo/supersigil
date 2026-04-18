@@ -208,25 +208,6 @@ fn severity_symbol(severity: ReportSeverity, color: ColorConfig) -> format::Pain
     }
 }
 
-/// Format a scope header showing how many documents are in scope for `--since`.
-///
-/// Produces a line like:
-/// `Verifying 3 documents (since origin/main)`
-pub(crate) fn format_scope_header(
-    scoped_count: usize,
-    since_ref: &str,
-    color: ColorConfig,
-) -> String {
-    let noun = if scoped_count == 1 {
-        "document"
-    } else {
-        "documents"
-    };
-    let count_str = scoped_count.to_string();
-    let count_painted = color.paint(Token::Count, &count_str);
-    format!("Verifying {count_painted} {noun} (since {since_ref})\n")
-}
-
 /// Format the timing summary line for terminal output.
 ///
 /// Produces a line like:

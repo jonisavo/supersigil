@@ -87,7 +87,7 @@ pub fn affected(
         }
     }
 
-    // -- One-hop transitive staleness extension ----------------------------
+    // -- One-hop transitive affected-document extension --------------------
     // For each directly affected doc, find docs that reference it and add
     // them as transitively affected (unless already in the direct set).
     let direct_ids: BTreeSet<&str> = results.iter().map(|d| d.id.as_str()).collect();
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(result_top[0].changed_files, result_nested[0].changed_files);
     }
 
-    // -- Transitive staleness tests ------------------------------------------
+    // -- Transitive affected-document tests ---------------------------------
 
     #[verifies("decision-components/req#req-6-4")]
     #[test]

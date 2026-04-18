@@ -24,7 +24,7 @@ nudge authors toward recording and maintaining rationale alongside their specs.
 - New built-in document type: `adr`.
 - New configurable verification rules for decision completeness and coverage.
 - Integration with `supersigil context` output.
-- Integration with `supersigil affected` for decision staleness.
+- Integration with `supersigil affected` for decision impact.
 
 ### Out of scope
 
@@ -235,7 +235,7 @@ when reviewing or modifying a feature.
     WHEN a `Decision` contains nested `References` or `DependsOn` targeting a
     document that is flagged as affected, the decision's owning document SHALL
     also be flagged as transitively affected. This is satisfied by the general
-    transitive staleness behavior specified in `verification-engine/req#req-6-4`.
+    transitive affected-doc behavior specified in `verification-engine/req#req-6-4`.
     <References refs="verification-engine/req#req-6-4" />
   </Criterion>
 </AcceptanceCriteria>

@@ -90,7 +90,7 @@ supersigil verify                  # Cross-document verification
 supersigil ls                      # List all documents
 supersigil context <id>            # Agent-friendly view of a document
 supersigil plan [id_or_prefix]     # Outstanding work overview
-supersigil status [id]             # Coverage and staleness summary
+supersigil status [id]             # Coverage and affected-doc summary
 supersigil affected --since <ref>  # Docs affected by file changes
 supersigil schema                  # Component and type definitions
 supersigil graph                   # Document dependency graph (Mermaid/Graphviz)

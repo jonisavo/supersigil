@@ -12,11 +12,11 @@ import { Aside } from '@astrojs/starlight/components';
 <TrackedFiles paths="crates/supersigil-verify/src/**/*.rs" />
 ```
 
-Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and stale specs -- automatically, on every commit.
+Verification is what makes Supersigil more than documentation. It is a graph checker that catches broken references, uncovered criteria, missing tests, and impacted review scope -- automatically, on every commit.
 
 ## What Verify Does
 
-`supersigil verify` builds the full document graph and checks everything: cross-document references, coverage, test mappings, staleness, and cycles. This is the CI command.
+`supersigil verify` builds the full document graph and checks everything: cross-document references, coverage, test mappings, affected-document hints, and cycles. This is the CI command.
 
 ## Hard Errors
 
@@ -45,7 +45,6 @@ These rules have built-in default severities that can be overridden in `supersig
 | `invalid_verified_by_placement` | error | `<VerifiedBy>` placed outside a `<Criterion>` |
 | `zero_tag_matches` | warning | `<VerifiedBy strategy="tag">` tag found no matching tests |
 | `status_inconsistency` | warning | Tasks doc has completed tasks but stale status, or sibling design/requirements doc not promoted after tasks doc reaches `done` |
-| `stale_tracked_files` | warning | Tracked files changed since the specified git ref |
 | `empty_tracked_glob` | warning | `<TrackedFiles>` glob matches no files |
 | `orphan_test_tag` | warning | Test file has a `supersigil:` tag not referenced by any spec |
 | `invalid_id_pattern` | warning | Document ID does not match the configured `id_pattern` regex |
@@ -147,17 +146,17 @@ supersigil verify --format json
 supersigil verify --format markdown
 ```
 
-The JSON format includes the full findings list, summary counts, and optional evidence summary.
+The JSON format includes the full findings list, summary counts, optional evidence summary, and an optional `affected_summary` when you run `verify --since ...`.
 
-## Staleness Detection
+## Affected Documents
 
-When tracked files change, `supersigil verify --since <ref>` flags the associated specs as stale:
+When tracked files change, `supersigil verify --since <ref>` reports the associated specs as affected. Human-readable output points to the dedicated query, and JSON includes a compact `affected_summary`:
 
 ```bash
 supersigil verify --since main
 ```
 
-For a standalone staleness check without full verification, use the `affected` command:
+For a standalone affected-document check without full verification, use the `affected` command:
 
 ```bash
 supersigil affected --since main

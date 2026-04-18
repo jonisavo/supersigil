@@ -108,10 +108,10 @@ and cycles that span unchanged documents.
    rebuild and full rule pass. Spec files change rarely, so this is
    acceptable.
 
-2. **Implementation-file staleness.** A source file matched by TrackedFiles
+2. **Implementation-file impact.** A source file matched by TrackedFiles
    changed → mark the owning document(s) as stale. This is what `affected`
    does today. One-hop transitive expansion covers direct references. Cache
-   merge is safe here because staleness is per-document.
+   merge is safe here because tracked-file impact is per-document.
 
 3. **Evidence/test-file invalidation.** A test file changed → re-scan
    evidence for documents whose VerifiedBy globs match the file, or whose

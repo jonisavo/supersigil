@@ -38,7 +38,7 @@ iterative authoring or penalizing teams with different practices).
 
   <Alternative id="test-derived-file-associations" status="rejected">
     Deriving file associations from test mappings (if a test file
-    changes, the spec it verifies is potentially stale). Rejected because
+    changes, the spec it verifies is potentially affected). Rejected because
     tests and specs can address different aspects of the same code, and
     test file changes don't always indicate spec drift.
   </Alternative>

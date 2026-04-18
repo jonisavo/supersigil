@@ -50,8 +50,6 @@ pub enum RuleName {
     MissingTestFiles,
     /// A tag yielded zero matches in scanned files.
     ZeroTagMatches,
-    /// Tracked files changed since the given git ref.
-    StaleTrackedFiles,
     /// A tracked-files glob pattern matches no files.
     EmptyTrackedGlob,
     /// A tag in test code does not correspond to any document.
@@ -98,7 +96,6 @@ impl RuleName {
         Self::MissingVerificationEvidence,
         Self::MissingTestFiles,
         Self::ZeroTagMatches,
-        Self::StaleTrackedFiles,
         Self::EmptyTrackedGlob,
         Self::OrphanTestTag,
         Self::InvalidIdPattern,
@@ -132,7 +129,6 @@ impl RuleName {
             Self::MissingVerificationEvidence => "missing_verification_evidence",
             Self::MissingTestFiles => "missing_test_files",
             Self::ZeroTagMatches => "zero_tag_matches",
-            Self::StaleTrackedFiles => "stale_tracked_files",
             Self::EmptyTrackedGlob => "empty_tracked_glob",
             Self::OrphanTestTag => "orphan_test_tag",
             Self::InvalidIdPattern => "invalid_id_pattern",
@@ -169,7 +165,6 @@ impl RuleName {
 
             Self::EmptyProject
             | Self::ZeroTagMatches
-            | Self::StaleTrackedFiles
             | Self::EmptyTrackedGlob
             | Self::OrphanTestTag
             | Self::InvalidIdPattern
@@ -618,7 +613,6 @@ mod tests {
             (RuleName::InvalidVerifiedByPlacement, ReportSeverity::Error),
             (RuleName::IsolatedDocument, ReportSeverity::Off),
             (RuleName::ZeroTagMatches, ReportSeverity::Warning),
-            (RuleName::StaleTrackedFiles, ReportSeverity::Warning),
             (RuleName::EmptyTrackedGlob, ReportSeverity::Warning),
             (RuleName::OrphanTestTag, ReportSeverity::Warning),
             (RuleName::InvalidIdPattern, ReportSeverity::Warning),

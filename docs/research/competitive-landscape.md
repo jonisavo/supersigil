@@ -163,7 +163,7 @@ is novel in the Rust ecosystem.
   documents' TrackedFiles match changed source files (plus one-hop transitive
   refs), agent skills encourage updating specs during implementation, and
   `supersigil verify` confirms structural consistency. Today `affected`
-  covers implementation-file staleness but not evidence-only changes or
+  covers implementation-file impact but not evidence-only changes or
   semantic drift — extending it to cover evidence files is a planned
   improvement (see strategic-direction.md). Teams can choose stable specs
   or living specs; the infrastructure supports both, with the detection

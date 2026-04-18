@@ -24,7 +24,7 @@ The implementation touches four crates:
 - **supersigil-verify** — six new rules (three structural, three
   decision-quality), rule registration, verify pipeline orchestration.
 - **supersigil-cli** — `new` scaffold template for `adr`, built-in doc type
-  registration, affected transitive staleness.
+  registration, affected transitive propagation.
 - **supersigil-core config** — `KNOWN_RULES` additions.
 
 ## Component Definitions
@@ -135,7 +135,8 @@ same reverse-mapping entries as a top-level `<References>`.
 
 Verify that `build_tracked_files_index` walks nested components
 recursively. If it does (matching the pattern of `build_component_index`),
-then `<TrackedFiles>` inside a `<Decision>` is indexed for staleness
+then `<TrackedFiles>` inside a `<Decision>` is indexed for affected-document
+detection
 detection without changes. If it only walks top-level components, extend
 it with the same recursive walk pattern.
 
@@ -383,7 +384,7 @@ draft gating → per-rule override → global strictness → built-in default.
 
 ## Affected Integration
 
-### Direct Staleness (req-6-3)
+### Direct Affected Scope (req-6-3)
 
 If `build_tracked_files_index` already walks nested components, this
 works without changes — `TrackedFiles` inside a `Decision` is indexed
@@ -392,9 +393,9 @@ against the parent document, and `affected` checks against that index.
 If not, extend the walk to match the recursive pattern of
 `build_component_index`.
 
-### Transitive Staleness (req-6-4)
+### Transitive Affected Scope (req-6-4)
 
-Transitive staleness is a general `affected` enhancement specified in
+Transitive affected propagation is a general `affected` enhancement specified in
 `verification-engine/req#req-6-4`. The implementation lives in the
 affected query, not in this feature's code. Decisions benefit from it
 automatically: when a Decision's nested `References` targets an affected
@@ -483,7 +484,7 @@ The ID convention: `{feature}/adr`, file name `{feature}.adr.mdx`.
 
 - Tests verifying:
   - Nested TrackedFiles inside Decision produce affected entries.
-  - Transitive staleness adds referencing documents.
+  - Transitive affected propagation adds referencing documents.
   - Transitive entries carry `transitive_from`.
   - Direct and transitive entries are deduplicated.
 

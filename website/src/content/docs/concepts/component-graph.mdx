@@ -102,7 +102,7 @@ Declares document-level ordering dependencies. Used for topological sorting and 
 
 ### TrackedFiles
 
-Declares file paths (globs) that this spec cares about. Used for staleness detection.
+Declares file paths (globs) that this spec cares about. Used to determine affected documents from file changes.
 
 ```xml
 <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />

@@ -17,10 +17,11 @@ title: "Verification Engine"
 The current verification design is split across two layers:
 
 - `supersigil-verify` owns rule execution, severity resolution, tracked-file
-  analysis, report types, and report formatting.
+  validation, affected-document queries, report types, and report formatting.
 - `supersigil-cli` owns evidence assembly for the operator-facing commands:
   building the ArtifactGraph, surfacing plugin failures and evidence conflicts,
-  and enriching the final report with Evidence_Summary data.
+  enriching the final report with Evidence_Summary data, and surfacing
+  affected-document context in `verify`.
 
 That split matters because the verify crate no longer infers coverage from
 graph references. The CLI first turns authored and discovered evidence into an
@@ -83,8 +84,7 @@ The CLI performs evidence assembly before `verify()` runs:
 
 1. coverage
 2. test mapping (`file-glob` and `tag`)
-3. tracked files (`empty_tracked_glob`, then `stale_tracked_files` when
-   `since_ref` is present)
+3. tracked files (`empty_tracked_glob`)
 4. structural checks
 5. status check
 
@@ -100,6 +100,9 @@ After the library run, the CLI:
 - turns ArtifactGraph conflicts into `plugin_discovery_failure` findings
 - recomputes the summary counts
 - attaches `EvidenceSummary` when evidence records exist
+- when `since_ref` is present, computes affected-document overlap from tracked
+  files, appends a non-failing note pointing users to `supersigil affected` in
+  terminal/markdown output, and adds an `affected_summary` object to JSON
 - formats the result for terminal, JSON, or markdown output
 
 ## Key Types
@@ -165,7 +168,10 @@ target sets are kept separate and recorded as evidence conflicts.
 The terminal formatter groups findings by document and then by rule. Repeated
 findings above the collapse threshold are summarized with a preview. JSON and
 markdown formatters preserve the full finding set and optional evidence
-summary.
+summary. When `since_ref` is present, terminal and markdown append a
+human-readable affected-doc note only when overlap exists, while JSON adds a
+structured `affected_summary` object with `doc_count` and
+`changed_file_count`.
 
 ### `status`
 
@@ -180,8 +186,8 @@ summary.
 ### `affected`
 
 `affected` is independent of ArtifactGraph. It uses the tracked-files index
-plus git diff results to report which documents are potentially stale relative
-to a ref.
+plus git diff results to report which documents are in the affected review
+scope relative to a ref.
 
 ## Testing Strategy
 

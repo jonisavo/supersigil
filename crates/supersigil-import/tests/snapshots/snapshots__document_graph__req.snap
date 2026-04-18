@@ -296,7 +296,7 @@ As a query consumer, I want `Task` `implements` attributes resolved to their tar
 
 ## Requirement 12: TrackedFiles Indexing
 
-As a verification engine consumer, I want all `TrackedFiles` components indexed by their owning document, so that downstream consumers (e.g., the `affected` command and `stale_tracked_files` rule in Spec 3) can match changed files against spec documents without re-parsing.
+As a verification engine consumer, I want all `TrackedFiles` components indexed by their owning document, so that downstream consumers (e.g., the `affected` command) can match changed files against spec documents without re-parsing.
 
 ```supersigil-xml
 <AcceptanceCriteria>

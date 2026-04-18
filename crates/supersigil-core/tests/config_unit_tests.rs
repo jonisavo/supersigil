@@ -518,11 +518,10 @@ paths = ["specs/**/*.md"]
 [verify.rules]
 missing_verification_evidence = "warning"
 zero_tag_matches = "error"
-stale_tracked_files = "off"
 "#,
     );
     let config = load_config(Path::new(&path)).unwrap();
-    assert_eq!(config.verify.rules.len(), 3);
+    assert_eq!(config.verify.rules.len(), 2);
 }
 
 // ---------------------------------------------------------------------------

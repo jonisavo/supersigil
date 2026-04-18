@@ -136,7 +136,7 @@ Decisions can track the source files that embody them using nested `<TrackedFile
 
 When those files change, `supersigil affected` flags the decision's document — prompting a review of whether the rationale still holds.
 
-Decisions also benefit from transitive staleness: if a Decision references a document via `<References>`, and that document's tracked files change, the Decision's document is flagged as transitively affected.
+Decisions also benefit from transitive affected-doc propagation: if a Decision references a document via `<References>`, and that document's tracked files change, the Decision's document is flagged as transitively affected.
 
 ## Verification Rules
 

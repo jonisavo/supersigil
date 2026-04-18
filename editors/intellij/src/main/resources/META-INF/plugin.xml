@@ -12,7 +12,7 @@
         <h2>Features</h2>
         <ul>
             <li><b>Diagnostics:</b> parse errors, broken cross-references, duplicate IDs,
-                circular dependencies, coverage gaps, and staleness warnings as you edit.</li>
+                circular dependencies, coverage gaps, and affected-document hints as you edit.</li>
             <li><b>Go to definition:</b> follow refs, implements, and depends links
                 between spec documents.</li>
             <li><b>Autocomplete:</b> document IDs, criterion IDs, and component attributes.</li>

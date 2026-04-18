@@ -140,7 +140,7 @@ Referenceable. Tasks form a dependency sub-graph within a document. `depends` ed
 
 ## `<TrackedFiles>`
 
-Declares which source files this specification cares about. Used by `supersigil affected` for staleness detection.
+Declares which source files this specification cares about. Used by `supersigil affected` to determine affected documents.
 
 ```xml
 <TrackedFiles paths="src/auth/**/*.rs, tests/auth/**/*.rs" />

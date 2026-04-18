@@ -4,9 +4,12 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use supersigil_rust::verifies;
+use supersigil_verify::test_helpers::{git_commit, init_repo, write_test_file};
 use tempfile::TempDir;
 
 fn write_config(root: &Path, content: &str) {
@@ -147,6 +150,175 @@ tests = ["tests/**/*.rs"]
 plugins = []
 "#,
     );
+}
+
+fn setup_affected_verify_fixture() -> (TempDir, String) {
+    let (dir, _) = init_repo();
+
+    write_config(
+        dir.path(),
+        r#"paths = ["specs/**/*.md"]
+tests = ["tests/**/*.rs"]
+
+[ecosystem]
+plugins = []
+"#,
+    );
+    common::write_spec_doc(
+        dir.path(),
+        "specs/auth.md",
+        "auth/req",
+        Some("requirements"),
+        Some("implemented"),
+        r#"<TrackedFiles paths="src/**/*.rs" />
+<AcceptanceCriteria>
+  <Criterion id="ac-1">
+    Must log in
+    <VerifiedBy strategy="file-glob" paths="tests/auth_test.rs" />
+  </Criterion>
+</AcceptanceCriteria>"#,
+    );
+    write_test_file(&dir, "src/lib.rs", "pub fn auth() {}\n");
+    write_test_file(&dir, "tests/auth_test.rs", "# explicit authored evidence\n");
+    git_commit(&dir);
+
+    let initial = current_head(&dir);
+
+    write_test_file(
+        &dir,
+        "src/lib.rs",
+        "pub fn auth() { println!(\"changed\"); }\n",
+    );
+    git_commit(&dir);
+
+    (dir, initial)
+}
+
+fn setup_project_scoped_transitive_affected_fixture() -> (TempDir, String) {
+    let (dir, _) = init_repo();
+
+    fs::write(
+        dir.path().join("supersigil.toml"),
+        r#"
+[projects.source]
+paths = ["specs/source/**/*.md"]
+tests = ["tests/source/**/*.rs"]
+
+[projects.consumer]
+paths = ["specs/consumer/**/*.md"]
+tests = ["tests/consumer/**/*.rs"]
+
+[ecosystem]
+plugins = []
+"#,
+    )
+    .unwrap();
+
+    common::write_spec_doc(
+        dir.path(),
+        "specs/source/auth.md",
+        "source/auth",
+        Some("requirements"),
+        Some("implemented"),
+        r#"<TrackedFiles paths="src/source/**/*.rs" />"#,
+    );
+    common::write_spec_doc(
+        dir.path(),
+        "specs/consumer/auth.md",
+        "consumer/auth",
+        Some("design"),
+        Some("implemented"),
+        r#"<References refs="source/auth" />"#,
+    );
+
+    write_test_file(&dir, "src/source/lib.rs", "pub fn auth() {}\n");
+    git_commit(&dir);
+
+    let initial = current_head(&dir);
+
+    write_test_file(
+        &dir,
+        "src/source/lib.rs",
+        "pub fn auth() { println!(\"changed\"); }\n",
+    );
+    git_commit(&dir);
+
+    (dir, initial)
+}
+
+fn setup_project_scoped_multi_source_transitive_fixture() -> (TempDir, String) {
+    let (dir, _) = init_repo();
+
+    fs::write(
+        dir.path().join("supersigil.toml"),
+        r#"
+[projects.source]
+paths = ["specs/source/**/*.md"]
+tests = ["tests/source/**/*.rs"]
+
+[projects.consumer]
+paths = ["specs/consumer/**/*.md"]
+tests = ["tests/consumer/**/*.rs"]
+
+[ecosystem]
+plugins = []
+"#,
+    )
+    .unwrap();
+
+    common::write_spec_doc(
+        dir.path(),
+        "specs/source/auth.md",
+        "source/auth",
+        Some("requirements"),
+        Some("implemented"),
+        r#"<TrackedFiles paths="src/source/auth/**/*.rs" />"#,
+    );
+    common::write_spec_doc(
+        dir.path(),
+        "specs/source/billing.md",
+        "source/billing",
+        Some("requirements"),
+        Some("implemented"),
+        r#"<TrackedFiles paths="src/source/billing/**/*.rs" />"#,
+    );
+    common::write_spec_doc(
+        dir.path(),
+        "specs/consumer/integration.md",
+        "consumer/integration",
+        Some("design"),
+        Some("implemented"),
+        r#"<References refs="source/auth, source/billing" />"#,
+    );
+
+    write_test_file(&dir, "src/source/auth/lib.rs", "pub fn auth() {}\n");
+    write_test_file(&dir, "src/source/billing/lib.rs", "pub fn billing() {}\n");
+    git_commit(&dir);
+
+    let initial = current_head(&dir);
+
+    write_test_file(
+        &dir,
+        "src/source/auth/lib.rs",
+        "pub fn auth() { println!(\"changed\"); }\n",
+    );
+    write_test_file(
+        &dir,
+        "src/source/billing/lib.rs",
+        "pub fn billing() { println!(\"changed\"); }\n",
+    );
+    git_commit(&dir);
+
+    (dir, initial)
+}
+
+fn current_head(dir: &TempDir) -> String {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir.path())
+        .output()
+        .map(|output| String::from_utf8(output.stdout).unwrap().trim().to_owned())
+        .expect("git rev-parse HEAD")
 }
 
 #[verifies("ecosystem-plugins/req#req-3-3", "cli-runtime/req#req-4-3")]
@@ -884,6 +1056,221 @@ test('login succeeds', () => {
         Some(0),
         "verify should fail when JS evidence is missing: {}",
         String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn verify_since_reports_affected_docs_without_warning_exit() {
+    let (tmp, initial) = setup_affected_verify_fixture();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "verify",
+            "--since",
+            &initial,
+            "--committed-only",
+            "--format",
+            "markdown",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify should stay clean when only tracked implementation files changed: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("affected"),
+        "verify markdown should mention affected documents, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("supersigil affected --since"),
+        "verify markdown should hint to use the affected command, got: {stdout}",
+    );
+}
+
+#[test]
+fn verify_terminal_since_omits_misleading_scope_header_and_mentions_ref_in_note() {
+    let (tmp, initial) = setup_affected_verify_fixture();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "verify",
+            "--since",
+            &initial,
+            "--committed-only",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "terminal verify should stay clean when only tracked implementation files changed: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let scan_done = stderr
+        .find("  Scanning and checking... done\n")
+        .expect("stderr should contain scan progress line");
+    let assemble_done = stderr
+        .find("  Assembling report... done\n")
+        .expect("stderr should contain assemble progress line");
+    let timing = stderr
+        .find("Verified 1 document in ")
+        .expect("stderr should contain timing summary");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        scan_done < assemble_done,
+        "scan progress should precede assemble progress, got: {stderr}",
+    );
+    assert!(
+        assemble_done < timing,
+        "timing summary should follow progress lines, got: {stderr}",
+    );
+    assert!(
+        !stderr.contains("Verifying 1 document (since "),
+        "stderr should not contain a misleading since-scope header, got: {stderr}",
+    );
+    assert!(
+        stdout.contains("since "),
+        "affected note should mention the since ref, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("origin/main") || stdout.contains(&initial),
+        "affected note should mention the concrete ref used, got: {stdout}",
+    );
+}
+
+#[test]
+fn verify_json_since_includes_affected_summary() {
+    let (tmp, initial) = setup_affected_verify_fixture();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "verify",
+            "--since",
+            &initial,
+            "--committed-only",
+            "--format",
+            "json",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify json should stay clean when only tracked implementation files changed: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let affected = json
+        .get("affected_summary")
+        .expect("verify json should include affected_summary when --since is used");
+
+    assert_eq!(affected.get("doc_count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        affected.get("changed_file_count").and_then(Value::as_u64),
+        Some(1)
+    );
+}
+
+#[test]
+fn verify_project_json_since_counts_changed_files_for_transitive_hits() {
+    let (tmp, initial) = setup_project_scoped_transitive_affected_fixture();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "verify",
+            "--project",
+            "consumer",
+            "--since",
+            &initial,
+            "--committed-only",
+            "--format",
+            "json",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "project-scoped transitive verify should stay clean: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let affected = json
+        .get("affected_summary")
+        .expect("verify json should include affected_summary when --since is used");
+
+    assert_eq!(affected.get("doc_count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        affected.get("changed_file_count").and_then(Value::as_u64),
+        Some(1),
+        "transitive in-project hits should preserve the direct changed-file count"
+    );
+}
+
+#[test]
+fn verify_project_json_since_counts_all_direct_sources_for_transitive_hits() {
+    let (tmp, initial) = setup_project_scoped_multi_source_transitive_fixture();
+
+    let output = cargo_bin_cmd!("supersigil")
+        .args([
+            "verify",
+            "--project",
+            "consumer",
+            "--since",
+            &initial,
+            "--committed-only",
+            "--format",
+            "json",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "project-scoped transitive verify should stay clean: {}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let affected = json
+        .get("affected_summary")
+        .expect("verify json should include affected_summary when --since is used");
+
+    assert_eq!(affected.get("doc_count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        affected.get("changed_file_count").and_then(Value::as_u64),
+        Some(2),
+        "transitive in-project hits should count all directly affected source files"
     );
 }
 
