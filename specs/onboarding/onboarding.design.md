@@ -39,10 +39,10 @@ The getting-started page already has Homebrew / Cargo / AUR tabs, but the landin
 Extract a new `InstallWidget.astro` component used by both Hero and CtaSection. The widget:
 
 - Renders a row of tab buttons: **Homebrew**, **AUR**, **Cargo**, **GitHub Releases**.
-- Uses `navigator.userAgentData?.platform` (with `navigator.platform` fallback) to detect the OS at page load and auto-select:
+- Uses `navigator.userAgentData?.platform` (with `navigator.platform` and `navigator.userAgent` fallbacks) to detect the OS at page load and auto-select:
   - **macOS** → Homebrew
   - **Linux** → AUR
-  - **Windows** → GitHub Releases
+  - **Windows** → Cargo
   - **Unknown** → Cargo
 - Clicking a tab switches the displayed command. Only one command is visible at a time.
 - Each command has a copy-to-clipboard button (reusing the existing `install-copy` pattern).
@@ -167,6 +167,7 @@ This uses IntelliJ's `StatusText` API which supports clickable links in empty st
 ## Testing Strategy
 
 ### Landing page
+- Automated regression test: cover install-tab OS mapping in `website/src/components/landing/install-widget.test.js`.
 - Manual browser testing: verify OS auto-detection, tab switching, copy button, responsive layout.
 - Check both light and dark themes.
 - Check the CTA section matches the hero widget behavior.

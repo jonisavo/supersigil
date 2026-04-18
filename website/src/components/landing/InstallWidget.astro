@@ -153,65 +153,7 @@ const uid = Math.random().toString(36).slice(2, 8);
 </style>
 
 <script>
-  function initInstallWidget(widget: Element) {
-    const tabs = widget.querySelectorAll<HTMLButtonElement>('.install-tab');
-    const panels = widget.querySelectorAll<HTMLElement>('.install-panel');
-
-    function selectTab(tabId: string) {
-      tabs.forEach(tab => {
-        const isActive = tab.dataset.tab === tabId;
-        tab.classList.toggle('active', isActive);
-        tab.setAttribute('aria-selected', String(isActive));
-      });
-      panels.forEach(panel => {
-        const isActive = panel.id.startsWith(`panel-${tabId}-`);
-        panel.classList.toggle('active', isActive);
-        panel.hidden = !isActive;
-      });
-    }
-
-    // Tab click handlers
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        const tabId = tab.dataset.tab;
-        if (tabId) selectTab(tabId);
-      });
-    });
-
-    // Copy button handlers
-    widget.querySelectorAll<HTMLButtonElement>('.install-copy').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const text = btn.dataset.copy;
-        if (!text) return;
-        try {
-          await navigator.clipboard.writeText(text);
-          const iconCopy = btn.querySelector('.icon-copy') as HTMLElement;
-          const iconCheck = btn.querySelector('.icon-check') as HTMLElement;
-          if (iconCopy && iconCheck) {
-            iconCopy.classList.add('hidden');
-            iconCheck.classList.add('visible');
-            setTimeout(() => {
-              iconCopy.classList.remove('hidden');
-              iconCheck.classList.remove('visible');
-            }, 2000);
-          }
-        } catch (e) {
-          console.warn('Clipboard API unavailable:', e);
-        }
-      });
-    });
-
-    // OS auto-detection
-    function detectOS(): string {
-      const ua = navigator.userAgent.toLowerCase();
-      if (ua.includes('mac')) return 'homebrew';
-      if (ua.includes('linux')) return 'aur';
-      if (ua.includes('win')) return 'releases';
-      return 'cargo';
-    }
-
-    selectTab(detectOS());
-  }
+  import { initInstallWidget } from './install-widget.js';
 
   document.querySelectorAll('.install-widget').forEach(initInstallWidget);
 </script>

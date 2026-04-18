@@ -31,16 +31,16 @@ As a visitor to the landing page, I want to see install instructions relevant to
     <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro" />
   </Criterion>
   <Criterion id="req-1-2">
-    The install widget SHALL auto-select the most likely option based on the visitor's detected OS (macOS → Homebrew, Linux → AUR, Windows → GitHub Releases, unknown → Cargo).
-    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro" />
+    The install widget SHALL auto-select the most likely option based on the visitor's detected OS (macOS → Homebrew, Linux → AUR, Windows → Cargo, unknown → Cargo).
+    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro, website/src/components/landing/install-widget.js, website/src/components/landing/install-widget.test.js" />
   </Criterion>
   <Criterion id="req-1-3">
     The visitor SHALL be able to manually switch between install options regardless of detected OS.
-    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro" />
+    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro, website/src/components/landing/install-widget.js" />
   </Criterion>
   <Criterion id="req-1-4">
     Each install option SHALL have a copy-to-clipboard button that copies the corresponding command or URL.
-    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro" />
+    <VerifiedBy strategy="file-glob" paths="website/src/components/landing/InstallWidget.astro, website/src/components/landing/install-widget.js" />
   </Criterion>
   <Criterion id="req-1-5">
     The CTA section at the bottom of the landing page SHALL use the same platform-aware install widget as the hero.
