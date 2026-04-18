@@ -341,9 +341,9 @@ fn rule_breakdown_shown_after_summary() {
             None,
         ),
         Finding::new(
-            RuleName::StaleTrackedFiles,
+            RuleName::OrphanTestTag,
             Some("req/auth".to_string()),
-            "files changed since ref".to_string(),
+            "tag has no matching criterion".to_string(),
             None,
         ),
         Finding::new(
@@ -358,9 +358,7 @@ fn rule_breakdown_shown_after_summary() {
 
     let out = format_terminal(&report, no_color(), false);
     assert!(
-        out.contains(
-            "1 empty_tracked_glob, 1 missing_verification_evidence, 1 stale_tracked_files"
-        ),
+        out.contains("1 empty_tracked_glob, 1 missing_verification_evidence, 1 orphan_test_tag"),
         "should show rule breakdown line, got:\n{out}",
     );
 }
@@ -369,15 +367,15 @@ fn rule_breakdown_shown_after_summary() {
 fn rule_breakdown_sorted_by_count_desc_then_alpha() {
     let findings = vec![
         Finding::new(
-            RuleName::StaleTrackedFiles,
+            RuleName::OrphanTestTag,
             Some("req/auth".to_string()),
-            "stale 1".to_string(),
+            "orphan 1".to_string(),
             None,
         ),
         Finding::new(
-            RuleName::StaleTrackedFiles,
+            RuleName::OrphanTestTag,
             Some("req/login".to_string()),
-            "stale 2".to_string(),
+            "orphan 2".to_string(),
             None,
         ),
         Finding::new(
@@ -398,9 +396,7 @@ fn rule_breakdown_sorted_by_count_desc_then_alpha() {
 
     let out = format_terminal(&report, no_color(), false);
     assert!(
-        out.contains(
-            "2 stale_tracked_files, 1 empty_tracked_glob, 1 missing_verification_evidence"
-        ),
+        out.contains("2 orphan_test_tag, 1 empty_tracked_glob, 1 missing_verification_evidence"),
         "should sort by count desc then alpha, got:\n{out}",
     );
 }
@@ -444,7 +440,7 @@ fn rule_breakdown_not_shown_for_clean_report() {
     let out = format_terminal(&report, no_color(), false);
     assert!(
         !out.contains("missing_verification_evidence")
-            && !out.contains("stale_tracked_files")
+            && !out.contains("orphan_test_tag")
             && !out.contains("empty_tracked_glob"),
         "clean report should not have rule breakdown, got:\n{out}",
     );
@@ -553,58 +549,44 @@ fn timing_summary_singular_document() {
 }
 
 // ---------------------------------------------------------------------------
-// Scope header tests
+// Affected note tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn scope_header_shows_count_and_ref() {
-    use output::terminal::format_scope_header;
+fn affected_sentence_includes_since_ref_when_present() {
+    let summary = AffectedSummary {
+        doc_count: 3,
+        changed_file_count: 5,
+    };
 
-    let header = format_scope_header(3, "origin/main", no_color());
-    assert!(
-        header.contains('3'),
-        "should contain scoped count, got:\n{header}",
-    );
-    assert!(
-        header.contains("origin/main"),
-        "should contain the since ref, got:\n{header}",
-    );
-    assert!(
-        header.contains("documents"),
-        "should contain the word 'documents', got:\n{header}",
-    );
-}
+    let sentence = affected_sentence(&summary, Some("origin/main"));
 
-#[test]
-fn scope_header_singular_document() {
-    use output::terminal::format_scope_header;
-
-    let header = format_scope_header(1, "HEAD~3", no_color());
-    assert!(header.contains("1 "), "should show count, got:\n{header}",);
     assert!(
-        header.contains("document "),
-        "should use singular 'document' for count 1, got:\n{header}",
+        sentence.contains("3 documents"),
+        "should include document count, got:\n{sentence}",
     );
     assert!(
-        !header.contains("documents"),
-        "should not use plural for count 1, got:\n{header}",
+        sentence.contains("5 changed files"),
+        "should include changed file count, got:\n{sentence}",
+    );
+    assert!(
+        sentence.contains("since origin/main"),
+        "should include since ref, got:\n{sentence}",
     );
 }
 
 #[test]
-fn scope_header_uses_count_styling() {
-    use output::terminal::format_scope_header;
+fn affected_sentence_omits_since_ref_when_absent() {
+    let summary = AffectedSummary {
+        doc_count: 1,
+        changed_file_count: 1,
+    };
 
-    let header_color = format_scope_header(5, "main", color());
-    let header_plain = format_scope_header(5, "main", no_color());
+    let sentence = affected_sentence(&summary, None);
 
     assert!(
-        header_plain.contains('5'),
-        "plain should show count, got:\n{header_plain}",
-    );
-    assert!(
-        header_color.contains('5'),
-        "color should show count, got:\n{header_color}",
+        sentence.contains("1 document affected by 1 changed file."),
+        "should use singular nouns without since-ref wording, got:\n{sentence}",
     );
 }
 

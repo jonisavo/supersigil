@@ -62,10 +62,17 @@ jobs:
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Affected
+        id: affected
         run: |
+          set +e
           cargo run -p supersigil -- affected \
             --since origin/main --merge-base --committed-only \
             > affected.txt
+          exit_code=$?
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          if [ "$exit_code" -ne 0 ]; then
+            printf 'Failed to compute affected docs (exit %s). See workflow logs.\n' "$exit_code" > affected.txt
+          fi
 
       - name: Post PR comment
         env:
@@ -80,10 +87,19 @@ jobs:
           || gh pr comment "${{ github.event.pull_request.number }}" \
             --body-file verify-comment.md
 
-      - name: Fail if verify failed
-        if: steps.verify.outputs.exit_code != '0' && steps.verify.outputs.exit_code != '2'
+      - name: Fail if verify or affected failed
+        if: |
+          (steps.verify.outputs.exit_code != '0' && steps.verify.outputs.exit_code != '2') ||
+          steps.affected.outputs.exit_code != '0'
         run: |
-          echo "::error::Supersigil verification failed"
-          echo "verify exit code: ${{ steps.verify.outputs.exit_code }}"
-          cat verify.json
+          if [ "${{ steps.verify.outputs.exit_code }}" != "0" ] && [ "${{ steps.verify.outputs.exit_code }}" != "2" ]; then
+            echo "::error::Supersigil verification failed"
+            echo "verify exit code: ${{ steps.verify.outputs.exit_code }}"
+            cat verify.json
+          fi
+          if [ "${{ steps.affected.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Supersigil affected failed"
+            echo "affected exit code: ${{ steps.affected.outputs.exit_code }}"
+            cat affected.txt
+          fi
           exit 1

@@ -220,8 +220,11 @@ fn init_config_contains_commented_verify_rules_example() {
         "should contain commented-out missing_verification_evidence example: {content}"
     );
     assert!(
-        content.contains(r#"# stale_tracked_files = "off""#),
-        "should contain commented-out stale_tracked_files example: {content}"
+        content
+            .matches("# missing_verification_evidence = \"warning\"")
+            .count()
+            == 1,
+        "should keep only the current commented verify override example: {content}"
     );
 }
 

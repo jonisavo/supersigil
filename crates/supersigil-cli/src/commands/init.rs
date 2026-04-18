@@ -17,7 +17,6 @@ const DEFAULT_CONFIG: &str = r#"paths = ["specs/**/*.md"]
 # Override default severity for specific verification rules.
 # [verify.rules]
 # missing_verification_evidence = "warning"   # Downgrade from error
-# stale_tracked_files = "off"                 # Disable staleness checks
 "#;
 
 /// Resolved skills installation decision.

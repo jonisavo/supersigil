@@ -4,7 +4,7 @@
 //! - Decision and Alternative are indexed in the component index (referenceable).
 //! - Fragment refs `doc#decision-id` and `doc#alternative-id` resolve correctly.
 //! - References nested inside Decision produces correct reverse mappings.
-//! - `TrackedFiles` nested inside Decision are indexed for staleness.
+//! - `TrackedFiles` nested inside Decision are indexed for affected-doc checks.
 //! - `DependsOn` nested inside Decision creates document dependency edges.
 
 use proptest::prelude::*;
@@ -256,7 +256,7 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property: TrackedFiles nested inside Decision are indexed for staleness
+// Property: TrackedFiles nested inside Decision are indexed for affected-doc checks
 // ---------------------------------------------------------------------------
 
 proptest! {

@@ -90,11 +90,11 @@ supersigil verify --since main --committed-only
 supersigil verify --project backend --format json
 ```
 
-Builds the full document graph and runs structural checks, plugin evidence discovery, and coverage analysis.
+Builds the full document graph and runs structural checks, plugin evidence discovery, and coverage analysis. When `--since` is supplied, terminal and markdown output may append an affected-document note, and JSON includes an optional `affected_summary`.
 
 | Flag | Description |
 |------|-------------|
-| `--since <ref>` | Git ref for staleness checks |
+| `--since <ref>` | Git ref for affected-document checks |
 | `--committed-only` | Only consider committed changes |
 | `--merge-base` | Use merge-base for git diff |
 | `--project <name>`, `-p` | Filter to a project (multi-project mode) |

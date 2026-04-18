@@ -60,7 +60,7 @@ Components are XML elements that carry specification semantics. Supersigil ships
 | `<VerifiedBy>` | Maps a criterion to test evidence (by tag or file glob) |
 | `<Implements>` | Declares this document implements criteria from another |
 | `<DependsOn>` | Declares document-level ordering dependencies |
-| `<TrackedFiles>` | File paths (globs) tracked for staleness detection |
+| `<TrackedFiles>` | File paths (globs) tracked for affected-document detection |
 | `<Task>` | A trackable work item with status, implements, and depends edges |
 | `<Decision>` | A recorded architectural choice with rationale and alternatives |
 | `<Rationale>` | Justification for a Decision |
@@ -87,9 +87,9 @@ Key properties:
 
 ## Verification
 
-`supersigil verify` performs whole-graph analysis: structural checks, cross-document references, coverage, test mappings, staleness, and cycles. This is the CI command.
+`supersigil verify` performs whole-graph analysis: structural checks, cross-document references, coverage, test mappings, affected-document hints, and cycles. This is the CI command.
 
-Hard errors (broken refs, duplicate IDs, dependency cycles) are always fatal. Configurable rules (uncovered criteria, missing tests, staleness) have default severities that you can override in `supersigil.toml`. Draft documents get relaxed verification automatically.
+Hard errors (broken refs, duplicate IDs, dependency cycles) are always fatal. Configurable rules (uncovered criteria, missing tests, tracked-file glob issues) have default severities that you can override in `supersigil.toml`. Draft documents get relaxed verification automatically.
 
 <CardGrid>
   <Card title="The Component Graph" icon="random">

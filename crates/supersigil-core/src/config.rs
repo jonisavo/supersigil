@@ -364,7 +364,6 @@ pub const KNOWN_RULES: &[&str] = &[
     "missing_verification_evidence",
     "missing_test_files",
     "zero_tag_matches",
-    "stale_tracked_files",
     "empty_tracked_glob",
     "orphan_test_tag",
     "invalid_id_pattern",

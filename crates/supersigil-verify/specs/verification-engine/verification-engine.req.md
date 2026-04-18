@@ -99,16 +99,17 @@ that draft recovery work and CI gating behave consistently.
   </Criterion>
   <Criterion id="req-2-4">
     THE built-in rule registry SHALL include `missing_verification_evidence`,
-    `missing_test_files`, `zero_tag_matches`, `stale_tracked_files`,
-    `empty_tracked_glob`, `orphan_test_tag`, `invalid_id_pattern`,
+    `missing_test_files`, `zero_tag_matches`, `empty_tracked_glob`,
+    `orphan_test_tag`, `invalid_id_pattern`,
     `isolated_document`, `status_inconsistency`,
     `broken_ref`, `invalid_verified_by_placement`,
     `plugin_discovery_failure`, `sequential_id_order`, and
     `sequential_id_gap`, with `isolated_document` defaulting to `off`
     and `missing_verification_evidence`, `missing_test_files`,
     `broken_ref`, and `invalid_verified_by_placement` defaulting to
-    `error`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
+    `error`. Deprecated compatibility keys MAY remain accepted by config
+    loaders without surfacing as live verification findings.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs, crates/supersigil-core/src/config.rs" />
   </Criterion>
   <Criterion id="req-2-5">
     THE final report result status SHALL be `has_errors` when the summary has
@@ -233,7 +234,8 @@ discovery conventions, so that malformed docs and plugin failures are visible.
 ## Requirement 6: Tracked Files and Affected Documents
 
 As a maintainer, I want verification to connect specs to changed source files,
-so that stale docs and affected review scope are visible after code changes.
+so that affected review scope is visible after code changes without pretending
+tracked-file overlap is itself a fixable verification failure.
 
 ```supersigil-xml
 <AcceptanceCriteria>
@@ -244,21 +246,25 @@ so that stale docs and affected review scope are visible after code changes.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tracked.rs" />
   </Criterion>
   <Criterion id="req-6-2">
-    WHEN `since_ref` is supplied, THE verification rules SHALL compute changed
+    WHEN `since_ref` is supplied, THE CLI `verify` flow SHALL compute changed
     files via the git diff helper, honoring `committed_only` and
-    `use_merge_base`, and SHALL emit `stale_tracked_files` when changed files
-    match a document's tracked-file globs.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/rules/tracked.rs, crates/supersigil-verify/src/git.rs" />
+    `use_merge_base`. Terminal and markdown output SHALL surface tracked-file
+    overlap as non-failing affected-document context with a hint to run
+    `supersigil affected`. JSON output SHALL expose the same overlap as an
+    optional `affected_summary` object containing the affected document count
+    and changed file count.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-verify/src/affected.rs, crates/supersigil-verify/src/git.rs" />
   </Criterion>
   <Criterion id="req-6-3">
-    THE `affected` query SHALL use the same git diff semantics as
-    `stale_tracked_files` and SHALL return each affected document's ID, path
-    relative to the project root, matched globs, and matched changed files.
+    THE `affected` query SHALL use the same git diff semantics as the CLI
+    `verify` affected-document summary and SHALL return each affected
+    document's ID, path relative to the project root, matched globs, and
+    matched changed files.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/affected.rs, crates/supersigil-cli/src/commands/affected.rs" />
   </Criterion>
   <Criterion id="req-6-4">
     AFTER computing the directly affected document set, THE `affected` query
-    SHALL extend the result with one hop of transitive staleness: for each
+    SHALL extend the result with one hop of transitive impact: for each
     directly affected document, documents that reference it (via the
     `references_reverse` index) SHALL be included as transitively affected.
     Transitive entries SHALL be distinguishable from direct entries in the
@@ -285,9 +291,10 @@ are inspectable without reimplementing the pipeline.
   </Criterion>
   <Criterion id="req-7-2">
     THE verification report formatters SHALL serialize findings and summary in
-    JSON and markdown forms, and SHALL include `evidence_summary` only when an
-    Evidence_Summary is present.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs" />
+    JSON and markdown forms. JSON SHALL include `evidence_summary` only when an
+    Evidence_Summary is present, and SHALL include `affected_summary` only when
+    `since_ref` is supplied and affected-summary computation succeeds.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs, crates/supersigil-cli/src/commands/verify.rs" />
   </Criterion>
   <Criterion id="req-7-3">
     THE `status` command SHALL interpret its ID argument using the same

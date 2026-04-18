@@ -4,7 +4,12 @@ commit-msg:
       run: >-
         cog verify --file "{1}"
 
-pre-push:
+pre-commit:
   commands:
     qa:
       run: mise qa
+
+pre-push:
+  commands:
+    lint:
+      run: mise lint

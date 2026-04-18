@@ -39,4 +39,11 @@ current debt in the ArtifactGraph-era verification surface.
   library intentionally stays evidence-unaware.
 </Task>
 
+<Task id="task-5" status="done" implements="verification-engine/req#req-6-2, verification-engine/req#req-6-3, verification-engine/req#req-6-4">
+  Replace tracked-file overlap warnings in `verify` with advisory
+  affected-document context, keep the detailed overlap in `supersigil
+  affected`, expose a compact `affected_summary` in `verify --format json`,
+  and preserve one-hop transitive affected scope.
+</Task>
+
 ```

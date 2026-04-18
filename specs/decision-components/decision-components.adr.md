@@ -21,7 +21,7 @@ title: "ADR: Structured Rationale in the Specification Graph"
     valuable reasoning — why references are unidirectional, why MDX was
     chosen over plain markdown, why IDs are freeform — but it is
     disconnected from the specs it explains. When a design doc changes,
-    nothing flags the rationale as potentially stale. When an agent runs
+    nothing flags the rationale as potentially affected. When an agent runs
     `supersigil context`, it sees criteria and implementations but not the
     reasoning behind them.
 
@@ -44,7 +44,7 @@ title: "ADR: Structured Rationale in the Specification Graph"
     Several existing design docs already contain "Key Design Decisions" and
     "Design Notes" sections. The problem is that these are invisible to the
     graph. They cannot be referenced, they do not appear in context output,
-    and they are not flagged for staleness. They also cannot express
+    and they are not flagged by affected-doc checks. They also cannot express
     cross-cutting decisions that span multiple features — the kind of
     reasoning that currently lives in DECISIONS.md.
   </Alternative>

@@ -161,7 +161,7 @@ The Document Graph module builds the cross-document data structure from parsed s
 
 ### Requirement 12: TrackedFiles Indexing
 
-**User Story:** As a verification engine consumer, I want all `TrackedFiles` components indexed by their owning document, so that downstream consumers (e.g., the `affected` command and `stale_tracked_files` rule in Spec 3) can match changed files against spec documents without re-parsing.
+**User Story:** As a verification engine consumer, I want all `TrackedFiles` components indexed by their owning document, so that downstream consumers (e.g., the `affected` command) can match changed files against spec documents without re-parsing.
 
 #### Acceptance Criteria
 

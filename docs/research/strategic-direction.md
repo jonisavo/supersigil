@@ -115,13 +115,11 @@ and teams that update specs continuously alongside code.
 - `status: draft` gating lets teams work iteratively without breaking CI.
 
 **What could be added:**
-- **Staleness as a first-class finding.** When `affected` shows a spec is
-  stale but `verify` doesn't flag it, there's a gap. A verification rule
-  that warns when TrackedFiles have changed but the spec hasn't been touched
-  since the last git ref would close this. (The `stale_tracked_files` rule
-  exists but only runs with `--since`; making it more prominent and
-  configurable would help.)
-- **Spec update hints in verify output.** When verification finds stale
+- **Affected-doc overlap as a first-class signal.** When `affected` shows a
+  spec is impacted but `verify` only reports it as advisory context, there is
+  still room for richer review guidance. A stronger affected-doc workflow that
+  summarizes what changed and why the doc is in scope would help.
+- **Spec update hints in verify output.** When verification finds affected
   specs, suggest which sections likely need updating based on which tracked
   files changed.
 - **Agent skill for spec maintenance.** A dedicated skill (not just guidance
@@ -136,15 +134,15 @@ and teams that update specs continuously alongside code.
 
 Today `affected --since <ref>` detects documents whose TrackedFiles globs
 match changed files, plus one-hop transitive references. This covers
-implementation-file staleness but misses several important change categories:
+implementation-file impact but misses several important change categories:
 
 **Evidence-file changes.** If a test file changes (new test added, existing
 test modified, `#[verifies]` annotation updated), the documents whose
 criteria that test covers should be flagged. This requires mapping changed
 files against VerifiedBy globs and ecosystem plugin discovery inputs.
 
-Important: this is a *different signal* from TrackedFiles staleness.
-TrackedFiles staleness means "implementation may have drifted from the
+Important: this is a *different signal* from TrackedFiles overlap.
+TrackedFiles overlap means "implementation may have drifted from the
 spec." Evidence changes mean "the verification surface changed and should
 be reviewed." These should be reported as distinct categories — e.g.
 `evidence_changed` vs `stale` — not folded into the same semantics.
@@ -166,7 +164,7 @@ effects, though the value diminishes with depth.
 1. Add evidence-file detection to `affected` as a distinct signal
    (`evidence_changed`). Map changed files against VerifiedBy file-glob
    patterns and plugin discovery inputs. Report separately from
-   TrackedFiles staleness.
+   TrackedFiles overlap.
 2. Add spec-file detection. If a `.md` file in configured paths changed,
    flag it and its one-hop references.
 3. Consider configurable transitive depth (default 1, optional full

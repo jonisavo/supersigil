@@ -6,7 +6,7 @@ spec documents.
 This crate orchestrates the full verification pipeline: loading the document
 graph, discovering evidence from ecosystem plugins (Rust, JS/TS), matching
 evidence to criteria, and producing a structured verification report with
-coverage, staleness, and traceability information.
+coverage, affected-document context, and traceability information.
 
 ## Usage
 

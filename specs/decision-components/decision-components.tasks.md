@@ -17,7 +17,7 @@ the production code that satisfies them. Tasks are ordered so that each layer
 builds on a tested foundation — component definitions first, then graph
 integration, then verification rules, then CLI and output integration.
 
-The transitive staleness enhancement (`verification-engine/req#req-6-4`) is a
+The transitive affected-doc enhancement (`verification-engine/req#req-6-4`) is a
 separate concern tracked in the verification-engine spec; it is not a task here.
 
 ## Phase 1: Component Definitions
@@ -47,7 +47,7 @@ separate concern tracked in the verification-engine spec; it is not a task here.
   - `Decision` and `Alternative` are indexed in the component index.
   - Fragment refs `doc#decision-id` and `doc#alternative-id` resolve.
   - `References` nested inside `Decision` produce correct reverse mappings.
-  - `TrackedFiles` nested inside `Decision` are indexed for staleness.
+  - `TrackedFiles` nested inside `Decision` are indexed for affected-doc checks.
   - `DependsOn` nested inside `Decision` creates document dependency edges.
 
   **Implementation:** Verify existing recursive walks in

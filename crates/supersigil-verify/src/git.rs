@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use git2::{DiffOptions, Repository};
 use thiserror::Error;
 
-/// Errors from git operations used in staleness detection.
+/// Errors from git operations used in affected-document detection.
 #[derive(Debug, Error)]
 pub enum GitError {
     /// An underlying `git2` library error.

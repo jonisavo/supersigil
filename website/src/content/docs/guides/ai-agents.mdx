@@ -140,13 +140,13 @@ Project-wide status returns total documents, breakdown by type and status, and o
 
 ### `supersigil affected --since <ref> --format json`
 
-Shows specs that may be stale because their tracked files changed:
+Shows specs that are affected because their tracked files changed:
 
 ```bash
 supersigil affected --since main --format json
 ```
 
-An agent can run this before modifying code to understand which specs need review. After making changes, it can run it again to check whether its work introduced staleness.
+An agent can run this before modifying code to understand which specs need review. After making changes, it can run it again to check whether its work changed the affected set.
 
 ### `supersigil verify --format json`
 
@@ -156,7 +156,7 @@ Runs full graph verification and returns structured results:
 supersigil verify --format json
 ```
 
-The output includes all findings (errors, warnings) and coverage information. The exit code tells the agent whether verification passed (0), found errors (1), or found only warnings (2).
+The output includes all findings (errors, warnings) and coverage information. When used with `--since <ref>`, the JSON also includes `affected_summary` so an agent can inspect tracked-file overlap without running a second query. The exit code tells the agent whether verification passed (0), found errors (1), or found only warnings (2).
 
 ## Agent Workflow
 

@@ -7,7 +7,7 @@ pub(crate) mod artifact_graph;
 pub mod document_components;
 mod error;
 pub(crate) mod explicit_evidence;
-/// Git diff helpers for staleness detection.
+/// Git diff helpers for affected-document detection.
 pub mod git;
 /// JSON serialization of the document graph.
 pub mod graph_json;
@@ -44,7 +44,7 @@ pub use severity::resolve_severity;
 pub struct VerifyOptions {
     /// Filter findings to a specific project (multi-project mode).
     pub project: Option<String>,
-    /// Git ref for staleness checks (e.g. `--since main`).
+    /// Git ref for affected-document checks (e.g. `--since main`).
     pub since_ref: Option<String>,
     /// Only consider committed changes (not staged/unstaged).
     pub committed_only: bool,
@@ -100,7 +100,7 @@ pub fn scoped_doc_ids(graph: &DocumentGraph, options: &VerifyOptions) -> Vec<Str
 ///
 /// Rules included:
 /// - test mapping (`file_globs`, `tags`)
-/// - tracked files (`empty_globs`, `staleness`)
+/// - tracked files (`empty_globs`)
 /// - structural (`id_pattern`, `isolated`, `orphan_tags`, `verified_by_placement`)
 /// - status
 ///
@@ -125,15 +125,6 @@ pub fn verify_structural(
 
     // Tracked files
     findings.extend(rules::tracked::check_empty_globs(graph, project_root));
-    if let Some(ref since) = options.since_ref {
-        findings.extend(rules::tracked::check_staleness(
-            graph,
-            project_root,
-            since,
-            options.committed_only,
-            options.use_merge_base,
-        ));
-    }
 
     // Structural
     findings.extend(rules::structural::check_id_pattern(graph, config));

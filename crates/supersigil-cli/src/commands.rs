@@ -199,7 +199,7 @@ pub struct VerifyArgs {
     /// Filter to a project (multi-project mode)
     #[arg(short, long)]
     pub project: Option<String>,
-    /// Git ref for staleness checks (e.g., main, HEAD~3, a commit SHA)
+    /// Git ref for affected-document checks (e.g., main, HEAD~3, a commit SHA)
     #[arg(long)]
     pub since: Option<String>,
     /// Only consider committed changes, ignoring staged and unstaged work

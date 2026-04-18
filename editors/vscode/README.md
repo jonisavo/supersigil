@@ -9,7 +9,7 @@ and rich previews for Supersigil spec files — right inside VS Code.
 ### Diagnostics
 
 Get instant feedback on parse errors, broken cross-references, duplicate IDs,
-circular dependencies, coverage gaps, and staleness warnings as you edit.
+circular dependencies, coverage gaps, and affected-document hints as you edit.
 
 ### Navigation and completions
 
