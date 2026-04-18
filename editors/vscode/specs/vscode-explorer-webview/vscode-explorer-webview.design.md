@@ -32,9 +32,9 @@ Rust LSP
         |
 Extension Host (explorerWebview.ts)
   Fetches data, manages webview panel, handles messages
-        |  postMessage
+        |  postMessage + command URIs
 Webview (explorerBootstrap.ts)
-  Calls mount(), intercepts links, injects "Open File" button
+  Calls mount(), emits command URIs, injects "Open File" button
         |
   Explorer modules (bundled from website/, with unmount() addition)
   Preview kit IIFE (bundled from packages/preview/)
@@ -78,8 +78,11 @@ When absent, behavior is unchanged (the existing
 `createExplorerLinkResolver` is used).
 
 This lets the VS Code webview provide a link resolver that returns
-interceptable URIs for evidence links while keeping in-explorer
-navigation via hash-based document links.
+`command:supersigil.openGraphFile` URIs for file-opening actions
+while keeping in-explorer navigation via hash-based document links.
+Because command URIs are handled globally by the extension, they keep
+working even if the webview loses its panel-local `onDidReceiveMessage`
+bridge during an extension-host restart.
 
 ## LSP Side
 
@@ -222,9 +225,6 @@ switch (msg.type) {
   case 'ready':
     pushData(panel);
     break;
-  case 'openFile':
-    // Validate path, resolve against folderUri, open document
-    break;
   case 'switchRoot': {
     // Validate against running clients before accepting
     const newClient = clients.get(msg.folderUri);
@@ -238,8 +238,13 @@ switch (msg.type) {
 }
 ```
 
-Path validation: reject absolute paths, `..` segments, and verify
-the resolved path is under the workspace root.
+The primary file-opening path is the globally registered
+`supersigil.openGraphFile` command, which accepts either an explicit
+`file:` URI or a `{ path, folderUri }` pair plus an optional line.
+The panel-local `openFile` message handler may remain as a
+compatibility fallback for already-rendered legacy links. Path
+validation rejects absolute paths, `..` segments, and any resolved
+path outside the workspace root.
 
 ### Command and Editor Title Action
 

@@ -185,9 +185,12 @@ vi.mock("vscode-languageclient/node", () => ({
 
 import {
   openExplorerPanel,
+  openGraphFile,
   refreshPanelsForClient,
   openPanels,
+  restoreExplorerPanel,
 } from "./explorerWebview";
+import { OPEN_GRAPH_FILE_COMMAND } from "./explorerLinks";
 import type { GraphDocument } from "./explorerWebview";
 import type { LanguageClient } from "vscode-languageclient/node";
 
@@ -388,6 +391,22 @@ describe("openExplorerPanel", () => {
 
       expect(mockCreateWebviewPanel).toHaveBeenCalledTimes(2);
       expect(openPanels).toHaveLength(2);
+    });
+
+    it("enables the open-graph-file command URI in the webview options", () => {
+      const sendRequest = makeStandardSendRequest();
+      clients.set("file:///workspace", makeMockClient(true, sendRequest));
+
+      openExplorerPanel(makeMockExtensionContext(), clients);
+
+      expect(mockCreateWebviewPanel).toHaveBeenCalledWith(
+        "supersigil.explorer",
+        expect.any(String),
+        expect.anything(),
+        expect.objectContaining({
+          enableCommandUris: [OPEN_GRAPH_FILE_COMMAND],
+        }),
+      );
     });
 
     it("panel title includes folder name", verifies("vscode-explorer-webview/req#req-2-6"), () => {
@@ -918,6 +937,38 @@ describe("openExplorerPanel", () => {
     });
   });
 
+  describe("openGraphFile", () => {
+    it("resolves a relative path against the provided folder URI", async () => {
+      openGraphFile({
+        path: "specs/proj/requirements.md",
+        folderUri: "file:///workspace",
+      });
+
+      await vi.waitFor(() => {
+        expect(mockOpenTextDocument).toHaveBeenCalledTimes(1);
+      });
+
+      const openUri = mockOpenTextDocument.mock.calls[0][0];
+      expect(openUri.path).toContain("specs/proj/requirements.md");
+      expect(mockShowWarningMessage).not.toHaveBeenCalled();
+    });
+
+    it("opens an explicit file URI without needing a folder URI", async () => {
+      openGraphFile({
+        uri: "file:///shared/specs/requirements.md",
+        line: 7,
+      });
+
+      await vi.waitFor(() => {
+        expect(mockShowTextDocument).toHaveBeenCalledTimes(1);
+      });
+
+      const openUri = mockOpenTextDocument.mock.calls[0][0];
+      expect(openUri.toString()).toBe("file:///shared/specs/requirements.md");
+      expect(mockShowTextDocument.mock.calls[0][1]).toHaveProperty("selection");
+    });
+  });
+
   describe("getHtmlContent", () => {
     it("generates HTML with nonce-based CSP and resource URIs", () => {
       const sendRequest = vi.fn().mockImplementation((method: string) => {
@@ -965,6 +1016,70 @@ describe("openExplorerPanel", () => {
 
       // 4 CSS + 4 JS = 8 calls to asWebviewUri
       expect(panels[0].webview.asWebviewUri).toHaveBeenCalledTimes(8);
+    });
+  });
+});
+
+describe("restoreExplorerPanel", () => {
+  let clients: Map<string, LanguageClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clients = new Map();
+    panels = [];
+    onDidDisposeCallbacks = [];
+    onDidReceiveMessageCallbacks = [];
+    onDidChangeViewStateCallbacks = [];
+    mockActiveTextEditor = undefined;
+    mockWorkspaceFolders = undefined;
+    openPanels.length = 0;
+  });
+
+  it("disposes panels that do not have serialized client state", () => {
+    const panel = createMockPanel();
+
+    restoreExplorerPanel(
+      panel as never,
+      {},
+      clients,
+      makeMockExtensionContext().extensionUri,
+    );
+
+    expect(mockDispose).toHaveBeenCalledTimes(1);
+    expect(openPanels).toHaveLength(0);
+  });
+
+  it("rehydrates a restored panel and handles ready/openFile messages", async () => {
+    const sendRequest = makeStandardSendRequest();
+    clients.set("file:///workspace", makeMockClient(true, sendRequest));
+
+    const panel = createMockPanel();
+
+    restoreExplorerPanel(
+      panel as never,
+      { clientKey: "file:///workspace" },
+      clients,
+      makeMockExtensionContext().extensionUri,
+    );
+
+    expect(openPanels).toHaveLength(1);
+    expect(panel.webview.html).toContain("bootstrap.js");
+
+    const callback = onDidReceiveMessageCallbacks[0];
+    callback?.({ type: "ready" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockPostMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "graphData" }),
+    );
+
+    callback?.({
+      type: "openFile",
+      path: "specs/proj/requirements.md",
+    });
+
+    await vi.waitFor(() => {
+      expect(mockOpenTextDocument).toHaveBeenCalled();
     });
   });
 });

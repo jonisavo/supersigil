@@ -1,12 +1,27 @@
 /// <reference lib="dom" />
+import {
+  buildCriterionLink,
+  buildDocumentLink,
+  buildOpenFileCommandHref,
+  type OpenGraphFileTarget,
+} from "./explorerLinks";
+
 export const EVIDENCE_SCHEME = "supersigil-evidence";
+
+export function createLinkResolver(folderUri?: string) {
+  return {
+    evidenceLink: (file: string, line: number) =>
+      buildOpenFileCommandHref({ path: file, line, folderUri }),
+    documentLink: buildDocumentLink,
+    criterionLink: buildCriterionLink,
+  };
+}
 
 export const linkResolver = {
   evidenceLink: (file: string, line: number) =>
     `${EVIDENCE_SCHEME}:${encodeURIComponent(file)}?line=${line}`,
-  documentLink: (docId: string) => `#/doc/${encodeURIComponent(docId)}`,
-  criterionLink: (docId: string, _criterionId: string) =>
-    `#/doc/${encodeURIComponent(docId)}`,
+  documentLink: buildDocumentLink,
+  criterionLink: buildCriterionLink,
 };
 
 export function parseEvidenceHref(
@@ -26,11 +41,30 @@ export function parseEvidenceHref(
   };
 }
 
+interface DocumentOpenFileInfo {
+  path: string;
+  uri?: string;
+}
+
+function buildDocumentOpenFileTarget(
+  info: DocumentOpenFileInfo,
+  folderUri?: string,
+): OpenGraphFileTarget | null {
+  if (info.uri) {
+    return { uri: info.uri };
+  }
+
+  if (!folderUri) {
+    return null;
+  }
+
+  return { path: info.path, folderUri };
+}
+
 export function injectOpenFileButton(
   container: HTMLElement,
-  pathByDocId: Map<string, string>,
-  onClick?: (path: string, uri?: string) => void,
-  uriByDocId?: Map<string, string | undefined>,
+  fileByDocId: Map<string, DocumentOpenFileInfo>,
+  folderUri?: string,
 ): void {
   const header = container.querySelector(".detail-panel-header");
   if (!header || header.querySelector(".open-file-btn")) return;
@@ -39,19 +73,19 @@ export function injectOpenFileButton(
   if (!titleEl) return;
 
   const docId = titleEl.textContent?.trim();
-  if (!docId || !pathByDocId.has(docId)) return;
+  if (!docId) return;
 
-  const path = pathByDocId.get(docId)!;
-  const uri = uriByDocId?.get(docId);
-  const btn = document.createElement("button");
+  const info = fileByDocId.get(docId);
+  if (!info) return;
+
+  const target = buildDocumentOpenFileTarget(info, folderUri);
+  if (!target) return;
+
+  const btn = document.createElement("a");
   btn.className = "open-file-btn";
   btn.textContent = "Open File";
-  btn.title = `Open ${path}`;
-  btn.addEventListener("click", () => {
-    if (onClick) {
-      onClick(path, uri);
-    }
-  });
+  btn.title = `Open ${info.path}`;
+  btn.setAttribute("href", buildOpenFileCommandHref(target));
   header.insertBefore(btn, header.querySelector(".detail-panel-close"));
 }
 
@@ -90,10 +124,10 @@ if (typeof acquireVsCodeApi === "function") {
   const vscode = acquireVsCodeApi();
   const container = document.getElementById("explorer")!;
 
-  let pathByDocId: Map<string, string>;
-  let uriByDocId: Map<string, string | undefined>;
+  let fileByDocId: Map<string, DocumentOpenFileInfo>;
   let currentUnmount: (() => void) | null = null;
   let detailObserver: MutationObserver | null = null;
+  let currentRootUri: string | undefined;
 
   function mountExplorer(
     graph: GraphData,
@@ -101,8 +135,15 @@ if (typeof acquireVsCodeApi === "function") {
     focusDocumentId?: string,
     isRootSwitch?: boolean,
   ) {
-    pathByDocId = new Map(graph.documents.map((d) => [d.id, d.path]));
-    uriByDocId = new Map(graph.documents.map((d) => [d.id, d.file_uri ?? undefined]));
+    fileByDocId = new Map(
+      graph.documents.map((d) => [
+        d.id,
+        {
+          path: d.path,
+          uri: d.file_uri ?? undefined,
+        },
+      ]),
+    );
 
     // Hash selection: root switch clears state, focus sets target, otherwise preserve
     let targetHash: string | null;
@@ -132,21 +173,20 @@ if (typeof acquireVsCodeApi === "function") {
 
     container.innerHTML = "";
     lastRootSelectorKey = "";
+    const runtimeLinkResolver = createLinkResolver(currentRootUri);
     const handle = SupersigilExplorer.mount(
       container,
       graph,
       renderData,
       null,
-      linkResolver,
+      runtimeLinkResolver,
     );
     currentUnmount = handle?.unmount ?? null;
 
     observeDetailPanel();
 
     // Inject button for any detail panel already rendered by mount's hash restore
-    injectOpenFileButton(container, pathByDocId, (path, uri) => {
-      vscode.postMessage({ type: "openFile", path, uri });
-    }, uriByDocId);
+    injectOpenFileButton(container, fileByDocId, currentRootUri);
   }
 
   let lastRootSelectorKey = "";
@@ -190,9 +230,7 @@ if (typeof acquireVsCodeApi === "function") {
       // Only act when nodes are actually added (skip attribute-only mutations
       // from d3 simulation ticks which fire at 60fps)
       if (mutations.some((m) => m.addedNodes.length > 0)) {
-        injectOpenFileButton(container, pathByDocId, (path, uri) => {
-          vscode.postMessage({ type: "openFile", path, uri });
-        }, uriByDocId);
+        injectOpenFileButton(container, fileByDocId, currentRootUri);
       }
     });
     detailObserver.observe(container, { childList: true, subtree: true });
@@ -217,6 +255,7 @@ if (typeof acquireVsCodeApi === "function") {
   window.addEventListener("message", (event) => {
     const msg = event.data;
     if (msg.type === "graphData") {
+      currentRootUri = msg.currentRoot?.uri;
       mountExplorer(
         msg.graph,
         msg.renderData,
