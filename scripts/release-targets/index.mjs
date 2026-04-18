@@ -101,12 +101,15 @@ function replaceCargoPackageVersion(contents, version) {
       continue;
     }
 
-    const versionMatch = line.match(/^(\s*version\s*=\s*")([^"]+)(".*)$/);
+    const versionMatch = line.match(
+      /^(\s*version\s*=\s*")([^"]+)("[^\r\n]*)(\r?)$/,
+    );
     if (!versionMatch) {
       continue;
     }
 
-    lines[index] = `${versionMatch[1]}${version}${versionMatch[3]}`;
+    lines[index] =
+      `${versionMatch[1]}${version}${versionMatch[3]}${versionMatch[4]}`;
     replaced = true;
   }
 

@@ -664,6 +664,32 @@ describe("release-targets helper", () => {
   );
 
   it(
+    "bumps crate manifests that use CRLF line endings",
+    verifies("release-targets/req#req-3-2", "release-targets/req#req-3-5"),
+    () => {
+      const dir = initFixtureRepo();
+
+      writeTestFile(
+        dir,
+        "crates/supersigil-cli/Cargo.toml",
+        `[package]\r
+name = "supersigil"\r
+version = "0.1.0"\r
+include = ["src/", "skills/", "README.md"]\r
+`,
+      );
+      refreshPackagedSkill(dir);
+
+      const output = runPrepare(dir);
+
+      expect(output.targets.crates.impacted).toBe(true);
+      expect(readRepoFile(dir, "crates/supersigil-cli/Cargo.toml")).toContain(
+        'version = "0.2.0"\r\n',
+      );
+    },
+  );
+
+  it(
     "bumps workspace pins for crates that do not use the supersigil name prefix",
     verifies("release-targets/req#req-3-5"),
     () => {
