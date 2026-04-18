@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0] - 2026-04-18
+
+### Bug Fixes
+
+- *(vscode)* Restore graph explorer links after restart ([b901c98](https://github.com/jonisavo/supersigil/commit/b901c9861f87a19354a3246df187a72d4908eb35))
+
+### Features
+
+- Add Windows support ([6ffefcc](https://github.com/jonisavo/supersigil/commit/6ffefccc869f88ce8e7262dfff6190e6664ac434))
+- *(verify)* Replace stale tracked findings with affected docs ([aafd984](https://github.com/jonisavo/supersigil/commit/aafd984f62ab34f8f51c42065d96056cdba00489))
+
 ## [0.11.0] - 2026-04-15
 
 ### Features

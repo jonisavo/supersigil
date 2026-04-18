@@ -75,9 +75,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "assert_cmd"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a686bbee5efb88a82df0621b236e74d925f470e5445d3220a5648b892ec99c9"
+checksum = "39bae1d3fa576f7c6519514180a72559268dd7d1fe104070956cb687bc6673bd"
 dependencies = [
  "anstyle",
  "bstr",
@@ -187,9 +187,9 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "clap"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b193af5b67834b676abd72466a96c1024e6a6ad978a1f484bd90b85c94041351"
+checksum = "1ddb117e43bbf7dacf0a4190fef4d345b9bad68dfc649cb349e7d17d28428e51"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -218,9 +218,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1110bd8a634a1ab8cb04345d8d878267d57c3cf1b38d91b71af6686408bbca6a"
+checksum = "f2ce8604710f6733aa641a2b3731eaa1e8b3d9973d5e3565da11800813f997a9"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1601,7 +1601,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "supersigil"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "glob",
  "proptest",
@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-evidence"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-import"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "insta",
  "proptest",
@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-js"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -1684,7 +1684,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-lsp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "async-lsp",
  "futures",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-parser"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "markdown",
  "proptest",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "glob",
  "proc-macro2",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust-macros"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-verify"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "git2",
  "glob",
@@ -1880,9 +1880,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.52.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a91135f59b1cbf38c91e73cf3386fca9bb77915c45ce2771460c9d92f0f3d776"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "libc",
  "mio",
@@ -2172,11 +2172,11 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"
-version = "1.0.2+wasi-0.2.9"
+version = "1.0.3+wasi-0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9517f9239f02c069db75e65f174b3da828fe5f5b945c4dd26bd25d89c03ebcf5"
+checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
 dependencies = [
- "wit-bindgen",
+ "wit-bindgen 0.57.1",
 ]
 
 [[package]]
@@ -2185,7 +2185,7 @@ version = "0.4.0+wasi-0.3.0-rc-2026-01-06"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5"
 dependencies = [
- "wit-bindgen",
+ "wit-bindgen 0.51.0",
 ]
 
 [[package]]
@@ -2333,6 +2333,12 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 dependencies = [
  "wit-bindgen-rust-macro",
 ]
+
+[[package]]
+name = "wit-bindgen"
+version = "0.57.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wit-bindgen-core"

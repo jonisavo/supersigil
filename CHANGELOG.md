@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0] - 2026-04-18
+
+### Bug Fixes
+
+- *(vscode)* Restore graph explorer links after restart ([b901c98](https://github.com/jonisavo/supersigil/commit/b901c9861f87a19354a3246df187a72d4908eb35))
+
+### CI/CD
+
+- Handle CRLF in release tooling ([7e89986](https://github.com/jonisavo/supersigil/commit/7e899865e61d611d68a441cd1fa9076dcf2f103b))
+
+### Documentation
+
+- *(website)* Default to Cargo installation method on Windows ([6ad5efa](https://github.com/jonisavo/supersigil/commit/6ad5efa16f690b409afe1ab086639fd6ed8d476b))
+
+### Features
+
+- Add Windows support ([6ffefcc](https://github.com/jonisavo/supersigil/commit/6ffefccc869f88ce8e7262dfff6190e6664ac434))
+- *(verify)* Replace stale tracked findings with affected docs ([aafd984](https://github.com/jonisavo/supersigil/commit/aafd984f62ab34f8f51c42065d96056cdba00489))
+
+### Miscellaneous
+
+- *(website)* Override dompurify version to ^3.4.0 to resolve GHSA-39q2-94rc-95cp ([1940d71](https://github.com/jonisavo/supersigil/commit/1940d714e55f739ff868ffef78c0902d3ff4a196))
+
 ## [0.11.0] - 2026-04-15
 
 ### Features
