@@ -12,6 +12,10 @@ title: "VS Code Explorer Webview"
 
 ## Overview
 
+Historical implementation plan for the original VS Code webview
+integration. The current runtime rollout is tracked by
+`graph-explorer-runtime/tasks`.
+
 Tasks 1-11 cover the initial webview implementation (done). Tasks
 12-19 cover the UX restructuring: tree view relocation, editor
 title action, multi-instance panels, root selector, and explorer

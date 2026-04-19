@@ -14,6 +14,7 @@ class SupersigilLspServerDescriptor(
     private val binaryPath: String,
 ) : ProjectWideLspServerDescriptor(project, "Supersigil") {
     private val documentsChangedListeners = CopyOnWriteArrayList<() -> Unit>()
+    private val explorerChangedListeners = CopyOnWriteArrayList<(ExplorerChangedEvent) -> Unit>()
 
     override fun isSupportedFile(file: VirtualFile): Boolean {
         val extension = file.extension?.lowercase() ?: return false
@@ -23,11 +24,19 @@ class SupersigilLspServerDescriptor(
     override fun createCommandLine(): GeneralCommandLine = createSupersigilCommandLine(binaryPath, project.basePath)
 
     override fun createLsp4jClient(handler: LspServerNotificationsHandler): Lsp4jClient =
-        SupersigilLsp4jClient(handler) {
-            for (listener in documentsChangedListeners) {
-                listener()
-            }
-        }
+        SupersigilLsp4jClient(
+            handler = handler,
+            onDocumentsChanged = {
+                for (listener in documentsChangedListeners) {
+                    listener()
+                }
+            },
+            onExplorerChanged = { event ->
+                for (listener in explorerChangedListeners) {
+                    listener(event)
+                }
+            },
+        )
 
     fun addDocumentsChangedListener(
         listener: () -> Unit,
@@ -36,6 +45,16 @@ class SupersigilLspServerDescriptor(
         documentsChangedListeners.add(listener)
         com.intellij.openapi.util.Disposer.register(parentDisposable) {
             documentsChangedListeners.remove(listener)
+        }
+    }
+
+    fun addExplorerChangedListener(
+        listener: (ExplorerChangedEvent) -> Unit,
+        parentDisposable: Disposable,
+    ) {
+        explorerChangedListeners.add(listener)
+        com.intellij.openapi.util.Disposer.register(parentDisposable) {
+            explorerChangedListeners.remove(listener)
         }
     }
 }

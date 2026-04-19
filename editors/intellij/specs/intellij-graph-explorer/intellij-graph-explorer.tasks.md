@@ -12,6 +12,10 @@ title: "IntelliJ Graph Explorer"
 
 ## Overview
 
+Historical implementation plan for the original IntelliJ graph
+explorer integration. The current runtime rollout is tracked by
+`graph-explorer-runtime/tasks`.
+
 Implementation sequence for the IntelliJ Graph Explorer tool window.
 Starts with the shared infrastructure (navigation extraction, build
 pipeline), then the JCEF panel and resource serving, bridge script,

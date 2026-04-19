@@ -7,6 +7,7 @@
 import * as d3 from 'd3';
 import forceInABox from 'force-in-a-box';
 import { buildCoverageMap, clearDetail, renderClusterDetail, renderDetail, renderEmpty } from './detail-panel.js';
+import { buildGraphComponentOutline } from './explorer-runtime-shared.js';
 import {
   componentColor,
   extractFilterOptions,
@@ -28,6 +29,9 @@ import { buildHash, onHashChange, parseHash } from './url-router.js';
  * @property {string|null} doc_type
  * @property {string|null} status
  * @property {string} title
+ * @property {string|null} [path]
+ * @property {string|null} [file_uri]
+ * @property {string|null} [filePath]
  * @property {Component[]} components
  */
 
@@ -65,9 +69,6 @@ const BASE_RADIUS = 12;
 const RADIUS_SCALE = 3;
 const CLUSTER_PADDING = 30;
 const COMPONENT_RADIUS = 8;
-
-/** Component kinds eligible for drill-down visualisation. */
-const DRILLDOWN_KINDS = new Set(['Criterion', 'Task', 'Decision', 'Rationale', 'Alternative']);
 
 /**
  * Compute the display radius for a document node.
@@ -203,45 +204,17 @@ export const componentStrokeColor = componentColor;
  * @returns {ComponentNode[]}
  */
 export function buildComponentNodes(doc) {
-  /** @type {ComponentNode[]} */
-  const result = [];
-
-  for (const comp of doc.components) {
-    if (!comp.id || !DRILLDOWN_KINDS.has(comp.kind)) continue;
-
-    result.push({
-      id: `${doc.id}::${comp.id}`,
-      componentId: comp.id,
-      kind: comp.kind,
-      body: comp.body ?? null,
-      parentDocId: doc.id,
-      parentComponentId: null,
-      radius: COMPONENT_RADIUS,
-      label: `${comp.kind}: ${comp.id}`,
-      implements: comp.implements,
-    });
-
-    // Expand Decision children
-    if (comp.kind === 'Decision' && comp.children) {
-      for (let ci = 0; ci < comp.children.length; ci++) {
-        const child = comp.children[ci];
-        if (!DRILLDOWN_KINDS.has(child.kind)) continue;
-        const childId = child.id ?? `${comp.id}-${child.kind.toLowerCase()}-${ci}`;
-        result.push({
-          id: `${doc.id}::${childId}`,
-          componentId: childId,
-          kind: child.kind,
-          body: child.body ?? null,
-          parentDocId: doc.id,
-          parentComponentId: comp.id,
-          radius: COMPONENT_RADIUS,
-          label: child.id ? `${child.kind}: ${child.id}` : child.kind,
-        });
-      }
-    }
-  }
-
-  return result;
+  return buildGraphComponentOutline(doc.components).map((component) => ({
+    id: `${doc.id}::${component.id}`,
+    componentId: component.id,
+    kind: component.kind,
+    body: component.body,
+    parentDocId: doc.id,
+    parentComponentId: component.parentComponentId,
+    radius: COMPONENT_RADIUS,
+    label: component.displayId ? `${component.kind}: ${component.displayId}` : component.kind,
+    implements: component.implements,
+  }));
 }
 
 /**
@@ -308,12 +281,50 @@ function shortLabel(id) {
  * @param {any[]} [renderData] - The render data array from render-data.json.
  * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} [repositoryInfo] - Repository info for evidence links.
  * @param {Object} [linkResolver] - Optional pre-built link resolver. When provided, passed to renderDetail instead of creating one from repositoryInfo.
- * @returns {void}
+ * @param {{
+ *   getRenderData?: () => any[],
+ *   getDocumentState?: (documentId: string) => any,
+ *   openFile?: (target: { path?: string, uri?: string, line?: number }) => void,
+ *   onSelectDocument?: (documentId: string) => void,
+ *   onSwitchRoot?: (rootId: string) => void,
+ *   rootContext?: {
+ *     activeRootId: string,
+ *     availableRoots: Array<{ id: string, name: string }>
+ *   },
+ * }} [runtimeOptions]
+ * @returns {{ unmount(): void, refreshDetail(): void, updateRuntimeOptions(nextRuntimeOptions: any): void }}
  */
-export function mount(container, data, renderData, repositoryInfo, linkResolver) {
+export function mount(container, data, renderData, repositoryInfo, linkResolver, runtimeOptions) {
   const { documents, edges } = data;
+  let currentRuntimeOptions = runtimeOptions ?? {};
 
-  const coverageMap = buildCoverageMap(renderData);
+  function resolveRenderData() {
+    return currentRuntimeOptions.getRenderData?.() ?? renderData ?? [];
+  }
+
+  function resolveDocumentState(documentId) {
+    return currentRuntimeOptions.getDocumentState?.(documentId) ?? null;
+  }
+
+  function openFileTargetForNode(node) {
+    if (!currentRuntimeOptions.openFile) {
+      return null;
+    }
+
+    const line = 1;
+    if (node.filePath) {
+      return { path: node.filePath, line };
+    }
+    if (node.file_uri) {
+      return { uri: node.file_uri, line };
+    }
+    if (node.path) {
+      return { path: node.path, line };
+    }
+    return null;
+  }
+
+  const coverageMap = buildCoverageMap(resolveRenderData(), data);
 
   function badgeColor(docId) {
     const cov = coverageMap.get(docId);
@@ -372,6 +383,38 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
   // ===== Filter bar UI =====
   const explorerBar = document.createElement('div');
   explorerBar.className = 'explorer-bar';
+  /** @type {HTMLSelectElement | null} */
+  let rootSelector = null;
+
+  function syncRootSelector() {
+    const availableRoots = currentRuntimeOptions.rootContext?.availableRoots ?? [];
+    if (!currentRuntimeOptions.onSwitchRoot || availableRoots.length <= 1) {
+      rootSelector?.remove();
+      rootSelector = null;
+      return;
+    }
+
+    if (!rootSelector) {
+      rootSelector = document.createElement('select');
+      rootSelector.className = 'root-selector';
+      rootSelector.setAttribute('aria-label', 'Switch workspace root');
+      rootSelector.addEventListener('change', () => {
+        currentRuntimeOptions.onSwitchRoot?.(rootSelector?.value ?? '');
+      });
+      explorerBar.insertBefore(rootSelector, explorerBar.firstChild);
+    }
+
+    rootSelector.replaceChildren();
+    for (const root of availableRoots) {
+      const option = document.createElement('option');
+      option.value = root.id;
+      option.textContent = root.name;
+      option.selected = root.id === currentRuntimeOptions.rootContext?.activeRootId;
+      rootSelector.appendChild(option);
+    }
+  }
+
+  syncRootSelector();
 
   // Type filter — custom dropdown multiselect
   const typeDropdown = document.createElement('div');
@@ -1322,7 +1365,7 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
   specPane.appendChild(detailPanel);
 
   // Show the empty state by default
-  renderEmpty(detailPanel, data, renderData);
+  renderEmpty(detailPanel, data, resolveRenderData());
 
   /** @type {string|null} Currently selected node ID */
   let selectedNodeId = null;
@@ -1366,7 +1409,7 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
       d3.select(this).style('opacity', null).style('stroke-width', null);
     });
     clearDetail(detailPanel);
-    renderEmpty(detailPanel, data, renderData);
+    renderEmpty(detailPanel, data, resolveRenderData());
     selectedClusterName = null;
   }
 
@@ -1384,7 +1427,7 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
       nodesGroup.selectAll('g.node').classed('node-selected', false);
       showEdgeLabelsFor(null);
       clearDetail(detailPanel);
-      renderEmpty(detailPanel, data, renderData);
+      renderEmpty(detailPanel, data, resolveRenderData());
       selectedNodeId = null;
       syncHashToUrl();
     }
@@ -1465,7 +1508,17 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
     // Center the view on the selected node
     centerOnNode(d);
 
-    renderDetail(detailPanel, d, edges, renderData ?? [], repositoryInfo ?? null, linkResolver);
+    currentRuntimeOptions.onSelectDocument?.(d.id);
+    renderDetail(
+      detailPanel,
+      d,
+      edges,
+      resolveRenderData(),
+      repositoryInfo ?? null,
+      linkResolver,
+      resolveDocumentState(d.id),
+      openFileTargetForNode(d),
+    );
     selectedNodeId = d.id;
     syncHashToUrl();
   }
@@ -1473,6 +1526,15 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
   // Close sidebar on close button click, and handle trace button
   detailPanel.addEventListener('click', (event) => {
     const target = /** @type {HTMLElement} */ (event.target);
+    if (target.closest('.open-file-btn')) {
+      const button = /** @type {HTMLElement} */ (target.closest('.open-file-btn'));
+      currentRuntimeOptions.openFile?.({
+        path: button.dataset.path || undefined,
+        uri: button.dataset.uri || undefined,
+        line: button.dataset.line ? Number(button.dataset.line) : undefined,
+      });
+      return;
+    }
     if (target.closest('.detail-panel-close')) {
       clearSelection();
       return;
@@ -1919,7 +1981,50 @@ export function mount(container, data, renderData, repositoryInfo, linkResolver)
     document.removeEventListener('keydown', handleKeydown);
 
     unsubscribeHashChange();
+    container.replaceChildren();
   }
 
-  return { unmount };
+  function refreshDetail() {
+    if (selectedClusterName) {
+      const selectedCluster = clusters.find((cluster) => cluster.name === selectedClusterName);
+      if (selectedCluster) {
+        const selectedIds = new Set(selectedCluster.docIds);
+        const clusterDocs = documents.filter((doc) => selectedIds.has(doc.id));
+        renderClusterDetail(detailPanel, selectedCluster.name, clusterDocs, edges);
+      }
+      return;
+    }
+
+    if (selectedNodeId) {
+      const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+      if (selectedNode) {
+        renderDetail(
+          detailPanel,
+          selectedNode,
+          edges,
+          resolveRenderData(),
+          repositoryInfo ?? null,
+          linkResolver,
+          resolveDocumentState(selectedNode.id),
+          openFileTargetForNode(selectedNode),
+        );
+        return;
+      }
+    }
+
+    renderEmpty(detailPanel, data, resolveRenderData());
+  }
+
+  function updateRuntimeOptions(nextRuntimeOptions) {
+    currentRuntimeOptions = {
+      ...currentRuntimeOptions,
+      ...nextRuntimeOptions,
+    };
+    syncRootSelector();
+    if (selectedNodeId || selectedClusterName) {
+      refreshDetail();
+    }
+  }
+
+  return { unmount, refreshDetail, updateRuntimeOptions };
 }

@@ -7,6 +7,8 @@ pub(crate) mod artifact_graph;
 pub mod document_components;
 mod error;
 pub(crate) mod explicit_evidence;
+/// Explorer runtime payload builders for lazy explorer clients.
+pub mod explorer_runtime;
 /// Git diff helpers for affected-document detection.
 pub mod git;
 mod glob_resolver;

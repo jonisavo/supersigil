@@ -20,13 +20,19 @@ pub const DOCUMENT_LIST_COMMAND: &str = "supersigil.documentList";
 /// clients that cannot send custom JSON-RPC requests.
 pub const DOCUMENT_COMPONENTS_COMMAND: &str = "supersigil.documentComponents";
 
-/// The command name for the graph data command.
+/// The command name for the explorer snapshot command.
 ///
-/// Returns the full document graph as JSON matching the `GraphJson` schema.
-/// This duplicates the `supersigil/graphData` custom request but is also
-/// available via `workspace/executeCommand` for LSP clients that cannot send
-/// custom JSON-RPC requests.
-pub const GRAPH_DATA_COMMAND: &str = "supersigil.graphData";
+/// Returns the lazy graph explorer shell payload. This mirrors the
+/// `supersigil/explorerSnapshot` custom request for clients that only support
+/// `workspace/executeCommand`.
+pub const EXPLORER_SNAPSHOT_COMMAND: &str = "supersigil.explorerSnapshot";
+
+/// The command name for the explorer document command.
+///
+/// Returns lazy detail-panel payload for one explorer document. This mirrors
+/// the `supersigil/explorerDocument` custom request for clients that only
+/// support `workspace/executeCommand`.
+pub const EXPLORER_DOCUMENT_COMMAND: &str = "supersigil.explorerDocument";
 
 /// The command name for the interactive create-document command.
 ///

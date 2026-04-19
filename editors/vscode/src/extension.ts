@@ -10,6 +10,7 @@ import {
 import {
   METHOD_DOCUMENT_LIST,
   METHOD_DOCUMENTS_CHANGED,
+  METHOD_EXPLORER_CHANGED,
   SpecExplorerProvider,
   DocumentEntry,
 } from "./specExplorer";
@@ -20,6 +21,7 @@ import {
   openGraphFileWithOptions,
   refreshPanelsForClient,
   restoreExplorerPanel,
+  type ExplorerChangedEvent,
 } from "./explorerWebview";
 import {
   OPEN_GRAPH_FILE_COMMAND,
@@ -290,7 +292,6 @@ async function startClientForFolder(
   client.onNotification(METHOD_DOCUMENTS_CHANGED, () => {
     specExplorer?.refresh();
     previewCache?.invalidateAll();
-    refreshPanelsForClient(key, clients);
 
     // Populate the shared documentListCache so link resolution and
     // goToCriterion work even before the tree view is expanded.
@@ -305,6 +306,13 @@ async function startClientForFolder(
         });
     }
   });
+
+  client.onNotification(
+    METHOD_EXPLORER_CHANGED,
+    (event: ExplorerChangedEvent) => {
+      refreshPanelsForClient(key, clients, event);
+    },
+  );
 
   clients.set(key, client);
 

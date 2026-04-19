@@ -99,7 +99,7 @@ const extensionOptions = {
 /** @type {esbuild.BuildOptions} */
 const explorerOptions = {
   entryPoints: [
-    join(websiteSrc, "components", "explore", "graph-explorer.js"),
+    join(websiteSrc, "components", "explore", "explorer-entry.js"),
   ],
   bundle: true,
   format: "iife",

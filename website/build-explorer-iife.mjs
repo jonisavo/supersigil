@@ -19,7 +19,7 @@ const production = !process.argv.includes("--dev");
 /** @type {import("esbuild").BuildOptions} */
 const explorerOptions = {
   entryPoints: [
-    join(__dirname, "src", "components", "explore", "graph-explorer.js"),
+    join(__dirname, "src", "components", "explore", "explorer-entry.js"),
   ],
   bundle: true,
   format: "iife",

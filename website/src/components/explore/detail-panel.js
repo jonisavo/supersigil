@@ -3,6 +3,7 @@
  * Sidebar rendering for document and component detail views.
  */
 
+import { countCriteria } from './explorer-runtime-shared.js';
 import { componentColor } from './graph-data.js';
 
 /** @typedef {import('./graph-explorer.js').DocumentNode} DocumentNode */
@@ -34,6 +35,20 @@ function escHtml(str) {
  */
 function edgeListItemHtml(arrow, peerId, kind) {
   return `<li class="edge-list-item"><span class="edge-list-kind">${arrow}</span><span class="edge-list-target" data-doc-id="${escHtml(peerId)}">${escHtml(peerId)}</span><span class="edge-list-kind">${escHtml(kind)}</span></li>`;
+}
+
+/**
+ * Render the optional runtime-owned open-file button for a document header.
+ *
+ * @param {{ path?: string, uri?: string, line?: number } | null | undefined} target
+ * @returns {string}
+ */
+function openFileButtonHtml(target) {
+  if (!target || (!target.path && !target.uri)) {
+    return '';
+  }
+
+  return `<button class="open-file-btn" type="button" title="Open ${escHtml(target.path ?? target.uri ?? '')}" data-open-file="true"${target.path ? ` data-path="${escHtml(target.path)}"` : ''}${target.uri ? ` data-uri="${escHtml(target.uri)}"` : ''}${target.line ? ` data-line="${target.line}"` : ''}>Open File</button>`;
 }
 
 /**
@@ -78,40 +93,27 @@ export function buildBadgeClass(category, value) {
 }
 
 /**
- * Count criteria and their verification states from render data fences.
- *
- * @param {any[]} fences
- * @returns {{ total: number, verified: number }}
- */
-export function countCriteria(fences) {
-  let total = 0;
-  let verified = 0;
-
-  function visit(components) {
-    for (const comp of components) {
-      if (comp.kind === 'Criterion') {
-        total++;
-        const state = comp.verification?.state ?? 'unverified';
-        if (state === 'verified') verified++;
-      }
-      if (comp.children) visit(comp.children);
-    }
-  }
-
-  for (const fence of fences) {
-    if (fence.components) visit(fence.components);
-  }
-  return { total, verified };
-}
-
-/**
  * Build a map of document ID → { total, verified } criteria counts.
  *
  * @param {any[]|null} renderData
+ * @param {{ documents?: Array<{ id: string, coverage_summary?: { total: number, verified: number } | null }> } | null} [graphData]
  * @returns {Map<string, { total: number, verified: number }>}
  */
-export function buildCoverageMap(renderData) {
+export function buildCoverageMap(renderData, graphData) {
   const map = new Map();
+
+  if (graphData?.documents) {
+    for (const doc of graphData.documents) {
+      const coverage = doc.coverage_summary;
+      if (coverage && coverage.total > 0) {
+        map.set(doc.id, {
+          total: coverage.total,
+          verified: coverage.verified,
+        });
+      }
+    }
+  }
+
   if (renderData) {
     for (const doc of renderData) {
       const cov = countCriteria(doc.fences || []);
@@ -178,9 +180,20 @@ function createExplorerLinkResolver(repositoryInfo) {
  * @param {any[]} renderData - The render data array from render-data.json.
  * @param {{ provider: string, repo: string, host: string, mainBranch: string } | null} repositoryInfo - Repository info for evidence links, or null for plain text.
  * @param {Object} [linkResolver] - Optional pre-built link resolver. When provided, used instead of creating one from repositoryInfo.
+ * @param {{ state: 'idle' | 'loading' | 'ready' | 'error', document?: any, error?: string, updating?: boolean } | null} [documentState]
+ * @param {{ path?: string, uri?: string, line?: number } | null} [openFileTarget]
  * @returns {void}
  */
-export function renderDetail(container, node, edges, renderData, repositoryInfo, linkResolver) {
+export function renderDetail(
+  container,
+  node,
+  edges,
+  renderData,
+  repositoryInfo,
+  linkResolver,
+  documentState,
+  openFileTarget = null,
+) {
   cancelPendingClear(container);
   const { incoming, outgoing } = buildEdgeGroups(edges, node.id);
 
@@ -203,8 +216,11 @@ export function renderDetail(container, node, edges, renderData, repositoryInfo,
   const typeLabel = node.doc_type ?? 'unknown';
   const statusLabel = node.status ?? 'draft';
 
-  // Coverage from render data
-  const renderDoc = renderData?.find((d) => d.document_id === node.id);
+  // Coverage from render data, falling back to snapshot coverage when detail
+  // has not hydrated yet.
+  const renderDoc = documentState?.state === 'ready'
+    ? documentState.document
+    : renderData?.find((d) => d.document_id === node.id);
   let coverageHtml = '';
   if (renderDoc) {
     const { total, verified } = countCriteria(renderDoc.fences);
@@ -212,6 +228,10 @@ export function renderDetail(container, node, edges, renderData, repositoryInfo,
       const pct = Math.round((verified / total) * 100);
       coverageHtml = `<div class="detail-section"><div class="detail-coverage"><span class="detail-coverage-bar"><span class="detail-coverage-bar-fill" style="width: ${pct}%"></span></span><span class="detail-coverage-text">${verified}/${total} criteria verified (${pct}%)</span></div></div>`;
     }
+  } else if (node.coverage_summary?.total > 0) {
+    const { total, verified } = node.coverage_summary;
+    const pct = Math.round((verified / total) * 100);
+    coverageHtml = `<div class="detail-section"><div class="detail-coverage"><span class="detail-coverage-bar"><span class="detail-coverage-bar-fill" style="width: ${pct}%"></span></span><span class="detail-coverage-text">${verified}/${total} criteria verified (${pct}%)</span></div></div>`;
   }
 
   // Trace impact button
@@ -219,7 +239,11 @@ export function renderDetail(container, node, edges, renderData, repositoryInfo,
 
   // Render spec content using the preview kit
   let specContentHtml = '';
-  if (renderDoc && typeof window !== 'undefined' && window.__supersigilRender) {
+  if (documentState?.state === 'loading') {
+    specContentHtml = '<p class="detail-spec-loading">Loading specification...</p>';
+  } else if (documentState?.state === 'error') {
+    specContentHtml = `<div class="detail-spec-empty"><div>Unable to load specification</div><div class="detail-spec-empty-hint">${escHtml(documentState.error ?? 'Try again.')}</div></div>`;
+  } else if (renderDoc && typeof window !== 'undefined' && window.__supersigilRender) {
     const resolvedLinkResolver = linkResolver ?? createExplorerLinkResolver(repositoryInfo);
     try {
       specContentHtml = window.__supersigilRender.renderComponentTree(
@@ -233,11 +257,15 @@ export function renderDetail(container, node, edges, renderData, repositoryInfo,
     }
   }
 
+  const loadingStateHtml = documentState?.updating
+    ? '<div class="detail-section"><div class="detail-spec-loading">Updating specification...</div></div>'
+    : '';
+
   const specSection = specContentHtml
     ? `<div class="detail-spec-content">${specContentHtml}</div>`
     : '';
 
-  container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div><button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${coverageHtml}${traceBtn}${edgesHtml}${specSection}</div>`;
+  container.innerHTML = `<div class="detail-panel-header"><div class="detail-panel-title">${escHtml(node.id)}</div>${openFileButtonHtml(openFileTarget)}<button class="detail-panel-close" aria-label="Close">\u2715</button></div><div class="detail-panel-body"><div class="detail-section"><span class="${typeClass}">${escHtml(typeLabel)}</span> <span class="${statusClass}">${escHtml(statusLabel)}</span></div>${coverageHtml}${loadingStateHtml}${traceBtn}${edgesHtml}${specSection}</div>`;
 
   container.classList.add('open');
 }
@@ -417,7 +445,7 @@ export function renderEmpty(container, graphData, renderData) {
     return;
   }
 
-  const coverageMap = buildCoverageMap(renderData);
+  const coverageMap = buildCoverageMap(renderData, graphData);
 
   // Detect multi-project: any document has a project field
   const isMultiProject = graphData.documents.some((d) => d.project);

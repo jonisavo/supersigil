@@ -1,6 +1,6 @@
 //! Server state, initialization, and helper functions.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -64,6 +64,13 @@ pub struct SupersigilLsp {
     evidence_by_target: Option<Arc<EvidenceIndex>>,
     /// Cached evidence records from the last verify run.
     evidence_records: Option<Arc<Vec<VerificationEvidenceRecord>>>,
+    /// Monotonic revision for explorer runtime payloads.
+    explorer_revision: u64,
+    /// Last published explorer snapshot used for change diffing.
+    last_explorer_snapshot: Option<crate::explorer_runtime::ExplorerSnapshot>,
+    /// Last published explorer detail fingerprints used for selective invalidation.
+    last_explorer_detail_fingerprints:
+        Option<HashMap<String, crate::explorer_runtime::ExplorerDocumentFingerprint>>,
     providers: Vec<Box<dyn CodeActionProvider>>,
 }
 
@@ -96,6 +103,9 @@ impl SupersigilLsp {
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
             evidence_records: None,
+            explorer_revision: 0,
+            last_explorer_snapshot: None,
+            last_explorer_detail_fingerprints: None,
             providers: vec![
                 Box::new(crate::code_actions::MissingAttributeProvider),
                 Box::new(crate::code_actions::DuplicateIdProvider),
@@ -107,7 +117,12 @@ impl SupersigilLsp {
             ],
         });
         router.request::<crate::document_list::DocumentListRequest, _>(Self::handle_document_list);
-        router.request::<crate::graph_data::GraphDataRequest, _>(Self::handle_graph_data);
+        router.request::<crate::explorer_runtime::ExplorerSnapshotRequest, _>(
+            Self::handle_explorer_snapshot,
+        );
+        router.request::<crate::explorer_runtime::ExplorerDocumentRequest, _>(
+            Self::handle_explorer_document,
+        );
         router.request::<crate::document_components::DocumentComponentsRequest, _>(
             Self::handle_document_components,
         );
@@ -282,10 +297,164 @@ impl SupersigilLsp {
         self.publish_merged_diagnostics(uri);
     }
 
-    fn notify_documents_changed(&self) {
+    fn current_explorer_revision(&self) -> String {
+        self.explorer_revision.to_string()
+    }
+
+    fn build_explorer_snapshot_for_revision(
+        &self,
+        revision: &str,
+    ) -> crate::explorer_runtime::ExplorerSnapshot {
+        crate::explorer_runtime::build_explorer_snapshot(
+            &crate::explorer_runtime::BuildExplorerSnapshotInput {
+                revision,
+                graph: &self.graph,
+                evidence_by_target: self.evidence_by_target.as_deref(),
+                project_root: self.project_root.as_deref().unwrap_or(Path::new("")),
+            },
+        )
+    }
+
+    fn current_explorer_snapshot(&self) -> crate::explorer_runtime::ExplorerSnapshot {
+        self.last_explorer_snapshot.clone().unwrap_or_else(|| {
+            self.build_explorer_snapshot_for_revision(&self.current_explorer_revision())
+        })
+    }
+
+    fn find_document_by_id(&self, document_id: &str) -> Option<(SpecDocument, bool)> {
+        if let Some(doc) = self
+            .file_parses
+            .values()
+            .find(|doc| doc.frontmatter.id == document_id)
+        {
+            return Some((doc.clone(), false));
+        }
+
+        self.partial_file_parses
+            .values()
+            .find(|doc| doc.frontmatter.id == document_id)
+            .map(|doc| (doc.clone(), true))
+    }
+
+    fn read_document_content(&self, doc: &SpecDocument) -> Arc<String> {
+        crate::path_to_url(&doc.path)
+            .and_then(|uri| self.open_files.get(&uri).cloned())
+            .unwrap_or_else(|| Arc::new(std::fs::read_to_string(&doc.path).unwrap_or_default()))
+    }
+
+    fn build_document_components_for_doc(
+        &self,
+        doc: &SpecDocument,
+        stale: bool,
+    ) -> crate::document_components::DocumentComponentsResult {
+        use crate::document_components::{BuildComponentsInput, build_document_components};
+
+        let content = self.read_document_content(doc);
+
+        build_document_components(&BuildComponentsInput {
+            doc,
+            stale,
+            content: &content,
+            graph: &self.graph,
+            evidence_by_target: self.evidence_by_target.as_deref(),
+            evidence_records: self.evidence_records.as_deref().map(Vec::as_slice),
+            project_root: self.project_root.as_deref().unwrap_or(Path::new("")),
+        })
+    }
+
+    fn build_document_fingerprint_for_doc(
+        &self,
+        doc: &SpecDocument,
+        stale: bool,
+    ) -> crate::explorer_runtime::ExplorerDocumentFingerprint {
+        crate::explorer_runtime::fingerprint_document_components(
+            &self.build_document_components_for_doc(doc, stale),
+        )
+    }
+
+    fn current_explorer_document_fingerprints(
+        &self,
+        snapshot: &crate::explorer_runtime::ExplorerSnapshot,
+    ) -> HashMap<String, crate::explorer_runtime::ExplorerDocumentFingerprint> {
+        let mut remaining = snapshot
+            .documents
+            .iter()
+            .map(|document| document.id.clone())
+            .collect::<HashSet<_>>();
+        let mut fingerprints = HashMap::with_capacity(remaining.len());
+
+        for doc in self.file_parses.values() {
+            let document_id = doc.frontmatter.id.clone();
+            if remaining.remove(&document_id) {
+                fingerprints.insert(
+                    document_id,
+                    self.build_document_fingerprint_for_doc(doc, false),
+                );
+                if remaining.is_empty() {
+                    return fingerprints;
+                }
+            }
+        }
+
+        for doc in self.partial_file_parses.values() {
+            let document_id = doc.frontmatter.id.clone();
+            if remaining.remove(&document_id) {
+                fingerprints.insert(
+                    document_id,
+                    self.build_document_fingerprint_for_doc(doc, true),
+                );
+                if remaining.is_empty() {
+                    break;
+                }
+            }
+        }
+
+        fingerprints
+    }
+
+    fn notify_documents_changed(&mut self) {
         let _ = self
             .client
             .notify::<crate::document_list::DocumentsChanged>(());
+
+        let next_revision = self.explorer_revision + 1;
+        let snapshot = self.build_explorer_snapshot_for_revision(&next_revision.to_string());
+        let detail_fingerprints = self.current_explorer_document_fingerprints(&snapshot);
+        let mut event = crate::explorer_runtime::diff_explorer_snapshots(
+            self.last_explorer_snapshot.as_ref(),
+            &snapshot,
+        );
+        let detail_changes = crate::explorer_runtime::diff_explorer_documents(
+            self.last_explorer_detail_fingerprints.as_ref(),
+            &detail_fingerprints,
+        );
+        if !detail_changes.is_empty() {
+            let removed_ids: HashSet<&str> = event
+                .removed_document_ids
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let mut changed_ids: BTreeSet<String> =
+                event.changed_document_ids.iter().cloned().collect();
+            for document_id in detail_changes {
+                if !removed_ids.contains(document_id.as_str()) {
+                    changed_ids.insert(document_id);
+                }
+            }
+            event.changed_document_ids = changed_ids.into_iter().collect();
+        }
+        let has_change = self.last_explorer_snapshot.is_none()
+            || !event.changed_document_ids.is_empty()
+            || !event.removed_document_ids.is_empty();
+
+        if has_change {
+            self.explorer_revision = next_revision;
+            self.last_explorer_snapshot = Some(snapshot);
+            self.last_explorer_detail_fingerprints = Some(detail_fingerprints);
+            let _ = self
+                .client
+                .notify::<crate::explorer_runtime::ExplorerChangedNotification>(event);
+        }
     }
 
     fn republish_all_diagnostics(&self) {
@@ -361,16 +530,44 @@ impl SupersigilLsp {
         Box::pin(async move { Ok(crate::document_list::DocumentListResult { documents }) })
     }
 
-    fn handle_graph_data(
+    fn handle_explorer_snapshot(
         &mut self,
         _params: serde_json::Value,
-    ) -> BoxFuture<'static, Result<supersigil_verify::graph_json::GraphJson, ResponseError>> {
-        let graph = Arc::clone(&self.graph);
-        let project_root = self.project_root.clone().unwrap_or_default();
+    ) -> BoxFuture<'static, Result<crate::explorer_runtime::ExplorerSnapshot, ResponseError>> {
+        let snapshot = self.current_explorer_snapshot();
+        Box::pin(async move { Ok(snapshot) })
+    }
 
-        let result = supersigil_verify::graph_json::build_graph_json(&graph, &project_root);
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "async_lsp Router requires params by value"
+    )]
+    fn handle_explorer_document(
+        &mut self,
+        params: crate::explorer_runtime::ExplorerDocumentParams,
+    ) -> BoxFuture<'static, Result<crate::explorer_runtime::ExplorerDocument, ResponseError>> {
+        let revision = self.current_explorer_revision();
+        let Some((doc, stale)) = self.find_document_by_id(&params.document_id) else {
+            let empty = crate::explorer_runtime::ExplorerDocument {
+                revision,
+                document_id: params.document_id,
+                stale: false,
+                fences: Vec::new(),
+                edges: Vec::new(),
+            };
+            return Box::pin(async move { Ok(empty) });
+        };
 
-        Box::pin(async move { Ok(result) })
+        let document_components = self.build_document_components_for_doc(&doc, stale);
+
+        Box::pin(async move {
+            Ok(crate::explorer_runtime::build_explorer_document(
+                &crate::explorer_runtime::BuildExplorerDocumentInput {
+                    revision: &revision,
+                    document_components,
+                },
+            ))
+        })
     }
 
     #[allow(
@@ -384,9 +581,7 @@ impl SupersigilLsp {
         'static,
         Result<crate::document_components::DocumentComponentsResult, ResponseError>,
     > {
-        use crate::document_components::{
-            BuildComponentsInput, DocumentComponentsResult, build_document_components,
-        };
+        use crate::document_components::DocumentComponentsResult;
 
         let empty = || -> BoxFuture<'static, Result<DocumentComponentsResult, ResponseError>> {
             let result = DocumentComponentsResult {
@@ -418,31 +613,9 @@ impl SupersigilLsp {
             return empty();
         };
 
-        // Get document content for fence extraction.
-        // Prefer in-memory content for open files; fall back to disk for unopened ones.
-        let content = self.open_files.get(&uri).cloned().unwrap_or_else(|| {
-            let path = uri.to_file_path().ok();
-            let text = path.and_then(|p| std::fs::read_to_string(p).ok());
-            Arc::new(text.unwrap_or_default())
-        });
+        let result = self.build_document_components_for_doc(&doc, stale);
 
-        let graph = Arc::clone(&self.graph);
-        let evidence = self.evidence_by_target.clone();
-        let records = self.evidence_records.clone();
-        let root = self.project_root.clone().unwrap_or_default();
-
-        Box::pin(async move {
-            let result = build_document_components(&BuildComponentsInput {
-                doc: &doc,
-                stale,
-                content: &content,
-                graph: &graph,
-                evidence_by_target: evidence.as_deref(),
-                evidence_records: records.as_deref().map(Vec::as_slice),
-                project_root: &root,
-            });
-            Ok(result)
-        })
+        Box::pin(async move { Ok(result) })
     }
 
     /// Handle the `supersigil.createDocument` command.
@@ -1127,8 +1300,8 @@ impl LanguageServer for SupersigilLsp {
             );
         }
 
-        if params.command == commands::GRAPH_DATA_COMMAND {
-            let future = self.handle_graph_data(serde_json::Value::Null);
+        if params.command == commands::EXPLORER_SNAPSHOT_COMMAND {
+            let future = self.handle_explorer_snapshot(serde_json::Value::Null);
             return Box::pin(async move {
                 let result = future.await?;
                 Ok(Some(serde_json::to_value(result).unwrap_or_default()))
@@ -1144,6 +1317,23 @@ impl LanguageServer for SupersigilLsp {
                 .to_owned();
             let params = crate::document_components::DocumentComponentsParams { uri: uri_arg };
             let future = self.handle_document_components(params);
+            return Box::pin(async move {
+                let result = future.await?;
+                Ok(Some(serde_json::to_value(result).unwrap_or_default()))
+            });
+        }
+
+        if params.command == commands::EXPLORER_DOCUMENT_COMMAND {
+            let request_params = params
+                .arguments
+                .first()
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or(crate::explorer_runtime::ExplorerDocumentParams {
+                    document_id: String::new(),
+                    revision: String::new(),
+                });
+            let future = self.handle_explorer_document(request_params);
             return Box::pin(async move {
                 let result = future.await?;
                 Ok(Some(serde_json::to_value(result).unwrap_or_default()))
@@ -1743,6 +1933,9 @@ mod tests {
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
             evidence_records: None,
+            explorer_revision: 0,
+            last_explorer_snapshot: None,
+            last_explorer_detail_fingerprints: None,
             providers: Vec::new(),
         }
     }
@@ -1763,6 +1956,9 @@ mod tests {
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
             evidence_records: None,
+            explorer_revision: 0,
+            last_explorer_snapshot: None,
+            last_explorer_detail_fingerprints: None,
             providers: Vec::new(),
         }
     }
@@ -2140,6 +2336,9 @@ supersigil:\r
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
             evidence_records: None,
+            explorer_revision: 0,
+            last_explorer_snapshot: None,
+            last_explorer_detail_fingerprints: None,
             providers: Vec::new(),
         };
 
@@ -2183,6 +2382,9 @@ supersigil:\r
             graph_diagnostics: HashMap::new(),
             evidence_by_target: None,
             evidence_records: None,
+            explorer_revision: 0,
+            last_explorer_snapshot: None,
+            last_explorer_detail_fingerprints: None,
             providers: Vec::new(),
         };
 
@@ -2273,5 +2475,118 @@ supersigil:\r
             panic!("expected CodeAction, got Command");
         };
         assert_eq!(action.title, "Fix from provider B");
+    }
+
+    #[test]
+    #[verifies("graph-explorer-runtime/req#req-1-1")]
+    fn execute_command_returns_explorer_snapshot_payload() {
+        let content = "\
+---
+supersigil:
+  id: auth/req
+  type: requirements
+  status: approved
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"auth-1\">Users SHALL authenticate.</Criterion>
+</AcceptanceCriteria>
+```
+";
+        let defs = ComponentDefs::defaults();
+        let recovered = supersigil_parser::parse_content_recovering(
+            std::path::Path::new("specs/auth/req.md"),
+            content,
+            &defs,
+        )
+        .expect("parse should succeed");
+        let ParseResult::Document(doc) = recovered.result else {
+            panic!("expected supersigil document");
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state(dir.path());
+        state.graph = Arc::new(build_graph(vec![doc.clone()], &Config::default()).expect("graph"));
+        state
+            .file_parses
+            .insert(PathBuf::from("specs/auth/req.md"), doc);
+        state.explorer_revision = 7;
+
+        let result = block_on(state.execute_command(ExecuteCommandParams {
+            command: commands::EXPLORER_SNAPSHOT_COMMAND.to_owned(),
+            arguments: Vec::new(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }))
+        .unwrap()
+        .expect("command should return a payload");
+
+        let snapshot: crate::explorer_runtime::ExplorerSnapshot =
+            serde_json::from_value(result).expect("valid explorer snapshot payload");
+        assert_eq!(snapshot.revision, "7");
+        assert_eq!(snapshot.documents.len(), 1);
+        assert_eq!(snapshot.documents[0].id, "auth/req");
+    }
+
+    #[test]
+    #[verifies("graph-explorer-runtime/req#req-1-2")]
+    fn execute_command_returns_explorer_document_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/auth.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &abs_path,
+            "\
+---
+supersigil:
+  id: auth/req
+  type: requirements
+  status: approved
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"auth-1\">Users SHALL authenticate.</Criterion>
+</AcceptanceCriteria>
+```
+",
+        )
+        .unwrap();
+
+        let mut state = test_state(root);
+        indexed_doc(&mut state, &abs_path, &rel_path);
+        state.graph = Arc::new(
+            build_graph(
+                vec![
+                    state
+                        .file_parses
+                        .get(&rel_path)
+                        .expect("indexed doc")
+                        .clone(),
+                ],
+                &Config::default(),
+            )
+            .expect("graph"),
+        );
+        state.explorer_revision = 12;
+
+        let result = block_on(state.execute_command(ExecuteCommandParams {
+            command: commands::EXPLORER_DOCUMENT_COMMAND.to_owned(),
+            arguments: vec![serde_json::json!({
+                "document_id": "auth/req",
+                "revision": "stale-client-rev"
+            })],
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }))
+        .unwrap()
+        .expect("command should return a payload");
+
+        let document: crate::explorer_runtime::ExplorerDocument =
+            serde_json::from_value(result).expect("valid explorer document payload");
+        assert_eq!(document.revision, "12");
+        assert_eq!(document.document_id, "auth/req");
+        assert_eq!(document.fences.len(), 1);
     }
 }

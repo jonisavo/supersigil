@@ -191,7 +191,7 @@ import {
   restoreExplorerPanel,
 } from "./explorerWebview";
 import { OPEN_GRAPH_FILE_COMMAND } from "./explorerLinks";
-import type { GraphDocument } from "./explorerWebview";
+import type { ExplorerDocumentSummary } from "./explorerWebview";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 // ---------------------------------------------------------------------------
@@ -208,14 +208,16 @@ function makeMockClient(
   } as unknown as LanguageClient;
 }
 
-const METHOD_GRAPH_DATA = "supersigil/graphData";
-const METHOD_DOCUMENT_COMPONENTS = "supersigil/documentComponents";
+const METHOD_EXPLORER_SNAPSHOT = "supersigil/explorerSnapshot";
+const METHOD_EXPLORER_DOCUMENT = "supersigil/explorerDocument";
 
-function makeGraphDataResponse(): {
-  documents: GraphDocument[];
+function makeExplorerSnapshotResponse(): {
+  documents: ExplorerDocumentSummary[];
   edges: { from: string; to: string; kind: string }[];
+  revision: string;
 } {
   return {
+    revision: "rev-1",
     documents: [
       {
         id: "proj/requirements",
@@ -224,7 +226,9 @@ function makeGraphDataResponse(): {
         title: "Requirements",
         project: "proj",
         path: "specs/proj/requirements.md",
-        components: [],
+        coverage_summary: { verified: 0, total: 1 },
+        component_count: 0,
+        graph_components: [],
       },
       {
         id: "proj/design",
@@ -233,7 +237,9 @@ function makeGraphDataResponse(): {
         title: "Design",
         project: "proj",
         path: "specs/proj/design.md",
-        components: [],
+        coverage_summary: { verified: 0, total: 0 },
+        component_count: 0,
+        graph_components: [],
       },
     ],
     edges: [
@@ -242,8 +248,9 @@ function makeGraphDataResponse(): {
   };
 }
 
-function makeDocumentComponentsResponse(docId: string) {
+function makeExplorerDocumentResponse(docId: string) {
   return {
+    revision: "rev-1",
     document_id: docId,
     stale: false,
     fences: [{ byte_range: [0, 100], components: [] }],
@@ -264,13 +271,14 @@ function makeMockExtensionContext() {
 
 function makeStandardSendRequest() {
   return vi.fn().mockImplementation((method: string, params?: unknown) => {
-    if (method === METHOD_GRAPH_DATA) return Promise.resolve(makeGraphDataResponse());
-    if (method === METHOD_DOCUMENT_COMPONENTS) {
-      const p = params as { uri: string };
-      if (p.uri.includes("requirements")) {
-        return Promise.resolve(makeDocumentComponentsResponse("proj/requirements"));
-      }
-      return Promise.resolve(makeDocumentComponentsResponse("proj/design"));
+    if (method === METHOD_EXPLORER_SNAPSHOT) {
+      return Promise.resolve(makeExplorerSnapshotResponse());
+    }
+    if (method === METHOD_EXPLORER_DOCUMENT) {
+      const p = params as { document_id: string };
+      return Promise.resolve(
+        makeExplorerDocumentResponse(p.document_id || "proj/requirements"),
+      );
     }
     return Promise.reject(new Error("unknown method"));
   });
@@ -330,8 +338,18 @@ describe("openExplorerPanel", () => {
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      // Should use the active editor's client
-      expect(sendRequest).toHaveBeenCalledWith(METHOD_GRAPH_DATA);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "hostReady",
+        initialContext: {
+          rootId: "file:///active-root",
+          availableRoots: [
+            { id: "file:///active-root", name: "active" },
+            { id: "file:///other-root", name: "other" },
+          ],
+          focusDocumentPath: "specs/proj/requirements.md",
+        },
+      });
+      expect(sendRequest).not.toHaveBeenCalled();
     });
 
     it("falls back to first running client when no active editor", async () => {
@@ -346,7 +364,15 @@ describe("openExplorerPanel", () => {
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      expect(sendRequest).toHaveBeenCalledWith(METHOD_GRAPH_DATA);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "hostReady",
+        initialContext: {
+          rootId: "file:///running",
+          availableRoots: [{ id: "file:///running", name: "workspace" }],
+          focusDocumentPath: undefined,
+        },
+      });
+      expect(sendRequest).not.toHaveBeenCalled();
     });
 
     it("creates panel with stopped client (hydrates when client starts)", () => {
@@ -440,8 +466,8 @@ describe("openExplorerPanel", () => {
     });
   });
 
-  describe("focusDocumentId", () => {
-    it("resolves focusDocumentId from active file path", verifies("vscode-explorer-webview/req#req-2-7"), async () => {
+  describe("focusDocumentPath", () => {
+    it("resolves focusDocumentPath from active file path", verifies("vscode-explorer-webview/req#req-2-7"), async () => {
       const sendRequest = makeStandardSendRequest();
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -464,10 +490,12 @@ describe("openExplorerPanel", () => {
 
       expect(mockPostMessage).toHaveBeenCalledTimes(1);
       const message = mockPostMessage.mock.calls[0][0];
-      expect(message.focusDocumentId).toBe("proj/requirements");
+      expect(message.initialContext.focusDocumentPath).toBe(
+        "specs/proj/requirements.md",
+      );
     });
 
-    it("focusDocumentId is undefined when active file is not a spec document", async () => {
+    it("focusDocumentPath is undefined when active file is not a spec document", async () => {
       const sendRequest = makeStandardSendRequest();
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -489,89 +517,179 @@ describe("openExplorerPanel", () => {
       await sendReady();
 
       const message = mockPostMessage.mock.calls[0][0];
-      expect(message.focusDocumentId).toBeUndefined();
+      expect(message.initialContext.focusDocumentPath).toBeUndefined();
     });
   });
 
-  describe("switchRoot", () => {
-    it("validates against running clients and ignores stopped clients", async () => {
-      const sendRequest = makeStandardSendRequest();
+  describe("runtime transport handshake", () => {
+    it("posts hostReady with focused path and available roots when the webview becomes ready", async () => {
+      const sendRequest = vi.fn();
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
-      clients.set("file:///stopped", makeMockClient(false));
+
+      mockWorkspaceFolders = [
+        { uri: { toString: () => "file:///workspace", fsPath: "/workspace", path: "/workspace" }, name: "ws" },
+      ];
+
+      mockActiveTextEditor = {
+        document: {
+          uri: {
+            toString: () => "file:///workspace/specs/proj/requirements.md",
+            path: "/workspace/specs/proj/requirements.md",
+            fsPath: "/workspace/specs/proj/requirements.md",
+          },
+        },
+      };
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      mockPostMessage.mockClear();
-      sendRequest.mockClear();
-
-      // Try to switch to a stopped client
-      const lastCb = onDidReceiveMessageCallbacks[onDidReceiveMessageCallbacks.length - 1];
-      lastCb({ type: "switchRoot", folderUri: "file:///stopped" });
-
-      await new Promise((r) => setTimeout(r, 0));
-
-      // Should not have sent any request
-      expect(sendRequest).not.toHaveBeenCalled();
-      expect(mockPostMessage).not.toHaveBeenCalled();
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "hostReady",
+        initialContext: {
+          rootId: "file:///workspace",
+          availableRoots: [{ id: "file:///workspace", name: "ws" }],
+          focusDocumentPath: "specs/proj/requirements.md",
+        },
+      });
     });
 
-    it("updates folderUri and clientKey on switchRoot", verifies("vscode-explorer-webview/req#req-5-3"), async () => {
-      const sendRequestA = makeStandardSendRequest();
-      const sendRequestB = makeStandardSendRequest();
+    it("answers loadSnapshot requests without committing the root until the webview accepts the switch", async () => {
+      const snapshot = makeExplorerSnapshotResponse();
+      const sendRequestA = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) return Promise.resolve(snapshot);
+        return Promise.reject(new Error("unknown method"));
+      });
+      const sendRequestB = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) {
+          return Promise.resolve({
+            ...snapshot,
+            revision: "rev-2",
+            documents: snapshot.documents.map((doc) => ({
+              ...doc,
+              id: "proj/design",
+              title: "Design",
+              path: "specs/proj/design.md",
+            })),
+          });
+        }
+        return Promise.reject(new Error("unknown method"));
+      });
+
       clients.set("file:///workspace-a", makeMockClient(true, sendRequestA));
       clients.set("file:///workspace-b", makeMockClient(true, sendRequestB));
-
       mockWorkspaceFolders = [
-        { uri: { toString: () => "file:///workspace-a", fsPath: "/workspace-a", path: "/workspace-a" }, name: "project-a" },
-        { uri: { toString: () => "file:///workspace-b", fsPath: "/workspace-b", path: "/workspace-b" }, name: "project-b" },
+        { uri: { toString: () => "file:///workspace-a", fsPath: "/workspace-a", path: "/workspace-a" }, name: "workspace-a" },
+        { uri: { toString: () => "file:///workspace-b", fsPath: "/workspace-b", path: "/workspace-b" }, name: "workspace-b" },
       ];
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      const entry = openPanels[0];
-      expect(entry.clientKey).toBe("file:///workspace-a");
-
       mockPostMessage.mockClear();
 
-      // Switch to workspace-b
-      const lastCb = onDidReceiveMessageCallbacks[onDidReceiveMessageCallbacks.length - 1];
-      lastCb({ type: "switchRoot", folderUri: "file:///workspace-b" });
-
+      const callback = onDidReceiveMessageCallbacks[0];
+      callback?.({
+        type: "request",
+        requestId: 7,
+        method: "loadSnapshot",
+        params: { rootId: "file:///workspace-b" },
+      });
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(entry.clientKey).toBe("file:///workspace-b");
-      expect(entry.folderUri.toString()).toBe("file:///workspace-b");
-      expect(panels[0].title).toBe("Spec Explorer (project-b)");
+      expect(sendRequestB).toHaveBeenCalledWith(METHOD_EXPLORER_SNAPSHOT);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "response",
+        requestId: 7,
+        result: expect.objectContaining({
+          revision: "rev-2",
+          documents: expect.arrayContaining([
+            expect.objectContaining({
+              id: "proj/design",
+              path: "specs/proj/design.md",
+            }),
+          ]),
+        }),
+      });
+      expect(openPanels[0].clientKey).toBe("file:///workspace-a");
+      expect(panels[0].title).toBe("Spec Explorer (workspace-a)");
+
+      callback?.({
+        type: "commitRoot",
+        rootId: "file:///workspace-b",
+      });
+
+      expect(openPanels[0].clientKey).toBe("file:///workspace-b");
+      expect(panels[0].title).toBe("Spec Explorer (workspace-b)");
     });
 
-    it("posts graphData with isRootSwitch true on switchRoot", async () => {
-      const sendRequestA = makeStandardSendRequest();
-      const sendRequestB = makeStandardSendRequest();
+    it("forwards target-root change events to a panel while the switch is pending", async () => {
+      const snapshot = makeExplorerSnapshotResponse();
+      const sendRequestA = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) return Promise.resolve(snapshot);
+        return Promise.reject(new Error("unknown method"));
+      });
+      const sendRequestB = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) {
+          return Promise.resolve({
+            ...snapshot,
+            revision: "rev-2",
+          });
+        }
+        return Promise.reject(new Error("unknown method"));
+      });
+
       clients.set("file:///workspace-a", makeMockClient(true, sendRequestA));
       clients.set("file:///workspace-b", makeMockClient(true, sendRequestB));
+      mockWorkspaceFolders = [
+        { uri: { toString: () => "file:///workspace-a", fsPath: "/workspace-a", path: "/workspace-a" }, name: "workspace-a" },
+        { uri: { toString: () => "file:///workspace-b", fsPath: "/workspace-b", path: "/workspace-b" }, name: "workspace-b" },
+      ];
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
       mockPostMessage.mockClear();
 
-      const lastCb = onDidReceiveMessageCallbacks[onDidReceiveMessageCallbacks.length - 1];
-      lastCb({ type: "switchRoot", folderUri: "file:///workspace-b" });
-
+      const callback = onDidReceiveMessageCallbacks[0];
+      callback?.({
+        type: "request",
+        requestId: 9,
+        method: "loadSnapshot",
+        params: { rootId: "file:///workspace-b" },
+      });
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(mockPostMessage).toHaveBeenCalledTimes(1);
-      const message = mockPostMessage.mock.calls[0][0];
-      expect(message.isRootSwitch).toBe(true);
+      mockPostMessage.mockClear();
+
+      refreshPanelsForClient("file:///workspace-b", clients, {
+        revision: "rev-3",
+        changed_document_ids: ["proj/design"],
+        removed_document_ids: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(openPanels[0].clientKey).toBe("file:///workspace-a");
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace-b",
+          revision: "rev-3",
+          changed_document_ids: ["proj/design"],
+          removed_document_ids: [],
+        },
+      });
     });
   });
 
   describe("refreshPanelsForClient", () => {
     it("only refreshes panels matching the given clientKey", async () => {
       const sendRequestA = makeStandardSendRequest();
-      const sendRequestB = makeStandardSendRequest();
+      const sendRequestB = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) {
+          return Promise.resolve(makeExplorerSnapshotResponse());
+        }
+        return Promise.reject(new Error("unknown method"));
+      });
       clients.set("file:///workspace-a", makeMockClient(true, sendRequestA));
       clients.set("file:///workspace-b", makeMockClient(true, sendRequestB));
 
@@ -583,65 +701,229 @@ describe("openExplorerPanel", () => {
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady(1);
 
-      // Switch second panel to workspace-b
       const secondCb = onDidReceiveMessageCallbacks[1];
-      secondCb({ type: "switchRoot", folderUri: "file:///workspace-b" });
+      secondCb({
+        type: "request",
+        requestId: 2,
+        method: "loadSnapshot",
+        params: { rootId: "file:///workspace-b" },
+      });
       await new Promise((r) => setTimeout(r, 0));
+      secondCb({
+        type: "commitRoot",
+        rootId: "file:///workspace-b",
+      });
 
       mockPostMessage.mockClear();
-      sendRequestA.mockClear();
-      sendRequestB.mockClear();
 
       // Refresh for workspace-a only
-      refreshPanelsForClient("file:///workspace-a", clients);
+      refreshPanelsForClient("file:///workspace-a", clients, {
+        revision: "rev-2",
+        changed_document_ids: ["proj/requirements"],
+        removed_document_ids: [],
+      });
       await new Promise((r) => setTimeout(r, 0));
 
-      // Only the first panel's client should have been called
-      expect(sendRequestA).toHaveBeenCalledWith(METHOD_GRAPH_DATA);
-      expect(sendRequestB).not.toHaveBeenCalledWith(METHOD_GRAPH_DATA);
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace-a",
+          revision: "rev-2",
+          changed_document_ids: ["proj/requirements"],
+          removed_document_ids: [],
+        },
+      });
     });
 
-    it("does not refresh hidden panels", async () => {
-      const sendRequest = makeStandardSendRequest();
-      clients.set("file:///workspace", makeMockClient(true, sendRequest));
+    it("updates initialized panels when the available root list changes", async () => {
+      const sendRequestA = makeStandardSendRequest();
+      clients.set("file:///workspace-a", makeMockClient(true, sendRequestA));
+      clients.set("file:///workspace-b", makeMockClient(false));
+      mockWorkspaceFolders = [
+        { uri: { toString: () => "file:///workspace-a", fsPath: "/workspace-a", path: "/workspace-a" }, name: "workspace-a" },
+        { uri: { toString: () => "file:///workspace-b", fsPath: "/workspace-b", path: "/workspace-b" }, name: "workspace-b" },
+      ];
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      // Mark panel as hidden
-      panels[0].visible = false;
-
       mockPostMessage.mockClear();
-      sendRequest.mockClear();
+      clients.set("file:///workspace-b", makeMockClient(true, makeStandardSendRequest()));
 
-      refreshPanelsForClient("file:///workspace", clients);
+      refreshPanelsForClient("file:///workspace-b", clients, {
+        revision: "rev-2",
+        changed_document_ids: ["proj/design"],
+        removed_document_ids: [],
+      });
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(sendRequest).not.toHaveBeenCalled();
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "hostContextChanged",
+        context: {
+          rootId: "file:///workspace-a",
+          availableRoots: [
+            { id: "file:///workspace-a", name: "workspace-a" },
+            { id: "file:///workspace-b", name: "workspace-b" },
+          ],
+        },
+      });
     });
+
   });
 
   describe("onDidChangeViewState", () => {
-    it("triggers refresh when panel becomes visible after being stale", async () => {
+    it("queues hidden refreshes and replays them when the panel becomes visible", async () => {
       const sendRequest = makeStandardSendRequest();
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
 
-      // Mark the panel as stale (simulates documentsChanged while hidden)
-      openPanels[0].staleWhileHidden = true;
-
+      panels[0].visible = false;
       mockPostMessage.mockClear();
       sendRequest.mockClear();
 
-      // Simulate panel becoming visible
+      refreshPanelsForClient("file:///workspace", clients, {
+        revision: "rev-2",
+        changed_document_ids: ["proj/requirements"],
+        removed_document_ids: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockPostMessage).not.toHaveBeenCalled();
+      expect(openPanels[0].staleWhileHidden).toBe(true);
+
       const viewStateCb = onDidChangeViewStateCallbacks[0];
+      panels[0].visible = true;
       viewStateCb({ webviewPanel: { visible: true } });
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(sendRequest).toHaveBeenCalledWith(METHOD_GRAPH_DATA);
       expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace",
+          revision: "rev-2",
+          changed_document_ids: ["proj/requirements"],
+          removed_document_ids: [],
+        },
+      });
+    });
+
+    it("preserves queued invalidations when a hidden initialized panel receives an empty startup refresh first", verifies("graph-explorer-runtime/req#req-1-4"), async () => {
+      const sendRequest = makeStandardSendRequest();
+      clients.set("file:///workspace", makeMockClient(true, sendRequest));
+
+      openExplorerPanel(makeMockExtensionContext(), clients);
+      await sendReady();
+
+      panels[0].visible = false;
+      mockPostMessage.mockClear();
+
+      refreshPanelsForClient("file:///workspace", clients);
+      refreshPanelsForClient("file:///workspace", clients, {
+        revision: "rev-2",
+        changed_document_ids: ["proj/requirements"],
+        removed_document_ids: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockPostMessage).not.toHaveBeenCalled();
+
+      const viewStateCb = onDidChangeViewStateCallbacks[0];
+      panels[0].visible = true;
+      viewStateCb({ webviewPanel: { visible: true } });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace",
+          revision: "rev-2",
+          changed_document_ids: ["proj/requirements"],
+          removed_document_ids: [],
+        },
+      });
+    });
+
+    it("replays hidden pending-switch invalidations separately for each root", async () => {
+      const snapshot = makeExplorerSnapshotResponse();
+      const sendRequestA = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) return Promise.resolve(snapshot);
+        return Promise.reject(new Error("unknown method"));
+      });
+      const sendRequestB = vi.fn().mockImplementation((method: string) => {
+        if (method === METHOD_EXPLORER_SNAPSHOT) {
+          return Promise.resolve({
+            ...snapshot,
+            revision: "rev-2",
+          });
+        }
+        return Promise.reject(new Error("unknown method"));
+      });
+
+      clients.set("file:///workspace-a", makeMockClient(true, sendRequestA));
+      clients.set("file:///workspace-b", makeMockClient(true, sendRequestB));
+      mockWorkspaceFolders = [
+        { uri: { toString: () => "file:///workspace-a", fsPath: "/workspace-a", path: "/workspace-a" }, name: "workspace-a" },
+        { uri: { toString: () => "file:///workspace-b", fsPath: "/workspace-b", path: "/workspace-b" }, name: "workspace-b" },
+      ];
+
+      openExplorerPanel(makeMockExtensionContext(), clients);
+      await sendReady();
+
+      panels[0].visible = false;
+
+      const callback = onDidReceiveMessageCallbacks[0];
+      callback?.({
+        type: "request",
+        requestId: 11,
+        method: "loadSnapshot",
+        params: { rootId: "file:///workspace-b" },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      mockPostMessage.mockClear();
+
+      refreshPanelsForClient("file:///workspace-a", clients, {
+        revision: "rev-2",
+        changed_document_ids: ["proj/requirements"],
+        removed_document_ids: [],
+      });
+      refreshPanelsForClient("file:///workspace-b", clients, {
+        revision: "rev-3",
+        changed_document_ids: ["proj/design"],
+        removed_document_ids: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      const viewStateCb = onDidChangeViewStateCallbacks[0];
+      panels[0].visible = true;
+      viewStateCb({ webviewPanel: { visible: true } });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(2);
+      expect(mockPostMessage).toHaveBeenNthCalledWith(1, {
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace-a",
+          revision: "rev-2",
+          changed_document_ids: ["proj/requirements"],
+          removed_document_ids: [],
+        },
+      });
+      expect(mockPostMessage).toHaveBeenNthCalledWith(2, {
+        type: "explorerChanged",
+        event: {
+          rootId: "file:///workspace-b",
+          revision: "rev-3",
+          changed_document_ids: ["proj/design"],
+          removed_document_ids: [],
+        },
+      });
     });
 
     it("does not refresh when panel becomes visible without being stale", async () => {
@@ -664,150 +946,9 @@ describe("openExplorerPanel", () => {
     });
   });
 
-  describe("pushData message shape", () => {
-    it("includes currentRoot, availableRoots, focusDocumentId, and isRootSwitch", async () => {
-      const sendRequest = makeStandardSendRequest();
-      clients.set("file:///workspace", makeMockClient(true, sendRequest));
-
-      mockWorkspaceFolders = [
-        { uri: { toString: () => "file:///workspace", fsPath: "/workspace", path: "/workspace" }, name: "my-ws" },
-      ];
-
-      openExplorerPanel(makeMockExtensionContext(), clients);
-      await sendReady();
-
-      const message = mockPostMessage.mock.calls[0][0];
-      expect(message.type).toBe("graphData");
-      expect(message.graph).toBeDefined();
-      expect(message.renderData).toBeDefined();
-      expect(message.currentRoot).toEqual({ uri: "file:///workspace", name: "my-ws" });
-      expect(message.availableRoots).toEqual([{ uri: "file:///workspace", name: "my-ws" }]);
-      expect(message.isRootSwitch).toBe(false);
-    });
-
-    it("lists all running clients in availableRoots", async () => {
-      const sendRequest = makeStandardSendRequest();
-      clients.set("file:///ws-a", makeMockClient(true, sendRequest));
-      clients.set("file:///ws-b", makeMockClient(true, vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA) return Promise.resolve(makeGraphDataResponse());
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      })));
-      clients.set("file:///ws-stopped", makeMockClient(false));
-
-      mockWorkspaceFolders = [
-        { uri: { toString: () => "file:///ws-a", fsPath: "/ws-a", path: "/ws-a" }, name: "a" },
-        { uri: { toString: () => "file:///ws-b", fsPath: "/ws-b", path: "/ws-b" }, name: "b" },
-        { uri: { toString: () => "file:///ws-stopped", fsPath: "/ws-stopped", path: "/ws-stopped" }, name: "stopped" },
-      ];
-
-      openExplorerPanel(makeMockExtensionContext(), clients);
-      await sendReady();
-
-      const message = mockPostMessage.mock.calls[0][0];
-      expect(message.availableRoots).toHaveLength(2);
-      expect(message.availableRoots.map((r: { name: string }) => r.name)).toEqual(["a", "b"]);
-    });
-
-    it("assembles graph and render data and posts correct message shape", async () => {
-      const graphData = makeGraphDataResponse();
-
-      const sendRequest = vi.fn().mockImplementation((method: string, params?: unknown) => {
-        if (method === METHOD_GRAPH_DATA) return Promise.resolve(graphData);
-        if (method === METHOD_DOCUMENT_COMPONENTS) {
-          const p = params as { uri: string };
-          if (p.uri.includes("requirements")) {
-            return Promise.resolve(makeDocumentComponentsResponse("proj/requirements"));
-          }
-          return Promise.resolve(makeDocumentComponentsResponse("proj/design"));
-        }
-        return Promise.reject(new Error("unknown method"));
-      });
-
-      clients.set("file:///workspace", makeMockClient(true, sendRequest));
-
-      openExplorerPanel(makeMockExtensionContext(), clients);
-      await sendReady();
-
-      expect(mockPostMessage).toHaveBeenCalledTimes(1);
-
-      const message = mockPostMessage.mock.calls[0][0];
-      expect(message.type).toBe("graphData");
-      expect(message.graph).toBe(graphData);
-      expect(message.renderData).toHaveLength(2);
-      expect(message.renderData[0].document_id).toBeDefined();
-      expect(message.renderData[1].document_id).toBeDefined();
-    });
-
-    it("fetches documentComponents for each document in parallel", async () => {
-      const graphData = makeGraphDataResponse();
-
-      const sendRequest = vi.fn().mockImplementation((method: string, params?: unknown) => {
-        if (method === METHOD_GRAPH_DATA) return Promise.resolve(graphData);
-        if (method === METHOD_DOCUMENT_COMPONENTS) {
-          const p = params as { uri: string };
-          const docId = p.uri.includes("requirements")
-            ? "proj/requirements"
-            : "proj/design";
-          return Promise.resolve(makeDocumentComponentsResponse(docId));
-        }
-        return Promise.reject(new Error("unknown method"));
-      });
-
-      clients.set("file:///workspace", makeMockClient(true, sendRequest));
-
-      openExplorerPanel(makeMockExtensionContext(), clients);
-      await sendReady();
-
-      // graphData + 2 documentComponents requests
-      expect(sendRequest).toHaveBeenCalledTimes(3);
-      expect(sendRequest).toHaveBeenCalledWith(
-        METHOD_DOCUMENT_COMPONENTS,
-        expect.objectContaining({ uri: expect.stringContaining("requirements") }),
-      );
-      expect(sendRequest).toHaveBeenCalledWith(
-        METHOD_DOCUMENT_COMPONENTS,
-        expect.objectContaining({ uri: expect.stringContaining("design") }),
-      );
-    });
-
-    it("tolerates partial failure in documentComponents batch", async () => {
-      const graphData = makeGraphDataResponse();
-
-      const sendRequest = vi.fn().mockImplementation((method: string, params?: unknown) => {
-        if (method === METHOD_GRAPH_DATA) return Promise.resolve(graphData);
-        if (method === METHOD_DOCUMENT_COMPONENTS) {
-          const p = params as { uri: string };
-          if (p.uri.includes("requirements")) {
-            return Promise.reject(new Error("LSP error for requirements"));
-          }
-          return Promise.resolve(makeDocumentComponentsResponse("proj/design"));
-        }
-        return Promise.reject(new Error("unknown method"));
-      });
-
-      clients.set("file:///workspace", makeMockClient(true, sendRequest));
-
-      openExplorerPanel(makeMockExtensionContext(), clients);
-      await sendReady();
-
-      expect(mockPostMessage).toHaveBeenCalledTimes(1);
-
-      const message = mockPostMessage.mock.calls[0][0];
-      expect(message.type).toBe("graphData");
-      expect(message.graph).toBe(graphData);
-      // Only 1 succeeded (design), requirements failed
-      expect(message.renderData).toHaveLength(1);
-      expect(message.renderData[0].document_id).toBe("proj/design");
-    });
-  });
-
   describe("handleMessage", () => {
     it("resolves openFile path against workspace root and opens document", async () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -835,11 +976,7 @@ describe("openExplorerPanel", () => {
     });
 
     it("opens document by explicit file URI when provided", async () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -862,11 +999,7 @@ describe("openExplorerPanel", () => {
     });
 
     it("opens document with line selection when line is provided", async () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -888,11 +1021,7 @@ describe("openExplorerPanel", () => {
     });
 
     it("ignores unknown message types", () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -905,22 +1034,16 @@ describe("openExplorerPanel", () => {
       expect(mockOpenTextDocument).not.toHaveBeenCalled();
     });
 
-    it("uses file_uri for documentComponents requests when present", async () => {
-      const graphData = makeGraphDataResponse();
-      graphData.documents[0] = {
-        ...graphData.documents[0],
-        path: "../shared/specs/proj/requirements.md",
-        file_uri: "file:///shared/specs/proj/requirements.md",
-      };
-
+    it("forwards loadDocument requests to the explorer document endpoint", async () => {
       const sendRequest = vi.fn().mockImplementation((method: string, params?: unknown) => {
-        if (method === METHOD_GRAPH_DATA) return Promise.resolve(graphData);
-        if (method === METHOD_DOCUMENT_COMPONENTS) {
-          const p = params as { uri: string };
-          if (p.uri.includes("shared/specs/proj/requirements.md")) {
-            return Promise.resolve(makeDocumentComponentsResponse("proj/requirements"));
-          }
-          return Promise.resolve(makeDocumentComponentsResponse("proj/design"));
+        if (method === METHOD_EXPLORER_DOCUMENT) {
+          return Promise.resolve({
+            revision: "rev-1",
+            document_id: "proj/requirements",
+            stale: false,
+            fences: [],
+            edges: [],
+          });
         }
         return Promise.reject(new Error("unknown method"));
       });
@@ -929,11 +1052,36 @@ describe("openExplorerPanel", () => {
 
       openExplorerPanel(makeMockExtensionContext(), clients);
       await sendReady();
+      mockPostMessage.mockClear();
 
-      expect(sendRequest).toHaveBeenCalledWith(
-        METHOD_DOCUMENT_COMPONENTS,
-        expect.objectContaining({ uri: "file:///shared/specs/proj/requirements.md" }),
-      );
+      const lastCb = onDidReceiveMessageCallbacks[onDidReceiveMessageCallbacks.length - 1];
+      lastCb({
+        type: "request",
+        requestId: 9,
+        method: "loadDocument",
+        params: {
+          rootId: "file:///workspace",
+          revision: "rev-1",
+          documentId: "proj/requirements",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(sendRequest).toHaveBeenCalledWith(METHOD_EXPLORER_DOCUMENT, {
+        document_id: "proj/requirements",
+        revision: "rev-1",
+      });
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: "response",
+        requestId: 9,
+        result: {
+          revision: "rev-1",
+          document_id: "proj/requirements",
+          stale: false,
+          fences: [],
+          edges: [],
+        },
+      });
     });
   });
 
@@ -971,11 +1119,7 @@ describe("openExplorerPanel", () => {
 
   describe("getHtmlContent", () => {
     it("generates HTML with nonce-based CSP and resource URIs", () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -1004,11 +1148,7 @@ describe("openExplorerPanel", () => {
     });
 
     it("uses webview.asWebviewUri for all resources", () => {
-      const sendRequest = vi.fn().mockImplementation((method: string) => {
-        if (method === METHOD_GRAPH_DATA)
-          return Promise.resolve({ documents: [], edges: [] });
-        return Promise.resolve(makeDocumentComponentsResponse("any"));
-      });
+      const sendRequest = vi.fn();
 
       clients.set("file:///workspace", makeMockClient(true, sendRequest));
 
@@ -1070,7 +1210,7 @@ describe("restoreExplorerPanel", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mockPostMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "graphData" }),
+      expect.objectContaining({ type: "hostReady" }),
     );
 
     callback?.({

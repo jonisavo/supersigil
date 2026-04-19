@@ -2,7 +2,7 @@
 supersigil:
   id: intellij-graph-explorer/design
   type: design
-  status: approved
+  status: superseded
 title: "IntelliJ Graph Explorer"
 ---
 
@@ -13,6 +13,10 @@ title: "IntelliJ Graph Explorer"
 ```
 
 ## Overview
+
+Historical design for the original IntelliJ graph explorer
+integration. The current runtime architecture is specified by
+`graph-explorer-runtime/design`.
 
 A JCEF-based tool window that hosts the same D3-based graph explorer
 used by the VS Code extension and the website. The architecture

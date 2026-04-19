@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBadgeClass,
+  buildCoverageMap,
   buildClusterEdgeGroups,
   buildEdgeGroups,
   clearDetail,
@@ -72,6 +73,23 @@ describe('buildBadgeClass', () => {
     expect(buildBadgeClass('status', 'draft')).toBe('badge badge-status-draft');
     expect(buildBadgeClass('status', 'proposed')).toBe('badge badge-status-proposed');
     expect(buildBadgeClass('status', 'deprecated')).toBe('badge badge-status-deprecated');
+  });
+});
+
+describe('buildCoverageMap', () => {
+  it('uses snapshot coverage summaries when render data is unavailable', () => {
+    const graphData = {
+      documents: [
+        {
+          id: 'doc/a',
+          coverage_summary: { verified: 3, total: 4 },
+        },
+      ],
+    };
+
+    const coverageMap = buildCoverageMap([], graphData);
+
+    expect(coverageMap.get('doc/a')).toEqual({ verified: 3, total: 4 });
   });
 });
 
@@ -207,10 +225,26 @@ describe('renderDetail', () => {
       doc_type: 'requirements',
       status: 'approved',
       title: 'A',
+      coverage_summary: { verified: 2, total: 3 },
       components: [],
     };
     renderDetail(container, node, [], [], '');
-    expect(container.innerHTML).not.toContain('criteria verified');
+    expect(container.innerHTML).toContain('2/3 criteria verified');
+  });
+
+  it('renders a loading message when runtime-managed document detail is pending', () => {
+    const container = makeContainer();
+    const node = {
+      id: 'doc/a',
+      doc_type: 'requirements',
+      status: 'approved',
+      title: 'A',
+      components: [],
+    };
+
+    renderDetail(container, node, [], [], '', undefined, { state: 'loading' });
+
+    expect(container.innerHTML).toContain('Loading specification');
   });
 
   it('renders empty state with instructions', () => {

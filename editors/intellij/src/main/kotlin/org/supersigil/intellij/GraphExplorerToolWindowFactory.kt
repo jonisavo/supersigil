@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -28,15 +29,12 @@ import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
 import org.cef.browser.CefBrowser
-import org.cef.browser.CefFrame
-import org.cef.handler.CefLoadHandlerAdapter
 import org.eclipse.lsp4j.ExecuteCommandParams
 import java.net.URI
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private val LOG = Logger.getInstance(GraphExplorerToolWindowFactory::class.java)
 
@@ -87,27 +85,39 @@ internal fun isGraphExplorerAvailable(
 
 internal fun shouldLoadGraphExplorerHtml(parentDisposed: Boolean): Boolean = !parentDisposed
 
-internal fun graphExplorerHtml(): String =
-    """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <link rel="stylesheet" href="${EXPLORER_ORIGIN}landing-tokens.css">
-      <link rel="stylesheet" href="${EXPLORER_ORIGIN}explorer-styles.css">
-      <link rel="stylesheet" href="${EXPLORER_ORIGIN}supersigil-preview.css">
-      <link rel="stylesheet" href="${EXPLORER_ORIGIN}intellij-theme-adapter.css">
-    </head>
-    <body>
-      <div id="explorer" style="height: 100vh;"></div>
-      <script src="${EXPLORER_ORIGIN}render-iife.js"></script>
-      <script src="${EXPLORER_ORIGIN}supersigil-preview.js"></script>
-      <script src="${EXPLORER_ORIGIN}explorer.js"></script>
-      <script src="${EXPLORER_ORIGIN}explorer-bridge.js"></script>
-    </body>
-    </html>
-    """.trimIndent()
+internal fun graphExplorerHtml(): String = graphExplorerHtml("")
+
+internal fun graphExplorerHtml(
+    bridgeInitScript: String,
+): String {
+    val bridgeBootstrap =
+        if (bridgeInitScript.isBlank()) {
+            ""
+        } else {
+            "      <script>$bridgeInitScript</script>\n"
+        }
+
+    return """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link rel="stylesheet" href="${EXPLORER_ORIGIN}landing-tokens.css">
+          <link rel="stylesheet" href="${EXPLORER_ORIGIN}explorer-styles.css">
+          <link rel="stylesheet" href="${EXPLORER_ORIGIN}supersigil-preview.css">
+          <link rel="stylesheet" href="${EXPLORER_ORIGIN}intellij-theme-adapter.css">
+        </head>
+        <body>
+          <div id="explorer" style="height: 100vh;"></div>
+          <script src="${EXPLORER_ORIGIN}render-iife.js"></script>
+          <script src="${EXPLORER_ORIGIN}supersigil-preview.js"></script>
+          <script src="${EXPLORER_ORIGIN}explorer.js"></script>
+${bridgeBootstrap}          <script src="${EXPLORER_ORIGIN}explorer-bridge.js"></script>
+        </body>
+        </html>
+        """.trimIndent()
+}
 
 private class GraphExplorerPanel(
     private val project: Project,
@@ -121,6 +131,10 @@ private class GraphExplorerPanel(
     private val actionQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
     private val attachedLiveUpdateDescriptors = ConcurrentHashMap.newKeySet<SupersigilLspServerDescriptor>()
     private val staleWhileHidden = AtomicBoolean(false)
+    private val bridgeReady = AtomicBoolean(false)
+    private val hostInitialized = AtomicBoolean(false)
+    private val pendingChangeEvent = AtomicReference<ExplorerChangedEvent?>(null)
+    private var pendingFocusDocumentPath: String? = graphExplorerFocusDocumentPath(project)
 
     val component = browser.component
 
@@ -130,40 +144,30 @@ private class GraphExplorerPanel(
         Disposer.register(panelDisposable, actionQuery)
         browser.jbCefClient.addRequestHandler(ExplorerResourceRequestHandler(), browser.cefBrowser)
         dataQuery.addHandler { request ->
-            when (val result = resolveGraphExplorerDocumentComponentsQuery(request, ::fetchDocumentComponents)) {
-                is GraphExplorerDocumentComponentsQueryResult.Success -> JBCefJSQuery.Response(result.payload)
-                is GraphExplorerDocumentComponentsQueryResult.Error ->
+            when (
+                val result =
+                    resolveGraphExplorerTransportQuery(
+                        request = request,
+                        projectBasePath = project.basePath,
+                        focusDocumentPath = pendingFocusDocumentPath,
+                        loadSnapshot = ::fetchExplorerSnapshot,
+                        loadDocument = ::fetchExplorerDocument,
+                    )
+            ) {
+                is GraphExplorerTransportQueryResult.Success -> JBCefJSQuery.Response(result.payload)
+                is GraphExplorerTransportQueryResult.Error ->
                     JBCefJSQuery.Response(null, result.code, result.message)
             }
         }
         actionQuery.addHandler { action ->
-            dispatchGraphExplorerAction(action)
+            if (action == "ready") {
+                bridgeReady.set(true)
+                scheduleGraphExplorerHostReadyWithRetry(browser.cefBrowser)
+            } else {
+                dispatchGraphExplorerAction(action)
+            }
             JBCefJSQuery.Response("")
         }
-        browser.jbCefClient.addLoadHandler(
-            object : CefLoadHandlerAdapter() {
-                override fun onLoadEnd(
-                    browser: CefBrowser?,
-                    frame: CefFrame?,
-                    httpStatusCode: Int,
-                ) {
-                    val cefBrowser = browser ?: return
-                    if (frame?.isMain == true) {
-                        cefBrowser.executeJavaScript(
-                            graphExplorerBridgeInitScript(
-                                themeScript = graphExplorerThemeScript(JBColor.isBright()),
-                                queryInjection = dataQuery.inject("request", "onSuccess", "onFailure"),
-                                actionInjection = actionQuery.inject("action"),
-                            ),
-                            "supersigil-graph-explorer-bridge-init",
-                            0,
-                        )
-                        scheduleGraphDataRefreshWithRetry(cefBrowser)
-                    }
-                }
-            },
-            browser.cefBrowser,
-        )
         installVisibilityListeners()
         refresh()
     }
@@ -171,11 +175,22 @@ private class GraphExplorerPanel(
     fun refresh() {
         ApplicationManager.getApplication().invokeLater {
             if (!shouldLoadGraphExplorerHtml(panelDisposable.isDisposed)) return@invokeLater
-            browser.loadHTML(graphExplorerHtml(), EXPLORER_ORIGIN)
+            bridgeReady.set(false)
+            hostInitialized.set(false)
+            staleWhileHidden.set(false)
+            pendingChangeEvent.set(null)
+            pendingFocusDocumentPath = graphExplorerFocusDocumentPath(project)
+            val bridgeInitScript =
+                graphExplorerBridgeInitScript(
+                    themeScript = graphExplorerThemeScript(JBColor.isBright()),
+                    queryInjection = dataQuery.inject("request", "onSuccess", "onFailure"),
+                    actionInjection = actionQuery.inject("action"),
+                )
+            browser.loadHTML(graphExplorerHtml(bridgeInitScript), EXPLORER_ORIGIN)
         }
     }
 
-    private fun fetchDocumentComponents(uri: String): String? {
+    private fun fetchExplorerSnapshot(rootId: String): Any? {
         if (project.isDisposed) return null
 
         for (server in supersigilServers(project)) {
@@ -184,36 +199,7 @@ private class GraphExplorerPanel(
             try {
                 @Suppress("UNCHECKED_CAST")
                 val result =
-                    server.sendRequestSync { languageServer ->
-                        languageServer.workspaceService.executeCommand(
-                            ExecuteCommandParams(
-                                COMMAND_DOCUMENT_COMPONENTS,
-                                listOf(uri),
-                            ),
-                        ) as java.util.concurrent.CompletableFuture<Any?>
-                    }
-
-                if (result != null) {
-                    return com.google.gson.Gson().toJson(result)
-                }
-            } catch (e: Exception) {
-                LOG.debug("Failed to fetch document components from LSP server for $uri", e)
-            }
-        }
-
-        return null
-    }
-
-    private fun fetchGraphData(): Any? {
-        if (project.isDisposed) return null
-
-        for (server in supersigilServers(project)) {
-            if (server.state != LspServerState.Running) continue
-
-            try {
-                @Suppress("UNCHECKED_CAST")
-                val result =
-                    requestGraphExplorerGraphData { params ->
+                    requestGraphExplorerSnapshot { params ->
                         server.sendRequestSync { languageServer ->
                             languageServer.workspaceService.executeCommand(params) as java.util.concurrent.CompletableFuture<Any?>
                         }
@@ -223,15 +209,41 @@ private class GraphExplorerPanel(
                     return result
                 }
             } catch (e: Exception) {
-                LOG.debug("Failed to fetch graph data from LSP server", e)
+                LOG.debug("Failed to fetch explorer snapshot from LSP server for rootId=$rootId", e)
             }
         }
 
         return null
     }
 
-    private fun fetchRenderDocumentComponents(uri: String): Any? =
-        fetchDocumentComponents(uri)?.let(JsonParser::parseString)
+    private fun fetchExplorerDocument(
+        documentId: String,
+        revision: String,
+    ): Any? {
+        if (project.isDisposed) return null
+
+        for (server in supersigilServers(project)) {
+            if (server.state != LspServerState.Running) continue
+
+            try {
+                @Suppress("UNCHECKED_CAST")
+                val result =
+                    requestGraphExplorerDocument(documentId, revision) { params ->
+                        server.sendRequestSync { languageServer ->
+                            languageServer.workspaceService.executeCommand(params) as java.util.concurrent.CompletableFuture<Any?>
+                        }
+                    }
+
+                if (result != null) {
+                    return result
+                }
+            } catch (e: Exception) {
+                LOG.debug("Failed to fetch explorer document from LSP server for documentId=$documentId", e)
+            }
+        }
+
+        return null
+    }
 
     private fun installVisibilityListeners() {
         installGraphExplorerVisibilityListeners(
@@ -272,19 +284,41 @@ private class GraphExplorerPanel(
         )
     }
 
-    private fun handleDocumentsChanged() {
-        handleGraphExplorerDocumentsChanged(
-            isVisible = toolWindow.isVisible,
-            requestRefresh = ::requestGraphExplorerRefresh,
-            markStale = { staleWhileHidden.set(true) },
-        )
+    private fun handleExplorerChanged(event: ExplorerChangedEvent) {
+        if (toolWindow.isVisible && bridgeReady.get()) {
+            if (!hostInitialized.get()) {
+                pendingChangeEvent.updateAndGet { current ->
+                    mergeGraphExplorerChangedEvents(current, event)
+                }
+                requestGraphExplorerRefresh()
+                return
+            }
+
+            postExplorerChangedToBrowser(browser.cefBrowser, event)
+            return
+        }
+
+        pendingChangeEvent.updateAndGet { current ->
+            mergeGraphExplorerChangedEvents(current, event)
+        }
+        staleWhileHidden.set(true)
     }
 
     private fun requestGraphExplorerRefresh() {
         requestGraphExplorerDebouncedRefresh(
             cancelPendingRefreshes = refreshAlarm::cancelAllRequests,
             scheduleRefresh = { delayMs ->
-                refreshAlarm.addRequest({ scheduleGraphDataRefreshWithRetry(browser.cefBrowser) }, delayMs)
+                refreshAlarm.addRequest({
+                    if (panelDisposable.isDisposed || !bridgeReady.get()) return@addRequest
+                    if (!hostInitialized.get()) {
+                        scheduleGraphExplorerHostReadyWithRetry(browser.cefBrowser)
+                        return@addRequest
+                    }
+
+                    val pending = pendingChangeEvent.getAndSet(null) ?: return@addRequest
+                    staleWhileHidden.set(false)
+                    postExplorerChangedToBrowser(browser.cefBrowser, pending)
+                }, delayMs)
             },
         )
     }
@@ -298,42 +332,64 @@ private class GraphExplorerPanel(
                 },
             parentDisposable = toolWindow.disposable,
             registerListener = { descriptor, parentDisposable ->
-                descriptor.addDocumentsChangedListener(::handleDocumentsChanged, parentDisposable)
+                descriptor.addExplorerChangedListener(::handleExplorerChanged, parentDisposable)
             },
         )
     }
 
-    private fun scheduleGraphDataRefreshWithRetry(cefBrowser: CefBrowser) {
+    private fun scheduleGraphExplorerHostReadyWithRetry(cefBrowser: CefBrowser) {
         dataRetryAlarm.cancelAllRequests()
 
-        fun tryPush() {
+        fun tryInitialize() {
             if (project.isDisposed || panelDisposable.isDisposed) return
             attachLiveUpdateListenersIfAvailable()
 
-            runGraphExplorerRefreshAttempt(
-                hasServers = supersigilServers(project).isNotEmpty(),
-                ensureServerStarted = { ensureSupersigilServerStarted(project) },
-                pushGraphData = { pushGraphDataToBrowser(cefBrowser) },
-                scheduleRetry = { dataRetryAlarm.addRequest(::tryPush, 2000) },
+            val hasRunningServer = supersigilServers(project).any { it.state == LspServerState.Running }
+            if (!hasRunningServer) {
+                ensureSupersigilServerStarted(project)
+                dataRetryAlarm.addRequest(::tryInitialize, 2000)
+                return
+            }
+
+            val initialContext =
+                buildGraphExplorerInitialContext(
+                    projectBasePath = project.basePath ?: return,
+                    focusDocumentPath = pendingFocusDocumentPath,
+                )
+            hostInitialized.set(true)
+            staleWhileHidden.set(false)
+            pendingChangeEvent.set(null)
+            pendingFocusDocumentPath = null
+            executeBrowserScript(
+                cefBrowser = cefBrowser,
+                script = graphExplorerHostReadyScript(Gson().toJson(initialContext)),
+                scriptId = "supersigil-graph-explorer-host-ready",
             )
         }
 
-        dataRetryAlarm.addRequest(::tryPush, 0)
+        dataRetryAlarm.addRequest(::tryInitialize, 0)
     }
 
-    private fun pushGraphDataToBrowser(cefBrowser: CefBrowser): Boolean {
-        return pushGraphExplorerData(
-            projectBasePath = project.basePath,
-            fetchGraphData = ::fetchGraphData,
-            fetchDocumentComponents = ::fetchRenderDocumentComponents,
-            submit = { task -> ApplicationManager.getApplication().executeOnPooledThread(task) },
-            executeScript = { script ->
-                ApplicationManager.getApplication().invokeLater {
-                    if (panelDisposable.isDisposed) return@invokeLater
-                    cefBrowser.executeJavaScript(script, "supersigil-graph-explorer-data", 0)
-                }
-            },
+    private fun postExplorerChangedToBrowser(
+        cefBrowser: CefBrowser,
+        event: ExplorerChangedEvent,
+    ) {
+        executeBrowserScript(
+            cefBrowser = cefBrowser,
+            script = graphExplorerChangedScript(Gson().toJson(event)),
+            scriptId = "supersigil-graph-explorer-changed",
         )
+    }
+
+    private fun executeBrowserScript(
+        cefBrowser: CefBrowser,
+        script: String,
+        scriptId: String,
+    ) {
+        ApplicationManager.getApplication().invokeLater {
+            if (panelDisposable.isDisposed) return@invokeLater
+            cefBrowser.executeJavaScript(script, scriptId, 0)
+        }
     }
 }
 
@@ -361,37 +417,105 @@ internal fun graphExplorerBridgeInitScript(
     })();
     """.trimIndent()
 
-internal fun graphExplorerReceiveDataScript(payloadJson: String): String =
-    "window.__supersigilReceiveData($payloadJson);"
+internal fun graphExplorerHostReadyScript(initialContextJson: String): String =
+    "window.__supersigilHostReady($initialContextJson);"
 
-internal sealed class GraphExplorerDocumentComponentsQueryResult {
+internal fun graphExplorerChangedScript(eventJson: String): String =
+    "window.__supersigilExplorerChanged($eventJson);"
+
+internal fun buildGraphExplorerInitialContext(
+    projectBasePath: String,
+    focusDocumentPath: String? = null,
+): GraphExplorerInitialContext {
+    val rootName = Path.of(projectBasePath).fileName?.toString().orEmpty().ifBlank { projectBasePath }
+    return GraphExplorerInitialContext(
+        rootId = projectBasePath,
+        availableRoots = listOf(GraphExplorerRootContext(id = projectBasePath, name = rootName)),
+        focusDocumentPath = focusDocumentPath,
+    )
+}
+
+internal fun graphExplorerFocusDocumentPath(project: Project): String? {
+    val projectBasePath = project.basePath ?: return null
+    val selectedFile = FileEditorManager.getInstance(project).selectedFiles.firstOrNull() ?: return null
+    val selectedPath = runCatching { Path.of(selectedFile.path) }.getOrNull() ?: return null
+    val projectRoot = runCatching { Path.of(projectBasePath) }.getOrNull() ?: return null
+    if (!selectedPath.startsWith(projectRoot)) return null
+    val relativePath = runCatching { projectRoot.relativize(selectedPath) }.getOrNull() ?: return null
+    val normalizedPath = relativePath.toString().replace('\\', '/')
+    return normalizedPath.takeIf(::isGraphExplorerSpecDocumentPath)
+}
+
+internal fun isGraphExplorerSpecDocumentPath(path: String): Boolean {
+    val normalized = path.lowercase()
+    return normalized.endsWith(".md") || normalized.endsWith(".mdx")
+}
+
+internal sealed class GraphExplorerTransportQueryResult {
     data class Success(
         val payload: String,
-    ) : GraphExplorerDocumentComponentsQueryResult()
+    ) : GraphExplorerTransportQueryResult()
 
     data class Error(
         val code: Int,
         val message: String,
-    ) : GraphExplorerDocumentComponentsQueryResult()
+    ) : GraphExplorerTransportQueryResult()
 }
 
-internal fun resolveGraphExplorerDocumentComponentsQuery(
+internal fun resolveGraphExplorerTransportQuery(
     request: String,
-    fetchDocumentComponents: (String) -> String?,
-): GraphExplorerDocumentComponentsQueryResult =
+    projectBasePath: String?,
+    focusDocumentPath: String?,
+    loadSnapshot: (String) -> Any?,
+    loadDocument: (String, String) -> Any?,
+): GraphExplorerTransportQueryResult =
     try {
         val json = JsonParser.parseString(request).asJsonObject
-        val type = json.get("type")?.asString
-        val uri = json.get("uri")?.asString
+        val method = json.get("method")?.asString
+        val params = json.getAsJsonObject("params")
 
-        when {
-            type != "documentComponents" -> GraphExplorerDocumentComponentsQueryResult.Error(1, "Unknown query type: $type")
-            uri == null -> GraphExplorerDocumentComponentsQueryResult.Error(1, "Missing uri")
-            else -> GraphExplorerDocumentComponentsQueryResult.Success(fetchDocumentComponents(uri) ?: "{}")
+        when (method) {
+            "getInitialContext" -> {
+                val rootId = projectBasePath ?: return GraphExplorerTransportQueryResult.Error(1, "Missing project base path")
+                GraphExplorerTransportQueryResult.Success(
+                    Gson().toJson(buildGraphExplorerInitialContext(rootId, focusDocumentPath)),
+                )
+            }
+
+            "loadSnapshot" -> {
+                val rootId = params?.get("rootId")?.asString ?: projectBasePath
+                if (rootId.isNullOrBlank()) {
+                    GraphExplorerTransportQueryResult.Error(1, "Missing rootId")
+                } else {
+                    val snapshot = loadSnapshot(rootId)
+                    if (snapshot == null) {
+                        GraphExplorerTransportQueryResult.Error(2, "Unable to load explorer snapshot")
+                    } else {
+                        GraphExplorerTransportQueryResult.Success(Gson().toJson(snapshot))
+                    }
+                }
+            }
+
+            "loadDocument" -> {
+                val documentId = params?.get("documentId")?.asString ?: params?.get("document_id")?.asString
+                if (documentId.isNullOrBlank()) {
+                    GraphExplorerTransportQueryResult.Error(1, "Missing documentId")
+                } else {
+                    val revision = params?.get("revision")?.asString.orEmpty()
+                    val document = loadDocument(documentId, revision)
+                    if (document == null) {
+                        GraphExplorerTransportQueryResult.Error(2, "Unable to load explorer document")
+                    } else {
+                        GraphExplorerTransportQueryResult.Success(Gson().toJson(document))
+                    }
+                }
+            }
+
+            else -> GraphExplorerTransportQueryResult.Error(1, "Unknown query method: $method")
         }
     } catch (e: Exception) {
-        LOG.debug("Error handling data query", e)
-        GraphExplorerDocumentComponentsQueryResult.Error(2, e.message ?: "Unknown error")
+        LOG.debug("Error handling explorer runtime query", e)
+        GraphExplorerTransportQueryResult.Error(2, e.message ?: "Unknown error")
     }
 
 internal fun dispatchGraphExplorerAction(
@@ -411,6 +535,15 @@ internal fun dispatchGraphExplorerAction(
             }
         }
 
+        "open-file-uri" -> {
+            if (parts.size >= 3) {
+                val uri = parts.subList(1, parts.size - 1).joinToString(":")
+                val path = runCatching { Path.of(URI(uri)).toString() }.getOrNull() ?: return
+                val line = parts.last().toIntOrNull() ?: 0
+                openFile(path, line)
+            }
+        }
+
         "open-criterion" -> {
             if (parts.size >= 3) {
                 val docId = parts[1]
@@ -421,90 +554,32 @@ internal fun dispatchGraphExplorerAction(
     }
 }
 
-internal fun requestGraphExplorerGraphData(
-    requestGraphData: (ExecuteCommandParams) -> Any?,
+internal fun requestGraphExplorerSnapshot(
+    requestSnapshot: (ExecuteCommandParams) -> Any?,
 ): Any? =
-    requestGraphData(
+    requestSnapshot(
         ExecuteCommandParams(
-            COMMAND_GRAPH_DATA,
+            COMMAND_EXPLORER_SNAPSHOT,
             emptyList(),
         ),
     )
 
-internal data class GraphExplorerDocumentTarget(
-    val id: String,
-    val uri: String,
-)
-
-internal data class ResolvedGraphExplorerData(
-    val graphData: Any,
-    val documentTargets: List<GraphExplorerDocumentTarget>,
-)
-
-internal fun graphExplorerDocumentUri(
-    projectBasePath: String,
-    documentPath: String,
-    documentFileUri: String? = null,
-): String = documentFileUri ?: navigationFileUri(projectBasePath, documentPath)
-
-internal fun graphExplorerDocumentAbsolutePath(
-    projectBasePath: String,
-    documentPath: String,
-    documentFileUri: String? = null,
-): String = documentFileUri?.let(::graphExplorerPathFromFileUri) ?: resolveNavigationPath(projectBasePath, documentPath)
-
-private fun graphExplorerPathFromFileUri(documentFileUri: String): String =
-    Path.of(URI(documentFileUri)).toString()
-
-internal fun resolveGraphExplorerData(
-    graphData: Any?,
-    projectBasePath: String,
-): ResolvedGraphExplorerData? {
-    if (graphData == null) return null
-
-    val root = Gson().toJsonTree(graphData).asJsonObject.deepCopy()
-    val documents = root.getAsJsonArray("documents") ?: return ResolvedGraphExplorerData(graphData, emptyList())
-    val documentTargets = mutableListOf<GraphExplorerDocumentTarget>()
-    for (element in documents) {
-        val document = element.asJsonObject
-        val id = document.get("id")?.asString ?: continue
-        val path = document.get("path")?.asString ?: continue
-        val fileUri = document.get("file_uri")?.asString
-        val resolvedPath = graphExplorerDocumentAbsolutePath(projectBasePath, path, fileUri)
-        document.addProperty("filePath", resolvedPath)
-        documentTargets += GraphExplorerDocumentTarget(id, graphExplorerDocumentUri(projectBasePath, path, fileUri))
-    }
-
-    return ResolvedGraphExplorerData(
-        graphData = Gson().fromJson(root, Any::class.java),
-        documentTargets = documentTargets,
+internal fun requestGraphExplorerDocument(
+    documentId: String,
+    revision: String,
+    requestDocument: (ExecuteCommandParams) -> Any?,
+): Any? =
+    requestDocument(
+        ExecuteCommandParams(
+            COMMAND_EXPLORER_DOCUMENT,
+            listOf(
+                mapOf(
+                    "document_id" to documentId,
+                    "revision" to revision,
+                ),
+            ),
+        ),
     )
-}
-
-internal fun resolveGraphExplorerDocumentPaths(
-    graphData: Any?,
-    projectBasePath: String,
-): Any? = resolveGraphExplorerData(graphData, projectBasePath)?.graphData
-
-internal fun graphExplorerDocumentTargets(
-    graphData: Any?,
-    projectBasePath: String,
-): List<GraphExplorerDocumentTarget> = resolveGraphExplorerData(graphData, projectBasePath)?.documentTargets ?: emptyList()
-
-internal fun runGraphExplorerRefreshAttempt(
-    hasServers: Boolean,
-    ensureServerStarted: () -> Unit,
-    pushGraphData: () -> Boolean,
-    scheduleRetry: () -> Unit,
-) {
-    if (!hasServers) {
-        ensureServerStarted()
-    }
-
-    if (!pushGraphData()) {
-        scheduleRetry()
-    }
-}
 
 internal fun requestGraphExplorerDebouncedRefresh(
     cancelPendingRefreshes: () -> Unit,
@@ -515,17 +590,22 @@ internal fun requestGraphExplorerDebouncedRefresh(
     scheduleRefresh(delayMs)
 }
 
-internal fun handleGraphExplorerDocumentsChanged(
-    isVisible: Boolean,
-    requestRefresh: () -> Unit,
-    markStale: () -> Unit,
-) {
-    if (isVisible) {
-        requestRefresh()
+internal fun mergeGraphExplorerChangedEvents(
+    current: ExplorerChangedEvent?,
+    next: ExplorerChangedEvent,
+): ExplorerChangedEvent =
+    if (current == null) {
+        next.copy(
+            changedDocumentIds = next.changedDocumentIds.distinct().sorted(),
+            removedDocumentIds = next.removedDocumentIds.distinct().sorted(),
+        )
     } else {
-        markStale()
+        ExplorerChangedEvent(
+            revision = next.revision,
+            changedDocumentIds = (current.changedDocumentIds + next.changedDocumentIds).distinct().sorted(),
+            removedDocumentIds = (current.removedDocumentIds + next.removedDocumentIds).distinct().sorted(),
+        )
     }
-}
 
 internal fun handleGraphExplorerVisibilityChanged(
     isVisible: Boolean,
@@ -581,64 +661,3 @@ internal fun <T, D> attachGraphExplorerLiveUpdateListeners(
 
     return attachedAny
 }
-
-internal fun pushGraphExplorerData(
-    projectBasePath: String?,
-    fetchGraphData: () -> Any?,
-    fetchDocumentComponents: (String) -> Any?,
-    submit: ((() -> Unit) -> Future<*>),
-    executeScript: (String) -> Unit,
-): Boolean {
-    val graphData = fetchGraphData() ?: return false
-    val basePath = projectBasePath ?: return false
-    val resolvedGraphData = resolveGraphExplorerData(graphData, basePath) ?: return false
-    val renderData =
-        fetchGraphExplorerRenderData(
-            resolvedGraphData.documentTargets,
-            fetchDocumentComponents = fetchDocumentComponents,
-            submit = submit,
-        )
-    executeScript(
-        graphExplorerReceiveDataScript(
-            assembleGraphExplorerPayloadJson(resolvedGraphData.graphData, renderData),
-        ),
-    )
-    return true
-}
-
-internal fun fetchGraphExplorerRenderData(
-    documentTargets: List<GraphExplorerDocumentTarget>,
-    maxConcurrency: Int = 10,
-    fetchDocumentComponents: (String) -> Any?,
-    submit: ((() -> Unit) -> Future<*>),
-): List<Any> {
-    if (documentTargets.isEmpty()) return emptyList()
-
-    val concurrencyLimit = maxOf(1, maxConcurrency)
-    val nextIndex = AtomicInteger(0)
-    val results = arrayOfNulls<Any>(documentTargets.size)
-    val futures =
-        List(minOf(concurrencyLimit, documentTargets.size)) {
-            submit {
-                while (true) {
-                    val index = nextIndex.getAndIncrement()
-                    if (index >= documentTargets.size) return@submit
-
-                    val target = documentTargets[index]
-                    try {
-                        val result = fetchDocumentComponents(target.uri)
-                        results[index] = result
-                    } catch (e: Exception) {
-                        results[index] = null
-                    }
-                }
-            }
-        }
-    futures.forEach { it.get() }
-    return results.filterNotNull()
-}
-
-internal fun assembleGraphExplorerPayloadJson(
-    graphData: Any?,
-    renderData: List<Any>,
-): String = Gson().toJson(mapOf("graphData" to graphData, "renderData" to renderData))
