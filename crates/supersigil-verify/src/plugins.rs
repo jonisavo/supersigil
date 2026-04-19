@@ -14,7 +14,8 @@ use supersigil_evidence::{
 
 use crate::VerifyInputs;
 use crate::artifact_graph::{ArtifactGraph, build_artifact_graph};
-use crate::explicit_evidence::extract_explicit_evidence;
+use crate::explicit_evidence::extract_explicit_evidence_with_resolver;
+use crate::glob_resolver::GlobResolver;
 use crate::report::{Finding, FindingDetails, RuleName};
 
 /// Assemble the enabled ecosystem plugin instances from the config.
@@ -205,6 +206,25 @@ pub fn build_evidence<'g>(
     project: Option<&str>,
     inputs: &VerifyInputs,
 ) -> (ArtifactGraph<'g>, Vec<Finding>) {
+    let mut glob_resolver = GlobResolver::new(project_root);
+    build_evidence_with_resolver(
+        config,
+        graph,
+        project_root,
+        project,
+        inputs,
+        &mut glob_resolver,
+    )
+}
+
+pub(crate) fn build_evidence_with_resolver<'g>(
+    config: &Config,
+    graph: &'g DocumentGraph,
+    project_root: &Path,
+    project: Option<&str>,
+    inputs: &VerifyInputs,
+    glob_resolver: &mut GlobResolver,
+) -> (ArtifactGraph<'g>, Vec<Finding>) {
     let enabled_plugins = assemble_plugins(config);
     let scope = ProjectScope {
         project: project.map(str::to_owned),
@@ -212,7 +232,8 @@ pub fn build_evidence<'g>(
     };
     let plugin_result =
         collect_plugin_evidence(&enabled_plugins, &inputs.test_files, &scope, graph);
-    let explicit_evidence = extract_explicit_evidence(graph, &inputs.tag_matches, project_root);
+    let explicit_evidence =
+        extract_explicit_evidence_with_resolver(graph, &inputs.tag_matches, glob_resolver);
     let artifact_graph = build_artifact_graph(graph, explicit_evidence, plugin_result.evidence);
     (artifact_graph, plugin_result.findings)
 }
