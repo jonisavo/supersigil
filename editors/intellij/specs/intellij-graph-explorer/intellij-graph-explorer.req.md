@@ -24,13 +24,12 @@ and browser, the Gradle build integration to bundle explorer web
 assets into the plugin JAR, live refresh on spec changes, and editor
 navigation from the graph.
 
-Out of scope: changes to the shared graph explorer modules, changes
-to the LSP server (the `supersigil/graphData` and
-`supersigil/documentComponents` endpoints already exist), and
-multi-project root switching (IntelliJ projects are single-root).
+Out of scope: multi-project root switching (IntelliJ projects are
+single-root) and IntelliJ-specific explorer features unrelated to the
+shared runtime and navigation bridge.
 
 ```supersigil-xml
-<References refs="vscode-explorer-webview/req, graph-explorer/req, intellij-plugin/req" />
+<References refs="graph-explorer-runtime/req, vscode-explorer-webview/req, graph-explorer/req, intellij-plugin/req" />
 ```
 
 ## Definitions
@@ -45,10 +44,13 @@ multi-project root switching (IntelliJ projects are single-root).
 - **JBCefJSQuery**: IntelliJ's API for bidirectional communication
   between JVM code and JavaScript running in a JCEF browser. Used
   by the existing Markdown preview extension.
-- **Graph data**: The `{ documents, edges }` JSON shape produced by
-  the `supersigil/graphData` LSP endpoint.
-- **Render data**: Per-document component trees with verification
-  status, produced by the `supersigil/documentComponents` endpoint.
+- **ExplorerSnapshot**: The revisioned first-paint payload returned
+  by the `supersigil.explorerSnapshot` execute-command mirror.
+- **ExplorerDocument**: The revisioned per-document detail payload
+  returned by the `supersigil.explorerDocument` execute-command
+  mirror.
+- **ExplorerChangedEvent**: The revisioned change payload forwarded to
+  the browser bridge so the shared runtime can invalidate selectively.
 
 ## Requirement 1: Tool Window
 
@@ -88,25 +90,25 @@ project state.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-2-1">
-    WHEN the tool window opens, THE plugin SHALL fetch graph data
-    from the LSP server via `workspace/executeCommand` with command
-    `supersigil.graphData` and fetch render data by calling
-    `supersigil.documentComponents` for each document.
-    <VerifiedBy strategy="tag" tag="intellij-graph-explorer-data-fetch" />
-    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
+    WHEN the tool window opens, THE plugin SHALL bootstrap the shared
+    explorer runtime once and provide graph data through the runtime's
+    transport bridge using `supersigil.explorerSnapshot` and
+    `supersigil.explorerDocument` execute-command requests.
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt, editors/intellij/src/test/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactoryTest.kt" />
   </Criterion>
   <Criterion id="req-2-2">
-    THE plugin SHALL use bounded concurrency (limit of 10) when
-    fetching document components, so that large projects do not
-    overwhelm the LSP server.
-    <VerifiedBy strategy="tag" tag="intellij-graph-explorer-bounded-fetch" />
+    THE plugin SHALL fetch document detail lazily for the selected
+    document through the runtime transport instead of preloading a
+    workspace-wide render-data batch before first paint.
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt, editors/intellij/src/test/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactoryTest.kt" />
   </Criterion>
   <Criterion id="req-2-3">
-    THE plugin SHALL post graph data and render data to the JCEF
-    browser via `executeJavaScript`, calling the explorer's
-    `SupersigilExplorer.mount()` function with the assembled payload.
-    <VerifiedBy strategy="tag" tag="intellij-graph-explorer-data-push" />
-    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
+    THE plugin SHALL notify the JCEF browser via `executeJavaScript`
+    using the shared runtime bridge callbacks
+    `window.__supersigilHostReady(...)` and
+    `window.__supersigilExplorerChanged(...)` instead of pushing a
+    remount payload into `SupersigilExplorer.mount()`.
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt, editors/intellij/src/test/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactoryTest.kt, website/src/components/explore/explorer-bridge.test.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -119,20 +121,22 @@ that the explorer always reflects the current project state.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
-    WHEN the plugin receives a `supersigil/documentsChanged`
+    WHEN the plugin receives a `supersigil/explorerChanged`
     notification from the LSP server, THE graph explorer SHALL
-    re-fetch data and re-render if the tool window is visible. IF
-    the tool window is hidden, THE plugin SHALL mark it as stale and
-    refresh when it becomes visible.
+    forward the revisioned change event to the shared runtime if the
+    tool window is visible. IF the tool window is hidden, THE plugin
+    SHALL mark it as stale and refresh the runtime when it becomes
+    visible.
     <VerifiedBy strategy="tag" tag="intellij-graph-explorer-live-updates" />
     <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
   </Criterion>
   <Criterion id="req-3-2">
     THE browser SHALL preserve the current view state (selected
-    document, filter state) across re-renders by capturing and
-    restoring the URL hash before and after remounting.
+    document, filter state, hash) across snapshot refreshes inside
+    the long-lived shared runtime instead of resetting state through
+    full remounts.
     <VerifiedBy strategy="tag" tag="intellij-graph-explorer-state-preservation" />
-    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/resources/supersigil-explorer/explorer-bridge.js" />
+    <VerifiedBy strategy="file-glob" paths="editors/intellij/src/main/resources/supersigil-explorer/explorer-bridge.js, website/src/components/explore/explorer-app.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```

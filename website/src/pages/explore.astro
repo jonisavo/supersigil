@@ -87,39 +87,8 @@ import '../components/explore/styles.css';
 </html>
 
 <script>
-  import { mount } from '../components/explore/graph-explorer.js';
+  import { initStandaloneExplorer } from '../components/explore/standalone-explorer.js';
 
   const container = document.getElementById('explorer');
-
-  async function init() {
-    try {
-      const [graphResponse, renderResponse] = await Promise.all([
-        fetch('/explore/graph.json'),
-        fetch('/explore/render-data.json'),
-      ]);
-      if (!graphResponse.ok) {
-        throw new Error(`Failed to load graph data: ${graphResponse.status} ${graphResponse.statusText}`);
-      }
-      const graphData = await graphResponse.json();
-      const renderJson = renderResponse.ok ? await renderResponse.json() : { documents: [] };
-      const renderData = renderJson.documents ?? renderJson;
-      const repositoryInfo = {
-        provider: 'github',
-        repo: 'jonisavo/supersigil',
-        host: 'github.com',
-        mainBranch: 'main',
-      };
-      mount(container, graphData, renderData, repositoryInfo);
-    } catch (err) {
-      console.error('Spec explorer failed to load:', err);
-      if (container) {
-        container.innerHTML = `<div class="explorer-error">
-          <p>Unable to load graph data.</p>
-          <p><small>${err.message}</small></p>
-        </div>`;
-      }
-    }
-  }
-
-  init();
+  initStandaloneExplorer({ container });
 </script>

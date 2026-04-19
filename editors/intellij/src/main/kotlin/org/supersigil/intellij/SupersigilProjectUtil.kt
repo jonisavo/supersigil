@@ -16,7 +16,8 @@ private val compatibilityFailures =
 const val COMMAND_VERIFY = "supersigil.verify"
 const val COMMAND_DOCUMENT_LIST = "supersigil.documentList"
 const val COMMAND_DOCUMENT_COMPONENTS = "supersigil.documentComponents"
-const val COMMAND_GRAPH_DATA = "supersigil.graphData"
+const val COMMAND_EXPLORER_SNAPSHOT = "supersigil.explorerSnapshot"
+const val COMMAND_EXPLORER_DOCUMENT = "supersigil.explorerDocument"
 
 fun hasSupersigilConfig(project: Project): Boolean {
     val basePath = project.basePath ?: return false

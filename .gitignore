@@ -11,6 +11,9 @@ website/public/explore/render-data.json
 website/public/explore/render-iife.js
 website/public/explore/supersigil-preview.css
 website/public/explore/supersigil-preview.js
+website/public/explore/snapshot.json
+website/public/explore/documents/
+
 .DS_Store
 
 node_modules

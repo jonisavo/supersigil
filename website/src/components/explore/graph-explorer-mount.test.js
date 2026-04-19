@@ -17,7 +17,6 @@ function createContainer() {
   el.style.width = '800px';
   el.style.height = '600px';
   document.body.appendChild(el);
-  // jsdom doesn't compute layout, so stub getBoundingClientRect
   el.getBoundingClientRect = () => ({
     x: 0,
     y: 0,
@@ -38,17 +37,23 @@ describe('mount / unmount lifecycle', () => {
 
   beforeEach(() => {
     container = createContainer();
-    // Reset hash
     window.location.hash = '';
-    // Stub localStorage (jsdom may not provide a working one)
     const store = {};
     globalThis.localStorage = {
       getItem: (key) => store[key] ?? null,
-      setItem: (key, val) => { store[key] = String(val); },
-      removeItem: (key) => { delete store[key]; },
-      clear: () => { for (const k in store) delete store[k]; },
-      get length() { return Object.keys(store).length; },
-      key: (i) => Object.keys(store)[i] ?? null,
+      setItem: (key, val) => {
+        store[key] = String(val);
+      },
+      removeItem: (key) => {
+        delete store[key];
+      },
+      clear: () => {
+        for (const key in store) delete store[key];
+      },
+      get length() {
+        return Object.keys(store).length;
+      },
+      key: (index) => Object.keys(store)[index] ?? null,
     };
   });
 
@@ -57,80 +62,21 @@ describe('mount / unmount lifecycle', () => {
     vi.restoreAllMocks();
   });
 
-  it('mount returns an object with an unmount function', () => {
-    const handle = mount(container, minimalData);
-    expect(handle).toBeDefined();
-    expect(typeof handle.unmount).toBe('function');
-  });
-
-  it('after unmount, document click listeners are removed', () => {
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
+  it('unmount clears the mounted subtree and detaches global listeners', () => {
+    const removeDocumentListener = vi.spyOn(document, 'removeEventListener');
+    const removeWindowListener = vi.spyOn(window, 'removeEventListener');
     const handle = mount(container, minimalData);
 
-    handle.unmount();
-
-    const removedTypes = removeSpy.mock.calls.map((c) => c[0]);
-    expect(removedTypes).toContain('click');
-  });
-
-  it('after unmount, document mousemove listener is removed', () => {
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-    const handle = mount(container, minimalData);
+    expect(container.children.length).toBeGreaterThan(0);
 
     handle.unmount();
 
-    const removedTypes = removeSpy.mock.calls.map((c) => c[0]);
-    expect(removedTypes).toContain('mousemove');
-  });
-
-  it('after unmount, document mouseup listener is removed', () => {
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-    const handle = mount(container, minimalData);
-
-    handle.unmount();
-
-    const removedTypes = removeSpy.mock.calls.map((c) => c[0]);
-    expect(removedTypes).toContain('mouseup');
-  });
-
-  it('after unmount, document keydown listener is removed', () => {
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-    const handle = mount(container, minimalData);
-
-    handle.unmount();
-
-    const removedTypes = removeSpy.mock.calls.map((c) => c[0]);
-    expect(removedTypes).toContain('keydown');
-  });
-
-  it('after unmount, hashchange listener is unsubscribed', () => {
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
-    const handle = mount(container, minimalData);
-
-    handle.unmount();
-
-    const removedTypes = removeSpy.mock.calls.map((c) => c[0]);
-    expect(removedTypes).toContain('hashchange');
-  });
-
-  it('mount accepts a custom linkResolver as 5th parameter', () => {
-    const customResolver = {
-      evidenceLink: (file, line) => `vscode://file/${file}#${line}`,
-      documentLink: (docId) => `#/doc/${encodeURIComponent(docId)}`,
-      criterionLink: (docId, _criterionId) => `#/doc/${encodeURIComponent(docId)}`,
-    };
-
-    const handle = mount(container, minimalData, null, null, customResolver);
-    expect(handle).toBeDefined();
-    expect(typeof handle.unmount).toBe('function');
-    handle.unmount();
-  });
-
-  it('mount without linkResolver still works (backward compatible)', () => {
-    const handle = mount(container, minimalData, null, null);
-    expect(handle).toBeDefined();
-    expect(typeof handle.unmount).toBe('function');
-    handle.unmount();
+    expect(container.children.length).toBe(0);
+    const documentListenerTypes = removeDocumentListener.mock.calls.map(([type]) => type);
+    expect(documentListenerTypes).toEqual(
+      expect.arrayContaining(['click', 'mousemove', 'mouseup', 'keydown']),
+    );
+    expect(removeWindowListener.mock.calls.map(([type]) => type)).toContain('hashchange');
   });
 
   it('calling unmount multiple times is safe', () => {
@@ -142,22 +88,169 @@ describe('mount / unmount lifecycle', () => {
   it('mount then unmount then mount does not duplicate document-level handlers', () => {
     const addSpy = vi.spyOn(document, 'addEventListener');
 
-    const handle1 = mount(container, minimalData);
+    const firstHandle = mount(container, minimalData);
     const firstMountCalls = addSpy.mock.calls.filter(
-      (c) => c[0] === 'click' || c[0] === 'mousemove' || c[0] === 'mouseup' || c[0] === 'keydown',
+      ([type]) => type === 'click' || type === 'mousemove' || type === 'mouseup' || type === 'keydown',
     ).length;
 
-    handle1.unmount();
+    firstHandle.unmount();
     document.body.innerHTML = '';
-    const container2 = createContainer();
+    const nextContainer = createContainer();
     addSpy.mockClear();
 
-    const handle2 = mount(container2, minimalData);
+    const secondHandle = mount(nextContainer, minimalData);
     const secondMountCalls = addSpy.mock.calls.filter(
-      (c) => c[0] === 'click' || c[0] === 'mousemove' || c[0] === 'mouseup' || c[0] === 'keydown',
+      ([type]) => type === 'click' || type === 'mousemove' || type === 'mouseup' || type === 'keydown',
     ).length;
 
     expect(secondMountCalls).toBe(firstMountCalls);
-    handle2.unmount();
+    secondHandle.unmount();
+  });
+
+  it('refreshDetail rerenders the selected document from runtime-managed document state', () => {
+    let documentState = { state: 'loading' };
+    const onSelectDocument = vi.fn();
+    window.__supersigilRender = {
+      renderComponentTree: vi.fn(() => '<div class="runtime-rendered">Loaded detail</div>'),
+    };
+
+    const handle = mount(container, minimalData, null, null, undefined, {
+      getDocumentState: (documentId) =>
+        documentId === 'a/one' ? documentState : { state: 'idle' },
+      onSelectDocument,
+    });
+
+    const firstNode = [...container.querySelectorAll('g.node')].find((node) =>
+      node.textContent?.includes('one'),
+    );
+    firstNode?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(onSelectDocument).toHaveBeenCalledWith('a/one');
+    expect(container.querySelector('.detail-spec-loading')?.textContent).toContain(
+      'Loading specification',
+    );
+
+    documentState = {
+      state: 'ready',
+      revision: 'rev-1',
+      document: {
+        revision: 'rev-1',
+        document_id: 'a/one',
+        stale: false,
+        fences: [{ components: [{ kind: 'Criterion', verification: { state: 'verified' } }] }],
+        edges: [],
+      },
+    };
+
+    handle.refreshDetail();
+
+    expect(container.querySelector('.runtime-rendered')?.textContent).toContain('Loaded detail');
+    handle.unmount();
+  });
+
+  it('renders the runtime-owned root selector only when multiple roots are available', () => {
+    const onSwitchRoot = vi.fn();
+    const multiRootHandle = mount(container, minimalData, null, null, undefined, {
+      rootContext: {
+        activeRootId: 'workspace-a',
+        availableRoots: [
+          { id: 'workspace-a', name: 'Workspace A' },
+          { id: 'workspace-b', name: 'Workspace B' },
+        ],
+      },
+      onSwitchRoot,
+    });
+
+    const select = /** @type {HTMLSelectElement | null} */ (container.querySelector('.root-selector'));
+    expect(select).not.toBeNull();
+    select.value = 'workspace-b';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onSwitchRoot).toHaveBeenCalledWith('workspace-b');
+    multiRootHandle.unmount();
+
+    container = createContainer();
+    const singleRootHandle = mount(container, minimalData, null, null, undefined, {
+      rootContext: {
+        activeRootId: 'workspace-a',
+        availableRoots: [{ id: 'workspace-a', name: 'Workspace A' }],
+      },
+    });
+    expect(container.querySelector('.root-selector')).toBeNull();
+    singleRootHandle.unmount();
+  });
+
+  it('updates the runtime-owned root selector when runtime root context changes', () => {
+    const onSwitchRoot = vi.fn();
+    const handle = mount(container, minimalData, null, null, undefined, {
+      rootContext: {
+        activeRootId: 'workspace-a',
+        availableRoots: [{ id: 'workspace-a', name: 'Workspace A' }],
+      },
+      onSwitchRoot,
+    });
+
+    expect(container.querySelector('.root-selector')).toBeNull();
+
+    handle.updateRuntimeOptions?.({
+      rootContext: {
+        activeRootId: 'workspace-a',
+        availableRoots: [
+          { id: 'workspace-a', name: 'Workspace A' },
+          { id: 'workspace-b', name: 'Workspace B' },
+        ],
+      },
+    });
+
+    const select = /** @type {HTMLSelectElement | null} */ (container.querySelector('.root-selector'));
+    expect(select).not.toBeNull();
+    expect([...select.options].map((option) => option.value)).toEqual([
+      'workspace-a',
+      'workspace-b',
+    ]);
+
+    select.value = 'workspace-b';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onSwitchRoot).toHaveBeenCalledWith('workspace-b');
+
+    handle.updateRuntimeOptions?.({
+      rootContext: {
+        activeRootId: 'workspace-b',
+        availableRoots: [{ id: 'workspace-b', name: 'Workspace B' }],
+      },
+    });
+
+    expect(container.querySelector('.root-selector')).toBeNull();
+    handle.unmount();
+  });
+
+  it('renders a runtime-owned open file control for selected documents', () => {
+    const openFile = vi.fn();
+    const data = {
+      documents: [
+        {
+          ...minimalData.documents[0],
+          path: 'specs/a/one.md',
+          file_uri: 'file:///workspace/specs/a/one.md',
+        },
+        minimalData.documents[1],
+      ],
+      edges: minimalData.edges,
+    };
+
+    const handle = mount(container, data, null, null, undefined, { openFile });
+    const firstNode = [...container.querySelectorAll('g.node')].find((node) =>
+      node.textContent?.includes('one'),
+    );
+    firstNode?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const button = container.querySelector('.open-file-btn');
+    expect(button).not.toBeNull();
+    button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(openFile).toHaveBeenCalledWith({
+      uri: 'file:///workspace/specs/a/one.md',
+      line: 1,
+    });
+    handle.unmount();
   });
 });

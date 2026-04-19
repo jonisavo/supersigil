@@ -4,17 +4,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import process from 'node:process';
 
 const BRIDGE_PATH = resolve(
   process.cwd(),
   '../editors/intellij/src/main/resources/supersigil-explorer/explorer-bridge.js',
 );
+const STYLES_PATH = resolve(process.cwd(), 'src/components/explore/styles.css');
 
-function loadBridge({ mountImpl, query = undefined, action = undefined } = {}) {
+function loadBridge({
+  createExplorerAppImpl = vi.fn(() => ({ destroy: vi.fn() })),
+  query = undefined,
+  action = undefined,
+} = {}) {
   document.body.innerHTML = '<div id="explorer"></div>';
   window.location.hash = '';
 
-  delete window.__supersigilReceiveData;
+  delete window.__supersigilHostReady;
+  delete window.__supersigilExplorerChanged;
   delete window.__supersigilQuery;
   delete window.__supersigilAction;
   delete window.SupersigilExplorer;
@@ -27,17 +34,20 @@ function loadBridge({ mountImpl, query = undefined, action = undefined } = {}) {
   }
 
   window.SupersigilExplorer = {
-    mount: mountImpl,
+    createExplorerApp: createExplorerAppImpl,
   };
 
   const script = readFileSync(BRIDGE_PATH, 'utf8');
   window.eval(script);
   document.dispatchEvent(new Event('DOMContentLoaded'));
+
+  return createExplorerAppImpl;
 }
 
 afterEach(() => {
   document.body.innerHTML = '';
-  delete window.__supersigilReceiveData;
+  delete window.__supersigilHostReady;
+  delete window.__supersigilExplorerChanged;
   delete window.__supersigilQuery;
   delete window.__supersigilAction;
   delete window.SupersigilExplorer;
@@ -45,216 +55,186 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const STYLES_PATH = resolve(process.cwd(), 'src/components/explore/styles.css');
-
 describe('explorer bridge', () => {
   // supersigil: intellij-graph-explorer-bridge-routing
-  // supersigil: intellij-graph-explorer-open-file-navigation
-  // supersigil: intellij-graph-explorer-evidence-navigation
   // supersigil: intellij-graph-explorer-state-preservation
-  it('mounts data with interceptable links and preserves hash across remounts', async () => {
+  it('boots the shared runtime, resolves host context, and forwards transport requests', async () => {
     const actionSpy = vi.fn();
-    const unmountSpy = vi.fn(() => {
-      window.location.hash = '#/doc/changed';
-    });
+    const querySpy = vi.fn((payload, onSuccess) => {
+      const request = JSON.parse(payload);
+      if (request.method === 'loadSnapshot') {
+        onSuccess(
+          JSON.stringify({
+            revision: 'rev-1',
+            documents: [{ id: 'docs/spec-a', title: 'Spec A', path: 'specs/spec-a.md' }],
+            edges: [],
+          }),
+        );
+        return;
+      }
 
-    let mountCount = 0;
-    const hashesSeenAtMount = [];
-    const mountSpy = vi.fn((container, graph, renderData, _repositoryInfo, linkResolver) => {
-      mountCount += 1;
-      hashesSeenAtMount.push(window.location.hash);
-      expect(container).toBe(document.getElementById('explorer'));
-      expect(graph.documents[0].id).toBe('docs/spec-a');
-      expect(renderData).toEqual([{ document_id: 'docs/spec-a', fences: [] }]);
-      expect(linkResolver.evidenceLink('src/specs/spec-a.md', 12)).toBe(
-        '#supersigil-action:open-file:src/specs/spec-a.md:12',
-      );
-      expect(linkResolver.documentLink('docs/spec-b')).toBe('#/doc/docs%2Fspec-b');
-      expect(linkResolver.criterionLink('docs/spec-b', 'criterion-1')).toBe(
-        '#/doc/docs%2Fspec-b',
-      );
-
-      container.innerHTML = `
-        <a class="evidence-link" href="#supersigil-action:open-file:src/specs/spec-a.md:12">
-          Evidence
-        </a>
-        <div class="detail-panel-header">
-          <div class="detail-panel-title">docs/spec-a</div>
-          <button class="detail-panel-close" aria-label="Close">x</button>
-        </div>
-      `;
-
-      return { unmount: unmountSpy };
-    });
-
-    loadBridge({
-      mountImpl: mountSpy,
-      action: actionSpy,
-    });
-
-    expect(window.__supersigilReceiveData).toBeTypeOf('function');
-
-    const payload = JSON.stringify({
-      graphData: {
-        documents: [{ id: 'docs/spec-a', path: 'src/specs/spec-a.md' }],
-        edges: [],
-      },
-      renderData: [{ document_id: 'docs/spec-a', fences: [] }],
-    });
-
-    window.location.hash = '#/doc/docs%2Fspec-a';
-    window.__supersigilReceiveData(payload);
-    await Promise.resolve();
-
-    expect(mountSpy).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.open-file-btn')).not.toBeNull();
-
-    document.querySelector('.evidence-link').click();
-    expect(actionSpy).toHaveBeenCalledWith('open-file:src/specs/spec-a.md:12');
-
-    document.querySelector('.open-file-btn').click();
-    expect(actionSpy).toHaveBeenCalledWith('open-file:src/specs/spec-a.md:1');
-
-    window.location.hash = '#/doc/docs%2Fspec-a/trace';
-    window.__supersigilReceiveData(payload);
-    await Promise.resolve();
-
-    expect(unmountSpy).toHaveBeenCalledTimes(1);
-    expect(mountSpy).toHaveBeenCalledTimes(2);
-    expect(window.location.hash).toBe('#/doc/docs%2Fspec-a/trace');
-    expect(hashesSeenAtMount[0]).toBe('#/doc/docs%2Fspec-a');
-    expect(hashesSeenAtMount[1]).toBe('#/doc/docs%2Fspec-a/trace');
-    expect(mountCount).toBe(2);
-  });
-
-  it('encodes windows evidence links and forwards escaped actions', async () => {
-    const actionSpy = vi.fn();
-    let capturedResolver = null;
-
-    const mountSpy = vi.fn((_container, _graph, _renderData, _repositoryInfo, linkResolver) => {
-      capturedResolver = linkResolver;
-      return { unmount: vi.fn() };
-    });
-
-    loadBridge({
-      mountImpl: mountSpy,
-      action: actionSpy,
-    });
-
-    window.__supersigilReceiveData(
-      JSON.stringify({
-        graphData: {
-          documents: [{ id: 'docs/windows', path: 'C:\\Users\\specs\\file.md' }],
+      onSuccess(
+        JSON.stringify({
+          revision: request.params.revision,
+          document_id: request.params.documentId,
+          stale: false,
+          fences: [],
           edges: [],
-        },
-        renderData: [],
-      }),
+        }),
+      );
+    });
+    const createExplorerAppImpl = vi.fn(() => ({ destroy: vi.fn() }));
+
+    loadBridge({
+      createExplorerAppImpl,
+      query: querySpy,
+      action: actionSpy,
+    });
+
+    expect(createExplorerAppImpl).toHaveBeenCalledTimes(1);
+    expect(actionSpy).toHaveBeenCalledWith('ready');
+    expect(window.__supersigilHostReady).toBeTypeOf('function');
+    expect(window.__supersigilExplorerChanged).toBeTypeOf('function');
+
+    const [, transport, options] = createExplorerAppImpl.mock.calls[0];
+    expect(options.linkResolver.documentLink('docs/spec-b')).toBe('#/doc/docs%2Fspec-b');
+    expect(options.linkResolver.criterionLink('docs/spec-b', 'criterion-1')).toBe(
+      '#/doc/docs%2Fspec-b',
     );
 
-    await Promise.resolve();
+    window.__supersigilHostReady({
+      rootId: 'workspace',
+      availableRoots: [{ id: 'workspace', name: 'Workspace' }],
+      focusDocumentId: 'docs/spec-a',
+    });
 
-    const href = capturedResolver.evidenceLink('C:\\Users\\specs\\file.md', 7);
+    await expect(transport.getInitialContext()).resolves.toEqual({
+      rootId: 'workspace',
+      availableRoots: [{ id: 'workspace', name: 'Workspace' }],
+      focusDocumentId: 'docs/spec-a',
+    });
+    await expect(transport.loadSnapshot('workspace')).resolves.toEqual({
+      revision: 'rev-1',
+      documents: [{ id: 'docs/spec-a', title: 'Spec A', path: 'specs/spec-a.md' }],
+      edges: [],
+    });
+    await expect(
+      transport.loadDocument({
+        rootId: 'workspace',
+        revision: 'rev-1',
+        documentId: 'docs/spec-a',
+      }),
+    ).resolves.toEqual({
+      revision: 'rev-1',
+      document_id: 'docs/spec-a',
+      stale: false,
+      fences: [],
+      edges: [],
+    });
+
+    expect(querySpy).toHaveBeenNthCalledWith(
+      1,
+      JSON.stringify({
+        method: 'loadSnapshot',
+        params: { rootId: 'workspace' },
+      }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(querySpy).toHaveBeenNthCalledWith(
+      2,
+      JSON.stringify({
+        method: 'loadDocument',
+        params: {
+          rootId: 'workspace',
+          revision: 'rev-1',
+          documentId: 'docs/spec-a',
+        },
+      }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  // supersigil: intellij-graph-explorer-open-file-navigation
+  // supersigil: intellij-graph-explorer-evidence-navigation
+  // supersigil: intellij-graph-explorer-navigation-paths
+  it('encodes evidence links and forwards runtime open-file actions', async () => {
+    const actionSpy = vi.fn();
+    const createExplorerAppImpl = vi.fn(() => ({ destroy: vi.fn() }));
+
+    loadBridge({
+      createExplorerAppImpl,
+      action: actionSpy,
+    });
+
+    const [, transport, options] = createExplorerAppImpl.mock.calls[0];
+    const href = options.linkResolver.evidenceLink('C:\\Users\\specs\\file.md', 7);
     expect(href).toBe(
       '#supersigil-action:open-file:C\\:\\\\Users\\\\specs\\\\file.md:7',
     );
 
     const anchor = document.createElement('a');
     anchor.href = href;
+    anchor.textContent = 'Evidence';
     document.body.appendChild(anchor);
     anchor.click();
 
+    expect(actionSpy).toHaveBeenCalledWith('ready');
     expect(actionSpy).toHaveBeenCalledWith(
       'open-file:C\\:\\\\Users\\\\specs\\\\file.md:7',
     );
+
+    transport.openFile({ path: '/workspace/specs/spec-a.md', line: 1 });
+    expect(actionSpy).toHaveBeenCalledWith('open-file:/workspace/specs/spec-a.md:1');
   });
 
-  it('does not duplicate open file buttons when observer runs again', async () => {
-    const mountSpy = vi.fn((container) => {
-      container.innerHTML = `
-        <div class="detail-panel-header">
-          <div class="detail-panel-title">docs/spec-a</div>
-          <button class="detail-panel-close" aria-label="Close">x</button>
-        </div>
-      `;
-
-      return { unmount: vi.fn() };
-    });
+  it('forwards explorerChanged events to runtime subscribers', () => {
+    const createExplorerAppImpl = vi.fn(() => ({ destroy: vi.fn() }));
 
     loadBridge({
-      mountImpl: mountSpy,
+      createExplorerAppImpl,
     });
 
-    window.__supersigilReceiveData(
-      JSON.stringify({
-        graphData: {
-          documents: [{ id: 'docs/spec-a', path: 'src/specs/spec-a.md' }],
-          edges: [],
-        },
-        renderData: [],
-      }),
-    );
+    const [, transport] = createExplorerAppImpl.mock.calls[0];
+    const listener = vi.fn();
+    const unsubscribe = transport.subscribeChanges(listener);
 
-    await Promise.resolve();
+    window.__supersigilExplorerChanged({
+      revision: 'rev-2',
+      changed_document_ids: ['docs/spec-a'],
+      removed_document_ids: [],
+    });
 
-    const header = document.querySelector('.detail-panel-header');
-    const extra = document.createElement('span');
-    extra.textContent = 'refresh';
-    header.appendChild(extra);
-    await Promise.resolve();
+    expect(listener).toHaveBeenCalledWith({
+      revision: 'rev-2',
+      changed_document_ids: ['docs/spec-a'],
+      removed_document_ids: [],
+    });
 
-    expect(document.querySelectorAll('.open-file-btn')).toHaveLength(1);
+    unsubscribe();
+    window.__supersigilExplorerChanged({
+      revision: 'rev-3',
+      changed_document_ids: ['docs/spec-b'],
+      removed_document_ids: [],
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  // supersigil: intellij-graph-explorer-navigation-paths
-  it('open file button prefers resolved absolute document paths when available', async () => {
-    const actionSpy = vi.fn();
+  it('does not crash when __supersigilQuery is missing and rejects transport requests', async () => {
+    const createExplorerAppImpl = vi.fn(() => ({ destroy: vi.fn() }));
 
-    const mountSpy = vi.fn((container) => {
-      container.innerHTML = `
-        <div class="detail-panel-header">
-          <div class="detail-panel-title">docs/spec-a</div>
-          <button class="detail-panel-close" aria-label="Close">x</button>
-        </div>
-      `;
-
-      return { unmount: vi.fn() };
-    });
-
-    loadBridge({
-      mountImpl: mountSpy,
-      action: actionSpy,
-    });
-
-    window.__supersigilReceiveData(
-      JSON.stringify({
-        graphData: {
-          documents: [
-            {
-              id: 'docs/spec-a',
-              path: 'src/specs/spec-a.md',
-              filePath: '/workspace/src/specs/spec-a.md',
-            },
-          ],
-          edges: [],
-        },
-        renderData: [],
-      }),
-    );
-
-    await Promise.resolve();
-
-    document.querySelector('.open-file-btn').click();
-    expect(actionSpy).toHaveBeenCalledWith('open-file:/workspace/src/specs/spec-a.md:1');
-  });
-
-  it('does not crash when __supersigilQuery is missing', () => {
     expect(() =>
       loadBridge({
-        mountImpl: vi.fn(() => ({ unmount: vi.fn() })),
+        createExplorerAppImpl,
       }),
     ).not.toThrow();
 
-    expect(window.__supersigilReceiveData).toBeTypeOf('function');
+    const [, transport] = createExplorerAppImpl.mock.calls[0];
+    await expect(transport.loadSnapshot('workspace')).rejects.toThrow(
+      'Supersigil query bridge is unavailable',
+    );
   });
 
   it('styles the open file control as a right-aligned header action button', () => {

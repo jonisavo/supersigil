@@ -71,6 +71,29 @@
   flex-shrink: 0;
 }
 
+.root-selector {
+  appearance: none;
+  min-width: 10rem;
+  padding: 0.4rem 2rem 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.root-selector:hover {
+  border-color: var(--border-hover);
+}
+
+.root-selector:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
 /* ===== SEARCH RESULTS DROPDOWN ===== */
 
 .search-results {

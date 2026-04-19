@@ -3,10 +3,12 @@
 
   var state = {
     booted: false,
-    observer: null,
-    currentHandle: null,
-    docPathById: new Map(),
+    currentApp: null,
     container: null,
+    initialContext: null,
+    initialContextPromise: null,
+    resolveInitialContext: null,
+    changeListeners: [],
   };
 
   var EVIDENCE_PREFIX = "#supersigil-action:";
@@ -19,7 +21,7 @@
   }
 
   function getExplorer() {
-    return window.SupersigilExplorer && typeof window.SupersigilExplorer.mount === "function"
+    return window.SupersigilExplorer && typeof window.SupersigilExplorer.createExplorerApp === "function"
       ? window.SupersigilExplorer
       : null;
   }
@@ -32,13 +34,8 @@
     return "open-file:" + escapeActionValue(path) + ":" + String(line);
   }
 
-  function applyHash(hash) {
-    if (hash) {
-      window.location.hash = hash;
-      return;
-    }
-
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+  function buildOpenFileUriAction(uri, line) {
+    return "open-file-uri:" + escapeActionValue(uri) + ":" + String(line);
   }
 
   function parsePayload(json) {
@@ -49,41 +46,6 @@
     } catch (e) {
       return {};
     }
-  }
-
-  function getGraphData(payload) {
-    return payload.graphData || payload.graph || payload.data?.graphData || payload.data?.graph || null;
-  }
-
-  function getRenderData(payload) {
-    return payload.renderData || payload.render || payload.data?.renderData || payload.data?.render || [];
-  }
-
-  function getDocumentPath(doc) {
-    if (!doc || typeof doc !== "object") return null;
-    return (
-      doc.filePath ||
-      doc.file_path ||
-      doc.sourcePath ||
-      doc.source_path ||
-      doc.path ||
-      doc.file ||
-      null
-    );
-  }
-
-  function buildDocumentPathMap(graphData) {
-    var map = new Map();
-    var documents = graphData && Array.isArray(graphData.documents) ? graphData.documents : [];
-    for (var i = 0; i < documents.length; i++) {
-      var doc = documents[i];
-      if (!doc || !doc.id) continue;
-      var path = getDocumentPath(doc);
-      if (path) {
-        map.set(doc.id, path);
-      }
-    }
-    return map;
   }
 
   function findAnchor(target) {
@@ -101,6 +63,40 @@
     if (typeof window.__supersigilAction === "function") {
       window.__supersigilAction(action);
     }
+  }
+
+  function sendRequest(method, params) {
+    return new Promise(function (resolve, reject) {
+      if (typeof window.__supersigilQuery !== "function") {
+        reject(new Error("Supersigil query bridge is unavailable"));
+        return;
+      }
+
+      window.__supersigilQuery(
+        JSON.stringify({
+          method: method,
+          params: params || {},
+        }),
+        function (response) {
+          resolve(parsePayload(response));
+        },
+        function (_code, message) {
+          reject(new Error(message || "Supersigil query failed"));
+        }
+      );
+    });
+  }
+
+  function ensureInitialContextPromise() {
+    if (state.initialContext) {
+      return Promise.resolve(state.initialContext);
+    }
+    if (!state.initialContextPromise) {
+      state.initialContextPromise = new Promise(function (resolve) {
+        state.resolveInitialContext = resolve;
+      });
+    }
+    return state.initialContextPromise;
   }
 
   function attachEvidenceClickHandler() {
@@ -129,112 +125,88 @@
     );
   }
 
-  function injectOpenFileButton(container) {
-    var headers = container.querySelectorAll(".detail-panel-header");
-    for (var i = 0; i < headers.length; i++) {
-      var header = headers[i];
-      if (header.querySelector(".open-file-btn")) continue;
-
-      var titleEl = header.querySelector(".detail-panel-title");
-      if (!titleEl) continue;
-
-      var docId = (titleEl.textContent || "").trim();
-      if (!docId) continue;
-
-      var path = state.docPathById.get(docId);
-      if (!path) continue;
-
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "open-file-btn";
-      button.textContent = "Open File";
-      button.title = "Open " + path;
-      (function (buttonPath) {
-        button.addEventListener("click", function () {
-          sendAction(buildOpenFileAction(buttonPath, 1));
-        });
-      })(path);
-
-      var closeButton = header.querySelector(".detail-panel-close");
-      if (closeButton) {
-        header.insertBefore(button, closeButton);
-      } else {
-        header.appendChild(button);
-      }
-    }
-  }
-
-  function setupObserver() {
-    if (state.observer || typeof MutationObserver === "undefined") return;
-
-    var container = getContainer();
-    if (!container || !container.nodeType) return;
-
-    state.observer = new MutationObserver(function () {
-      injectOpenFileButton(container);
-    });
-
-    state.observer.observe(container, {
-      childList: true,
-      subtree: true,
-    });
-  }
-
   function ensureBooted() {
     if (state.booted) return;
     state.booted = true;
     attachEvidenceClickHandler();
-    setupObserver();
   }
 
-  function mountExplorer(graphData, renderData) {
+  function createTransport() {
+    return {
+      getInitialContext: function () {
+        return ensureInitialContextPromise();
+      },
+      loadSnapshot: function (rootId) {
+        return sendRequest("loadSnapshot", { rootId: rootId });
+      },
+      loadDocument: function (input) {
+        return sendRequest("loadDocument", input);
+      },
+      subscribeChanges: function (listener) {
+        state.changeListeners.push(listener);
+        return function () {
+          state.changeListeners = state.changeListeners.filter(function (candidate) {
+            return candidate !== listener;
+          });
+        };
+      },
+      openFile: function (target) {
+        if (!target) return;
+        if (target.path) {
+          sendAction(buildOpenFileAction(target.path, target.line || 1));
+          return;
+        }
+        if (target.uri) {
+          sendAction(buildOpenFileUriAction(target.uri, target.line || 1));
+        }
+      },
+    };
+  }
+
+  function boot() {
+    ensureBooted();
+    if (state.currentApp) return;
+
     var explorer = getExplorer();
     if (!explorer) return;
 
     var container = getContainer();
     if (!container) return;
 
-    var preservedHash = window.location.hash;
-
-    if (state.currentHandle && typeof state.currentHandle.unmount === "function") {
-      state.currentHandle.unmount();
-    }
-
-    applyHash(preservedHash);
-    container.innerHTML = "";
-    state.docPathById = buildDocumentPathMap(graphData);
-
-    var handle = explorer.mount(container, graphData, renderData, null, {
-      evidenceLink: function (path, line) {
-        return EVIDENCE_PREFIX + buildOpenFileAction(path, line);
+    state.currentApp = explorer.createExplorerApp(container, createTransport(), {
+      linkResolver: {
+        evidenceLink: function (path, line) {
+          return EVIDENCE_PREFIX + buildOpenFileAction(path, line);
+        },
+        documentLink: function (docId) {
+          return "#/doc/" + encodeURIComponent(docId);
+        },
+        criterionLink: function (docId, _criterionId) {
+          return "#/doc/" + encodeURIComponent(docId);
+        },
       },
-      documentLink: function (docId) {
-        return "#/doc/" + encodeURIComponent(docId);
-      },
-      criterionLink: function (docId, _criterionId) {
-        return "#/doc/" + encodeURIComponent(docId);
-      },
-    });
+    }) || null;
 
-    state.currentHandle = handle || null;
-    injectOpenFileButton(container);
+    sendAction("ready");
   }
 
-  window.__supersigilReceiveData = function (json) {
+  window.__supersigilHostReady = function (initialContext) {
     ensureBooted();
 
-    var payload = parsePayload(json);
-    var graphData = getGraphData(payload);
-    var renderData = getRenderData(payload);
-
-    if (!graphData) return;
-
-    mountExplorer(graphData, renderData);
+    state.initialContext = parsePayload(initialContext);
+    if (state.resolveInitialContext) {
+      state.resolveInitialContext(state.initialContext);
+      state.resolveInitialContext = null;
+      state.initialContextPromise = null;
+    }
   };
 
-  function boot() {
-    ensureBooted();
-  }
+  window.__supersigilExplorerChanged = function (event) {
+    var payload = parsePayload(event);
+    for (var i = 0; i < state.changeListeners.length; i += 1) {
+      state.changeListeners[i](payload);
+    }
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

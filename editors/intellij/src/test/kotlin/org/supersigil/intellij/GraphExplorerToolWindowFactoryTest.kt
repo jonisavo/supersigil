@@ -1,5 +1,6 @@
 package org.supersigil.intellij
 
+import com.google.gson.JsonParser
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -8,15 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.FutureTask
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 class GraphExplorerToolWindowFactoryTest {
-    private fun testProjectBasePath(): String = Path.of(System.getProperty("java.io.tmpdir"), "supersigil-graph-explorer-project").toString()
-
     // supersigil: intellij-graph-explorer-availability
     @Test
     fun `availability requires supersigil config and JCEF support`() {
@@ -83,381 +77,186 @@ class GraphExplorerToolWindowFactoryTest {
     }
 
     @Test
-    // supersigil: intellij-graph-explorer-jsquery-bridge
-    fun `document components query resolves and fetches the requested uri`() {
-        val requests = mutableListOf<String>()
-
+    fun `transport query resolves initial context for the shared runtime`() {
         val result =
-            resolveGraphExplorerDocumentComponentsQuery(
-                """{"type":"documentComponents","uri":"file:///doc"}""",
-            ) { uri ->
-                requests += uri
-                """{"fences":[]}"""
-            }
+            resolveGraphExplorerTransportQuery(
+                """{"method":"getInitialContext"}""",
+                projectBasePath = "/tmp/project",
+                focusDocumentPath = "specs/auth/auth.req.md",
+                loadSnapshot = { error("loadSnapshot should not be called") },
+                loadDocument = { _, _ -> error("loadDocument should not be called") },
+            )
 
-        assertEquals(listOf("file:///doc"), requests)
-        assertTrue(result is GraphExplorerDocumentComponentsQueryResult.Success)
-        assertEquals(
-            """{"fences":[]}""",
-            (result as GraphExplorerDocumentComponentsQueryResult.Success).payload,
-        )
+        assertTrue(result is GraphExplorerTransportQueryResult.Success)
+        val payload = JsonParser.parseString((result as GraphExplorerTransportQueryResult.Success).payload).asJsonObject
+        assertEquals("/tmp/project", payload.get("rootId").asString)
+        assertEquals("specs/auth/auth.req.md", payload.get("focusDocumentPath").asString)
+        val availableRoots = payload.getAsJsonArray("availableRoots")
+        assertEquals(1, availableRoots.size())
+        val root = availableRoots.first().asJsonObject
+        assertEquals("/tmp/project", root.get("id").asString)
+        assertEquals("project", root.get("name").asString)
     }
 
     @Test
-    fun `document components query rejects unexpected request types`() {
-        var called = false
+    fun `transport query loads snapshots through the runtime loader`() {
+        val calls = mutableListOf<String>()
 
         val result =
-            resolveGraphExplorerDocumentComponentsQuery(
-                """{"type":"graphData","uri":"file:///doc"}""",
-            ) {
-                called = true
-                null
-            }
+            resolveGraphExplorerTransportQuery(
+                """{"method":"loadSnapshot","params":{"rootId":"/tmp/project"}}""",
+                projectBasePath = "/tmp/project",
+                focusDocumentPath = null,
+                loadSnapshot = { rootId ->
+                    calls += rootId
+                    mapOf("revision" to "42", "documents" to emptyList<Any>(), "edges" to emptyList<Any>())
+                },
+                loadDocument = { _, _ -> error("loadDocument should not be called") },
+            )
 
-        assertFalse(called)
-        assertTrue(result is GraphExplorerDocumentComponentsQueryResult.Error)
+        assertEquals(listOf("/tmp/project"), calls)
+        assertTrue(result is GraphExplorerTransportQueryResult.Success)
+        val payload = JsonParser.parseString((result as GraphExplorerTransportQueryResult.Success).payload).asJsonObject
+        assertEquals("42", payload.get("revision").asString)
     }
 
     @Test
-    // supersigil: intellij-graph-explorer-data-fetch
-    fun `graph data request uses the graph data command`() {
+    fun `transport query loads documents through the runtime loader`() {
+        val calls = mutableListOf<Pair<String, String>>()
+
+        val result =
+            resolveGraphExplorerTransportQuery(
+                """{"method":"loadDocument","params":{"documentId":"auth/req","revision":"99"}}""",
+                projectBasePath = "/tmp/project",
+                focusDocumentPath = null,
+                loadSnapshot = { error("loadSnapshot should not be called") },
+                loadDocument = { documentId, revision ->
+                    calls += documentId to revision
+                    mapOf(
+                        "revision" to revision,
+                        "document_id" to documentId,
+                        "stale" to false,
+                        "fences" to emptyList<Any>(),
+                        "edges" to emptyList<Any>(),
+                    )
+                },
+            )
+
+        assertEquals(listOf("auth/req" to "99"), calls)
+        assertTrue(result is GraphExplorerTransportQueryResult.Success)
+        val payload = JsonParser.parseString((result as GraphExplorerTransportQueryResult.Success).payload).asJsonObject
+        assertEquals("auth/req", payload.get("document_id").asString)
+        assertEquals("99", payload.get("revision").asString)
+    }
+
+    @Test
+    fun `transport query rejects unsupported runtime methods`() {
+        val result =
+            resolveGraphExplorerTransportQuery(
+                """{"method":"reloadEverything"}""",
+                projectBasePath = "/tmp/project",
+                focusDocumentPath = null,
+                loadSnapshot = { error("loadSnapshot should not be called") },
+                loadDocument = { _, _ -> error("loadDocument should not be called") },
+            )
+
+        assertTrue(result is GraphExplorerTransportQueryResult.Error)
+    }
+
+    @Test
+    fun `snapshot request uses the explorer snapshot command`() {
         val seen = mutableListOf<Any?>()
 
         val result =
-            requestGraphExplorerGraphData { params ->
+            requestGraphExplorerSnapshot { params ->
                 seen += params
-                mapOf("documents" to emptyList<Any>(), "edges" to emptyList<Any>())
+                mapOf("revision" to "1", "documents" to emptyList<Any>(), "edges" to emptyList<Any>())
             }
 
         assertEquals(1, seen.size)
         val params = seen.single() as org.eclipse.lsp4j.ExecuteCommandParams
-        assertEquals(COMMAND_GRAPH_DATA, params.command)
+        assertEquals(COMMAND_EXPLORER_SNAPSHOT, params.command)
         assertTrue(params.arguments.isEmpty())
         assertTrue(result is Map<*, *>)
     }
 
     @Test
-    fun `graph data documents are converted into file uris`() {
-        val projectBasePath = testProjectBasePath()
-        val targets =
-            graphExplorerDocumentTargets(
-                mapOf(
-                    "documents" to
-                        listOf(
-                            mapOf("id" to "doc/a", "path" to "specs/doc-a.md"),
-                            mapOf("id" to "doc/b", "path" to "specs/doc-b.md"),
-                        ),
-                    "edges" to emptyList<Any>(),
-                ),
-                projectBasePath,
+    fun `document request uses the explorer document command and revisioned params`() {
+        val seen = mutableListOf<Any?>()
+
+        val result =
+            requestGraphExplorerDocument(
+                documentId = "auth/req",
+                revision = "123",
+            ) { params ->
+                seen += params
+                mapOf("revision" to "123", "document_id" to "auth/req")
+            }
+
+        assertEquals(1, seen.size)
+        val params = seen.single() as org.eclipse.lsp4j.ExecuteCommandParams
+        assertEquals(COMMAND_EXPLORER_DOCUMENT, params.command)
+        assertEquals(1, params.arguments.size)
+        val request = params.arguments.single() as Map<*, *>
+        assertEquals("auth/req", request["document_id"])
+        assertEquals("123", request["revision"])
+        assertTrue(result is Map<*, *>)
+    }
+
+    @Test
+    fun `host ready and change scripts target the shared runtime bridge callbacks`() {
+        val hostReadyScript =
+            graphExplorerHostReadyScript(
+                """{"rootId":"/tmp/project","availableRoots":[{"id":"/tmp/project","name":"project"}]}""",
+            )
+        val changedScript =
+            graphExplorerChangedScript(
+                """{"revision":"2","changed_document_ids":["auth/req"],"removed_document_ids":[]}""",
             )
 
         assertEquals(
-            listOf(
-                GraphExplorerDocumentTarget("doc/a", navigationFileUri(projectBasePath, "specs/doc-a.md")),
-                GraphExplorerDocumentTarget("doc/b", navigationFileUri(projectBasePath, "specs/doc-b.md")),
-            ),
-            targets,
+            """window.__supersigilHostReady({"rootId":"/tmp/project","availableRoots":[{"id":"/tmp/project","name":"project"}]});""",
+            hostReadyScript,
         )
-    }
-
-    @Test
-    // supersigil: intellij-graph-explorer-navigation-paths
-    fun `graph data documents gain absolute file paths for navigation`() {
-        val resolvedGraphData =
-            resolveGraphExplorerDocumentPaths(
-                mapOf(
-                    "documents" to
-                        listOf(
-                            mapOf("id" to "doc/a", "path" to "specs/doc-a.md"),
-                        ),
-                    "edges" to emptyList<Any>(),
-                ),
-                "/tmp/project",
-            ) as Map<*, *>
-
-        val document = (resolvedGraphData["documents"] as List<*>).single() as Map<*, *>
-        assertEquals("specs/doc-a.md", document["path"])
-        assertEquals(Path.of("/tmp/project", "specs/doc-a.md").toString(), document["filePath"])
-    }
-
-    @Test
-    fun `graph data document targets prefer file uri when present`() {
-        val targets =
-            graphExplorerDocumentTargets(
-                mapOf(
-                    "documents" to
-                        listOf(
-                            mapOf(
-                                "id" to "doc/a",
-                                "path" to "../shared/specs/doc-a.md",
-                                "file_uri" to "file:///tmp/shared/specs/doc-a.md",
-                            ),
-                        ),
-                    "edges" to emptyList<Any>(),
-                ),
-                "/tmp/project",
-            )
-
         assertEquals(
-            listOf(GraphExplorerDocumentTarget("doc/a", "file:///tmp/shared/specs/doc-a.md")),
-            targets,
+            """window.__supersigilExplorerChanged({"revision":"2","changed_document_ids":["auth/req"],"removed_document_ids":[]});""",
+            changedScript,
         )
     }
 
     @Test
-    fun `graph data documents derive navigation file path from file uri when present`() {
-        val resolvedGraphData =
-            resolveGraphExplorerDocumentPaths(
-                mapOf(
-                    "documents" to
-                        listOf(
-                            mapOf(
-                                "id" to "doc/a",
-                                "path" to "../shared/specs/doc-a.md",
-                                "file_uri" to "file:///tmp/shared/specs/doc-a.md",
-                            ),
-                        ),
-                    "edges" to emptyList<Any>(),
-                ),
-                "/tmp/project",
-            ) as Map<*, *>
-
-        val document = (resolvedGraphData["documents"] as List<*>).single() as Map<*, *>
-        assertEquals("../shared/specs/doc-a.md", document["path"])
-        assertEquals(Path.of("/tmp/shared/specs/doc-a.md").toString(), document["filePath"])
-    }
-
-    @Test
-    // supersigil: intellij-graph-explorer-bounded-fetch
-    fun `render data fetch respects the semaphore limit`() {
-        val executor = Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "graph-explorer-test").apply { isDaemon = true }
-        }
-        try {
-            val docs =
-                (1..12).map {
-                    GraphExplorerDocumentTarget("doc-$it", "file:///tmp/project/specs/doc-$it.md")
-                }
-            val active = AtomicInteger(0)
-            val maxActive = AtomicInteger(0)
-            val entered = CountDownLatch(10)
-            val release = CountDownLatch(1)
-
-            val helperFuture =
-                executor.submit<List<Any?>> {
-                    fetchGraphExplorerRenderData(
-                        docs,
-                        fetchDocumentComponents = { uri ->
-                            val now = active.incrementAndGet()
-                            maxActive.updateAndGet { current -> maxOf(current, now) }
-                            entered.countDown()
-                            release.await(5, TimeUnit.SECONDS)
-                            active.decrementAndGet()
-                            mapOf("document_id" to uri, "fences" to emptyList<Any>())
-                        },
-                        submit = { task ->
-                            FutureTask<Void>({ task(); null }, null).also(executor::execute)
-                        },
-                    )
-                }
-
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
-            assertEquals(10, maxActive.get())
-            release.countDown()
-
-            val result = helperFuture.get(5, TimeUnit.SECONDS)
-            assertEquals(12, result.size)
-        } finally {
-            executor.shutdownNow()
-        }
-    }
-
-    @Test
-    fun `render data fetch submits no more than the concurrency limit`() {
-        val executor = Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "graph-explorer-test").apply { isDaemon = true }
-        }
-        try {
-            val docs =
-                (1..25).map {
-                    GraphExplorerDocumentTarget("doc-$it", "file:///tmp/project/specs/doc-$it.md")
-                }
-            val submitted = AtomicInteger(0)
-            val entered = CountDownLatch(10)
-            val release = CountDownLatch(1)
-
-            val helperFuture =
-                executor.submit<List<Any?>> {
-                    fetchGraphExplorerRenderData(
-                        docs,
-                        fetchDocumentComponents = { uri ->
-                            entered.countDown()
-                            release.await(5, TimeUnit.SECONDS)
-                            mapOf("document_id" to uri, "fences" to emptyList<Any>())
-                        },
-                        submit = { task ->
-                            submitted.incrementAndGet()
-                            FutureTask<Void>({ task(); null }, null).also(executor::execute)
-                        },
-                    )
-                }
-
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
-            assertEquals(10, submitted.get())
-            release.countDown()
-
-            val result = helperFuture.get(5, TimeUnit.SECONDS)
-            assertEquals(25, result.size)
-        } finally {
-            executor.shutdownNow()
-        }
-    }
-
-    @Test
-    fun `render data fetch omits failed documents`() {
-        val executor = Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "graph-explorer-test").apply { isDaemon = true }
-        }
-        try {
-            val docs =
-                listOf(
-                    GraphExplorerDocumentTarget("doc-1", "file:///tmp/project/specs/doc-1.md"),
-                    GraphExplorerDocumentTarget("doc-2", "file:///tmp/project/specs/doc-2.md"),
-                    GraphExplorerDocumentTarget("doc-3", "file:///tmp/project/specs/doc-3.md"),
-                )
-
-            val result =
-                fetchGraphExplorerRenderData(
-                    docs,
-                    fetchDocumentComponents = { uri ->
-                        if (uri.endsWith("doc-2.md")) {
-                            throw IllegalStateException("boom")
-                        }
-                        mapOf("document_id" to uri, "fences" to emptyList<Any>())
-                    },
-                    submit = { task ->
-                        FutureTask<Void>({ task(); null }, null).also(executor::execute)
-                    },
-                )
-
-            assertEquals(2, result.size)
-            assertEquals(
-                listOf("file:///tmp/project/specs/doc-1.md", "file:///tmp/project/specs/doc-3.md"),
-                result.map { (it as Map<*, *>)["document_id"] },
-            )
-        } finally {
-            executor.shutdownNow()
-        }
-    }
-
-    @Test
-    fun `payload assembly and push script include graph and render data`() {
-        val payload =
-            assembleGraphExplorerPayloadJson(
-                graphData =
-                    mapOf(
-                        "documents" to
-                            listOf(
-                                mapOf("id" to "doc/a", "path" to "specs/doc-a.md"),
-                            ),
-                        "edges" to emptyList<Any>(),
+    fun `changed event merge unions document ids and keeps the newest revision`() {
+        val merged =
+            mergeGraphExplorerChangedEvents(
+                current =
+                    ExplorerChangedEvent(
+                        revision = "1",
+                        changedDocumentIds = listOf("auth/req"),
+                        removedDocumentIds = listOf("auth/tasks"),
                     ),
-                renderData =
-                    listOf(
-                        mapOf("document_id" to "doc/a", "fences" to emptyList<Any>()),
+                next =
+                    ExplorerChangedEvent(
+                        revision = "2",
+                        changedDocumentIds = listOf("auth/design", "auth/req"),
+                        removedDocumentIds = listOf("auth/tasks", "auth/adr"),
                     ),
             )
-        val script = graphExplorerReceiveDataScript(payload)
 
-        assertTrue(script.startsWith("window.__supersigilReceiveData("))
-        assertTrue(script.contains("\"graphData\""))
-        assertTrue(script.contains("\"renderData\""))
-        assertTrue(script.contains("\"document_id\":\"doc/a\""))
+        assertEquals("2", merged.revision)
+        assertEquals(listOf("auth/design", "auth/req"), merged.changedDocumentIds)
+        assertEquals(listOf("auth/adr", "auth/tasks"), merged.removedDocumentIds)
     }
 
     @Test
-    // supersigil: intellij-graph-explorer-data-push
-    fun `graph explorer push executes receive data script with assembled payload`() {
-        val executor = Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "graph-explorer-test").apply { isDaemon = true }
-        }
-        try {
-            val projectBasePath = testProjectBasePath()
-            val scripts = mutableListOf<String>()
+    fun `action dispatch opens file uris through navigation utilities`() {
+        val fileCalls = mutableListOf<Pair<String, Int>>()
 
-            val pushed =
-                pushGraphExplorerData(
-                    projectBasePath = projectBasePath,
-                    fetchGraphData = {
-                        mapOf(
-                            "documents" to
-                                listOf(
-                                    mapOf("id" to "doc/a", "path" to "specs/doc-a.md"),
-                                ),
-                            "edges" to emptyList<Any>(),
-                        )
-                    },
-                    fetchDocumentComponents = { uri: String ->
-                        mapOf("document_id" to uri, "fences" to emptyList<Any>())
-                    },
-                    submit = { task: () -> Unit ->
-                        FutureTask<Void>({ task(); null }, null).also(executor::execute)
-                    },
-                    executeScript = { script -> scripts.add(script) },
-                )
-
-            assertTrue(pushed)
-            assertEquals(1, scripts.size)
-            assertTrue(scripts.single().startsWith("window.__supersigilReceiveData("))
-            assertTrue(scripts.single().contains("\"graphData\""))
-            assertTrue(scripts.single().contains("\"renderData\""))
-        assertTrue(
-            scripts.single().contains(
-                "\"document_id\":\"${navigationFileUri(projectBasePath, "specs/doc-a.md")}\"",
-            ),
-        )
-        } finally {
-            executor.shutdownNow()
-        }
-    }
-
-    @Test
-    fun `refresh attempt starts the server and schedules retry when graph push is not ready`() {
-        var ensureCalls = 0
-        var pushCalls = 0
-        var retryCalls = 0
-
-        runGraphExplorerRefreshAttempt(
-            hasServers = false,
-            ensureServerStarted = { ensureCalls += 1 },
-            pushGraphData = {
-                pushCalls += 1
-                false
-            },
-            scheduleRetry = { retryCalls += 1 },
+        dispatchGraphExplorerAction(
+            "open-file-uri:file:///tmp/shared/specs/doc-a.md:7",
+            openFile = { path, line -> fileCalls += path to line },
         )
 
-        assertEquals(1, ensureCalls)
-        assertEquals(1, pushCalls)
-        assertEquals(1, retryCalls)
-    }
-
-    @Test
-    fun `refresh attempt skips retry after a successful graph push`() {
-        var ensureCalls = 0
-        var retryCalls = 0
-
-        runGraphExplorerRefreshAttempt(
-            hasServers = true,
-            ensureServerStarted = { ensureCalls += 1 },
-            pushGraphData = { true },
-            scheduleRetry = { retryCalls += 1 },
-        )
-
-        assertEquals(0, ensureCalls)
-        assertEquals(0, retryCalls)
+        assertEquals(listOf(Path.of("/tmp/shared/specs/doc-a.md").toString() to 7), fileCalls)
     }
 
     @Test
@@ -472,38 +271,6 @@ class GraphExplorerToolWindowFactoryTest {
 
         assertEquals(1, cancelCalls)
         assertEquals(listOf(200), scheduledDelays)
-    }
-
-    @Test
-    // supersigil: intellij-graph-explorer-live-updates
-    fun `documents changed requests a refresh when the tool window is visible`() {
-        var refreshRequests = 0
-        var staleMarks = 0
-
-        handleGraphExplorerDocumentsChanged(
-            isVisible = true,
-            requestRefresh = { refreshRequests += 1 },
-            markStale = { staleMarks += 1 },
-        )
-
-        assertEquals(1, refreshRequests)
-        assertEquals(0, staleMarks)
-    }
-
-    @Test
-    // supersigil: intellij-graph-explorer-live-updates
-    fun `documents changed marks the explorer stale when the tool window is hidden`() {
-        var refreshRequests = 0
-        var staleMarks = 0
-
-        handleGraphExplorerDocumentsChanged(
-            isVisible = false,
-            requestRefresh = { refreshRequests += 1 },
-            markStale = { staleMarks += 1 },
-        )
-
-        assertEquals(0, refreshRequests)
-        assertEquals(1, staleMarks)
     }
 
     @Test

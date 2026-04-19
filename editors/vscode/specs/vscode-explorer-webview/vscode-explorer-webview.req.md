@@ -18,13 +18,13 @@ The webview reuses the existing website explorer modules
 the extension. Data comes from the LSP (not static JSON), so the
 graph stays live as specs change.
 
-Scope: a new LSP endpoint for graph data, a VS Code webview panel
-hosting the explorer, a message protocol for editor integration
-("open file" actions), the build pipeline to bundle the explorer
-modules into the extension, relocation of the Spec Explorer tree
-view to the built-in Explorer sidebar, multi-instance graph panels
-with per-root scoping and auto-focus, and a root selector dropdown
-for switching roots within a panel.
+Scope: revisioned explorer snapshot and document data from the LSP,
+a VS Code webview panel hosting the shared explorer runtime,
+transport-bridge integration for editor actions, the build pipeline
+to bundle the explorer modules into the extension, relocation of the
+Spec Explorer tree view to the built-in Explorer sidebar,
+multi-instance graph panels with per-root scoping and auto-focus,
+and a root selector dropdown for switching roots within a panel.
 
 Minor adaptations to the explorer modules for host integration
 (e.g. accepting an external link resolver, adding an "Open File"
@@ -35,7 +35,7 @@ Out of scope: IntelliJ webview (follow-up work), new explorer
 features beyond what the website already provides.
 
 ```supersigil-xml
-<References refs="graph-explorer/req, spec-rendering/req, spec-explorer/req" />
+<References refs="graph-explorer-runtime/req, graph-explorer/req, spec-rendering/req, spec-explorer/req" />
 ```
 
 ## Definitions
@@ -44,60 +44,57 @@ features beyond what the website already provides.
   `website/src/components/explore/` that implement the graph
   visualization, detail panel, filtering, search, impact trace,
   and URL routing.
-- **Graph data**: The `GraphJson` shape (`{ documents, edges }`)
-  produced by `build_graph_json` in the CLI crate. Contains document
-  nodes with ID, type, status, title, project, path, and components,
-  plus edges with from/to/kind. The `path` field is a
-  workspace-folder-relative file path added for editor integration (not
-  present in the current CLI-only `GraphJson`).
-- **Render data**: Per-document component trees with verification
-  status, produced by the `documentComponents` endpoint. The array
-  shape `[{ document_id, fences, edges }]` matches what the website
-  explorer's `mount()` function expects as `renderData`.
+- **ExplorerSnapshot**: The revisioned first-paint payload returned by
+  `supersigil/explorerSnapshot`. Contains document summaries, graph
+  edges, coverage summaries, and graph component outlines for the
+  shared runtime.
+- **ExplorerDocument**: The revisioned per-document detail payload
+  returned by `supersigil/explorerDocument`. Contains the selected
+  document's fenced component tree and related edges.
 - **Message protocol**: The `postMessage` API between the VS Code
-  extension host and the webview, used to push graph data in and
-  receive panel-lifecycle actions (`ready`, `switchRoot`) out.
+  extension host and the webview, used to bootstrap the runtime
+  (`ready`, `hostReady`), service transport requests
+  (`request` / `response`), and forward change notifications
+  (`explorerChanged`).
 - **Open-file command URI**: A `command:supersigil.openGraphFile`
   link whose JSON arguments tell the extension which file or line
   to open. These links are global to the extension, so they keep
   working even if the webview's panel-local message bridge is lost
   during an extension-host restart.
 
-## Requirement 1: LSP Graph Data Endpoint
+## Requirement 1: LSP Explorer Runtime Contract
 
-As an editor extension, I need the LSP to provide the full document
-graph in a single request, so that the webview can render the
-explorer without shelling out to the CLI.
+As an editor extension, I need the LSP to provide revisioned
+snapshot and document-detail data for the shared runtime, so that
+the webview can render and update the explorer without shelling out
+to the CLI or batching full workspace detail.
 
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-1-1">
-    THE LSP server SHALL handle a custom `supersigil/graphData`
-    request that accepts no parameters and returns a JSON payload
-    matching the `GraphJson` schema: a `documents` array and an
-    `edges` array.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/graph_data.rs" />
+    THE LSP server SHALL handle the graph explorer shell request via
+    `supersigil/explorerSnapshot`, returning a revisioned JSON payload
+    with a `documents` array and an `edges` array for the webview runtime.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs" />
   </Criterion>
   <Criterion id="req-1-2">
-    Each document in the response SHALL include `id`, `doc_type`,
-    `status`, `title`, `project`, `path` (workspace-folder-relative file
-    path), and `components`. Each edge SHALL include `from`, `to`,
-    and `kind`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/graph_json.rs" />
+    Each snapshot document summary SHALL include `id`, `doc_type`,
+    `status`, `title`, `project`, `path`, `file_uri`,
+    `coverage_summary`, `component_count`, and a graph component
+    outline. Each edge SHALL include `from`, `to`, and `kind`.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/explorer_runtime.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs" />
   </Criterion>
   <Criterion id="req-1-3">
-    THE `build_graph_json` function SHALL be available to the LSP
-    crate. It SHALL be moved or re-exported from a shared location
-    (not remain private to the CLI crate).
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/graph_json.rs" />
+    THE explorer runtime payload builders SHALL live in shared
+    verify/LSP code rather than a CLI-only graph-export path.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/explorer_runtime.rs, crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs" />
   </Criterion>
   <Criterion id="req-1-4">
-    THE extension SHALL also fetch render data for all documents
-    by calling the existing `supersigil/documentComponents` endpoint
-    for each document in the graph response. The results SHALL be
-    assembled into the render data array shape expected by the
-    explorer's `mount()` function.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerWebview.ts" />
+    THE extension and shared runtime SHALL load document detail on
+    demand through `supersigil/explorerDocument` for the selected
+    document instead of prefetching a workspace-wide render-data
+    batch before first paint.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerWebview.ts, website/src/components/explore/explorer-app.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -124,16 +121,12 @@ relationships and drill into document details inside the editor.
     is no singleton behavior.
   </Criterion>
   <Criterion id="req-2-3">
-    THE webview SHALL load the bundled explorer modules and call the
-    `mount()` function with graph data, render data, and a
-    host-provided link resolver. THE link resolver SHALL generate
-    evidence links using the registered `command:supersigil.openGraphFile`
-    URI and hash-based URIs for in-explorer document navigation.
-    THE webview bootstrap script MAY preserve interception for the
-    legacy `supersigil-evidence:` scheme as a compatibility fallback,
-    but the primary file-opening path SHALL be the command URI.
-    In-explorer document navigation (node selection, edge clicks)
-    SHALL proceed normally without interception.
+    THE webview SHALL load the bundled explorer modules and create
+    the shared explorer runtime once per panel, providing a
+    host-backed transport plus a host-provided link resolver for
+    evidence links. In-explorer document navigation (node selection,
+    edge clicks) SHALL proceed through the shared runtime without
+    bootstrap-level interception.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.ts, editors/vscode/src/explorerBootstrap.test.ts" />
   </Criterion>
   <Criterion id="req-2-4">
@@ -172,24 +165,21 @@ that the webview always reflects the current project state.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-3-1">
-    WHEN the extension receives a `supersigil/documentsChanged`
-    notification from an LSP client, THE extension SHALL re-fetch
-    graph data and render data and push an update to every open
-    webview panel whose root matches the notifying client's
-    workspace folder, provided the panel is visible. WHEN a panel
-    transitions from hidden to visible (via `onDidChangeViewState`),
-    THE extension SHALL re-fetch data to cover changes missed while
-    the panel was hidden.
+    WHEN the extension receives a `supersigil/explorerChanged`
+    notification from an LSP client, THE extension SHALL forward the
+    revisioned change event to every open webview panel whose root
+    matches the notifying client's workspace folder, provided the
+    panel is visible. WHEN a panel transitions from hidden to
+    visible (via `onDidChangeViewState`), THE extension SHALL refresh
+    runtime state to cover changes missed while the panel was hidden.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts, editors/vscode/src/explorerWebview.ts" />
   </Criterion>
   <Criterion id="req-3-2">
-    THE webview SHALL handle incoming data updates by clearing the
-    explorer container and calling `mount()` with the new data. THE
-    bootstrap script SHALL capture the current view state (selected
-    document ID, filter state, hash) before clearing and restore it
-    after re-mounting via the URL router's hash-based state
-    restoration.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.ts, website/src/components/explore/graph-explorer.js" />
+    THE webview SHALL handle incoming data updates through the shared
+    runtime by reloading snapshot state, invalidating only affected
+    detail entries, and preserving current selection and hash state
+    without clearing the explorer container for a host-driven remount.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.ts, website/src/components/explore/explorer-app.js" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -204,17 +194,16 @@ visualization to code without manual file searching.
 <AcceptanceCriteria>
   <Criterion id="req-4-1">
     THE detail panel SHALL include an "Open File" button in the
-    document header. Clicking it SHALL invoke the registered
-    `supersigil.openGraphFile` command so the corresponding spec file
-    opens in the editor even after an extension-host restart.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts" />
+    document header. Clicking it SHALL route through the runtime's
+    host transport so the corresponding spec file opens in the editor.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer-mount.test.js, editors/vscode/src/explorerBootstrap.ts, editors/vscode/src/explorerWebview.test.ts" />
   </Criterion>
   <Criterion id="req-4-2">
     Evidence source links (test file + line number) in the detail
     panel SHALL be clickable. Clicking one SHALL invoke the registered
-    `supersigil.openGraphFile` command so the file opens at the
+    `supersigil.openGraphFile` command URI so the file opens at the
     specified line even after an extension-host restart.
-    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts" />
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts, editors/vscode/src/explorerWebview.ts" />
   </Criterion>
   <Criterion id="req-4-3">
     Document links in edges and criterion references SHALL navigate
@@ -240,14 +229,12 @@ testable.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-5-1">
-    THE extension SHALL send messages of type `graphData` to the
-    webview containing the graph JSON, render data array, the
-    current root (`{ uri, name }`), the list of available roots
-    (`[{ uri, name }]`), an optional `focusDocumentId` field, and
-    an `isRootSwitch` boolean (true when the message results from
-    a root switch). This message SHALL be sent when the bootstrap
-    sends a `ready` message and on each `documentsChanged`
-    notification.
+    THE extension SHALL send `hostReady` to the webview after the
+    bootstrap sends `ready`, including the current `rootId`,
+    available roots, and optional focused document path. The webview
+    SHALL request `loadSnapshot` and `loadDocument` through `request`
+    messages, and THE extension SHALL answer with `response` and
+    `explorerChanged` messages carrying revisioned runtime payloads.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerWebview.test.ts" />
   </Criterion>
   <Criterion id="req-5-2">
@@ -261,14 +248,13 @@ testable.
     <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts, editors/vscode/src/explorerWebview.test.ts, editors/vscode/src/extension.ts" />
   </Criterion>
   <Criterion id="req-5-3">
-    THE webview SHALL send messages of type `switchRoot` to the
-    extension containing a `folderUri` field. THE extension SHALL
-    validate the `folderUri` against the running clients map and
-    reject unknown or non-running roots. On success, THE extension
-    SHALL update the panel's root, re-fetch data from the new
-    root's LSP client, and push a fresh `graphData` message with
-    `isRootSwitch: true`. THE webview SHALL do a clean remount
-    with no state preservation (hash cleared).
+    THE shared runtime SHALL own root switching inside the webview.
+    WHEN the active root changes, THE webview SHALL request
+    `loadSnapshot` for the selected `rootId` through the transport
+    bridge. THE extension SHALL validate the requested root against
+    the running clients map and serve snapshot and document requests
+    from that root without a host-driven remount.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/explorerBootstrap.test.ts, editors/vscode/src/explorerWebview.test.ts" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -368,17 +354,20 @@ panel, so that I can quickly navigate between workspace roots.
     its toolbar (inside the webview, alongside the filter bar).
     THE dropdown SHALL list all workspace folders that have a
     running LSP client.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer-mount.test.js" />
   </Criterion>
   <Criterion id="req-9-2">
     WHEN the user selects a different root from the dropdown, THE
-    webview SHALL send a `switchRoot` message to the extension. THE
-    extension SHALL update the panel's root and push fresh graph
-    data. THE webview SHALL do a clean remount with no state
-    preservation.
+    shared explorer runtime SHALL request a fresh snapshot for the
+    selected root through the host transport. THE prior root's
+    selection and revision-scoped detail state SHALL be cleared
+    before rendering the new root.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/explorer-app.test.js" />
   </Criterion>
   <Criterion id="req-9-3">
     WHEN only one workspace root has a running LSP client, THE root
     selector dropdown SHALL be hidden.
+    <VerifiedBy strategy="file-glob" paths="website/src/components/explore/graph-explorer-mount.test.js" />
   </Criterion>
   <Criterion id="req-9-4">
     THE explorer bar (filter bar) SHALL wrap its children when

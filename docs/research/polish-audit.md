@@ -1,33 +1,9 @@
 # Polish Audit
 
-*April 2026 — v0.11.0*
+*April 2026 — v0.12.0*
 
 UX gaps, rough edges, and improvement opportunities across the CLI, editors,
 documentation, and onboarding experience.
-
-## LSP and Editor Integration
-
-### Graph Explorer Initial Load
-
-The graph explorer's first paint is heavier than the spec list in both
-IntelliJ and VS Code. Today both editors fetch `graphData`, then wait for a
-full `documentComponents` / `renderData` batch before the first mount. That
-means larger workspaces pay the full per-document hydration cost up front,
-even when the user only needs the graph shell at first.
-
-This is not an IntelliJ-only regression. The current architecture is shared in
-practice across both editor integrations, so the fix should be designed once
-and applied to both editors rather than patched ad hoc in one host.
-
-**Likely follow-up options:**
-- Two-phase load: mount immediately from `graphData`, then push a second update
-  once `renderData` finishes.
-- True lazy hydration: fetch `documentComponents` only for the selected
-  document, or incrementally in the background.
-
-The first option is the smaller change. The second is the more principled
-design, but it likely requires a shared update model in the explorer modules
-rather than a host-only tweak.
 
 ## Config Editing Experience
 

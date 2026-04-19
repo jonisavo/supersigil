@@ -2,7 +2,7 @@
 supersigil:
   id: vscode-explorer-webview/design
   type: design
-  status: approved
+  status: superseded
 title: "VS Code Explorer Webview"
 ---
 
@@ -15,10 +15,13 @@ title: "VS Code Explorer Webview"
 ```
 
 ```supersigil-xml
-<TrackedFiles paths="crates/supersigil-lsp/src/graph_data.rs, editors/vscode/src/explorerWebview.ts, editors/vscode/src/explorerBootstrap.ts, editors/vscode/esbuild.mjs, editors/vscode/package.json, website/src/components/explore/graph-explorer.js, website/src/components/explore/styles.css" />
+<TrackedFiles paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, editors/vscode/src/explorerWebview.ts, editors/vscode/src/explorerBootstrap.ts, editors/vscode/esbuild.mjs, editors/vscode/package.json, website/src/components/explore/graph-explorer.js, website/src/components/explore/styles.css" />
 ```
 
 ## Overview
+
+Historical design for the original VS Code webview integration. The
+current runtime architecture is specified by `graph-explorer-runtime/design`.
 
 Three layers: a new LSP endpoint that serves the full graph JSON,
 extension host code that manages the webview lifecycle and data flow,

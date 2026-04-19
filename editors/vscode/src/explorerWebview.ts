@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
-import { METHOD_GRAPH_DATA, METHOD_DOCUMENT_COMPONENTS } from "./specExplorer";
+import {
+  METHOD_EXPLORER_DOCUMENT,
+  METHOD_EXPLORER_SNAPSHOT,
+} from "./specExplorer";
 import {
   OPEN_GRAPH_FILE_COMMAND,
   type OpenGraphFileTarget,
@@ -10,7 +13,7 @@ import {
 // LSP response types
 // ---------------------------------------------------------------------------
 
-export interface GraphDocument {
+export interface ExplorerDocumentSummary {
   id: string;
   doc_type: string;
   status: string | null;
@@ -18,19 +21,30 @@ export interface GraphDocument {
   project: string | null;
   path: string;
   file_uri?: string | null;
-  components: unknown[];
+  coverage_summary: { verified: number; total: number };
+  component_count: number;
+  graph_components: unknown[];
 }
 
-interface GraphDataResult {
-  documents: GraphDocument[];
+interface ExplorerSnapshotResult {
+  revision: string;
+  documents: ExplorerDocumentSummary[];
   edges: { from: string; to: string; kind: string }[];
 }
 
-interface DocumentComponentsResult {
+interface ExplorerDocumentResult {
+  revision: string;
   document_id: string;
   stale: boolean;
   fences: unknown[];
   edges: unknown[];
+}
+
+export interface ExplorerChangedEvent {
+  rootId?: string;
+  revision: string;
+  changed_document_ids: string[];
+  removed_document_ids: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -51,8 +65,6 @@ const JS_FILES = [
   "bootstrap.js",
 ];
 
-const CONCURRENCY_LIMIT = 10;
-
 // ---------------------------------------------------------------------------
 // Multi-instance panel state
 // ---------------------------------------------------------------------------
@@ -61,8 +73,14 @@ export interface ExplorerPanel {
   panel: vscode.WebviewPanel;
   folderUri: vscode.Uri;
   clientKey: string;
-  refreshGeneration: number;
+  pendingClientKey: string | null;
   staleWhileHidden: boolean;
+  contextDirtyWhileHidden: boolean;
+  ready: boolean;
+  initialized: boolean;
+  pendingFocusPath: string | null;
+  pendingChangeEvents: Map<string, ExplorerChangedEvent>;
+  availableRootsSignature: string;
 }
 
 export const openPanels: ExplorerPanel[] = [];
@@ -127,7 +145,9 @@ export function openExplorerPanel(
     ? vscode.workspace.getWorkspaceFolder(activeUri)
     : undefined;
   const activeRelPath =
-    activeUri && activeFolder?.uri.toString() === clientKey
+    activeUri &&
+    activeFolder?.uri.toString() === clientKey &&
+    isPotentialSpecDocumentPath(activeUri.path)
       ? vscode.workspace.asRelativePath(activeUri, false)
       : null;
 
@@ -189,29 +209,51 @@ function wirePanel(
     panel,
     folderUri,
     clientKey,
-    refreshGeneration: 0,
+    pendingClientKey: null,
     staleWhileHidden: false,
+    contextDirtyWhileHidden: false,
+    ready: false,
+    initialized: false,
+    pendingFocusPath,
+    pendingChangeEvents: new Map(),
+    availableRootsSignature: "",
   };
-
-  let focusPath = pendingFocusPath;
 
   openPanels.push(entry);
 
-  panel.webview.onDidReceiveMessage((msg: { type: string; path?: string; uri?: string; line?: number; folderUri?: string }) => {
+  panel.webview.onDidReceiveMessage((msg: {
+    type: string;
+    path?: string;
+    uri?: string;
+    line?: number;
+    rootId?: string;
+    requestId?: number;
+    method?: string;
+    params?: {
+      rootId?: string;
+      revision?: string;
+      documentId?: string;
+    };
+  }) => {
     if (msg.type === "ready") {
+      entry.ready = true;
       if (panel.visible) {
-        pushData(entry, clients, { focusPath });
-        focusPath = null;
+        void postHostReady(entry, clients);
       } else {
         entry.staleWhileHidden = true;
       }
       return;
     }
-    if (msg.type === "switchRoot") {
-      const newClientKey = msg.folderUri!;
-      const newClient = clients.get(newClientKey);
-      if (!newClient?.isRunning()) return;
-      pushData(entry, clients, { switchToKey: newClientKey });
+    if (msg.type === "request" && typeof msg.requestId === "number") {
+      void handleTransportRequest(entry, clients, {
+        requestId: msg.requestId,
+        method: msg.method,
+        params: msg.params,
+      });
+      return;
+    }
+    if (msg.type === "commitRoot" && typeof msg.rootId === "string") {
+      commitPanelRoot(entry, msg.rootId);
       return;
     }
     if (msg.type === "openFile") {
@@ -222,8 +264,26 @@ function wirePanel(
   panel.onDidChangeViewState((e) => {
     if (e.webviewPanel.visible && entry.staleWhileHidden) {
       entry.staleWhileHidden = false;
-      pushData(entry, clients, { focusPath });
-      focusPath = null;
+      if (!entry.initialized) {
+        void postHostReady(entry, clients);
+      } else {
+        const hadPendingContextRefresh = entry.contextDirtyWhileHidden;
+        entry.contextDirtyWhileHidden = false;
+        if (hadPendingContextRefresh) {
+          postHostContextChanged(entry, clients);
+        }
+        const pendingEvents = [...entry.pendingChangeEvents.values()];
+        entry.pendingChangeEvents.clear();
+        if (pendingEvents.length === 0) {
+          if (!hadPendingContextRefresh) {
+            postExplorerChanged(entry, emptyExplorerChangedEvent());
+          }
+          return;
+        }
+        for (const pendingEvent of pendingEvents) {
+          postExplorerChanged(entry, pendingEvent);
+        }
+      }
     }
   });
 
@@ -240,91 +300,263 @@ function wirePanel(
 export function refreshPanelsForClient(
   clientKey: string,
   clients: Map<string, LanguageClient>,
+  event: ExplorerChangedEvent = emptyExplorerChangedEvent(),
 ): void {
   for (const entry of openPanels) {
-    if (entry.clientKey !== clientKey) continue;
-    if (entry.panel.visible) {
-      pushData(entry, clients);
-    } else {
-      entry.staleWhileHidden = true;
+    const rootsChanged = availableRootsSignature(availableRootsForClients(clients))
+      !== entry.availableRootsSignature;
+    if (rootsChanged) {
+      if (!entry.ready) {
+        continue;
+      }
+      if (!entry.panel.visible) {
+        entry.staleWhileHidden = true;
+        entry.contextDirtyWhileHidden = true;
+      } else if (entry.initialized) {
+        postHostContextChanged(entry, clients);
+      }
     }
+    if (entry.clientKey !== clientKey && entry.pendingClientKey !== clientKey) {
+      continue;
+    }
+    if (!entry.ready) continue;
+    if (!entry.panel.visible) {
+      entry.staleWhileHidden = true;
+      queuePendingChangeEvent(entry, {
+        ...event,
+        rootId: clientKey,
+      });
+      continue;
+    }
+    if (!entry.initialized) {
+      void postHostReady(entry, clients);
+      continue;
+    }
+    postExplorerChanged(entry, event, clientKey);
   }
 }
 
-// ---------------------------------------------------------------------------
-// pushData — fetches graph data and posts to a single panel
-// ---------------------------------------------------------------------------
-
-interface PushDataOptions {
-  focusPath?: string | null;
-  /** When set, perform an atomic root switch: fetch using this key,
-   *  then update entry.folderUri/clientKey/title on success. */
-  switchToKey?: string;
+function emptyExplorerChangedEvent(): ExplorerChangedEvent {
+  return {
+    revision: "",
+    changed_document_ids: [],
+    removed_document_ids: [],
+  };
 }
 
-async function pushData(
+function mergeExplorerChangedEvents(
+  current: ExplorerChangedEvent | null,
+  next: ExplorerChangedEvent,
+): ExplorerChangedEvent {
+  if (!current) {
+    return next;
+  }
+  const currentHasRevision = Boolean(current.revision);
+  const nextHasRevision = Boolean(next.revision);
+  if (!currentHasRevision && !nextHasRevision) {
+    return {
+      ...emptyExplorerChangedEvent(),
+      rootId: next.rootId ?? current.rootId,
+    };
+  }
+  if (!currentHasRevision) {
+    return next;
+  }
+  if (!nextHasRevision) {
+    return current;
+  }
+  return {
+    rootId: next.rootId ?? current.rootId,
+    revision: next.revision,
+    changed_document_ids: [
+      ...new Set([
+        ...current.changed_document_ids,
+        ...next.changed_document_ids,
+      ]),
+    ],
+    removed_document_ids: [
+      ...new Set([
+        ...current.removed_document_ids,
+        ...next.removed_document_ids,
+      ]),
+    ],
+  };
+}
+
+function queuePendingChangeEvent(
+  entry: ExplorerPanel,
+  event: ExplorerChangedEvent,
+): void {
+  const rootId = event.rootId ?? entry.clientKey;
+  const current = entry.pendingChangeEvents.get(rootId) ?? null;
+  entry.pendingChangeEvents.set(
+    rootId,
+    mergeExplorerChangedEvents(current, {
+      ...event,
+      rootId,
+    }),
+  );
+}
+
+function availableRootsForClients(
+  clients: Map<string, LanguageClient>,
+): Array<{ id: string; name: string }> {
+  const availableRoots: Array<{ id: string; name: string }> = [];
+  for (const [uriStr, client] of clients) {
+    if (client.isRunning()) {
+      availableRoots.push({ id: uriStr, name: folderNameForKey(uriStr) });
+    }
+  }
+  return availableRoots;
+}
+
+function availableRootsSignature(
+  availableRoots: Array<{ id: string; name: string }>,
+): string {
+  return availableRoots
+    .map((root) => `${root.id}\u0000${root.name}`)
+    .join("\n");
+}
+
+async function postHostReady(
   entry: ExplorerPanel,
   clients: Map<string, LanguageClient>,
-  options?: PushDataOptions,
 ): Promise<void> {
-  const isSwitch = !!options?.switchToKey;
-  const targetKey = options?.switchToKey ?? entry.clientKey;
-  const targetFolderUri = isSwitch ? vscode.Uri.parse(targetKey) : entry.folderUri;
-
-  const client = clients.get(targetKey);
+  const client = clients.get(entry.clientKey);
   if (!client?.isRunning()) return;
-
-  const generation = ++entry.refreshGeneration;
-
-  let graphData: GraphDataResult;
-  try {
-    graphData = await client.sendRequest<GraphDataResult>(METHOD_GRAPH_DATA);
-  } catch (err) {
-    vscode.window.showErrorMessage(
-      `Supersigil: Failed to load graph data. ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
-
-  if (generation !== entry.refreshGeneration) return;
-
-  let focusDocumentId: string | undefined;
-  if (options?.focusPath) {
-    const doc = graphData.documents.find((d) => d.path === options.focusPath);
-    if (doc) focusDocumentId = doc.id;
-  }
-
-  const renderData = await fetchAllComponents(client, graphData.documents, targetFolderUri);
-
-  if (generation !== entry.refreshGeneration) return;
   if (!openPanels.includes(entry)) return;
 
-  // Commit root switch only after data is ready
-  if (isSwitch) {
-    entry.folderUri = targetFolderUri;
-    entry.clientKey = targetKey;
-    entry.panel.title = `Spec Explorer (${folderNameForKey(targetKey)})`;
-  }
-
-  const availableRoots: Array<{ uri: string; name: string }> = [];
-  for (const [uriStr, c] of clients) {
-    if (c.isRunning()) {
-      availableRoots.push({ uri: uriStr, name: folderNameForKey(uriStr) });
-    }
-  }
+  entry.initialized = true;
+  entry.contextDirtyWhileHidden = false;
+  entry.pendingChangeEvents.clear();
+  const availableRoots = availableRootsForClients(clients);
+  entry.availableRootsSignature = availableRootsSignature(availableRoots);
 
   entry.panel.webview.postMessage({
-    type: "graphData",
-    graph: graphData,
-    renderData,
-    currentRoot: {
-      uri: isSwitch ? targetKey : entry.clientKey,
-      name: folderNameForKey(isSwitch ? targetKey : entry.clientKey),
+    type: "hostReady",
+    initialContext: {
+      rootId: entry.clientKey,
+      availableRoots,
+      focusDocumentPath: entry.pendingFocusPath ?? undefined,
     },
-    availableRoots,
-    focusDocumentId,
-    isRootSwitch: isSwitch,
   });
+  entry.pendingFocusPath = null;
+}
+
+function postHostContextChanged(
+  entry: ExplorerPanel,
+  clients: Map<string, LanguageClient>,
+): void {
+  const availableRoots = availableRootsForClients(clients);
+  entry.availableRootsSignature = availableRootsSignature(availableRoots);
+  entry.panel.webview.postMessage({
+    type: "hostContextChanged",
+    context: {
+      rootId: entry.clientKey,
+      availableRoots,
+    },
+  });
+}
+
+function postExplorerChanged(
+  entry: ExplorerPanel,
+  event: ExplorerChangedEvent,
+  rootId: string = event.rootId ?? entry.clientKey,
+): void {
+  entry.panel.webview.postMessage({
+    type: "explorerChanged",
+    event: {
+      ...event,
+      rootId,
+    },
+  });
+}
+
+function commitPanelRoot(entry: ExplorerPanel, targetKey: string): void {
+  entry.pendingClientKey = null;
+  if (targetKey === entry.clientKey) {
+    return;
+  }
+  entry.folderUri = vscode.Uri.parse(targetKey);
+  entry.clientKey = targetKey;
+  entry.panel.title = `Spec Explorer (${folderNameForKey(targetKey)})`;
+}
+
+async function handleTransportRequest(
+  entry: ExplorerPanel,
+  clients: Map<string, LanguageClient>,
+  msg: {
+    requestId: number;
+    method?: string;
+    params?: {
+      rootId?: string;
+      revision?: string;
+      documentId?: string;
+    };
+  },
+): Promise<void> {
+  const targetKey = msg.params?.rootId ?? entry.clientKey;
+  try {
+    if (msg.method === "loadSnapshot") {
+      const client = clients.get(targetKey);
+      if (!client?.isRunning()) {
+        throw new Error(`No running Supersigil client for ${targetKey}`);
+      }
+      if (targetKey !== entry.clientKey) {
+        entry.pendingClientKey = targetKey;
+      }
+
+      const snapshot = await client.sendRequest<ExplorerSnapshotResult>(
+        METHOD_EXPLORER_SNAPSHOT,
+      );
+      if (!openPanels.includes(entry)) return;
+
+      entry.panel.webview.postMessage({
+        type: "response",
+        requestId: msg.requestId,
+        result: snapshot,
+      });
+      return;
+    }
+
+    if (msg.method === "loadDocument") {
+      const client = clients.get(targetKey);
+      if (!client?.isRunning()) {
+        throw new Error(`No running Supersigil client for ${targetKey}`);
+      }
+
+      const document = await client.sendRequest<ExplorerDocumentResult>(
+        METHOD_EXPLORER_DOCUMENT,
+        {
+          document_id: msg.params?.documentId ?? "",
+          revision: msg.params?.revision ?? "",
+        },
+      );
+      if (!openPanels.includes(entry)) return;
+
+      entry.panel.webview.postMessage({
+        type: "response",
+        requestId: msg.requestId,
+        result: document,
+      });
+      return;
+    }
+
+    entry.panel.webview.postMessage({
+      type: "response",
+      requestId: msg.requestId,
+      error: `Unsupported explorer request: ${msg.method ?? "unknown"}`,
+    });
+  } catch (err) {
+    if (msg.method === "loadSnapshot" && entry.pendingClientKey === targetKey) {
+      entry.pendingClientKey = null;
+    }
+    entry.panel.webview.postMessage({
+      type: "response",
+      requestId: msg.requestId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,41 +699,6 @@ function isPathSafe(p: string): boolean {
   return !segments.includes("..");
 }
 
-/**
- * Fetch documentComponents for a list of documents with bounded concurrency.
- * Individual failures are tolerated — only successful results are returned.
- */
-async function fetchAllComponents(
-  client: LanguageClient,
-  documents: GraphDocument[],
-  folderUri: vscode.Uri,
-): Promise<DocumentComponentsResult[]> {
-  const results: DocumentComponentsResult[] = [];
-  let idx = 0;
-
-  async function worker(): Promise<void> {
-    while (idx < documents.length) {
-      const doc = documents[idx++];
-      const docUri = doc.file_uri
-        ? vscode.Uri.parse(doc.file_uri)
-        : vscode.Uri.joinPath(folderUri, doc.path);
-      try {
-        const result = await client.sendRequest<DocumentComponentsResult>(
-          METHOD_DOCUMENT_COMPONENTS,
-          { uri: docUri.toString() },
-        );
-        results.push(result);
-      } catch (err) {
-        void err;
-        // Individual failures are tolerated.
-      }
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(CONCURRENCY_LIMIT, documents.length) },
-    () => worker(),
-  );
-  await Promise.all(workers);
-  return results;
+function isPotentialSpecDocumentPath(path: string): boolean {
+  return path.endsWith(".md") || path.endsWith(".mdx");
 }

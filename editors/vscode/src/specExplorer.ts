@@ -8,7 +8,9 @@ import { LanguageClient } from "vscode-languageclient/node";
 export const METHOD_DOCUMENT_LIST = "supersigil/documentList";
 export const METHOD_DOCUMENT_COMPONENTS = "supersigil/documentComponents";
 export const METHOD_DOCUMENTS_CHANGED = "supersigil/documentsChanged";
-export const METHOD_GRAPH_DATA = "supersigil/graphData";
+export const METHOD_EXPLORER_SNAPSHOT = "supersigil/explorerSnapshot";
+export const METHOD_EXPLORER_DOCUMENT = "supersigil/explorerDocument";
+export const METHOD_EXPLORER_CHANGED = "supersigil/explorerChanged";
 
 // ---------------------------------------------------------------------------
 // LSP response types
