@@ -89,8 +89,10 @@ The CLI performs evidence assembly before `verify()` runs:
 5. status check
 
 Rules emit `Finding` values directly. They do not short-circuit one another.
-Project filtering happens after the built-in findings are collected, so rule
-logic still evaluates against the workspace-wide graph and ArtifactGraph.
+Project filtering still governs the final document-scoped findings, but
+selected-project runs may narrow shared test-file inputs and skip out-of-scope
+per-document checks before report assembly. Rule logic still uses the
+workspace-wide graph for reference semantics and any remaining global checks.
 
 ### 3. Report Enrichment
 

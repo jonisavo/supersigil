@@ -59,9 +59,12 @@ graph TD
 6. During ref resolution, consult the source document's project. Non-isolated
    projects may resolve globally; isolated projects may only resolve within the
    same project.
-7. During verification, resolve test files from all configured project test
-   globs, run rules against the workspace graph, then apply any project filter
-   to the reported findings.
+7. During verification, resolve shared test-file inputs from all configured
+   project test globs for workspace-wide runs. When `--project` is supplied,
+   the verifier may instead resolve selected-project test inputs and skip
+   out-of-scope per-document checks that cannot affect the selected project's
+   result. In both cases, rules continue to use the workspace graph for
+   non-isolated resolution and final reporting scope.
 
 ## Key Types
 
@@ -174,8 +177,9 @@ family a project-sized domain of its own.
 - `init` still writes a single-project config. It does not scaffold
   `projects.*`.
 - `new` still writes into root `specs/...` and is not project-aware.
-- CLI parsing for `verify --project` is tested, but there is not yet matching
-  end-to-end CLI coverage for project-filtered `ls` and `verify` behavior.
+- Project-filtered verification can now narrow shared test inputs before some
+  rule passes, but ecosystem-specific widening beyond those shared inputs
+  remains plugin-defined rather than centrally modeled.
 
 ## Alternatives Considered
 

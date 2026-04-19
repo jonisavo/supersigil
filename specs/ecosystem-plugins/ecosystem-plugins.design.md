@@ -108,9 +108,11 @@ Enabled ecosystem plugins own:
 - any ecosystem-specific source-file inference needed to discover evidence
 - evidence discovery over the plugin's effective file set
 
-In this pass, project filtering remains a verification/report concern rather
-than a plugin-discovery filter. The shared `ProjectScope` stays minimal and is
-not meant to change the current workspace-wide ArtifactGraph semantics.
+In this pass, project filtering primarily remains a verification/report
+concern, but plugin planning consumes the shared resolved test files that may
+already be narrowed for a selected project run. The shared `ProjectScope` stays
+minimal and is not meant to define plugin-specific project narrowing or change
+workspace-wide graph semantics by itself.
 
 ### Verification Boundary
 
@@ -231,5 +233,6 @@ from plugins are logged as warnings.
 
 ## Current Gaps
 
-- The current pipeline intentionally keeps project filters workspace-wide at
-  report time rather than narrowing plugin discovery by project.
+- Shared verify inputs can now be narrowed before plugin planning, but
+  ecosystem-specific widening beyond those shared inputs is still
+  plugin-defined rather than centrally modeled.
