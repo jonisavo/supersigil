@@ -1,7 +1,6 @@
-use std::path::Path;
-
 use supersigil_core::{SpecDocument, split_list_attribute};
 
+use crate::glob_resolver::GlobResolver;
 use crate::report::{Finding, RuleName};
 use crate::rules::find_criterion_nested_verified_by;
 use crate::scan::TagMatch;
@@ -16,7 +15,16 @@ use crate::scan::TagMatch;
 ///
 /// Only criterion-nested `<VerifiedBy>` components are checked. Document-level
 /// placement is caught by [`structural::check_verified_by_placement`](super::structural::check_verified_by_placement).
-pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Finding> {
+#[cfg(test)]
+pub fn check_file_globs(docs: &[&SpecDocument], project_root: &std::path::Path) -> Vec<Finding> {
+    let mut glob_resolver = GlobResolver::new(project_root);
+    check_file_globs_with_resolver(docs, &mut glob_resolver)
+}
+
+pub(crate) fn check_file_globs_with_resolver(
+    docs: &[&SpecDocument],
+    glob_resolver: &mut GlobResolver,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for doc in docs {
@@ -44,7 +52,7 @@ pub fn check_file_globs(docs: &[&SpecDocument], project_root: &Path) -> Vec<Find
             };
 
             for path in &paths {
-                if supersigil_core::expand_glob(path, project_root).is_empty() {
+                if glob_resolver.expand(path).is_empty() {
                     findings.push(Finding::new(
                         RuleName::MissingTestFiles,
                         Some(doc_id.clone()),

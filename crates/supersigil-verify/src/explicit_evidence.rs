@@ -14,6 +14,7 @@ use supersigil_evidence::{
     VerificationEvidenceRecord, VerificationTargets,
 };
 
+use crate::glob_resolver::GlobResolver;
 use crate::scan::TagMatch;
 
 /// Extract normalized evidence records from all explicit `<VerifiedBy>` components
@@ -39,6 +40,15 @@ pub fn extract_explicit_evidence(
     tag_matches: &[TagMatch],
     project_root: &Path,
 ) -> Vec<VerificationEvidenceRecord> {
+    let mut glob_resolver = GlobResolver::new(project_root);
+    extract_explicit_evidence_with_resolver(graph, tag_matches, &mut glob_resolver)
+}
+
+pub(crate) fn extract_explicit_evidence_with_resolver(
+    graph: &DocumentGraph,
+    tag_matches: &[TagMatch],
+    glob_resolver: &mut GlobResolver,
+) -> Vec<VerificationEvidenceRecord> {
     let mut records = Vec::new();
     let mut next_id: usize = 0;
 
@@ -55,7 +65,7 @@ pub fn extract_explicit_evidence(
             doc_id,
             &doc.components,
             &tag_index,
-            project_root,
+            glob_resolver,
             &mut records,
             &mut next_id,
         );
@@ -70,7 +80,7 @@ fn process_verified_by(
     doc_id: &str,
     targets: &VerificationTargets,
     tag_index: &HashMap<&str, Vec<&TagMatch>>,
-    project_root: &Path,
+    glob_resolver: &mut GlobResolver,
     records: &mut Vec<VerificationEvidenceRecord>,
     next_id: &mut usize,
 ) {
@@ -116,10 +126,7 @@ fn process_verified_by(
                 return;
             };
 
-            let matched_files: Vec<_> = path_list
-                .iter()
-                .flat_map(|p| supersigil_core::expand_glob(p, project_root))
-                .collect();
+            let matched_files = glob_resolver.expand_all(path_list);
             let target = targets
                 .iter()
                 .next()
@@ -159,7 +166,7 @@ fn collect_criterion_evidence(
     doc_id: &str,
     components: &[supersigil_core::ExtractedComponent],
     tag_index: &HashMap<&str, Vec<&TagMatch>>,
-    project_root: &Path,
+    glob_resolver: &mut GlobResolver,
     records: &mut Vec<VerificationEvidenceRecord>,
     next_id: &mut usize,
 ) {
@@ -180,7 +187,7 @@ fn collect_criterion_evidence(
                         doc_id,
                         &targets,
                         tag_index,
-                        project_root,
+                        glob_resolver,
                         records,
                         next_id,
                     );
@@ -192,7 +199,7 @@ fn collect_criterion_evidence(
             doc_id,
             &component.children,
             tag_index,
-            project_root,
+            glob_resolver,
             records,
             next_id,
         );

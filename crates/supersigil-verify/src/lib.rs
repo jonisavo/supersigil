@@ -9,6 +9,7 @@ mod error;
 pub(crate) mod explicit_evidence;
 /// Git diff helpers for affected-document detection.
 pub mod git;
+mod glob_resolver;
 /// JSON serialization of the document graph.
 pub mod graph_json;
 /// Language plugin discovery and evidence collection.
@@ -78,6 +79,20 @@ impl VerifyInputs {
     }
 }
 
+/// Combined result for the verification phase that builds evidence and runs
+/// structural checks while sharing run-scoped caches.
+#[derive(Debug)]
+pub struct VerifyPhaseResult<'g> {
+    /// Artifact graph built from explicit and plugin evidence.
+    pub artifact_graph: ArtifactGraph<'g>,
+    /// Non-fatal plugin diagnostics and failures surfaced as findings.
+    pub plugin_findings: Vec<Finding>,
+    /// Structural findings produced before severity resolution.
+    pub structural_findings: Vec<Finding>,
+    /// Document IDs included in the selected verification scope.
+    pub doc_ids: Vec<String>,
+}
+
 /// Collect document IDs in scope for verification, optionally filtered by
 /// `VerifyOptions::project`.
 #[must_use]
@@ -114,13 +129,35 @@ pub fn verify_structural(
     options: &VerifyOptions,
     inputs: &VerifyInputs,
 ) -> Result<(Vec<Finding>, Vec<String>), VerifyError> {
+    let mut glob_resolver = glob_resolver::GlobResolver::new(project_root);
+    Ok(verify_structural_with_resolver(
+        graph,
+        config,
+        project_root,
+        options,
+        inputs,
+        &mut glob_resolver,
+    ))
+}
+
+fn verify_structural_with_resolver(
+    graph: &DocumentGraph,
+    config: &Config,
+    project_root: &Path,
+    options: &VerifyOptions,
+    inputs: &VerifyInputs,
+    glob_resolver: &mut glob_resolver::GlobResolver,
+) -> (Vec<Finding>, Vec<String>) {
     let doc_ids = scoped_doc_ids(graph, options);
     let docs: Vec<&SpecDocument> = doc_ids.iter().filter_map(|id| graph.document(id)).collect();
 
     let mut findings = Vec::new();
 
     // Test mapping
-    findings.extend(rules::tests_rule::check_file_globs(&docs, project_root));
+    findings.extend(rules::tests_rule::check_file_globs_with_resolver(
+        &docs,
+        glob_resolver,
+    ));
     findings.extend(rules::tests_rule::check_tags(&docs, &inputs.tag_matches));
 
     // Tracked files
@@ -156,7 +193,48 @@ pub fn verify_structural(
 
     scope_and_annotate(&mut findings, graph, &doc_ids, options.project.is_some());
 
-    Ok((findings, doc_ids))
+    (findings, doc_ids)
+}
+
+/// Build evidence and run structural checks in one shared phase.
+///
+/// This preserves the existing public wrappers while allowing callers that run
+/// both steps back-to-back to reuse a single run-scoped glob cache.
+///
+/// # Errors
+///
+/// Returns [`VerifyError`] if structural verification fails.
+pub fn build_evidence_and_verify_structural<'g>(
+    graph: &'g DocumentGraph,
+    config: &Config,
+    project_root: &Path,
+    options: &VerifyOptions,
+    inputs: &VerifyInputs,
+) -> Result<VerifyPhaseResult<'g>, VerifyError> {
+    let mut glob_resolver = glob_resolver::GlobResolver::new(project_root);
+    let (artifact_graph, plugin_findings) = plugins::build_evidence_with_resolver(
+        config,
+        graph,
+        project_root,
+        options.project.as_deref(),
+        inputs,
+        &mut glob_resolver,
+    );
+    let (structural_findings, doc_ids) = verify_structural_with_resolver(
+        graph,
+        config,
+        project_root,
+        options,
+        inputs,
+        &mut glob_resolver,
+    );
+
+    Ok(VerifyPhaseResult {
+        artifact_graph,
+        plugin_findings,
+        structural_findings,
+        doc_ids,
+    })
 }
 
 /// Run only the coverage verification rule.
@@ -1435,6 +1513,66 @@ mod verify_tests {
             findings[0].raw_severity,
             ReportSeverity::Error,
             "broken ref findings should have error raw severity",
+        );
+    }
+
+    #[test]
+    fn glob_resolver_memoizes_repeated_patterns() {
+        use std::path::{Path, PathBuf};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn counting_loader(pattern: &str, _base_dir: &Path) -> Vec<PathBuf> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            vec![PathBuf::from(pattern)]
+        }
+
+        CALLS.store(0, Ordering::SeqCst);
+        let dir = TempDir::new().unwrap();
+        let mut resolver =
+            crate::glob_resolver::GlobResolver::with_loader_for_tests(dir.path(), counting_loader);
+
+        assert_eq!(
+            resolver.expand("tests/**/*.rs"),
+            &[PathBuf::from("tests/**/*.rs")]
+        );
+        assert_eq!(
+            resolver.expand("tests/**/*.rs"),
+            &[PathBuf::from("tests/**/*.rs")]
+        );
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            1,
+            "repeated patterns should be loaded once per verify run",
+        );
+    }
+
+    #[test]
+    fn glob_resolver_loads_distinct_patterns_independently() {
+        use std::path::{Path, PathBuf};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn counting_loader(pattern: &str, _base_dir: &Path) -> Vec<PathBuf> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            vec![PathBuf::from(pattern)]
+        }
+
+        CALLS.store(0, Ordering::SeqCst);
+        let dir = TempDir::new().unwrap();
+        let mut resolver =
+            crate::glob_resolver::GlobResolver::with_loader_for_tests(dir.path(), counting_loader);
+
+        let _ = resolver.expand("tests/**/*.rs");
+        let _ = resolver.expand("src/**/*.rs");
+        let _ = resolver.expand("tests/**/*.rs");
+
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            2,
+            "distinct patterns should still resolve independently",
         );
     }
 }

@@ -22,7 +22,6 @@ use crate::commands::{VerifyArgs, VerifyFormat};
 use crate::error::CliError;
 use crate::format::{self, ColorConfig, ExitStatus, write_json_value};
 use crate::loader;
-use crate::plugins;
 
 /// Write a progress message to stderr, ignoring errors (e.g. broken pipe).
 fn progress(msg: &str) {
@@ -125,21 +124,23 @@ pub fn run(
 
     let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
 
-    let (artifact_graph, plugin_findings) = plugins::build_evidence(
-        &config,
+    let supersigil_verify::VerifyPhaseResult {
+        artifact_graph,
+        plugin_findings,
+        mut structural_findings,
+        doc_ids,
+    } = supersigil_verify::build_evidence_and_verify_structural(
         &graph,
+        &config,
         project_root,
-        options.project.as_deref(),
+        &options,
         &inputs,
-    );
-
-    let (mut structural_findings, doc_ids) =
-        supersigil_verify::verify_structural(&graph, &config, project_root, &options, &inputs)
-            .inspect_err(|_| {
-                if is_terminal {
-                    progress("\n");
-                }
-            })?;
+    )
+    .inspect_err(|_| {
+        if is_terminal {
+            progress("\n");
+        }
+    })?;
 
     resolve_finding_severities(&mut structural_findings, &graph, &config);
 
