@@ -29,7 +29,9 @@ data and do not satisfy verification coverage.
 - **Plugin_Evidence**: Normalized verification records returned by enabled
   ecosystem plugins.
 - **Project_Filter**: An optional named project scope that limits reported
-  document findings without rebuilding the workspace graph.
+  document findings without rebuilding the workspace graph, and may also narrow
+  shared verification inputs that are provably irrelevant to the selected
+  project.
 - **Verification_Finding**: One rule result with a rule name, message, optional
   document ID, optional source position, and resolved severity.
 - **Evidence_Summary**: Optional report enrichment listing effective evidence
@@ -57,9 +59,11 @@ that verification stays coherent even in multi-project mode.
   </Criterion>
   <Criterion id="req-1-3">
     WHEN a Project_Filter is supplied, THE pipeline SHALL continue to evaluate
-    against the workspace-wide graph and ArtifactGraph, but SHALL retain only
-    document-scoped findings for documents in the selected project. Global
-    findings with no `doc_id` SHALL remain reportable.
+    against the workspace-wide graph, but SHALL retain only document-scoped
+    findings for documents in the selected project. Global findings with no
+    `doc_id` SHALL remain reportable. The pipeline MAY narrow pre-resolved
+    test-file inputs and skip out-of-scope per-document rule work when that
+    does not change the selected project's result.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
   </Criterion>
   <Criterion id="req-1-4">

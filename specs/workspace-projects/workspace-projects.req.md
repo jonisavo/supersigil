@@ -37,8 +37,9 @@ called out in the design/tasks docs rather than normalized here.
   Multi_Project_Mode based on the document file path.
 - **Isolated_Project**: A project with `isolated = true`, which restricts
   source documents in that project from resolving refs into other projects.
-- **Project_Filter**: A CLI or library option that limits output findings or
-  listed documents to one named project.
+- **Project_Filter**: A CLI or library option that limits listed documents and
+  project-scoped verification results to one named project, and may also narrow
+  safe verification inputs for that selected project.
 
 ## Requirement 1: Workspace Configuration Modes
 
@@ -163,14 +164,16 @@ time without losing the shared workspace model.
     />
   </Criterion>
   <Criterion id="req-3-3">
-    IN Multi_Project_Mode, verification SHALL collect test files from all
-    configured project test globs before rule execution.
+    IN Multi_Project_Mode without a Project_Filter, verification SHALL collect
+    test files from all configured project test globs before rule execution.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/lib.rs" />
   </Criterion>
   <Criterion id="req-3-4">
     WHEN a Project_Filter is supplied to verification, findings SHALL be
     reported only for documents in the selected project, while the workspace
-    graph remains available for non-isolated resolution.
+    graph remains available for non-isolated resolution. Verification MAY also
+    narrow selected-project test discovery and skip out-of-scope per-document
+    checks when that does not change the selected project's result.
   </Criterion>
   <Criterion id="req-3-5">
     THE `ls` command SHALL accept an optional `--project &lt;name&gt;` filter and

@@ -70,7 +70,17 @@ impl VerifyInputs {
     /// Resolve test files and scan for tags.
     #[must_use]
     pub fn resolve(config: &Config, project_root: &Path) -> Self {
-        let test_files = resolve_test_files(config, project_root);
+        Self::resolve_for_project(config, project_root, None)
+    }
+
+    /// Resolve test files and scan for tags for one selected project.
+    #[must_use]
+    pub fn resolve_for_project(
+        config: &Config,
+        project_root: &Path,
+        project: Option<&str>,
+    ) -> Self {
+        let test_files = resolve_test_files_for_project(config, project_root, project);
         let tag_matches = scan::scan_all_tags(&test_files);
         Self {
             test_files,
@@ -133,7 +143,6 @@ pub fn verify_structural(
     Ok(verify_structural_with_resolver(
         graph,
         config,
-        project_root,
         options,
         inputs,
         &mut glob_resolver,
@@ -143,7 +152,6 @@ pub fn verify_structural(
 fn verify_structural_with_resolver(
     graph: &DocumentGraph,
     config: &Config,
-    project_root: &Path,
     options: &VerifyOptions,
     inputs: &VerifyInputs,
     glob_resolver: &mut glob_resolver::GlobResolver,
@@ -161,7 +169,11 @@ fn verify_structural_with_resolver(
     findings.extend(rules::tests_rule::check_tags(&docs, &inputs.tag_matches));
 
     // Tracked files
-    findings.extend(rules::tracked::check_empty_globs(graph, project_root));
+    findings.extend(rules::tracked::check_empty_globs_with_resolver(
+        graph,
+        Some(&doc_ids),
+        glob_resolver,
+    ));
 
     // Structural
     findings.extend(rules::structural::check_id_pattern(graph, config));
@@ -220,14 +232,8 @@ pub fn build_evidence_and_verify_structural<'g>(
         inputs,
         &mut glob_resolver,
     );
-    let (structural_findings, doc_ids) = verify_structural_with_resolver(
-        graph,
-        config,
-        project_root,
-        options,
-        inputs,
-        &mut glob_resolver,
-    );
+    let (structural_findings, doc_ids) =
+        verify_structural_with_resolver(graph, config, options, inputs, &mut glob_resolver);
 
     Ok(VerifyPhaseResult {
         artifact_graph,
@@ -265,7 +271,8 @@ pub fn verify(
     options: &VerifyOptions,
     artifact_graph: &ArtifactGraph<'_>,
 ) -> Result<VerificationReport, VerifyError> {
-    let inputs = VerifyInputs::resolve(config, project_root);
+    let inputs =
+        VerifyInputs::resolve_for_project(config, project_root, options.project.as_deref());
 
     // Run structural rules and coverage rules
     let (mut findings, doc_ids) = verify_structural(graph, config, project_root, options, &inputs)?;
@@ -483,7 +490,18 @@ pub fn attach_doc_paths(findings: &mut [Finding], graph: &DocumentGraph) {
 ///
 /// In single-project mode, uses `config.tests`. In multi-project mode, uses
 /// `config.projects[*].tests` (all projects combined).
+#[must_use]
 pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path::PathBuf> {
+    resolve_test_files_for_project(config, project_root, None)
+}
+
+/// Resolve test file paths for one selected project, or all projects when
+/// `project` is `None`.
+pub fn resolve_test_files_for_project(
+    config: &Config,
+    project_root: &Path,
+    project: Option<&str>,
+) -> Vec<std::path::PathBuf> {
     let mut globs: Vec<&str> = Vec::new();
 
     if let Some(ref test_globs) = config.tests {
@@ -491,8 +509,14 @@ pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path
     }
 
     if let Some(ref projects) = config.projects {
-        for project in projects.values() {
-            globs.extend(project.tests.iter().map(String::as_str));
+        if let Some(project_name) = project {
+            if let Some(project) = projects.get(project_name) {
+                globs.extend(project.tests.iter().map(String::as_str));
+            }
+        } else {
+            for project in projects.values() {
+                globs.extend(project.tests.iter().map(String::as_str));
+            }
         }
     }
 
@@ -1114,6 +1138,169 @@ mod verify_tests {
                 .any(|f| f.rule == RuleName::ZeroTagMatches),
             "multi-project with two projects should resolve tags from both; got findings: {:?}",
             report.findings,
+        );
+    }
+
+    #[test]
+    fn verify_project_scope_ignores_tags_from_other_projects() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("alpha_tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("beta_tests")).unwrap();
+        std::fs::write(
+            dir.path().join("alpha_tests/alpha_test.rs"),
+            "// no tag here\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("beta_tests/beta_test.rs"),
+            "// supersigil: req:auth\n",
+        )
+        .unwrap();
+
+        let mut alpha_doc = make_doc(
+            "req/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "req-1",
+                    make_verified_by_tag("req:auth", 11),
+                    10,
+                )],
+                9,
+            )],
+        );
+        alpha_doc.path = dir.path().join("alpha/specs/auth.md");
+
+        let mut beta_doc = make_doc(
+            "req/pay",
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "pay-1",
+                    make_verified_by_tag("req:pay", 21),
+                    20,
+                )],
+                19,
+            )],
+        );
+        beta_doc.path = dir.path().join("beta/specs/pay.md");
+
+        let config = Config {
+            paths: None,
+            tests: None,
+            projects: Some(std::collections::HashMap::from([
+                (
+                    "alpha".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["alpha/specs/**/*.md".into()],
+                        tests: vec!["alpha_tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+                (
+                    "beta".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["beta/specs/**/*.md".into()],
+                        tests: vec!["beta_tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+            ])),
+            ..test_config()
+        };
+
+        let graph = build_test_graph_with_config(vec![alpha_doc, beta_doc], &config);
+        let inputs = VerifyInputs::resolve_for_project(&config, dir.path(), Some("alpha"));
+        let (findings, doc_ids) = verify_structural(
+            &graph,
+            &config,
+            dir.path(),
+            &VerifyOptions {
+                project: Some("alpha".into()),
+                ..VerifyOptions::default()
+            },
+            &inputs,
+        )
+        .unwrap();
+
+        assert_eq!(doc_ids, vec!["req/auth"]);
+        assert!(
+            findings.iter().any(|finding| {
+                finding.rule == RuleName::ZeroTagMatches
+                    && finding.doc_id.as_deref() == Some("req/auth")
+            }),
+            "selected project should not see tags from other projects: {findings:?}",
+        );
+    }
+
+    #[test]
+    fn verify_project_scope_skips_out_of_scope_tracked_glob_expansion() {
+        use std::path::{Path, PathBuf};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn counting_loader(pattern: &str, _base_dir: &Path) -> Vec<PathBuf> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            vec![PathBuf::from(pattern)]
+        }
+
+        let dir = TempDir::new().unwrap();
+
+        let mut alpha_doc = make_doc("req/auth", vec![]);
+        alpha_doc.path = dir.path().join("alpha/specs/auth.md");
+
+        let mut beta_doc = make_doc("req/pay", vec![make_tracked_files("missing/**/*.rs", 12)]);
+        beta_doc.path = dir.path().join("beta/specs/pay.md");
+
+        let config = Config {
+            paths: None,
+            tests: None,
+            projects: Some(std::collections::HashMap::from([
+                (
+                    "alpha".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["alpha/specs/**/*.md".into()],
+                        tests: vec!["alpha_tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+                (
+                    "beta".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["beta/specs/**/*.md".into()],
+                        tests: vec!["beta_tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+            ])),
+            ..test_config()
+        };
+
+        let graph = build_test_graph_with_config(vec![alpha_doc, beta_doc], &config);
+        let inputs = VerifyInputs::resolve_for_project(&config, dir.path(), Some("alpha"));
+        let mut glob_resolver =
+            crate::glob_resolver::GlobResolver::with_loader_for_tests(dir.path(), counting_loader);
+        let (findings, doc_ids) = verify_structural_with_resolver(
+            &graph,
+            &config,
+            &VerifyOptions {
+                project: Some("alpha".into()),
+                ..VerifyOptions::default()
+            },
+            &inputs,
+            &mut glob_resolver,
+        );
+
+        assert_eq!(doc_ids, vec!["req/auth"]);
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            0,
+            "out-of-scope tracked globs should not be expanded during structural verify",
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.rule != RuleName::EmptyTrackedGlob),
+            "tracked-glob findings from other projects should be skipped: {findings:?}",
         );
     }
 

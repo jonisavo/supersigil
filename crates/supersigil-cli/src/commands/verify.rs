@@ -122,7 +122,11 @@ pub fn run(
     }
     let evidence_start = Instant::now();
 
-    let inputs = supersigil_verify::VerifyInputs::resolve(&config, project_root);
+    let inputs = supersigil_verify::VerifyInputs::resolve_for_project(
+        &config,
+        project_root,
+        options.project.as_deref(),
+    );
 
     let supersigil_verify::VerifyPhaseResult {
         artifact_graph,
