@@ -106,19 +106,24 @@ pub struct MarkdownFences {
 
 pub struct XmlFence {
     pub content: String,
-    pub offset: usize,
+    pub content_offset: usize,
+    pub fence_start: usize,
+    pub fence_end: usize,
 }
 ```
 
 ## Key Design Decisions
 
-### Markdown Parsing Without MDX
+### Lightweight Fence Scan Without MDX
 
-The body is parsed as standard Markdown, not MDX. The `markdown` crate is
-used without `Constructs::mdx()`. This means the parser does not recognize
-JSX syntax in the Markdown body — components exist only inside
-`supersigil-xml` fences. This eliminates MDX-specific complexity and makes
-the parser compatible with any standard Markdown tooling.
+The parser does not treat the body as MDX. For the common case, it uses a
+single-pass top-level fence scanner that extracts `supersigil-xml` content
+plus byte offsets without building a full Markdown AST. When the body contains
+syntax that depends on fuller block parsing, such as indented or blockquoted
+fences or raw HTML flow blocks, it falls back to the `markdown` crate without
+MDX constructs so standard Markdown fence behavior is preserved. JSX syntax in
+the Markdown body is therefore not recognized and components exist only inside
+`supersigil-xml` fences.
 
 ### XML Subset, Not Full XML
 
