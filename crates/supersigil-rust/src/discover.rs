@@ -6,6 +6,9 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
 
 use proc_macro2::TokenTree;
 use syn::spanned::Spanned;
@@ -19,6 +22,7 @@ use supersigil_evidence::{
 };
 
 const PLUGIN_NAME: &str = "rust";
+const MAX_DISCOVERY_WORKERS: usize = 8;
 
 struct VerifiesParseError {
     message: String,
@@ -191,56 +195,164 @@ impl EcosystemPlugin for RustPlugin {
         _scope: &ProjectScope,
         _documents: &DocumentGraph,
     ) -> Result<PluginDiscoveryResult, PluginError> {
-        let rust_files: Vec<&PathBuf> = files
-            .iter()
-            .filter(|file| file.extension().is_some_and(|ext| ext == "rs"))
-            .collect();
-        if rust_files.is_empty() {
-            return Ok(PluginDiscoveryResult::default());
-        }
+        discover_with_worker_count(files)
+    }
+}
 
-        let mut result = PluginDiscoveryResult::default();
-        let mut supported_test_items = 0usize;
-        let mut first_error = None;
-        for file in rust_files {
-            match discover_file_summary(file) {
-                Ok(summary) => {
-                    supported_test_items += summary.supported_test_items;
-                    result.evidence.extend(summary.records);
-                }
-                Err(err @ PluginError::Discovery { .. }) => {
-                    return Err(err);
-                }
-                Err(err) => {
-                    result
-                        .diagnostics
-                        .push(recoverable_plugin_diagnostic(file, &err));
-                    if first_error.is_none() {
-                        first_error = Some(err);
+fn discover_with_worker_count(files: &[PathBuf]) -> Result<PluginDiscoveryResult, PluginError> {
+    let rust_files: Vec<&PathBuf> = files
+        .iter()
+        .filter(|file| file.extension().is_some_and(|ext| ext == "rs"))
+        .collect();
+    if rust_files.is_empty() {
+        return Ok(PluginDiscoveryResult::default());
+    }
+
+    let worker_count = discover_worker_count(rust_files.len());
+    if worker_count <= 1 {
+        return discover_files_serial(&rust_files);
+    }
+
+    discover_files_parallel(&rust_files, worker_count)
+}
+
+fn discover_worker_count(file_count: usize) -> usize {
+    if file_count <= 1 {
+        return file_count;
+    }
+
+    thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1)
+        .min(MAX_DISCOVERY_WORKERS)
+        .min(file_count)
+}
+
+fn discover_files_serial(rust_files: &[&PathBuf]) -> Result<PluginDiscoveryResult, PluginError> {
+    let mut state = DiscoveryReduction::default();
+
+    for file in rust_files {
+        process_discovery_outcome(&mut state, file, discover_file_summary(file))?;
+    }
+
+    finish_discovery_reduction(state)
+}
+
+fn discover_files_parallel(
+    rust_files: &[&PathBuf],
+    worker_count: usize,
+) -> Result<PluginDiscoveryResult, PluginError> {
+    let stop = AtomicBool::new(false);
+    let next_index = AtomicUsize::new(0);
+    let (tx, rx) = mpsc::channel::<(usize, Result<FileDiscoverySummary, PluginError>)>();
+
+    thread::scope(|scope| -> Result<PluginDiscoveryResult, PluginError> {
+        for _ in 0..worker_count {
+            let tx = tx.clone();
+            let next_index = &next_index;
+            let stop = &stop;
+
+            scope.spawn(move || {
+                loop {
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let idx = next_index.fetch_add(1, Ordering::Relaxed);
+                    if idx >= rust_files.len() {
+                        break;
+                    }
+
+                    let outcome = discover_file_summary(rust_files[idx]);
+                    if matches!(outcome, Err(PluginError::Discovery { .. })) {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+
+                    if tx.send((idx, outcome)).is_err() {
+                        break;
                     }
                 }
-            }
-        }
-
-        if supported_test_items == 0 {
-            if let Some(err) = first_error {
-                return Err(err);
-            }
-            return Err(PluginError::Discovery {
-                plugin: PLUGIN_NAME.to_string(),
-                message: "zero supported Rust test items were found in the discovery scope; supported forms include #[test], #[tokio::test], supported proptest wrappers, and snapshot-oriented tests".to_string(),
-                details: Some(Box::new(PluginErrorDetails {
-                    code: Some("zero_supported_test_items".to_string()),
-                    suggestion: Some(
-                        "Annotate a supported Rust test with `#[verifies(\"doc#criterion\")]` or add criterion-nested `<VerifiedBy ... />` evidence.".to_string(),
-                    ),
-                    ..PluginErrorDetails::default()
-                })),
             });
         }
 
-        Ok(result)
+        drop(tx);
+
+        let mut state = DiscoveryReduction::default();
+        let mut next_result = 0usize;
+        let mut pending = BTreeMap::new();
+
+        while let Ok((idx, outcome)) = rx.recv() {
+            pending.insert(idx, outcome);
+
+            while let Some(outcome) = pending.remove(&next_result) {
+                let file = rust_files[next_result];
+                if let Err(err) = process_discovery_outcome(&mut state, file, outcome) {
+                    stop.store(true, Ordering::Relaxed);
+                    return Err(err);
+                }
+                next_result += 1;
+            }
+        }
+
+        finish_discovery_reduction(state)
+    })
+}
+
+#[derive(Default)]
+struct DiscoveryReduction {
+    result: PluginDiscoveryResult,
+    supported_test_items: usize,
+    first_error: Option<PluginError>,
+}
+
+fn process_discovery_outcome(
+    state: &mut DiscoveryReduction,
+    file: &Path,
+    outcome: Result<FileDiscoverySummary, PluginError>,
+) -> Result<(), PluginError> {
+    match outcome {
+        Ok(summary) => {
+            state.supported_test_items += summary.supported_test_items;
+            state.result.evidence.extend(summary.records);
+        }
+        Err(err @ PluginError::Discovery { .. }) => {
+            return Err(err);
+        }
+        Err(err) => {
+            state
+                .result
+                .diagnostics
+                .push(recoverable_plugin_diagnostic(file, &err));
+            if state.first_error.is_none() {
+                state.first_error = Some(err);
+            }
+        }
     }
+
+    Ok(())
+}
+
+fn finish_discovery_reduction(
+    state: DiscoveryReduction,
+) -> Result<PluginDiscoveryResult, PluginError> {
+    if state.supported_test_items == 0 {
+        if let Some(err) = state.first_error {
+            return Err(err);
+        }
+        return Err(PluginError::Discovery {
+            plugin: PLUGIN_NAME.to_string(),
+            message: "zero supported Rust test items were found in the discovery scope; supported forms include #[test], #[tokio::test], supported proptest wrappers, and snapshot-oriented tests".to_string(),
+            details: Some(Box::new(PluginErrorDetails {
+                code: Some("zero_supported_test_items".to_string()),
+                suggestion: Some(
+                    "Annotate a supported Rust test with `#[verifies(\"doc#criterion\")]` or add criterion-nested `<VerifiedBy ... />` evidence.".to_string(),
+                ),
+                ..PluginErrorDetails::default()
+            })),
+        });
+    }
+
+    Ok(state.result)
 }
 
 // ---------------------------------------------------------------------------
@@ -1284,6 +1396,46 @@ mod tests {
             "diagnostic should explain the skipped file, got {:?}",
             result.diagnostics,
         );
+    }
+
+    #[test]
+    fn rust_plugin_parallel_discovery_matches_serial_results() {
+        let files = [
+            fixture("unit_test.rs"),
+            fixture("this_file_does_not_exist.rs"),
+            fixture("async_test.rs"),
+            fixture("no_verifies.rs"),
+        ];
+
+        let serial_files: Vec<&PathBuf> = files
+            .iter()
+            .filter(|file| file.extension().is_some_and(|ext| ext == "rs"))
+            .collect();
+        let serial = discover_files_serial(&serial_files).unwrap();
+        let parallel = discover_files_parallel(&serial_files, 2).unwrap();
+
+        let summarize = |records: &[VerificationEvidenceRecord]| {
+            records
+                .iter()
+                .map(|record| {
+                    (
+                        record.id.index(),
+                        record.targets.iter().cloned().collect::<Vec<_>>(),
+                        record.test.file.clone(),
+                        record.test.name.clone(),
+                        record.test.kind,
+                        record.source_location.line,
+                        record.source_location.column,
+                        record.source_location.file.clone(),
+                        record.provenance.clone(),
+                        record.metadata.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(summarize(&parallel.evidence), summarize(&serial.evidence));
+        assert_eq!(parallel.diagnostics, serial.diagnostics);
     }
 
     #[test]
