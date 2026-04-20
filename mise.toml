@@ -20,12 +20,18 @@ description = "Lint the workspace."
 run = [
   "cargo clippy --workspace --all-targets --all-features",
   "mise lint:js",
+  "mise lint:website",
   "mise lint:types"
 ]
 
 [tasks."lint:js"]
 description = "Lint JS/TS packages."
 run = "pnpm lint:eslint"
+
+[tasks."lint:website"]
+description = "Lint the website explorer frontend."
+run = "pnpm lint"
+dir = "website"
 
 [tasks."lint:types"]
 description = "Type-check JS/TS packages."
@@ -83,7 +89,12 @@ dir = "editors/intellij"
 
 [tasks.test]
 description = "Run workspace tests."
-run = ["cargo nextest run", "mise test:js"]
+run = [
+  "cargo nextest run",
+  "mise test:js",
+  "mise test:website",
+  "mise test:vscode",
+]
 
 [tasks."test:js"]
 description = "Run JS/TS package tests."
@@ -113,6 +124,16 @@ dir = "packages/preview"
 description = "Run release-target helper tests."
 run = "pnpm test"
 dir = "scripts/release-targets"
+
+[tasks."test:website"]
+description = "Run website explorer tests."
+run = "pnpm test"
+dir = "website"
+
+[tasks."test:vscode"]
+description = "Run VS Code extension tests."
+run = "pnpm test"
+dir = "editors/vscode"
 
 [tasks.qa]
 description = "Run all tooling to ensure the repository is squeaky clean."
