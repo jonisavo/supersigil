@@ -60,12 +60,12 @@ share one consistent model across hosts.
     THE LSP SHALL expose an `ExplorerSnapshot` request for the graph explorer
     runtime. VS Code SHALL consume it through a custom request and IntelliJ
     SHALL consume an equivalent execute-command mirror.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
   </Criterion>
   <Criterion id="req-1-2">
     THE LSP SHALL expose an `ExplorerDocument` request that accepts a document
     ID and revision and returns detail for exactly one document.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs, crates/supersigil-verify/tests/explorer_runtime_tests.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs, crates/supersigil-lsp/tests/explorer_runtime_contract_tests.rs, crates/supersigil-verify/tests/explorer_runtime_tests.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     `ExplorerSnapshot` SHALL include `revision`, document summaries, graph
@@ -77,7 +77,7 @@ share one consistent model across hosts.
     THE LSP SHALL emit an `ExplorerChangedEvent` containing `revision`,
     `changed_document_ids`, and `removed_document_ids`, so the runtime can
     invalidate selectively instead of treating all changes as a full refresh.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-verify/src/explorer_runtime.rs, editors/vscode/src/explorerWebview.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/explorer_runtime.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs, crates/supersigil-verify/src/explorer_runtime.rs, editors/vscode/src/explorerWebview.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -252,7 +252,7 @@ the standalone website explorer instead of multiple parallel models.
     `supersigil/graphData`, graph-explorer use of the old
     `supersigil/documentComponents` contract, and the bare
     `supersigil/documentsChanged` refresh path for explorer panels.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/commands.rs, crates/supersigil-lsp/src/state.rs, editors/vscode/src/explorerWebview.test.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/commands.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs, editors/vscode/src/explorerWebview.test.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/GraphExplorerToolWindowFactory.kt" />
   </Criterion>
 </AcceptanceCriteria>
 ```

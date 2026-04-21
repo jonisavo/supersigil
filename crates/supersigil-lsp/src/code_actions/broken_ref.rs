@@ -231,11 +231,14 @@ fn create_document_command_action(target_ref: &str, config: &Config) -> Option<C
         command: Some(Command {
             title: "Create document".to_string(),
             command: commands::CREATE_DOCUMENT_COMMAND.to_string(),
-            arguments: Some(vec![serde_json::json!({
-                "ref": target_ref,
-                "feature": feature,
-                "type": full_type,
-            })]),
+            arguments: Some(vec![
+                serde_json::to_value(commands::CreateDocumentParams {
+                    feature: feature.to_string(),
+                    target_ref: target_ref.to_string(),
+                    full_type: full_type.to_string(),
+                })
+                .ok()?,
+            ]),
         }),
         ..Default::default()
     })

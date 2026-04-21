@@ -8,7 +8,7 @@ title: "Language Server Protocol Support"
 
 ```supersigil-xml
 <Implements refs="lsp-server/req" />
-<TrackedFiles paths="crates/supersigil-lsp/src/**/*.rs" />
+<TrackedFiles paths="crates/supersigil-lsp/src/**/*.rs, editors/vscode/src/extension.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerSupportProvider.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerDescriptor.kt" />
 ```
 
 ## Overview
@@ -39,11 +39,14 @@ Editor ──stdio/JSON-RPC──▶ SupersigilLsp
                               ├── completion/hover/definition  (snapshot Arc)
                               │     └── concurrent future on graph snapshot
                               │
-                              ├── supersigil/graphData  (custom request)
-                              │     └── serialize DocumentGraph as GraphJson
+                              ├── supersigil/documentList + supersigil/documentComponents
+                              │     └── serve document tree and per-document detail
                               │
-                              └── supersigil.verify  (command)
-                                    └── run full verify pipeline
+                              ├── supersigil/explorerSnapshot + supersigil/explorerDocument
+                              │     └── serve lazy explorer shell and detail payloads
+                              │
+                              └── workspace/executeCommand
+                                    └── verify plus mirrors for request-only surfaces
 ```
 
 Notifications get `&mut self` via async-lsp's design, ensuring sequential
@@ -98,13 +101,22 @@ crates/supersigil-lsp/
 ├── src/
 │   ├── lib.rs          # SupersigilLsp, LspService impl
 │   ├── main.rs         # binary entrypoint (stdio transport)
-│   ├── state.rs        # re-indexing logic (parse, graph rebuild, verify)
+│   ├── state.rs        # LSP surface, capability wiring, and request routing
+│   ├── state/
+│   │   ├── access.rs   # URI, document, and content lookup helpers
+│   │   ├── commands.rs # custom request handlers and executeCommand helpers
+│   │   ├── explorer.rs # explorer snapshot/detail state helpers
+│   │   ├── indexing.rs # parse/graph/verify primitives
+│   │   ├── lifecycle.rs # initialized/save/close/watch helper flows
+│   │   └── tests.rs    # state-layer tests
+│   ├── document_list.rs # supersigil/documentList request + documentsChanged notification
+│   ├── document_components.rs # supersigil/documentComponents request wrapper
+│   ├── explorer_runtime.rs # explorer snapshot/detail/change request wrappers
 │   ├── diagnostics.rs  # Finding/ParseError → Diagnostic, tier filtering
 │   ├── completion.rs   # ref, component name, attribute value completions
 │   ├── definition.rs   # go-to-definition for refs
 │   ├── hover.rs        # component docs, ref target preview
-│   ├── commands.rs     # supersigil.verify, supersigil.graphData commands
-│   ├── graph_data.rs   # supersigil/graphData custom request type
+│   ├── commands.rs     # executeCommand names for verify, explorer, docs, and create-document
 │   └── position.rs     # SourcePosition ↔ lsp_types::Position
 ```
 
@@ -130,17 +142,20 @@ Re-parse via `parse_content`. Update `file_diagnostics`. Publish merged.
 **didChange**: Update `open_files` buffer. Re-parse from buffer. Update
 `file_diagnostics`. Publish merged. Does NOT rebuild graph.
 
-**didSave**: Attempt `DocumentGraph` rebuild from all `file_parses`.
-On success: replace `graph` Arc. On failure: retain last-good graph, convert
-`GraphError`s to diagnostics. Update `graph_diagnostics`. If tier is Verify:
-run verify pipeline with real evidence (VerifyInputs). Publish merged.
+**didSave**: For saved files that belong to the Supersigil project, attempt
+`DocumentGraph` rebuild from all `file_parses`. On success: replace `graph`
+Arc. On failure: retain last-good graph, convert `GraphError`s to diagnostics.
+Update `graph_diagnostics`. If tier is Verify: run verify pipeline with real
+evidence (VerifyInputs). Publish merged. Saves for unrelated Markdown files are
+ignored.
 
-**didClose**: Remove from `open_files`. Clear both diagnostic caches for
-that URI. Publish empty set.
+**didClose**: Remove from `open_files`. Clear buffer-specific
+`file_diagnostics` for that URI, keep graph diagnostics if they still
+apply, and publish merged diagnostics for the URI.
 
 **didChangeWatchedFiles**: On `supersigil.toml` change: reload config,
 re-discover files, full rebuild. On `.md` create/delete outside editor:
-update file set, rebuild graph.
+update file set, clear deleted-file buffer diagnostics, rebuild graph.
 
 ## Feature Implementation Detail
 
@@ -227,26 +242,40 @@ verification evidence summary (if available from last verify run).
 
 ### Custom requests
 
-**`supersigil/graphData`**: Returns the full `DocumentGraph` serialized as
-`GraphJson` (the same schema produced by `supersigil graph --format json`).
-Takes no parameters. The handler snapshots the current graph and serializes
-it. Used by the VS Code graph explorer webview to render the interactive
-visualization.
+**`supersigil/documentList`**: Returns the current flat document list for tree
+views and document pickers. Takes no parameters and derives project-relative
+paths plus document metadata from the loaded `DocumentGraph`.
+
+**`supersigil/documentComponents`**: Returns a rendered component tree for one
+document, including verification-aware detail panel data. Takes the target URI
+and resolves it through the current parse caches.
+
+**`supersigil/explorerSnapshot`**: Returns the lazy graph explorer shell
+payload for the current revision. Takes no parameters and snapshots the current
+explorer state.
+
+**`supersigil/explorerDocument`**: Returns lazy detail-panel payload for one
+document in the explorer runtime. Takes document ID plus revision and resolves
+detail from current or partial parses.
 
 ### Custom commands
 
 `supersigil.verify` runs the full verify pipeline and publishes all findings
 as diagnostics.
 
-`supersigil.graphData` mirrors the `supersigil/graphData` custom request
-but is available via the standard `workspace/executeCommand` endpoint.
-This accommodates LSP clients that cannot send custom JSON-RPC requests.
+`supersigil.documentList`, `supersigil.documentComponents`,
+`supersigil.explorerSnapshot`, and `supersigil.explorerDocument` mirror the
+custom requests above via `workspace/executeCommand` for clients that cannot
+send custom JSON-RPC requests.
+
+`supersigil.createDocument` drives the interactive create-document flow used by
+editor quick fixes when the target project must be chosen at runtime.
 
 ## Markdown Integration
 
-The server registers for both `markdown` and `mdx` language IDs. Multiple
-LSP servers per language ID is well-supported in VS Code, Neovim
-(nvim-lspconfig), and Zed. Fence-aware context detection
+Editor integrations register or start the Supersigil language server for both
+`markdown` and `mdx` documents. Multiple LSP servers per language ID is
+well-supported in VS Code, Neovim (nvim-lspconfig), and Zed. Fence-aware context detection
 (`is_in_supersigil_fence`) scopes all interactive features (completions,
 hover, definition) to `supersigil-xml` fenced blocks and YAML frontmatter,
 so the server does not interfere with general Markdown editing.

@@ -1,5 +1,7 @@
 //! Custom LSP command handlers.
 
+use serde::{Deserialize, Serialize};
+
 /// The command name for the supersigil verify command.
 pub const VERIFY_COMMAND: &str = "supersigil.verify";
 
@@ -39,3 +41,16 @@ pub const EXPLORER_DOCUMENT_COMMAND: &str = "supersigil.explorerDocument";
 /// Used when the target project is ambiguous (multi-project mode) and the
 /// server needs to ask the user which project to place the file in.
 pub const CREATE_DOCUMENT_COMMAND: &str = "supersigil.createDocument";
+
+/// Parameters for the interactive create-document command.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreateDocumentParams {
+    /// Feature prefix used to resolve the destination path.
+    pub feature: String,
+    /// Full document reference to create.
+    #[serde(rename = "ref")]
+    pub target_ref: String,
+    /// Long-form document type used for scaffolding.
+    #[serde(rename = "type")]
+    pub full_type: String,
+}

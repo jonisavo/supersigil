@@ -11,7 +11,7 @@ title: "LSP: Code Lenses"
 ```
 
 ```supersigil-xml
-<TrackedFiles paths="crates/supersigil-lsp/src/code_lens.rs, crates/supersigil-lsp/src/state.rs" />
+<TrackedFiles paths="crates/supersigil-lsp/src/code_lens.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/indexing.rs" />
 ```
 
 ## Overview
@@ -59,7 +59,7 @@ span the entire line visually.
 
 ### Server Integration
 
-In `state.rs`:
+In the LSP state layer (`state.rs` plus `state/indexing.rs`):
 
 1. **Capability**: Add `code_lens_provider: Some(CodeLensOptions {
    resolve_provider: Some(false) })` to `ServerCapabilities`.

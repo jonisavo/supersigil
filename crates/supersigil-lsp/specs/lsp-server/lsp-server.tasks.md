@@ -48,11 +48,14 @@ on the last. Each task is independently testable.
   implements="lsp-server/req#req-5-3, lsp-server/req#req-5-4, lsp-server/req#req-5-5, lsp-server/req#req-5-6"
   depends="task-2"
 >
-  Implement hybrid re-indexing in `state.rs`: `didOpen` (init buffer,
-  parse), `didChange` (update buffer, re-parse), `didSave` (rebuild graph,
-  retain last-good on failure), `didClose` (clear buffer and diagnostics).
-  Implement `didChangeWatchedFiles` for config and `.md` file changes.
-  Add `window/workDoneProgress` during initial indexing.
+  Implement hybrid re-indexing in the LSP state layer (`state.rs`, later
+  extracted into `state/indexing.rs` and `state/lifecycle.rs`): `didOpen`
+  (init buffer, parse), `didChange` (update buffer, re-parse), `didSave`
+  (rebuild graph only for project files, retain last-good on failure),
+  `didClose` (clear buffer and diagnostics). Implement
+  `didChangeWatchedFiles` for config and `.md` file changes, including
+  deleted-file diagnostic cleanup. Add `window/workDoneProgress` during
+  initial indexing.
 </Task>
 
 <Task
@@ -108,9 +111,9 @@ on the last. Each task is independently testable.
   implements="lsp-server/req#req-6-1"
   depends="task-4"
 >
-  Implement `commands.rs`: `supersigil.verify` command handler, run verify
-  pipeline, publish diagnostics. Wire into `workspace/executeCommand`
-  handler.
+  Implement the `supersigil.verify` command flow in the LSP state command
+  layer (`commands.rs`, with `workspace/executeCommand` wiring in
+  `state.rs`): run the verify pipeline and publish diagnostics.
 </Task>
 
 <Task
@@ -119,8 +122,9 @@ on the last. Each task is independently testable.
   implements="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3, lsp-server/req#req-8-2"
   depends="task-2"
 >
-  Markdown integration and capability registration: register for `markdown`
-  and `mdx` language IDs, activation guard on `supersigil.toml` presence,
+  Markdown integration and capability handling: editor integrations
+  register or start the server for `markdown` and `mdx` documents; the
+  server applies activation guard on `supersigil.toml` presence,
   fence-aware context detection, distinct CompletionItemKind and label
   detail for Supersigil items, UTF-16 position encoding advertisement.
 </Task>
