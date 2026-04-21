@@ -5,9 +5,9 @@ use lsp_types::{notification::Notification, request::Request};
 pub use supersigil_verify::explorer_runtime::{
     BuildExplorerDocumentInput, BuildExplorerSnapshotInput, CoverageSummary, ExplorerChangedEvent,
     ExplorerDocument, ExplorerDocumentFingerprint, ExplorerDocumentParams, ExplorerDocumentSummary,
-    ExplorerEdge, ExplorerGraphComponent, ExplorerSnapshot, build_explorer_document,
-    build_explorer_snapshot, diff_explorer_documents, diff_explorer_snapshots,
-    fingerprint_document_components,
+    ExplorerEdge, ExplorerGraphComponent, ExplorerSnapshot, FingerprintExplorerDocumentInput,
+    build_explorer_document, build_explorer_snapshot, diff_explorer_documents,
+    diff_explorer_snapshots, fingerprint_document_components, fingerprint_explorer_document_detail,
 };
 
 /// Request type for `supersigil/explorerSnapshot`.

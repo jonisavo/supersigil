@@ -95,15 +95,17 @@ general content.
 </Decision>
 
 <Decision id="decision-4">
-  Register for both `markdown` and `mdx` language IDs, using fence-aware
-  context detection to scope features to `supersigil-xml` fenced blocks.
+  Have editor integrations register or start the Supersigil language server
+  for both `markdown` and `mdx` documents, using fence-aware context
+  detection to scope features to `supersigil-xml` fenced blocks.
 
   <References refs="lsp-server/req#req-7-1, lsp-server/req#req-7-2, lsp-server/req#req-7-3" />
 
   <Rationale>
-    Spec files are standard Markdown with `supersigil-xml` fences. Registering
-    for both `markdown` and `mdx` lets the server work regardless of how
-    editors classify the files. Fence-aware context detection
+    Spec files are standard Markdown with `supersigil-xml` fences. Having
+    editor integrations attach the server to both `markdown` and `mdx`
+    documents lets the server work regardless of how editors classify the
+    files. Fence-aware context detection
     (`is_in_supersigil_fence`) ensures that completions, hover, and definition
     only trigger inside fenced blocks and frontmatter, so the server does not
     interfere with general Markdown editing or other language servers. Modern
@@ -145,7 +147,8 @@ general content.
 - The hybrid re-indexing strategy means cross-document diagnostics may be
   stale between saves. Users see per-file issues immediately but must save
   to get updated ref resolution and coverage analysis.
-- Registering for both `markdown` and `mdx` means the server may run
-  alongside other language servers. Fence-aware context detection ensures
-  Supersigil features only activate inside `supersigil-xml` fences,
-  avoiding interference with general Markdown editing.
+- Attaching the server to both `markdown` and `mdx` through editor
+  integrations means the server may run alongside other language servers.
+  Fence-aware context detection ensures Supersigil features only activate
+  inside `supersigil-xml` fences, avoiding interference with general
+  Markdown editing.

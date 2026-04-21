@@ -148,7 +148,7 @@ pub struct EvidenceEntry {
 ///
 /// Wire-format equivalent of [`supersigil_evidence::TestKind`].
 /// Defined separately because the evidence crate type lacks `Deserialize`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum TestKind {
     /// Standard synchronous unit test.
@@ -194,7 +194,7 @@ pub enum EvidenceKindLabel {
 /// A tagged union describing how a piece of evidence was discovered.
 ///
 /// Discriminated by the `kind` field in JSON.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind")]
 pub enum ProvenanceEntry {
     /// Evidence from a `<VerifiedBy>` tag in the spec.
@@ -496,14 +496,14 @@ fn build_evidence_entries(
 }
 
 /// Make a path relative to the project root, or return as-is if not a child.
-fn relativize(path: &Path, root: &Path) -> String {
+pub(crate) fn relativize(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
         .into_owned()
 }
 
-fn map_test_kind(kind: supersigil_evidence::TestKind) -> TestKind {
+pub(crate) fn map_test_kind(kind: supersigil_evidence::TestKind) -> TestKind {
     match kind {
         supersigil_evidence::TestKind::Unit => TestKind::Unit,
         supersigil_evidence::TestKind::Async => TestKind::Async,
@@ -522,7 +522,7 @@ fn map_evidence_kind(kind: supersigil_evidence::EvidenceKind) -> EvidenceKindLab
     }
 }
 
-fn map_provenance(prov: &PluginProvenance, project_root: &Path) -> ProvenanceEntry {
+pub(crate) fn map_provenance(prov: &PluginProvenance, project_root: &Path) -> ProvenanceEntry {
     match prov {
         PluginProvenance::VerifiedByTag { tag, .. } => {
             ProvenanceEntry::VerifiedByTag { tag: tag.clone() }

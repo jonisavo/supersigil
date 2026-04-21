@@ -10,14 +10,16 @@ title: "Language Server Protocol Support"
 
 A language server for Supersigil Markdown spec files that provides diagnostics,
 go-to-definition, autocomplete, and hover documentation inside editors. The
-server registers for both `markdown` and `mdx` language IDs, providing
-spec-specific intelligence only inside `supersigil-xml` fences and frontmatter
-so it does not interfere with general Markdown editing.
+editor integrations register or start the Supersigil language server for both
+`markdown` and `mdx` documents, and the server provides spec-specific
+intelligence only inside `supersigil-xml` fences and frontmatter so it does
+not interfere with general Markdown editing.
 
-Scope: the LSP server itself and necessary prerequisite changes to existing
-crates (in-memory parsing API, config field, position conversion). Out of
-scope: editor extensions (VS Code, Neovim, etc.) — those are a separate
-feature that depends on this one.
+Scope: the LSP server itself, the editor-side registration/startup needed to
+attach it to Markdown/MDX documents, and necessary prerequisite changes to
+existing crates (in-memory parsing API, config field, position conversion). Out
+of scope: broader editor extension features (VS Code, Neovim, etc.) beyond
+launching and attaching the server.
 
 ## Definitions
 
@@ -45,12 +47,13 @@ so that I can fix problems without switching to a terminal.
     structural rules (required attributes, unknown components).
   </Criterion>
   <Criterion id="req-1-2">
-    WHEN a spec file is saved, THE server SHALL rebuild the
-    DocumentGraph and publish cross-document diagnostics (broken refs,
-    invalid refs, cycles, missing criteria). THE server SHALL also run
-    verification on initial indexing (not just on save) so that
-    diagnostics appear immediately when the workspace opens.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    WHEN a project-owned spec file is saved, THE server SHALL rebuild
+    the DocumentGraph and publish cross-document diagnostics (broken
+    refs, invalid refs, cycles, missing criteria). THE server SHALL also
+    run verification on initial indexing (not just on save) so that
+    diagnostics appear immediately when the workspace opens. Saves for
+    files outside the Supersigil project SHALL NOT trigger a graph rebuild.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
   <Criterion id="req-1-3">
     WHEN the configured Diagnostic_Tier is `verify`, THE server SHALL run
@@ -68,7 +71,7 @@ so that I can fix problems without switching to a terminal.
     WHEN publishing diagnostics, THE server SHALL merge per-file and
     cross-document findings into one set per URI, so that a later publish
     does not silently clear earlier diagnostics.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/diagnostics.rs, crates/supersigil-lsp/src/state.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/diagnostics.rs, crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -196,23 +199,24 @@ reliable.
     THE server SHALL use Hybrid_Reindexing: single-file re-parse on
     `didChange` (from in-memory buffer, not disk), full graph rebuild on
     `didSave`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
   <Criterion id="req-5-4">
     WHEN a graph rebuild fails, THE server SHALL retain the Last_Good_Graph
     and publish GraphErrors as diagnostics, rather than losing
     cross-document features.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
   <Criterion id="req-5-5">
     ON `didClose`, THE server SHALL remove the file from the open buffer
-    set and clear diagnostics for that URI.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    set, clear buffer-specific diagnostics for that URI, and republish
+    merged diagnostics for the URI.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
   <Criterion id="req-5-6">
     THE server SHALL report progress during initial indexing via
     `window/workDoneProgress`.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
   <Criterion id="req-5-7">
     WHEN a file URI is inside a subdirectory that contains its own
@@ -221,7 +225,7 @@ reliable.
     requests for that file, returning empty results. This prevents
     cross-root interference when multiple LSP instances serve nested
     projects.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -239,7 +243,7 @@ that users can run the verify pipeline without leaving the editor.
     results as diagnostics. THE server SHALL NOT advertise this command in
     `executeCommandProvider` capabilities; the editor extension registers
     it and routes to the appropriate server instance.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/commands.rs" />
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs, crates/supersigil-lsp/src/state/**/*.rs, crates/supersigil-lsp/src/commands.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```
@@ -253,8 +257,9 @@ that it does not interfere with general Markdown editing.
 ```supersigil-xml
 <AcceptanceCriteria>
   <Criterion id="req-7-1">
-    THE server SHALL register for both the `markdown` and `mdx` language IDs.
-    <VerifiedBy strategy="file-glob" paths="crates/supersigil-lsp/src/state.rs" />
+    THE editor integrations SHALL register or start the Supersigil
+    language server for both `markdown` and `mdx` documents.
+    <VerifiedBy strategy="file-glob" paths="editors/vscode/src/extension.ts, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerSupportProvider.kt, editors/intellij/src/main/kotlin/org/supersigil/intellij/SupersigilLspServerDescriptor.kt" />
   </Criterion>
   <Criterion id="req-7-2">
     THE server SHALL only activate when `supersigil.toml` is found in the

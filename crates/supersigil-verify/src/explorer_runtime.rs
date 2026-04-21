@@ -9,8 +9,12 @@ use supersigil_core::{
     ALTERNATIVE, CRITERION, DECISION, DocumentGraph, ExtractedComponent, RATIONALE, SpecDocument,
     TASK,
 };
+use supersigil_evidence::{EvidenceId, VerificationEvidenceRecord};
 
-use crate::document_components::{DocumentComponentsResult, EdgeData, EvidenceIndex, FenceData};
+use crate::document_components::{
+    DocumentComponentsResult, EdgeData, EvidenceIndex, FenceData, map_provenance, map_test_kind,
+    relativize,
+};
 
 /// Summary verification counts for one document in the explorer shell.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -150,6 +154,28 @@ pub struct BuildExplorerDocumentInput<'a> {
 /// Compact fingerprint of a document detail payload for invalidation checks.
 pub type ExplorerDocumentFingerprint = u64;
 
+/// Input for fingerprinting explorer-detail payload semantics without building
+/// a full [`DocumentComponentsResult`].
+#[derive(Debug)]
+pub struct FingerprintExplorerDocumentInput<'a> {
+    /// The document ID.
+    pub document_id: &'a str,
+    /// Whether the detail payload should be marked stale.
+    pub stale: bool,
+    /// Current document content.
+    pub content: &'a str,
+    /// Extracted components from the spec document.
+    pub components: &'a [ExtractedComponent],
+    /// Current document graph.
+    pub graph: &'a DocumentGraph,
+    /// Optional evidence index from the latest verify run.
+    pub evidence_by_target: Option<&'a EvidenceIndex>,
+    /// Optional evidence records indexed by evidence ID.
+    pub evidence_record_lookup: Option<&'a HashMap<EvidenceId, &'a VerificationEvidenceRecord>>,
+    /// Project root for path relativization in evidence provenance.
+    pub project_root: &'a Path,
+}
+
 /// Build an [`ExplorerSnapshot`] from graph and evidence state.
 #[must_use]
 pub fn build_explorer_snapshot(input: &BuildExplorerSnapshotInput<'_>) -> ExplorerSnapshot {
@@ -197,6 +223,30 @@ pub fn build_explorer_document(input: &BuildExplorerDocumentInput<'_>) -> Explor
         fences: input.document_components.fences.clone(),
         edges: input.document_components.edges.clone(),
     }
+}
+
+/// Fingerprint explorer-detail payload semantics without allocating the full
+/// detail response.
+#[must_use]
+pub fn fingerprint_explorer_document_detail(
+    input: &FingerprintExplorerDocumentInput<'_>,
+) -> ExplorerDocumentFingerprint {
+    let mut hasher = DefaultHasher::new();
+
+    input.document_id.hash(&mut hasher);
+    input.stale.hash(&mut hasher);
+    input.content.hash(&mut hasher);
+    hash_detail_components(input.components, &mut hasher);
+    hash_detail_edges(input.graph, input.document_id, &mut hasher);
+    hash_detail_evidence(
+        input.document_id,
+        input.evidence_by_target,
+        input.evidence_record_lookup,
+        input.project_root,
+        &mut hasher,
+    );
+
+    hasher.finish()
 }
 
 /// Compute an [`ExplorerChangedEvent`] by diffing two snapshots.
@@ -274,6 +324,107 @@ where
         previous_doc != current_doc
     })
     .0
+}
+
+fn hash_detail_components(components: &[ExtractedComponent], hasher: &mut DefaultHasher) {
+    components.len().hash(hasher);
+    for component in components {
+        component.name.hash(hasher);
+        let mut attributes = component.attributes.iter().collect::<Vec<_>>();
+        attributes.sort_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
+        for (key, value) in attributes {
+            key.hash(hasher);
+            value.hash(hasher);
+        }
+        component.body_text.hash(hasher);
+        component.position.byte_offset.hash(hasher);
+        component.position.line.hash(hasher);
+        component.position.column.hash(hasher);
+        component.end_position.byte_offset.hash(hasher);
+        component.end_position.line.hash(hasher);
+        component.end_position.column.hash(hasher);
+        hash_detail_components(&component.children, hasher);
+    }
+}
+
+fn hash_detail_edges(graph: &DocumentGraph, doc_id: &str, hasher: &mut DefaultHasher) {
+    let mut outgoing_edges = graph
+        .edges()
+        .filter(|(source, _, _)| *source == doc_id)
+        .map(|(_, target, kind)| (target.to_owned(), kind.as_str().to_owned()))
+        .collect::<Vec<_>>();
+    outgoing_edges.sort();
+    outgoing_edges.hash(hasher);
+}
+
+fn hash_detail_evidence(
+    doc_id: &str,
+    evidence_by_target: Option<&EvidenceIndex>,
+    evidence_record_lookup: Option<&HashMap<EvidenceId, &VerificationEvidenceRecord>>,
+    project_root: &Path,
+    hasher: &mut DefaultHasher,
+) {
+    evidence_by_target.is_some().hash(hasher);
+    evidence_record_lookup.is_some().hash(hasher);
+
+    let Some(doc_targets) = evidence_by_target.and_then(|index| index.get(doc_id)) else {
+        return;
+    };
+
+    let mut target_ids = doc_targets.keys().cloned().collect::<Vec<_>>();
+    target_ids.sort();
+    for target_id in target_ids {
+        target_id.hash(hasher);
+        let evidence_ids = doc_targets
+            .get(target_id.as_str())
+            .expect("target id should exist after sorting");
+        if let Some(record_lookup) = evidence_record_lookup {
+            let mut record_fingerprints = Vec::with_capacity(evidence_ids.len());
+            let mut missing_records = 0_usize;
+            for evidence_id in evidence_ids {
+                if let Some(record) = record_lookup.get(evidence_id) {
+                    record_fingerprints
+                        .push(explorer_evidence_record_fingerprint(record, project_root));
+                } else {
+                    missing_records += 1;
+                }
+            }
+            record_fingerprints.sort_unstable();
+            evidence_ids.len().hash(hasher);
+            missing_records.hash(hasher);
+            record_fingerprints.hash(hasher);
+        } else {
+            evidence_ids.len().hash(hasher);
+        }
+    }
+}
+
+fn explorer_evidence_record_fingerprint(
+    record: &VerificationEvidenceRecord,
+    project_root: &Path,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    record.test.name.hash(&mut hasher);
+    relativize(&record.test.file, project_root).hash(&mut hasher);
+    map_test_kind(record.test.kind).hash(&mut hasher);
+    record.source_location.line.hash(&mut hasher);
+    let mut provenance_fingerprints = record
+        .provenance
+        .iter()
+        .map(|provenance| explorer_provenance_fingerprint(provenance, project_root))
+        .collect::<Vec<_>>();
+    provenance_fingerprints.sort_unstable();
+    provenance_fingerprints.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn explorer_provenance_fingerprint(
+    provenance: &supersigil_evidence::PluginProvenance,
+    project_root: &Path,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    map_provenance(provenance, project_root).hash(&mut hasher);
+    hasher.finish()
 }
 
 fn diff_keyed_documents<PreviousValue, CurrentValue, PreviousHasher, CurrentHasher, F>(
