@@ -900,9 +900,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "open"
-version = "5.3.3"
+version = "5.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43bb73a7fa3799b198970490a51174027ba0d4ec504b03cd08caf513d40024bc"
+checksum = "9f3bab717c29a857abf75fcef718d441ec7cb2725f937343c734740a985d37fd"
 dependencies = [
  "is-wsl",
  "libc",
@@ -926,9 +926,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.113"
+version = "0.9.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad2f2c0eba47118757e4c6d2bff2838f3e0523380021356e7875e858372ce644"
+checksum = "13ce1245cd07fcc4cfdb438f7507b0c7e4f3849a69fd84d52374c66d83741bb6"
 dependencies = [
  "cc",
  "libc",
@@ -1601,7 +1601,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "supersigil"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "glob",
  "proptest",
@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-evidence"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-import"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "insta",
  "proptest",
@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-js"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -1684,7 +1684,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-lsp"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-lsp",
  "futures",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-parser"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "markdown",
  "proptest",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "glob",
  "proc-macro2",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-rust-macros"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "supersigil-verify"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "git2",
  "glob",
@@ -2321,9 +2321,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09dac053f1cd375980747450bfc7250c264eaae0583872e845c0c7cd578872b5"
+checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
 
 [[package]]
 name = "wit-bindgen"

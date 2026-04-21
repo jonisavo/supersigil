@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.13.0] - 2026-04-21
+
+### Bug Fixes
+
+- *(parser)* Preserve markdown fence fast-path semantics ([755184f](https://github.com/jonisavo/supersigil/commit/755184f28212bad834c9e430d13927e02e624fc4))
+- *(lsp)* Stabilize explorer evidence fingerprints ([8893b87](https://github.com/jonisavo/supersigil/commit/8893b871cebed7da1659424be0c91a3fdd229753))
+
+### Features
+
+- *(explorer)* Add revisioned runtime APIs and shared app ([70d0470](https://github.com/jonisavo/supersigil/commit/70d0470614ae86480a4f336c72a1f1b9ad5cce6e))
+
+### Miscellaneous
+
+- *(qa)* Cover website and vscode checks in mise qa ([6d203cc](https://github.com/jonisavo/supersigil/commit/6d203ccc4315e94a93618d9184c2d6df3b033eda))
+
+### Performance
+
+- *(verify)* Cache repeated file-glob expansions ([e579f17](https://github.com/jonisavo/supersigil/commit/e579f1701079e7bf50f03becef0d09e4cbfe75f6))
+- *(verify)* Prune project-filtered verification inputs ([39ae0a1](https://github.com/jonisavo/supersigil/commit/39ae0a13835ccb8c9289babd7d71dbb56acea400))
+- *(verify)* Bypass glob expansion for literal paths ([f872e38](https://github.com/jonisavo/supersigil/commit/f872e381fb21926d5dd6cf680e4faec9e15ea62c))
+- *(verify)* Parallelize Rust discovery ([3eae47a](https://github.com/jonisavo/supersigil/commit/3eae47a71ba7a1e728ce2ff845c6a92ff53f38d8))
+- *(lsp)* Avoid rebuilding explorer detail fingerprints ([ac6cbfc](https://github.com/jonisavo/supersigil/commit/ac6cbfc8dec5fd66302ed0d51b617cf8eafe59d5))
+
 ## [0.12.0] - 2026-04-18
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-core"
-version = "0.12.0"
+version = "0.13.0"
 description = "Data model, config loader, and component definitions for the supersigil framework"
 edition.workspace = true
 rust-version.workspace = true

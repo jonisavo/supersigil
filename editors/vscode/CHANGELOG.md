@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.13.0] - 2026-04-21
+
+### Features
+
+- *(explorer)* Add revisioned runtime APIs and shared app ([70d0470](https://github.com/jonisavo/supersigil/commit/70d0470614ae86480a4f336c72a1f1b9ad5cce6e))
+
 ## [0.12.0] - 2026-04-18
 
 ### Bug Fixes
