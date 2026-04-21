@@ -252,11 +252,12 @@ tracked-file overlap is itself a fixable verification failure.
   <Criterion id="req-6-2">
     WHEN `since_ref` is supplied, THE CLI `verify` flow SHALL compute changed
     files via the git diff helper, honoring `committed_only` and
-    `use_merge_base`. Terminal and markdown output SHALL surface tracked-file
-    overlap as non-failing affected-document context with a hint to run
-    `supersigil affected`. JSON output SHALL expose the same overlap as an
-    optional `affected_summary` object containing the affected document count
-    and changed file count.
+    `use_merge_base`. Terminal output SHALL surface tracked-file overlap as
+    non-failing affected-document context with a hint to run `supersigil
+    affected`. GitHub output SHALL surface the same overlap as non-failing
+    PR-review context. JSON output SHALL expose the overlap as an optional
+    `affected_summary` object containing the affected document count and
+    changed file count.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-cli/src/commands/verify.rs, crates/supersigil-verify/src/affected.rs, crates/supersigil-verify/src/git.rs" />
   </Criterion>
   <Criterion id="req-6-3">
@@ -281,8 +282,8 @@ tracked-file overlap is itself a fixable verification failure.
 ## Requirement 7: Status Summaries and Report Output
 
 As a user, I want verification output that can be consumed by terminals, JSON
-tools, markdown workflows, and quick status queries, so that evidence and debt
-are inspectable without reimplementing the pipeline.
+tools, GitHub review workflows, and quick status queries, so that evidence and
+debt are inspectable without reimplementing the pipeline.
 
 ```supersigil-xml
 <AcceptanceCriteria>
@@ -295,9 +296,10 @@ are inspectable without reimplementing the pipeline.
   </Criterion>
   <Criterion id="req-7-2">
     THE verification report formatters SHALL serialize findings and summary in
-    JSON and markdown forms. JSON SHALL include `evidence_summary` only when an
-    Evidence_Summary is present, and SHALL include `affected_summary` only when
-    `since_ref` is supplied and affected-summary computation succeeds.
+    JSON and GitHub-comment forms. JSON SHALL include `evidence_summary` only
+    when an Evidence_Summary is present, and SHALL include `affected_summary`
+    only when `since_ref` is supplied and affected-summary computation
+    succeeds.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-verify/src/report.rs, crates/supersigil-cli/src/commands/verify.rs" />
   </Criterion>
   <Criterion id="req-7-3">

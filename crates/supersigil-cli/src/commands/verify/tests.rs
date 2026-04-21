@@ -1,8 +1,9 @@
 use super::*;
 use crate::format::ColorChoice;
+use std::path::PathBuf;
 use supersigil_core::SourcePosition;
 use supersigil_verify::test_helpers::sample_evidence_summary;
-use supersigil_verify::{Finding, FindingDetails};
+use supersigil_verify::{AffectedDocument, Finding, FindingDetails};
 
 fn color() -> ColorConfig {
     ColorConfig::resolve(ColorChoice::Always)
@@ -588,6 +589,123 @@ fn affected_sentence_omits_since_ref_when_absent() {
         sentence.contains("1 document affected by 1 changed file."),
         "should use singular nouns without since-ref wording, got:\n{sentence}",
     );
+}
+
+#[test]
+fn github_comment_for_clean_run_surfaces_review_for_drift_and_details() {
+    let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
+    let affected = AffectedContext {
+        documents: vec![
+            AffectedDocument {
+                id: "graph-explorer/design".to_string(),
+                path: PathBuf::from("specs/graph-explorer/graph-explorer.design.md"),
+                matched_globs: vec!["website/src/components/explore/*".to_string()],
+                changed_files: vec![
+                    PathBuf::from("website/src/components/explore/graph-explorer.js"),
+                    PathBuf::from("website/src/components/explore/styles.css"),
+                ],
+                transitive_from: None,
+            },
+            AffectedDocument {
+                id: "graph-explorer/adr".to_string(),
+                path: PathBuf::from("specs/graph-explorer/graph-explorer.adr.md"),
+                matched_globs: vec![],
+                changed_files: vec![],
+                transitive_from: Some("graph-explorer/design".to_string()),
+            },
+        ],
+        changed_file_count: 2,
+    };
+
+    let out = format_github_comment(&report, Some(&affected), Some("origin/main"));
+
+    assert!(out.contains("## Verification"), "got:\n{out}");
+    assert!(out.contains("![status: clean]"), "got:\n{out}");
+    assert!(out.contains("![errors: 0]"), "got:\n{out}");
+    assert!(out.contains("![warnings: 0]"), "got:\n{out}");
+    assert!(out.contains("![affected docs: 2]"), "got:\n{out}");
+    assert!(out.contains("### Review for drift"), "got:\n{out}");
+    assert!(out.contains("graph-explorer/design"), "got:\n{out}");
+    assert!(
+        out.contains("1 additional doc is transitively affected."),
+        "got:\n{out}"
+    );
+    assert!(
+        out.contains("<summary>Full verification report (0 errors, 0 warnings)</summary>"),
+        "got:\n{out}"
+    );
+    assert!(
+        out.contains("<summary>Full affected breakdown (2 docs: 1 direct, 1 transitive)</summary>"),
+        "got:\n{out}"
+    );
+    assert!(
+        out.contains("changed: website/src/components/explore/graph-explorer.js"),
+        "got:\n{out}"
+    );
+}
+
+#[test]
+fn github_comment_for_errors_surfaces_needs_attention() {
+    let findings = vec![
+        Finding::new(
+            RuleName::MissingVerificationEvidence,
+            Some("req/auth".to_string()),
+            "criterion AC-1 not covered".to_string(),
+            None,
+        ),
+        Finding::new(
+            RuleName::EmptyTrackedGlob,
+            Some("design/auth".to_string()),
+            "glob `src/**/*.rs` matched nothing".to_string(),
+            None,
+        ),
+    ];
+    let summary = Summary::from_findings(2, &findings);
+    let report = VerificationReport::new(findings, summary, None);
+
+    let out = format_github_comment(&report, None, None);
+
+    assert!(out.contains("![status: failing]"), "got:\n{out}");
+    assert!(out.contains("### Needs attention"), "got:\n{out}");
+    assert!(
+        out.contains("Verification failed. Address the errors below"),
+        "got:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "**error** `req/auth` [missing_verification_evidence] criterion AC-1 not covered"
+        ),
+        "got:\n{out}"
+    );
+    assert!(
+        out.contains("<summary>Full verification report (1 error, 1 warning)</summary>"),
+        "got:\n{out}"
+    );
+}
+
+#[test]
+fn github_comment_with_empty_affected_docs_omits_drift_review_section() {
+    let report = VerificationReport::new(vec![], Summary::from_findings(3, &[]), None);
+    let affected = AffectedContext {
+        documents: vec![],
+        changed_file_count: 0,
+    };
+
+    let out = format_github_comment(&report, Some(&affected), Some("origin/main"));
+
+    assert!(out.contains("## Verification"), "got:\n{out}");
+    assert!(out.contains("![affected docs: 0]"), "got:\n{out}");
+    assert!(out.contains("Verification passed."), "got:\n{out}");
+    assert!(
+        !out.contains("Review the affected docs below"),
+        "got:\n{out}"
+    );
+    assert!(!out.contains("### Review for drift"), "got:\n{out}");
+    assert!(
+        !out.contains("No affected docs were detected"),
+        "got:\n{out}"
+    );
+    assert!(!out.contains("Full affected breakdown"), "got:\n{out}");
 }
 
 // ---------------------------------------------------------------------------

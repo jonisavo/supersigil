@@ -142,15 +142,15 @@ supersigil verify --format terminal
 # Machine-readable JSON
 supersigil verify --format json
 
-# Markdown table (useful for CI comments)
-supersigil verify --format markdown
+# GitHub-flavored comment output (useful for CI comments)
+supersigil verify --format github
 ```
 
 The JSON format includes the full findings list, summary counts, optional evidence summary, and an optional `affected_summary` when you run `verify --since ...`.
 
 ## Affected Documents
 
-When tracked files change, `supersigil verify --since <ref>` reports the associated specs as affected. Human-readable output points to the dedicated query, and JSON includes a compact `affected_summary`:
+When tracked files change, `supersigil verify --since <ref>` reports the associated specs as affected. Terminal output adds a short affected-doc hint, `--format github` renders an inline review dashboard for the affected specs, and JSON includes a compact `affected_summary`:
 
 ```bash
 supersigil verify --since main

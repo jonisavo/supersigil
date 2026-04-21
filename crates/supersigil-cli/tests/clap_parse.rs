@@ -247,13 +247,10 @@ fn parse_verify_with_short_project() {
 }
 
 #[test]
-fn parse_verify_markdown_format() {
-    let cli = Cli::parse_from(["supersigil", "verify", "--format", "markdown"]);
+fn parse_verify_github_format() {
+    let cli = Cli::parse_from(["supersigil", "verify", "--format", "github"]);
     if let supersigil_cli::Command::Verify(args) = cli.command {
-        assert!(matches!(
-            args.format,
-            supersigil_cli::VerifyFormat::Markdown
-        ));
+        assert!(matches!(args.format, supersigil_cli::VerifyFormat::Github));
     } else {
         panic!("expected Verify");
     }
