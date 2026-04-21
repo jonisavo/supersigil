@@ -1071,7 +1071,7 @@ fn verify_since_reports_affected_docs_without_warning_exit() {
             &initial,
             "--committed-only",
             "--format",
-            "markdown",
+            "github",
             "--color",
             "never",
         ])
@@ -1088,12 +1088,66 @@ fn verify_since_reports_affected_docs_without_warning_exit() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("affected"),
-        "verify markdown should mention affected documents, got: {stdout}",
+        stdout.contains("## Verification"),
+        "verify github output should use the dashboard heading, got: {stdout}",
     );
     assert!(
-        stdout.contains("supersigil affected --since"),
-        "verify markdown should hint to use the affected command, got: {stdout}",
+        stdout.contains("### Review for drift"),
+        "verify github output should surface a drift-review section, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("<summary>Full affected breakdown"),
+        "verify github output should retain the full affected breakdown in details, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("```text"),
+        "verify github output should render the raw affected output inside a fenced block, got: {stdout}",
+    );
+}
+
+#[test]
+fn verify_since_missing_ref_stays_non_fatal_and_omits_affected_sections() {
+    let (tmp, _) = setup_affected_verify_fixture();
+
+    let output = supersigil_cmd()
+        .args([
+            "verify",
+            "--since",
+            "does-not-exist",
+            "--committed-only",
+            "--format",
+            "github",
+            "--color",
+            "never",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "verify should stay clean when affected-doc lookup fails: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("## Verification"),
+        "verify github output should still render the verification report, got: {stdout}",
+    );
+    assert!(
+        stdout.contains("Verification passed."),
+        "verify github output should stay clean, got: {stdout}",
+    );
+    assert!(
+        !stdout.contains("affected docs"),
+        "verify github output should omit affected badges when lookup fails, got: {stdout}",
+    );
+    assert!(
+        !stdout.contains("### Review for drift"),
+        "verify github output should omit drift review when lookup fails, got: {stdout}",
     );
 }
 

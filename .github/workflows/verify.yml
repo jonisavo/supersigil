@@ -51,55 +51,45 @@ jobs:
             > verify.json
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
-      - name: Verify (Markdown)
-        id: verify_markdown
+      - name: Verify (GitHub)
+        id: verify_github
         run: |
           set +e
           cargo run -p supersigil -- verify \
             --since origin/main --merge-base --committed-only \
-            --format markdown --color never \
+            --format github --color never \
             > verify.md
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
-
-      - name: Affected
-        id: affected
-        run: |
-          set +e
-          cargo run -p supersigil -- affected \
-            --since origin/main --merge-base --committed-only \
-            > affected.txt
-          exit_code=$?
-          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          if [ "$exit_code" -ne 0 ]; then
-            printf 'Failed to compute affected docs (exit %s). See workflow logs.\n' "$exit_code" > affected.txt
+          if [ -s verify.md ]; then
+            echo "report_generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "report_generated=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Post PR comment
+        if: |
+          steps.verify_github.outputs.report_generated == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp verify.md verify-comment.md
-          printf '\n\n## Affected\n\n```text\n' >> verify-comment.md
-          cat affected.txt >> verify-comment.md
-          printf '\n```\n' >> verify-comment.md
           gh pr comment "${{ github.event.pull_request.number }}" \
-            --body-file verify-comment.md --edit-last \
+            --body-file verify.md --edit-last \
           || gh pr comment "${{ github.event.pull_request.number }}" \
-            --body-file verify-comment.md
+            --body-file verify.md
 
-      - name: Fail if verify or affected failed
+      - name: Fail if verify failed
         if: |
           (steps.verify.outputs.exit_code != '0' && steps.verify.outputs.exit_code != '2') ||
-          steps.affected.outputs.exit_code != '0'
+          (steps.verify_github.outputs.exit_code != '0' && steps.verify_github.outputs.exit_code != '2')
         run: |
           if [ "${{ steps.verify.outputs.exit_code }}" != "0" ] && [ "${{ steps.verify.outputs.exit_code }}" != "2" ]; then
             echo "::error::Supersigil verification failed"
             echo "verify exit code: ${{ steps.verify.outputs.exit_code }}"
             cat verify.json
           fi
-          if [ "${{ steps.affected.outputs.exit_code }}" != "0" ]; then
-            echo "::error::Supersigil affected failed"
-            echo "affected exit code: ${{ steps.affected.outputs.exit_code }}"
-            cat affected.txt
+          if [ "${{ steps.verify_github.outputs.report_generated }}" != "true" ]; then
+            echo "::error::Supersigil GitHub verification report generation failed"
+            echo "verify github exit code: ${{ steps.verify_github.outputs.exit_code }}"
+            cat verify.md
           fi
           exit 1

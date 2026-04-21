@@ -58,7 +58,7 @@ pub enum Command {
     Import(ImportArgs),
     /// Cross-document verification
     #[command(
-        after_help = "Examples:\n  supersigil verify\n  supersigil verify --project backend\n  supersigil verify --since main --format markdown"
+        after_help = "Examples:\n  supersigil verify\n  supersigil verify --project backend\n  supersigil verify --since main --format github"
     )]
     Verify(VerifyArgs),
     /// Project or document status overview
@@ -182,15 +182,15 @@ pub struct ImportArgs {
     pub check: bool,
 }
 
-/// Verify output format (terminal includes color, markdown for CI).
+/// Verify output format (terminal includes color, GitHub output for CI comments).
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum VerifyFormat {
     /// Colored terminal output.
     Terminal,
     /// JSON output.
     Json,
-    /// Markdown output for CI.
-    Markdown,
+    /// GitHub-flavored comment output for CI.
+    Github,
 }
 
 /// Arguments for the `verify` command.

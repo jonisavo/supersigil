@@ -103,9 +103,10 @@ After the library run, the CLI:
 - recomputes the summary counts
 - attaches `EvidenceSummary` when evidence records exist
 - when `since_ref` is present, computes affected-document overlap from tracked
-  files, appends a non-failing note pointing users to `supersigil affected` in
-  terminal/markdown output, and adds an `affected_summary` object to JSON
-- formats the result for terminal, JSON, or markdown output
+  files, appends a non-failing affected-doc hint in terminal output, renders a
+  reviewer-oriented GitHub comment dashboard in GitHub output, and adds an
+  `affected_summary` object to JSON
+- formats the result for terminal, JSON, or GitHub output
 
 ## Key Types
 
@@ -168,12 +169,16 @@ target sets are kept separate and recorded as evidence conflicts.
 ### `verify`
 
 The terminal formatter groups findings by document and then by rule. Repeated
-findings above the collapse threshold are summarized with a preview. JSON and
-markdown formatters preserve the full finding set and optional evidence
-summary. When `since_ref` is present, terminal and markdown append a
-human-readable affected-doc note only when overlap exists, while JSON adds a
-structured `affected_summary` object with `doc_count` and
-`changed_file_count`.
+findings above the collapse threshold are summarized with a preview. JSON
+preserves the full finding set and optional evidence summary. GitHub output
+renders a PR-comment-oriented dashboard with status badges, a capped
+`Needs attention` block for warning/error runs, a visible `Review for drift`
+section for directly affected docs, and collapsible sections for the full
+verification report and full affected-doc breakdown. When `since_ref` is
+present, terminal emits a short affected-doc hint only when overlap exists,
+GitHub output includes the drift-review/dashboard material only when overlap
+exists, and JSON adds a structured `affected_summary` object with `doc_count`
+and `changed_file_count`.
 
 ### `status`
 

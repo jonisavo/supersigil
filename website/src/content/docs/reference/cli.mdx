@@ -90,7 +90,7 @@ supersigil verify --since main --committed-only
 supersigil verify --project backend --format json
 ```
 
-Builds the full document graph and runs structural checks, plugin evidence discovery, and coverage analysis. When `--since` is supplied, terminal and markdown output may append an affected-document note, and JSON includes an optional `affected_summary`.
+Builds the full document graph and runs structural checks, plugin evidence discovery, and coverage analysis. When `--since` is supplied, terminal output may append a short affected-document hint, GitHub output can render an affected-doc review dashboard, and JSON includes an optional `affected_summary`.
 
 | Flag | Description |
 |------|-------------|
@@ -98,7 +98,7 @@ Builds the full document graph and runs structural checks, plugin evidence disco
 | `--committed-only` | Only consider committed changes |
 | `--merge-base` | Use merge-base for git diff |
 | `--project <name>`, `-p` | Filter to a project (multi-project mode) |
-| `--format <fmt>` | Output format: `terminal` (default), `json`, `markdown` |
+| `--format <fmt>` | Output format: `terminal` (default), `json`, `github` |
 | `--detail <compact\|full>` | Detail level: in terminal mode, `full` disables finding collapse to show every finding; in JSON mode, `compact` omits evidence records on clean runs (default: `compact`) |
 
 **Exit codes:**
