@@ -1775,51 +1775,71 @@ fn hash_detail_evidence(
         let evidence_ids = doc_targets
             .get(target_id.as_str())
             .expect("target id should exist after sorting");
-        evidence_ids.len().hash(hasher);
-        for evidence_id in evidence_ids {
-            evidence_id.hash(hasher);
-            if let Some(record_lookup) = evidence_record_lookup
-                && let Some(record) = record_lookup.get(evidence_id)
-            {
-                hash_explorer_evidence_record(record, hasher);
+        if let Some(record_lookup) = evidence_record_lookup {
+            let mut record_fingerprints = Vec::with_capacity(evidence_ids.len());
+            let mut missing_records = 0_usize;
+            for evidence_id in evidence_ids {
+                if let Some(record) = record_lookup.get(evidence_id) {
+                    record_fingerprints.push(explorer_evidence_record_fingerprint(record));
+                } else {
+                    missing_records += 1;
+                }
             }
+            record_fingerprints.sort_unstable();
+            evidence_ids.len().hash(hasher);
+            missing_records.hash(hasher);
+            record_fingerprints.hash(hasher);
+        } else {
+            evidence_ids.len().hash(hasher);
         }
     }
 }
 
-fn hash_explorer_evidence_record(record: &VerificationEvidenceRecord, hasher: &mut DefaultHasher) {
-    record.test.name.hash(hasher);
-    record.test.file.hash(hasher);
+fn explorer_evidence_record_fingerprint(record: &VerificationEvidenceRecord) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    record.test.name.hash(&mut hasher);
+    record.test.file.hash(&mut hasher);
     match record.test.kind {
-        supersigil_evidence::TestKind::Unit => 0_u8.hash(hasher),
-        supersigil_evidence::TestKind::Async => 1_u8.hash(hasher),
-        supersigil_evidence::TestKind::Property => 2_u8.hash(hasher),
-        supersigil_evidence::TestKind::Snapshot => 3_u8.hash(hasher),
-        supersigil_evidence::TestKind::Unknown => 4_u8.hash(hasher),
+        supersigil_evidence::TestKind::Unit => 0_u8.hash(&mut hasher),
+        supersigil_evidence::TestKind::Async => 1_u8.hash(&mut hasher),
+        supersigil_evidence::TestKind::Property => 2_u8.hash(&mut hasher),
+        supersigil_evidence::TestKind::Snapshot => 3_u8.hash(&mut hasher),
+        supersigil_evidence::TestKind::Unknown => 4_u8.hash(&mut hasher),
     }
-    record.source_location.line.hash(hasher);
-    for provenance in &record.provenance {
-        match provenance {
-            supersigil_evidence::PluginProvenance::VerifiedByTag { tag, .. } => {
-                0_u8.hash(hasher);
-                tag.hash(hasher);
-            }
-            supersigil_evidence::PluginProvenance::VerifiedByFileGlob { paths, .. } => {
-                1_u8.hash(hasher);
-                paths.hash(hasher);
-            }
-            supersigil_evidence::PluginProvenance::RustAttribute { attribute_span } => {
-                2_u8.hash(hasher);
-                attribute_span.file.hash(hasher);
-                attribute_span.line.hash(hasher);
-            }
-            supersigil_evidence::PluginProvenance::JsVerifies { annotation_span } => {
-                3_u8.hash(hasher);
-                annotation_span.file.hash(hasher);
-                annotation_span.line.hash(hasher);
-            }
+    record.source_location.line.hash(&mut hasher);
+    let mut provenance_fingerprints = record
+        .provenance
+        .iter()
+        .map(explorer_provenance_fingerprint)
+        .collect::<Vec<_>>();
+    provenance_fingerprints.sort_unstable();
+    provenance_fingerprints.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn explorer_provenance_fingerprint(provenance: &supersigil_evidence::PluginProvenance) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    match provenance {
+        supersigil_evidence::PluginProvenance::VerifiedByTag { tag, .. } => {
+            0_u8.hash(&mut hasher);
+            tag.hash(&mut hasher);
+        }
+        supersigil_evidence::PluginProvenance::VerifiedByFileGlob { paths, .. } => {
+            1_u8.hash(&mut hasher);
+            paths.hash(&mut hasher);
+        }
+        supersigil_evidence::PluginProvenance::RustAttribute { attribute_span } => {
+            2_u8.hash(&mut hasher);
+            attribute_span.file.hash(&mut hasher);
+            attribute_span.line.hash(&mut hasher);
+        }
+        supersigil_evidence::PluginProvenance::JsVerifies { annotation_span } => {
+            3_u8.hash(&mut hasher);
+            annotation_span.file.hash(&mut hasher);
+            annotation_span.line.hash(&mut hasher);
         }
     }
+    hasher.finish()
 }
 
 fn discover_config(root: &Path) -> Option<(PathBuf, Config)> {
@@ -2108,6 +2128,28 @@ mod tests {
         target_id: &str,
         test_name: &str,
     ) -> VerificationEvidenceRecord {
+        make_explorer_evidence_record_with_provenance(
+            id,
+            doc_id,
+            target_id,
+            test_name,
+            vec![supersigil_evidence::PluginProvenance::RustAttribute {
+                attribute_span: supersigil_evidence::SourceLocation {
+                    file: PathBuf::from("tests/auth_test.rs"),
+                    line: 3,
+                    column: 1,
+                },
+            }],
+        )
+    }
+
+    fn make_explorer_evidence_record_with_provenance(
+        id: usize,
+        doc_id: &str,
+        target_id: &str,
+        test_name: &str,
+        provenance: Vec<supersigil_evidence::PluginProvenance>,
+    ) -> VerificationEvidenceRecord {
         VerificationEvidenceRecord {
             id: EvidenceId::new(id),
             targets: supersigil_evidence::VerificationTargets::single(
@@ -2126,13 +2168,7 @@ mod tests {
                 line: 3,
                 column: 1,
             },
-            provenance: vec![supersigil_evidence::PluginProvenance::RustAttribute {
-                attribute_span: supersigil_evidence::SourceLocation {
-                    file: PathBuf::from("tests/auth_test.rs"),
-                    line: 3,
-                    column: 1,
-                },
-            }],
+            provenance,
             metadata: std::collections::BTreeMap::new(),
         }
     }
@@ -2497,6 +2533,196 @@ supersigil:
             ["auth/req".to_owned()]
                 .into_iter()
                 .collect::<std::collections::BTreeSet<_>>()
+        );
+    }
+
+    #[test]
+    fn current_explorer_document_fingerprints_ignore_equivalent_evidence_id_reassignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/auth.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &abs_path,
+            "\
+---
+supersigil:
+  id: auth/req
+  type: requirements
+  status: approved
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"auth-1\">Users SHALL authenticate.</Criterion>
+</AcceptanceCriteria>
+```
+",
+        )
+        .unwrap();
+
+        let mut state = test_state(root);
+        indexed_doc(&mut state, &abs_path, &rel_path);
+        state.graph = Arc::new(
+            build_graph(
+                vec![
+                    state
+                        .file_parses
+                        .get(&rel_path)
+                        .expect("indexed doc")
+                        .clone(),
+                ],
+                &Config::default(),
+            )
+            .expect("graph"),
+        );
+
+        state.evidence_by_target = Some(Arc::new(HashMap::from([(
+            "auth/req".to_owned(),
+            HashMap::from([(
+                "auth-1".to_owned(),
+                vec![EvidenceId::new(10), EvidenceId::new(3)],
+            )]),
+        )])));
+        state.evidence_records = Some(Arc::new(vec![
+            make_explorer_evidence_record(10, "auth/req", "auth-1", "login_succeeds"),
+            make_explorer_evidence_record(3, "auth/req", "auth-1", "session_refresh_succeeds"),
+        ]));
+
+        let initial_snapshot = state.build_explorer_snapshot_for_revision("1");
+        let initial_fingerprints = state.current_explorer_document_fingerprints(&initial_snapshot);
+
+        state.evidence_by_target = Some(Arc::new(HashMap::from([(
+            "auth/req".to_owned(),
+            HashMap::from([(
+                "auth-1".to_owned(),
+                vec![EvidenceId::new(5), EvidenceId::new(9)],
+            )]),
+        )])));
+        state.evidence_records = Some(Arc::new(vec![
+            make_explorer_evidence_record(9, "auth/req", "auth-1", "session_refresh_succeeds"),
+            make_explorer_evidence_record(5, "auth/req", "auth-1", "login_succeeds"),
+        ]));
+
+        let updated_snapshot = state.build_explorer_snapshot_for_revision("2");
+        let updated_fingerprints = state.current_explorer_document_fingerprints(&updated_snapshot);
+
+        assert!(
+            crate::explorer_runtime::diff_explorer_snapshots(
+                Some(&initial_snapshot),
+                &updated_snapshot
+            )
+            .changed_document_ids
+            .is_empty()
+        );
+        assert!(
+            crate::explorer_runtime::diff_explorer_documents(
+                Some(&initial_fingerprints),
+                &updated_fingerprints,
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn current_explorer_document_fingerprints_ignore_equivalent_provenance_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel_path = PathBuf::from("specs/auth.req.md");
+        let abs_path = root.join(&rel_path);
+        std::fs::create_dir_all(abs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &abs_path,
+            "\
+---
+supersigil:
+  id: auth/req
+  type: requirements
+  status: approved
+---
+
+```supersigil-xml
+<AcceptanceCriteria>
+  <Criterion id=\"auth-1\">Users SHALL authenticate.</Criterion>
+</AcceptanceCriteria>
+```
+",
+        )
+        .unwrap();
+
+        let mut state = test_state(root);
+        indexed_doc(&mut state, &abs_path, &rel_path);
+        state.graph = Arc::new(
+            build_graph(
+                vec![
+                    state
+                        .file_parses
+                        .get(&rel_path)
+                        .expect("indexed doc")
+                        .clone(),
+                ],
+                &Config::default(),
+            )
+            .expect("graph"),
+        );
+        state.evidence_by_target = Some(Arc::new(HashMap::from([(
+            "auth/req".to_owned(),
+            HashMap::from([("auth-1".to_owned(), vec![EvidenceId::new(0)])]),
+        )])));
+
+        let tag_provenance = supersigil_evidence::PluginProvenance::VerifiedByTag {
+            doc_id: "auth/design".into(),
+            tag: "auth:login".into(),
+        };
+        let rust_provenance = supersigil_evidence::PluginProvenance::RustAttribute {
+            attribute_span: supersigil_evidence::SourceLocation {
+                file: PathBuf::from("tests/auth_test.rs"),
+                line: 7,
+                column: 1,
+            },
+        };
+
+        state.evidence_records = Some(Arc::new(vec![
+            make_explorer_evidence_record_with_provenance(
+                0,
+                "auth/req",
+                "auth-1",
+                "login_succeeds",
+                vec![tag_provenance.clone(), rust_provenance.clone()],
+            ),
+        ]));
+
+        let initial_snapshot = state.build_explorer_snapshot_for_revision("1");
+        let initial_fingerprints = state.current_explorer_document_fingerprints(&initial_snapshot);
+
+        state.evidence_records = Some(Arc::new(vec![
+            make_explorer_evidence_record_with_provenance(
+                0,
+                "auth/req",
+                "auth-1",
+                "login_succeeds",
+                vec![rust_provenance, tag_provenance],
+            ),
+        ]));
+
+        let updated_snapshot = state.build_explorer_snapshot_for_revision("2");
+        let updated_fingerprints = state.current_explorer_document_fingerprints(&updated_snapshot);
+
+        assert!(
+            crate::explorer_runtime::diff_explorer_snapshots(
+                Some(&initial_snapshot),
+                &updated_snapshot
+            )
+            .changed_document_ids
+            .is_empty()
+        );
+        assert!(
+            crate::explorer_runtime::diff_explorer_documents(
+                Some(&initial_fingerprints),
+                &updated_fingerprints,
+            )
+            .is_empty()
         );
     }
 
