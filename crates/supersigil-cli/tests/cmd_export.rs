@@ -2,7 +2,7 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use common::supersigil_cmd;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
 
@@ -38,7 +38,7 @@ fn export_multi_document_project_produces_json_array() {
 <Task id="t1" status="open">Implement OAuth2 login.</Task>"#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()
@@ -136,7 +136,7 @@ fn export_includes_verification_status() {
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()
@@ -201,7 +201,7 @@ fn export_format_json_produces_valid_json_stdout() {
         r#"<Criterion id="c1">Hello world.</Criterion>"#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["export", "--format", "json"])
         .current_dir(dir.path())
         .output()

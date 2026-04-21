@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use std::fs;
 use supersigil_rust::verifies;
@@ -32,14 +33,14 @@ fn new_requirements_passes_verify() {
     common::setup_project(tmp.path());
 
     // Generate a requirements scaffold
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
     // The generated file must pass verify
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["verify"])
         .current_dir(tmp.path())
         .assert()
@@ -53,13 +54,13 @@ fn new_tasks_passes_verify() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "tasks", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["verify"])
         .current_dir(tmp.path())
         .assert()
@@ -72,14 +73,14 @@ fn new_design_does_not_break_graph() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "design", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
     // ls requires a working graph — must not fail with broken ref
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls"])
         .current_dir(tmp.path())
         .assert()
@@ -94,14 +95,14 @@ fn new_design_with_existing_req_fills_implements() {
     common::setup_project(tmp.path());
 
     // Create a requirements doc first
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
     // Now create a design doc — should detect the req file
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "design", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -116,7 +117,7 @@ fn new_design_with_existing_req_fills_implements() {
     );
 
     // Graph must load successfully (Implements ref is valid)
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls"])
         .current_dir(tmp.path())
         .assert()
@@ -129,7 +130,7 @@ fn new_with_project_places_file_in_project_dir() {
     let tmp = TempDir::new().unwrap();
     setup_multi_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "cli", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -144,7 +145,7 @@ fn new_with_project_places_file_in_project_dir() {
     );
 
     // Must pass verify
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["verify"])
         .current_dir(tmp.path())
         .assert()
@@ -157,7 +158,7 @@ fn new_with_workspace_project_uses_root_specs() {
     let tmp = TempDir::new().unwrap();
     setup_multi_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "workspace", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -177,7 +178,7 @@ fn new_with_unknown_project_errors() {
     let tmp = TempDir::new().unwrap();
     setup_multi_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "nonexistent", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -192,7 +193,7 @@ fn new_with_project_in_single_project_mode_errors() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "foo", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -205,7 +206,7 @@ fn new_without_project_in_multi_project_mode_errors() {
     let tmp = TempDir::new().unwrap();
     setup_multi_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -220,14 +221,14 @@ fn new_design_with_project_detects_sibling_req() {
     setup_multi_project(tmp.path());
 
     // Create req in the cli project
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "cli", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
     // Create design in the cli project — should find sibling req
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "--project", "cli", "design", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -261,7 +262,7 @@ status = ["draft", "approved"]
 
     // `new narrative` should succeed without warnings because "narrative"
     // is a configured custom type.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "narrative", "onboarding"])
         .current_dir(tmp.path())
         .assert()
@@ -284,7 +285,7 @@ fn new_rejects_unknown_doc_type() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "bogustype", "my-feature"])
         .current_dir(tmp.path())
         .assert()
@@ -308,7 +309,7 @@ fn new_prints_path_to_stdout_and_verify_hint_to_stderr() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["new", "requirements", "billing"])
         .current_dir(tmp.path())
         .output()
@@ -336,7 +337,7 @@ fn new_adr_produces_correct_frontmatter() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "adr", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -364,13 +365,13 @@ fn new_adr_passes_verify() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "adr", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["verify"])
         .current_dir(tmp.path())
         .assert()
@@ -384,14 +385,14 @@ fn new_adr_with_existing_req_includes_references() {
     common::setup_project(tmp.path());
 
     // Create a requirements doc first
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
         .success();
 
     // Now create an ADR doc — should detect the req file
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "adr", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -404,7 +405,7 @@ fn new_adr_with_existing_req_includes_references() {
     );
 
     // Graph must load successfully
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls"])
         .current_dir(tmp.path())
         .assert()
@@ -417,7 +418,7 @@ fn new_adr_without_req_has_commented_references() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "adr", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -442,7 +443,7 @@ fn new_adr_is_recognized_as_builtin_type() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "adr", "my-feature"])
         .current_dir(tmp.path())
         .assert()
@@ -458,7 +459,7 @@ fn new_scaffolds_include_type_appropriate_placeholders() {
     common::setup_project(tmp.path());
 
     // Generate a requirements doc and check for AcceptanceCriteria placeholder.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "requirements", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -471,7 +472,7 @@ fn new_scaffolds_include_type_appropriate_placeholders() {
     );
 
     // Generate a design doc and check for Architecture placeholder.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["new", "design", "billing"])
         .current_dir(tmp.path())
         .assert()

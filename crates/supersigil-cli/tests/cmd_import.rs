@@ -1,9 +1,12 @@
 //! Integration tests for the `import` command.
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
@@ -29,7 +32,7 @@ fn import_dry_run_succeeds_with_tempdir_fixture() {
     let specs_dir = project.path().join(".kiro/specs");
     write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -51,7 +54,7 @@ fn import_write_mode_creates_files() {
     write_feature_requirements(&specs_dir, "auth-login", PARSEABLE_REQUIREMENTS);
     let out_dir = project.path().join("out");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -74,7 +77,7 @@ fn import_write_mode_creates_files() {
 #[test]
 fn import_unsupported_source_fails() {
     // clap rejects unknown --from values before our code runs
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["import", "--from", "notion"])
         .assert()
         .failure()
@@ -85,7 +88,7 @@ fn import_unsupported_source_fails() {
 fn import_missing_kiro_dir_fails() {
     let tmp = TempDir::new().unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["import", "--from", "kiro"])
         .current_dir(tmp.path())
         .assert()
@@ -98,7 +101,7 @@ fn import_source_dir_flag_overrides_default_location() {
     let source_dir = project.path().join("custom/specs");
     write_feature_requirements(&source_dir, "billing", PARSEABLE_REQUIREMENTS);
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -121,7 +124,7 @@ fn import_source_dir_env_is_respected() {
     let source_dir = project.path().join("custom/specs");
     write_feature_requirements(&source_dir, "billing", PARSEABLE_REQUIREMENTS);
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -147,7 +150,7 @@ fn import_diagnostics_use_display_format_not_debug() {
         "# Requirements Document: Empty\n",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["import", "--from", "kiro", "--dry-run"])
         .current_dir(project.path())
         .assert()
@@ -166,7 +169,7 @@ fn import_write_conflict_without_force_fails() {
     let out_dir = project.path().join("out");
 
     // First import succeeds — creates the files.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -179,7 +182,7 @@ fn import_write_conflict_without_force_fails() {
         .success();
 
     // Second import without --force should fail because files exist.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -203,7 +206,7 @@ fn import_write_conflict_with_force_overwrites() {
     let out_dir = project.path().join("out");
 
     // First import.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -216,7 +219,7 @@ fn import_write_conflict_with_force_overwrites() {
         .success();
 
     // Second import with --force should succeed.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -245,7 +248,7 @@ fn import_summary_shows_ambiguity_breakdown() {
     )
     .unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -275,7 +278,7 @@ fn import_write_mode_prints_lint_hint() {
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -313,7 +316,7 @@ fn import_check_finds_markers_in_imported_files() {
     let out_dir = project.path().join("specs");
 
     // First, import the files (this writes markers)
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -326,7 +329,7 @@ fn import_check_finds_markers_in_imported_files() {
         .success();
 
     // Then, check for markers
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -353,7 +356,7 @@ fn import_check_succeeds_when_no_markers() {
     )
     .unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",

@@ -1,9 +1,12 @@
 //! End-to-end smoke test: import kiro specs, then run ls/verify/context/plan.
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use tempfile::TempDir;
 
 const PARSEABLE_REQUIREMENTS: &str = r"# Requirements Document: Login
@@ -28,7 +31,7 @@ fn dogfooding_pipeline() {
     let out_dir = project.path().join("specs");
 
     // Step 1: Import kiro specs
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args([
             "import",
             "--from",
@@ -48,14 +51,14 @@ fn dogfooding_pipeline() {
     .unwrap();
 
     // Step 3: Verify should pass (imported docs have draft status, so findings are non-blocking)
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["verify"])
         .current_dir(project.path())
         .assert()
         .success();
 
     // Step 4: ls should list documents
-    let ls_output = cargo_bin_cmd!("supersigil")
+    let ls_output = supersigil_cmd()
         .args(["ls", "--format", "json"])
         .current_dir(project.path())
         .output()
@@ -68,14 +71,14 @@ fn dogfooding_pipeline() {
 
     // Step 5: context on first document should succeed
     let first_id = docs[0]["id"].as_str().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["context", first_id])
         .current_dir(project.path())
         .assert()
         .success();
 
     // Step 6: plan (all) should succeed
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "--format", "json"])
         .current_dir(project.path())
         .assert()

@@ -2,7 +2,7 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use common::supersigil_cmd;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
 
@@ -19,7 +19,7 @@ fn color_always_flag_emits_ansi_codes() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "--color", "always"])
         .current_dir(tmp.path())
         .output()
@@ -40,7 +40,7 @@ fn color_never_flag_suppresses_ansi_codes() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "--color", "never"])
         .env("FORCE_COLOR", "1")
         .current_dir(tmp.path())
@@ -64,7 +64,7 @@ fn force_color_env_enables_ansi_codes() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status"])
         .env("FORCE_COLOR", "1")
         .current_dir(tmp.path())
@@ -86,7 +86,7 @@ fn no_color_env_suppresses_ansi_codes() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status"])
         .env("NO_COLOR", "1")
         .current_dir(tmp.path())
@@ -108,7 +108,7 @@ fn force_color_beats_no_color() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status"])
         .env("FORCE_COLOR", "1")
         .env("NO_COLOR", "1")
@@ -131,7 +131,7 @@ fn color_flag_beats_force_color_env() {
     let tmp = TempDir::new().unwrap();
     setup_styled_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "--color", "never"])
         .env("FORCE_COLOR", "1")
         .current_dir(tmp.path())

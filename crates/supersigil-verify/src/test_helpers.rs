@@ -282,16 +282,39 @@ pub fn build_test_graph_with_config(
 // Git test helpers
 // ---------------------------------------------------------------------------
 
+const GIT_ENV_VARS_TO_CLEAR: [&str; 5] = [
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_PREFIX",
+    "GIT_WORK_TREE",
+];
+
+pub fn sanitize_git_env(cmd: &mut Command) -> &mut Command {
+    for name in GIT_ENV_VARS_TO_CLEAR {
+        cmd.env_remove(name);
+    }
+    cmd
+}
+
 fn git(dir: &TempDir, args: &[&str]) -> std::process::Output {
-    Command::new("git")
-        .args(args)
+    let mut cmd = Command::new("git");
+    cmd.args(args)
         .current_dir(dir.path())
         .env("GIT_AUTHOR_NAME", "Test")
         .env("GIT_AUTHOR_EMAIL", "test@test.com")
         .env("GIT_COMMITTER_NAME", "Test")
-        .env("GIT_COMMITTER_EMAIL", "test@test.com")
-        .output()
-        .expect("git command")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com");
+    sanitize_git_env(&mut cmd);
+    let output = cmd.output().expect("git command");
+    assert!(
+        output.status.success(),
+        "git {:?} failed in {}: {}",
+        args,
+        dir.path().display(),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    output
 }
 
 /// Create a temp git repo with an initial commit. Returns (dir, initial commit OID).
@@ -369,5 +392,136 @@ pub fn sample_evidence_summary() -> EvidenceSummary {
             test_count: 2,
         }],
         conflict_count: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::sync::{LazyLock, Mutex};
+
+    static GIT_ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct GitEnvGuard {
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl GitEnvGuard {
+        fn with_overrides(overrides: &[(&'static str, OsString)]) -> Self {
+            let mut saved = Vec::with_capacity(GIT_ENV_VARS_TO_CLEAR.len());
+            for name in GIT_ENV_VARS_TO_CLEAR {
+                saved.push((name, std::env::var_os(name)));
+                // SAFETY: Tests hold `GIT_ENV_LOCK` while mutating process env,
+                // so no concurrent env access occurs within this test binary.
+                unsafe { std::env::remove_var(name) };
+            }
+            for (name, value) in overrides {
+                // SAFETY: Tests hold `GIT_ENV_LOCK` while mutating process env,
+                // so no concurrent env access occurs within this test binary.
+                unsafe { std::env::set_var(name, value) };
+            }
+            Self { saved }
+        }
+    }
+
+    impl Drop for GitEnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in self.saved.drain(..) {
+                match value {
+                    // SAFETY: Tests hold `GIT_ENV_LOCK` while mutating process
+                    // env, so no concurrent env access occurs within this
+                    // test binary.
+                    Some(value) => unsafe { std::env::set_var(name, value) },
+                    // SAFETY: Tests hold `GIT_ENV_LOCK` while mutating process
+                    // env, so no concurrent env access occurs within this
+                    // test binary.
+                    None => unsafe { std::env::remove_var(name) },
+                }
+            }
+        }
+    }
+
+    fn run_git_without_inherited_repo_env(
+        dir: &std::path::Path,
+        args: &[&str],
+    ) -> std::process::Output {
+        let mut cmd = Command::new("git");
+        cmd.args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@test.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@test.com");
+        sanitize_git_env(&mut cmd);
+        cmd.output().expect("git command")
+    }
+
+    #[test]
+    fn init_repo_ignores_inherited_git_repo_env() {
+        let _lock = GIT_ENV_LOCK.lock().unwrap();
+
+        let outer = TempDir::new().unwrap();
+        std::fs::write(outer.path().join("README.md"), "outer").unwrap();
+        assert!(
+            run_git_without_inherited_repo_env(outer.path(), &["init", "-b", "main"])
+                .status
+                .success()
+        );
+        assert!(
+            run_git_without_inherited_repo_env(outer.path(), &["add", "."])
+                .status
+                .success()
+        );
+        assert!(
+            run_git_without_inherited_repo_env(outer.path(), &["commit", "-m", "outer"])
+                .status
+                .success()
+        );
+        let outer_head = String::from_utf8(
+            run_git_without_inherited_repo_env(outer.path(), &["rev-parse", "HEAD"]).stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+
+        let _guard = GitEnvGuard::with_overrides(&[
+            (
+                "GIT_COMMON_DIR",
+                outer.path().join(".git").as_os_str().to_os_string(),
+            ),
+            (
+                "GIT_DIR",
+                outer.path().join(".git").as_os_str().to_os_string(),
+            ),
+            (
+                "GIT_INDEX_FILE",
+                outer.path().join(".git/index").as_os_str().to_os_string(),
+            ),
+            ("GIT_PREFIX", OsString::from("")),
+            ("GIT_WORK_TREE", outer.path().as_os_str().to_os_string()),
+        ]);
+
+        let (repo, initial) = init_repo();
+
+        assert!(
+            repo.path().join(".git").exists(),
+            "init_repo should create an isolated git repo even when hook Git env vars are set"
+        );
+        assert!(
+            !initial.is_empty(),
+            "init_repo should resolve a real HEAD in the isolated temp repo"
+        );
+
+        let outer_head_after = String::from_utf8(
+            run_git_without_inherited_repo_env(outer.path(), &["rev-parse", "HEAD"]).stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        assert_eq!(
+            outer_head_after, outer_head,
+            "init_repo should not mutate the outer repository referenced by inherited hook env"
+        );
     }
 }
