@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
@@ -14,7 +15,7 @@ fn ls_lists_all_documents() {
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
     common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls"])
         .current_dir(tmp.path())
         .assert()
@@ -30,7 +31,7 @@ fn ls_filter_by_type() {
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
     common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls", "--type", "requirements"])
         .current_dir(tmp.path())
         .assert()
@@ -46,7 +47,7 @@ fn ls_filter_by_status() {
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
     common::write_spec(tmp.path(), "b", "doc/b", "design", "verified");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls", "--status", "draft"])
         .current_dir(tmp.path())
         .assert()
@@ -62,7 +63,7 @@ fn ls_json_format() {
     common::setup_project(tmp.path());
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["ls", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -81,7 +82,7 @@ fn ls_empty_result_exits_zero() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls"])
         .current_dir(tmp.path())
         .assert()
@@ -94,7 +95,7 @@ fn list_alias_works() {
     common::setup_project(tmp.path());
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["list"])
         .current_dir(tmp.path())
         .assert()
@@ -123,7 +124,7 @@ paths = ["specs/**/*.md"]
         "",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["ls", "--project", "workspace"])
         .current_dir(tmp.path())
         .assert()
@@ -139,7 +140,7 @@ fn graph_dot_format_writes_dot_syntax_to_stdout() {
     common::setup_project(tmp.path());
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["graph", "--format", "dot"])
         .current_dir(tmp.path())
         .output()
@@ -178,7 +179,7 @@ fn graph_writes_syntax_to_stdout_and_summary_to_stderr() {
     common::setup_project(tmp.path());
     common::write_spec(tmp.path(), "a", "doc/a", "requirements", "draft");
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["graph"])
         .current_dir(tmp.path())
         .output()

@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
@@ -27,7 +28,7 @@ fn context_shows_document_info() {
 "#,
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["context", "auth/req/login"])
         .current_dir(tmp.path())
         .assert()
@@ -50,7 +51,7 @@ fn context_json_format() {
         "# Test\n",
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["context", "test/doc", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -69,7 +70,7 @@ fn context_unknown_id_exits_one() {
     common::setup_project(tmp.path());
     common::write_spec_doc(tmp.path(), "specs/req.md", "test/doc", None, None, "");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["context", "nonexistent/doc"])
         .current_dir(tmp.path())
         .assert()
@@ -96,7 +97,7 @@ fn context_json_compact_omits_components() {
 "#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["context", "test/doc", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -140,7 +141,7 @@ fn context_json_detail_full_includes_components() {
 "#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "context", "test/doc", "--format", "json", "--detail", "full",
         ])
@@ -177,7 +178,7 @@ fn context_json_has_no_illustrations_key() {
         "# Test\n",
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["context", "test/doc", "--format", "json"])
         .current_dir(tmp.path())
         .output()

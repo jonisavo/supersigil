@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::{sanitize_git_env, supersigil_cmd};
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
@@ -313,8 +314,9 @@ plugins = []
 }
 
 fn current_head(dir: &TempDir) -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
+    let mut cmd = Command::new("git");
+    sanitize_git_env(&mut cmd);
+    cmd.args(["rev-parse", "HEAD"])
         .current_dir(dir.path())
         .output()
         .map(|output| String::from_utf8(output.stdout).unwrap().trim().to_owned())
@@ -327,7 +329,7 @@ fn verify_terminal_surfaces_plugin_failure_as_report_finding() {
     let tmp = TempDir::new().unwrap();
     setup_plugin_failure_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .arg("verify")
         .current_dir(tmp.path())
         .output()
@@ -357,7 +359,7 @@ fn verify_json_surfaces_partial_plugin_warning_and_preserves_evidence() {
     let tmp = TempDir::new().unwrap();
     setup_partial_plugin_warning_fixture(tmp.path(), "");
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -410,7 +412,7 @@ fn verify_missing_evidence_prints_concrete_remediation_hints() {
     let tmp = TempDir::new().unwrap();
     setup_missing_evidence_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -436,7 +438,7 @@ fn verify_json_plugin_failure_includes_structured_details() {
     let tmp = TempDir::new().unwrap();
     setup_plugin_failure_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -468,7 +470,7 @@ fn verify_json_shared_file_glob_evidence_does_not_surface_conflicts() {
     let tmp = TempDir::new().unwrap();
     setup_shared_file_glob_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -500,7 +502,7 @@ fn verify_with_plugins_disabled_keeps_explicit_evidence_and_stays_clean() {
     let tmp = TempDir::new().unwrap();
     setup_explicit_evidence_only_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -533,7 +535,7 @@ fn verify_json_compact_omits_records_on_clean_run() {
     let tmp = TempDir::new().unwrap();
     setup_explicit_evidence_only_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -568,7 +570,7 @@ fn verify_json_detail_full_includes_records_on_clean_run() {
     let tmp = TempDir::new().unwrap();
     setup_explicit_evidence_only_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json", "--detail", "full"])
         .current_dir(tmp.path())
         .output()
@@ -608,7 +610,7 @@ plugin_discovery_warning = "off"
 "#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -641,7 +643,7 @@ plugins = ["python"]
 "#,
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .arg("verify")
         .current_dir(tmp.path())
         .assert()
@@ -719,7 +721,7 @@ fn verify_project_filter_reports_only_selected_project_findings() {
     setup_multi_project_coverage_fixture(tmp.path());
 
     // 1. --project covered → should be clean (evidence exists)
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json", "--project", "covered"])
         .current_dir(tmp.path())
         .output()
@@ -740,7 +742,7 @@ fn verify_project_filter_reports_only_selected_project_findings() {
     );
 
     // 2. --project uncovered → should have errors (no evidence)
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json", "--project", "uncovered"])
         .current_dir(tmp.path())
         .output()
@@ -769,7 +771,7 @@ fn verify_project_filter_reports_only_selected_project_findings() {
     }
 
     // 3. No filter → should have errors from uncovered project
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -804,7 +806,7 @@ fn verify_empty_project_warns() {
     write_config(dir.path(), "paths = [\"specs/**/*.md\"]\n");
 
     // JSON output: should contain the empty_project finding as a warning
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(dir.path())
         .output()
@@ -826,7 +828,7 @@ fn verify_empty_project_warns() {
     );
 
     // Terminal output: should render the warning (not "Clean: no findings")
-    let terminal_output = cargo_bin_cmd!("supersigil")
+    let terminal_output = supersigil_cmd()
         .args(["verify"])
         .current_dir(dir.path())
         .output()
@@ -855,7 +857,7 @@ fn verify_empty_project_warns() {
 fn broken_pipe_does_not_panic() {
     use std::fmt::Write;
     use std::io::Read;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     let dir = TempDir::new().unwrap();
 
@@ -901,8 +903,7 @@ fn broken_pipe_does_not_panic() {
         .unwrap();
     }
 
-    let bin = assert_cmd::cargo::cargo_bin("supersigil");
-    let mut child = Command::new(bin)
+    let mut child = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(dir.path())
         .stdout(Stdio::piped())
@@ -968,7 +969,7 @@ fn verify_js_plugin_discovers_verifies_evidence() {
     let tmp = TempDir::new().unwrap();
     setup_js_plugin_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json", "--detail", "full"])
         .current_dir(tmp.path())
         .output()
@@ -1045,7 +1046,7 @@ test('login succeeds', () => {
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["verify", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -1063,7 +1064,7 @@ test('login succeeds', () => {
 fn verify_since_reports_affected_docs_without_warning_exit() {
     let (tmp, initial) = setup_affected_verify_fixture();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "verify",
             "--since",
@@ -1100,7 +1101,7 @@ fn verify_since_reports_affected_docs_without_warning_exit() {
 fn verify_terminal_since_omits_misleading_scope_header_and_mentions_ref_in_note() {
     let (tmp, initial) = setup_affected_verify_fixture();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "verify",
             "--since",
@@ -1158,7 +1159,7 @@ fn verify_terminal_since_omits_misleading_scope_header_and_mentions_ref_in_note(
 fn verify_json_since_includes_affected_summary() {
     let (tmp, initial) = setup_affected_verify_fixture();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "verify",
             "--since",
@@ -1196,7 +1197,7 @@ fn verify_json_since_includes_affected_summary() {
 fn verify_project_json_since_counts_changed_files_for_transitive_hits() {
     let (tmp, initial) = setup_project_scoped_transitive_affected_fixture();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "verify",
             "--project",
@@ -1237,7 +1238,7 @@ fn verify_project_json_since_counts_changed_files_for_transitive_hits() {
 fn verify_project_json_since_counts_all_direct_sources_for_transitive_hits() {
     let (tmp, initial) = setup_project_scoped_multi_source_transitive_fixture();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args([
             "verify",
             "--project",
@@ -1278,7 +1279,7 @@ fn verify_project_json_since_counts_all_direct_sources_for_transitive_hits() {
 #[verifies("cli-runtime/req#req-4-2")]
 fn verify_no_config_exits_one_with_error_on_stderr() {
     let tmp = TempDir::new().unwrap();
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .arg("verify")
         .current_dir(tmp.path())
         .output()

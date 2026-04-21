@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
@@ -23,7 +24,7 @@ status = ["draft", "approved"]
     std::fs::create_dir_all(tmp.path().join("specs")).unwrap();
     std::fs::write(tmp.path().join("specs/broken.md"), "---\nnot yaml").unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -47,7 +48,7 @@ fn schema_yaml_format_outputs_valid_yaml() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "yaml"])
         .current_dir(tmp.path())
         .output()
@@ -69,7 +70,7 @@ fn schema_contains_builtin_components() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .assert()
@@ -85,7 +86,7 @@ fn schema_includes_builtin_document_types_for_minimal_config() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -142,7 +143,7 @@ list = true
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -179,7 +180,7 @@ status = ["draft"]
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -209,7 +210,7 @@ fn schema_omits_default_empty_fields() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -239,7 +240,7 @@ fn schema_builtin_components_have_descriptions() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -271,7 +272,7 @@ fn schema_builtin_components_have_examples() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -303,7 +304,7 @@ fn schema_builtin_document_types_have_descriptions() {
     let tmp = TempDir::new().unwrap();
     common::setup_project(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -336,7 +337,7 @@ required = true
     )
     .unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["schema", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -355,7 +356,7 @@ required = true
 fn schema_missing_config_exits_one() {
     let tmp = TempDir::new().unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["schema"])
         .current_dir(tmp.path())
         .assert()

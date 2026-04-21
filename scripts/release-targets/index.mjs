@@ -334,6 +334,22 @@ function spawnCommand(command, args, options) {
   return spawnSync(invocation.command, invocation.args, options);
 }
 
+const GIT_ENV_VARS_TO_CLEAR = [
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_PREFIX",
+  "GIT_WORK_TREE",
+];
+
+function sanitizedGitEnv() {
+  const env = { ...process.env };
+  for (const name of GIT_ENV_VARS_TO_CLEAR) {
+    delete env[name];
+  }
+  return env;
+}
+
 /**
  * Runs a git command in the current repository and returns stdout.
  *
@@ -345,6 +361,7 @@ function git(args, { allowEmpty = false } = {}) {
   const result = spawnSync("git", args, {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: sanitizedGitEnv(),
   });
 
   if (result.status !== 0) {
@@ -528,6 +545,7 @@ function gitFileAtRef(ref, path) {
   const result = spawnSync("git", ["show", `${ref}:${path}`], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: sanitizedGitEnv(),
   });
 
   if (result.status !== 0) {

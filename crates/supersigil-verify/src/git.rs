@@ -86,7 +86,7 @@ fn collect_diff_paths(diff: &git2::Diff<'_>, paths: &mut HashSet<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{git_commit, init_repo};
+    use crate::test_helpers::{git_commit, init_repo, sanitize_git_env};
 
     #[test]
     fn detects_committed_changes_since_ref() {
@@ -120,15 +120,17 @@ mod tests {
 
         // Create a branch from the initial commit
         let git = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(dir.path())
-                .env("GIT_AUTHOR_NAME", "Test")
-                .env("GIT_AUTHOR_EMAIL", "test@test.com")
-                .env("GIT_COMMITTER_NAME", "Test")
-                .env("GIT_COMMITTER_EMAIL", "test@test.com")
-                .output()
-                .expect("git command")
+            let mut cmd = std::process::Command::new("git");
+            sanitize_git_env(
+                cmd.args(args)
+                    .current_dir(dir.path())
+                    .env("GIT_AUTHOR_NAME", "Test")
+                    .env("GIT_AUTHOR_EMAIL", "test@test.com")
+                    .env("GIT_COMMITTER_NAME", "Test")
+                    .env("GIT_COMMITTER_EMAIL", "test@test.com"),
+            )
+            .output()
+            .expect("git command")
         };
 
         // Create a feature branch

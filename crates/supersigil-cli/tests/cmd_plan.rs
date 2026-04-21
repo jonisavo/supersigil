@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use std::fs;
 use supersigil_rust::verifies;
@@ -29,7 +30,7 @@ fn plan_all_shows_outstanding_targets() {
 "#,
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan"])
         .current_dir(tmp.path())
         .assert()
@@ -51,7 +52,7 @@ fn plan_exact_id() {
         "# Login\n\n<AcceptanceCriteria>\n  <Criterion id=\"c1\">\n    Test criterion.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "auth/req/login"])
         .current_dir(tmp.path())
         .assert()
@@ -81,7 +82,7 @@ fn plan_prefix_match() {
         "# B\n\n<AcceptanceCriteria>\n  <Criterion id=\"c2\">\n    Test.\n  </Criterion>\n</AcceptanceCriteria>\n",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "auth"])
         .current_dir(tmp.path())
         .assert()
@@ -97,7 +98,7 @@ fn plan_no_match_exits_one() {
     common::setup_project(tmp.path());
     common::write_spec_doc(tmp.path(), "specs/req.md", "test/doc", None, None, "");
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "nonexistent"])
         .current_dir(tmp.path())
         .assert()
@@ -144,7 +145,7 @@ fn plan_shows_dependency_graph() {
 "#,
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "test"])
         .current_dir(tmp.path())
         .assert()
@@ -195,7 +196,7 @@ fn plan_default_shows_actionable_work() {
 
     // Default mode: only c1 is actionable (task-1-1 has no deps).
     // c2 is blocked (task-1-2 depends on task-1-1).
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "test"])
         .current_dir(tmp.path())
         .assert()
@@ -246,7 +247,7 @@ fn plan_full_shows_all_targets_and_task_list() {
     );
 
     // Full mode: all criteria shown + task list with implements refs.
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan", "test", "--full"])
         .current_dir(tmp.path())
         .assert()
@@ -272,7 +273,7 @@ fn plan_json_format() {
         "# Test\n",
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -303,7 +304,7 @@ fn plan_plugin_failure_warning_on_stderr() {
     fs::create_dir_all(tmp.path().join("src")).unwrap();
     fs::write(tmp.path().join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan"])
         .current_dir(tmp.path())
         .assert()
@@ -332,7 +333,7 @@ fn plan_json_stdout_clean_despite_plugin_warning() {
     fs::create_dir_all(tmp.path().join("src")).unwrap();
     fs::write(tmp.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -370,7 +371,7 @@ fn plan_no_work_message_and_completed_summary() {
         "# Test\n",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["plan"])
         .current_dir(tmp.path())
         .assert()
@@ -409,7 +410,7 @@ fn plan_no_work_message_and_completed_summary() {
 "#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "test"])
         .current_dir(tmp2.path())
         .output()
@@ -474,7 +475,7 @@ fn plan_json_qualified_task_refs() {
 "#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "test/", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -563,7 +564,7 @@ fn plan_json_compact_omits_completed_and_body_text() {
     let tmp = TempDir::new().unwrap();
     setup_plan_compact_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -613,7 +614,7 @@ fn plan_json_detail_full_includes_completed_and_body_text() {
     let tmp = TempDir::new().unwrap();
     setup_plan_compact_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["plan", "--format", "json", "--detail", "full"])
         .current_dir(tmp.path())
         .output()

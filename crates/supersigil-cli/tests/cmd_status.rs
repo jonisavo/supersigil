@@ -2,7 +2,8 @@
 
 mod common;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use predicates::prelude::*;
 use std::fs;
 use supersigil_rust::verifies;
@@ -22,7 +23,7 @@ fn status_counts_nested_criteria() {
         "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n  <Criterion id=\"ac-2\">\n    Must log out\n  </Criterion>\n</AcceptanceCriteria>",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["status", "--format", "json"])
         .current_dir(tmp.path())
         .assert()
@@ -54,7 +55,7 @@ fn status_per_document_shows_verified_by_per_criterion() {
 </AcceptanceCriteria>"#,
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "auth/req", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -104,7 +105,7 @@ fn status_per_document_omits_empty_verified_by() {
         "<AcceptanceCriteria>\n  <Criterion id=\"ac-1\">\n    Must log in\n  </Criterion>\n</AcceptanceCriteria>",
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "auth/req", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -147,7 +148,7 @@ fn status_terminal_shows_verified_by_per_criterion() {
 </AcceptanceCriteria>"#,
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["status", "auth/req"])
         .current_dir(tmp.path())
         .assert()
@@ -174,7 +175,7 @@ fn status_plugin_failure_warning_on_stderr() {
     fs::create_dir_all(tmp.path().join("src")).unwrap();
     fs::write(tmp.path().join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["status"])
         .current_dir(tmp.path())
         .assert()
@@ -202,7 +203,7 @@ fn status_json_stdout_clean_despite_plugin_warning() {
     fs::create_dir_all(tmp.path().join("src")).unwrap();
     fs::write(tmp.path().join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -257,7 +258,7 @@ fn status_partial_rust_plugin_warning_on_stderr() {
     let tmp = TempDir::new().unwrap();
     setup_partial_rust_warning_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status"])
         .current_dir(tmp.path())
         .output()
@@ -287,7 +288,7 @@ fn status_json_stdout_clean_despite_partial_rust_plugin_warning() {
     let tmp = TempDir::new().unwrap();
     setup_partial_rust_warning_fixture(tmp.path());
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -345,7 +346,7 @@ fn status_prefix_aggregates_matching_documents() {
         "",
     );
 
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["status", "feat", "--format", "json"])
         .current_dir(tmp.path())
         .output()
@@ -379,7 +380,7 @@ fn status_prefix_terminal_shows_prefix_header() {
         "",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["status", "feat"])
         .current_dir(tmp.path())
         .assert()
@@ -403,7 +404,7 @@ fn status_no_match_fails_with_error() {
         "",
     );
 
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["status", "nonexistent"])
         .current_dir(tmp.path())
         .assert()

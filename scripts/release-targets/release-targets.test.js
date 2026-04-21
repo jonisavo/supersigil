@@ -18,6 +18,13 @@ import { commandDetect, commandPrepare } from "./index.mjs";
 const BASE_REF = "v0.1.0";
 const RELEASE_VERSION = "0.2.0";
 const tempDirs = [];
+const GIT_ENV_VARS_TO_CLEAR = [
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_PREFIX",
+  "GIT_WORK_TREE",
+];
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -45,10 +52,19 @@ function writeTestFile(repoDir, relativePath, contents) {
   writeFileSync(path, contents, "utf8");
 }
 
+function sanitizedGitEnv() {
+  const env = { ...process.env };
+  for (const name of GIT_ENV_VARS_TO_CLEAR) {
+    delete env[name];
+  }
+  return env;
+}
+
 function run(dir, program, args) {
   const output = spawnSync(program, args, {
     cwd: dir,
     encoding: "utf8",
+    env: program === "git" ? sanitizedGitEnv() : process.env,
   });
 
   expect(output.status).toBe(0);

@@ -6,6 +6,28 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+
+const GIT_ENV_VARS_TO_CLEAR: [&str; 5] = [
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_PREFIX",
+    "GIT_WORK_TREE",
+];
+
+pub fn sanitize_git_env(cmd: &mut Command) -> &mut Command {
+    for name in GIT_ENV_VARS_TO_CLEAR {
+        cmd.env_remove(name);
+    }
+    cmd
+}
+
+pub fn supersigil_cmd() -> Command {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("supersigil"));
+    sanitize_git_env(&mut cmd);
+    cmd
+}
 
 pub fn setup_project(dir: &Path) {
     fs::write(dir.join("supersigil.toml"), "paths = [\"specs/**/*.md\"]\n").unwrap();

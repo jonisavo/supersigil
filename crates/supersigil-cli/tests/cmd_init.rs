@@ -1,8 +1,11 @@
 //! Integration tests for the `init` command.
 
+mod common;
+
 use std::fs;
 
-use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::assert::OutputAssertExt;
+use common::supersigil_cmd;
 use supersigil_rust::verifies;
 use tempfile::TempDir;
 
@@ -14,7 +17,7 @@ use tempfile::TempDir;
 #[test]
 fn init_non_tty_creates_config_and_skills() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .arg("init")
         .current_dir(tmp.path())
         .assert()
@@ -47,7 +50,7 @@ fn init_non_tty_creates_config_and_skills() {
 #[test]
 fn init_no_skills_creates_config_only() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
@@ -61,7 +64,7 @@ fn init_no_skills_creates_config_only() {
 #[test]
 fn init_skills_path_writes_to_custom_dir_and_updates_toml() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--skills-path", "custom/skills"])
         .current_dir(tmp.path())
         .assert()
@@ -85,7 +88,7 @@ fn init_skills_path_writes_to_custom_dir_and_updates_toml() {
 #[test]
 fn init_skills_flag_without_path_uses_default() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--skills"])
         .current_dir(tmp.path())
         .assert()
@@ -108,7 +111,7 @@ fn init_skills_flag_without_path_uses_default() {
 #[test]
 fn init_yes_flag_creates_config_and_skills() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "-y"])
         .current_dir(tmp.path())
         .assert()
@@ -126,7 +129,7 @@ fn init_yes_flag_creates_config_and_skills() {
 #[test]
 fn init_skills_and_no_skills_conflict() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--skills", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
@@ -136,7 +139,7 @@ fn init_skills_and_no_skills_conflict() {
 #[test]
 fn init_prints_skill_count() {
     let tmp = TempDir::new().unwrap();
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["init", "-y"])
         .current_dir(tmp.path())
         .output()
@@ -154,7 +157,7 @@ fn init_prints_skill_count() {
 #[test]
 fn init_skills_path_and_no_skills_conflict() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--skills-path", "custom", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
@@ -164,7 +167,7 @@ fn init_skills_path_and_no_skills_conflict() {
 #[test]
 fn init_prints_skill_chooser() {
     let tmp = TempDir::new().unwrap();
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["init", "-y"])
         .current_dir(tmp.path())
         .output()
@@ -184,7 +187,7 @@ fn init_prints_skill_chooser() {
 #[test]
 fn init_config_contains_commented_ecosystem_example() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
@@ -204,7 +207,7 @@ fn init_config_contains_commented_ecosystem_example() {
 #[test]
 fn init_config_contains_commented_verify_rules_example() {
     let tmp = TempDir::new().unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
@@ -231,7 +234,7 @@ fn init_config_contains_commented_verify_rules_example() {
 #[test]
 fn init_prints_next_steps_block() {
     let tmp = TempDir::new().unwrap();
-    let output = cargo_bin_cmd!("supersigil")
+    let output = supersigil_cmd()
         .args(["init", "--no-skills"])
         .current_dir(tmp.path())
         .output()
@@ -265,7 +268,7 @@ fn init_fails_if_config_exists() {
         "paths = [\"specs/**/*.md\"]\n",
     )
     .unwrap();
-    cargo_bin_cmd!("supersigil")
+    supersigil_cmd()
         .args(["init", "--no-skills"])
         .current_dir(tmp.path())
         .assert()
