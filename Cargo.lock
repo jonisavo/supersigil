@@ -1808,7 +1808,6 @@ version = "0.13.0"
 dependencies = [
  "git2",
  "glob",
- "globset",
  "ignore",
  "pathdiff",
  "proptest",

@@ -29,7 +29,7 @@ pub mod test_helpers;
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use glob::{MatchOptions, Pattern};
 use ignore::{DirEntry, WalkBuilder};
 use supersigil_core::{Config, DocumentGraph, SpecDocument, TestDiscoveryIgnoreMode};
 
@@ -555,12 +555,13 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
         .iter()
         .map(|glob| absolute_glob_pattern(glob, project_root))
         .collect();
-    let glob_set = build_glob_set(absolute_globs.iter().map(String::as_str));
+    let glob_patterns = build_glob_patterns(absolute_globs.iter().map(String::as_str));
 
-    if glob_set.is_none() {
+    if glob_patterns.is_empty() {
         return Vec::new();
     }
 
+    let match_options = raw_glob_match_options();
     let mut paths = BTreeSet::new();
     for scope in walk_scopes_for_globs(globs, project_root) {
         let match_roots = scope.match_roots.clone();
@@ -575,9 +576,9 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
             }
 
             let path = entry.into_path();
-            if glob_set
-                .as_ref()
-                .is_some_and(|glob_set| glob_set.is_match(&path))
+            if glob_patterns
+                .iter()
+                .any(|pattern| pattern.matches_path_with(&path, match_options))
             {
                 paths.insert(path);
             }
@@ -757,25 +758,22 @@ fn component_has_glob_meta(component: &std::path::Component<'_>) -> bool {
     match component {
         std::path::Component::Normal(value) => {
             let value = value.to_string_lossy();
-            value.contains('*') || value.contains('?') || value.contains('[') || value.contains('{')
+            value.contains('*') || value.contains('?') || value.contains('[')
         }
         _ => false,
     }
 }
 
-fn build_glob_set<'a>(globs: impl Iterator<Item = &'a str>) -> Option<GlobSet> {
-    let mut builder = GlobSetBuilder::new();
-    let mut has_glob = false;
+fn build_glob_patterns<'a>(globs: impl Iterator<Item = &'a str>) -> Vec<Pattern> {
+    globs.filter_map(|glob| Pattern::new(glob).ok()).collect()
+}
 
-    for glob in globs {
-        let Ok(glob) = GlobBuilder::new(glob).literal_separator(true).build() else {
-            continue;
-        };
-        builder.add(glob);
-        has_glob = true;
+fn raw_glob_match_options() -> MatchOptions {
+    MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: true,
+        require_literal_leading_dot: false,
     }
-
-    has_glob.then(|| builder.build().ok()).flatten()
 }
 
 // ===========================================================================
@@ -1127,6 +1125,26 @@ mod verify_tests {
         assert_eq!(
             relative_paths(dir.path(), &test_files),
             vec!["tests/auth_test.rs"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_treats_braces_as_literals() {
+        let dir = git_tempdir();
+        write_file(dir.path(), "tests/unit/auth_test.rs", "test");
+        write_file(dir.path(), "tests/integration/auth_test.rs", "test");
+        write_file(
+            dir.path(),
+            "tests/{unit,integration}/literal_test.rs",
+            "test",
+        );
+        let config = config_with_tests(&["tests/{unit,integration}/*.rs"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/{unit,integration}/literal_test.rs"],
         );
     }
 

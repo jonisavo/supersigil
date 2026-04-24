@@ -109,13 +109,16 @@ The intended implementation shape is:
   ignore decisions still apply when a literal test root is itself ignored
 - keep standard filters enabled
 - prune traversal to the derived literal roots and match walked files against
-  normalized project-resolved absolute glob patterns
+  normalized project-resolved absolute patterns using the same glob syntax as
+  Raw_Glob_Mode
 - collect regular-file matches and symlinked-file matches into a
   sorted/deduplicated set
 
 This preserves authored glob semantics, prevents traversal into ignored subtrees
 such as `node_modules/` and `dist/`, and keeps relative glob patterns scoped to
-the filesystem locations they resolve to from the project root.
+the filesystem locations they resolve to from the project root. Standard mode
+does not add syntax beyond Raw_Glob_Mode; for example, brace characters remain
+literal path characters rather than alternation operators.
 
 ### Off Mode
 

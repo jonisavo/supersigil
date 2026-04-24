@@ -15,7 +15,6 @@ exclude = ["specs/"]
 [dependencies]
 git2 = "0.20.4"
 glob.workspace = true
-globset.workspace = true
 ignore.workspace = true
 regex.workspace = true
 serde.workspace = true
