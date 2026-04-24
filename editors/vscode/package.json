@@ -151,10 +151,10 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/vscode": "^1.74.0",
-    "@vscode/vsce": "^3.7.1",
-    "d3": "^7.9.0",
+    "@vscode/vsce": "^3.9.1",
+    "d3": "catalog:",
     "esbuild": "catalog:",
-    "force-in-a-box": "^1.0.2",
+    "force-in-a-box": "catalog:",
     "jsdom": "^26.1.0",
     "@supersigil/vitest": "workspace:*",
     "typescript": "catalog:",

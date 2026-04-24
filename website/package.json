@@ -18,11 +18,11 @@
     "bundle:standalone": "node scripts/bundle-standalone.mjs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.38.3",
-    "astro": "^6.1.4",
+    "@astrojs/starlight": "^0.38.4",
+    "astro": "^6.1.9",
     "astro-mermaid": "^2.0.1",
-    "d3": "^7.9.0",
-    "force-in-a-box": "^1.0.2",
+    "d3": "catalog:",
+    "force-in-a-box": "catalog:",
     "mermaid": "^11.14.0",
     "sharp": "^0.34.0"
   },

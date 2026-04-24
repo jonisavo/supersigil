@@ -10,7 +10,8 @@
   "pnpm": {
     "overrides": {
       "mermaid>dompurify": "^3.4.0"
-    }
+    },
+    "auditConfig": {}
   },
   "devDependencies": {
     "@supersigil/eslint-plugin": "workspace:*",
