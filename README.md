@@ -130,6 +130,20 @@ Test files
 - `status: draft` suppresses warnings so you can work iteratively.
   Hard errors (broken refs, cycles, duplicates) are always fatal.
 
+### Test Discovery
+
+Configured `tests` globs respect standard repository ignore rules by default,
+including `.gitignore`, `.ignore`, Git excludes, and hidden-file filtering:
+
+```toml
+[test_discovery]
+ignore = "standard" # default; use "off" for raw glob expansion
+```
+
+This policy applies only to top-level `tests` and `[projects.*].tests`. Spec
+`paths` and criterion-level `VerifiedBy strategy="file-glob"` checks keep raw
+glob expansion semantics.
+
 ## Editor integration
 
 The Supersigil LSP server provides real-time feedback in your editor:

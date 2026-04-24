@@ -222,6 +222,30 @@ pub struct TestResultsConfig {
 }
 
 // ---------------------------------------------------------------------------
+// TestDiscoveryConfig
+// ---------------------------------------------------------------------------
+
+/// Ignore handling mode for shared test discovery.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TestDiscoveryIgnoreMode {
+    /// Respect standard repository ignore files and VCS ignore behavior.
+    #[default]
+    Standard,
+    /// Expand test globs without applying ignore files.
+    Off,
+}
+
+/// Shared test discovery configuration.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestDiscoveryConfig {
+    /// Ignore handling mode for shared test discovery.
+    #[serde(default)]
+    pub ignore: TestDiscoveryIgnoreMode,
+}
+
+// ---------------------------------------------------------------------------
 // ProjectConfig
 // ---------------------------------------------------------------------------
 
@@ -337,6 +361,9 @@ pub struct Config {
     /// Ecosystem plugin declarations.
     #[serde(default)]
     pub ecosystem: EcosystemConfig,
+    /// Shared test discovery configuration.
+    #[serde(default)]
+    pub test_discovery: TestDiscoveryConfig,
     /// Test results configuration.
     #[serde(default)]
     pub test_results: TestResultsConfig,

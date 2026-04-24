@@ -47,7 +47,8 @@ proptest! {
 
 use supersigil_core::{
     AttributeDef, ComponentDef, Config, DocumentTypeDef, DocumentationConfig, DocumentsConfig,
-    EcosystemConfig, ProjectConfig, Severity, SkillsConfig, TestResultsConfig, VerifyConfig,
+    EcosystemConfig, ProjectConfig, Severity, SkillsConfig, TestDiscoveryConfig,
+    TestDiscoveryIgnoreMode, TestResultsConfig, VerifyConfig,
 };
 
 /// Generator for a non-empty identifier string (safe for TOML keys).
@@ -135,6 +136,17 @@ fn arb_test_results_config() -> impl Strategy<Value = TestResultsConfig> {
         .prop_map(|(formats, paths)| TestResultsConfig { formats, paths })
 }
 
+fn arb_test_discovery_ignore_mode() -> impl Strategy<Value = TestDiscoveryIgnoreMode> {
+    prop_oneof![
+        Just(TestDiscoveryIgnoreMode::Standard),
+        Just(TestDiscoveryIgnoreMode::Off),
+    ]
+}
+
+fn arb_test_discovery_config() -> impl Strategy<Value = TestDiscoveryConfig> {
+    arb_test_discovery_ignore_mode().prop_map(|ignore| TestDiscoveryConfig { ignore })
+}
+
 /// Generator for valid Config values. Ensures mutual exclusivity:
 /// either single-project (paths + optional tests) or multi-project (projects only).
 fn arb_config() -> impl Strategy<Value = Config> {
@@ -154,6 +166,7 @@ fn arb_config() -> impl Strategy<Value = Config> {
         prop::collection::hash_map("[A-Z][a-z]{2,8}", arb_component_def(), 0..3),
         arb_verify_config(),
         arb_ecosystem_config(),
+        arb_test_discovery_config(),
         arb_test_results_config(),
     )
         .prop_map(
@@ -164,6 +177,7 @@ fn arb_config() -> impl Strategy<Value = Config> {
                 components,
                 verify,
                 ecosystem,
+                test_discovery,
                 test_results,
             )| {
                 Config {
@@ -175,6 +189,7 @@ fn arb_config() -> impl Strategy<Value = Config> {
                     components,
                     verify,
                     ecosystem,
+                    test_discovery,
                     test_results,
                     skills: SkillsConfig::default(),
                     documentation: DocumentationConfig::default(),

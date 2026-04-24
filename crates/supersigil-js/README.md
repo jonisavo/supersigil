@@ -5,8 +5,9 @@ JavaScript/TypeScript ecosystem plugin for the
 
 This crate provides the JS/TS integration for supersigil. It handles:
 
-- Discovering JS/TS test files via configurable glob patterns
-- Respecting `.gitignore` rules during file discovery
+- Filtering JS/TS files from the shared test-file baseline
+- Relying on the verification engine's shared resolver for `.gitignore`
+  and `test_discovery.ignore` behavior
 - Parsing `verifies()` calls from test files via `oxc`
 - Normalizing JS/TS test results into verification evidence records
 

@@ -2,7 +2,9 @@
 //               15.1-15.2, 16.1-16.3, 17.1-17.4, 18.1-18.2, 19.1-19.5, 24.1
 
 use serde::Deserialize;
-use supersigil_core::{Config, DocumentationConfig, EcosystemConfig, Severity, VerifyConfig};
+use supersigil_core::{
+    Config, DocumentationConfig, EcosystemConfig, Severity, TestDiscoveryIgnoreMode, VerifyConfig,
+};
 
 // ---------------------------------------------------------------------------
 // Minimal config (Req 24)
@@ -21,6 +23,10 @@ fn minimal_config_paths_only() {
     assert!(config.components.is_empty());
     assert_eq!(config.verify, VerifyConfig::default());
     assert_eq!(config.ecosystem.plugins, vec!["rust".to_string()]);
+    assert_eq!(
+        config.test_discovery.ignore,
+        TestDiscoveryIgnoreMode::Standard
+    );
     assert!(config.test_results.formats.is_empty());
     assert!(config.test_results.paths.is_empty());
 }
@@ -33,6 +39,104 @@ fn minimal_config_paths_only() {
 fn ecosystem_defaults_to_rust_plugin() {
     let eco = EcosystemConfig::default();
     assert_eq!(eco.plugins, vec!["rust".to_string()]);
+}
+
+#[test]
+fn test_discovery_defaults_to_standard_ignore() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[test_discovery]
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+
+    assert_eq!(
+        config.test_discovery.ignore,
+        TestDiscoveryIgnoreMode::Standard
+    );
+}
+
+#[test]
+fn test_discovery_accepts_off_ignore_mode() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[test_discovery]
+ignore = "off"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+
+    assert_eq!(config.test_discovery.ignore, TestDiscoveryIgnoreMode::Off);
+}
+
+#[test]
+fn test_discovery_rejects_unknown_ignore_mode() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[test_discovery]
+ignore = "custom"
+"#;
+
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("unknown variant") || err_msg.contains("expected"),
+        "error should reject unknown ignore mode: {err_msg}"
+    );
+}
+
+#[test]
+fn test_discovery_rejects_unknown_nested_key() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[test_discovery]
+ignore = "standard"
+extra = true
+"#;
+
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("unknown"),
+        "error should mention unknown field: {err_msg}"
+    );
+}
+
+#[test]
+fn test_discovery_rejected_inside_project_config() {
+    let toml_str = r#"
+[projects.app]
+paths = ["app/specs/**/*.md"]
+
+[projects.app.test_discovery]
+ignore = "off"
+"#;
+
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("unknown"),
+        "per-project test_discovery should be rejected: {err_msg}"
+    );
+}
+
+#[test]
+fn test_discovery_rejected_inside_ecosystem_config() {
+    let toml_str = r#"
+paths = ["specs/**/*.md"]
+
+[ecosystem.test_discovery]
+ignore = "off"
+"#;
+
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("unknown"),
+        "per-plugin/ecosystem test_discovery should be rejected: {err_msg}"
+    );
 }
 
 #[test]
