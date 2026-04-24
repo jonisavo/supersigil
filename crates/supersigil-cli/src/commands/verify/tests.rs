@@ -476,6 +476,28 @@ fn rule_breakdown_uses_hint_styling() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn timing_summary_uses_milliseconds_for_subsecond_durations() {
+    use output::terminal::format_timing_summary;
+
+    let timings = PhaseTimings {
+        doc_count: 5,
+        parse: Duration::from_millis(120),
+        evidence: Duration::from_millis(340),
+        rules: Duration::from_millis(50),
+    };
+
+    let out = format_timing_summary(&timings, no_color());
+    assert!(
+        out.contains("in 510ms"),
+        "should include total timing in milliseconds, got:\n{out}"
+    );
+    assert!(
+        out.contains("(parse: 120ms, check: 340ms, report: 50ms)"),
+        "should include phase timings in milliseconds, got:\n{out}"
+    );
+}
+
+#[test]
 fn timing_summary_includes_all_phases() {
     use output::terminal::format_timing_summary;
 
@@ -492,7 +514,7 @@ fn timing_summary_includes_all_phases() {
         "should include document count, got:\n{out}"
     );
     assert!(
-        out.contains("0.1s") || out.contains("0.12s"),
+        out.contains("120ms"),
         "should include parse timing, got:\n{out}"
     );
     assert!(
@@ -518,12 +540,34 @@ fn timing_summary_shows_total_elapsed() {
 
     let out = format_timing_summary(&timings, no_color());
     assert!(
-        out.contains("in 0.3s") || out.contains("in 0.4s"),
+        out.contains("in 350ms"),
         "should include total time, got:\n{out}"
     );
     assert!(
         out.contains("Verified"),
         "should start with 'Verified', got:\n{out}"
+    );
+}
+
+#[test]
+fn timing_summary_keeps_seconds_for_longer_durations() {
+    use output::terminal::format_timing_summary;
+
+    let timings = PhaseTimings {
+        doc_count: 10,
+        parse: Duration::from_millis(100),
+        evidence: Duration::from_millis(1_200),
+        rules: Duration::from_millis(50),
+    };
+
+    let out = format_timing_summary(&timings, no_color());
+    assert!(
+        out.contains("in 1.4s"),
+        "should keep total timing in seconds for longer runs, got:\n{out}"
+    );
+    assert!(
+        out.contains("check: 1.2s"),
+        "should keep longer phase timings in seconds, got:\n{out}"
     );
 }
 

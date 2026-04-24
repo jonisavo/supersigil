@@ -211,7 +211,7 @@ fn severity_symbol(severity: ReportSeverity, color: ColorConfig) -> format::Pain
 /// Format the timing summary line for terminal output.
 ///
 /// Produces a line like:
-/// `Verified 5 documents in 0.5s (parse: 0.1s, check: 0.3s, report: 0.1s)`
+/// `Verified 5 documents in 510ms (parse: 120ms, check: 340ms, report: 50ms)`
 pub(crate) fn format_timing_summary(timings: &PhaseTimings, color: ColorConfig) -> String {
     let total = timings.parse + timings.evidence + timings.rules;
     let noun = if timings.doc_count == 1 {
@@ -223,15 +223,23 @@ pub(crate) fn format_timing_summary(timings: &PhaseTimings, color: ColorConfig) 
     let count = color.paint(Token::Count, &count_str);
 
     let detail = format!(
-        "(parse: {:.1}s, check: {:.1}s, report: {:.1}s)",
-        timings.parse.as_secs_f64(),
-        timings.evidence.as_secs_f64(),
-        timings.rules.as_secs_f64(),
+        "(parse: {}, check: {}, report: {})",
+        format_duration(timings.parse),
+        format_duration(timings.evidence),
+        format_duration(timings.rules),
     );
     let detail_painted = color.paint(Token::Hint, &detail);
 
     format!(
-        "Verified {count} {noun} in {:.1}s {detail_painted}\n",
-        total.as_secs_f64(),
+        "Verified {count} {noun} in {} {detail_painted}\n",
+        format_duration(total),
     )
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    if duration < std::time::Duration::from_secs(1) {
+        format!("{}ms", duration.as_millis())
+    } else {
+        format!("{:.1}s", duration.as_secs_f64())
+    }
 }
