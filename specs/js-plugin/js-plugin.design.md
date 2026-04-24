@@ -269,7 +269,10 @@ pub enum PluginProvenance {
 The JS plugin requires no plugin-specific config. JS/TS test file paths are
 declared via the project-level `tests` globs (either top-level in
 single-project mode or per-project in multi-project mode). The plugin is
-activated by including `"js"` in `ecosystem.plugins`.
+activated by including `"js"` in `ecosystem.plugins`. Ignore handling is owned
+by the shared test-file resolver and follows workspace-level
+`test_discovery.ignore`; the JS plugin only filters the shared baseline by
+extension.
 
 ## Spec Browser and Preview Integration
 

@@ -47,6 +47,7 @@ pub struct Config {
     pub components: HashMap<String, ComponentDef>,
     pub verify: VerifyConfig,
     pub ecosystem: EcosystemConfig,
+    pub test_discovery: TestDiscoveryConfig,
     pub test_results: TestResultsConfig,
 }
 
@@ -59,6 +60,15 @@ pub struct ProjectConfig {
 pub struct RustEcosystemConfig {
     pub validation: RustValidationPolicy,
     pub project_scope: Vec<RustProjectScope>,
+}
+
+pub struct TestDiscoveryConfig {
+    pub ignore: TestDiscoveryIgnoreMode,
+}
+
+pub enum TestDiscoveryIgnoreMode {
+    Standard,
+    Off,
 }
 ```
 
@@ -75,6 +85,9 @@ pub struct RustEcosystemConfig {
 - known verification rule names
 - known ecosystem plugin names
 - `id_pattern` regex compilation
+
+`test_discovery.ignore` is validated by enum deserialization and defaults to
+`Standard` when `[test_discovery]` is omitted.
 
 ### `ComponentDefs::merge`
 

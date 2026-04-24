@@ -26,10 +26,12 @@ pub mod suggest;
 /// Test helpers for building spec documents and git repos.
 pub mod test_helpers;
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use supersigil_core::{Config, DocumentGraph, SpecDocument};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use ignore::WalkBuilder;
+use supersigil_core::{Config, DocumentGraph, SpecDocument, TestDiscoveryIgnoreMode};
 
 pub use affected::AffectedDocument;
 pub use artifact_graph::{ArtifactGraph, build_artifact_graph};
@@ -499,12 +501,18 @@ pub fn resolve_test_files(config: &Config, project_root: &Path) -> Vec<std::path
 
 /// Resolve test file paths for one selected project, or all projects when
 /// `project` is `None`.
+#[must_use]
 pub fn resolve_test_files_for_project(
     config: &Config,
     project_root: &Path,
     project: Option<&str>,
 ) -> Vec<std::path::PathBuf> {
-    let mut globs: Vec<&str> = Vec::new();
+    let globs = collect_test_globs_for_project(config, project);
+    resolve_test_globs(&globs, project_root, config.test_discovery.ignore)
+}
+
+fn collect_test_globs_for_project<'a>(config: &'a Config, project: Option<&str>) -> Vec<&'a str> {
+    let mut globs = Vec::new();
 
     if let Some(ref test_globs) = config.tests {
         globs.extend(test_globs.iter().map(String::as_str));
@@ -522,7 +530,195 @@ pub fn resolve_test_files_for_project(
         }
     }
 
-    supersigil_core::expand_globs(globs, project_root)
+    globs
+}
+
+fn resolve_test_globs(
+    globs: &[&str],
+    project_root: &Path,
+    ignore: TestDiscoveryIgnoreMode,
+) -> Vec<PathBuf> {
+    match ignore {
+        TestDiscoveryIgnoreMode::Standard => resolve_test_globs_standard(globs, project_root),
+        TestDiscoveryIgnoreMode::Off => {
+            supersigil_core::expand_globs(globs.iter().copied(), project_root)
+        }
+    }
+}
+
+fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathBuf> {
+    if globs.is_empty() {
+        return Vec::new();
+    }
+
+    let (absolute_globs, relative_globs): (Vec<_>, Vec<_>) = globs
+        .iter()
+        .copied()
+        .partition(|glob| Path::new(glob).is_absolute());
+    let absolute_set = build_glob_set(absolute_globs.into_iter());
+    let relative_set = build_glob_set(relative_globs.into_iter());
+
+    if absolute_set.is_none() && relative_set.is_none() {
+        return Vec::new();
+    }
+
+    let mut paths = BTreeSet::new();
+    for scope in walk_scopes_for_globs(globs, project_root) {
+        let match_roots = scope.match_roots.clone();
+        let walker = WalkBuilder::new(&scope.walk_root)
+            .standard_filters(true)
+            .filter_entry(move |entry| should_visit_walk_entry(entry.path(), &match_roots))
+            .build();
+
+        for entry in walker.filter_map(Result::ok) {
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
+                continue;
+            }
+
+            let path = entry.into_path();
+            let absolute_match = absolute_set
+                .as_ref()
+                .is_some_and(|glob_set| glob_set.is_match(&path));
+            let relative_match = relative_set.as_ref().is_some_and(|glob_set| {
+                let relative = path.strip_prefix(project_root).unwrap_or(&path);
+                glob_set.is_match(relative)
+            });
+
+            if absolute_match || relative_match {
+                paths.insert(path);
+            }
+        }
+    }
+
+    paths.into_iter().collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WalkScope {
+    walk_root: PathBuf,
+    match_roots: Vec<PathBuf>,
+}
+
+fn walk_scopes_for_globs(globs: &[&str], project_root: &Path) -> Vec<WalkScope> {
+    let roots: Vec<PathBuf> = globs
+        .iter()
+        .map(|glob| walk_root_for_glob(glob, project_root))
+        .collect();
+
+    let mut walk_roots: Vec<PathBuf> = roots
+        .iter()
+        .map(|root| walk_context_root(root, project_root))
+        .collect();
+    walk_roots.sort();
+    walk_roots.dedup();
+
+    let mut scopes = Vec::new();
+
+    for walk_root in walk_roots {
+        let match_roots = minimal_walk_roots(
+            roots
+                .iter()
+                .filter(|root| walk_context_root(root, project_root) == walk_root)
+                .cloned()
+                .collect(),
+        );
+        scopes.push(WalkScope {
+            walk_root,
+            match_roots,
+        });
+    }
+
+    scopes
+}
+
+fn minimal_walk_roots(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    roots.sort();
+    roots.dedup();
+
+    let mut minimal_roots: Vec<PathBuf> = Vec::new();
+    for root in roots {
+        if minimal_roots
+            .iter()
+            .any(|existing| root.starts_with(existing))
+        {
+            continue;
+        }
+        minimal_roots.push(root);
+    }
+
+    minimal_roots
+}
+
+fn walk_context_root(root: &Path, project_root: &Path) -> PathBuf {
+    if root.starts_with(project_root) {
+        project_root.to_path_buf()
+    } else {
+        nearest_vcs_root(root).unwrap_or_else(|| root.to_path_buf())
+    }
+}
+
+fn should_visit_walk_entry(path: &Path, roots: &[PathBuf]) -> bool {
+    roots
+        .iter()
+        .any(|root| root.starts_with(path) || path.starts_with(root))
+}
+
+fn nearest_vcs_root(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+fn walk_root_for_glob(pattern: &str, project_root: &Path) -> PathBuf {
+    let pattern_path = Path::new(pattern);
+    let mut root = PathBuf::new();
+
+    for component in pattern_path.components() {
+        if component_has_glob_meta(&component) {
+            break;
+        }
+        root.push(component.as_os_str());
+    }
+
+    if root.as_os_str().is_empty() {
+        if pattern_path.is_absolute() {
+            std::path::MAIN_SEPARATOR.to_string().into()
+        } else {
+            project_root.to_path_buf()
+        }
+    } else if root.is_absolute() {
+        root
+    } else {
+        project_root.join(root)
+    }
+}
+
+fn component_has_glob_meta(component: &std::path::Component<'_>) -> bool {
+    match component {
+        std::path::Component::Normal(value) => {
+            let value = value.to_string_lossy();
+            value.contains('*') || value.contains('?') || value.contains('[') || value.contains('{')
+        }
+        _ => false,
+    }
+}
+
+fn build_glob_set<'a>(globs: impl Iterator<Item = &'a str>) -> Option<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    let mut has_glob = false;
+
+    for glob in globs {
+        let Ok(glob) = GlobBuilder::new(glob).literal_separator(true).build() else {
+            continue;
+        };
+        builder.add(glob);
+        has_glob = true;
+    }
+
+    has_glob.then(|| builder.build().ok()).flatten()
 }
 
 // ===========================================================================
@@ -540,6 +736,50 @@ mod verify_tests {
     };
     use tempfile::TempDir;
     use test_helpers::*;
+
+    fn relative_paths(root: &Path, paths: &[PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|path| {
+                path.strip_prefix(root)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect()
+    }
+
+    fn git_tempdir() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        dir
+    }
+
+    fn write_file(root: &Path, relative: &str, content: &str) {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn config_with_tests(patterns: &[&str]) -> Config {
+        let mut config = test_config();
+        config.tests = Some(
+            patterns
+                .iter()
+                .map(|pattern| (*pattern).to_owned())
+                .collect(),
+        );
+        config
+    }
+
+    fn ignored_node_modules_fixture() -> TempDir {
+        let dir = git_tempdir();
+        std::fs::write(dir.path().join(".gitignore"), "node_modules/\ndist/\n").unwrap();
+        write_file(dir.path(), "tests/unit/auth.test.ts", "test");
+        write_file(dir.path(), "tests/node_modules/ignored.test.ts", "test");
+        write_file(dir.path(), "tests/dist/ignored.test.ts", "test");
+        dir
+    }
 
     fn make_evidence_record(
         id: usize,
@@ -686,6 +926,278 @@ mod verify_tests {
         let doc_ids = scoped_doc_ids(&graph, &options);
 
         assert_eq!(doc_ids, vec!["alpha/auth".to_string()]);
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_excludes_gitignored_paths() {
+        let dir = ignored_node_modules_fixture();
+        let config = config_with_tests(&["tests/**/*.test.ts"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/unit/auth.test.ts"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_off_mode_includes_gitignored_matches() {
+        let dir = ignored_node_modules_fixture();
+        let mut config = config_with_tests(&["tests/**/*.test.ts"]);
+        config.test_discovery.ignore = supersigil_core::TestDiscoveryIgnoreMode::Off;
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec![
+                "tests/dist/ignored.test.ts",
+                "tests/node_modules/ignored.test.ts",
+                "tests/unit/auth.test.ts",
+            ],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_respects_nested_gitignore() {
+        let dir = git_tempdir();
+        write_file(dir.path(), "packages/app/.gitignore", "generated/\n");
+        write_file(dir.path(), "packages/app/generated/ignored.test.ts", "test");
+        write_file(dir.path(), "packages/app/src/auth.test.ts", "test");
+        let config = config_with_tests(&["packages/**/*.test.ts"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["packages/app/src/auth.test.ts"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_excludes_ignored_literal_glob_root() {
+        let dir = git_tempdir();
+        std::fs::write(dir.path().join(".gitignore"), "dist/\n").unwrap();
+        write_file(dir.path(), "dist/ignored.test.ts", "test");
+        let config = config_with_tests(&["dist/**/*.test.ts"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert!(
+            test_files.is_empty(),
+            "ignored literal glob roots should not be scanned: {test_files:?}",
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_single_star_does_not_match_nested_paths() {
+        let dir = git_tempdir();
+        write_file(dir.path(), "tests/direct_test.rs", "test");
+        write_file(
+            dir.path(),
+            "tests/nested/ignored_by_pattern_test.rs",
+            "test",
+        );
+        let config = config_with_tests(&["tests/*.rs"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/direct_test.rs"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_supports_absolute_globs() {
+        let project = git_tempdir();
+        let external = git_tempdir();
+        write_file(external.path(), "external_tests/auth_test.rs", "test");
+        let absolute_glob = external
+            .path()
+            .join("external_tests/**/*.rs")
+            .to_string_lossy()
+            .into_owned();
+        let config = config_with_tests(&[&absolute_glob]);
+
+        let test_files = resolve_test_files(&config, project.path());
+
+        assert_eq!(
+            test_files,
+            vec![external.path().join("external_tests/auth_test.rs")],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_excludes_ignored_absolute_literal_glob_root() {
+        let project = git_tempdir();
+        let external = git_tempdir();
+        std::fs::write(external.path().join(".gitignore"), "external_tests/\n").unwrap();
+        write_file(external.path(), "external_tests/ignored_test.rs", "test");
+        let absolute_glob = external
+            .path()
+            .join("external_tests/**/*.rs")
+            .to_string_lossy()
+            .into_owned();
+        let config = config_with_tests(&[&absolute_glob]);
+
+        let test_files = resolve_test_files(&config, project.path());
+
+        assert!(
+            test_files.is_empty(),
+            "ignored absolute literal glob roots should not be scanned: {test_files:?}",
+        );
+    }
+
+    #[test]
+    fn standard_mode_walk_roots_are_limited_to_literal_glob_prefixes() {
+        let project = Path::new("/workspace");
+
+        assert_eq!(
+            walk_scopes_for_globs(&["tests/**/*.rs"], project),
+            vec![WalkScope {
+                walk_root: PathBuf::from("/workspace"),
+                match_roots: vec![PathBuf::from("/workspace/tests")],
+            }],
+        );
+        assert_eq!(
+            walk_scopes_for_globs(&["tests/**/*.rs", "tests/unit/*.rs"], project),
+            vec![WalkScope {
+                walk_root: PathBuf::from("/workspace"),
+                match_roots: vec![PathBuf::from("/workspace/tests")],
+            }],
+        );
+        assert_eq!(
+            walk_scopes_for_globs(&["**/*.rs"], project),
+            vec![WalkScope {
+                walk_root: PathBuf::from("/workspace"),
+                match_roots: vec![PathBuf::from("/workspace")],
+            }],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_remains_sorted_and_deduplicated() {
+        let dir = git_tempdir();
+        write_file(dir.path(), "tests/unit/b_test.rs", "test");
+        write_file(dir.path(), "tests/unit/a_test.rs", "test");
+        let config = config_with_tests(&["tests/**/*.rs", "tests/unit/*.rs"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/unit/a_test.rs", "tests/unit/b_test.rs"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_off_mode_remains_sorted_and_deduplicated() {
+        let dir = git_tempdir();
+        write_file(dir.path(), "tests/unit/b_test.rs", "test");
+        write_file(dir.path(), "tests/unit/a_test.rs", "test");
+        let mut config = config_with_tests(&["tests/**/*.rs", "tests/unit/*.rs"]);
+        config.test_discovery.ignore = supersigil_core::TestDiscoveryIgnoreMode::Off;
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/unit/a_test.rs", "tests/unit/b_test.rs"],
+        );
+    }
+
+    #[test]
+    fn resolve_test_files_for_project_applies_policy_to_selected_project_only() {
+        let dir = git_tempdir();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        write_file(dir.path(), "alpha/tests/ignored/bad.rs", "test");
+        write_file(dir.path(), "alpha/tests/unit/good.rs", "test");
+        write_file(dir.path(), "beta/tests/unit/other.rs", "test");
+
+        let config = Config {
+            paths: None,
+            tests: None,
+            projects: Some(std::collections::HashMap::from([
+                (
+                    "alpha".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["alpha/specs/**/*.md".into()],
+                        tests: vec!["alpha/tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+                (
+                    "beta".into(),
+                    supersigil_core::ProjectConfig {
+                        paths: vec!["beta/specs/**/*.md".into()],
+                        tests: vec!["beta/tests/**/*.rs".into()],
+                        isolated: false,
+                    },
+                ),
+            ])),
+            ..test_config()
+        };
+
+        let test_files = resolve_test_files_for_project(&config, dir.path(), Some("alpha"));
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["alpha/tests/unit/good.rs"],
+        );
+    }
+
+    #[test]
+    fn verify_inputs_standard_mode_does_not_scan_tags_from_ignored_files() {
+        let dir = git_tempdir();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        write_file(
+            dir.path(),
+            "tests/ignored/tagged_test.rs",
+            "// supersigil: req:auth\n",
+        );
+        write_file(dir.path(), "tests/unit/untagged_test.rs", "// no tag\n");
+        let config = config_with_tests(&["tests/**/*.rs"]);
+
+        let inputs = VerifyInputs::resolve(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &inputs.test_files),
+            vec!["tests/unit/untagged_test.rs"],
+        );
+        assert!(
+            inputs
+                .tag_matches
+                .iter()
+                .all(|tag_match| tag_match.tag != "req:auth"),
+            "ignored files should not contribute tag matches: {:?}",
+            inputs.tag_matches,
+        );
+    }
+
+    #[test]
+    fn js_plugin_does_not_warn_for_ignored_malformed_test_file() {
+        let dir = git_tempdir();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        write_file(
+            dir.path(),
+            "tests/ignored/broken.test.ts",
+            r#"test("broken", () => { verifies("req/auth#crit-1")"#,
+        );
+
+        let mut config = config_with_tests(&["tests/**/*.test.ts"]);
+        config.ecosystem.plugins = vec!["js".into()];
+        let graph = build_test_graph(Vec::new());
+        let inputs = VerifyInputs::resolve(&config, dir.path());
+
+        let (_artifact_graph, plugin_findings) =
+            plugins::build_evidence(&config, &graph, dir.path(), None, &inputs);
+
+        assert!(
+            plugin_findings.is_empty(),
+            "ignored malformed JS tests should not reach plugin discovery: {plugin_findings:?}",
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ title: "Config"
 This spec recovers the current configuration behavior implemented in
 `supersigil-core`. It covers TOML loading, single-project and multi-project
 mode validation, document and component definition types, ecosystem and
-test-result configuration, ID-pattern validation, and the shared
+test-result configuration, test-discovery policy, ID-pattern validation, and the shared
 list-splitting utility used downstream by graph and verification code.
 
 The config domain owns the typed model for `supersigil.toml`, but not every
@@ -26,6 +26,8 @@ runtime invariant is enforced at `load_config` time. Some invariants, such as
 - **Multi_Project_Mode**: Named `[projects.<name>]` entries.
 - **Project_Config**: One project entry with `paths`, optional `tests`, and
   optional `isolated`.
+- **Test_Discovery_Config**: The optional `[test_discovery]` settings block
+  controlling how shared test-file globs are resolved.
 - **Component_Defs_Runtime_View**: The merged built-in plus user-defined
   component definitions produced by `ComponentDefs::merge`.
 - **Rust_Plugin_Config**: The optional `[ecosystem.rust]` settings block.
@@ -148,6 +150,12 @@ toolchain.
     and `repo` fields, plus optional `host` and `main_branch` fields. Unknown
     provider values SHALL be rejected during config loading.
     <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs" />
+  </Criterion>
+  <Criterion id="req-3-6">
+    THE `test_discovery` config SHALL store the workspace-level shared
+    test-discovery ignore mode and SHALL default to `ignore = "standard"` when
+    omitted.
+    <VerifiedBy strategy="file-glob" paths="crates/supersigil-core/tests/config_unit_tests.rs, crates/supersigil-core/tests/config_property_tests.rs" />
   </Criterion>
 </AcceptanceCriteria>
 ```

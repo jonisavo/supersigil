@@ -177,6 +177,32 @@ mod tests {
     }
 
     #[test]
+    fn file_glob_matching_ignored_existing_files_is_clean() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("tests/ignored")).unwrap();
+        std::fs::write(dir.path().join("tests/ignored/auth_test.rs"), "test").unwrap();
+        let docs = [make_doc(
+            "prop/auth",
+            vec![make_acceptance_criteria(
+                vec![make_criterion_with_verified_by(
+                    "crit-1",
+                    make_verified_by_glob("tests/ignored/*.rs", 8),
+                    7,
+                )],
+                6,
+            )],
+        )];
+        let doc_refs: Vec<&_> = docs.iter().collect();
+        let findings = check_file_globs(&doc_refs, dir.path());
+        assert!(
+            findings.is_empty(),
+            "VerifiedBy file-glob uses raw glob semantics and should not inherit test_discovery ignore policy"
+        );
+    }
+
+    #[test]
     fn file_glob_ignores_tag_strategy() {
         let dir = TempDir::new().unwrap();
         let docs = [make_doc(
