@@ -103,15 +103,18 @@ boundary. Matching still comes from authored `tests` globs.
 The intended implementation shape is:
 
 - derive the literal filesystem roots implied by the active test globs
+- normalize those literal roots before project-containment checks so
+  parent-relative globs keep their raw-expansion reach
 - walk from the ignore context root with `ignore::WalkBuilder` so parent
   ignore decisions still apply when a literal test root is itself ignored
 - keep standard filters enabled
-- prune traversal to the derived literal roots and match walked relative paths
-  against the active test globs
+- prune traversal to the derived literal roots and match walked files against
+  normalized project-resolved absolute glob patterns
 - collect file matches into a sorted/deduplicated set
 
-This preserves authored glob semantics while preventing traversal into ignored
-subtrees such as `node_modules/` and `dist/`.
+This preserves authored glob semantics, prevents traversal into ignored subtrees
+such as `node_modules/` and `dist/`, and keeps relative glob patterns scoped to
+the filesystem locations they resolve to from the project root.
 
 ### Off Mode
 

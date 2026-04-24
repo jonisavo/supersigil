@@ -551,14 +551,13 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
         return Vec::new();
     }
 
-    let (absolute_globs, relative_globs): (Vec<_>, Vec<_>) = globs
+    let absolute_globs: Vec<_> = globs
         .iter()
-        .copied()
-        .partition(|glob| Path::new(glob).is_absolute());
-    let absolute_set = build_glob_set(absolute_globs.into_iter());
-    let relative_set = build_glob_set(relative_globs.into_iter());
+        .map(|glob| absolute_glob_pattern(glob, project_root))
+        .collect();
+    let glob_set = build_glob_set(absolute_globs.iter().map(String::as_str));
 
-    if absolute_set.is_none() && relative_set.is_none() {
+    if glob_set.is_none() {
         return Vec::new();
     }
 
@@ -579,15 +578,10 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
             }
 
             let path = entry.into_path();
-            let absolute_match = absolute_set
+            if glob_set
                 .as_ref()
-                .is_some_and(|glob_set| glob_set.is_match(&path));
-            let relative_match = relative_set.as_ref().is_some_and(|glob_set| {
-                let relative = path.strip_prefix(project_root).unwrap_or(&path);
-                glob_set.is_match(relative)
-            });
-
-            if absolute_match || relative_match {
+                .is_some_and(|glob_set| glob_set.is_match(&path))
+            {
                 paths.insert(path);
             }
         }
@@ -653,10 +647,13 @@ fn minimal_walk_roots(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 fn walk_context_root(root: &Path, project_root: &Path) -> PathBuf {
-    if root.starts_with(project_root) {
-        project_root.to_path_buf()
+    let root = normalize_path_lexically(root);
+    let project_root = normalize_path_lexically(project_root);
+
+    if root.starts_with(&project_root) {
+        project_root
     } else {
-        nearest_vcs_root(root).unwrap_or_else(|| root.to_path_buf())
+        nearest_vcs_root(&root).unwrap_or(root)
     }
 }
 
@@ -673,26 +670,82 @@ fn nearest_vcs_root(path: &Path) -> Option<PathBuf> {
 }
 
 fn walk_root_for_glob(pattern: &str, project_root: &Path) -> PathBuf {
+    let (root, _) = split_glob_pattern(pattern);
+    resolve_glob_root(pattern, root, project_root)
+}
+
+fn absolute_glob_pattern(pattern: &str, project_root: &Path) -> String {
+    let (root, suffix) = split_glob_pattern(pattern);
+    let mut pattern = resolve_glob_root(pattern, root, project_root);
+    if !suffix.as_os_str().is_empty() {
+        pattern.push(suffix);
+    }
+    pattern.to_string_lossy().into_owned()
+}
+
+fn split_glob_pattern(pattern: &str) -> (PathBuf, PathBuf) {
     let pattern_path = Path::new(pattern);
     let mut root = PathBuf::new();
+    let mut suffix = PathBuf::new();
+    let mut in_suffix = false;
 
     for component in pattern_path.components() {
-        if component_has_glob_meta(&component) {
-            break;
+        if !in_suffix && component_has_glob_meta(&component) {
+            in_suffix = true;
         }
-        root.push(component.as_os_str());
+
+        if in_suffix {
+            suffix.push(component.as_os_str());
+        } else {
+            root.push(component.as_os_str());
+        }
     }
 
+    (root, suffix)
+}
+
+fn resolve_glob_root(pattern: &str, root: PathBuf, project_root: &Path) -> PathBuf {
+    let pattern_path = Path::new(pattern);
     if root.as_os_str().is_empty() {
         if pattern_path.is_absolute() {
-            std::path::MAIN_SEPARATOR.to_string().into()
+            normalize_path_lexically(Path::new(&std::path::MAIN_SEPARATOR.to_string()))
         } else {
-            project_root.to_path_buf()
+            normalize_path_lexically(project_root)
         }
     } else if root.is_absolute() {
-        root
+        normalize_path_lexically(&root)
     } else {
-        project_root.join(root)
+        normalize_path_lexically(&project_root.join(root))
+    }
+}
+
+fn normalize_path_lexically(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|component| matches!(component, std::path::Component::Normal(_)))
+                {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push("..");
+                }
+            }
+            std::path::Component::Normal(value) => normalized.push(value),
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
     }
 }
 
@@ -1051,6 +1104,47 @@ mod verify_tests {
     }
 
     #[test]
+    fn resolve_test_files_standard_mode_does_not_match_relative_globs_outside_project() {
+        let project = git_tempdir();
+        let external = git_tempdir();
+        write_file(project.path(), "tests/project_test.rs", "test");
+        write_file(external.path(), "external_tests/expected.test.ts", "test");
+        write_file(external.path(), "external_tests/leaked.rs", "test");
+        let absolute_glob = external
+            .path()
+            .join("external_tests/*.test.ts")
+            .to_string_lossy()
+            .into_owned();
+        let config = config_with_tests(&["**/*.rs", &absolute_glob]);
+
+        let test_files = resolve_test_files(&config, project.path());
+        let mut expected = vec![
+            project.path().join("tests/project_test.rs"),
+            external.path().join("external_tests/expected.test.ts"),
+        ];
+        expected.sort();
+
+        assert_eq!(test_files, expected);
+    }
+
+    #[test]
+    fn resolve_test_files_standard_mode_supports_parent_relative_globs() {
+        let workspace = TempDir::new().unwrap();
+        let project_root = workspace.path().join("project");
+        std::fs::create_dir_all(project_root.join(".git")).unwrap();
+        write_file(workspace.path(), "shared/auth_test.rs", "test");
+        write_file(workspace.path(), "project/local_test.rs", "test");
+        let config = config_with_tests(&["../shared/**/*.rs"]);
+
+        let test_files = resolve_test_files(&config, &project_root);
+
+        assert_eq!(
+            test_files,
+            vec![workspace.path().join("shared/auth_test.rs")],
+        );
+    }
+
+    #[test]
     fn standard_mode_walk_roots_are_limited_to_literal_glob_prefixes() {
         let project = Path::new("/workspace");
 
@@ -1073,6 +1167,13 @@ mod verify_tests {
             vec![WalkScope {
                 walk_root: PathBuf::from("/workspace"),
                 match_roots: vec![PathBuf::from("/workspace")],
+            }],
+        );
+        assert_eq!(
+            walk_scopes_for_globs(&["../shared/**/*.rs"], Path::new("/workspace/project")),
+            vec![WalkScope {
+                walk_root: PathBuf::from("/workspace/shared"),
+                match_roots: vec![PathBuf::from("/workspace/shared")],
             }],
         );
     }
