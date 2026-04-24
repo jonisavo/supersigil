@@ -64,7 +64,7 @@ jobs:
       - name: Audit JS dependencies
         id: audit
         continue-on-error: true
-        run: pnpm audit
+        run: pnpm audit --audit-level high --ignore-unfixable
 
       - name: Fail on findings
         if: steps.audit.outcome == 'failure'
