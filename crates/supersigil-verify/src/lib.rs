@@ -30,7 +30,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use ignore::WalkBuilder;
+use ignore::{DirEntry, WalkBuilder};
 use supersigil_core::{Config, DocumentGraph, SpecDocument, TestDiscoveryIgnoreMode};
 
 pub use affected::AffectedDocument;
@@ -570,10 +570,7 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
             .build();
 
         for entry in walker.filter_map(Result::ok) {
-            if !entry
-                .file_type()
-                .is_some_and(|file_type| file_type.is_file())
-            {
+            if !is_file_or_symlinked_file(&entry) {
                 continue;
             }
 
@@ -588,6 +585,13 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
     }
 
     paths.into_iter().collect()
+}
+
+fn is_file_or_symlinked_file(entry: &DirEntry) -> bool {
+    entry
+        .file_type()
+        .is_some_and(|file_type| file_type.is_file())
+        || entry.path().is_file()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1100,6 +1104,29 @@ mod verify_tests {
         assert!(
             test_files.is_empty(),
             "ignored absolute literal glob roots should not be scanned: {test_files:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_test_files_standard_mode_includes_symlinked_test_files() {
+        use std::os::unix::fs::symlink;
+
+        let dir = git_tempdir();
+        write_file(dir.path(), "real/auth_test.rs", "test");
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        symlink(
+            "../real/auth_test.rs",
+            dir.path().join("tests/auth_test.rs"),
+        )
+        .unwrap();
+        let config = config_with_tests(&["tests/**/*.rs"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/auth_test.rs"],
         );
     }
 

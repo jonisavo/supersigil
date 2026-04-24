@@ -110,7 +110,8 @@ The intended implementation shape is:
 - keep standard filters enabled
 - prune traversal to the derived literal roots and match walked files against
   normalized project-resolved absolute glob patterns
-- collect file matches into a sorted/deduplicated set
+- collect regular-file matches and symlinked-file matches into a
+  sorted/deduplicated set
 
 This preserves authored glob semantics, prevents traversal into ignored subtrees
 such as `node_modules/` and `dist/`, and keeps relative glob patterns scoped to
