@@ -107,11 +107,12 @@ The intended implementation shape is:
   parent-relative globs keep their raw-expansion reach
 - walk from the ignore context root with `ignore::WalkBuilder` so parent
   ignore decisions still apply when a literal test root is itself ignored
-- keep standard filters enabled
+- keep standard filters enabled and follow symbolic links so symlinked test
+  directories retain Raw_Glob_Mode traversal behavior
 - prune traversal to the derived literal roots and match walked files against
   normalized project-resolved absolute patterns using the same glob syntax as
   Raw_Glob_Mode
-- collect regular-file matches and symlinked-file matches into a
+- collect matched files, including files reached through symlinks, into a
   sorted/deduplicated set
 
 This preserves authored glob semantics, prevents traversal into ignored subtrees

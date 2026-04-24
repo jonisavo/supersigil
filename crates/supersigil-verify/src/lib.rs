@@ -30,7 +30,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use glob::{MatchOptions, Pattern};
-use ignore::{DirEntry, WalkBuilder};
+use ignore::WalkBuilder;
 use supersigil_core::{Config, DocumentGraph, SpecDocument, TestDiscoveryIgnoreMode};
 
 pub use affected::AffectedDocument;
@@ -567,11 +567,15 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
         let match_roots = scope.match_roots.clone();
         let walker = WalkBuilder::new(&scope.walk_root)
             .standard_filters(true)
+            .follow_links(true)
             .filter_entry(move |entry| should_visit_walk_entry(entry.path(), &match_roots))
             .build();
 
         for entry in walker.filter_map(Result::ok) {
-            if !is_file_or_symlinked_file(&entry) {
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
                 continue;
             }
 
@@ -586,13 +590,6 @@ fn resolve_test_globs_standard(globs: &[&str], project_root: &Path) -> Vec<PathB
     }
 
     paths.into_iter().collect()
-}
-
-fn is_file_or_symlinked_file(entry: &DirEntry) -> bool {
-    entry
-        .file_type()
-        .is_some_and(|file_type| file_type.is_file())
-        || entry.path().is_file()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1125,6 +1122,25 @@ mod verify_tests {
         assert_eq!(
             relative_paths(dir.path(), &test_files),
             vec!["tests/auth_test.rs"],
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_test_files_standard_mode_follows_symlinked_test_directories() {
+        use std::os::unix::fs::symlink;
+
+        let dir = git_tempdir();
+        write_file(dir.path(), "real_tests/auth_test.rs", "test");
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        symlink("../real_tests", dir.path().join("tests/linked")).unwrap();
+        let config = config_with_tests(&["tests/**/*.rs"]);
+
+        let test_files = resolve_test_files(&config, dir.path());
+
+        assert_eq!(
+            relative_paths(dir.path(), &test_files),
+            vec!["tests/linked/auth_test.rs"],
         );
     }
 
