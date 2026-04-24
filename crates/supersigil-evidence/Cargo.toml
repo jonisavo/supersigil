@@ -1,6 +1,6 @@
 [package]
 name = "supersigil-evidence"
-version = "0.13.0"
+version = "0.14.0"
 description = "Language-agnostic evidence types for supersigil ecosystem plugins"
 edition.workspace = true
 rust-version.workspace = true

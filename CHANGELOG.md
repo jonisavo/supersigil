@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.14.0] - 2026-04-24
+
+### Bug Fixes
+
+- *(test)* Isolate inherited git hook env ([ad22a27](https://github.com/jonisavo/supersigil/commit/ad22a273cf5b3f4fdc98f42034035cfc93669d15))
+- Format verify timings in milliseconds ([97b0ba4](https://github.com/jonisavo/supersigil/commit/97b0ba42238d120b682c4062d54616fba382afc2))
+
+### CI/CD
+
+- Fail security audit on high fixable JS vulns only ([79e0809](https://github.com/jonisavo/supersigil/commit/79e080951cb89500494812260b790007d1ad809d))
+
+### Features
+
+- *(verify)* Add GitHub PR comment dashboard ([def632e](https://github.com/jonisavo/supersigil/commit/def632eb088eaffd82dee0ceb30cfaa489d2fc5f))
+- Respect ignores in shared test discovery ([089c5b4](https://github.com/jonisavo/supersigil/commit/089c5b42bedd0d157c1209932617ecf2d8558459))
+
+### Miscellaneous
+
+- *(website)* Upgrade Astro and Starlight to latest patch versions ([e49d10f](https://github.com/jonisavo/supersigil/commit/e49d10fc262957b1fb438f2d7635edd20f4b5ad2))
+
+### Refactoring
+
+- *(lsp)* Extract state helpers into submodules ([a2a6530](https://github.com/jonisavo/supersigil/commit/a2a65308c4098f23fff3b17933e199439b508040))
+
 ## [0.13.0] - 2026-04-21
 
 ### Bug Fixes

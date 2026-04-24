@@ -1,6 +1,6 @@
 {
   "name": "@supersigil/eslint-plugin",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "ESLint plugin for validating Supersigil criterion refs",
   "license": "MIT OR Apache-2.0",
   "repository": {
