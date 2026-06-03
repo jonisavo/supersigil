@@ -1190,7 +1190,10 @@ mod verify_tests {
 
     #[test]
     fn resolve_test_files_standard_mode_supports_parent_relative_globs() {
-        let workspace = TempDir::new().unwrap();
+        let workspace = tempfile::Builder::new()
+            .prefix("supersigil-parent-glob-")
+            .tempdir()
+            .unwrap();
         let project_root = workspace.path().join("project");
         std::fs::create_dir_all(project_root.join(".git")).unwrap();
         write_file(workspace.path(), "shared/auth_test.rs", "test");

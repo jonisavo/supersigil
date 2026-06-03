@@ -7,12 +7,6 @@
     "bundle:explore-assets": "node scripts/bundle-cli-assets.mjs explore-assets",
     "bundle:cli-assets": "node scripts/bundle-cli-assets.mjs cli-assets"
   },
-  "pnpm": {
-    "overrides": {
-      "mermaid>dompurify": "^3.4.0"
-    },
-    "auditConfig": {}
-  },
   "devDependencies": {
     "@supersigil/eslint-plugin": "workspace:*",
     "eslint": "^9.39.4",
