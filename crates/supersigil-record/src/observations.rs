@@ -1,0 +1,333 @@
+//! Observation layer: immutable events appended to a per-session log.
+//!
+//! Nothing here is ever rewritten. A session's end is its own event, and a
+//! turn does not list its events because they arrive after it.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+use crate::ids::{ContentId, EventId, SessionId, Timestamp, TurnId};
+
+/// One immutable event in a session's log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Observation {
+    /// A session was first seen.
+    SessionStart(SessionStart),
+    /// A session ended, as far as the source can tell.
+    SessionEnd(SessionEnd),
+    /// A conversation turn.
+    Turn(Turn),
+    /// A file edit made through the agent's editing tools.
+    Edit(Edit),
+    /// A shell command the agent ran.
+    Command(Command),
+}
+
+impl Observation {
+    /// The session this event belongs to.
+    #[must_use]
+    pub fn session(&self) -> &SessionId {
+        match self {
+            Self::SessionStart(s) => &s.session,
+            Self::SessionEnd(s) => &s.session,
+            Self::Turn(t) => &t.session,
+            Self::Edit(e) => &e.session,
+            Self::Command(c) => &c.session,
+        }
+    }
+}
+
+/// Which agent harness produced a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// Claude Code JSONL transcripts.
+    ClaudeCode,
+}
+
+/// First observation of a session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionStart {
+    /// Session identifier from the source.
+    pub session: SessionId,
+    /// Producing harness.
+    pub source: Source,
+    /// Source-native identifiers, for example the transcript file name.
+    pub source_ids: BTreeMap<String, String>,
+    /// Checkout the session worked in.
+    pub checkout: PathBuf,
+    /// Branch name reported by the source, if any.
+    pub branch: Option<String>,
+    /// Time of the first record.
+    pub time: Timestamp,
+}
+
+/// Why a session is considered ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    /// The source marked the transcript as finished.
+    TranscriptEnded,
+    /// The source gave no reason.
+    Unknown,
+}
+
+/// Last observation of a session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionEnd {
+    /// Session identifier.
+    pub session: SessionId,
+    /// Time of the end.
+    pub time: Timestamp,
+    /// Why the session ended.
+    pub reason: EndReason,
+}
+
+/// Who or what authored a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    /// A person typed it.
+    Human,
+    /// The agent wrote it.
+    Agent,
+    /// Tool results only; not human intent.
+    Tool,
+    /// Harness metadata presented as a user message.
+    Meta,
+    /// A compaction summary.
+    Summary,
+}
+
+/// Evidence that may or may not have been kept.
+///
+/// Adjacently tagged: an internally tagged newtype variant cannot carry a
+/// string or a sequence, and retained text and patches are exactly that.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", content = "value", rename_all = "snake_case")]
+pub enum Material<T> {
+    /// The material is stored.
+    Retained(T),
+    /// A policy withheld it; the policy name says which.
+    Withheld {
+        /// Name of the policy that withheld it.
+        policy: String,
+    },
+    /// The source did not provide it.
+    Unavailable {
+        /// Why it is missing.
+        reason: String,
+    },
+}
+
+impl<T> Material<T> {
+    /// The retained value, if any.
+    #[must_use]
+    pub fn retained(&self) -> Option<&T> {
+        match self {
+            Self::Retained(value) => Some(value),
+            Self::Withheld { .. } | Self::Unavailable { .. } => None,
+        }
+    }
+}
+
+/// A conversation turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Turn {
+    /// Turn identifier from the source.
+    pub id: TurnId,
+    /// Session identifier.
+    pub session: SessionId,
+    /// The turn this one descends from in the conversation tree.
+    pub parent: Option<TurnId>,
+    /// Author classification.
+    pub role: Role,
+    /// Time of the record.
+    pub time: Timestamp,
+    /// Whether the source marked this turn as a sidechain (subagent).
+    pub sidechain: bool,
+    /// Subagent identifier when inside a subagent.
+    pub agent_id: Option<String>,
+    /// Text of the turn, subject to the capture policy.
+    pub excerpt: Material<String>,
+    /// Position of the record in the transcript.
+    pub source_ordinal: u64,
+}
+
+/// Content of a file that exists. Adjacently tagged for the same reason as
+/// [`Material`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum Content {
+    /// The content hash is known.
+    Known(ContentId),
+    /// The file existed but its content is not known.
+    Unknown,
+}
+
+/// State of a file at one side of an edit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum FileState {
+    /// The file did not exist.
+    Absent,
+    /// The file existed.
+    Present {
+        /// What is known about its content.
+        content: Content,
+    },
+}
+
+impl FileState {
+    /// A present file with a known content hash.
+    #[must_use]
+    pub const fn known(content: ContentId) -> Self {
+        Self::Present {
+            content: Content::Known(content),
+        }
+    }
+
+    /// A present file whose content is not known.
+    #[must_use]
+    pub const fn unknown() -> Self {
+        Self::Present {
+            content: Content::Unknown,
+        }
+    }
+
+    /// The known content hash, if the file existed and the hash is known.
+    #[must_use]
+    pub fn content_id(&self) -> Option<&ContentId> {
+        match self {
+            Self::Present {
+                content: Content::Known(id),
+            } => Some(id),
+            Self::Present {
+                content: Content::Unknown,
+            }
+            | Self::Absent => None,
+        }
+    }
+}
+
+/// One hunk of a structured patch, in unified-diff terms.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hunk {
+    /// First line of the hunk in the old file (1-based).
+    pub old_start: u32,
+    /// Number of old lines covered.
+    pub old_lines: u32,
+    /// First line of the hunk in the new file (1-based).
+    pub new_start: u32,
+    /// Number of new lines covered.
+    pub new_lines: u32,
+    /// Lines with a leading ` `, `-`, or `+`.
+    pub lines: Vec<String>,
+}
+
+/// A file edit made through the agent's editing tools.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Edit {
+    /// Stable event id derived from the source's tool-use id.
+    pub id: EventId,
+    /// Turn that issued the edit.
+    pub turn: TurnId,
+    /// Session identifier.
+    pub session: SessionId,
+    /// Path relative to the checkout.
+    pub path: PathBuf,
+    /// File state before the edit.
+    pub before: FileState,
+    /// File state after the edit.
+    pub after: FileState,
+    /// Structured patch, if retained.
+    pub patch: Material<Vec<Hunk>>,
+    /// Text that was replaced, if retained.
+    pub old_text: Material<String>,
+    /// Replacement text, if retained.
+    pub new_text: Material<String>,
+    /// Whether every occurrence was replaced.
+    pub replace_all: bool,
+    /// Checkout the edit happened in.
+    pub checkout: PathBuf,
+    /// Time the result was recorded.
+    pub time: Timestamp,
+    /// Position of the issuing record in the transcript.
+    pub source_ordinal: u64,
+}
+
+impl Edit {
+    /// Known content hash before the edit.
+    #[must_use]
+    pub fn before_content(&self) -> Option<&ContentId> {
+        self.before.content_id()
+    }
+
+    /// Known content hash after the edit.
+    #[must_use]
+    pub fn after_content(&self) -> Option<&ContentId> {
+        self.after.content_id()
+    }
+}
+
+/// Coarse classification of a shell command. Named `category` on the
+/// command because `kind` is the observation's own tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandCategory {
+    /// Runs tests.
+    TestRun,
+    /// Builds or checks.
+    Build,
+    /// Invokes git.
+    Git,
+    /// Anything else.
+    Other,
+}
+
+/// Result of a command as far as the source reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    /// Reported success.
+    Passed,
+    /// Reported failure.
+    Failed,
+}
+
+/// A shell command the agent ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Command {
+    /// Stable event id derived from the source's tool-use id.
+    pub id: EventId,
+    /// Turn that issued the command.
+    pub turn: TurnId,
+    /// Session identifier.
+    pub session: SessionId,
+    /// The command line.
+    pub cmd: String,
+    /// Exit code when the source reports one.
+    pub exit: Option<i32>,
+    /// Tail of standard output, if retained.
+    pub stdout_tail: Material<String>,
+    /// Tail of standard error, if retained.
+    pub stderr_tail: Material<String>,
+    /// Classification.
+    pub category: CommandCategory,
+    /// Whether the harness flagged the tool result as an error (for a shell
+    /// command, normally a non-zero exit).
+    pub reported_error: bool,
+    /// Outcome parsed from the output, if determinable.
+    pub outcome: Option<Outcome>,
+    /// Time the command was issued.
+    pub started: Timestamp,
+    /// Time the result was recorded, if seen.
+    pub ended: Option<Timestamp>,
+    /// Checkout the command ran in.
+    pub checkout: PathBuf,
+    /// Position of the issuing record in the transcript.
+    pub source_ordinal: u64,
+}

@@ -10,5 +10,7 @@
 //! revisions even while a writer is appending.
 
 pub mod ids;
+pub mod observations;
 
 pub use ids::{ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
+pub use observations::Observation;
