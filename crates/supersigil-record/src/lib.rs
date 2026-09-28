@@ -11,6 +11,8 @@
 
 pub mod ids;
 pub mod observations;
+pub mod store;
 
 pub use ids::{ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
 pub use observations::Observation;
+pub use store::{RecordSnapshot, Store, StoreError, WriteTx};
