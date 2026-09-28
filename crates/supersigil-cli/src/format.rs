@@ -169,21 +169,6 @@ impl ColorConfig {
 }
 
 // ---------------------------------------------------------------------------
-// ExitStatus
-// ---------------------------------------------------------------------------
-
-/// Outcome of a command run, mapped to process exit codes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExitStatus {
-    /// Exit code 0.
-    Success,
-    /// Exit code 1: findings already printed (no extra error message).
-    VerifyFailed,
-    /// Exit code 2: warnings only.
-    VerifyWarnings,
-}
-
-// ---------------------------------------------------------------------------
 // Symbols
 // ---------------------------------------------------------------------------
 
@@ -256,22 +241,6 @@ pub enum Detail {
 ///
 /// Returns an I/O error if serialization or writing fails.
 pub fn write_json<T: Serialize>(value: &T) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    serde_json::to_writer_pretty(&mut handle, value).map_err(io::Error::other)?;
-    writeln!(handle)?;
-    Ok(())
-}
-
-/// Write a pre-built `serde_json::Value` as pretty-printed JSON to stdout.
-///
-/// Use this when the caller needs to manipulate the JSON tree (e.g. removing
-/// keys for compact output) before writing.
-///
-/// # Errors
-///
-/// Returns an I/O error if writing fails.
-pub fn write_json_value(value: &serde_json::Value) -> io::Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     serde_json::to_writer_pretty(&mut handle, value).map_err(io::Error::other)?;

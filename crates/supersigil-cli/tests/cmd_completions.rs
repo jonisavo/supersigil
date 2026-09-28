@@ -5,38 +5,18 @@ use clap_complete::Shell;
 use supersigil_cli::{Cli, Command};
 
 #[test]
-fn parse_completions_bash() {
-    let cli = Cli::parse_from(["supersigil", "completions", "bash"]);
-    let Command::Completions(args) = cli.command;
-    assert_eq!(args.shell, Shell::Bash);
-}
-
-#[test]
-fn parse_completions_zsh() {
-    let cli = Cli::parse_from(["supersigil", "completions", "zsh"]);
-    let Command::Completions(args) = cli.command;
-    assert_eq!(args.shell, Shell::Zsh);
-}
-
-#[test]
-fn parse_completions_fish() {
-    let cli = Cli::parse_from(["supersigil", "completions", "fish"]);
-    let Command::Completions(args) = cli.command;
-    assert_eq!(args.shell, Shell::Fish);
-}
-
-#[test]
-fn parse_completions_elvish() {
-    let cli = Cli::parse_from(["supersigil", "completions", "elvish"]);
-    let Command::Completions(args) = cli.command;
-    assert_eq!(args.shell, Shell::Elvish);
-}
-
-#[test]
-fn parse_completions_powershell() {
-    let cli = Cli::parse_from(["supersigil", "completions", "powershell"]);
-    let Command::Completions(args) = cli.command;
-    assert_eq!(args.shell, Shell::PowerShell);
+fn parse_completions_accepts_every_supported_shell() {
+    for (name, shell) in [
+        ("bash", Shell::Bash),
+        ("zsh", Shell::Zsh),
+        ("fish", Shell::Fish),
+        ("elvish", Shell::Elvish),
+        ("powershell", Shell::PowerShell),
+    ] {
+        let cli = Cli::parse_from(["supersigil", "completions", name]);
+        let Command::Completions(args) = cli.command;
+        assert_eq!(args.shell, shell, "parsing {name}");
+    }
 }
 
 #[test]
