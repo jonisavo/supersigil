@@ -36,12 +36,12 @@ jobs:
             runner: ubuntu-latest
             rust-target: x86_64-unknown-linux-musl
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
-            clippy-args: --target x86_64-unknown-linux-musl --features supersigil-verify/vendored-openssl
+            clippy-args: --target x86_64-unknown-linux-musl
           - name: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
             rust-target: aarch64-unknown-linux-musl
             deps: sudo apt-get update && sudo apt-get install -y musl-tools
-            clippy-args: --target aarch64-unknown-linux-musl --features supersigil-verify/vendored-openssl
+            clippy-args: --target aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -62,20 +62,6 @@ jobs:
       - name: Install dependencies
         if: matrix.deps
         run: ${{ matrix.deps }}
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Bundle CLI assets
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run bundle:cli-assets
 
       - name: Format
         if: matrix.fmt-check
@@ -117,22 +103,5 @@ jobs:
         with:
           tool: cargo-nextest@0.9.132
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Bundle CLI assets
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run bundle:cli-assets
-
       - name: Test
         run: cargo nextest run
-
-      - name: Verify
-        run: cargo run -p supersigil verify --detail full

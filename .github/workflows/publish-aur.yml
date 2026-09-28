@@ -16,11 +16,7 @@ jobs:
         include:
           - pkgname: supersigil-bin
             update-sums: true
-          - pkgname: supersigil-lsp-bin
-            update-sums: true
           - pkgname: supersigil
-            update-sums: false
-          - pkgname: supersigil-lsp
             update-sums: false
     runs-on: ubuntu-latest
     steps:
@@ -46,13 +42,8 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           PKGBUILD="dist/aur/${{ matrix.pkgname }}/PKGBUILD"
 
-          if [ "${{ matrix.pkgname }}" = "supersigil-bin" ]; then
-            SHA256_X86_64=$(grep "supersigil-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)
-            SHA256_AARCH64=$(grep "supersigil-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | grep -v lsp | cut -d' ' -f1)
-          else
-            SHA256_X86_64=$(grep "supersigil-lsp-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
-            SHA256_AARCH64=$(grep "supersigil-lsp-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
-          fi
+          SHA256_X86_64=$(grep "supersigil-${VERSION}-x86_64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
+          SHA256_AARCH64=$(grep "supersigil-${VERSION}-aarch64-unknown-linux-musl" /tmp/SHA256SUMS | cut -d' ' -f1)
 
           sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${SHA256_X86_64}')/" "${PKGBUILD}"
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${SHA256_AARCH64}')/" "${PKGBUILD}"

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { verifies } from "@supersigil/vitest";
 import { closeSync, mkdtempSync, openSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +21,6 @@ function createTempDir() {
 describe("release command execution", () => {
   it(
     "streams large child output without ENOBUFS",
-    verifies("release-targets/req#req-3-1", "release-targets/req#req-3-2"),
     async () => {
       const { runStreaming } = await import(releaseCommandModule);
       const tempDir = createTempDir();
@@ -48,7 +46,6 @@ describe("release command execution", () => {
 
   it(
     "captures stdout for commands that need output parsing",
-    verifies("release-targets/req#req-3-5"),
     async () => {
       const { runCaptured } = await import(releaseCommandModule);
       const result = runCaptured(process.execPath, ["-e", "process.stdout.write('hello')"]);

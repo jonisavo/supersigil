@@ -1,15 +1,5 @@
 {
   "private": true,
   "packageManager": "pnpm@11.5.2",
-  "type": "module",
-  "scripts": {
-    "lint:eslint": "eslint packages/",
-    "bundle:explore-assets": "node scripts/bundle-cli-assets.mjs explore-assets",
-    "bundle:cli-assets": "node scripts/bundle-cli-assets.mjs cli-assets"
-  },
-  "devDependencies": {
-    "@supersigil/eslint-plugin": "workspace:*",
-    "eslint": "^9.39.4",
-    "typescript-eslint": "^8.58.0"
-  }
+  "type": "module"
 }
