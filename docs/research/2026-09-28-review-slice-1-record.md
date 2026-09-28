@@ -14,7 +14,7 @@
 
 - Edition 2024, `rust-version = "1.92"`, workspace lints apply to every new crate (`[lints] workspace = true`): `missing_docs = "warn"` means every `pub` item gets a doc comment; clippy pedantic is on, so pure functions get `#[must_use]`, every `pub fn` returning `Result` has a `# Errors` section, and every `pub fn` that can panic has a `# Panics` section.
 - New module syntax only: `module.rs` beside `module/`, never `module/mod.rs`.
-- New crates are `publish = false` and version `0.14.0`; they are not added to `release-targets.json` or the publish workflow.
+- New crates are ordinary publishable workspace members at version `0.14.0`, pinned from `[workspace.dependencies]` with `version = "=0.14.0"` like the crates before the purge. The CLI depends on them, so `cargo ws publish` must be able to publish them; a `publish = false` crate would block the CLI's release. The `crates/*` globs in `release-targets.json` already cover them, and the release helper bumps their pins.
 - No new dependency outside the license allow list in `deny.toml` (Apache-2.0, MIT, BSL-1.0, Unicode-3.0, Unlicense). sha2, hex, and uuid are MIT OR Apache-2.0.
 - Observations are immutable and append-only. Nothing in this plan ever rewrites a line of an events log.
 - Derivations carry `observation_revision` and `algorithm_version` and are written as new immutable documents, never edited.
@@ -141,7 +141,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-publish = false
 
 [dependencies]
 serde.workspace = true
@@ -188,7 +187,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-publish = false
 
 [dependencies]
 serde.workspace = true
