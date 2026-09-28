@@ -1,4 +1,0 @@
-paths = ["specs/**/*.md"]
-
-[ecosystem]
-plugins = ["rust"]

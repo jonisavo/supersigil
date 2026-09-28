@@ -3,14 +3,14 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use supersigil_cli::{Cli, ColorConfig, ExitStatus};
+use supersigil_cli::error::CliError;
+use supersigil_cli::{Cli, ColorConfig, Command, ExitStatus};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let color = ColorConfig::resolve(cli.color);
 
-    let result = run(&cli, color);
-    match result {
+    match run(&cli, color) {
         Ok(ExitStatus::Success) => ExitCode::SUCCESS,
         Ok(ExitStatus::VerifyFailed) => ExitCode::from(1),
         Ok(ExitStatus::VerifyWarnings) => ExitCode::from(2),
@@ -24,78 +24,15 @@ fn main() -> ExitCode {
     }
 }
 
-fn is_broken_pipe(err: &supersigil_cli::error::CliError) -> bool {
-    if let supersigil_cli::error::CliError::Io(io_err) = err {
-        return io_err.kind() == std::io::ErrorKind::BrokenPipe;
-    }
-    false
+fn is_broken_pipe(err: &CliError) -> bool {
+    matches!(err, CliError::Io(io_err) if io_err.kind() == std::io::ErrorKind::BrokenPipe)
 }
 
-fn run(cli: &Cli, color: ColorConfig) -> Result<ExitStatus, supersigil_cli::error::CliError> {
-    // Commands that don't need a project config.
+fn run(cli: &Cli, _color: ColorConfig) -> Result<ExitStatus, CliError> {
     match cli.command {
-        supersigil_cli::Command::Import(ref args) => {
-            return supersigil_cli::commands::import::run(args, color);
-        }
-        supersigil_cli::Command::Init(ref args) => {
-            supersigil_cli::commands::init::run(args, color)?;
-            return Ok(ExitStatus::Success);
-        }
-        supersigil_cli::Command::Completions(ref args) => {
+        Command::Completions(ref args) => {
             supersigil_cli::commands::completions::run(args)?;
-            return Ok(ExitStatus::Success);
         }
-        supersigil_cli::Command::Skills(ref args) => {
-            supersigil_cli::commands::skills::run(args, color)?;
-            return Ok(ExitStatus::Success);
-        }
-        _ => {}
     }
-
-    let config_path = supersigil_cli::find_config(&std::env::current_dir()?)?;
-
-    match cli.command {
-        supersigil_cli::Command::Ls(ref args) => {
-            supersigil_cli::commands::ls::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Schema(ref args) => {
-            supersigil_cli::commands::schema::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Plan(ref args) => {
-            supersigil_cli::commands::plan::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Context(ref args) => {
-            supersigil_cli::commands::context::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Verify(ref args) => {
-            return supersigil_cli::commands::verify::run(args, &config_path, color);
-        }
-        supersigil_cli::Command::Status(ref args) => {
-            supersigil_cli::commands::status::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Affected(ref args) => {
-            supersigil_cli::commands::affected::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Graph(ref args) => {
-            supersigil_cli::commands::graph::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::New(ref args) => {
-            supersigil_cli::commands::new::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Refs(ref args) => {
-            supersigil_cli::commands::refs::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Explore(ref args) => {
-            supersigil_cli::commands::explore::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Export(ref args) => {
-            supersigil_cli::commands::export::run(args, &config_path, color)?;
-        }
-        supersigil_cli::Command::Import(_)
-        | supersigil_cli::Command::Init(_)
-        | supersigil_cli::Command::Completions(_)
-        | supersigil_cli::Command::Skills(_) => unreachable!(),
-    }
-
     Ok(ExitStatus::Success)
 }

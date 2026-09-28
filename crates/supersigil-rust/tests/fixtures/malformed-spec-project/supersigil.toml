@@ -1,4 +1,0 @@
-paths = ["specs/**/*.md"]
-
-[ecosystem.rust]
-validation = "all"

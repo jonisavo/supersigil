@@ -1,5 +1,0 @@
-paths = ["specs/**/*.md"]
-
-[verify.rules]
-missing_verification_evidence = "warning"
-
