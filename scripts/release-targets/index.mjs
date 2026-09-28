@@ -125,6 +125,7 @@ function replaceCargoPackageVersion(contents, version) {
 function replaceCargoWorkspacePins(contents, version) {
   const lines = contents.split("\n");
   let section = "";
+  let pins = 0;
   let replaced = false;
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -143,6 +144,7 @@ function replaceCargoWorkspacePins(contents, version) {
       continue;
     }
 
+    pins += 1;
     const nextLine = line.replace(
       /version\s*=\s*"=[^"]+"/,
       `version = "=${version}"`,
@@ -153,6 +155,13 @@ function replaceCargoWorkspacePins(contents, version) {
     }
   }
 
+  // A workspace whose crates do not depend on each other has no pins in the
+  // root manifest; the manifest is then valid as it is. Pins that exist but
+  // could not be rewritten are still an error, because the release would
+  // leave them at the old version.
+  if (pins === 0) {
+    return contents;
+  }
   return replaced ? lines.join("\n") : null;
 }
 

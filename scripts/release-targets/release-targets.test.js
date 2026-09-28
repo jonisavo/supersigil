@@ -548,6 +548,37 @@ describe("release-targets helper", () => {
     );
   });
 
+  it("prepares a workspace whose root manifest has no crate pins", () => {
+    const dir = initFixtureRepo();
+
+    writeAndCommit(
+      dir,
+      "Cargo.toml",
+      `[workspace]
+members = ["crates/supersigil-core", "crates/supersigil-cli"]
+
+[workspace.dependencies]
+serde = "1"
+`,
+      "chore: drop internal crate pins",
+    );
+
+    const output = runPrepare(dir);
+
+    expect(output.targets.crates.impacted).toBe(true);
+    expect(readRepoFile(dir, "Cargo.toml")).not.toContain('version = "=');
+    expectRepoFileContains(
+      dir,
+      "crates/supersigil-core/Cargo.toml",
+      'version = "0.2.0"',
+    );
+    expectRepoFileContains(
+      dir,
+      "crates/supersigil-cli/Cargo.toml",
+      'version = "0.2.0"',
+    );
+  });
+
   it("bumps crate manifests that use CRLF line endings", () => {
     const dir = initFixtureRepo();
 
