@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking changes
+
+- Supersigil is pivoting to reviewing agent-made changes with the reasoning
+  that produced them. The spec-driven tool, its LSP server, editor
+  extensions, npm packages, and docs site are removed from this repository.
+  They remain at the `archive/spec-driven` tag and in the v0.14.0 releases.
+
 ## [0.14.0] - 2026-04-24
 
 ### Bug Fixes
