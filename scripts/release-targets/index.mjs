@@ -1,3 +1,9 @@
+// Only the `crates` target is registered in release-targets.json since the
+// review-first pivot, but the multi-target machinery (per-target version
+// kinds, changelog files, disabled targets) is kept on purpose: editor and
+// npm targets are expected to return. The tests exercise it with synthetic
+// targets so it does not rot in the meantime.
+
 import {
   appendFileSync,
   mkdtempSync,

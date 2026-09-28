@@ -4629,12 +4629,15 @@ fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Resu
 
 - [ ] **Step 7: Route the command**
 
-In `crates/supersigil-cli/src/main.rs`, rename the `_color` parameter of `run` to `color` and add an arm to its `match cli.command`:
+In `crates/supersigil-cli/src/main.rs`, resolve the color configuration in `main` (`let color = ColorConfig::resolve(cli.color);`, importing `ColorConfig` from `supersigil_cli`), give `run` a second parameter `color: ColorConfig`, pass it from `main`, and add an arm to the `match cli.command`. The existing arm returns the completions result directly, so give both arms the same shape:
 
 ```rust
-        Command::Session(ref args) => {
-            supersigil_cli::commands::session::run(args, color)?;
-        }
+fn run(cli: &Cli, color: ColorConfig) -> Result<(), CliError> {
+    match cli.command {
+        Command::Completions(ref args) => supersigil_cli::commands::completions::run(args),
+        Command::Session(ref args) => supersigil_cli::commands::session::run(args, color),
+    }
+}
 ```
 
 - [ ] **Step 8: Run the tests to verify they pass**

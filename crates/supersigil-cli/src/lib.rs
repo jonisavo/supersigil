@@ -11,7 +11,7 @@ pub mod error;
 pub mod format;
 
 pub use commands::{Command, CompletionsArgs};
-pub use format::{ColorChoice, ColorConfig, ExitStatus, OutputFormat};
+pub use format::{ColorChoice, ColorConfig, OutputFormat};
 
 use clap::Parser;
 
