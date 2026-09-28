@@ -1,5 +1,0 @@
-paths = ["specs/**/*.md"]
-tests = ["tests/**/*.test.ts"]
-
-[ecosystem]
-plugins = ["js"]

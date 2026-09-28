@@ -1,16 +1,16 @@
 [package]
 name = "supersigil"
 version = "0.14.0"
-description = "CLI tool for spec-driven software development with AI agents"
+description = "Review agent-made changes with the reasoning that produced them"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
-keywords = ["specification", "verification", "cli", "traceability", "ai-agents"]
+keywords = ["code-review", "agents", "cli", "provenance"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["src/", "tests/", "skills/", "README.md"]
+include = ["src/", "tests/", "README.md"]
 
 [[bin]]
 name = "supersigil"
@@ -26,25 +26,12 @@ clap = { version = "4.6.0", features = ["derive"] }
 clap_complete = "4"
 serde.workspace = true
 serde_json.workspace = true
-yaml_serde.workspace = true
-toml.workspace = true
 thiserror.workspace = true
-supersigil-core.workspace = true
-supersigil-evidence.workspace = true
-supersigil-parser.workspace = true
-supersigil-import.workspace = true
-supersigil-rust.workspace = true
-supersigil-verify.workspace = true
-include_dir.workspace = true
-open.workspace = true
-regex.workspace = true
-tempfile.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
 predicates = "3.1.4"
-supersigil-verify = { workspace = true, features = ["test-helpers"] }
-walkdir = "2.5.0"
+tempfile.workspace = true
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.tar.gz"

@@ -7,51 +7,36 @@ use supersigil_cli::{Cli, Command};
 #[test]
 fn parse_completions_bash() {
     let cli = Cli::parse_from(["supersigil", "completions", "bash"]);
-    if let Command::Completions(args) = cli.command {
-        assert_eq!(args.shell, Shell::Bash);
-    } else {
-        panic!("expected Completions");
-    }
+    let Command::Completions(args) = cli.command;
+    assert_eq!(args.shell, Shell::Bash);
 }
 
 #[test]
 fn parse_completions_zsh() {
     let cli = Cli::parse_from(["supersigil", "completions", "zsh"]);
-    if let Command::Completions(args) = cli.command {
-        assert_eq!(args.shell, Shell::Zsh);
-    } else {
-        panic!("expected Completions");
-    }
+    let Command::Completions(args) = cli.command;
+    assert_eq!(args.shell, Shell::Zsh);
 }
 
 #[test]
 fn parse_completions_fish() {
     let cli = Cli::parse_from(["supersigil", "completions", "fish"]);
-    if let Command::Completions(args) = cli.command {
-        assert_eq!(args.shell, Shell::Fish);
-    } else {
-        panic!("expected Completions");
-    }
+    let Command::Completions(args) = cli.command;
+    assert_eq!(args.shell, Shell::Fish);
 }
 
 #[test]
 fn parse_completions_elvish() {
     let cli = Cli::parse_from(["supersigil", "completions", "elvish"]);
-    if let Command::Completions(args) = cli.command {
-        assert_eq!(args.shell, Shell::Elvish);
-    } else {
-        panic!("expected Completions");
-    }
+    let Command::Completions(args) = cli.command;
+    assert_eq!(args.shell, Shell::Elvish);
 }
 
 #[test]
 fn parse_completions_powershell() {
     let cli = Cli::parse_from(["supersigil", "completions", "powershell"]);
-    if let Command::Completions(args) = cli.command {
-        assert_eq!(args.shell, Shell::PowerShell);
-    } else {
-        panic!("expected Completions");
-    }
+    let Command::Completions(args) = cli.command;
+    assert_eq!(args.shell, Shell::PowerShell);
 }
 
 #[test]
