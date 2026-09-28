@@ -7,238 +7,37 @@
 </p>
 
 <p align="center">
-  Spec-driven development with AI agents.
+  Review agent-made changes with the reasoning that produced them.
 </p>
 
 ---
 
-Supersigil is a CLI tool and verification framework that turns Markdown spec
-files into a verifiable graph of criteria, evidence, and test mappings.
-Specs are code: they render as documentation, provide agent context, and
-are checked by CI.
+Supersigil is being rebuilt. The new tool records what agent sessions did
+to a repository, links every changed span to the recorded edits and the
+rationale behind them, keeps what was tried and reverted, and lets you
+review a change in the terminal with that history beside the diff. It stays
+honest about what the evidence does and does not show. The design is in
+[`docs/research/multiverse-review-design.md`](docs/research/multiverse-review-design.md).
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="website/public/images/graph-explorer-dark.webp" />
-    <source media="(prefers-color-scheme: light)" srcset="website/public/images/graph-explorer-light.webp" />
-    <img alt="Image of spec authoring inside Visual Studio Code" src="website/public/images/graph-explorer-dark.webp" width="900" />
-  </picture>
-</p>
+The previous Supersigil, a spec-driven development tool with a
+verification engine, an LSP server, and editor extensions, lives at the
+`archive/spec-driven` tag and in the v0.14.0 releases on crates.io,
+Homebrew, AUR, and the VS Code and JetBrains marketplaces. Its docs site is
+not maintained.
 
-## Principles
+## Status
 
-- **Everything-as-code.** Specs are Markdown files in your repository,
-  with structured components in `supersigil-xml` fenced code blocks. No
-  separate system of record.
+Only shell completions exist in this tree today. The first arc lands in
+three steps: the local record of agent sessions, the review model with
+attribution, and a terminal review.
 
-- **Verifiable by default.** Cross-references are typed and checked.
-  Criterion-to-test mappings are discovered and reported. Staleness,
-  orphans, and coverage gaps surface as warnings and errors.
-
-- **Workflow-agnostic.** Write requirements first, or design first, or
-  start with the criterion you care about. The tool tells you what's
-  missing — it doesn't prescribe an order.
-
-## Installation
-
-### Homebrew (macOS / Linux)
+## Development
 
 ```sh
-brew install jonisavo/supersigil/supersigil
-```
-
-This installs both `supersigil` and `supersigil-lsp`.
-
-### AUR (Arch Linux)
-
-```sh
-yay -S supersigil-bin supersigil-lsp-bin   # prebuilt binaries
-yay -S supersigil supersigil-lsp           # build from source
-```
-
-### Cargo
-
-```sh
-cargo install supersigil supersigil-lsp
-```
-
-### GitHub Releases
-
-Download prebuilt binaries for macOS (Intel / Apple Silicon) and Linux
-(x86_64 / aarch64) from the
-[releases page](https://github.com/jonisavo/supersigil/releases).
-
-## Quick start
-
-```sh
-# Create a config file
-supersigil init
-
-# Scaffold a requirements doc
-supersigil new requirements auth
-
-# Verify everything
-supersigil verify
-```
-
-## Commands
-
-```
-supersigil init                    # Create supersigil.toml and install agent skills
-supersigil new <type> <id>         # Scaffold a new spec document
-supersigil verify                  # Cross-document verification
-supersigil ls                      # List all documents
-supersigil context <id>            # Agent-friendly view of a document
-supersigil plan [id_or_prefix]     # Outstanding work overview
-supersigil status [id]             # Coverage and affected-doc summary
-supersigil affected --since <ref>  # Docs affected by file changes
-supersigil schema                  # Component and type definitions
-supersigil graph                   # Document dependency graph (Mermaid/Graphviz)
-supersigil refs                    # List criterion refs
-supersigil export                  # Export component trees with verification data
-supersigil explore                 # Interactive graph explorer (browser)
-supersigil import --from kiro      # Import from Kiro format
-supersigil skills install          # Install or update agent skills
-supersigil completions <shell>     # Generate shell completions
-```
-
-See the [CLI reference](https://supersigil.org/reference/cli/) for
-flags and detailed usage, and the
-[configuration reference](https://supersigil.org/reference/configuration/)
-for `supersigil.toml` options.
-
-## How it works
-
-Spec documents are Markdown files with `supersigil:` front matter.
-Structured components (`<Criterion>`, `<VerifiedBy>`, `<Implements>`,
-etc.) are written inside `supersigil-xml` fenced code blocks and form a
-typed graph that supersigil verifies:
-
-```
-Criterion (in requirements doc)
-    |
-    | <VerifiedBy>              direct evidence
-    |
-    v
-Test files
-```
-
-- Requirements define criteria. `<VerifiedBy>` links criteria to test
-  evidence. `<Implements>` traces design docs back to criteria.
-- References are unidirectional (concrete points to abstract). Reverse
-  mappings are computed automatically.
-- `status: draft` suppresses warnings so you can work iteratively.
-  Hard errors (broken refs, cycles, duplicates) are always fatal.
-
-### Test Discovery
-
-Configured `tests` globs respect standard repository ignore rules by default,
-including `.gitignore`, `.ignore`, Git excludes, and hidden-file filtering:
-
-```toml
-[test_discovery]
-ignore = "standard" # default; use "off" for raw glob expansion
-```
-
-This policy applies only to top-level `tests` and `[projects.*].tests`. Spec
-`paths` and criterion-level `VerifiedBy strategy="file-glob"` checks keep raw
-glob expansion semantics.
-
-## Editor integration
-
-The Supersigil LSP server provides real-time feedback in your editor:
-diagnostics, go-to-definition, autocomplete for document and criterion
-IDs, and hover documentation.
-
-### VS Code
-
-Install the **Supersigil** extension from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/publishers/supersigil)
-or [Open VSX](https://open-vsx.org/). It activates automatically when a
-workspace contains `supersigil.toml` and discovers the `supersigil-lsp`
-binary from your `$PATH`, `~/.cargo/bin/`, or `~/.local/bin/`.
-
-Features:
-- Inline diagnostics (parse errors, broken refs, coverage gaps)
-- Go-to-definition for cross-references
-- Autocomplete for document IDs, criterion IDs, and component attributes
-- Hover tooltips with document context and clickable links
-- Spec Explorer sidebar tree view
-- Status bar indicator with server health
-- Commands: **Supersigil: Verify**, **Restart Server**, **Show Status**
-
-Configure a custom server path with `supersigil.lsp.serverPath` if
-needed.
-
-### IntelliJ
-
-Install the **Supersigil** plugin from the
-[JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31213-supersigil)
-or search for `Supersigil` in **Settings > Plugins > Marketplace**.
-
-It provides the same LSP-backed diagnostics, navigation, and completion as the
-VS Code extension, plus a Graph Explorer tool window. Compatible with IntelliJ
-IDEA 2025.3+ and other IntelliJ-based IDEs that include the LSP client module.
-
-### Other editors
-
-Any editor with LSP support can use `supersigil-lsp` directly. Point
-your editor's LSP client at the binary and register it for Markdown
-files.
-
-## Ecosystem packages
-
-### Rust
-
-The `supersigil-rust` crate provides a `#[verifies("doc-id#criterion-id")]`
-attribute macro that links Rust test functions to spec criteria.
-
-```sh
-cargo add supersigil-rust
-```
-
-### JavaScript / TypeScript
-
-- **[@supersigil/vitest](https://www.npmjs.com/package/@supersigil/vitest)** —
-  Vitest helper for annotating tests with criterion refs.
-- **[@supersigil/eslint-plugin](https://www.npmjs.com/package/@supersigil/eslint-plugin)** —
-  ESLint plugin for validating criterion refs.
-
-```sh
-pnpm add -D @supersigil/vitest @supersigil/eslint-plugin
-```
-
-## Project structure
-
-```
-crates/
-  supersigil-core/         # Document model, graph, config
-  supersigil-parser/       # Markdown parsing, front matter extraction
-  supersigil-verify/       # Verification engine
-  supersigil-evidence/     # Language-agnostic evidence primitives
-  supersigil-rust/         # Rust ecosystem plugin
-  supersigil-rust-macros/  # #[verifies(...)] proc macro
-  supersigil-import/       # Kiro import
-  supersigil-lsp/          # Language Server Protocol server
-  supersigil-js/           # JS/TS ecosystem plugin
-  supersigil-cli/          # CLI entry point
-dist/
-  aur/                     # Arch User Repository build files
-  homebrew/                # Homebrew formula template
-editors/
-  intellij/                # IntelliJ extension
-  vscode/                  # VS Code extension
-packages/
-  eslint-plugin/           # ESLint plugin for Supersigil criterion refs
-  preview/                 # Shared JS/CSS rendering assets
-  vitest/                  # Vitest helpers for Supersigil criterion refs
+mise setup     # once
+mise qa        # format, lint, build, test
 ```
 
 ## License
 
-Licensed under either of
-
-- [Apache License, Version 2.0](LICENSE-APACHE)
-- [MIT License](LICENSE-MIT)
-
-at your option.
+MIT OR Apache-2.0.
