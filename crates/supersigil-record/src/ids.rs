@@ -110,9 +110,13 @@ impl Revision {
     pub const ZERO: Self = Self(0);
 
     /// The following revision.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the revision would exceed [`u64::MAX`].
     #[must_use]
     pub const fn next(self) -> Self {
-        Self(self.0 + 1)
+        Self(self.0.checked_add(1).expect("revision counter overflow"))
     }
 
     /// The numeric value.
@@ -168,6 +172,13 @@ mod tests {
     fn revision_increments() {
         assert_eq!(Revision::ZERO.next().get(), 1);
         assert_eq!(Revision::ZERO.next().next().get(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "revision counter overflow")]
+    fn revision_next_panics_on_overflow() {
+        let max: Revision = serde_json::from_str("18446744073709551615").unwrap();
+        let _ = max.next();
     }
 
     #[test]
