@@ -7,7 +7,6 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@supersigil/vitest": "workspace:*",
     "vitest": "catalog:"
   }
 }
