@@ -293,7 +293,8 @@ pub struct Edit {
     pub replace_all: bool,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
-    /// Time the result was recorded.
+    /// Time the result was recorded; when the result record carries no
+    /// timestamp, the issuing record's timestamp.
     pub time: Timestamp,
     /// Position of the issuing record in the transcript.
     pub source_ordinal: u64,
