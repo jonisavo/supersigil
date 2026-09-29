@@ -1,12 +1,14 @@
 //! Incremental sync of transcripts into a record.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use supersigil_record::derive::derive;
-use supersigil_record::observations::{CaptureLimitation, Observation, SessionStart, Source};
+use supersigil_record::observations::{
+    CaptureCounts, CaptureLimitation, Observation, SessionStart, Source,
+};
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
-use supersigil_record::{ContentId, Revision, SessionId};
+use supersigil_record::{ContentHasher, Revision, SessionId};
 
 use crate::claude_code::{ParseOutcome, parse_transcript_with_session};
 
@@ -41,16 +43,10 @@ pub struct TranscriptReport {
     pub consumed: u64,
     /// Whether the file ended in an incomplete line.
     pub trailing_partial: bool,
-    /// Unknown record types skipped, by type.
-    pub unknown_records: BTreeMap<String, u64>,
-    /// Lines that were not valid JSON.
-    pub malformed_lines: u64,
-    /// Tool uses the agent moved past without a result.
-    pub abandoned_tool_uses: u64,
-    /// Editing tool uses the harness reported as failed; no edit was recorded.
-    pub failed_tool_uses: u64,
-    /// Edits outside the checkout that were dropped.
-    pub outside_checkout: u64,
+    /// What this call could not turn into evidence, flattened into this
+    /// object.
+    #[serde(flatten)]
+    pub counts: CaptureCounts,
 }
 
 /// Result of one sync call.
@@ -86,12 +82,7 @@ pub fn sync(
     let association = Association {
         checkout: checkout.to_path_buf(),
     };
-    let association_is_new = !tx
-        .manifest()
-        .associations
-        .iter()
-        .any(|a| a.checkout == association.checkout);
-    tx.add_association(association);
+    let association_is_new = tx.add_association(association);
 
     let initial_cursors = tx.manifest().cursors.clone();
     let mut reports = Vec::new();
@@ -115,17 +106,18 @@ pub fn sync(
     }
 
     let next_revision = tx.manifest().revision.next();
-    let touched: BTreeSet<SessionId> = appended.keys().cloned().collect();
-    for session in &touched {
-        let mut observations = pinned.observations(session)?;
-        observations.extend(appended.remove(session).unwrap_or_default());
-        let set = derive(session, &observations, next_revision);
+    let mut sessions = Vec::with_capacity(appended.len());
+    for (session, new) in appended {
+        let mut observations = pinned.observations(&session)?;
+        observations.extend(new);
+        let set = derive(&session, &observations, next_revision);
         tx.put_derivations(&set)?;
+        sessions.push(session);
     }
     let revision = tx.commit()?;
     Ok(SyncReport {
         revision,
-        sessions: touched.into_iter().collect(),
+        sessions,
         new_observations: total,
         transcripts: reports,
     })
@@ -148,15 +140,15 @@ fn sync_transcript(
         path: path.to_path_buf(),
         source,
     })?;
-    let mut cursor = resume_cursor(tx.manifest().cursors.get(&key), &bytes);
+    let Resume {
+        mut cursor,
+        start,
+        hasher,
+    } = resume_cursor(tx.manifest().cursors.get(&key), &bytes);
     let from_ordinal = cursor.next_ordinal;
-    // A transcript larger than the address space is not a case this tool handles.
-    let start = usize::try_from(cursor.offset)
-        .unwrap_or(usize::MAX)
-        .min(bytes.len());
     // Appended records need not repeat the session id, so a resumed parse
     // starts from the session the cursor already knows.
-    let outcome = parse_transcript_with_session(
+    let mut outcome = parse_transcript_with_session(
         &bytes[start..],
         cursor.next_ordinal,
         cursor.session.as_ref(),
@@ -190,7 +182,7 @@ fn sync_transcript(
         .session
         .as_ref()
         .and_then(|session| capture_limitation(session, transcript, from_ordinal, &outcome));
-    new.extend(outcome.observations);
+    new.append(&mut outcome.observations);
     new.extend(limitation);
     let count = new.len();
     if count > 0 {
@@ -202,12 +194,7 @@ fn sync_transcript(
                 .push(observation);
         }
     }
-    cursor.offset += outcome.consumed;
-    cursor.next_ordinal = outcome.next_ordinal;
-    let end = usize::try_from(cursor.offset)
-        .unwrap_or(usize::MAX)
-        .min(bytes.len());
-    cursor.prefix_hash = Some(ContentId::of(&bytes[..end]));
+    advance(&mut cursor, &bytes, start, &outcome, hasher);
     tx.set_cursor(&key, cursor.clone());
     Ok(TranscriptReport {
         path: path.to_path_buf(),
@@ -215,37 +202,79 @@ fn sync_transcript(
         new_observations: count,
         consumed: outcome.consumed,
         trailing_partial: outcome.trailing_partial,
-        unknown_records: outcome.unknown_records,
-        malformed_lines: outcome.malformed_lines,
-        abandoned_tool_uses: outcome.abandoned_tool_uses,
-        failed_tool_uses: outcome.failed_tool_uses,
-        outside_checkout: outcome.outside_checkout,
+        counts: outcome.counts,
     })
 }
 
-/// The cursor to resume `bytes` from. A transcript shorter than the cursor,
-/// or whose consumed prefix no longer hashes to the recorded one, was
-/// rewritten and is read again from the start.
-fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> SourceCursor {
-    let fresh = SourceCursor {
-        offset: 0,
-        next_ordinal: 0,
-        session: None,
-        prefix_hash: None,
+/// Where to resume a transcript.
+struct Resume {
+    /// The cursor to continue from, stored or fresh.
+    cursor: SourceCursor,
+    /// Byte offset of the cursor, validated against the transcript.
+    start: usize,
+    /// A hasher that has seen exactly the transcript's first `start` bytes.
+    hasher: ContentHasher,
+}
+
+/// Where to resume `bytes` from. The stored cursor is trusted only when its
+/// consumed prefix still hashes to the recorded one; a transcript shorter
+/// than the cursor, rewritten in place, or with an unverifiable prefix is
+/// read again from the start.
+fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> Resume {
+    let fresh = || Resume {
+        cursor: SourceCursor {
+            offset: 0,
+            next_ordinal: 0,
+            session: None,
+            prefix_hash: None,
+        },
+        start: 0,
+        hasher: ContentHasher::new(),
     };
     let Some(cursor) = stored else {
-        return fresh;
+        return fresh();
     };
-    let Some(prefix) = usize::try_from(cursor.offset)
+    let Some(start) = usize::try_from(cursor.offset)
         .ok()
-        .and_then(|offset| bytes.get(..offset))
+        .filter(|offset| *offset <= bytes.len())
     else {
-        return fresh;
+        return fresh();
     };
-    match &cursor.prefix_hash {
-        Some(hash) if *hash != ContentId::of(prefix) => fresh,
-        _ => cursor.clone(),
+    let mut hasher = ContentHasher::new();
+    if start > 0 {
+        // An offset without a hash to check it against cannot be trusted.
+        let Some(expected) = &cursor.prefix_hash else {
+            return fresh();
+        };
+        hasher.update(&bytes[..start]);
+        if hasher.clone().finish() != *expected {
+            return fresh();
+        }
     }
+    Resume {
+        cursor: cursor.clone(),
+        start,
+        hasher,
+    }
+}
+
+/// Moves `cursor` past what `outcome` consumed of `bytes[start..]`: its
+/// offset, next ordinal, and prefix hash change together. `hasher` has seen
+/// `bytes[..start]` and is continued over the consumed bytes.
+fn advance(
+    cursor: &mut SourceCursor,
+    bytes: &[u8],
+    start: usize,
+    outcome: &ParseOutcome,
+    mut hasher: ContentHasher,
+) {
+    let consumed = usize::try_from(outcome.consumed)
+        .expect("the parse consumes at most the bytes it was given");
+    let end = start + consumed;
+    hasher.update(&bytes[start..end]);
+    cursor.offset = end as u64;
+    cursor.next_ordinal = outcome.next_ordinal;
+    cursor.prefix_hash = Some(hasher.finish());
 }
 
 /// A capture limitation for the ordinals `[from_ordinal, next_ordinal)` of
@@ -256,22 +285,13 @@ fn capture_limitation(
     from_ordinal: u64,
     outcome: &ParseOutcome,
 ) -> Option<Observation> {
-    let lost = !outcome.unknown_records.is_empty()
-        || outcome.malformed_lines > 0
-        || outcome.abandoned_tool_uses > 0
-        || outcome.failed_tool_uses > 0
-        || outcome.outside_checkout > 0;
-    lost.then(|| {
+    (!outcome.counts.is_empty()).then(|| {
         Observation::CaptureLimitation(CaptureLimitation {
             session: session.clone(),
             transcript,
             from_ordinal,
             to_ordinal: outcome.next_ordinal,
-            unknown_records: outcome.unknown_records.clone(),
-            malformed_lines: outcome.malformed_lines,
-            abandoned_tool_uses: outcome.abandoned_tool_uses,
-            failed_tool_uses: outcome.failed_tool_uses,
-            outside_checkout: outcome.outside_checkout,
+            counts: outcome.counts.clone(),
         })
     })
 }

@@ -225,16 +225,27 @@ pub fn hint(color: ColorConfig, msg: &str) {
 /// sequence in a session id cannot erase or forge the lines around it.
 #[must_use]
 pub fn escape_control(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        let code = u32::from(c);
-        if (code <= 0x1f && c != '\t') || (0x7f..=0x9f).contains(&code) {
-            let _ = write!(out, "\\x{code:02x}");
-        } else {
-            out.push(c);
+    Untrusted(text).to_string()
+}
+
+/// Text from outside the tool, such as a transcript, that displays with its
+/// control characters made visible as [`escape_control`] describes. Format
+/// every such value through it before it reaches a terminal.
+#[derive(Debug, Clone, Copy)]
+pub struct Untrusted<'a>(pub &'a str);
+
+impl fmt::Display for Untrusted<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.0.chars() {
+            let code = u32::from(c);
+            if (code <= 0x1f && c != '\t') || (0x7f..=0x9f).contains(&code) {
+                write!(f, "\\x{code:02x}")?;
+            } else {
+                f.write_char(c)?;
+            }
         }
+        Ok(())
     }
-    out
 }
 
 // ---------------------------------------------------------------------------

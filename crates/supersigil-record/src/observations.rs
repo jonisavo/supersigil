@@ -127,6 +127,14 @@ pub enum Material<T> {
 }
 
 impl<T> Material<T> {
+    /// Material the source did not provide, for the given reason.
+    #[must_use]
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self::Unavailable {
+            reason: reason.into(),
+        }
+    }
+
     /// The retained value, if any.
     #[must_use]
     pub fn retained(&self) -> Option<&T> {
@@ -353,6 +361,14 @@ pub struct CaptureLimitation {
     pub from_ordinal: u64,
     /// Ordinal just past the range.
     pub to_ordinal: u64,
+    /// What the capture could not use, flattened into this object.
+    #[serde(flatten)]
+    pub counts: CaptureCounts,
+}
+
+/// Counts of transcript material the capture could not turn into evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureCounts {
     /// Records of unknown type, by type, that produced no observation.
     pub unknown_records: BTreeMap<String, u64>,
     /// Lines that were not valid JSON.
@@ -363,4 +379,16 @@ pub struct CaptureLimitation {
     pub failed_tool_uses: u64,
     /// Edits outside the checkout that were dropped.
     pub outside_checkout: u64,
+}
+
+impl CaptureCounts {
+    /// Whether nothing was counted, so there is no limitation to record.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.unknown_records.is_empty()
+            && self.malformed_lines == 0
+            && self.abandoned_tool_uses == 0
+            && self.failed_tool_uses == 0
+            && self.outside_checkout == 0
+    }
 }

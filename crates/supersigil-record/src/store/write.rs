@@ -7,15 +7,12 @@ use std::path::PathBuf;
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, observations_log, reject_reserved,
+    LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, is_log_name, observations_log,
     validate_name,
 };
 use crate::derivations::DerivationSet;
 use crate::ids::Revision;
 use crate::observations::Observation;
-
-/// Suffix every log name carries; document files never end in it.
-const LOG_SUFFIX: &str = ".jsonl";
 
 /// An open write transaction. Dropping it without [`WriteTx::commit`]
 /// releases the lock and leaves the manifest untouched.
@@ -30,9 +27,9 @@ pub struct WriteTx<'a> {
     manifest: Manifest,
     /// The manifest as it was when the lock was taken.
     starting: Manifest,
-    expected: Revision,
     _lock: File,
-    touched: Vec<PathBuf>,
+    /// Files to fsync at commit; a set, so a log appended twice syncs once.
+    touched: BTreeSet<PathBuf>,
 }
 
 impl<'a> WriteTx<'a> {
@@ -55,10 +52,9 @@ impl<'a> WriteTx<'a> {
         Ok(Self {
             store,
             starting: manifest.clone(),
-            expected: manifest.revision,
             manifest,
             _lock: lock,
-            touched: Vec::new(),
+            touched: BTreeSet::new(),
         })
     }
 
@@ -80,23 +76,18 @@ impl<'a> WriteTx<'a> {
     /// Appends lines to a log. Any bytes beyond the pinned length (a crash
     /// tail) are truncated first. Lines must not contain newlines.
     ///
-    /// Log names end in `.jsonl`. Document files end in `.r<revision>.json`,
-    /// so a log can never alias a document of any revision, whether it is
-    /// pinned now, superseded, or staged by this transaction.
+    /// Log names end in `.jsonl`, which keeps them disjoint from documents
+    /// and the store's own files (see the [module docs](super)).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidName`] for a name that is not a canonical
-    /// relative path, does not end in `.jsonl`, or belongs to the store,
+    /// relative path or does not end in `.jsonl`,
     /// [`StoreError::Corrupt`] for a line with a newline or a file shorter
     /// than its pinned length, or an I/O error.
     pub fn append_log(&mut self, log: &str, lines: &[&[u8]]) -> Result<(), StoreError> {
         validate_name(log)?;
-        if !log.ends_with(LOG_SUFFIX) {
-            return Err(StoreError::InvalidName(log.to_owned()));
-        }
-        reject_reserved(log)?;
-        if self.manifest.documents.values().any(|rel| rel == log) {
+        if !is_log_name(log) {
             return Err(StoreError::InvalidName(log.to_owned()));
         }
         if let Some(bad) = lines.iter().find(|l| l.contains(&b'\n')) {
@@ -133,7 +124,7 @@ impl<'a> WriteTx<'a> {
             written += line.len() as u64 + 1;
         }
         self.manifest.logs.insert(log.to_owned(), written);
-        self.touched.push(path);
+        self.touched.insert(path);
         Ok(())
     }
 
@@ -192,18 +183,14 @@ impl<'a> WriteTx<'a> {
     /// [`Revision::next`] does.
     pub fn put_document(&mut self, logical: &str, bytes: &[u8]) -> Result<(), StoreError> {
         validate_name(logical)?;
-        let rel = format!("{logical}.r{}.json", self.expected.next().get());
-        reject_reserved(&rel)?;
-        if self.manifest.logs.contains_key(&rel) {
-            return Err(StoreError::InvalidName(rel));
-        }
+        let rel = format!("{logical}.r{}.json", self.starting.revision.next().get());
         let path = self.store.root().join(&rel);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
         fs::write(&path, bytes).map_err(|e| io_error(&path, e))?;
         self.manifest.documents.insert(logical.to_owned(), rel);
-        self.touched.push(path);
+        self.touched.insert(path);
         Ok(())
     }
 
@@ -213,15 +200,17 @@ impl<'a> WriteTx<'a> {
     }
 
     /// Adds a checkout association unless one with the same path exists.
-    pub fn add_association(&mut self, association: Association) {
-        if !self
+    /// Returns whether it was added.
+    pub fn add_association(&mut self, association: Association) -> bool {
+        let known = self
             .manifest
             .associations
             .iter()
-            .any(|a| a.checkout == association.checkout)
-        {
+            .any(|a| a.checkout == association.checkout);
+        if !known {
             self.manifest.associations.push(association);
         }
+        !known
     }
 
     /// Fsyncs every touched file and every directory from each file's parent
@@ -261,13 +250,14 @@ impl<'a> WriteTx<'a> {
             manifest::sync_dir(dir)?;
         }
         let on_disk = manifest::read(self.store.root())?;
-        if on_disk.revision != self.expected {
+        let expected = self.starting.revision;
+        if on_disk.revision != expected {
             return Err(StoreError::Conflict {
-                expected: self.expected.get(),
+                expected: expected.get(),
                 found: on_disk.revision.get(),
             });
         }
-        self.manifest.revision = self.expected.next();
+        self.manifest.revision = expected.next();
         manifest::publish(self.store.root(), &self.manifest)?;
         Ok(self.manifest.revision)
     }

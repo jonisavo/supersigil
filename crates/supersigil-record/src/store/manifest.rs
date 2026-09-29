@@ -34,7 +34,8 @@ pub struct SourceCursor {
     /// `offset`. Sync compares it with the file before resuming, so a
     /// transcript rewritten in place, even to the same length, is read again
     /// from the start instead of being resumed inside unrelated bytes.
-    /// Absent in cursors written before it existed.
+    /// Absent in cursors written before it existed; sync does not trust such
+    /// a cursor past offset zero and reads the transcript from the start.
     #[serde(default)]
     pub prefix_hash: Option<ContentId>,
 }

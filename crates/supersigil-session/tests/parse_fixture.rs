@@ -1,6 +1,10 @@
 //! Parser behavior on the synthetic slice session.
 
-use std::path::{Path, PathBuf};
+mod common;
+
+use std::path::PathBuf;
+
+use common::{SESSION, fixture, line_starts};
 
 use serde_json::{Value, json};
 use supersigil_record::observations::{
@@ -10,22 +14,6 @@ use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 use supersigil_session::claude_code::{
     ParseOutcome, parse_transcript, parse_transcript_with_session,
 };
-
-const SESSION: &str = "11111111-1111-4111-8111-111111111111";
-
-fn fixture() -> Vec<u8> {
-    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slice.jsonl")).unwrap()
-}
-
-fn line_starts(bytes: &[u8]) -> Vec<usize> {
-    let mut starts = vec![0];
-    for (i, b) in bytes.iter().enumerate() {
-        if *b == b'\n' && i + 1 < bytes.len() {
-            starts.push(i + 1);
-        }
-    }
-    starts
-}
 
 fn edits(outcome: &ParseOutcome) -> Vec<&supersigil_record::observations::Edit> {
     outcome
@@ -148,14 +136,14 @@ fn whole_fixture_is_consumed_with_session_metadata() {
         Some("2026-09-28T10:00:00.000Z")
     );
     assert!(!outcome.trailing_partial);
-    assert_eq!(outcome.malformed_lines, 0);
-    assert_eq!(outcome.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(outcome.counts.malformed_lines, 0);
+    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&1));
     assert_eq!(
         outcome.ignored_records.get("file-history-snapshot"),
         Some(&1)
     );
-    assert_eq!(outcome.outside_checkout, 0);
-    assert_eq!(outcome.abandoned_tool_uses, 0);
+    assert_eq!(outcome.counts.outside_checkout, 0);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
 }
 
 #[test]
@@ -321,7 +309,7 @@ fn pending_tool_use_at_end_is_not_consumed() {
     assert_eq!(outcome.next_ordinal, 14);
     assert_eq!(commands(&outcome).len(), 1);
     assert_eq!(turns(&outcome).last().unwrap().id.as_str(), "u7");
-    assert_eq!(outcome.abandoned_tool_uses, 0);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
 }
 
 #[test]
@@ -334,7 +322,7 @@ fn abandoned_tool_use_is_counted_and_command_emitted_without_result() {
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.consumed, lines.len() as u64);
-    assert_eq!(outcome.abandoned_tool_uses, 1);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 1);
     let commands = commands(&outcome);
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].ended, None);
@@ -355,7 +343,7 @@ fn edit_outside_checkout_is_counted_and_dropped() {
         "\n",
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert_eq!(outcome.outside_checkout, 1);
+    assert_eq!(outcome.counts.outside_checkout, 1);
     assert!(edits(&outcome).is_empty());
 }
 
@@ -367,7 +355,7 @@ fn malformed_line_is_counted_and_skipped() {
     broken.extend_from_slice(b"{not json\n");
     broken.extend_from_slice(&bytes[starts[1]..]);
     let outcome = parse_transcript(&broken, 0);
-    assert_eq!(outcome.malformed_lines, 1);
+    assert_eq!(outcome.counts.malformed_lines, 1);
     assert_eq!(outcome.next_ordinal, 20);
     assert_eq!(edits(&outcome).len(), 5);
 }
@@ -402,8 +390,8 @@ fn failed_write_is_not_an_edit() {
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert!(edits(&outcome).is_empty());
-    assert_eq!(outcome.failed_tool_uses, 1);
-    assert_eq!(outcome.outside_checkout, 0);
+    assert_eq!(outcome.counts.failed_tool_uses, 1);
+    assert_eq!(outcome.counts.outside_checkout, 0);
     assert_eq!(turns(&outcome).len(), 2);
 }
 
@@ -420,7 +408,7 @@ fn errored_bash_records_reported_error_and_failed_tests() {
     assert_eq!(commands.len(), 1);
     assert!(commands[0].reported_error);
     assert_eq!(commands[0].outcome, Some(Outcome::Failed));
-    assert_eq!(outcome.failed_tool_uses, 0);
+    assert_eq!(outcome.counts.failed_tool_uses, 0);
 }
 
 #[test]
@@ -437,7 +425,7 @@ fn traversal_path_is_outside_checkout() {
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert!(edits(&outcome).is_empty());
-    assert_eq!(outcome.outside_checkout, 2);
+    assert_eq!(outcome.counts.outside_checkout, 2);
 }
 
 #[test]
@@ -485,17 +473,17 @@ fn counts_stop_at_the_consumption_cutoff() {
     let outcome = parse_transcript(pending.as_bytes(), 0);
     assert_eq!(outcome.consumed, 0);
     assert_eq!(outcome.next_ordinal, 0);
-    assert!(outcome.unknown_records.is_empty());
-    assert_eq!(outcome.malformed_lines, 0);
-    assert_eq!(outcome.abandoned_tool_uses, 0);
+    assert!(outcome.counts.unknown_records.is_empty());
+    assert_eq!(outcome.counts.malformed_lines, 0);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
 
     let full = format!(
         "{pending}{}\n",
         r#"{"type":"user","uuid":"u1","parentUuid":"a1","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false}}"#
     );
     let outcome = parse_transcript(full.as_bytes(), 0);
-    assert_eq!(outcome.unknown_records.get("ai-title"), Some(&1));
-    assert_eq!(outcome.malformed_lines, 1);
+    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(outcome.counts.malformed_lines, 1);
 }
 
 #[test]
@@ -694,7 +682,7 @@ fn mixed_text_and_tool_result_record_keeps_the_result() {
         "fixture edit failed: {lines}"
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert_eq!(outcome.abandoned_tool_uses, 0);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
     let edits = edits(&outcome);
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0].after, known("b\n"));
@@ -752,7 +740,7 @@ fn seeded_chunked_parse_matches_the_whole_file() {
 
     assert_eq!(rest.session, Some(seed));
     assert_eq!(rest.next_ordinal, whole.next_ordinal);
-    assert!(!rest.unknown_records.contains_key("no-session"));
+    assert!(!rest.counts.unknown_records.contains_key("no-session"));
     let chunked: Vec<_> = first
         .observations
         .iter()

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::derivations::{ALGORITHM_VERSION, DerivationSet, Discontinuity, Restore};
-use crate::ids::{EventId, Revision, SessionId};
+use crate::ids::{ContentId, EventId, Revision, SessionId};
 use crate::observations::{Edit, Observation};
 
 /// Derives restores and discontinuities from `observations`.
@@ -40,22 +40,22 @@ pub fn derive(
     let mut discontinuities = Vec::new();
     for ((checkout, path), mut edits) in groups {
         edits.sort_by_key(|e| e.source_ordinal);
-        for (index, edit) in edits.iter().enumerate() {
-            if let Some(after) = edit.after_content() {
-                if edit.before_content() == Some(after) {
-                    continue;
-                }
-                let earlier: Vec<EventId> = edits[..index]
-                    .iter()
-                    .filter(|e| e.before_content() == Some(after))
-                    .map(|e| e.id.clone())
-                    .collect();
-                if !earlier.is_empty() {
-                    restores.push(Restore {
-                        edit: edit.id.clone(),
-                        restores: earlier,
-                    });
-                }
+        // Known before-contents of the edits seen so far in this group, each
+        // with its edits oldest first.
+        let mut befores: BTreeMap<&ContentId, Vec<EventId>> = BTreeMap::new();
+        for edit in &edits {
+            let earlier = edit
+                .after_content()
+                .filter(|after| edit.before_content() != Some(after))
+                .and_then(|after| befores.get(after));
+            if let Some(earlier) = earlier {
+                restores.push(Restore {
+                    edit: edit.id.clone(),
+                    restores: earlier.clone(),
+                });
+            }
+            if let Some(before) = edit.before_content() {
+                befores.entry(before).or_default().push(edit.id.clone());
             }
         }
         for pair in edits.windows(2) {
@@ -87,7 +87,7 @@ pub fn derive(
 mod tests {
 
     use super::*;
-    use crate::ids::{ContentId, Timestamp, TurnId};
+    use crate::ids::{Timestamp, TurnId};
     use crate::observations::{FileState, Material};
 
     fn session() -> SessionId {
@@ -108,15 +108,9 @@ mod tests {
             path: PathBuf::from(path),
             before,
             after,
-            patch: Material::Unavailable {
-                reason: "test".to_owned(),
-            },
-            old_text: Material::Unavailable {
-                reason: "test".to_owned(),
-            },
-            new_text: Material::Unavailable {
-                reason: "test".to_owned(),
-            },
+            patch: Material::unavailable("test"),
+            old_text: Material::unavailable("test"),
+            new_text: Material::unavailable("test"),
             replace_all: false,
             checkout: PathBuf::from("/work/repo"),
             time: Timestamp::new(format!("2026-09-28T10:00:{ordinal:02}.000Z")),

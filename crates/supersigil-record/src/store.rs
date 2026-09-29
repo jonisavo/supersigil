@@ -13,8 +13,11 @@
 //! file's presence means nothing. Deleting it while a writer runs would let a
 //! second writer lock a new file, so never clean it up.
 //!
-//! Log names end in `.jsonl` and document files in `.r<revision>.json`, so a
-//! log can never alias a document of any revision.
+//! The namespaces are disjoint by suffix. Log names must end in `.jsonl`;
+//! document files end in `.r<revision>.json`; the store's own files
+//! (`manifest.json`, its temporary files, and `write.lock`) end in neither
+//! `.jsonl` nor a revision suffix. So a log can never alias a document of any
+//! revision or a store file, and no document can alias either.
 
 mod manifest;
 mod snapshot;
@@ -34,9 +37,6 @@ use crate::ids::{RecordId, SessionId};
 pub const MANIFEST_FILE: &str = "manifest.json";
 /// File name of the writer lock inside a record directory.
 pub const LOCK_FILE: &str = "write.lock";
-
-/// Names the store owns; a log or document may never use them.
-const RESERVED_NAMES: [&str; 3] = [MANIFEST_FILE, "manifest.json.tmp", LOCK_FILE];
 
 /// Encodes a session id into one safe path component: every byte outside
 /// `A-Z a-z 0-9 _ -` becomes `%XX`, so an id taken from a transcript can never
@@ -103,13 +103,14 @@ pub(crate) fn validate_name(name: &str) -> Result<(), StoreError> {
     }
 }
 
-/// Rejects the store's own file names.
-pub(crate) fn reject_reserved(name: &str) -> Result<(), StoreError> {
-    if RESERVED_NAMES.contains(&name) {
-        Err(StoreError::InvalidName(name.to_owned()))
-    } else {
-        Ok(())
-    }
+/// Suffix of every log name. Compared case-sensitively on purpose: names
+/// are canonical, so `.JSONL` is not a log.
+const LOG_SUFFIX: &str = ".jsonl";
+
+/// Whether `name` is in the log namespace: it ends in `.jsonl`, which no
+/// document or store file does.
+pub(crate) fn is_log_name(name: &str) -> bool {
+    name.ends_with(LOG_SUFFIX)
 }
 
 /// Errors from the store.

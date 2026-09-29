@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 use supersigil_record::observations::{
-    Command, CommandCategory, Edit, FileState, Hunk, Material, Observation, Outcome, Role, Turn,
+    CaptureCounts, Command, CommandCategory, Edit, FileState, Hunk, Material, Observation, Outcome,
+    Role, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -54,19 +55,25 @@ pub struct ParseOutcome {
     pub first_time: Option<Timestamp>,
     /// Known record types that were skipped, by type.
     pub ignored_records: BTreeMap<String, u64>,
-    /// Unknown record types that were skipped, by type.
-    pub unknown_records: BTreeMap<String, u64>,
-    /// Lines that were not valid JSON objects.
-    pub malformed_lines: u64,
     /// Whether the input ended in a line without a newline.
     pub trailing_partial: bool,
-    /// Edits whose path was outside the record's working directory.
-    pub outside_checkout: u64,
-    /// Tool uses the agent moved past without a recorded result.
-    pub abandoned_tool_uses: u64,
-    /// Editing tool uses whose result the harness flagged as an error; they
-    /// produce no edit.
-    pub failed_tool_uses: u64,
+    /// What the parse could not turn into evidence below `consumed`: unknown
+    /// record types, malformed lines, edits outside the checkout, abandoned
+    /// tool uses, and editing tool uses the harness flagged as failed.
+    pub counts: CaptureCounts,
+}
+
+impl ParseOutcome {
+    fn add(&mut self, count: Count) {
+        match count {
+            Count::Ignored(kind) => *self.ignored_records.entry(kind).or_insert(0) += 1,
+            Count::Unknown(kind) => *self.counts.unknown_records.entry(kind).or_insert(0) += 1,
+            Count::Malformed => self.counts.malformed_lines += 1,
+            Count::Outside => self.counts.outside_checkout += 1,
+            Count::Abandoned => self.counts.abandoned_tool_uses += 1,
+            Count::Failed => self.counts.failed_tool_uses += 1,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,15 +134,7 @@ struct PendingTool {
     record_index: usize,
 }
 
-#[derive(Debug)]
-struct Record {
-    index: usize,
-    ordinal: u64,
-    raw: RawRecord,
-}
-
-/// A per-record tally, kept with the line it came from so that counts for
-/// lines beyond the consumption cutoff can be dropped.
+/// A per-record tally toward [`ParseOutcome`]'s counts.
 #[derive(Debug)]
 enum Count {
     Ignored(String),
@@ -146,104 +145,78 @@ enum Count {
     Failed,
 }
 
-/// Complete lines of the input, split into records.
-struct Lines {
-    records: Vec<Record>,
-    malformed: Vec<usize>,
-    starts: Vec<usize>,
-    complete_end: usize,
-}
-
-/// Splits `bytes` into complete lines and parses each as a record. Lines
-/// that are not JSON objects are counted; a trailing line without a newline
-/// is flagged and left out.
-fn split_records(bytes: &[u8], start_ordinal: u64, outcome: &mut ParseOutcome) -> Lines {
-    let mut lines = Lines {
-        records: Vec::new(),
-        malformed: Vec::new(),
-        starts: Vec::new(),
-        complete_end: 0,
-    };
-    let mut cursor = 0usize;
-    while cursor < bytes.len() {
-        let Some(len) = bytes[cursor..].iter().position(|b| *b == b'\n') else {
-            outcome.trailing_partial = true;
-            break;
-        };
-        let line = &bytes[cursor..cursor + len];
-        let index = lines.starts.len();
-        lines.starts.push(cursor);
-        cursor += len + 1;
-        match serde_json::from_slice::<RawRecord>(line) {
-            Ok(raw) => lines.records.push(Record {
-                index,
-                ordinal: start_ordinal + index as u64,
-                raw,
-            }),
-            Err(_) => lines.malformed.push(index),
-        }
-    }
-    lines.complete_end = cursor;
-    lines
+/// What one line contributed, kept with the line's index so that effects of
+/// lines beyond the consumption cutoff can be dropped.
+#[derive(Debug)]
+enum Effect {
+    Observation(Box<Observation>),
+    Count(Count),
 }
 
 /// Mutable state while walking the records in order.
 struct Walk {
     outcome: ParseOutcome,
-    staged: Vec<(usize, Observation)>,
-    counts: Vec<(usize, Count)>,
+    start_ordinal: u64,
+    effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
-    session: Option<SessionId>,
 }
 
 impl Walk {
-    /// Handles one record: counts skipped types, then stages its turn and
-    /// pairs its tool uses and results.
-    fn record(&mut self, record: &Record) {
-        let raw = &record.raw;
+    fn count(&mut self, index: usize, count: Count) {
+        self.effects.push((index, Effect::Count(count)));
+    }
+
+    fn observe(&mut self, index: usize, observation: Observation) {
+        self.effects
+            .push((index, Effect::Observation(Box::new(observation))));
+    }
+
+    /// Handles the record on line `index`: counts skipped types, then
+    /// stages its turn and pairs its tool uses and results.
+    fn record(&mut self, index: usize, mut raw: RawRecord) {
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
-                self.counts
-                    .push((record.index, Count::Ignored(other.to_owned())));
+                self.count(index, Count::Ignored(other.to_owned()));
                 return;
             }
             other => {
-                self.counts
-                    .push((record.index, Count::Unknown(other.to_owned())));
+                self.count(index, Count::Unknown(other.to_owned()));
                 return;
             }
         }
 
-        if self.session.is_none()
+        // The one place a session is learned from the records; a session
+        // given by the caller is already set and wins.
+        if self.outcome.session.is_none()
             && let Some(id) = &raw.session_id
         {
-            self.session = Some(SessionId::new(id.clone()));
-            self.outcome.session.clone_from(&self.session);
+            self.outcome.session = Some(SessionId::new(id.clone()));
             self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
             self.outcome.branch.clone_from(&raw.git_branch);
             self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
         }
-        let Some(session_id) = self.session.clone() else {
-            self.count_unknown(record.index, "no-session".to_owned());
+        let Some(session_id) = self.outcome.session.clone() else {
+            self.count(index, Count::Unknown("no-session".to_owned()));
             return;
         };
         let Some(uuid) = &raw.uuid else {
-            self.count_unknown(record.index, format!("{}-without-uuid", raw.kind));
+            self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
             return;
         };
         let turn_id = TurnId::new(uuid.clone());
         let time = Timestamp::new(raw.timestamp.clone().unwrap_or_default());
+        let ordinal = self.start_ordinal + index as u64;
         let content = raw.message.as_ref().map(|m| &m.content);
 
-        let role = classify_role(raw, content);
+        let role = classify_role(&raw, content);
         // The agent moved on: a later assistant record abandons unresolved
         // tool uses before it issues its own.
         if role == Role::Agent {
             self.abandon_pending(&session_id);
         }
-        self.staged.push((
-            record.index,
+        self.observe(
+            index,
             Observation::Turn(Turn {
                 id: turn_id.clone(),
                 session: session_id.clone(),
@@ -253,81 +226,83 @@ impl Walk {
                 sidechain: raw.is_sidechain,
                 agent_id: raw.agent_id.clone(),
                 excerpt: excerpt_for(role, content),
-                source_ordinal: record.ordinal,
+                source_ordinal: ordinal,
             }),
-        ));
+        );
 
         if raw.kind == "assistant" {
-            self.queue_tool_uses(record, &turn_id, &time);
+            self.queue_tool_uses(index, &mut raw, &turn_id, &time);
         } else {
             // A human message abandons what is still unresolved, but only
             // after its own tool results are matched: a typed message can
             // share a record with the results it follows. Tool results and
             // meta records never abandon, since parallel tool calls get one
             // user record per result.
-            self.resolve_results(record, &session_id, &time);
+            self.resolve_results(index, &raw, &session_id, &time);
             if role == Role::Human {
                 self.abandon_pending(&session_id);
             }
         }
     }
 
-    fn count_unknown(&mut self, index: usize, key: String) {
-        self.counts.push((index, Count::Unknown(key)));
-    }
-
     /// Counts every unresolved tool use as abandoned and emits shell
     /// commands among them with an unavailable result.
     fn abandon_pending(&mut self, session: &SessionId) {
-        for tool in self.pending.drain(..) {
-            self.counts.push((tool.record_index, Count::Abandoned));
+        for tool in std::mem::take(&mut self.pending) {
+            self.count(tool.record_index, Count::Abandoned);
             if let Some(observation) = build_abandoned(&tool, session) {
-                self.staged.push((tool.record_index, observation));
+                self.observe(tool.record_index, observation);
             }
         }
     }
 
-    fn queue_tool_uses(&mut self, record: &Record, turn: &TurnId, time: &Timestamp) {
-        let raw = &record.raw;
-        let cwd = PathBuf::from(raw.cwd.clone().unwrap_or_default());
-        let content = raw.message.as_ref().map(|m| &m.content);
-        for block in blocks(content) {
-            if block.get("type").and_then(Value::as_str) == Some("tool_use") {
-                self.pending.push(PendingTool {
-                    id: block
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    name: block
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    input: block.get("input").cloned().unwrap_or(Value::Null),
-                    turn: turn.clone(),
-                    ordinal: record.ordinal,
-                    time: time.clone(),
-                    cwd: cwd.clone(),
-                    record_index: record.index,
-                });
-            }
+    /// Queues the record's tool uses, taking their inputs out of `raw`.
+    fn queue_tool_uses(
+        &mut self,
+        index: usize,
+        raw: &mut RawRecord,
+        turn: &TurnId,
+        time: &Timestamp,
+    ) {
+        let cwd = PathBuf::from(raw.cwd.as_deref().unwrap_or_default());
+        let Some(items) = raw.message.as_mut().and_then(|m| m.content.as_array_mut()) else {
+            return;
+        };
+        for block in items.iter_mut().filter(|b| is_block(b, "tool_use")) {
+            let id = string_field(Some(block), "id")
+                .unwrap_or_default()
+                .to_owned();
+            let name = string_field(Some(block), "name")
+                .unwrap_or_default()
+                .to_owned();
+            self.pending.push(PendingTool {
+                id,
+                name,
+                input: block.get_mut("input").map(Value::take).unwrap_or_default(),
+                turn: turn.clone(),
+                ordinal: self.start_ordinal + index as u64,
+                time: time.clone(),
+                cwd: cwd.clone(),
+                record_index: index,
+            });
         }
     }
 
-    fn resolve_results(&mut self, record: &Record, session: &SessionId, time: &Timestamp) {
-        let raw = &record.raw;
+    fn resolve_results(
+        &mut self,
+        index: usize,
+        raw: &RawRecord,
+        session: &SessionId,
+        time: &Timestamp,
+    ) {
         let content = raw.message.as_ref().map(|m| &m.content);
-        let results: Vec<&Value> = blocks(content)
-            .into_iter()
-            .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
-            .collect();
-        let structured = if results.len() == 1 {
+        let results = || blocks(content).filter(|b| is_block(b, "tool_result"));
+        let structured = if results().count() == 1 {
             raw.tool_use_result.as_ref()
         } else {
             None
         };
-        for result in results {
+        for result in results() {
             let id = result
                 .get("tool_use_id")
                 .and_then(Value::as_str)
@@ -340,21 +315,16 @@ impl Walk {
                 continue;
             };
             let tool = self.pending.remove(position);
-            if let Some(observation) = build_resolved(
-                &tool,
-                session,
-                &Resolution {
-                    structured,
-                    block: result,
-                    is_error,
-                    ended: time,
-                },
-                &mut Tally {
-                    index: record.index,
-                    counts: &mut self.counts,
-                },
-            ) {
-                self.staged.push((record.index, observation));
+            let resolution = Resolution {
+                structured,
+                block: result,
+                is_error,
+                ended: time,
+            };
+            match build_resolved(&tool, session, &resolution) {
+                Some(Ok(observation)) => self.observe(index, observation),
+                Some(Err(count)) => self.count(index, count),
+                None => {}
             }
         }
     }
@@ -384,66 +354,69 @@ pub fn parse_transcript_with_session(
     start_ordinal: u64,
     session: Option<&SessionId>,
 ) -> ParseOutcome {
-    let mut outcome = ParseOutcome {
-        session: session.cloned(),
-        ..ParseOutcome::default()
-    };
-    let lines = split_records(bytes, start_ordinal, &mut outcome);
     let mut walk = Walk {
-        outcome,
-        staged: Vec::new(),
-        counts: lines
-            .malformed
-            .iter()
-            .map(|i| (*i, Count::Malformed))
-            .collect(),
+        outcome: ParseOutcome {
+            session: session.cloned(),
+            ..ParseOutcome::default()
+        },
+        start_ordinal,
+        effects: Vec::new(),
         pending: Vec::new(),
-        session: session.cloned(),
     };
-    for record in &lines.records {
-        walk.record(record);
+    // One complete line at a time: parse it, walk it, drop it. A line that
+    // is not a JSON object is counted; a trailing line without a newline is
+    // flagged and left out.
+    let mut starts = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        let Some(len) = bytes[cursor..].iter().position(|b| *b == b'\n') else {
+            walk.outcome.trailing_partial = true;
+            break;
+        };
+        let line = &bytes[cursor..cursor + len];
+        let index = starts.len();
+        starts.push(cursor);
+        cursor += len + 1;
+        match serde_json::from_slice::<RawRecord>(line) {
+            Ok(raw) => walk.record(index, raw),
+            Err(_) => walk.count(index, Count::Malformed),
+        }
     }
+    let complete_end = cursor;
 
     // A tool use still waiting for its result at the end blocks consumption
     // from its record onward, so the next parse sees it with its result.
     let Walk {
         mut outcome,
-        mut staged,
-        counts,
+        mut effects,
         pending,
         ..
     } = walk;
-    let mut cutoff = lines.starts.len();
-    if let Some(cut) = pending.iter().map(|p| p.record_index).min() {
-        cutoff = cut;
-        outcome.consumed = lines.starts[cut] as u64;
-        outcome.next_ordinal = start_ordinal + cut as u64;
-        staged.retain(|(index, _)| *index < cut);
-    } else {
-        outcome.consumed = lines.complete_end as u64;
-        outcome.next_ordinal = start_ordinal + lines.starts.len() as u64;
-    }
-    outcome.observations = staged.into_iter().map(|(_, o)| o).collect();
-    for (_, count) in counts.into_iter().filter(|(index, _)| *index < cutoff) {
-        match count {
-            Count::Ignored(kind) => *outcome.ignored_records.entry(kind).or_insert(0) += 1,
-            Count::Unknown(kind) => *outcome.unknown_records.entry(kind).or_insert(0) += 1,
-            Count::Malformed => outcome.malformed_lines += 1,
-            Count::Outside => outcome.outside_checkout += 1,
-            Count::Abandoned => outcome.abandoned_tool_uses += 1,
-            Count::Failed => outcome.failed_tool_uses += 1,
+    let (cutoff, consumed) = match pending.iter().map(|p| p.record_index).min() {
+        Some(cut) => (cut, starts[cut]),
+        None => (starts.len(), complete_end),
+    };
+    outcome.consumed = consumed as u64;
+    outcome.next_ordinal = start_ordinal + cutoff as u64;
+    effects.retain(|(index, _)| *index < cutoff);
+    for (_, effect) in effects {
+        match effect {
+            Effect::Observation(observation) => outcome.observations.push(*observation),
+            Effect::Count(count) => outcome.add(count),
         }
     }
     outcome
 }
 
-fn blocks(content: Option<&Value>) -> Vec<&Value> {
-    match content {
-        Some(Value::Array(items)) => items.iter().collect(),
-        _ => Vec::new(),
-    }
+/// Whether `block` is a content block of type `ty`.
+fn is_block(block: &Value, ty: &str) -> bool {
+    block.get("type").and_then(Value::as_str) == Some(ty)
 }
 
+/// The content blocks of a message; none unless the content is an array.
+fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
+    content.and_then(Value::as_array).into_iter().flatten()
+}
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
@@ -451,12 +424,8 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.is_meta {
         return Role::Meta;
     }
-    let items = blocks(content);
-    if !items.is_empty()
-        && items
-            .iter()
-            .all(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
-    {
+    let mut items = blocks(content).peekable();
+    if items.peek().is_some() && items.all(|b| is_block(b, "tool_result")) {
         return Role::Tool;
     }
     Role::Human
@@ -467,7 +436,7 @@ fn text_of(content: Option<&Value>) -> String {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Array(items)) => items
             .iter()
-            .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+            .filter(|b| is_block(b, "text"))
             .filter_map(|b| b.get("text").and_then(Value::as_str))
             .collect::<Vec<_>>()
             .join("\n"),
@@ -479,15 +448,9 @@ fn excerpt_for(role: Role, content: Option<&Value>) -> Material<String> {
     match role {
         Role::Human => Material::Retained(text_of(content)),
         Role::Agent => Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS)),
-        Role::Tool => Material::Unavailable {
-            reason: "tool result".to_owned(),
-        },
-        Role::Meta => Material::Unavailable {
-            reason: "harness metadata".to_owned(),
-        },
-        Role::Summary => Material::Unavailable {
-            reason: "compaction summary".to_owned(),
-        },
+        Role::Tool => Material::unavailable("tool result"),
+        Role::Meta => Material::unavailable("harness metadata"),
+        Role::Summary => Material::unavailable("compaction summary"),
     }
 }
 
@@ -525,7 +488,7 @@ fn relative_path(tool: &PendingTool, result: Option<&Value>) -> Option<PathBuf> 
 
 fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
     match result.and_then(|r| r.get("structuredPatch")) {
-        Some(value) => match serde_json::from_value::<Vec<RawHunk>>(value.clone()) {
+        Some(value) => match Vec::<RawHunk>::deserialize(value) {
             Ok(raw) => Material::Retained(
                 raw.into_iter()
                     .map(|h| Hunk {
@@ -537,13 +500,9 @@ fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
                     })
                     .collect(),
             ),
-            Err(_) => Material::Unavailable {
-                reason: "unreadable structured patch".to_owned(),
-            },
+            Err(_) => Material::unavailable("unreadable structured patch"),
         },
-        None => Material::Unavailable {
-            reason: "no structured patch".to_owned(),
-        },
+        None => Material::unavailable("no structured patch"),
     }
 }
 
@@ -558,6 +517,8 @@ fn state_of(text: Option<&str>) -> FileState {
 const FIELD_MISSING: &str = "field missing";
 /// Why a command stream is not retained when the source does not carry it.
 const NOT_CAPTURED: &str = "not captured";
+/// Why a command's streams are not retained when it has no result.
+const NO_RESULT: &str = "no result recorded";
 
 /// One field of an editing tool, read from the tool result first (it
 /// reflects what was applied) and from the input otherwise.
@@ -586,11 +547,10 @@ impl<T: PartialEq> Field<T> {
     }
 }
 
-fn retained_or_missing(text: Option<&str>) -> Material<String> {
+/// The text as retained material, else unavailable for `reason`.
+fn retained_or(text: Option<&str>, reason: &str) -> Material<String> {
     text.map_or_else(
-        || Material::Unavailable {
-            reason: FIELD_MISSING.to_owned(),
-        },
+        || Material::unavailable(reason),
         |t| Material::Retained(t.to_owned()),
     )
 }
@@ -636,8 +596,8 @@ fn edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     EditParts {
         before: state_of(original),
         after: state_of(after.as_deref()),
-        old_text: retained_or_missing(old.value),
-        new_text: retained_or_missing(new.value),
+        old_text: retained_or(old.value, FIELD_MISSING),
+        new_text: retained_or(new.value, FIELD_MISSING),
         replace_all: replace_all.value.unwrap_or(false),
     }
 }
@@ -658,10 +618,8 @@ fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     EditParts {
         before,
         after: state_of(content.settled().copied()),
-        old_text: Material::Unavailable {
-            reason: "write replaces the whole file".to_owned(),
-        },
-        new_text: retained_or_missing(content.value),
+        old_text: Material::unavailable("write replaces the whole file"),
+        new_text: retained_or(content.value, FIELD_MISSING),
         replace_all: false,
     }
 }
@@ -695,20 +653,10 @@ fn multi_edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     EditParts {
         before: state_of(original),
         after: state_of(after.as_deref()),
-        old_text: Material::Unavailable {
-            reason: "multi-edit".to_owned(),
-        },
-        new_text: Material::Unavailable {
-            reason: "multi-edit".to_owned(),
-        },
+        old_text: Material::unavailable("multi-edit"),
+        new_text: Material::unavailable("multi-edit"),
         replace_all: false,
     }
-}
-
-/// Where a resolved tool use records its counts.
-struct Tally<'a> {
-    index: usize,
-    counts: &'a mut Vec<(usize, Count)>,
 }
 
 /// The result side of a resolved tool use.
@@ -723,30 +671,28 @@ struct Resolution<'a> {
     ended: &'a Timestamp,
 }
 
+/// The edit a resolved editing tool made, or what to count instead.
 fn build_edit(
     tool: &PendingTool,
     session: &SessionId,
     resolution: &Resolution,
-    tally: &mut Tally,
-) -> Option<Observation> {
+) -> Result<Observation, Count> {
     if resolution.is_error {
         // The harness says the tool failed. Whatever the input asked for did
         // not necessarily reach the disk, so there is no edit and no hash to
         // compute.
-        tally.counts.push((tally.index, Count::Failed));
-        return None;
+        return Err(Count::Failed);
     }
     let result = resolution.structured;
     let Some(path) = relative_path(tool, result) else {
-        tally.counts.push((tally.index, Count::Outside));
-        return None;
+        return Err(Count::Outside);
     };
     let parts = match tool.name.as_str() {
         "Edit" => edit_parts(tool, result),
         "Write" => write_parts(tool, result),
         _ => multi_edit_parts(tool, result),
     };
-    Some(Observation::Edit(Edit {
+    Ok(Observation::Edit(Edit {
         id: EventId::derive("edit", session, &tool.id),
         turn: tool.turn.clone(),
         session: session.clone(),
@@ -771,7 +717,7 @@ fn block_text(block: &Value) -> Option<String> {
         Value::Array(items) => {
             let texts: Vec<&str> = items
                 .iter()
-                .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                .filter(|b| is_block(b, "text"))
                 .filter_map(|b| b.get("text").and_then(Value::as_str))
                 .collect();
             (!texts.is_empty()).then(|| texts.join("\n"))
@@ -782,19 +728,38 @@ fn block_text(block: &Value) -> Option<String> {
 
 fn stream_tail(text: Option<&str>) -> Material<String> {
     text.map_or_else(
-        || Material::Unavailable {
-            reason: NOT_CAPTURED.to_owned(),
-        },
+        || Material::unavailable(NOT_CAPTURED),
         |t| Material::Retained(tail_chars(t, OUTPUT_TAIL_CHARS)),
     )
 }
 
-fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolution) -> Observation {
-    let result = resolution.structured;
+/// The shell command a tool use ran, as known before any result: its
+/// streams unavailable, no error, no outcome, and no end time.
+fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
     let cmd = string_field(Some(&tool.input), "command")
         .unwrap_or_default()
         .to_owned();
-    let category = classify_command(&cmd);
+    Command {
+        id: EventId::derive("command", session, &tool.id),
+        turn: tool.turn.clone(),
+        session: session.clone(),
+        category: classify_command(&cmd),
+        cmd,
+        exit: None,
+        stdout_tail: Material::unavailable(NO_RESULT),
+        stderr_tail: Material::unavailable(NO_RESULT),
+        reported_error: false,
+        outcome: None,
+        started: tool.time.clone(),
+        ended: None,
+        checkout: tool.cwd.clone(),
+        source_ordinal: tool.ordinal,
+    }
+}
+
+fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolution) -> Observation {
+    let base = command_base(tool, session);
+    let result = resolution.structured;
     // Without structured streams, the tool result's own content is the
     // command's output as the harness showed it to the agent.
     let stdout = string_field(result, "stdout")
@@ -807,7 +772,7 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
         .unwrap_or(false);
     // A reported error is failure evidence and outranks any success line in
     // the output, for example a passing binary before a compilation error.
-    let outcome_value = if category != CommandCategory::TestRun || interrupted {
+    let outcome = if base.category != CommandCategory::TestRun || interrupted {
         None
     } else if resolution.is_error {
         Some(Outcome::Failed)
@@ -818,63 +783,32 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
         )
     };
     Observation::Command(Command {
-        id: EventId::derive("command", session, &tool.id),
-        turn: tool.turn.clone(),
-        session: session.clone(),
-        cmd,
-        exit: None,
         stdout_tail: stream_tail(stdout.as_deref()),
         stderr_tail: stream_tail(stderr),
-        category,
         reported_error: resolution.is_error,
-        outcome: outcome_value,
-        started: tool.time.clone(),
+        outcome,
         ended: Some(resolution.ended.clone()),
-        checkout: tool.cwd.clone(),
-        source_ordinal: tool.ordinal,
+        ..base
     })
 }
 
+/// What a resolved tool use contributes: an edit, a command, or a count.
+/// Other tools contribute nothing.
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
     resolution: &Resolution,
-    tally: &mut Tally,
-) -> Option<Observation> {
+) -> Option<Result<Observation, Count>> {
     match tool.name.as_str() {
-        "Edit" | "Write" | "MultiEdit" => build_edit(tool, session, resolution, tally),
-        "Bash" => Some(build_command(tool, session, resolution)),
+        "Edit" | "Write" | "MultiEdit" => Some(build_edit(tool, session, resolution)),
+        "Bash" => Some(Ok(build_command(tool, session, resolution))),
         _ => None,
     }
 }
 
+/// A shell command the agent moved past without a result.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
-    if tool.name != "Bash" {
-        return None;
-    }
-    let cmd = string_field(Some(&tool.input), "command")
-        .unwrap_or_default()
-        .to_owned();
-    let category = classify_command(&cmd);
-    let reason = "no result recorded".to_owned();
-    Some(Observation::Command(Command {
-        id: EventId::derive("command", session, &tool.id),
-        turn: tool.turn.clone(),
-        session: session.clone(),
-        cmd,
-        exit: None,
-        stdout_tail: Material::Unavailable {
-            reason: reason.clone(),
-        },
-        stderr_tail: Material::Unavailable { reason },
-        category,
-        reported_error: false,
-        outcome: None,
-        started: tool.time.clone(),
-        ended: None,
-        checkout: tool.cwd.clone(),
-        source_ordinal: tool.ordinal,
-    }))
+    (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
 }
 
 const TESTS: &[&str] = &[
@@ -925,9 +859,8 @@ pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
         .lines()
         .filter(|l| l.contains("tests run:") || l.contains("test run:"))
         .collect();
-    let failed = text.contains("test result: FAILED")
-        || nextest_summaries.iter().any(|l| summary_has_failures(l))
-        || text.contains("FAILED");
+    let failed =
+        nextest_summaries.iter().any(|l| summary_has_failures(l)) || text.contains("FAILED");
     if failed {
         return Some(Outcome::Failed);
     }

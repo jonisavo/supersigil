@@ -16,6 +16,8 @@ pub mod observations;
 pub mod store;
 
 pub use derivations::DerivationSet;
-pub use ids::{ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
+pub use ids::{
+    ContentHasher, ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId,
+};
 pub use observations::Observation;
 pub use store::{RecordSnapshot, Store, StoreError, WriteTx};

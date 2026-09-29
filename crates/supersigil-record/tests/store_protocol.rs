@@ -356,7 +356,7 @@ fn odd_session_ids_get_safe_storage_keys() {
 }
 
 #[test]
-fn reserved_and_pinned_names_are_rejected() {
+fn names_outside_the_log_namespace_are_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
     let mut tx = store.begin().unwrap();

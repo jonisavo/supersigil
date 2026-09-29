@@ -14,7 +14,7 @@ use crate::commands::{
     SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
 };
 use crate::error::CliError;
-use crate::format::{ColorConfig, OutputFormat, escape_control, hint, write_json};
+use crate::format::{ColorConfig, OutputFormat, Untrusted, hint, write_json};
 use crate::record_dir;
 
 /// One row of `session list`.
@@ -132,81 +132,99 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
         writeln!(
             out,
             "  {}: {} new, {}",
-            escape_control(&t.path.display().to_string()),
+            Untrusted(&t.path.to_string_lossy()),
             t.new_observations,
-            escape_control(session)
+            Untrusted(session)
         )?;
         if t.trailing_partial {
             writeln!(out, "    incomplete final line left for the next sync")?;
         }
-        if !t.unknown_records.is_empty() {
-            let list: Vec<String> = t
+        let counts = &t.counts;
+        if !counts.unknown_records.is_empty() {
+            let list: Vec<String> = counts
                 .unknown_records
                 .iter()
-                .map(|(k, v)| format!("{} ({v})", escape_control(k)))
+                .map(|(k, v)| format!("{} ({v})", Untrusted(k)))
                 .collect();
             writeln!(out, "    unknown record types: {}", list.join(", "))?;
         }
-        if t.malformed_lines > 0 {
-            writeln!(out, "    malformed lines skipped: {}", t.malformed_lines)?;
+        if counts.malformed_lines > 0 {
+            writeln!(
+                out,
+                "    malformed lines skipped: {}",
+                counts.malformed_lines
+            )?;
         }
-        if t.abandoned_tool_uses > 0 {
+        if counts.abandoned_tool_uses > 0 {
             writeln!(
                 out,
                 "    tool uses without a result: {}",
-                t.abandoned_tool_uses
+                counts.abandoned_tool_uses
             )?;
         }
-        if t.failed_tool_uses > 0 {
+        if counts.failed_tool_uses > 0 {
             writeln!(
                 out,
                 "    failed editing tool uses, not recorded as edits: {}",
-                t.failed_tool_uses
+                counts.failed_tool_uses
             )?;
         }
-        if t.outside_checkout > 0 {
+        if counts.outside_checkout > 0 {
             writeln!(
                 out,
                 "    edits outside the checkout dropped: {}",
-                t.outside_checkout
+                counts.outside_checkout
             )?;
         }
     }
     Ok(())
 }
 
-fn summarize(store: &Store) -> Result<(u64, Vec<SessionSummary>), CliError> {
+/// One summary row per session in the record's current revision.
+fn summarize(store: &Store) -> Result<Vec<SessionSummary>, CliError> {
     let snapshot = store.snapshot()?;
     let mut rows = Vec::new();
     for session in snapshot.sessions() {
         let observations = snapshot.observations(&session)?;
         let derivations = snapshot.derivations(&session)?;
-        let start = observations.iter().find_map(|o| match o {
-            Observation::SessionStart(s) => Some(s),
-            _ => None,
-        });
-        rows.push(SessionSummary {
-            started: start.map(|s| s.time.as_str().to_owned()),
-            branch: start.and_then(|s| s.branch.clone()),
-            checkout: start.map(|s| s.checkout.clone()),
-            turns: observations
-                .iter()
-                .filter(|o| matches!(o, Observation::Turn(_)))
-                .count(),
-            edits: observations
-                .iter()
-                .filter(|o| matches!(o, Observation::Edit(_)))
-                .count(),
-            commands: observations
-                .iter()
-                .filter(|o| matches!(o, Observation::Command(_)))
-                .count(),
+        let mut row = SessionSummary {
+            session,
+            started: None,
+            branch: None,
+            checkout: None,
+            turns: 0,
+            edits: 0,
+            commands: 0,
             restores: derivations.as_ref().map_or(0, |d| d.restores.len()),
             discontinuities: derivations.as_ref().map_or(0, |d| d.discontinuities.len()),
-            session,
-        });
+        };
+        let mut started = false;
+        for observation in observations {
+            match observation {
+                // The first session start describes the session.
+                Observation::SessionStart(start) if !started => {
+                    started = true;
+                    row.started = Some(start.time.as_str().to_owned());
+                    row.branch = start.branch;
+                    row.checkout = Some(start.checkout);
+                }
+                Observation::Turn(_) => row.turns += 1,
+                Observation::Edit(_) => row.edits += 1,
+                Observation::Command(_) => row.commands += 1,
+                _ => {}
+            }
+        }
+        rows.push(row);
     }
-    Ok((snapshot.revision().get(), rows))
+    Ok(rows)
+}
+
+/// What to say when `checkout` has no record yet.
+fn no_record_message(checkout: &Path) -> String {
+    format!(
+        "no record for {}; run `supersigil session sync` first",
+        checkout.display()
+    )
 }
 
 fn run_list(
@@ -216,10 +234,7 @@ fn run_list(
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let Some(store) = record_dir::find_record(records_dir, checkout)? else {
-        let message = format!(
-            "no record for {}; run `supersigil session sync` first",
-            checkout.display()
-        );
+        let message = no_record_message(checkout);
         match args.format {
             OutputFormat::Json => {
                 hint(color, &message);
@@ -229,7 +244,7 @@ fn run_list(
         }
         return Ok(());
     };
-    let (_, rows) = summarize(&store)?;
+    let rows = summarize(&store)?;
     match args.format {
         OutputFormat::Json => write_json(&rows)?,
         OutputFormat::Terminal => {
@@ -239,9 +254,9 @@ fn run_list(
                 writeln!(
                     out,
                     "{}  {}  {}  {} turns, {} edits, {} commands, {} restores, {} discontinuities",
-                    escape_control(row.session.as_str()),
-                    escape_control(row.started.as_deref().unwrap_or("-")),
-                    escape_control(row.branch.as_deref().unwrap_or("-")),
+                    Untrusted(row.session.as_str()),
+                    Untrusted(row.started.as_deref().unwrap_or("-")),
+                    Untrusted(row.branch.as_deref().unwrap_or("-")),
                     row.turns,
                     row.edits,
                     row.commands,
@@ -256,10 +271,7 @@ fn run_list(
 
 fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Result<(), CliError> {
     let Some(store) = record_dir::find_record(records_dir, checkout)? else {
-        return Err(CliError::CommandFailed(format!(
-            "no record for {}; run `supersigil session sync` first",
-            checkout.display()
-        )));
+        return Err(CliError::CommandFailed(no_record_message(checkout)));
     };
     let snapshot = store.snapshot()?;
     let matches: Vec<SessionId> = snapshot
@@ -276,7 +288,10 @@ fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Resu
             )));
         }
         many => {
-            let ids: Vec<String> = many.iter().map(|id| escape_control(id.as_str())).collect();
+            let ids: Vec<String> = many
+                .iter()
+                .map(|id| Untrusted(id.as_str()).to_string())
+                .collect();
             return Err(CliError::CommandFailed(format!(
                 "'{}' matches several sessions: {}",
                 args.session,
