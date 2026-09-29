@@ -331,10 +331,8 @@ fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Resu
             )));
         }
         many => {
-            let ids: Vec<String> = many
-                .iter()
-                .map(|id| Untrusted(id.as_str()).to_string())
-                .collect();
+            // Escaped with the whole message when it is printed.
+            let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
             return Err(CliError::CommandFailed(format!(
                 "'{}' matches several sessions: {}",
                 args.session,

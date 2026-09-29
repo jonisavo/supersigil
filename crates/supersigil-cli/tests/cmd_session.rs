@@ -677,3 +677,36 @@ fn sync_reports_other_sessions_unnamed_and_unsupported_tool_uses() {
             "unsupported editing tool uses, not recorded as edits: 1",
         ));
 }
+
+#[test]
+fn error_messages_escape_control_bytes_in_arguments() {
+    let e = env();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_in(&e))
+        .assert()
+        .success();
+    let output = session_cmd(&e).args(["show", "a\u{1b}b"]).output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("no session matching"), "{stderr}");
+    assert!(stderr.contains(r"a\x1bb"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_errors_escape_transcript_paths() {
+    let e = env();
+    let missing = e.checkout.join("gone\u{1b}[2K.jsonl");
+    let output = session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read transcript"), "{stderr}");
+    assert!(stderr.contains(r"gone\x1b[2K.jsonl"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'), "{stderr}");
+}

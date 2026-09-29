@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use supersigil_cli::error::CliError;
+use supersigil_cli::format::escape_control;
 use supersigil_cli::{Cli, ColorConfig, Command};
 
 fn main() -> ExitCode {
@@ -16,7 +17,9 @@ fn main() -> ExitCode {
             if is_broken_pipe(&e) {
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {e}");
+            // Errors carry paths, session ids, and arguments from outside
+            // the tool; every one is escaped here, once, at the terminal.
+            eprintln!("error: {}", escape_control(&e.to_string()));
             ExitCode::from(1)
         }
     }

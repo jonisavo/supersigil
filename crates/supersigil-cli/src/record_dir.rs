@@ -7,7 +7,6 @@ use supersigil_record::RecordId;
 use supersigil_record::store::{Association, Store, StoreError};
 
 use crate::error::CliError;
-use crate::format::escape_control;
 
 /// Resolves the records directory: the flag, then `SUPERSIGIL_RECORD_DIR`,
 /// then `$XDG_DATA_HOME/supersigil/records`, then
@@ -92,13 +91,13 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
         _ => {
             let roots: Vec<String> = matches
                 .iter()
-                .map(|s| escape_control(&s.root().to_string_lossy()))
+                .map(|s| s.root().to_string_lossy().into_owned())
                 .collect();
-            // Paths come from the file system and are escaped like every
-            // other outside value before they reach a terminal.
+            // The paths come from the file system; the binary escapes every
+            // error message before it reaches a terminal.
             Err(CliError::CommandFailed(format!(
                 "{} is associated with several records: {}. Remove or merge all but one.",
-                escape_control(&checkout.to_string_lossy()),
+                checkout.to_string_lossy(),
                 roots.join(", ")
             )))
         }
