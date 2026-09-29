@@ -24,6 +24,8 @@ pub enum Observation {
     Edit(Edit),
     /// A shell command the agent ran.
     Command(Command),
+    /// Where the capture of a transcript range may be missing evidence.
+    CaptureLimitation(CaptureLimitation),
 }
 
 impl Observation {
@@ -36,6 +38,7 @@ impl Observation {
             Self::Turn(t) => &t.session,
             Self::Edit(e) => &e.session,
             Self::Command(c) => &c.session,
+            Self::CaptureLimitation(l) => &l.session,
         }
     }
 }
@@ -330,4 +333,34 @@ pub struct Command {
     pub checkout: PathBuf,
     /// Position of the issuing record in the transcript.
     pub source_ordinal: u64,
+}
+
+/// A limitation of the capture over the transcript ordinal range
+/// `[from_ordinal, to_ordinal)`: records the parser could not use and tool
+/// uses it could not turn into evidence. Recorded so that later readers can
+/// show where evidence may be missing, rather than presenting the session as
+/// completely observed.
+///
+/// There is no timestamp; the ordinal range orders it against other
+/// observations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureLimitation {
+    /// Session identifier.
+    pub session: SessionId,
+    /// Transcript file name, as in [`SessionStart::source_ids`].
+    pub transcript: String,
+    /// First ordinal of the range.
+    pub from_ordinal: u64,
+    /// Ordinal just past the range.
+    pub to_ordinal: u64,
+    /// Records of unknown type, by type, that produced no observation.
+    pub unknown_records: BTreeMap<String, u64>,
+    /// Lines that were not valid JSON.
+    pub malformed_lines: u64,
+    /// Tool uses the agent moved past without a recorded result.
+    pub abandoned_tool_uses: u64,
+    /// Editing tool uses the harness reported as failed; no edit was recorded.
+    pub failed_tool_uses: u64,
+    /// Edits outside the checkout that were dropped.
+    pub outside_checkout: u64,
 }

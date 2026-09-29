@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{MANIFEST_FILE, StoreError, io_error};
-use crate::ids::{RecordId, Revision, SessionId};
+use crate::ids::{ContentId, RecordId, Revision, SessionId};
 
 /// Schema version written into new manifests.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -30,6 +30,13 @@ pub struct SourceCursor {
     pub next_ordinal: u64,
     /// Session the transcript belongs to, once known.
     pub session: Option<SessionId>,
+    /// Content id of the consumed prefix, the transcript's bytes up to
+    /// `offset`. Sync compares it with the file before resuming, so a
+    /// transcript rewritten in place, even to the same length, is read again
+    /// from the start instead of being resumed inside unrelated bytes.
+    /// Absent in cursors written before it existed.
+    #[serde(default)]
+    pub prefix_hash: Option<ContentId>,
 }
 
 /// One revision of a record.

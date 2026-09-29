@@ -204,6 +204,7 @@ fn dropped_transaction_leaves_manifest_unchanged_and_releases_lock() {
                 offset: 4,
                 next_ordinal: 1,
                 session: Some(session()),
+                prefix_hash: None,
             },
         );
     };
@@ -227,6 +228,7 @@ fn cursors_and_associations_are_part_of_the_revision() {
             offset: 120,
             next_ordinal: 7,
             session: Some(session()),
+            prefix_hash: None,
         },
     );
     tx.add_association(Association {

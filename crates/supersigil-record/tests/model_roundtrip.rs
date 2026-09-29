@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use supersigil_record::observations::{
-    Command, CommandCategory, Content, Edit, EndReason, FileState, Hunk, Material, Observation,
-    Outcome, Role, SessionEnd, SessionStart, Source, Turn,
+    CaptureLimitation, Command, CommandCategory, Content, Edit, EndReason, FileState, Hunk,
+    Material, Observation, Outcome, Role, SessionEnd, SessionStart, Source, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -74,6 +74,17 @@ fn sample() -> Vec<Observation> {
             ended: Some(Timestamp::new("2026-09-28T10:01:02.000Z")),
             checkout: checkout.clone(),
             source_ordinal: 14,
+        }),
+        Observation::CaptureLimitation(CaptureLimitation {
+            session: session.clone(),
+            transcript: "slice.jsonl".to_owned(),
+            from_ordinal: 0,
+            to_ordinal: 19,
+            unknown_records: BTreeMap::from([("ai-title".to_owned(), 1)]),
+            malformed_lines: 0,
+            abandoned_tool_uses: 0,
+            failed_tool_uses: 0,
+            outside_checkout: 0,
         }),
         Observation::SessionEnd(SessionEnd {
             session,

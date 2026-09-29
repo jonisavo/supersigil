@@ -4,11 +4,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use supersigil_record::derive::derive;
-use supersigil_record::observations::{Observation, SessionStart, Source};
+use supersigil_record::observations::{CaptureLimitation, Observation, SessionStart, Source};
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
-use supersigil_record::{Revision, SessionId};
+use supersigil_record::{ContentId, Revision, SessionId};
 
-use crate::claude_code::parse_transcript_with_session;
+use crate::claude_code::{ParseOutcome, parse_transcript_with_session};
 
 /// Errors from sync.
 #[derive(Debug, thiserror::Error)]
@@ -36,7 +36,8 @@ pub struct TranscriptReport {
     pub session: Option<SessionId>,
     /// Observations appended from this transcript.
     pub new_observations: usize,
-    /// Byte offset the cursor now points at.
+    /// Bytes consumed by this call, counted from the cursor's previous
+    /// offset (or from the start when the transcript was read again).
     pub consumed: u64,
     /// Whether the file ended in an incomplete line.
     pub trailing_partial: bool,
@@ -132,6 +133,10 @@ pub fn sync(
 
 /// Reads one transcript from its cursor, appends the new observations to
 /// `tx`, records them in `appended` by session, and advances the cursor.
+///
+/// Anything the parse could not turn into evidence is appended as one
+/// [`CaptureLimitation`] after the parsed observations, in the same
+/// transaction as the cursor advance, so the limitation outlives this call.
 fn sync_transcript(
     tx: &mut WriteTx<'_>,
     checkout: &Path,
@@ -143,23 +148,8 @@ fn sync_transcript(
         path: path.to_path_buf(),
         source,
     })?;
-    let mut cursor = tx
-        .manifest()
-        .cursors
-        .get(&key)
-        .cloned()
-        .unwrap_or(SourceCursor {
-            offset: 0,
-            next_ordinal: 0,
-            session: None,
-        });
-    if (bytes.len() as u64) < cursor.offset {
-        cursor = SourceCursor {
-            offset: 0,
-            next_ordinal: 0,
-            session: None,
-        };
-    }
+    let mut cursor = resume_cursor(tx.manifest().cursors.get(&key), &bytes);
+    let from_ordinal = cursor.next_ordinal;
     // A transcript larger than the address space is not a case this tool handles.
     let start = usize::try_from(cursor.offset)
         .unwrap_or(usize::MAX)
@@ -171,6 +161,10 @@ fn sync_transcript(
         cursor.next_ordinal,
         cursor.session.as_ref(),
     );
+    let transcript = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
     let mut new = Vec::new();
     if cursor.session.is_none()
@@ -179,12 +173,7 @@ fn sync_transcript(
         new.push(Observation::SessionStart(SessionStart {
             session: session.clone(),
             source: Source::ClaudeCode,
-            source_ids: BTreeMap::from([(
-                "transcript".to_owned(),
-                path.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            )]),
+            source_ids: BTreeMap::from([("transcript".to_owned(), transcript.clone())]),
             checkout: outcome
                 .checkout
                 .clone()
@@ -197,7 +186,12 @@ fn sync_transcript(
         }));
         cursor.session = Some(session.clone());
     }
+    let limitation = cursor
+        .session
+        .as_ref()
+        .and_then(|session| capture_limitation(session, transcript, from_ordinal, &outcome));
     new.extend(outcome.observations);
+    new.extend(limitation);
     let count = new.len();
     if count > 0 {
         tx.append_observations(&new)?;
@@ -210,6 +204,10 @@ fn sync_transcript(
     }
     cursor.offset += outcome.consumed;
     cursor.next_ordinal = outcome.next_ordinal;
+    let end = usize::try_from(cursor.offset)
+        .unwrap_or(usize::MAX)
+        .min(bytes.len());
+    cursor.prefix_hash = Some(ContentId::of(&bytes[..end]));
     tx.set_cursor(&key, cursor.clone());
     Ok(TranscriptReport {
         path: path.to_path_buf(),
@@ -222,5 +220,58 @@ fn sync_transcript(
         abandoned_tool_uses: outcome.abandoned_tool_uses,
         failed_tool_uses: outcome.failed_tool_uses,
         outside_checkout: outcome.outside_checkout,
+    })
+}
+
+/// The cursor to resume `bytes` from. A transcript shorter than the cursor,
+/// or whose consumed prefix no longer hashes to the recorded one, was
+/// rewritten and is read again from the start.
+fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> SourceCursor {
+    let fresh = SourceCursor {
+        offset: 0,
+        next_ordinal: 0,
+        session: None,
+        prefix_hash: None,
+    };
+    let Some(cursor) = stored else {
+        return fresh;
+    };
+    let Some(prefix) = usize::try_from(cursor.offset)
+        .ok()
+        .and_then(|offset| bytes.get(..offset))
+    else {
+        return fresh;
+    };
+    match &cursor.prefix_hash {
+        Some(hash) if *hash != ContentId::of(prefix) => fresh,
+        _ => cursor.clone(),
+    }
+}
+
+/// A capture limitation for the ordinals `[from_ordinal, next_ordinal)` of
+/// `outcome`, or `None` when the parse lost nothing.
+fn capture_limitation(
+    session: &SessionId,
+    transcript: String,
+    from_ordinal: u64,
+    outcome: &ParseOutcome,
+) -> Option<Observation> {
+    let lost = !outcome.unknown_records.is_empty()
+        || outcome.malformed_lines > 0
+        || outcome.abandoned_tool_uses > 0
+        || outcome.failed_tool_uses > 0
+        || outcome.outside_checkout > 0;
+    lost.then(|| {
+        Observation::CaptureLimitation(CaptureLimitation {
+            session: session.clone(),
+            transcript,
+            from_ordinal,
+            to_ordinal: outcome.next_ordinal,
+            unknown_records: outcome.unknown_records.clone(),
+            malformed_lines: outcome.malformed_lines,
+            abandoned_tool_uses: outcome.abandoned_tool_uses,
+            failed_tool_uses: outcome.failed_tool_uses,
+            outside_checkout: outcome.outside_checkout,
+        })
     })
 }

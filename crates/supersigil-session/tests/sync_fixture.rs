@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use supersigil_record::observations::{Observation, Role, Source};
+use supersigil_record::observations::{CaptureLimitation, Observation, Role, Source};
 use supersigil_record::store::{Association, Store};
-use supersigil_record::{EventId, SessionId};
+use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::sync::sync;
 
 const SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -64,6 +64,29 @@ fn turn_ids(store: &Store) -> Vec<String> {
         .collect()
 }
 
+fn derivations(store: &Store) -> DerivationSet {
+    store
+        .snapshot()
+        .unwrap()
+        .derivations(&SessionId::new(SESSION))
+        .unwrap()
+        .unwrap()
+}
+
+fn limitations(store: &Store) -> Vec<CaptureLimitation> {
+    store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap()
+        .into_iter()
+        .filter_map(|o| match o {
+            Observation::CaptureLimitation(l) => Some(l),
+            _ => None,
+        })
+        .collect()
+}
+
 fn command_count(store: &Store) -> usize {
     store
         .snapshot()
@@ -81,7 +104,7 @@ fn sync_writes_session_start_observations_and_derivations() {
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.revision.get(), 1);
     assert_eq!(report.sessions, vec![SessionId::new(SESSION)]);
-    assert_eq!(report.new_observations, 25);
+    assert_eq!(report.new_observations, 26);
     assert_eq!(report.transcripts.len(), 1);
     assert!(!report.transcripts[0].trailing_partial);
     assert_eq!(
@@ -92,7 +115,7 @@ fn sync_writes_session_start_observations_and_derivations() {
 
     let snapshot = s.store.snapshot().unwrap();
     let observations = snapshot.observations(&SessionId::new(SESSION)).unwrap();
-    assert_eq!(observations.len(), 25);
+    assert_eq!(observations.len(), 26);
     let Observation::SessionStart(start) = &observations[0] else {
         panic!("first observation must be the session start");
     };
@@ -210,6 +233,7 @@ fn rewritten_shorter_transcript_is_read_from_the_start() {
     let starts = line_starts(&bytes);
     let s = setup(&bytes);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let before = derivations(&s.store);
     std::fs::write(&s.transcript, &bytes[..starts[3]]).unwrap();
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     // The three records are appended again under the same ids; the log is
@@ -219,6 +243,13 @@ fn rewritten_shorter_transcript_is_read_from_the_start() {
         s.store.manifest().unwrap().cursors[&s.transcript.display().to_string()].offset,
         starts[3] as u64
     );
+    let after = derivations(&s.store);
+    assert_eq!(after.observation_revision.get(), 2);
+    assert_eq!(after.restores, before.restores);
+    assert_eq!(after.discontinuities, before.discontinuities);
+    assert_eq!(after.restores.len(), 1);
+    assert_eq!(after.discontinuities.len(), 1);
+    assert!(after.discontinuities.iter().all(|d| d.prev != d.next));
 }
 
 #[test]
@@ -267,4 +298,78 @@ fn appended_records_without_a_session_id_join_the_known_session() {
     assert_eq!(report.new_observations, 1);
     assert!(report.transcripts[0].unknown_records.is_empty());
     assert_eq!(turn_ids(&s.store).last().map(String::as_str), Some("a8"));
+}
+
+#[test]
+fn capture_limitations_are_recorded_with_the_cursor_advance() {
+    let s = setup(&fixture());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let recorded = limitations(&s.store);
+    assert_eq!(recorded.len(), 1);
+    let limitation = &recorded[0];
+    assert_eq!(limitation.session, SessionId::new(SESSION));
+    assert_eq!(limitation.transcript, "slice.jsonl");
+    assert_eq!(limitation.from_ordinal, 0);
+    assert_eq!(limitation.to_ordinal, 19);
+    assert_eq!(limitation.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(limitation.malformed_lines, 0);
+    // It is the last observation of the call, after the parsed ones.
+    let observations = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap();
+    assert!(matches!(
+        observations.last(),
+        Some(Observation::CaptureLimitation(_))
+    ));
+
+    let again = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(again.new_observations, 0);
+    assert_eq!(limitations(&s.store).len(), 1);
+}
+
+#[test]
+fn same_length_rewrite_is_read_from_the_start() {
+    let bytes = fixture();
+    let s = setup(&bytes);
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let key = s.transcript.display().to_string();
+    assert_eq!(
+        s.store.manifest().unwrap().cursors[&key].prefix_hash,
+        Some(ContentId::of(&bytes))
+    );
+
+    let rewritten = String::from_utf8(bytes.clone()).unwrap().replacen(
+        "Add a greeting function",
+        "Add a greeting FUNCTION",
+        1,
+    );
+    assert_eq!(rewritten.len(), bytes.len());
+    assert_ne!(rewritten.as_bytes(), bytes.as_slice());
+    std::fs::write(&s.transcript, &rewritten).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].consumed, bytes.len() as u64);
+    assert!(report.new_observations > 0);
+    let cursor = &s.store.manifest().unwrap().cursors[&key];
+    assert_eq!(cursor.offset, bytes.len() as u64);
+    assert_eq!(
+        cursor.prefix_hash,
+        Some(ContentId::of(rewritten.as_bytes()))
+    );
+    let human_texts: Vec<String> = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap()
+        .into_iter()
+        .filter_map(|o| match o {
+            Observation::Turn(t) if t.role == Role::Human => t.excerpt.retained().cloned(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(human_texts.len(), 2);
+    assert!(human_texts[1].contains("FUNCTION"));
 }

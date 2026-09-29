@@ -51,7 +51,7 @@ fn sync_with_explicit_transcript_creates_a_record() {
         .arg(fixture_path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("25 observations"))
+        .stdout(predicate::str::contains("26 observations"))
         .stdout(predicate::str::contains("revision 1"))
         .stdout(predicate::str::contains(
             "unknown record types: ai-title (1)",
@@ -93,7 +93,7 @@ fn sync_json_prints_the_report() {
         .unwrap();
     assert!(output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["new_observations"], 25);
+    assert_eq!(report["new_observations"], 26);
     assert_eq!(report["revision"], 1);
     assert_eq!(report["transcripts"][0]["trailing_partial"], false);
 }
@@ -177,7 +177,7 @@ fn show_accepts_a_unique_prefix_and_prints_everything() {
     let shown: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(shown["session"], "11111111-1111-4111-8111-111111111111");
     assert_eq!(shown["revision"], 1);
-    assert_eq!(shown["observations"].as_array().unwrap().len(), 25);
+    assert_eq!(shown["observations"].as_array().unwrap().len(), 26);
     assert_eq!(shown["observations"][0]["kind"], "session_start");
     assert_eq!(
         shown["derivations"]["restores"].as_array().unwrap().len(),

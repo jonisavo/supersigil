@@ -1,6 +1,6 @@
 //! Computes derivations from a session's observations.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::derivations::{ALGORITHM_VERSION, DerivationSet, Discontinuity, Restore};
@@ -11,16 +11,23 @@ use crate::observations::{Edit, Observation};
 ///
 /// Edits are grouped by checkout and path and ordered by `source_ordinal`.
 /// A claim is made only where both content ids involved are known.
+///
+/// Each event counts once: a transcript read again from the start appends
+/// its edits again under the same ids, and only the first record of an
+/// [`EventId`] in log order is used. Without this, a replayed edit would
+/// look like a gap between an edit and itself.
 #[must_use]
 pub fn derive(
     session: &SessionId,
     observations: &[Observation],
     observation_revision: Revision,
 ) -> DerivationSet {
+    let mut seen: BTreeSet<&EventId> = BTreeSet::new();
     let mut groups: BTreeMap<(PathBuf, PathBuf), Vec<&Edit>> = BTreeMap::new();
     for observation in observations {
         if let Observation::Edit(edit) = observation
             && edit.session == *session
+            && seen.insert(&edit.id)
         {
             groups
                 .entry((edit.checkout.clone(), edit.path.clone()))
@@ -236,5 +243,38 @@ mod tests {
         assert!(set.restores.is_empty());
         assert!(set.discontinuities.is_empty());
         assert_eq!(set.session, session());
+    }
+
+    #[test]
+    fn replayed_edits_are_counted_once() {
+        let obs = vec![
+            edit("t1", "notes.txt", 1, known("draft\n"), known("final\n")),
+            edit("t2", "notes.txt", 2, known("final\n"), known("draft\n")),
+            // A re-read transcript appends the first edit again.
+            edit("t1", "notes.txt", 1, known("draft\n"), known("final\n")),
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert_eq!(
+            set.restores,
+            vec![Restore {
+                edit: id("t2"),
+                restores: vec![id("t1")]
+            }]
+        );
+        assert!(set.discontinuities.is_empty());
+
+        // A replay whose payload differs is still the same event; the first
+        // record of it wins.
+        let mut replay = edit("t1", "notes.txt", 1, known("x\n"), known("y\n"));
+        if let Observation::Edit(e) = &mut replay {
+            e.source_ordinal = 3;
+        }
+        let obs = vec![
+            edit("t1", "notes.txt", 1, known("draft\n"), known("final\n")),
+            replay,
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert!(set.restores.is_empty());
+        assert!(set.discontinuities.is_empty());
     }
 }
