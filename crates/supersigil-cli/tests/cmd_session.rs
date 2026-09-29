@@ -7,6 +7,7 @@ use std::process::Command;
 
 use assert_cmd::assert::OutputAssertExt;
 use predicates::prelude::*;
+use supersigil_session::checkout::normalized;
 
 fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -47,7 +48,12 @@ fn session_cmd(env: &Env) -> Command {
 /// checkout (sync skips a transcript whose records name another checkout).
 /// The path is escaped for a JSON string: a Windows path has backslashes.
 fn in_checkout(e: &Env, text: &str) -> String {
-    let quoted = serde_json::to_string(&e.checkout.to_string_lossy()).unwrap();
+    in_dir(&e.checkout, text)
+}
+
+/// `text` with `/work/repo` replaced by `dir`, escaped for a JSON string.
+fn in_dir(dir: &Path, text: &str) -> String {
+    let quoted = serde_json::to_string(&dir.to_string_lossy()).unwrap();
     text.replace("/work/repo", &quoted[1..quoted.len() - 1])
 }
 
@@ -731,4 +737,120 @@ fn transcripts_moved_into_a_checkout_with_a_backslash_stay_valid_json() {
     assert_eq!(list[0]["started"], "2026-09-28T10:00:00.000Z");
     assert_eq!(list[0]["edits"], 5);
     assert_eq!(list[0]["checkout"], e.checkout.to_str().unwrap());
+}
+
+/// Record directories under the records dir, sorted.
+fn record_dirs(e: &Env) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&e.records)
+        .unwrap()
+        .flatten()
+        .filter(|d| d.file_name() != ".lock")
+        .map(|d| d.path())
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// The checkouts a record is associated with.
+fn associations(record: &Path) -> Vec<PathBuf> {
+    supersigil_record::store::Store::open(record)
+        .unwrap()
+        .manifest()
+        .unwrap()
+        .associations
+        .into_iter()
+        .map(|a| a.checkout)
+        .collect()
+}
+
+/// A worktree nested in the test checkout, created on disk, with the slice
+/// fixture moved into it.
+fn worktree_with_fixture(e: &Env) -> (PathBuf, PathBuf) {
+    let worktree = e.checkout.join(".claude/worktrees/x");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let text = in_dir(&worktree, &std::fs::read_to_string(fixture_path()).unwrap());
+    let transcript = e.checkout.join("worktree.jsonl");
+    std::fs::write(&transcript, text).unwrap();
+    (worktree, transcript)
+}
+
+#[test]
+fn a_nested_checkout_uses_the_record_of_its_parent() {
+    let e = env();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_in(&e))
+        .assert()
+        .success();
+    let (worktree, transcript) = worktree_with_fixture(&e);
+    session_cmd(&e)
+        .current_dir(&worktree)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success();
+
+    let records = record_dirs(&e);
+    assert_eq!(records.len(), 1);
+    // Compared without Windows verbatim prefixes, which spelling varies.
+    let spelled =
+        |paths: Vec<PathBuf>| -> Vec<PathBuf> { paths.iter().map(|p| normalized(p)).collect() };
+    assert_eq!(
+        spelled(associations(&records[0])),
+        spelled(vec![
+            e.checkout.canonicalize().unwrap(),
+            worktree.canonicalize().unwrap()
+        ])
+    );
+}
+
+#[test]
+fn a_worktree_with_its_own_record_keeps_it_when_its_parent_syncs_its_transcript() {
+    let e = env();
+    let (worktree, transcript) = worktree_with_fixture(&e);
+    // The worktree gets its own record first.
+    session_cmd(&e)
+        .current_dir(&worktree)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success();
+    // Then the parent syncs the worktree's transcript.
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("nested checkout: "));
+
+    let records = record_dirs(&e);
+    assert_eq!(records.len(), 2);
+    let canonical = |p: &Path| p.canonicalize().unwrap();
+    let parent = records
+        .iter()
+        .find(|r| associations(r) == vec![canonical(&e.checkout)])
+        .expect("the parent record claims only the parent");
+    let listed = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(
+        list[0]["edits"], 5,
+        "the nested observations are in {parent:?}"
+    );
+
+    // The worktree still resolves to exactly its own record.
+    let listed = session_cmd(&e)
+        .current_dir(&worktree)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let list: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
 }

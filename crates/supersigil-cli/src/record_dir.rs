@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use supersigil_record::RecordId;
 use supersigil_record::store::{Association, Store, StoreError};
+use supersigil_session::checkout::{Placement, normalized, placement};
 
 use crate::error::CliError;
 
@@ -47,18 +48,30 @@ pub fn canonical_checkout(flag: Option<&Path>) -> Result<PathBuf, CliError> {
     Ok(path.canonicalize()?)
 }
 
-/// Finds the record associated with `checkout`, if any. Two records
-/// claiming the same checkout is an error that names both; picking one
-/// silently would hide evidence written to the other.
+/// Finds the record that owns `checkout`, if any.
+///
+/// A nested checkout belongs to its nearest ancestor's record: a record owns
+/// `checkout` when one of its associations is `checkout` itself or a
+/// directory containing it, and among such records the one whose association
+/// is closest wins, so an exact match beats any ancestor. Paths are compared
+/// by [`placement`], which normalizes their spelling. Two records at the same
+/// distance is an error that names both; picking one silently would hide
+/// evidence written to the other.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Io`] if the records directory exists but cannot be
 /// read, a store error if a record's manifest cannot be accessed or read
 /// (only entries without a manifest are skipped, so an unreadable record is
-/// never mistaken for an absent one), or [`CliError::CommandFailed`] on
-/// duplicate associations.
+/// never mistaken for an absent one), or [`CliError::CommandFailed`] when
+/// two records own `checkout` at the same distance.
 pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>, CliError> {
+    Ok(find_owner(records_dir, checkout)?.map(|(store, _)| store))
+}
+
+/// [`find_record`], with how far the owning association lies above
+/// `checkout`: zero for an exact match.
+fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usize)>, CliError> {
     let entries = match std::fs::read_dir(records_dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -69,48 +82,62 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
         candidates.push(entry?.path());
     }
     candidates.sort();
-    let mut matches = Vec::new();
+    let mut matches: Vec<(Store, usize)> = Vec::new();
     for candidate in candidates {
         let store = match Store::open(&candidate) {
             Ok(store) => store,
             Err(StoreError::NotARecord(_)) => continue,
             Err(e) => return Err(e.into()),
         };
-        if store
+        let distance = store
             .manifest()?
             .associations
             .iter()
-            .any(|a| a.checkout == checkout)
-        {
-            matches.push(store);
+            .filter_map(|a| rank(&a.checkout, checkout))
+            .min();
+        if let Some(distance) = distance {
+            matches.push((store, distance));
         }
     }
-    match matches.len() {
-        0 => Ok(None),
-        1 => Ok(matches.pop()),
-        _ => {
-            let roots: Vec<String> = matches
-                .iter()
-                .map(|s| s.root().to_string_lossy().into_owned())
-                .collect();
-            Err(CliError::CommandFailed(format!(
-                "{} is associated with several records: {}. Remove or merge all but one.",
-                checkout.to_string_lossy(),
-                roots.join(", ")
-            )))
-        }
+    let Some(nearest) = matches.iter().map(|(_, distance)| *distance).min() else {
+        return Ok(None);
+    };
+    matches.retain(|(_, distance)| *distance == nearest);
+    if matches.len() == 1 {
+        return Ok(matches.pop());
+    }
+    let roots: Vec<String> = matches
+        .iter()
+        .map(|(s, _)| s.root().to_string_lossy().into_owned())
+        .collect();
+    Err(CliError::CommandFailed(format!(
+        "{} is associated with several records: {}. Remove or merge all but one.",
+        checkout.to_string_lossy(),
+        roots.join(", ")
+    )))
+}
+
+/// How many components `association` lies above `checkout`: zero when it is
+/// the checkout, `None` when it does not contain it.
+fn rank(association: &Path, checkout: &Path) -> Option<usize> {
+    match placement(checkout, association) {
+        Placement::Same => Some(0),
+        Placement::Nested(levels) => Some(levels),
+        Placement::Outside => None,
     }
 }
 
 /// Finds the record for `checkout` or creates one at `<records_dir>/<id>`.
 /// Lookup and creation happen under an exclusive lock on
 /// `<records_dir>/.lock`, so two first syncs racing on one checkout cannot
-/// both create a record.
+/// both create a record. A record found through an ancestor of `checkout`
+/// gains `checkout` itself as an association, in its [`normalized`]
+/// spelling, before it is returned.
 ///
 /// # Errors
 ///
-/// Returns a store error if the record cannot be created or read, or an I/O
-/// error if the records directory or its lock cannot be created.
+/// Returns a store error if the record cannot be created, read, or written,
+/// or an I/O error if the records directory or its lock cannot be created.
 pub fn open_or_create_record(records_dir: &Path, checkout: &Path) -> Result<Store, CliError> {
     std::fs::create_dir_all(records_dir)?;
     let guard = OpenOptions::new()
@@ -119,19 +146,71 @@ pub fn open_or_create_record(records_dir: &Path, checkout: &Path) -> Result<Stor
         .truncate(false)
         .open(records_dir.join(".lock"))?;
     guard.lock()?;
-    let store = if let Some(store) = find_record(records_dir, checkout)? {
-        store
-    } else {
-        let id = RecordId::generate();
-        let root = records_dir.join(id.as_str());
-        Store::create_with_id(
-            &root,
-            id,
-            Association {
-                checkout: checkout.to_path_buf(),
-            },
-        )?
+    let store = match find_owner(records_dir, checkout)? {
+        Some((store, 0)) => store,
+        Some((store, _)) => {
+            let mut tx = store.begin()?;
+            tx.add_association(Association {
+                checkout: normalized(checkout),
+            });
+            tx.commit()?;
+            store
+        }
+        None => {
+            let id = RecordId::generate();
+            let root = records_dir.join(id.as_str());
+            Store::create_with_id(
+                &root,
+                id,
+                Association {
+                    checkout: checkout.to_path_buf(),
+                },
+            )?
+        }
     };
     drop(guard);
     Ok(store)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_nested_checkout_ranks_below_an_exact_match_by_its_distance() {
+        assert_eq!(
+            rank(Path::new("/work/repo"), Path::new("/work/repo")),
+            Some(0)
+        );
+        assert_eq!(
+            rank(
+                Path::new("/work/repo"),
+                Path::new("/work/repo/.claude/worktrees/x")
+            ),
+            Some(3)
+        );
+        assert_eq!(
+            rank(
+                Path::new("/work/repo/.claude/worktrees/x"),
+                Path::new("/work/repo")
+            ),
+            None
+        );
+        assert_eq!(
+            rank(Path::new("/work/repo2"), Path::new("/work/repo")),
+            None
+        );
+        // Windows spellings, compared on every platform.
+        assert_eq!(
+            rank(
+                Path::new(r"\\?\C:\repo"),
+                Path::new(r"C:\repo\.claude\worktrees\x")
+            ),
+            Some(3)
+        );
+        assert_eq!(
+            rank(Path::new(r"C:\repo"), Path::new(r"\\?\C:\repo")),
+            Some(0)
+        );
+    }
 }

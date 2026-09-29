@@ -865,8 +865,13 @@ fn a_transcript_from_a_worktree_nested_in_the_checkout_is_accepted() {
     let s = setup(nested.as_bytes());
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(
+        report.transcripts[0].nested_checkout.as_deref(),
+        Some(Path::new(worktree))
+    );
     assert_eq!(report.sessions, vec![SessionId::new(SESSION)]);
 
+    // Which record owns the worktree is record lookup's business, not sync's.
     let snapshot = s.store.snapshot().unwrap();
     let associations: Vec<&Path> = snapshot
         .manifest()
@@ -874,10 +879,7 @@ fn a_transcript_from_a_worktree_nested_in_the_checkout_is_accepted() {
         .iter()
         .map(|a| a.checkout.as_path())
         .collect();
-    assert_eq!(
-        associations,
-        vec![Path::new("/work/repo"), Path::new(worktree)]
-    );
+    assert_eq!(associations, vec![Path::new("/work/repo")]);
     let observations = snapshot.observations(&SessionId::new(SESSION)).unwrap();
     let edits: Vec<_> = observations
         .iter()

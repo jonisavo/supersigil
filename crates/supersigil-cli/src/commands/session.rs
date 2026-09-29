@@ -139,6 +139,13 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
         if let Some(reason) = &t.skipped {
             writeln!(out, "    skipped: {}", Untrusted(reason))?;
         }
+        if let Some(nested) = &t.nested_checkout {
+            writeln!(
+                out,
+                "    nested checkout: {}",
+                Untrusted(&nested.to_string_lossy())
+            )?;
+        }
         if t.trailing_partial {
             writeln!(out, "    incomplete final line left for the next sync")?;
         }

@@ -10,6 +10,7 @@ use supersigil_record::observations::{
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
 use supersigil_record::{ContentHasher, Revision, SessionId, Timestamp};
 
+use crate::checkout::{Placement, placement};
 use crate::claude_code::{ParseOutcome, parse_transcript_with_session};
 
 /// Errors from sync.
@@ -53,6 +54,11 @@ pub struct TranscriptReport {
     /// transcript appends nothing and its cursor does not move.
     #[serde(default)]
     pub skipped: Option<String>,
+    /// The transcript's checkout when it lies strictly inside the one being
+    /// synced, such as a subagent's worktree. Its observations keep that
+    /// checkout; the record gains no association for it.
+    #[serde(default)]
+    pub nested_checkout: Option<PathBuf>,
 }
 
 /// Result of one sync call.
@@ -80,8 +86,10 @@ pub struct SyncReport {
 /// this record; so is one whose evidence arrives before any record names a
 /// checkout. The checkout first learned is kept on the cursor and checked on
 /// every later read. One inside `checkout`, such as a subagent's worktree,
-/// is taken in, its directory is added as an association of the record, and
-/// its observations keep their own checkout.
+/// is taken in and reported as nested, and its observations keep their own
+/// checkout. Which record owns a nested checkout is left to record lookup;
+/// sync adds only `checkout` itself as an association. Placement is decided
+/// by [`placement`](crate::checkout::placement).
 ///
 /// A transcript whose cursor first learns its session records a
 /// [`SessionStart`] from its own metadata, marked as a sidechain when a
@@ -107,9 +115,17 @@ pub fn sync(
     // snapshot plus the observations this transaction appends, so another
     // writer's commit cannot slip in between reading and deriving.
     let pinned = tx.snapshot();
-    tx.add_association(Association {
-        checkout: checkout.to_path_buf(),
-    });
+    // Record lookup may already have added `checkout` in another spelling.
+    let associated = tx
+        .manifest()
+        .associations
+        .iter()
+        .any(|a| placement(checkout, &a.checkout) == Placement::Same);
+    if !associated {
+        tx.add_association(Association {
+            checkout: checkout.to_path_buf(),
+        });
+    }
 
     let mut reports = Vec::new();
     let mut appended: BTreeMap<SessionId, Vec<Observation>> = BTreeMap::new();
@@ -190,22 +206,25 @@ fn sync_transcript(
     // The checkout as first learned decides every later read too: a resumed
     // chunk's records need not repeat it.
     let recorded = cursor.checkout.clone().or_else(|| outcome.checkout.clone());
-    if let Some(reason) = admit(
-        tx,
+    let nested_checkout = match admit(
         checkout,
         recorded.as_deref(),
         !outcome.observations.is_empty(),
     ) {
-        return Ok(TranscriptReport {
-            path: path.to_path_buf(),
-            session: cursor.session,
-            new_observations: 0,
-            consumed: 0,
-            trailing_partial: false,
-            counts: CaptureCounts::default(),
-            skipped: Some(reason),
-        });
-    }
+        Ok(nested) => nested,
+        Err(reason) => {
+            return Ok(TranscriptReport {
+                path: path.to_path_buf(),
+                session: cursor.session,
+                new_observations: 0,
+                consumed: 0,
+                trailing_partial: false,
+                counts: CaptureCounts::default(),
+                skipped: Some(reason),
+                nested_checkout: None,
+            });
+        }
+    };
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -262,123 +281,36 @@ fn sync_transcript(
         trailing_partial: outcome.trailing_partial,
         counts: outcome.counts,
         skipped: None,
+        nested_checkout,
     })
 }
 
 /// Decides whether a transcript whose records name the working directory
-/// `recorded` belongs in the record of `checkout`. A directory nested inside
-/// the checkout is added as an association. Returns why the transcript is
-/// skipped: its directory lies outside, or no record has named one yet while
-/// the parse produced `observations`, which cannot be admitted blind.
+/// `recorded` belongs in the record of `checkout`. Returns the directory when
+/// it is nested inside the checkout, or why the transcript is skipped: its
+/// directory lies outside, or no record has named one yet while the parse
+/// produced `observations`, which cannot be admitted blind.
 fn admit(
-    tx: &mut WriteTx<'_>,
     checkout: &Path,
     recorded: Option<&Path>,
     observations: bool,
-) -> Option<String> {
+) -> Result<Option<PathBuf>, String> {
     let Some(recorded) = recorded else {
-        return observations.then(|| "checkout unknown".to_owned());
+        return if observations {
+            Err("checkout unknown".to_owned())
+        } else {
+            Ok(None)
+        };
     };
     match placement(recorded, checkout) {
-        Placement::Same => None,
-        Placement::Nested => {
-            tx.add_association(Association {
-                checkout: recorded.to_path_buf(),
-            });
-            None
-        }
-        Placement::Outside => Some(format!(
+        Placement::Same => Ok(None),
+        Placement::Nested(_) => Ok(Some(recorded.to_path_buf())),
+        Placement::Outside => Err(format!(
             "checkout {} does not match {}",
             recorded.display(),
             checkout.display()
         )),
     }
-}
-
-/// Where a transcript's working directory lies relative to the checkout
-/// being synced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Placement {
-    /// The checkout itself.
-    Same,
-    /// Strictly inside it, such as a worktree under `.claude/worktrees`.
-    Nested,
-    /// Anywhere else.
-    Outside,
-}
-
-/// Where `recorded` lies relative to `checkout`. When both exist on disk
-/// their canonical paths decide; otherwise the paths as written are
-/// compared by [`comparable`] components. Inside means below it through
-/// normal components only, so `/work/repo/../other` is outside `/work/repo`.
-/// Only the comparison normalizes: the record keeps the transcript's own
-/// spelling of its checkout.
-fn placement(recorded: &Path, checkout: &Path) -> Placement {
-    match (
-        std::fs::canonicalize(recorded),
-        std::fs::canonicalize(checkout),
-    ) {
-        (Ok(recorded), Ok(checkout)) => placement_of(&recorded, &checkout),
-        _ => placement_of(recorded, checkout),
-    }
-}
-
-/// [`placement`] of two paths as written, by [`comparable`] components.
-fn placement_of(recorded: &Path, checkout: &Path) -> Placement {
-    let (recorded, checkout) = (comparable(recorded), comparable(checkout));
-    match recorded.strip_prefix(checkout.as_slice()) {
-        Some([]) => Placement::Same,
-        Some(rest) if rest.iter().all(|c| c != "..") => Placement::Nested,
-        _ => Placement::Outside,
-    }
-}
-
-/// The components of `path` for comparing checkouts, alike on every
-/// platform, so a transcript's `C:\work\repo` matches the `\\?\C:\work\repo`
-/// that canonicalization yields on Windows.
-///
-/// A verbatim prefix is dropped (`\\?\UNC\server\share` reads as
-/// `\\server\share`). In a Windows path (one starting with a drive letter or
-/// `\\`, or any path on Windows) `\` separates components as `/` does. `.`
-/// and empty components are dropped, and a drive letter is upper-cased. The
-/// first component records the root: `/`, `//` for a UNC path, or nothing.
-fn comparable(path: &Path) -> Vec<String> {
-    let text = path.to_string_lossy();
-    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{rest}")
-    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
-        rest.to_owned()
-    } else {
-        text.into_owned()
-    };
-    let windows = cfg!(windows) || text.starts_with(r"\\") || has_drive(&text);
-    let separators: &[char] = if windows { &['/', '\\'] } else { &['/'] };
-    let root = if windows && (text.starts_with(r"\\") || text.starts_with("//")) {
-        "//"
-    } else if text.starts_with(separators) {
-        "/"
-    } else {
-        ""
-    };
-    let mut components = vec![root.to_owned()];
-    for (i, component) in text
-        .split(separators)
-        .filter(|c| !c.is_empty() && *c != ".")
-        .enumerate()
-    {
-        if i == 0 && has_drive(component) {
-            components.push(component.to_ascii_uppercase());
-        } else {
-            components.push(component.to_owned());
-        }
-    }
-    components
-}
-
-/// Whether `text` starts with a drive letter and a colon, as in `C:`.
-fn has_drive(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 /// Records which transcript a turn, edit, or command came from.
@@ -481,61 +413,4 @@ fn capture_limitation(
             counts: outcome.counts.clone(),
         })
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn relation(recorded: &str, checkout: &str) -> Placement {
-        placement_of(Path::new(recorded), Path::new(checkout))
-    }
-
-    #[test]
-    fn windows_verbatim_prefixes_do_not_change_the_placement() {
-        assert_eq!(
-            relation(r"\\?\C:\work\repo", r"C:\work\repo"),
-            Placement::Same
-        );
-        assert_eq!(
-            relation(r"C:\work\repo", r"\\?\C:\work\repo"),
-            Placement::Same
-        );
-        assert_eq!(
-            relation(r"C:\work\repo\.claude\worktrees\x", r"\\?\C:\work\repo"),
-            Placement::Nested
-        );
-        assert_eq!(
-            relation(r"C:\work\repo\.claude\worktrees\x", r"C:\work\repo"),
-            Placement::Nested
-        );
-        assert_eq!(
-            relation(r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
-            Placement::Same
-        );
-        assert_eq!(
-            relation(r"C:\work\repo2", r"C:\work\repo"),
-            Placement::Outside
-        );
-        assert_eq!(
-            relation(r"C:\work\repo\..\other", r"C:\work\repo"),
-            Placement::Outside
-        );
-    }
-
-    #[test]
-    fn unix_paths_are_compared_by_component() {
-        assert_eq!(relation("/work/repo", "/work/repo"), Placement::Same);
-        assert_eq!(
-            relation("/work/repo/.claude/worktrees/x", "/work/repo"),
-            Placement::Nested
-        );
-        assert_eq!(relation("/other/repo", "/work/repo"), Placement::Outside);
-        assert_eq!(relation("/work/repo2", "/work/repo"), Placement::Outside);
-        assert_eq!(
-            relation("/work/repo/../other", "/work/repo"),
-            Placement::Outside
-        );
-        assert_eq!(relation("/work", "/work/repo"), Placement::Outside);
-    }
 }

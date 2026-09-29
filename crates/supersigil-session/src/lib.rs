@@ -4,6 +4,7 @@
 //! classifies every record, and emits observations; sync appends them to a
 //! record incrementally from a per-transcript cursor.
 
+pub mod checkout;
 pub mod claude_code;
 
 pub use claude_code::{ParseOutcome, parse_transcript, parse_transcript_with_session};
