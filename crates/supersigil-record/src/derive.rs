@@ -9,11 +9,12 @@ use crate::observations::{Edit, Observation};
 
 /// Derives restores and discontinuities from `observations`.
 ///
-/// Edits are grouped by checkout, path, and subagent, and ordered by
-/// `source_ordinal` within each group. Each subagent writes its own
+/// Edits are grouped by checkout, path, and transcript, and ordered by
+/// `source_ordinal` within each group. Ordinals are positions in one
 /// transcript, and ordinals from different transcripts share no order, so
 /// restores and discontinuities are claimed only within one transcript's
-/// ordering. How edits by different agents relate is left to attribution.
+/// ordering. How edits from different transcripts (a subagent's, or another
+/// main transcript of the session) relate is left to attribution.
 /// A claim is made only where both content ids involved are known.
 ///
 /// Each event counts once: a transcript read again from the start appends
@@ -37,7 +38,7 @@ pub fn derive(
                 .entry((
                     edit.checkout.clone(),
                     edit.path.clone(),
-                    edit.agent_id.as_deref(),
+                    edit.transcript.as_deref(),
                 ))
                 .or_default()
                 .push(edit);
@@ -124,6 +125,7 @@ mod tests {
             time: Timestamp::new(format!("2026-09-28T10:00:{ordinal:02}.000Z")),
             source_ordinal: ordinal,
             agent_id: None,
+            transcript: None,
         })
     }
 
@@ -223,10 +225,11 @@ mod tests {
     }
 
     #[test]
-    fn edits_from_different_agents_make_no_claim_between_them() {
-        let with_agent = |mut observation: Observation, agent: &str| {
+    fn edits_from_different_transcripts_make_no_claim_between_them() {
+        let from = |mut observation: Observation, transcript: &str| {
             if let Observation::Edit(e) = &mut observation {
-                e.agent_id = Some(agent.to_owned());
+                e.agent_id = Some("agent1".to_owned());
+                e.transcript = Some(transcript.to_owned());
             }
             observation
         };
@@ -237,17 +240,18 @@ mod tests {
             ]
         };
 
-        // Ordinals from different transcripts share no order.
+        // Ordinals from different transcripts share no order, even for the
+        // same agent.
         let [first, second] = mismatched();
-        let obs = vec![with_agent(first, "agent1"), with_agent(second, "agent2")];
+        let obs = vec![from(first, "one.jsonl"), from(second, "two.jsonl")];
         let set = derive(&session(), &obs, Revision::ZERO.next());
         assert!(set.discontinuities.is_empty());
         assert!(set.restores.is_empty());
 
-        // Within one agent's transcript the same edits are a discontinuity
-        // and a restore.
+        // Within one transcript the same edits are a discontinuity and a
+        // restore.
         let [first, second] = mismatched();
-        let obs = vec![with_agent(first, "agent1"), with_agent(second, "agent1")];
+        let obs = vec![from(first, "one.jsonl"), from(second, "one.jsonl")];
         let set = derive(&session(), &obs, Revision::ZERO.next());
         assert_eq!(set.discontinuities.len(), 1);
         assert_eq!(set.restores.len(), 1);

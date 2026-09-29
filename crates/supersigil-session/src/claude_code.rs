@@ -280,6 +280,7 @@ impl Walk {
                 agent_id: raw.agent_id.clone(),
                 excerpt: excerpt_for(role, content),
                 source_ordinal: ordinal,
+                transcript: None,
             }),
         );
 
@@ -780,6 +781,7 @@ fn build_edit(
         time: resolution.ended.clone(),
         source_ordinal: tool.ordinal,
         agent_id: tool.agent_id.clone(),
+        transcript: None,
     }))
 }
 
@@ -829,6 +831,7 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
         checkout: tool.cwd.clone(),
         source_ordinal: tool.ordinal,
         agent_id: tool.agent_id.clone(),
+        transcript: None,
     }
 }
 

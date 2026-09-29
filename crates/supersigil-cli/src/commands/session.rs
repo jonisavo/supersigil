@@ -4,7 +4,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use supersigil_record::observations::Observation;
+use supersigil_record::observations::{Observation, session_start};
 use supersigil_record::store::Store;
 use supersigil_record::{DerivationSet, Revision, SessionId};
 use supersigil_session::discover::discover_transcripts;
@@ -18,6 +18,13 @@ use crate::format::{ColorConfig, OutputFormat, Untrusted, hint, write_json};
 use crate::record_dir;
 
 /// One row of `session list`.
+///
+/// `started`, `branch`, and `checkout` come from a read model over the
+/// session's [`SessionStart`](supersigil_record::observations::SessionStart)
+/// observations, one per transcript that named the session: the earliest
+/// start from a main transcript, else the earliest start from a subagent
+/// sidechain (see [`session_start`]). A main transcript synced after its
+/// subagents therefore still describes the session.
 #[derive(Debug, Serialize)]
 pub struct SessionSummary {
     /// Session id.
@@ -212,16 +219,13 @@ fn summarize(store: &Store) -> Result<Vec<SessionSummary>, CliError> {
             restores: derivations.as_ref().map_or(0, |d| d.restores.len()),
             discontinuities: derivations.as_ref().map_or(0, |d| d.discontinuities.len()),
         };
-        let mut started = false;
-        for observation in observations {
+        if let Some(start) = session_start(&observations) {
+            row.started = Some(start.time.as_str().to_owned());
+            row.branch.clone_from(&start.branch);
+            row.checkout = Some(start.checkout.clone());
+        }
+        for observation in &observations {
             match observation {
-                // The first session start describes the session.
-                Observation::SessionStart(start) if !started => {
-                    started = true;
-                    row.started = Some(start.time.as_str().to_owned());
-                    row.branch = start.branch;
-                    row.checkout = Some(start.checkout);
-                }
                 Observation::Turn(_) => row.turns += 1,
                 Observation::Edit(_) => row.edits += 1,
                 Observation::Command(_) => row.commands += 1,

@@ -20,6 +20,7 @@ fn sample() -> Vec<Observation> {
             checkout: checkout.clone(),
             branch: Some("main".to_owned()),
             time: Timestamp::new("2026-09-28T10:00:00.000Z"),
+            sidechain: false,
         }),
         Observation::Turn(Turn {
             id: TurnId::new("u1"),
@@ -31,6 +32,7 @@ fn sample() -> Vec<Observation> {
             agent_id: None,
             excerpt: Material::Retained("Add a greeting function and clean up.".to_owned()),
             source_ordinal: 0,
+            transcript: None,
         }),
         Observation::Edit(Edit {
             id: EventId::derive("edit", &session, "toolu_01"),
@@ -57,6 +59,7 @@ fn sample() -> Vec<Observation> {
             time: Timestamp::new("2026-09-28T10:00:06.000Z"),
             source_ordinal: 2,
             agent_id: None,
+            transcript: None,
         }),
         Observation::Command(Command {
             id: EventId::derive("command", &session, "toolu_07"),
@@ -76,6 +79,7 @@ fn sample() -> Vec<Observation> {
             checkout: checkout.clone(),
             source_ordinal: 14,
             agent_id: None,
+            transcript: None,
         }),
         Observation::CaptureLimitation(CaptureLimitation {
             session: session.clone(),

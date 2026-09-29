@@ -43,6 +43,22 @@ impl Observation {
     }
 }
 
+/// The session start that describes a session, as a read model over its
+/// [`SessionStart`] observations: each transcript records one when it first
+/// names the session. The earliest start by `time` from a main transcript
+/// (not a sidechain) wins; without one, the earliest start overall. Ties
+/// keep log order. `None` when there is no start.
+#[must_use]
+pub fn session_start(observations: &[Observation]) -> Option<&SessionStart> {
+    observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::SessionStart(start) => Some(start),
+            _ => None,
+        })
+        .min_by_key(|start| (start.sidechain, start.time.as_str()))
+}
+
 /// Which agent harness produced a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -66,6 +82,10 @@ pub struct SessionStart {
     pub branch: Option<String>,
     /// Time of the first record.
     pub time: Timestamp,
+    /// Whether the transcript that produced this start is a subagent
+    /// sidechain.
+    #[serde(default)]
+    pub sidechain: bool,
 }
 
 /// Why a session is considered ended.
@@ -166,6 +186,10 @@ pub struct Turn {
     pub excerpt: Material<String>,
     /// Position of the record in the transcript.
     pub source_ordinal: u64,
+    /// File name of the transcript the record came from. Observations from
+    /// different transcripts share no ordinal order.
+    #[serde(default)]
+    pub transcript: Option<String>,
 }
 
 /// Content of a file that exists. Adjacently tagged for the same reason as
@@ -271,6 +295,10 @@ pub struct Edit {
     /// Subagent that produced this event, when inside a subagent.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// File name of the transcript the record came from. Observations from
+    /// different transcripts share no ordinal order.
+    #[serde(default)]
+    pub transcript: Option<String>,
 }
 
 impl Edit {
@@ -347,6 +375,10 @@ pub struct Command {
     /// Subagent that produced this event, when inside a subagent.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// File name of the transcript the record came from. Observations from
+    /// different transcripts share no ordinal order.
+    #[serde(default)]
+    pub transcript: Option<String>,
 }
 
 /// A limitation of the capture over the transcript ordinal range
@@ -407,5 +439,43 @@ impl CaptureCounts {
             && self.outside_checkout == 0
             && self.conflicting_tool_results == 0
             && self.unmatched_tool_results == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn start(transcript: &str, time: &str, sidechain: bool) -> Observation {
+        Observation::SessionStart(SessionStart {
+            session: SessionId::new("s"),
+            source: Source::ClaudeCode,
+            source_ids: BTreeMap::from([("transcript".to_owned(), transcript.to_owned())]),
+            checkout: PathBuf::from("/work/repo"),
+            branch: None,
+            time: Timestamp::new(time),
+            sidechain,
+        })
+    }
+
+    fn chosen(observations: &[Observation]) -> Option<&str> {
+        session_start(observations).map(|s| s.source_ids["transcript"].as_str())
+    }
+
+    #[test]
+    fn session_start_prefers_the_earliest_main_transcript() {
+        let side = start("agent-a.jsonl", "2026-09-28T09:00:00.000Z", true);
+        let late = start("late.jsonl", "2026-09-28T11:00:00.000Z", false);
+        let main = start("main.jsonl", "2026-09-28T10:00:00.000Z", false);
+        assert_eq!(chosen(&[]), None);
+        assert_eq!(chosen(std::slice::from_ref(&side)), Some("agent-a.jsonl"));
+        assert_eq!(
+            chosen(&[side.clone(), late.clone(), main.clone()]),
+            Some("main.jsonl")
+        );
+        assert_eq!(chosen(&[main, side.clone(), late]), Some("main.jsonl"));
+        // Without a main transcript, the earliest sidechain start.
+        let later_side = start("agent-b.jsonl", "2026-09-28T09:30:00.000Z", true);
+        assert_eq!(chosen(&[later_side, side]), Some("agent-a.jsonl"));
     }
 }

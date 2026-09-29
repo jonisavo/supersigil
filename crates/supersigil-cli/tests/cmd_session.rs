@@ -167,6 +167,41 @@ fn list_json_summarizes_sessions() {
 }
 
 #[test]
+fn list_prefers_the_main_transcript_start_synced_later() {
+    let e = env();
+    let session = "11111111-1111-4111-8111-111111111111";
+    let issue = serde_json::json!({
+        "type": "assistant", "uuid": "sa1", "parentUuid": null, "sessionId": session,
+        "agentId": "agent1", "cwd": "/work/repo/.claude/worktrees/side", "gitBranch": "side",
+        "timestamp": "2026-09-28T10:00:45.000Z", "isSidechain": true,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "on it"}]}
+    });
+    let side = e.checkout.join("agent-agent1.jsonl");
+    std::fs::write(&side, format!("{issue}\n")).unwrap();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&side)
+        .assert()
+        .success();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_path())
+        .assert()
+        .success();
+
+    let output = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let list: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["started"], "2026-09-28T10:00:00.000Z");
+    assert_eq!(list[0]["branch"], "main");
+    assert_eq!(list[0]["checkout"], "/work/repo");
+}
+
+#[test]
 fn list_terminal_prints_one_row_per_session() {
     let e = env();
     session_cmd(&e)
