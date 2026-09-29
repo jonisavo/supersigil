@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use common::{SESSION, fixture, line_starts};
 
@@ -436,4 +436,81 @@ fn an_empty_session_id_does_not_block_sync() {
     let manifest = s.store.manifest().unwrap();
     assert_eq!(manifest.cursors[&key].offset, bytes.len() as u64);
     assert!(manifest.logs.is_empty());
+}
+
+/// A subagent transcript of the fixture's session: one `Write` and its result.
+fn subagent_transcript() -> String {
+    format!(
+        "{}\n{}\n",
+        format_args!(
+            r#"{{"type":"assistant","uuid":"sa1","parentUuid":null,"sessionId":"{SESSION}","agentId":"agent1","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:45.000Z","isSidechain":true,"message":{{"id":"msg_side","role":"assistant","content":[{{"type":"tool_use","id":"toolu_side","name":"Write","input":{{"file_path":"/work/repo/src/side.rs","content":"pub fn side() {{}}\n"}}}}]}}}}"#
+        ),
+        format_args!(
+            r#"{{"type":"user","uuid":"su1","parentUuid":"sa1","sessionId":"{SESSION}","agentId":"agent1","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:46.000Z","isSidechain":true,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_side","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"/work/repo/src/side.rs","content":"pub fn side() {{}}\n","structuredPatch":[]}}}}"#
+        ),
+    )
+}
+
+#[test]
+fn subagent_transcript_joins_the_parent_session() {
+    for main_first in [true, false] {
+        let s = setup(&fixture());
+        let side = s.transcript.with_file_name("agent-agent1.jsonl");
+        std::fs::write(&side, subagent_transcript()).unwrap();
+        let order = if main_first {
+            vec![s.transcript.clone(), side.clone()]
+        } else {
+            vec![side.clone(), s.transcript.clone()]
+        };
+        let report = sync(&s.store, &s.checkout, &order).unwrap();
+        assert_eq!(report.sessions, vec![SessionId::new(SESSION)], "{order:?}");
+
+        let snapshot = s.store.snapshot().unwrap();
+        assert_eq!(snapshot.sessions(), vec![SessionId::new(SESSION)]);
+        let observations = snapshot.observations(&SessionId::new(SESSION)).unwrap();
+        let starts = observations
+            .iter()
+            .filter(|o| matches!(o, Observation::SessionStart(_)))
+            .count();
+        assert_eq!(starts, 1, "{order:?}");
+        let edits: Vec<_> = observations
+            .iter()
+            .filter_map(|o| match o {
+                Observation::Edit(e) => Some(e),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(edits.len(), 6, "{order:?}");
+        let side_edit = edits
+            .iter()
+            .find(|e| e.path == Path::new("src/side.rs"))
+            .unwrap();
+        assert_eq!(side_edit.agent_id.as_deref(), Some("agent1"));
+        assert!(
+            edits
+                .iter()
+                .filter(|e| e.path != Path::new("src/side.rs"))
+                .all(|e| e.agent_id.is_none())
+        );
+        let side_turns: Vec<_> = observations
+            .iter()
+            .filter_map(|o| match o {
+                Observation::Turn(t) if t.agent_id.as_deref() == Some("agent1") => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(side_turns.len(), 2, "{order:?}");
+        assert!(side_turns.iter().all(|t| t.sidechain));
+        assert!(
+            observations
+                .iter()
+                .filter_map(|o| match o {
+                    Observation::Turn(t) if t.agent_id.is_none() => Some(t),
+                    _ => None,
+                })
+                .all(|t| !t.sidechain)
+        );
+        let side_cursor = &snapshot.manifest().cursors[&side.display().to_string()];
+        assert_eq!(side_cursor.session, Some(SessionId::new(SESSION)));
+    }
 }

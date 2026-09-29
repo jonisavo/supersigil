@@ -1,13 +1,15 @@
 //! Incremental sync of transcripts into a record.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use supersigil_record::derive::derive;
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, Observation, SessionStart, Source,
 };
-use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
+use supersigil_record::store::{
+    Association, RecordSnapshot, SourceCursor, Store, StoreError, WriteTx, observations_log,
+};
 use supersigil_record::{ContentHasher, Revision, SessionId};
 
 use crate::claude_code::{ParseOutcome, parse_transcript_with_session};
@@ -88,9 +90,18 @@ pub fn sync(
     let mut reports = Vec::new();
     let mut appended: BTreeMap<SessionId, Vec<Observation>> = BTreeMap::new();
     let mut total = 0usize;
+    // Sessions a transcript in this call already started, so a second
+    // transcript of the same session (a subagent's) only appends to it.
+    let mut started: BTreeSet<SessionId> = BTreeSet::new();
 
     for path in transcripts {
-        let report = sync_transcript(&mut tx, checkout, path, &mut appended)?;
+        let context = TranscriptContext {
+            checkout,
+            pinned: &pinned,
+            started: &mut started,
+            appended: &mut appended,
+        };
+        let report = sync_transcript(&mut tx, path, context)?;
         total += report.new_observations;
         reports.push(report);
     }
@@ -123,18 +134,41 @@ pub fn sync(
     })
 }
 
+/// What one transcript's sync reads from and adds to the whole call.
+struct TranscriptContext<'a> {
+    /// Checkout the sync was asked for.
+    checkout: &'a Path,
+    /// The record as the transaction found it.
+    pinned: &'a RecordSnapshot,
+    /// Sessions a transcript earlier in this call started.
+    started: &'a mut BTreeSet<SessionId>,
+    /// Observations appended in this call, by session.
+    appended: &'a mut BTreeMap<SessionId, Vec<Observation>>,
+}
+
 /// Reads one transcript from its cursor, appends the new observations to
 /// `tx`, records them in `appended` by session, and advances the cursor.
+///
+/// A [`SessionStart`] is emitted when the cursor first learns its session,
+/// unless the session already has an observation log in the pinned record
+/// or an earlier transcript in this call started it. A subagent transcript
+/// carries its parent's session id, so its observations join the parent's
+/// log instead of starting the session again.
 ///
 /// Anything the parse could not turn into evidence is appended as one
 /// [`CaptureLimitation`] after the parsed observations, in the same
 /// transaction as the cursor advance, so the limitation outlives this call.
 fn sync_transcript(
     tx: &mut WriteTx<'_>,
-    checkout: &Path,
     path: &Path,
-    appended: &mut BTreeMap<SessionId, Vec<Observation>>,
+    context: TranscriptContext<'_>,
 ) -> Result<TranscriptReport, SyncError> {
+    let TranscriptContext {
+        checkout,
+        pinned,
+        started,
+        appended,
+    } = context;
     let key = path.display().to_string();
     let bytes = std::fs::read(path).map_err(|source| SyncError::Io {
         path: path.to_path_buf(),
@@ -162,20 +196,26 @@ fn sync_transcript(
     if cursor.session.is_none()
         && let Some(session) = &outcome.session
     {
-        new.push(Observation::SessionStart(SessionStart {
-            session: session.clone(),
-            source: Source::ClaudeCode,
-            source_ids: BTreeMap::from([("transcript".to_owned(), transcript.clone())]),
-            checkout: outcome
-                .checkout
-                .clone()
-                .unwrap_or_else(|| checkout.to_path_buf()),
-            branch: outcome.branch.clone(),
-            time: outcome
-                .first_time
-                .clone()
-                .unwrap_or_else(|| supersigil_record::Timestamp::new("")),
-        }));
+        let logged = pinned
+            .manifest()
+            .logs
+            .contains_key(&observations_log(session));
+        if !logged && started.insert(session.clone()) {
+            new.push(Observation::SessionStart(SessionStart {
+                session: session.clone(),
+                source: Source::ClaudeCode,
+                source_ids: BTreeMap::from([("transcript".to_owned(), transcript.clone())]),
+                checkout: outcome
+                    .checkout
+                    .clone()
+                    .unwrap_or_else(|| checkout.to_path_buf()),
+                branch: outcome.branch.clone(),
+                time: outcome
+                    .first_time
+                    .clone()
+                    .unwrap_or_else(|| supersigil_record::Timestamp::new("")),
+            }));
+        }
         cursor.session = Some(session.clone());
     }
     let limitation = cursor

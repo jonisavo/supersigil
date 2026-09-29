@@ -141,6 +141,8 @@ struct PendingTool {
     ordinal: u64,
     time: Timestamp,
     cwd: PathBuf,
+    /// Subagent of the issuing record, when inside a subagent.
+    agent_id: Option<String>,
     record_index: usize,
 }
 
@@ -317,6 +319,7 @@ impl Walk {
                 ordinal: self.start_ordinal + index as u64,
                 time: time.clone(),
                 cwd: cwd.clone(),
+                agent_id: raw.agent_id.clone(),
                 record_index: index,
             });
         }
@@ -758,6 +761,7 @@ fn build_edit(
         checkout: tool.cwd.clone(),
         time: resolution.ended.clone(),
         source_ordinal: tool.ordinal,
+        agent_id: tool.agent_id.clone(),
     }))
 }
 
@@ -806,6 +810,7 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
         ended: None,
         checkout: tool.cwd.clone(),
         source_ordinal: tool.ordinal,
+        agent_id: tool.agent_id.clone(),
     }
 }
 

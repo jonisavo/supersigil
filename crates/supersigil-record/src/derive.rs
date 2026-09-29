@@ -9,7 +9,11 @@ use crate::observations::{Edit, Observation};
 
 /// Derives restores and discontinuities from `observations`.
 ///
-/// Edits are grouped by checkout and path and ordered by `source_ordinal`.
+/// Edits are grouped by checkout, path, and subagent, and ordered by
+/// `source_ordinal` within each group. Each subagent writes its own
+/// transcript, and ordinals from different transcripts share no order, so
+/// restores and discontinuities are claimed only within one transcript's
+/// ordering. How edits by different agents relate is left to attribution.
 /// A claim is made only where both content ids involved are known.
 ///
 /// Each event counts once: a transcript read again from the start appends
@@ -23,14 +27,18 @@ pub fn derive(
     observation_revision: Revision,
 ) -> DerivationSet {
     let mut seen: BTreeSet<&EventId> = BTreeSet::new();
-    let mut groups: BTreeMap<(PathBuf, PathBuf), Vec<&Edit>> = BTreeMap::new();
+    let mut groups: BTreeMap<(PathBuf, PathBuf, Option<&str>), Vec<&Edit>> = BTreeMap::new();
     for observation in observations {
         if let Observation::Edit(edit) = observation
             && edit.session == *session
             && seen.insert(&edit.id)
         {
             groups
-                .entry((edit.checkout.clone(), edit.path.clone()))
+                .entry((
+                    edit.checkout.clone(),
+                    edit.path.clone(),
+                    edit.agent_id.as_deref(),
+                ))
                 .or_default()
                 .push(edit);
         }
@@ -38,7 +46,7 @@ pub fn derive(
 
     let mut restores = Vec::new();
     let mut discontinuities = Vec::new();
-    for ((checkout, path), mut edits) in groups {
+    for ((checkout, path, _), mut edits) in groups {
         edits.sort_by_key(|e| e.source_ordinal);
         // Known before-contents of the edits seen so far in this group, each
         // with its edits oldest first.
@@ -115,6 +123,7 @@ mod tests {
             checkout: PathBuf::from("/work/repo"),
             time: Timestamp::new(format!("2026-09-28T10:00:{ordinal:02}.000Z")),
             source_ordinal: ordinal,
+            agent_id: None,
         })
     }
 
@@ -211,6 +220,37 @@ mod tests {
         );
         assert_eq!(set.discontinuities.len(), 1);
         assert_eq!(set.discontinuities[0].next, id("t3"));
+    }
+
+    #[test]
+    fn edits_from_different_agents_make_no_claim_between_them() {
+        let with_agent = |mut observation: Observation, agent: &str| {
+            if let Observation::Edit(e) = &mut observation {
+                e.agent_id = Some(agent.to_owned());
+            }
+            observation
+        };
+        let mismatched = || {
+            [
+                edit("t1", "src/lib.rs", 1, known("a\n"), known("b\n")),
+                edit("t2", "src/lib.rs", 2, known("z\n"), known("a\n")),
+            ]
+        };
+
+        // Ordinals from different transcripts share no order.
+        let [first, second] = mismatched();
+        let obs = vec![with_agent(first, "agent1"), with_agent(second, "agent2")];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert!(set.discontinuities.is_empty());
+        assert!(set.restores.is_empty());
+
+        // Within one agent's transcript the same edits are a discontinuity
+        // and a restore.
+        let [first, second] = mismatched();
+        let obs = vec![with_agent(first, "agent1"), with_agent(second, "agent1")];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert_eq!(set.discontinuities.len(), 1);
+        assert_eq!(set.restores.len(), 1);
     }
 
     #[test]

@@ -56,6 +56,7 @@ fn sample() -> Vec<Observation> {
             checkout: checkout.clone(),
             time: Timestamp::new("2026-09-28T10:00:06.000Z"),
             source_ordinal: 2,
+            agent_id: None,
         }),
         Observation::Command(Command {
             id: EventId::derive("command", &session, "toolu_07"),
@@ -74,6 +75,7 @@ fn sample() -> Vec<Observation> {
             ended: Some(Timestamp::new("2026-09-28T10:01:02.000Z")),
             checkout: checkout.clone(),
             source_ordinal: 14,
+            agent_id: None,
         }),
         Observation::CaptureLimitation(CaptureLimitation {
             session: session.clone(),

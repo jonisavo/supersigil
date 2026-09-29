@@ -268,6 +268,9 @@ pub struct Edit {
     pub time: Timestamp,
     /// Position of the issuing record in the transcript.
     pub source_ordinal: u64,
+    /// Subagent that produced this event, when inside a subagent.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 impl Edit {
@@ -341,6 +344,9 @@ pub struct Command {
     pub checkout: PathBuf,
     /// Position of the issuing record in the transcript.
     pub source_ordinal: u64,
+    /// Subagent that produced this event, when inside a subagent.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 /// A limitation of the capture over the transcript ordinal range

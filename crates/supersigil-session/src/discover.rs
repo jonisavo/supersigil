@@ -1,7 +1,8 @@
 //! Finds Claude Code transcripts for a checkout without a hook.
 //!
 //! Claude Code stores transcripts under `~/.claude/projects/<encoded cwd>/`,
-//! where the encoding replaces path separators and dots with dashes. Hooks
+//! where the encoding replaces path separators and dots with dashes, and a
+//! session's subagent transcripts under `<session id>/subagents/`. Hooks
 //! hand over `transcript_path` directly; this module is the fallback for
 //! sessions recorded before the hook existed.
 
@@ -18,31 +19,69 @@ pub fn encode_project_dir(checkout: &Path) -> String {
         .collect()
 }
 
-/// Sorted `.jsonl` transcripts for `checkout` under `claude_home`
-/// (normally `~/.claude`). Empty when the project directory does not exist.
+/// Sorted transcripts for `checkout` under `claude_home` (normally
+/// `~/.claude`): the `.jsonl` files in the project directory, and the
+/// subagent transcripts `<session id>/subagents/agent-*.jsonl` beside them.
+/// Main and subagent transcripts are sorted together by path. Anything else,
+/// such as a subagent's `.meta.json` or a session's `tool-results`, is left
+/// out. Empty when the project directory does not exist.
 ///
 /// # Errors
 ///
-/// Returns the I/O error if the project directory exists but cannot be read,
-/// or if one of its entries cannot be read.
+/// Returns the I/O error if the project directory or an existing
+/// `subagents` directory cannot be read, or if one of their entries cannot
+/// be read.
 pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Result<Vec<PathBuf>> {
     let dir = claude_home
         .join("projects")
         .join(encode_project_dir(checkout));
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e),
+    let Some(entries) = read_dir_if_present(&dir)? else {
+        return Ok(Vec::new());
     };
     let mut found = Vec::new();
     for entry in entries {
-        let path = entry?.path();
-        if path.extension().is_some_and(|ext| ext == "jsonl") {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            found.extend(subagent_transcripts(&path.join("subagents"))?);
+        } else if is_jsonl(&path) {
             found.push(path);
         }
     }
     found.sort();
     Ok(found)
+}
+
+/// The `agent-*.jsonl` files in a session's `subagents` directory; none
+/// when it does not exist.
+fn subagent_transcripts(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let Some(entries) = read_dir_if_present(dir)? else {
+        return Ok(Vec::new());
+    };
+    let mut found = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let is_agent = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("agent-"));
+        if is_agent && is_jsonl(&path) {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
+/// The directory's entries, or `None` when it does not exist.
+fn read_dir_if_present(dir: &Path) -> std::io::Result<Option<std::fs::ReadDir>> {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => Ok(Some(entries)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn is_jsonl(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "jsonl")
 }
 
 #[cfg(test)]
@@ -75,12 +114,26 @@ mod tests {
         std::fs::write(dir.join("b.jsonl"), "").unwrap();
         std::fs::write(dir.join("a.jsonl"), "").unwrap();
         std::fs::write(dir.join("notes.txt"), "").unwrap();
+        let subagents = dir.join("s1").join("subagents");
+        std::fs::create_dir_all(&subagents).unwrap();
+        std::fs::write(subagents.join("agent-x.jsonl"), "").unwrap();
+        std::fs::write(subagents.join("agent-x.meta.json"), "").unwrap();
+        let tool_results = dir.join("s1").join("tool-results");
+        std::fs::create_dir_all(&tool_results).unwrap();
+        std::fs::write(tool_results.join("foo.txt"), "").unwrap();
         let other = home.path().join("projects").join("-work-other");
         std::fs::create_dir_all(&other).unwrap();
         std::fs::write(other.join("c.jsonl"), "").unwrap();
 
         let found = discover_transcripts(Path::new("/work/repo"), home.path()).unwrap();
-        assert_eq!(found, vec![dir.join("a.jsonl"), dir.join("b.jsonl")]);
+        assert_eq!(
+            found,
+            vec![
+                dir.join("a.jsonl"),
+                dir.join("b.jsonl"),
+                subagents.join("agent-x.jsonl"),
+            ]
+        );
         assert!(
             discover_transcripts(Path::new("/nowhere"), home.path())
                 .unwrap()
