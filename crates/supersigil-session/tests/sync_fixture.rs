@@ -885,6 +885,18 @@ fn write_from(cwd: &str, file: &str) -> [String; 2] {
     ]
 }
 
+/// Creates a `Bash` call running `command` from `cwd` and its result, after the fixture's last turn.
+fn run_from(cwd: &str, command: &str) -> [String; 2] {
+    [
+        format!(
+            r#"{{"type":"assistant","uuid":"y1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"{cwd}","gitBranch":"main","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_y","name":"Bash","input":{{"command":"{command}"}}}}]}}}}"#
+        ),
+        format!(
+            r#"{{"type":"user","uuid":"y2","parentUuid":"y1","sessionId":"{SESSION}","cwd":"{cwd}","gitBranch":"main","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_y","content":"ok"}}]}},"toolUseResult":{{"stdout":"ok","stderr":"","interrupted":false}}}}"#
+        ),
+    ]
+}
+
 /// Appends `extra` records to the fixture lines.
 fn fixture_and(extra: [String; 2]) -> Vec<String> {
     let mut lines = fixture_lines();
@@ -1013,6 +1025,16 @@ fn an_edit_issued_from_outside_the_checkout_is_counted_not_recorded() {
     );
     // The turns belong to the session's conversation and stay.
     assert!(turn_ids(&s.store).iter().any(|id| id == "x1"));
+}
+
+#[test]
+fn a_command_run_from_outside_the_checkout_is_counted_not_recorded() {
+    let lines = fixture_and(run_from("/other/repo", "cargo test"));
+    let s = setup(joined(&lines).as_bytes());
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].counts.outside_checkout, 1);
+    // Only the fixture's own two commands are recorded.
+    assert_eq!(command_count(&s.store), 2);
 }
 
 #[test]

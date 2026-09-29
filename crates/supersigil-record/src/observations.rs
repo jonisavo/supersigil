@@ -428,7 +428,9 @@ pub struct CaptureCounts {
     pub abandoned_tool_uses: u64,
     /// Editing tool calls reported as failed, with no edit recorded.
     pub failed_tool_uses: u64,
-    /// Edits omitted because their paths were outside the checkout.
+    /// Edits omitted because their paths were outside the checkout, and
+    /// edits and commands omitted because they were issued from a working
+    /// directory outside it.
     pub outside_checkout: u64,
     /// Editing tool calls omitted because their input and result named
     /// different files.

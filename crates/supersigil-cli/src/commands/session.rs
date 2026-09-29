@@ -166,7 +166,7 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
                 counts.failed_tool_uses,
             ),
             (
-                "edits outside the checkout dropped",
+                "edits and commands outside the checkout dropped",
                 counts.outside_checkout,
             ),
             (

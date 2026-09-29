@@ -86,8 +86,9 @@ pub struct SyncReport {
 /// The first working directory recorded for a transcript's session determines
 /// whether it is accepted. It must be `checkout` or a descendant, as checked
 /// by [`placement`]. An outside or unknown checkout is reported as skipped.
-/// Individual edits from outside every checkout associated with the record
-/// are also omitted and counted, even in an accepted transcript. Nested
+/// Individual edits and commands issued from outside every checkout
+/// associated with the record are also omitted and counted, even in an
+/// accepted transcript. Nested
 /// checkouts keep their paths; sync does not add checkout associations.
 ///
 /// Adds a [`SessionStart`] when a transcript's cursor first learns its session.
@@ -190,7 +191,7 @@ fn sync_transcript(
         Ok(admitted) => admitted,
         Err(skip) => return Ok(skip.report(path, cursor.session, outcome.counts)),
     };
-    drop_edits_outside(&mut outcome, &tx.manifest().associations);
+    drop_outside(&mut outcome, &tx.manifest().associations);
     let nested_checkout = (place != Placement::Same).then(|| own.clone());
     let file_name = path
         .file_name()
@@ -310,16 +311,21 @@ fn admit(checkout: &Path, named: Option<&Path>) -> Result<(PathBuf, Placement), 
     }
 }
 
-/// Removes edits whose working directories are outside every associated checkout.
-/// Adds the number removed to `outside_checkout`; leaves other observations unchanged.
-fn drop_edits_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
+/// Removes edits and commands whose working directories are outside every
+/// associated checkout. Adds the number removed to `outside_checkout`;
+/// leaves other observations unchanged.
+fn drop_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
+    let inside = |dir: &Path| {
+        associations
+            .iter()
+            .any(|a| placement(dir, &a.checkout) != Placement::Outside)
+    };
     let before = outcome.observations.len();
     outcome
         .observations
         .retain(|observation| match observation {
-            Observation::Edit(edit) => associations
-                .iter()
-                .any(|a| placement(&edit.checkout, &a.checkout) != Placement::Outside),
+            Observation::Edit(edit) => inside(&edit.checkout),
+            Observation::Command(command) => inside(&command.checkout),
             _ => true,
         });
     outcome.counts.outside_checkout += (before - outcome.observations.len()) as u64;
