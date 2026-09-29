@@ -9,12 +9,12 @@ use common::{SESSION, fixture, line_starts};
 use supersigil_record::observations::{
     CaptureLimitation, Observation, Role, SessionStart, Source, session_start,
 };
-use supersigil_record::store::{Association, SourceCursor, Store};
+use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::sync::sync;
 
 struct Setup {
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
     store: Store,
     transcript: PathBuf,
     checkout: PathBuf,
@@ -33,7 +33,7 @@ fn setup(bytes: &[u8]) -> Setup {
     let transcript = dir.path().join("slice.jsonl");
     std::fs::write(&transcript, bytes).unwrap();
     Setup {
-        _dir: dir,
+        dir,
         store,
         transcript,
         checkout,
@@ -351,7 +351,7 @@ fn same_length_rewrite_is_read_from_the_start() {
     let key = cursor_key(&s.transcript);
     assert_eq!(
         s.store.manifest().unwrap().cursors[&key].prefix_hash,
-        Some(ContentId::of(&bytes))
+        ContentId::of(&bytes)
     );
 
     let rewritten = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -367,10 +367,7 @@ fn same_length_rewrite_is_read_from_the_start() {
     assert!(report.new_observations > 0);
     let cursor = &s.store.manifest().unwrap().cursors[&key];
     assert_eq!(cursor.offset, bytes.len() as u64);
-    assert_eq!(
-        cursor.prefix_hash,
-        Some(ContentId::of(rewritten.as_bytes()))
-    );
+    assert_eq!(cursor.prefix_hash, ContentId::of(rewritten.as_bytes()));
     let human_texts: Vec<String> = s
         .store
         .snapshot()
@@ -385,34 +382,6 @@ fn same_length_rewrite_is_read_from_the_start() {
         .collect();
     assert_eq!(human_texts.len(), 2);
     assert!(human_texts[1].contains("FUNCTION"));
-}
-
-#[test]
-fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
-    let bytes = fixture();
-    let starts = line_starts(&bytes);
-    let s = setup(&bytes);
-    let key = cursor_key(&s.transcript);
-    let mut tx = s.store.begin().unwrap();
-    tx.set_cursor(
-        &key,
-        SourceCursor {
-            offset: starts[3] as u64,
-            next_ordinal: 3,
-            session: Some(SessionId::new(SESSION)),
-            prefix_hash: None,
-            checkout: None,
-        },
-    );
-    tx.commit().unwrap();
-
-    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    assert_eq!(report.transcripts[0].consumed, bytes.len() as u64);
-    assert_eq!(turn_ids(&s.store).len(), 17);
-    let cursor = &s.store.manifest().unwrap().cursors[&key];
-    assert_eq!(cursor.offset, bytes.len() as u64);
-    assert_eq!(cursor.next_ordinal, 19);
-    assert_eq!(cursor.prefix_hash, Some(ContentId::of(&bytes)));
 }
 
 #[test]
@@ -799,68 +768,6 @@ fn interleaved_tool_uses() -> Vec<String> {
     ]
 }
 
-/// Each observation's kind and id, in log order.
-fn observation_ids(store: &Store, session: &SessionId) -> Vec<String> {
-    store
-        .snapshot()
-        .unwrap()
-        .observations(session)
-        .unwrap()
-        .iter()
-        .map(|o| match o {
-            Observation::SessionStart(_) => "session_start".to_owned(),
-            Observation::SessionEnd(_) => "session_end".to_owned(),
-            Observation::Turn(t) => format!("turn {}", t.id.as_str()),
-            Observation::Edit(e) => format!("edit {}", e.id.as_str()),
-            Observation::Command(c) => format!("command {}", c.id.as_str()),
-            Observation::CaptureLimitation(_) => "capture_limitation".to_owned(),
-        })
-        .collect()
-}
-
-#[test]
-fn staged_sync_matches_whole_file_ingestion() {
-    let lines = interleaved_tool_uses();
-    let text = |n: usize| -> String {
-        let mut text = String::new();
-        for line in &lines[..n] {
-            text.push_str(line);
-            text.push('\n');
-        }
-        text
-    };
-    let session = SessionId::new("s");
-
-    let whole = setup(text(4).as_bytes());
-    sync(
-        &whole.store,
-        &whole.checkout,
-        std::slice::from_ref(&whole.transcript),
-    )
-    .unwrap();
-    let expected = observation_ids(&whole.store, &session);
-    assert!(expected.iter().any(|id| id.starts_with("edit ")));
-    assert!(expected.iter().any(|id| id.starts_with("command ")));
-
-    // Cut after `ta`'s result, while `tb` is still pending.
-    let staged = setup(text(3).as_bytes());
-    sync(
-        &staged.store,
-        &staged.checkout,
-        std::slice::from_ref(&staged.transcript),
-    )
-    .unwrap();
-    std::fs::write(&staged.transcript, text(4)).unwrap();
-    let report = sync(
-        &staged.store,
-        &staged.checkout,
-        std::slice::from_ref(&staged.transcript),
-    )
-    .unwrap();
-    assert_eq!(report.transcripts[0].counts.unmatched_tool_results, 0);
-    assert_eq!(observation_ids(&staged.store, &session), expected);
-}
-
 #[test]
 fn a_transcript_from_a_worktree_nested_in_the_checkout_is_accepted() {
     let worktree = "/work/repo/.claude/worktrees/x";
@@ -931,85 +838,6 @@ fn late_foreign_checkout() -> Vec<String> {
 }
 
 #[test]
-fn staged_and_whole_syncs_both_reject_a_checkout_named_late() {
-    let lines = late_foreign_checkout();
-    let text = |n: usize| -> String {
-        let mut text = String::new();
-        for line in &lines[..n] {
-            text.push_str(line);
-            text.push('\n');
-        }
-        text
-    };
-    let reason = Some("checkout /other/repo does not match /work/repo".to_owned());
-
-    let whole = setup(text(3).as_bytes());
-    let report = sync(
-        &whole.store,
-        &whole.checkout,
-        std::slice::from_ref(&whole.transcript),
-    )
-    .unwrap();
-    assert_eq!(report.transcripts[0].skipped, reason);
-
-    // Staged: the first sync ends at the pending tool use, whose record is
-    // the only one naming the checkout.
-    let staged = setup(text(2).as_bytes());
-    let first = sync(
-        &staged.store,
-        &staged.checkout,
-        std::slice::from_ref(&staged.transcript),
-    )
-    .unwrap();
-    assert_eq!(
-        first.transcripts[0].skipped.as_deref(),
-        Some("checkout unknown")
-    );
-    std::fs::write(&staged.transcript, text(3)).unwrap();
-    let second = sync(
-        &staged.store,
-        &staged.checkout,
-        std::slice::from_ref(&staged.transcript),
-    )
-    .unwrap();
-    assert_eq!(second.transcripts[0].skipped, reason);
-
-    for s in [&whole, &staged] {
-        let snapshot = s.store.snapshot().unwrap();
-        assert!(snapshot.sessions().is_empty());
-        assert!(snapshot.manifest().cursors.is_empty());
-    }
-}
-
-#[test]
-fn a_resumed_sync_of_an_admitted_transcript_still_admits() {
-    let bytes = fixture();
-    let starts = line_starts(&bytes);
-    let s = setup(&bytes[..starts[18]]);
-    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    let key = cursor_key(&s.transcript);
-    assert_eq!(
-        s.store.manifest().unwrap().cursors[&key]
-            .checkout
-            .as_deref(),
-        Some(Path::new("/work/repo"))
-    );
-
-    // The appended record carries no `cwd`; the cursor remembers the
-    // checkout.
-    let last = String::from_utf8(bytes[starts[18]..].to_vec())
-        .unwrap()
-        .replace(r#""cwd":"/work/repo","#, "");
-    assert!(!last.contains("cwd"));
-    let mut appended = bytes[..starts[18]].to_vec();
-    appended.extend_from_slice(last.as_bytes());
-    std::fs::write(&s.transcript, &appended).unwrap();
-    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    assert_eq!(report.transcripts[0].skipped, None);
-    assert_eq!(report.new_observations, 1);
-}
-
-#[test]
 fn a_session_start_is_never_given_the_requested_checkout() {
     // The only session-bearing record names no working directory and
     // produces no observation.
@@ -1027,52 +855,118 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
 
-#[test]
-fn a_resumed_chunk_naming_another_checkout_is_skipped() {
-    let s = setup(&fixture());
-    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    let before = s.store.manifest().unwrap();
+/// The fixture's lines, without their newlines.
+fn fixture_lines() -> Vec<String> {
+    String::from_utf8(fixture())
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
 
-    let issue = format!(
-        r#"{{"type":"assistant","uuid":"x1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_x","name":"Write","input":{{"file_path":"/other/repo/secret.txt","content":"x\n"}}}}]}}}}"#
-    );
-    let result = format!(
-        r#"{{"type":"user","uuid":"x2","parentUuid":"x1","sessionId":"{SESSION}","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_x","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"/other/repo/secret.txt","content":"x\n","structuredPatch":[]}}}}"#
-    );
-    let mut bytes = fixture();
-    bytes.extend_from_slice(format!("{issue}\n{result}\n").as_bytes());
-    std::fs::write(&s.transcript, &bytes).unwrap();
+/// `lines`, each ended by a newline.
+fn joined(lines: &[String]) -> String {
+    lines
+        .iter()
+        .flat_map(|line| [line.as_str(), "\n"])
+        .collect()
+}
 
-    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    assert_eq!(
-        report.transcripts[0].skipped.as_deref(),
-        Some("checkout changed from /work/repo to /other/repo")
-    );
-    assert_eq!(report.new_observations, 0);
-    assert_eq!(s.store.manifest().unwrap(), before);
-    assert!(!turn_ids(&s.store).iter().any(|id| id == "x1" || id == "x2"));
+/// A `Write` of `file` issued from `cwd` after the fixture's last turn, and
+/// its result.
+fn write_from(cwd: &str, file: &str) -> [String; 2] {
+    [
+        format!(
+            r#"{{"type":"assistant","uuid":"x1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"{cwd}","gitBranch":"main","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_x","name":"Write","input":{{"file_path":"{cwd}/{file}","content":"x\n"}}}}]}}}}"#
+        ),
+        format!(
+            r#"{{"type":"user","uuid":"x2","parentUuid":"x1","sessionId":"{SESSION}","cwd":"{cwd}","gitBranch":"main","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_x","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"{cwd}/{file}","content":"x\n","structuredPatch":[]}}}}"#
+        ),
+    ]
+}
+
+/// The fixture followed by `extra`.
+fn fixture_and(extra: [String; 2]) -> Vec<String> {
+    let mut lines = fixture_lines();
+    lines.extend(extra);
+    lines
+}
+
+/// Every observation of every session as JSON, except capture limitations,
+/// whose ordinal ranges depend on where the syncs happened to cut. The
+/// temporary directory is replaced, so two setups compare equal.
+fn evidence(s: &Setup) -> Vec<String> {
+    let dir = std::fs::canonicalize(s.dir.path()).unwrap();
+    let dir = serde_json::to_string(&dir).unwrap();
+    let dir = dir.trim_matches('"');
+    let snapshot = s.store.snapshot().unwrap();
+    snapshot
+        .sessions()
+        .iter()
+        .flat_map(|session| snapshot.observations(session).unwrap())
+        .filter(|o| !matches!(o, Observation::CaptureLimitation(_)))
+        .map(|o| serde_json::to_string(&o).unwrap().replace(dir, "<dir>"))
+        .collect()
 }
 
 #[test]
-fn a_resumed_chunk_moving_into_a_nested_worktree_is_admitted() {
+fn syncing_at_every_line_boundary_matches_one_whole_sync() {
+    let worktree = "/work/repo/.claude/worktrees/x";
+    let transcripts = [
+        ("fixture", fixture_lines()),
+        ("interleaved tool uses", interleaved_tool_uses()),
+        ("late foreign checkout", late_foreign_checkout()),
+        (
+            "cd outside",
+            fixture_and(write_from("/other/repo", "secret.txt")),
+        ),
+        (
+            "cd into a worktree",
+            fixture_and(write_from(worktree, "w.txt")),
+        ),
+    ];
+    for (name, lines) in transcripts {
+        let whole = setup(joined(&lines).as_bytes());
+        sync(
+            &whole.store,
+            &whole.checkout,
+            std::slice::from_ref(&whole.transcript),
+        )
+        .unwrap();
+        let expected = evidence(&whole);
+        for cut in 0..lines.len() {
+            let staged = setup(joined(&lines[..cut]).as_bytes());
+            sync(
+                &staged.store,
+                &staged.checkout,
+                std::slice::from_ref(&staged.transcript),
+            )
+            .unwrap();
+            std::fs::write(&staged.transcript, joined(&lines)).unwrap();
+            sync(
+                &staged.store,
+                &staged.checkout,
+                std::slice::from_ref(&staged.transcript),
+            )
+            .unwrap();
+            assert_eq!(
+                evidence(&staged),
+                expected,
+                "{name}: first sync after {cut} lines"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_session_moving_into_a_nested_worktree_keeps_its_edits() {
     // Claude Code rewrites `cwd` when a session enters one of the checkout's
     // worktrees; that is not another repository.
-    let s = setup(&fixture());
-    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     let worktree = "/work/repo/.claude/worktrees/x";
-    let issue = format!(
-        r#"{{"type":"assistant","uuid":"w1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"{worktree}","gitBranch":"x","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_w","name":"Write","input":{{"file_path":"{worktree}/w.txt","content":"w\n"}}}}]}}}}"#
-    );
-    let result = format!(
-        r#"{{"type":"user","uuid":"w2","parentUuid":"w1","sessionId":"{SESSION}","cwd":"{worktree}","gitBranch":"x","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_w","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"{worktree}/w.txt","content":"w\n","structuredPatch":[]}}}}"#
-    );
-    let mut bytes = fixture();
-    bytes.extend_from_slice(format!("{issue}\n{result}\n").as_bytes());
-    std::fs::write(&s.transcript, &bytes).unwrap();
-
+    let lines = fixture_and(write_from(worktree, "w.txt"));
+    let s = setup(joined(&lines).as_bytes());
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].skipped, None);
-    assert_eq!(report.new_observations, 3);
     let edit = s
         .store
         .snapshot()
@@ -1086,10 +980,4 @@ fn a_resumed_chunk_moving_into_a_nested_worktree_is_admitted() {
         })
         .unwrap();
     assert_eq!(edit.checkout, Path::new(worktree));
-    assert_eq!(
-        s.store.manifest().unwrap().cursors[&cursor_key(&s.transcript)]
-            .checkout
-            .as_deref(),
-        Some(Path::new("/work/repo"))
-    );
 }

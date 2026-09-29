@@ -11,9 +11,7 @@ use supersigil_record::observations::{
     CommandCategory, Content, FileState, Material, Observation, Outcome, Role,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
-use supersigil_session::claude_code::{
-    ParseOutcome, parse_transcript, parse_transcript_with_session,
-};
+use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
 
 fn edits(outcome: &ParseOutcome) -> Vec<&supersigil_record::observations::Edit> {
     outcome
@@ -395,23 +393,26 @@ fn malformed_line_is_counted_and_skipped() {
 }
 
 #[test]
-fn re_parsing_from_consumed_offset_continues_ordinals() {
+fn parsing_from_an_ordinal_returns_only_what_follows_it() {
     let bytes = fixture();
     let starts = line_starts(&bytes);
+    let whole = parse_transcript(&bytes, 0);
     let first = parse_transcript(&bytes[..starts[15]], 0);
-    let rest = parse_transcript(
-        &bytes[usize::try_from(first.consumed).unwrap()..],
-        first.next_ordinal,
-    );
-    assert_eq!(rest.next_ordinal, 19);
-    let all_turns: Vec<String> = turns(&first)
+    let rest = parse_transcript(&bytes, first.next_ordinal);
+
+    let chunked: Vec<_> = first
+        .observations
         .iter()
-        .chain(turns(&rest).iter())
-        .map(|t| t.id.as_str().to_owned())
+        .chain(&rest.observations)
+        .cloned()
         .collect();
-    assert_eq!(all_turns.len(), 17);
-    assert_eq!(all_turns[13], "a7");
-    assert_eq!(rest.session, Some(SessionId::new(SESSION)));
+    assert_eq!(chunked, whole.observations);
+    assert_eq!(rest.consumed, whole.consumed);
+    assert_eq!(rest.next_ordinal, whole.next_ordinal);
+    // What the session is, and where it ran, comes from the whole file.
+    assert_eq!(rest.session, whole.session);
+    assert_eq!(rest.checkout, whole.checkout);
+    assert_eq!(rest.first_time, whole.first_time);
 }
 
 #[test]
@@ -757,38 +758,6 @@ fn harness_error_overrides_a_passing_test_result() {
 }
 
 #[test]
-fn seeded_chunked_parse_matches_the_whole_file() {
-    let bytes = fixture();
-    let starts = line_starts(&bytes);
-    let whole = parse_transcript(&bytes, 0);
-
-    let first = parse_transcript(&bytes[..starts[15]], 0);
-    let consumed = usize::try_from(first.consumed).unwrap();
-    // Appended records need not repeat the session id; the cursor knows it.
-    let rest_text = String::from_utf8(bytes[consumed..].to_vec())
-        .unwrap()
-        .replace(&format!(r#""sessionId":"{SESSION}","#), "");
-    assert!(!rest_text.contains("sessionId"));
-    let seed = first.session.clone().unwrap();
-    let rest = parse_transcript_with_session(rest_text.as_bytes(), first.next_ordinal, Some(&seed));
-
-    assert_eq!(rest.session, Some(seed));
-    assert_eq!(rest.next_ordinal, whole.next_ordinal);
-    assert!(!rest.counts.unknown_records.contains_key("no-session"));
-    let chunked: Vec<_> = first
-        .observations
-        .iter()
-        .chain(&rest.observations)
-        .cloned()
-        .collect();
-    assert_eq!(chunked, whole.observations);
-
-    // Unseeded, the same chunk cannot place its records in any session.
-    let unseeded = parse_transcript(rest_text.as_bytes(), first.next_ordinal);
-    assert!(turns(&unseeded).is_empty());
-}
-
-#[test]
 fn conflicting_edit_paths_are_dropped_and_counted() {
     let edit_input = |path: &str| json!({"file_path": path, "old_string": "a", "new_string": "b", "replace_all": false});
     let edit_result = |path: &str| json!({"filePath": path, "oldString": "a", "newString": "b", "originalFile": "a\n", "structuredPatch": [], "replaceAll": false});
@@ -988,10 +957,10 @@ fn metadata_beyond_the_consumption_cutoff_is_not_learned() {
 #[test]
 fn malformed_lines_before_any_session_are_not_consumed() {
     let lines = "{not json\n";
-    let outcome = parse_transcript(lines.as_bytes(), 3);
+    let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.session, None);
     assert_eq!(outcome.consumed, 0);
-    assert_eq!(outcome.next_ordinal, 3);
+    assert_eq!(outcome.next_ordinal, 0);
     // What was seen is still reported.
     assert_eq!(outcome.counts.malformed_lines, 1);
 }
@@ -1033,9 +1002,10 @@ fn records_of_another_session_are_counted_not_staged() {
     assert!(!outcome.counts.is_empty());
     assert_eq!(outcome.consumed, lines.len() as u64);
 
-    // A seeded session is established too.
-    let appended = format!("{}\n", human("ub", "b"));
-    let outcome = parse_transcript_with_session(appended.as_bytes(), 4, Some(&SessionId::new("a")));
+    // Parsed from an ordinal, the session is still the one the file names
+    // first.
+    let appended = format!("{lines}{}\n", human("uc", "b"));
+    let outcome = parse_transcript(appended.as_bytes(), 4);
     assert!(turns(&outcome).is_empty());
     assert_eq!(outcome.counts.session_mismatch, 1);
 }
@@ -1264,23 +1234,6 @@ fn a_parent_agents_prompt_in_a_sidechain_is_a_delegation() {
 }
 
 #[test]
-fn a_seeded_parse_still_learns_the_checkout_and_branch() {
-    let lines = format!(
-        "{}\n{}\n",
-        json!({"type": "ai-title", "sessionId": "other", "cwd": "/elsewhere"}),
-        agent("a9", "s")
-    );
-    let outcome = parse_transcript_with_session(lines.as_bytes(), 7, Some(&SessionId::new("s")));
-    assert_eq!(outcome.session, Some(SessionId::new("s")));
-    // The record of another session teaches nothing.
-    assert_eq!(outcome.checkout, Some(PathBuf::from("/work/repo")));
-    assert_eq!(outcome.branch.as_deref(), Some("main"));
-    // A resumed parse is not the session's start.
-    assert_eq!(outcome.first_time, None);
-    assert!(!outcome.sidechain);
-}
-
-#[test]
 fn heredoc_bodies_and_comments_are_not_commands() {
     use supersigil_session::claude_code::classify_command;
     let report =
@@ -1393,35 +1346,26 @@ fn a_tool_result_in_a_user_record_without_a_uuid_still_resolves() {
 }
 
 #[test]
-fn records_without_cwd_inherit_the_seeded_checkout() {
-    use std::path::Path;
-    use supersigil_session::claude_code::{ParseSeed, parse_transcript_seeded};
-    let lines = tool_exchange(
+fn records_without_cwd_inherit_the_first_cwd() {
+    let exchange = tool_exchange(
         "Write",
         json!({"file_path": "/work/repo/x.rs", "content": "x\n"}),
         ok_block(),
         Some(json!({"type": "create", "filePath": "/work/repo/x.rs", "content": "x\n", "structuredPatch": []})),
     )
     .replace(r#""cwd":"/work/repo","#, "");
-    assert!(!lines.contains("\"cwd\""));
-    let session = SessionId::new("s");
+    assert!(!exchange.contains("\"cwd\""));
+    let lines = format!("{}\n{exchange}", human("u0", "s"));
 
-    let seeded = parse_transcript_seeded(
-        lines.as_bytes(),
-        0,
-        ParseSeed {
-            session: Some(&session),
-            checkout: Some(Path::new("/work/repo")),
-        },
-    );
-    let found = edits(&seeded);
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let found = edits(&outcome);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].checkout, PathBuf::from("/work/repo"));
     assert_eq!(found[0].path, PathBuf::from("x.rs"));
-    assert_eq!(seeded.counts.outside_checkout, 0);
-    assert_eq!(seeded.checkout, Some(PathBuf::from("/work/repo")));
+    assert_eq!(outcome.counts.outside_checkout, 0);
 
-    let unseeded = parse_transcript_with_session(lines.as_bytes(), 0, Some(&session));
-    assert!(edits(&unseeded).is_empty());
-    assert_eq!(unseeded.counts.outside_checkout, 1);
+    // With no record naming a working directory, the edit cannot be placed.
+    let outcome = parse_transcript(exchange.as_bytes(), 0);
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(outcome.counts.outside_checkout, 1);
 }

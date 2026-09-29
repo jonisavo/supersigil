@@ -13,39 +13,13 @@ impl ContentId {
     /// Hashes `bytes` with SHA-256.
     #[must_use]
     pub fn of(bytes: &[u8]) -> Self {
-        let mut hasher = ContentHasher::new();
-        hasher.update(bytes);
-        hasher.finish()
+        Self(format!("sha256:{}", hex::encode(Sha256::digest(bytes))))
     }
 
     /// The `sha256:<hex>` form.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-/// Computes a [`ContentId`] over bytes fed in pieces. Cloning it forks the
-/// hash, so a prefix can be hashed once and then continued.
-#[derive(Debug, Clone, Default)]
-pub struct ContentHasher(Sha256);
-
-impl ContentHasher {
-    /// A hasher that has seen no bytes.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Feeds more bytes.
-    pub fn update(&mut self, bytes: &[u8]) {
-        self.0.update(bytes);
-    }
-
-    /// The content id of every byte fed so far.
-    #[must_use]
-    pub fn finish(self) -> ContentId {
-        ContentId(format!("sha256:{}", hex::encode(self.0.finalize())))
     }
 }
 

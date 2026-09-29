@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use supersigil_record::store::{
     Association, SourceCursor, Store, StoreError, decode_storage_key, observations_log, storage_key,
 };
-use supersigil_record::{RecordId, Revision, SessionId};
+use supersigil_record::{ContentId, RecordId, Revision, SessionId};
 
 fn assoc() -> Association {
     Association {
@@ -204,8 +204,7 @@ fn dropped_transaction_leaves_manifest_unchanged_and_releases_lock() {
                 offset: 4,
                 next_ordinal: 1,
                 session: Some(session()),
-                prefix_hash: None,
-                checkout: None,
+                prefix_hash: ContentId::of(b"one\n"),
             },
         );
     };
@@ -229,8 +228,7 @@ fn cursors_and_associations_are_part_of_the_revision() {
             offset: 120,
             next_ordinal: 7,
             session: Some(session()),
-            prefix_hash: None,
-            checkout: None,
+            prefix_hash: ContentId::of(b"prefix"),
         },
     );
     tx.add_association(Association {

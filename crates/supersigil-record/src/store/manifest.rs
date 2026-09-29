@@ -24,25 +24,17 @@ pub struct Association {
 /// Where sync left off in one transcript file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceCursor {
-    /// Byte offset of the first unconsumed byte.
+    /// Byte offset of the first unconsumed byte, always the start of a line.
     pub offset: u64,
-    /// Ordinal to assign to the next record.
+    /// Ordinal of the line at `offset`.
     pub next_ordinal: u64,
-    /// Session the transcript belongs to, once known.
+    /// Session the transcript belongs to, once its start is recorded.
     pub session: Option<SessionId>,
     /// Content id of the consumed prefix, the transcript's bytes up to
-    /// `offset`. Sync compares it with the file before resuming, so a
-    /// transcript rewritten in place, even to the same length, is read again
-    /// from the start instead of being resumed inside unrelated bytes.
-    /// Absent in cursors written before it existed; sync does not trust such
-    /// a cursor past offset zero and reads the transcript from the start.
-    #[serde(default)]
-    pub prefix_hash: Option<ContentId>,
-    /// The transcript's checkout as first learned. Sync checks every read of
-    /// the transcript against it, including resumed reads whose records do
-    /// not repeat a working directory.
-    #[serde(default)]
-    pub checkout: Option<PathBuf>,
+    /// `offset`. Sync compares it with the file before appending, so a
+    /// transcript rewritten in place, even to the same length, has its
+    /// observations appended again from its first line.
+    pub prefix_hash: ContentId,
 }
 
 /// One revision of a record.

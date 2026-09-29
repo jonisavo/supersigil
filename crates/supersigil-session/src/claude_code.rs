@@ -49,10 +49,11 @@ const IGNORED_TYPES: &[&str] = &[
     "worktree-state",
 ];
 
-/// Result of parsing a byte range of a transcript.
+/// Result of parsing a transcript.
 #[derive(Debug, Default)]
 pub struct ParseOutcome {
-    /// Observations for every record below `consumed`.
+    /// Observations for every record from the requested ordinal up to
+    /// `consumed`.
     pub observations: Vec<Observation>,
     /// Byte offset up to which records were fully turned into observations.
     ///
@@ -61,22 +62,21 @@ pub struct ParseOutcome {
     /// further back at the issuing record of any tool use whose result lies
     /// beyond that point.
     ///
-    /// Zero when no session is known and `counts` is not empty: what was
-    /// lost cannot be recorded without a session, so nothing is consumed and
-    /// the same lines are read again on the next call, until a record names
-    /// the session and the counts can be attached to it.
+    /// The offset of the requested ordinal when no session is known and
+    /// `counts` is not empty: what was lost cannot be recorded without a
+    /// session, so nothing more is consumed and the next call reports the
+    /// same lines again, until a record names the session and the counts can
+    /// be attached to it.
     pub consumed: u64,
     /// Ordinal for the first record at or after `consumed`.
     pub next_ordinal: u64,
-    /// The session given to [`parse_transcript_with_session`], else the
-    /// session id from the first record of any type that carried a
+    /// The session id from the first record of any type that carried a
     /// non-empty one. Like `checkout`, `branch`, `first_time`, and
     /// `sidechain`, it is learned only from records below `consumed`: a
     /// record the next parse reads again may still change.
     pub session: Option<SessionId>,
     /// Working directory from the first record of the session that carried
-    /// one, below `consumed`; else the seeded checkout
-    /// ([`ParseSeed::checkout`]), if any.
+    /// one, below `consumed`.
     pub checkout: Option<PathBuf>,
     /// Branch from the first record of the session that carried one, below
     /// `consumed`.
@@ -87,7 +87,7 @@ pub struct ParseOutcome {
     /// Whether the record that named the session, and so began supplying
     /// `session`, `checkout`, `branch`, and `first_time`, was a sidechain
     /// (subagent) record. A subagent transcript's metadata describes the
-    /// subagent's start, not the session's. False when the session was given.
+    /// subagent's start, not the session's.
     pub sidechain: bool,
     /// Known record types that were skipped, by type.
     pub ignored_records: BTreeMap<String, u64>,
@@ -99,8 +99,8 @@ pub struct ParseOutcome {
     /// tool uses whose input and result name different files, tool results
     /// that match no tool use, turns of another session, tool uses without an
     /// id, and editing tools the capture does not read. When no session is
-    /// known, what was
-    /// seen before the cutoff is still counted, though `consumed` is zero.
+    /// known, what was seen before the cutoff is still counted, though none
+    /// of it is consumed.
     pub counts: CaptureCounts,
 }
 
@@ -174,7 +174,6 @@ struct PendingTool {
     name: String,
     input: Value,
     turn: TurnId,
-    ordinal: u64,
     time: Timestamp,
     cwd: PathBuf,
     /// Subagent of the issuing record, when inside a subagent.
@@ -249,13 +248,7 @@ impl LearnedAt {
 /// Mutable state while walking the records in order.
 struct Walk {
     outcome: ParseOutcome,
-    /// Whether the caller gave the session, so none is learned from records.
-    session_given: bool,
-    /// The checkout given by the caller, which records without `cwd`
-    /// inherit.
-    seeded_checkout: Option<PathBuf>,
     learned_at: LearnedAt,
-    start_ordinal: u64,
     effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
     /// Line indexes of each resolved tool use's issuing record and of the
@@ -278,19 +271,10 @@ impl Walk {
     /// session to attach their capture limitation to. The first non-empty
     /// `sessionId` names the session; the checkout, branch, and first time
     /// come from the first record of that session carrying each. An empty
-    /// `sessionId` is no session id at all. A session given by the caller
-    /// is fixed: only the checkout and branch are still learned, from records
-    /// that carry no session id or the given one. Whether the naming record
-    /// was a sidechain record is kept with the metadata.
+    /// `sessionId` is no session id at all. Whether the naming record was a
+    /// sidechain record is kept with the metadata.
     fn learn_session(&mut self, index: usize, raw: &RawRecord) {
         let id = raw.session_id.as_deref().filter(|id| !id.is_empty());
-        if self.session_given {
-            let given = self.outcome.session.as_ref().map(SessionId::as_str);
-            if id.is_none_or(|id| Some(id) == given) {
-                self.learn_place(index, raw);
-            }
-            return;
-        }
         let Some(id) = id else {
             return;
         };
@@ -303,16 +287,6 @@ impl Walk {
             Some(known) if known.as_str() == id => {}
             Some(_) => return,
         }
-        self.learn_place(index, raw);
-        if self.outcome.first_time.is_none() && raw.timestamp.is_some() {
-            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
-            self.learned_at.first_time = Some(index);
-        }
-    }
-
-    /// Learns the checkout and branch from the record on line `index`, where
-    /// not yet known.
-    fn learn_place(&mut self, index: usize, raw: &RawRecord) {
         if self.outcome.checkout.is_none() && raw.cwd.is_some() {
             self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
             self.learned_at.checkout = Some(index);
@@ -321,12 +295,16 @@ impl Walk {
             self.outcome.branch.clone_from(&raw.git_branch);
             self.learned_at.branch = Some(index);
         }
+        if self.outcome.first_time.is_none() && raw.timestamp.is_some() {
+            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
+            self.learned_at.first_time = Some(index);
+        }
     }
 
     /// Handles the record on line `index`: learns the session, counts
     /// skipped types, then stages its turn and pairs its tool uses and
-    /// results. A turn naming a session other than the established one
-    /// (learned or given) is counted and not staged, so one session's
+    /// results. A turn naming a session other than the learned one is
+    /// counted and not staged, so one session's
     /// evidence never lands in another. Only a typed message abandons
     /// unresolved tool uses; an assistant record never does, since one
     /// message's blocks arrive as consecutive assistant records.
@@ -368,7 +346,7 @@ impl Walk {
         };
         let turn_id = TurnId::new(uuid.clone());
         let time = Timestamp::new(raw.timestamp.clone().unwrap_or_default());
-        let ordinal = self.start_ordinal + index as u64;
+        let ordinal = index as u64;
         let content = raw.message.as_ref().map(|m| &m.content);
 
         let role = classify_role(&raw, content);
@@ -426,13 +404,12 @@ impl Walk {
         turn: &TurnId,
         time: &Timestamp,
     ) {
-        // A record without `cwd` ran where the transcript already was, when
-        // the caller knows that.
+        // A record without `cwd` ran where the transcript already was.
         let cwd = raw
             .cwd
             .as_deref()
             .map(PathBuf::from)
-            .or_else(|| self.seeded_checkout.clone())
+            .or_else(|| self.outcome.checkout.clone())
             .unwrap_or_default();
         let Some(items) = raw.message.as_mut().and_then(|m| m.content.as_array_mut()) else {
             return;
@@ -453,7 +430,6 @@ impl Walk {
                 name,
                 input: block.get_mut("input").map(Value::take).unwrap_or_default(),
                 turn: turn.clone(),
-                ordinal: self.start_ordinal + index as u64,
                 time: time.clone(),
                 cwd: cwd.clone(),
                 agent_id: raw.agent_id.clone(),
@@ -508,72 +484,19 @@ impl Walk {
     }
 }
 
-/// Parses complete lines of a transcript starting at ordinal `start_ordinal`.
+/// Parses every complete line of a transcript and returns what the lines
+/// from ordinal `from_ordinal` on contribute, up to the consumption cutoff.
+/// Lines below `from_ordinal` are walked again for their context (the
+/// session, its checkout, and the tool uses they issued) but contribute no
+/// observations or counts, so parsing a growing file from where the last
+/// parse stopped yields the same observations as parsing it whole.
 ///
 /// See the module docs and [`ParseOutcome`] for what is and is not consumed.
-/// Equivalent to [`parse_transcript_with_session`] without a known session.
 #[must_use]
-pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
-    parse_transcript_with_session(bytes, start_ordinal, None)
-}
-
-/// Parses complete lines of a transcript starting at ordinal `start_ordinal`,
-/// continuing a transcript whose session is already known.
-///
-/// Sync resumes mid-file, where appended records need not repeat the
-/// session id. With `session` given, records without a `sessionId` belong to
-/// it and [`ParseOutcome::session`] is that session, so parsing a file in
-/// chunks yields the same observations as parsing it whole. With a session
-/// given, the checkout and branch are still read from records of that
-/// session, so every chunk can be checked against the checkout; the first
-/// time is only read when no session is given. Equivalent to
-/// [`parse_transcript_seeded`] with only the session seeded.
-#[must_use]
-pub fn parse_transcript_with_session(
-    bytes: &[u8],
-    start_ordinal: u64,
-    session: Option<&SessionId>,
-) -> ParseOutcome {
-    parse_transcript_seeded(
-        bytes,
-        start_ordinal,
-        ParseSeed {
-            session,
-            checkout: None,
-        },
-    )
-}
-
-/// What a resumed parse already knows about its transcript.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ParseSeed<'a> {
-    /// The transcript's session; see [`parse_transcript_with_session`].
-    pub session: Option<&'a SessionId>,
-    /// The transcript's checkout as first learned. Tool uses on records
-    /// without `cwd` ran there, and [`ParseOutcome::checkout`] is this
-    /// checkout when no record below the cutoff names one.
-    pub checkout: Option<&'a Path>,
-}
-
-/// Parses complete lines of a transcript starting at ordinal `start_ordinal`,
-/// continuing from what `seed` knows. See [`parse_transcript_with_session`]
-/// for the session and [`ParseSeed::checkout`] for the checkout.
-#[must_use]
-pub fn parse_transcript_seeded(
-    bytes: &[u8],
-    start_ordinal: u64,
-    seed: ParseSeed<'_>,
-) -> ParseOutcome {
-    let ParseSeed { session, checkout } = seed;
+pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
     let mut walk = Walk {
-        outcome: ParseOutcome {
-            session: session.cloned(),
-            ..ParseOutcome::default()
-        },
-        session_given: session.is_some(),
-        seeded_checkout: checkout.map(Path::to_path_buf),
+        outcome: ParseOutcome::default(),
         learned_at: LearnedAt::default(),
-        start_ordinal,
         effects: Vec::new(),
         pending: Vec::new(),
         resolved: Vec::new(),
@@ -605,16 +528,13 @@ pub fn parse_transcript_seeded(
         pending,
         resolved,
         learned_at,
-        seeded_checkout,
-        ..
     } = walk;
-    let cutoff = consumption_cutoff(starts.len(), &pending, &resolved);
-    let consumed = starts.get(cutoff).copied().unwrap_or(complete_end);
+    let from = usize::try_from(from_ordinal)
+        .unwrap_or(usize::MAX)
+        .min(starts.len());
+    let mut cutoff = consumption_cutoff(starts.len(), &pending, &resolved).max(from);
     learned_at.truncate(&mut outcome, cutoff);
-    if outcome.checkout.is_none() {
-        outcome.checkout = seeded_checkout;
-    }
-    effects.retain(|(index, _)| *index < cutoff);
+    effects.retain(|(index, _)| (from..cutoff).contains(index));
     for (_, effect) in effects {
         match effect {
             Effect::Observation(observation) => outcome.observations.push(*observation),
@@ -624,12 +544,10 @@ pub fn parse_transcript_seeded(
     // Counts without a session cannot be recorded; hold the lines back
     // until a record names the session.
     if outcome.session.is_none() && !outcome.counts.is_empty() {
-        outcome.consumed = 0;
-        outcome.next_ordinal = start_ordinal;
-    } else {
-        outcome.consumed = consumed as u64;
-        outcome.next_ordinal = start_ordinal + cutoff as u64;
+        cutoff = from;
     }
+    outcome.consumed = starts.get(cutoff).copied().unwrap_or(complete_end) as u64;
+    outcome.next_ordinal = cutoff as u64;
     outcome
 }
 
@@ -990,7 +908,7 @@ fn build_edit(
             .ended
             .cloned()
             .unwrap_or_else(|| tool.time.clone()),
-        source_ordinal: tool.ordinal,
+        source_ordinal: tool.record_index as u64,
         agent_id: tool.agent_id.clone(),
         transcript: None,
     }))
@@ -1023,7 +941,7 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
         started: tool.time.clone(),
         ended: None,
         checkout: tool.cwd.clone(),
-        source_ordinal: tool.ordinal,
+        source_ordinal: tool.record_index as u64,
         agent_id: tool.agent_id.clone(),
         transcript: None,
     }
