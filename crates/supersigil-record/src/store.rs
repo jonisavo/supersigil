@@ -25,7 +25,7 @@ mod write;
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub use manifest::{Association, Manifest, SCHEMA_VERSION, SourceCursor};
 pub use snapshot::RecordSnapshot;
@@ -83,10 +83,15 @@ pub fn observations_log(session: &SessionId) -> String {
 }
 
 /// Checks that a log or document name is canonical: `/`-separated segments,
-/// each non-empty and neither `.` nor `..`, with no `\` or NUL byte and no
-/// leading `/`. The raw string is checked rather than `Path::components()`,
-/// which silently drops interior `.` and repeated separators and so would
-/// let two spellings name one file.
+/// each non-empty and neither `.` nor `..`, with no `\`, `:`, or NUL byte
+/// and no leading `/`. The raw string is checked rather than only
+/// `Path::components()`, which silently drops interior `.` and repeated
+/// separators and so would let two spellings name one file.
+///
+/// The components are checked as well: a name the platform parses as a
+/// drive prefix or a rooted path (`C:/x`, `C:x`, `//server/share`) would make
+/// `root.join(name)` discard the record root. Rejecting `:` outright makes
+/// the drive forms invalid on every platform, not only where they parse.
 pub(crate) fn validate_name(name: &str) -> Result<(), StoreError> {
     let canonical = !name.is_empty()
         && !name.starts_with('/')
@@ -94,8 +99,11 @@ pub(crate) fn validate_name(name: &str) -> Result<(), StoreError> {
             !segment.is_empty()
                 && segment != "."
                 && segment != ".."
-                && !segment.contains(['\\', '\0'])
-        });
+                && !segment.contains(['\\', '\0', ':'])
+        })
+        && Path::new(name)
+            .components()
+            .all(|component| !matches!(component, Component::Prefix(_) | Component::RootDir));
     if canonical {
         Ok(())
     } else {
@@ -157,6 +165,16 @@ pub enum StoreError {
     /// A log or document name is not a plain relative path.
     #[error("invalid record file name: {0:?}")]
     InvalidName(String),
+    /// The manifest was written with a schema this binary does not support.
+    /// The record is refused rather than rewritten, since rewriting it would
+    /// drop whatever the newer schema added.
+    #[error("record schema version {found} is not supported (this binary supports {supported})")]
+    UnsupportedSchema {
+        /// Schema version found in the manifest.
+        found: u32,
+        /// The only schema version this binary reads and writes.
+        supported: u32,
+    },
 }
 
 pub(crate) fn io_error(path: &Path, source: io::Error) -> StoreError {
@@ -242,7 +260,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns an error if the manifest cannot be read or parsed.
+    /// Returns an error if the manifest cannot be read or parsed, and
+    /// [`StoreError::UnsupportedSchema`] if it was written with a schema
+    /// version other than [`SCHEMA_VERSION`].
     pub fn manifest(&self) -> Result<Manifest, StoreError> {
         manifest::read(&self.root)
     }
@@ -251,7 +271,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns an error if the manifest cannot be read.
+    /// Returns an error if the manifest cannot be read, including
+    /// [`StoreError::UnsupportedSchema`] for a manifest of another schema.
     pub fn snapshot(&self) -> Result<RecordSnapshot, StoreError> {
         Ok(RecordSnapshot::new(self.root.clone(), self.manifest()?))
     }
@@ -260,7 +281,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Locked`] if another writer is active.
+    /// Returns [`StoreError::Locked`] if another writer is active, and
+    /// [`StoreError::UnsupportedSchema`] for a manifest of another schema,
+    /// which is never rewritten.
     pub fn begin(&self) -> Result<WriteTx<'_>, StoreError> {
         WriteTx::begin(self)
     }

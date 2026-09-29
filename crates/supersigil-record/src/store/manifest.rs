@@ -78,6 +78,9 @@ impl Manifest {
     }
 }
 
+/// Reads and parses the manifest, refusing any schema version other than
+/// [`SCHEMA_VERSION`]. Serde ignores fields it does not know, so a newer
+/// manifest read by this binary and written back would silently lose them.
 pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
     let path = root.join(MANIFEST_FILE);
     let bytes = fs::read(&path).map_err(|e| {
@@ -87,7 +90,15 @@ pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
             io_error(&path, e)
         }
     })?;
-    serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
+    let manifest: Manifest =
+        serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })?;
+    if manifest.schema_version != SCHEMA_VERSION {
+        return Err(StoreError::UnsupportedSchema {
+            found: manifest.schema_version,
+            supported: SCHEMA_VERSION,
+        });
+    }
+    Ok(manifest)
 }
 
 /// Publishes the initial manifest atomically and without overwriting.

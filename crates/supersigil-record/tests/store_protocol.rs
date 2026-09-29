@@ -666,3 +666,63 @@ fn a_leftover_temporary_link_cannot_truncate_the_manifest() {
         vec![stale.file_name().unwrap().to_string_lossy().into_owned()]
     );
 }
+
+#[test]
+fn drive_prefixed_and_rooted_names_are_rejected_on_every_platform() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    for bad in [
+        "C:/outside.jsonl",
+        "C:outside.jsonl",
+        "//server/share/x.jsonl",
+    ] {
+        assert!(
+            matches!(tx.append_log(bad, &[b"x"]), Err(StoreError::InvalidName(_))),
+            "append_log accepted {bad:?}"
+        );
+        assert!(
+            matches!(tx.put_document(bad, b"{}"), Err(StoreError::InvalidName(_))),
+            "put_document accepted {bad:?}"
+        );
+    }
+    drop(tx);
+    let snapshot = store.snapshot().unwrap();
+    assert!(matches!(
+        snapshot.read_log("C:/outside.jsonl"),
+        Err(StoreError::InvalidName(_))
+    ));
+}
+
+#[test]
+fn a_manifest_with_an_unsupported_schema_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    Store::create(dir.path(), assoc()).unwrap();
+    let manifest_path = dir.path().join("manifest.json");
+    let text = fs::read_to_string(&manifest_path).unwrap();
+    let newer = text.replace("\"schema_version\": 1", "\"schema_version\": 2");
+    assert_ne!(newer, text);
+    fs::write(&manifest_path, &newer).unwrap();
+
+    let store = Store::open(dir.path()).unwrap();
+    assert!(matches!(
+        store.manifest(),
+        Err(StoreError::UnsupportedSchema {
+            found: 2,
+            supported: 1
+        })
+    ));
+    assert!(matches!(
+        store.snapshot(),
+        Err(StoreError::UnsupportedSchema {
+            found: 2,
+            supported: 1
+        })
+    ));
+    assert!(matches!(
+        store.begin(),
+        Err(StoreError::UnsupportedSchema { .. })
+    ));
+    // Nothing rewrote the newer record.
+    assert_eq!(fs::read_to_string(&manifest_path).unwrap(), newer);
+}
