@@ -391,4 +391,36 @@ fn nextest_failures_are_failed() {
         ),
         Some(Outcome::Passed)
     );
+    assert_eq!(
+        test_outcome(
+            "     Summary [   0.512s] 3 tests run: 3 passed, 0 failed, 0 skipped\n",
+            ""
+        ),
+        Some(Outcome::Passed)
+    );
+}
+
+#[test]
+fn counts_stop_at_the_consumption_cutoff() {
+    let pending = concat!(
+        r#"{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}]}}"#,
+        "\n",
+        r#"{"type":"ai-title","sessionId":"s","title":"x"}"#,
+        "\n",
+        "{not json\n",
+    );
+    let outcome = parse_transcript(pending.as_bytes(), 0);
+    assert_eq!(outcome.consumed, 0);
+    assert_eq!(outcome.next_ordinal, 0);
+    assert!(outcome.unknown_records.is_empty());
+    assert_eq!(outcome.malformed_lines, 0);
+    assert_eq!(outcome.abandoned_tool_uses, 0);
+
+    let full = format!(
+        "{pending}{}\n",
+        r#"{"type":"user","uuid":"u1","parentUuid":"a1","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false}}"#
+    );
+    let outcome = parse_transcript(full.as_bytes(), 0);
+    assert_eq!(outcome.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(outcome.malformed_lines, 1);
 }

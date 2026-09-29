@@ -133,9 +133,22 @@ struct Record {
     raw: RawRecord,
 }
 
+/// A per-record tally, kept with the line it came from so that counts for
+/// lines beyond the consumption cutoff can be dropped.
+#[derive(Debug)]
+enum Count {
+    Ignored(String),
+    Unknown(String),
+    Malformed,
+    Outside,
+    Abandoned,
+    Failed,
+}
+
 /// Complete lines of the input, split into records.
 struct Lines {
     records: Vec<Record>,
+    malformed: Vec<usize>,
     starts: Vec<usize>,
     complete_end: usize,
 }
@@ -146,6 +159,7 @@ struct Lines {
 fn split_records(bytes: &[u8], start_ordinal: u64, outcome: &mut ParseOutcome) -> Lines {
     let mut lines = Lines {
         records: Vec::new(),
+        malformed: Vec::new(),
         starts: Vec::new(),
         complete_end: 0,
     };
@@ -165,7 +179,7 @@ fn split_records(bytes: &[u8], start_ordinal: u64, outcome: &mut ParseOutcome) -
                 ordinal: start_ordinal + index as u64,
                 raw,
             }),
-            Err(_) => outcome.malformed_lines += 1,
+            Err(_) => lines.malformed.push(index),
         }
     }
     lines.complete_end = cursor;
@@ -176,6 +190,7 @@ fn split_records(bytes: &[u8], start_ordinal: u64, outcome: &mut ParseOutcome) -
 struct Walk {
     outcome: ParseOutcome,
     staged: Vec<(usize, Observation)>,
+    counts: Vec<(usize, Count)>,
     pending: Vec<PendingTool>,
     session: Option<SessionId>,
 }
@@ -188,19 +203,13 @@ impl Walk {
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
-                *self
-                    .outcome
-                    .ignored_records
-                    .entry(other.to_owned())
-                    .or_insert(0) += 1;
+                self.counts
+                    .push((record.index, Count::Ignored(other.to_owned())));
                 return;
             }
             other => {
-                *self
-                    .outcome
-                    .unknown_records
-                    .entry(other.to_owned())
-                    .or_insert(0) += 1;
+                self.counts
+                    .push((record.index, Count::Unknown(other.to_owned())));
                 return;
             }
         }
@@ -215,11 +224,11 @@ impl Walk {
             self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
         }
         let Some(session_id) = self.session.clone() else {
-            self.count_unknown("no-session".to_owned());
+            self.count_unknown(record.index, "no-session".to_owned());
             return;
         };
         let Some(uuid) = &raw.uuid else {
-            self.count_unknown(format!("{}-without-uuid", raw.kind));
+            self.count_unknown(record.index, format!("{}-without-uuid", raw.kind));
             return;
         };
         let turn_id = TurnId::new(uuid.clone());
@@ -255,15 +264,15 @@ impl Walk {
         }
     }
 
-    fn count_unknown(&mut self, key: String) {
-        *self.outcome.unknown_records.entry(key).or_insert(0) += 1;
+    fn count_unknown(&mut self, index: usize, key: String) {
+        self.counts.push((index, Count::Unknown(key)));
     }
 
     /// Counts every unresolved tool use as abandoned and emits shell
     /// commands among them with an unavailable result.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in self.pending.drain(..) {
-            self.outcome.abandoned_tool_uses += 1;
+            self.counts.push((tool.record_index, Count::Abandoned));
             if let Some(observation) = build_abandoned(&tool, session) {
                 self.staged.push((tool.record_index, observation));
             }
@@ -329,7 +338,10 @@ impl Walk {
                 structured,
                 is_error,
                 time,
-                &mut self.outcome,
+                &mut Tally {
+                    index: record.index,
+                    counts: &mut self.counts,
+                },
             ) {
                 self.staged.push((record.index, observation));
             }
@@ -347,6 +359,11 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
     let mut walk = Walk {
         outcome,
         staged: Vec::new(),
+        counts: lines
+            .malformed
+            .iter()
+            .map(|i| (*i, Count::Malformed))
+            .collect(),
         pending: Vec::new(),
         session: None,
     };
@@ -359,10 +376,13 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
     let Walk {
         mut outcome,
         mut staged,
+        counts,
         pending,
         ..
     } = walk;
+    let mut cutoff = lines.starts.len();
     if let Some(cut) = pending.iter().map(|p| p.record_index).min() {
+        cutoff = cut;
         outcome.consumed = lines.starts[cut] as u64;
         outcome.next_ordinal = start_ordinal + cut as u64;
         staged.retain(|(index, _)| *index < cut);
@@ -371,6 +391,16 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
         outcome.next_ordinal = start_ordinal + lines.starts.len() as u64;
     }
     outcome.observations = staged.into_iter().map(|(_, o)| o).collect();
+    for (_, count) in counts.into_iter().filter(|(index, _)| *index < cutoff) {
+        match count {
+            Count::Ignored(kind) => *outcome.ignored_records.entry(kind).or_insert(0) += 1,
+            Count::Unknown(kind) => *outcome.unknown_records.entry(kind).or_insert(0) += 1,
+            Count::Malformed => outcome.malformed_lines += 1,
+            Count::Outside => outcome.outside_checkout += 1,
+            Count::Abandoned => outcome.abandoned_tool_uses += 1,
+            Count::Failed => outcome.failed_tool_uses += 1,
+        }
+    }
     outcome
 }
 
@@ -582,23 +612,29 @@ fn multi_edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     }
 }
 
+/// Where a resolved tool use records its counts.
+struct Tally<'a> {
+    index: usize,
+    counts: &'a mut Vec<(usize, Count)>,
+}
+
 fn build_edit(
     tool: &PendingTool,
     session: &SessionId,
     result: Option<&Value>,
     is_error: bool,
     ended: &Timestamp,
-    outcome: &mut ParseOutcome,
+    tally: &mut Tally,
 ) -> Option<Observation> {
     if is_error {
         // The harness says the tool failed. Whatever the input asked for did
         // not necessarily reach the disk, so there is no edit and no hash to
         // compute.
-        outcome.failed_tool_uses += 1;
+        tally.counts.push((tally.index, Count::Failed));
         return None;
     }
     let Some(path) = relative_path(tool, result) else {
-        outcome.outside_checkout += 1;
+        tally.counts.push((tally.index, Count::Outside));
         return None;
     };
     let parts = match tool.name.as_str() {
@@ -669,12 +705,10 @@ fn build_resolved(
     result: Option<&Value>,
     is_error: bool,
     ended: &Timestamp,
-    outcome: &mut ParseOutcome,
+    tally: &mut Tally,
 ) -> Option<Observation> {
     match tool.name.as_str() {
-        "Edit" | "Write" | "MultiEdit" => {
-            build_edit(tool, session, result, is_error, ended, outcome)
-        }
+        "Edit" | "Write" | "MultiEdit" => build_edit(tool, session, result, is_error, ended, tally),
         "Bash" => Some(build_command(tool, session, result, is_error, ended)),
         _ => None,
     }
@@ -755,7 +789,7 @@ pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
         .lines()
         .find(|l| l.contains("tests run:") || l.contains("test run:"));
     let failed = text.contains("test result: FAILED")
-        || nextest_summary.is_some_and(|l| l.contains("failed"))
+        || nextest_summary.is_some_and(summary_has_failures)
         || text.contains("FAILED");
     if failed {
         return Some(Outcome::Failed);
@@ -764,4 +798,16 @@ pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
         return Some(Outcome::Passed);
     }
     None
+}
+
+/// Whether a nextest summary line reports a non-zero failed count, such as
+/// `2 passed, 1 failed`. `0 failed` is not a failure.
+fn summary_has_failures(line: &str) -> bool {
+    let tokens: Vec<&str> = line
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|t| !t.is_empty())
+        .collect();
+    tokens
+        .windows(2)
+        .any(|w| w[1] == "failed" && w[0].parse::<u64>().is_ok_and(|n| n > 0))
 }
