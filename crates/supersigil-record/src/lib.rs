@@ -1,13 +1,13 @@
-//! Local, revisioned record of development history.
+//! Stores agent session history and computes restores and gaps between edits.
 //!
-//! The record has layers with different rules. Observations are immutable
-//! events appended to per-session logs. Derivations are rebuildable findings
-//! computed from observations and written as immutable documents tagged with
-//! the observation revision and algorithm version that produced them. Later
-//! plans add interpretations and contributions on the same store.
+//! [`Observation`] records turns, edits, commands, and capture limitations in
+//! append-only session logs. [`derive::derive`] compares the recorded file states
+//! to find restores and discontinuities. Each [`DerivationSet`] identifies the
+//! input revision and algorithm version used to compute it.
 //!
-//! Readers only ever see what the manifest pins, so a reader never mixes two
-//! revisions even while a writer is appending.
+//! [`Store`] saves these records as JSON files. A [`RecordSnapshot`] reads the
+//! log lengths and document names listed in one manifest, so later writes do
+//! not change what that snapshot returns.
 
 pub mod derivations;
 pub mod derive;

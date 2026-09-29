@@ -1,4 +1,4 @@
-//! The manifest pins exactly one revision; readers never mix two.
+//! Tests snapshot isolation, atomic publication, writer locking, and crash recovery.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
@@ -19,7 +19,7 @@ fn session() -> SessionId {
     SessionId::new("s1")
 }
 
-/// A small observation of `session`, told apart from others by `second`.
+/// Creates a session-end event with `second` as the seconds field of its timestamp.
 fn observation(session: &str, second: u32) -> Observation {
     Observation::SessionEnd(SessionEnd {
         session: SessionId::new(session),
@@ -28,7 +28,7 @@ fn observation(session: &str, second: u32) -> Observation {
     })
 }
 
-/// An empty derivation set of `session`, read at `revision`.
+/// Creates an empty derivation set for `session` at `revision`.
 fn derivation_set(session: &str, revision: Revision) -> DerivationSet {
     DerivationSet {
         session: SessionId::new(session),
@@ -48,7 +48,7 @@ fn dir_names(dir: &std::path::Path) -> Vec<String> {
     names
 }
 
-/// Every file under `dir`, as `/`-separated paths relative to it.
+/// Lists all files under `dir`, sorted by relative path with `/` separators.
 fn files_under(dir: &std::path::Path) -> Vec<String> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir).unwrap() {

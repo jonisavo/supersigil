@@ -1,4 +1,4 @@
-//! A write transaction: lock, stage, fsync, publish.
+//! Writes record data under an exclusive lock and commits it through the manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -13,25 +13,35 @@ use crate::derivations::DerivationSet;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 
-/// An open write transaction. Dropping it without [`WriteTx::commit`]
-/// releases the lock and leaves the manifest untouched.
+/// Holds the writer lock while adding data for the next record revision.
 ///
-/// The lock is an exclusive OS lock on `write.lock` held through `_lock`.
-/// The kernel releases it when the handle drops or the process dies, so a
-/// killed writer never blocks the next one. The file itself is never removed.
+/// Writes reach the data files before [`Self::commit`], but readers cannot see
+/// them until commit publishes the new manifest. Dropping the transaction
+/// without committing leaves the manifest unchanged and releases the lock.
+/// Uncommitted log bytes and document files may remain on disk.
+///
+/// The OS lock on `write.lock` is released when the transaction drops or the
+/// process exits. The lock file stays in place.
 #[derive(Debug)]
 pub struct WriteTx<'a> {
     store: &'a Store,
-    /// The manifest as it will be published, with staged changes applied.
+    /// Manifest with this transaction's changes, ready to publish at commit.
     manifest: Manifest,
-    /// The manifest as it was when the lock was taken.
+    /// Manifest read after acquiring the writer lock.
     starting: Manifest,
     _lock: File,
-    /// Files to fsync at commit; a set, so a log appended twice syncs once.
+    /// Files to sync at commit, with duplicate paths removed.
     touched: BTreeSet<PathBuf>,
 }
 
 impl<'a> WriteTx<'a> {
+    /// Acquires the writer lock and reads the starting manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Locked`] if another writer holds the lock,
+    /// [`StoreError::Io`] if a lock operation fails, or an error from reading
+    /// and validating the manifest.
     pub(super) fn begin(store: &'a Store) -> Result<Self, StoreError> {
         let lock_path = store.root().join(LOCK_FILE);
         let lock = OpenOptions::new()
@@ -57,28 +67,34 @@ impl<'a> WriteTx<'a> {
         })
     }
 
-    /// The manifest as it will be published, including staged changes.
+    /// Returns the manifest with this transaction's changes applied.
+    ///
+    /// Its revision number advances only during [`Self::commit`].
     #[must_use]
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
 
-    /// A read view pinned to the manifest this transaction started from.
-    /// This transaction's own appends are not visible through it, so
-    /// derivations computed from it plus the staged observations are
-    /// complete and consistent.
+    /// Creates a snapshot of the revision this transaction started from.
+    ///
+    /// It excludes this transaction's writes. When computing derivations for
+    /// the next revision, combine its observations with those being appended.
     #[must_use]
     pub fn snapshot(&self) -> RecordSnapshot {
         RecordSnapshot::new(self.store.root().to_path_buf(), self.starting.clone())
     }
 
-    /// Appends observations to their sessions' logs as JSON lines,
-    /// numbering each session new to the record.
+    /// Appends observations as JSON lines to each session's log.
+    ///
+    /// Assigns numbers to new sessions and preserves input order within each
+    /// session. Does not remove duplicate events. The appended observations
+    /// become visible to new snapshots after [`Self::commit`].
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Corrupt`] for a log shorter than its pinned
-    /// length, or an error if serialization or the append fails.
+    /// Returns [`StoreError::Corrupt`] if a log is shorter than the length in
+    /// the transaction's manifest, [`StoreError::Json`] if serialization fails,
+    /// or [`StoreError::Io`] if a directory or file operation fails.
     pub fn append_observations(&mut self, observations: &[Observation]) -> Result<(), StoreError> {
         let mut lines: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
         for observation in observations {
@@ -96,8 +112,12 @@ impl<'a> WriteTx<'a> {
         Ok(())
     }
 
-    /// Appends whole lines to a log. Any bytes beyond the pinned length (a
-    /// crash tail) are truncated first.
+    /// Removes bytes beyond the transaction's recorded log length, then appends `bytes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the log is shorter than the recorded
+    /// length or [`StoreError::Io`] if a directory or file operation fails.
     fn append_log(&mut self, log: &str, bytes: &[u8]) -> Result<(), StoreError> {
         let path = self.store.root().join(log);
         if let Some(parent) = path.parent() {
@@ -128,17 +148,20 @@ impl<'a> WriteTx<'a> {
         Ok(())
     }
 
-    /// Writes a session's derivations as this revision's document, numbering
-    /// the session if it is new to the record.
+    /// Writes a session's derivations to a file named for the next store revision.
+    ///
+    /// Assigns a number to a new session. Calling this again for the same
+    /// session in this transaction replaces the pending document. Previously
+    /// committed documents remain unchanged.
     ///
     /// # Errors
     ///
-    /// Returns an error if serialization or the write fails.
+    /// Returns [`StoreError::Json`] if serialization fails or [`StoreError::Io`]
+    /// if a directory or file operation fails.
     ///
     /// # Panics
     ///
-    /// Panics if the next revision number would overflow `u64`, as
-    /// [`Revision::next`] does.
+    /// Panics if the starting revision is [`u64::MAX`].
     pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
         let logical = derivations_document(self.session_number(&set.session));
         let rel = format!("{logical}.r{}.json", self.starting.revision.next().get());
@@ -156,8 +179,7 @@ impl<'a> WriteTx<'a> {
         Ok(())
     }
 
-    /// The session's number. A session new to the record gets the next one,
-    /// the count of sessions numbered so far.
+    /// Returns the session's number, assigning the next unused number if needed.
     fn session_number(&mut self, session: &SessionId) -> u64 {
         if let Some(&number) = self.manifest.sessions.get(session) {
             return number;
@@ -167,13 +189,14 @@ impl<'a> WriteTx<'a> {
         number
     }
 
-    /// Records where sync left off in a transcript.
+    /// Sets the sync cursor for the transcript path `key` in the pending manifest.
     pub fn set_cursor(&mut self, key: &str, cursor: SourceCursor) {
         self.manifest.cursors.insert(key.to_owned(), cursor);
     }
 
-    /// Adds a checkout association unless one with the same path exists.
-    /// Returns whether it was added.
+    /// Adds a checkout to the pending manifest if its path is not already listed.
+    ///
+    /// Returns `true` if added, or `false` if an equal path was already present.
     pub fn add_association(&mut self, association: Association) -> bool {
         let known = self
             .manifest
@@ -186,23 +209,26 @@ impl<'a> WriteTx<'a> {
         !known
     }
 
-    /// Fsyncs every touched file and every directory from each file's parent
-    /// up to the record root, checks the manifest has not moved, and
-    /// publishes the next revision. Where directories can be synced, nothing
-    /// the new manifest references can be lost to a power failure after it
-    /// is published; on Windows, which cannot open a directory to sync it,
-    /// directory syncing is skipped and new entries rely on the file system.
+    /// Publishes this transaction's changes and returns the new revision number.
+    ///
+    /// Syncs changed files and their parent directories up to the record root,
+    /// then checks that the on-disk revision still matches the starting one.
+    /// Increments the revision and publishes the manifest by atomic rename.
+    ///
+    /// On Windows, directories that cannot be opened are not synced. Their
+    /// entries then rely on the file system's durability guarantees.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if the on-disk revision is not the one
-    /// this transaction started from, or an I/O error, including a failure to
-    /// sync a directory where the platform supports it.
+    /// Returns [`StoreError::Conflict`] if the on-disk revision changed,
+    /// errors from reading or validating the current manifest, or
+    /// [`StoreError::Json`] or [`StoreError::Io`] if syncing or publishing fails.
+    /// An error syncing the record directory after the rename can occur after
+    /// the new manifest is already visible.
     ///
     /// # Panics
     ///
-    /// Panics if the next revision number would overflow `u64`, as
-    /// [`Revision::next`] does.
+    /// Panics if the starting revision is [`u64::MAX`].
     pub fn commit(mut self) -> Result<Revision, StoreError> {
         let root = self.store.root();
         let mut dirs = BTreeSet::new();

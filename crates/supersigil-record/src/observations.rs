@@ -1,7 +1,8 @@
-//! Observation layer: immutable events appended to a per-session log.
+//! Session events captured from agent transcripts.
 //!
-//! Nothing here is ever rewritten. A session's end is its own event, and a
-//! turn does not list its events because they arrive after it.
+//! The store appends observations to session logs without changing existing
+//! entries. A session ending adds a [`SessionEnd`] event. Edits and commands
+//! refer to the [`Turn`] that issued them.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -10,13 +11,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
-/// One immutable event in a session's log.
+/// One captured event or capture limitation in a session's log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Observation {
-    /// A session was first seen.
+    /// A transcript first identified its session.
     SessionStart(SessionStart),
-    /// A session ended, as far as the source can tell.
+    /// The source reported that a session ended.
     SessionEnd(SessionEnd),
     /// A conversation turn.
     Turn(Turn),
@@ -24,12 +25,12 @@ pub enum Observation {
     Edit(Edit),
     /// A shell command the agent ran.
     Command(Command),
-    /// Where the capture of a transcript range may be missing evidence.
+    /// Transcript records or tool calls that the parser could not capture.
     CaptureLimitation(CaptureLimitation),
 }
 
 impl Observation {
-    /// The session this event belongs to.
+    /// Returns the session ID of this observation.
     #[must_use]
     pub fn session(&self) -> &SessionId {
         match self {
@@ -43,11 +44,14 @@ impl Observation {
     }
 }
 
-/// The session start that describes a session, as a read model over its
-/// [`SessionStart`] observations: each transcript records one when it first
-/// names the session. The earliest start by `time` from a main transcript
-/// (not a sidechain) wins; without one, the earliest start overall. Ties
-/// keep log order. `None` when there is no start.
+/// Selects the start event to use as a session's metadata.
+///
+/// Prefers the earliest [`SessionStart::time`] from a main transcript. If
+/// there are only subagent transcripts, selects the earliest of those.
+/// Equal timestamps keep the first event in the slice. Returns `None` if
+/// there are no start events.
+///
+/// The caller must supply observations for a single session.
 #[must_use]
 pub fn session_start(observations: &[Observation]) -> Option<&SessionStart> {
     observations
@@ -59,7 +63,7 @@ pub fn session_start(observations: &[Observation]) -> Option<&SessionStart> {
         .min_by_key(|start| (start.sidechain, start.time.as_str()))
 }
 
-/// Which agent harness produced a session.
+/// Agent application that produced the transcript.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
@@ -67,29 +71,31 @@ pub enum Source {
     ClaudeCode,
 }
 
-/// First observation of a session.
+/// Session metadata captured when a transcript first identifies its session.
+///
+/// A session can have starts from several transcripts. Use [`session_start`]
+/// to select one for display.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionStart {
     /// Session identifier from the source.
     pub session: SessionId,
-    /// Producing harness.
+    /// Agent application that wrote the transcript.
     pub source: Source,
-    /// Source-native identifiers. For Claude Code, `transcript` is the
-    /// transcript's file name and `path` its canonical path.
+    /// Identifiers supplied by the source. For Claude Code, `transcript` is
+    /// the transcript's file name and `path` is its canonical path.
     pub source_ids: BTreeMap<String, String>,
     /// Checkout the session worked in.
     pub checkout: PathBuf,
     /// Branch name reported by the source, if any.
     pub branch: Option<String>,
-    /// Time of the first record.
+    /// First timestamp reported for the session in this transcript.
     pub time: Timestamp,
-    /// Whether the transcript that produced this start is a subagent
-    /// sidechain.
+    /// Whether this metadata came from a subagent transcript.
     #[serde(default)]
     pub sidechain: bool,
 }
 
-/// Why a session is considered ended.
+/// Reason recorded for a session ending.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndReason {
@@ -99,59 +105,59 @@ pub enum EndReason {
     Unknown,
 }
 
-/// Last observation of a session.
+/// A report that a session ended, stored as a separate event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionEnd {
     /// Session identifier.
     pub session: SessionId,
-    /// Time of the end.
+    /// Reported end time.
     pub time: Timestamp,
     /// Why the session ended.
     pub reason: EndReason,
 }
 
-/// Who or what authored a turn.
+/// Author or message type assigned to a conversation turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-    /// A person typed it.
+    /// A message classified as human-authored.
     Human,
-    /// The agent wrote it.
+    /// A message written by the agent.
     Agent,
-    /// An instruction written by a parent agent to a subagent; not human
-    /// intent.
+    /// Instructions from a parent agent to a subagent.
     Delegation,
-    /// Tool results only; not human intent.
+    /// A message containing only tool results.
     Tool,
-    /// Harness metadata presented as a user message.
+    /// Application metadata carried in a user-role message.
     Meta,
-    /// A compaction summary.
+    /// A summary that replaces earlier conversation context after compaction.
     Summary,
 }
 
-/// Evidence that may or may not have been kept.
+/// A captured value, or the reason it was not stored.
 ///
-/// Adjacently tagged: an internally tagged newtype variant cannot carry a
-/// string or a sequence, and retained text and patches are exactly that.
+/// Used for turn text, edit text, patches, and command output. JSON stores
+/// the variant in `state` and its contents in `value`, for example
+/// `{"state":"retained","value":"hello"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", content = "value", rename_all = "snake_case")]
 pub enum Material<T> {
-    /// The material is stored.
+    /// The captured value is stored here.
     Retained(T),
-    /// A policy withheld it; the policy name says which.
+    /// A capture policy prevented storing the value.
     Withheld {
-        /// Name of the policy that withheld it.
+        /// Name of the capture policy that prevented storage.
         policy: String,
     },
     /// The source did not provide it.
     Unavailable {
-        /// Why it is missing.
+        /// Reason the value could not be obtained from the source.
         reason: String,
     },
 }
 
 impl<T> Material<T> {
-    /// Material the source did not provide, for the given reason.
+    /// Creates an unavailable value with the supplied reason.
     #[must_use]
     pub fn unavailable(reason: impl Into<String>) -> Self {
         Self::Unavailable {
@@ -159,7 +165,7 @@ impl<T> Material<T> {
         }
     }
 
-    /// The retained value, if any.
+    /// Returns the stored value, or `None` if it was withheld or unavailable.
     #[must_use]
     pub fn retained(&self) -> Option<&T> {
         match self {
@@ -176,29 +182,30 @@ pub struct Turn {
     pub id: TurnId,
     /// Session identifier.
     pub session: SessionId,
-    /// The turn this one descends from in the conversation tree.
+    /// Parent turn ID in the conversation tree, if the source supplied one.
     pub parent: Option<TurnId>,
-    /// Author classification.
+    /// Author or message type assigned to this turn.
     pub role: Role,
-    /// Time of the record.
+    /// Timestamp on the source record.
     pub time: Timestamp,
-    /// Whether the source marked this turn as a sidechain (subagent).
+    /// Whether the source marked this as a subagent turn.
     pub sidechain: bool,
-    /// Subagent identifier when inside a subagent.
+    /// Subagent ID, if the source supplied one.
     pub agent_id: Option<String>,
-    /// Text of the turn, subject to the capture policy.
+    /// Turn text, or the reason it was not stored.
     pub excerpt: Material<String>,
-    /// Position of the record in the transcript.
+    /// Zero-based line position of the source record in its transcript.
     pub source_ordinal: u64,
-    /// Canonical path of the transcript the record came from, as in
-    /// [`SessionStart::source_ids`] under `path`. Observations from
-    /// different transcripts share no ordinal order.
+    /// Canonical transcript path, matching `path` in [`SessionStart::source_ids`].
+    /// Compare `source_ordinal` values only within the same transcript.
     #[serde(default)]
     pub transcript: Option<String>,
 }
 
-/// Content of a file that exists. Adjacently tagged for the same reason as
-/// [`Material`].
+/// Whether an existing file's content hash is known.
+///
+/// This stores a hash, not the file's bytes. JSON uses `kind` for the variant
+/// and `id` for the hash when known.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum Content {
@@ -208,7 +215,7 @@ pub enum Content {
     Unknown,
 }
 
-/// State of a file at one side of an edit.
+/// Whether a file exists before or after an edit, and its content hash if known.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum FileState {
@@ -216,13 +223,13 @@ pub enum FileState {
     Absent,
     /// The file existed.
     Present {
-        /// What is known about its content.
+        /// Known content hash, or [`Content::Unknown`] if no hash is available.
         content: Content,
     },
 }
 
 impl FileState {
-    /// A present file with a known content hash.
+    /// Marks a file as present with the supplied content hash.
     #[must_use]
     pub const fn known(content: ContentId) -> Self {
         Self::Present {
@@ -230,7 +237,7 @@ impl FileState {
         }
     }
 
-    /// A present file whose content is not known.
+    /// Marks a file as present with no known content hash.
     #[must_use]
     pub const fn unknown() -> Self {
         Self::Present {
@@ -238,7 +245,7 @@ impl FileState {
         }
     }
 
-    /// The known content hash, if the file existed and the hash is known.
+    /// Returns the content hash, or `None` if the file was absent or its hash is unknown.
     #[must_use]
     pub fn content_id(&self) -> Option<&ContentId> {
         match self {
@@ -253,25 +260,27 @@ impl FileState {
     }
 }
 
-/// One hunk of a structured patch, in unified-diff terms.
+/// One changed region of a file, represented as a unified-diff hunk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hunk {
-    /// First line of the hunk in the old file (1-based).
+    /// First old-file line in the range, starting at 1. For an empty range,
+    /// the preceding line number; 0 means before the first line.
     pub old_start: u32,
-    /// Number of old lines covered.
+    /// Number of old-file lines covered, including unchanged context.
     pub old_lines: u32,
-    /// First line of the hunk in the new file (1-based).
+    /// First new-file line in the range, starting at 1. For an empty range,
+    /// the preceding line number; 0 means before the first line.
     pub new_start: u32,
-    /// Number of new lines covered.
+    /// Number of new-file lines covered, including unchanged context.
     pub new_lines: u32,
-    /// Lines with a leading ` `, `-`, or `+`.
+    /// Patch lines prefixed with a space for context, `-` for removal, or `+` for addition.
     pub lines: Vec<String>,
 }
 
 /// A file edit made through the agent's editing tools.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
-    /// Stable event id derived from the source's tool-use id.
+    /// Event ID derived from the session ID and the source's tool-use ID.
     pub id: EventId,
     /// Turn that issued the edit.
     pub turn: TurnId,
@@ -283,61 +292,59 @@ pub struct Edit {
     pub before: FileState,
     /// File state after the edit.
     pub after: FileState,
-    /// Structured patch, if retained.
+    /// Patch hunks, or the reason they were not stored.
     pub patch: Material<Vec<Hunk>>,
-    /// Text that was replaced, if retained.
+    /// Replaced text, or the reason it was not stored.
     pub old_text: Material<String>,
-    /// Replacement text, if retained.
+    /// Replacement text, or the reason it was not stored.
     pub new_text: Material<String>,
-    /// Whether every occurrence was replaced.
+    /// Whether the editing tool was instructed to replace every matching occurrence.
     pub replace_all: bool,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
-    /// Time the result was recorded; when the result record carries no
-    /// timestamp, the issuing record's timestamp.
+    /// Timestamp of the tool result, falling back to the issuing record's
+    /// timestamp when the result has none.
     pub time: Timestamp,
-    /// Position of the issuing record in the transcript.
+    /// Zero-based line position of the record that issued the edit.
     pub source_ordinal: u64,
-    /// Subagent that produced this event, when inside a subagent.
+    /// ID of the subagent that issued the edit, if available.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// Canonical path of the transcript the record came from, as in
-    /// [`SessionStart::source_ids`] under `path`. Observations from
-    /// different transcripts share no ordinal order.
+    /// Canonical transcript path, matching `path` in [`SessionStart::source_ids`].
+    /// Compare `source_ordinal` values only within the same transcript.
     #[serde(default)]
     pub transcript: Option<String>,
 }
 
 impl Edit {
-    /// Known content hash before the edit.
+    /// Returns the before-content hash, or `None` for an absent file or unknown hash.
     #[must_use]
     pub fn before_content(&self) -> Option<&ContentId> {
         self.before.content_id()
     }
 
-    /// Known content hash after the edit.
+    /// Returns the after-content hash, or `None` for an absent file or unknown hash.
     #[must_use]
     pub fn after_content(&self) -> Option<&ContentId> {
         self.after.content_id()
     }
 }
 
-/// Coarse classification of a shell command. Named `category` on the
-/// command because `kind` is the observation's own tag.
+/// Type of work a shell command performs, classified from its command line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandCategory {
     /// Runs tests.
     TestRun,
-    /// Builds or checks.
+    /// Builds code or checks it for errors.
     Build,
     /// Invokes git.
     Git,
-    /// Anything else.
+    /// No test, build, or git classification matched.
     Other,
 }
 
-/// Result of a command as far as the source reports it.
+/// Success or failure inferred from a recorded command result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -350,13 +357,13 @@ pub enum Outcome {
 /// A shell command the agent ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
-    /// Stable event id derived from the source's tool-use id.
+    /// Event ID derived from the session ID and the source's tool-use ID.
     pub id: EventId,
     /// Turn that issued the command.
     pub turn: TurnId,
     /// Session identifier.
     pub session: SessionId,
-    /// The command line.
+    /// Command line passed to the shell tool.
     pub cmd: String,
     /// Exit code when the source reports one.
     pub exit: Option<i32>,
@@ -364,39 +371,34 @@ pub struct Command {
     pub stdout_tail: Material<String>,
     /// Tail of standard error, if retained.
     pub stderr_tail: Material<String>,
-    /// Classification.
+    /// Type of work inferred from the command line.
     pub category: CommandCategory,
-    /// Whether the harness flagged the tool result as an error (for a shell
-    /// command, normally a non-zero exit).
+    /// Whether the source marked the tool result as an error.
     pub reported_error: bool,
-    /// Outcome parsed from the output, if determinable.
+    /// Success or failure inferred from the output and reported error status.
+    /// `None` means the parser could not determine an outcome.
     pub outcome: Option<Outcome>,
     /// Time the command was issued.
     pub started: Timestamp,
-    /// Time the result was recorded, if seen.
+    /// Timestamp of the tool result, if available.
     pub ended: Option<Timestamp>,
     /// Checkout the command ran in.
     pub checkout: PathBuf,
-    /// Position of the issuing record in the transcript.
+    /// Zero-based line position of the record that issued the command.
     pub source_ordinal: u64,
-    /// Subagent that produced this event, when inside a subagent.
+    /// ID of the subagent that issued the command, if available.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// Canonical path of the transcript the record came from, as in
-    /// [`SessionStart::source_ids`] under `path`. Observations from
-    /// different transcripts share no ordinal order.
+    /// Canonical transcript path, matching `path` in [`SessionStart::source_ids`].
+    /// Compare `source_ordinal` values only within the same transcript.
     #[serde(default)]
     pub transcript: Option<String>,
 }
 
-/// A limitation of the capture over the transcript ordinal range
-/// `[from_ordinal, to_ordinal)`: records the parser could not use and tool
-/// uses it could not turn into evidence. Recorded so that later readers can
-/// show where evidence may be missing, rather than presenting the session as
-/// completely observed.
+/// Counts records and tool calls that could not be captured in a transcript range.
 ///
-/// There is no timestamp; the ordinal range orders it against other
-/// observations.
+/// The range includes `from_ordinal` and excludes `to_ordinal`. It identifies
+/// where evidence may be missing using transcript positions instead of timestamps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureLimitation {
     /// Session identifier.
@@ -404,53 +406,51 @@ pub struct CaptureLimitation {
     /// Canonical path of the transcript, as in [`SessionStart::source_ids`]
     /// under `path`.
     pub transcript: String,
-    /// First ordinal of the range.
+    /// First line position in the range, starting at zero.
     pub from_ordinal: u64,
-    /// Ordinal just past the range.
+    /// First line position after the range.
     pub to_ordinal: u64,
-    /// What the capture could not use, flattened into this object.
+    /// Counts by reason, serialized as fields of this object.
     #[serde(flatten)]
     pub counts: CaptureCounts,
 }
 
-/// Counts of transcript material the capture could not turn into evidence.
+/// Counts of transcript records and tool calls omitted during capture, by reason.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureCounts {
-    /// Records of unknown type, by type, that produced no observation.
+    /// Skipped records by type or reason, such as an unknown type or
+    /// `assistant-without-uuid`.
     pub unknown_records: BTreeMap<String, u64>,
-    /// Lines that were not valid JSON.
+    /// Lines that could not be decoded as transcript records.
     pub malformed_lines: u64,
-    /// Tool uses still without a recorded result when a typed message
-    /// arrived.
+    /// Tool calls still awaiting a result when the next human or delegation
+    /// turn arrived.
     pub abandoned_tool_uses: u64,
-    /// Editing tool uses the harness reported as failed; no edit was recorded.
+    /// Editing tool calls reported as failed, with no edit recorded.
     pub failed_tool_uses: u64,
-    /// Edits outside the checkout that were dropped.
+    /// Edits omitted because their paths were outside the checkout.
     pub outside_checkout: u64,
-    /// Editing tool uses whose input and result name different files; the
-    /// edit was dropped rather than recorded under either path.
+    /// Editing tool calls omitted because their input and result named
+    /// different files.
     #[serde(default)]
     pub conflicting_tool_results: u64,
-    /// Tool results whose id matches no tool use awaiting a result, so
-    /// whatever they reported was dropped.
+    /// Tool results omitted because their IDs matched no pending tool call.
     #[serde(default)]
     pub unmatched_tool_results: u64,
-    /// Turns whose session id differs from the transcript's established
-    /// session; they were not attributed to either session.
+    /// Turns omitted because their session IDs differed from the transcript's session.
     #[serde(default)]
     pub session_mismatch: u64,
-    /// Tool uses without a non-empty id, which no result can be paired
-    /// with; whatever they did was dropped.
+    /// Tool calls omitted because they had no non-empty ID to match a result against.
     #[serde(default)]
     pub unnamed_tool_uses: u64,
-    /// Resolved tool uses that may have changed files through a tool the
-    /// capture does not read, such as `NotebookEdit`; no edit was recorded.
+    /// Completed calls to unsupported editing tools, such as `NotebookEdit`,
+    /// for which no edit was recorded.
     #[serde(default)]
     pub unsupported_tool_uses: u64,
 }
 
 impl CaptureCounts {
-    /// Whether nothing was counted, so there is no limitation to record.
+    /// Returns `true` if `unknown_records` is empty and every numeric count is zero.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.unknown_records.is_empty()

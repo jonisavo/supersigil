@@ -1,4 +1,4 @@
-//! Serialization shape of every observation variant is pinned by snapshot.
+//! Tests observation JSON formats and serialization round trips.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

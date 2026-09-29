@@ -1,8 +1,8 @@
-//! Transcript sources that turn agent sessions into record observations.
+//! Reads Claude Code transcripts and saves session events in a Supersigil record.
 //!
-//! Claude Code is the first source. A source parses a transcript tolerantly,
-//! classifies every record, and emits observations; sync appends them to a
-//! record incrementally from a per-transcript cursor.
+//! [`parse_transcript`] extracts turns, edits, and commands, and counts records
+//! it cannot capture. [`sync()`] appends new observations, saves the position
+//! reached in each transcript, and recomputes restores and discontinuities.
 
 pub mod checkout;
 pub mod claude_code;

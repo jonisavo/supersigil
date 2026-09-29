@@ -1,4 +1,4 @@
-//! Incremental sync of transcripts into a record.
+//! Appends new transcript events to a record and saves where reading stopped.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,10 +13,10 @@ use supersigil_record::{ContentId, Revision, SessionId, Timestamp};
 use crate::checkout::{Placement, canonical, placement};
 use crate::claude_code::{ParseOutcome, parse_transcript};
 
-/// Errors from sync.
+/// Failure to read a transcript or update the record during sync.
 #[derive(Debug, thiserror::Error)]
 pub enum SyncError {
-    /// The store failed.
+    /// A record operation failed, such as locking, reading, or committing.
     #[error("{0}")]
     Store(#[from] StoreError),
     /// A transcript could not be read.
@@ -24,96 +24,89 @@ pub enum SyncError {
     Io {
         /// Transcript path.
         path: PathBuf,
-        /// Underlying error.
+        /// I/O error returned when reading the transcript.
         #[source]
         source: std::io::Error,
     },
 }
 
-/// What one transcript contributed to a sync.
+/// Observations added, bytes consumed, and capture problems for one transcript.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TranscriptReport {
-    /// Transcript path as given.
+    /// Transcript path supplied to [`sync`].
     pub path: PathBuf,
-    /// Session the transcript belongs to, once known.
+    /// Session ID saved in the transcript's cursor, if known.
     pub session: Option<SessionId>,
-    /// Observations appended from this transcript.
+    /// Number of observations appended, including start and capture-limitation events.
     pub new_observations: usize,
-    /// Bytes consumed by this call, counted from the cursor's previous
-    /// offset (or from the start when the transcript was rewritten).
+    /// Bytes newly consumed, measured from the previous cursor offset.
+    /// After a transcript rewrite, counting starts at byte zero.
     pub consumed: u64,
-    /// Whether the file ended in an incomplete line.
+    /// Whether the input ended without a newline. Always `false` for skipped transcripts.
     pub trailing_partial: bool,
-    /// What this call could not turn into evidence, flattened into this
-    /// object.
+    /// Capture problems counted during this sync, serialized as fields of this
+    /// object. Counts are cleared when the transcript belongs to another checkout.
     #[serde(flatten)]
     pub counts: CaptureCounts,
-    /// Why nothing was taken from this transcript, when it was skipped: it
-    /// names a checkout outside the one being synced, or no record has named
-    /// its checkout yet (`checkout unknown`, reported with its counts). A
-    /// skipped transcript appends nothing and its cursor does not move.
+    /// Reason the transcript was skipped, or `None` if it was accepted.
+    /// Skipped transcripts name an outside checkout or have no known checkout.
+    /// They add no observations and leave their stored cursors unchanged.
     #[serde(default)]
     pub skipped: Option<String>,
-    /// The transcript's checkout when it lies strictly inside the one being
-    /// synced, such as a subagent's worktree. Its observations keep that
-    /// checkout; the record gains no association for it.
+    /// Transcript checkout path when it is a descendant of the requested checkout.
+    /// Sync preserves this path in observations without adding a record association.
     #[serde(default)]
     pub nested_checkout: Option<PathBuf>,
 }
 
-/// Result of one sync call.
+/// Revision and per-transcript results returned by [`sync`].
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct SyncReport {
     /// Record revision after the call.
     pub revision: Revision,
-    /// Sessions that received observations.
+    /// IDs of sessions that received observations, sorted by ID.
     pub sessions: Vec<SessionId>,
-    /// Observations appended in total.
+    /// Total number of observations appended across all transcripts.
     pub new_observations: usize,
-    /// Per-transcript detail.
+    /// Results for each transcript, in the order supplied to [`sync`].
     pub transcripts: Vec<TranscriptReport>,
 }
 
-/// Appends new observations from `transcripts` to `store`, recomputes
-/// derivations for every touched session, and commits one revision.
+/// Imports new observations and recomputes derivations for sessions that changed.
 ///
-/// Transcripts are read in the given order. Each is parsed whole every time,
-/// and only what lies past its cursor is appended, so syncing a growing file
-/// in stages records what syncing it once would. A transcript is identified
-/// by its canonical path (the path as given when it cannot be
-/// canonicalized), so two spellings of one file share a cursor.
+/// Reads transcripts in the supplied order while holding the record's writer
+/// lock. Each file is parsed from the start for context, but only observations
+/// after its saved cursor are appended. If previously consumed bytes have
+/// changed, the cursor resets and observations are appended from the start.
 ///
-/// A transcript whose records name a working directory outside `checkout`
-/// is skipped and reported, so another repository's history never enters
-/// this record; so is one whose records have not named a checkout yet, since
-/// a session start never borrows `checkout`. The first working directory a
-/// transcript names decides. An edit issued later from outside every
-/// checkout the record is associated with is counted as outside the
-/// checkout instead of recorded; the record's associations decide, not
-/// `checkout`, since a transcript's cursor is shared by every checkout of
-/// the record and what it skips is never read again.
+/// Commits one revision if observations were added or cursors changed.
+/// Otherwise returns the existing revision. Capture problems are saved as
+/// [`CaptureLimitation`] observations in the same commit as the cursor update.
 ///
-/// A transcript inside `checkout`, such as a subagent's worktree, is taken
-/// in and reported as nested, and its observations keep their own checkout.
-/// Which record owns a checkout, nested or not, is left to record lookup,
-/// which also keeps the record's associations; sync changes none. Placement
-/// is decided by [`placement`](crate::checkout::placement), so any spelling
-/// of `checkout` works.
+/// The first working directory recorded for a transcript's session determines
+/// whether it is accepted. It must be `checkout` or a descendant, as checked
+/// by [`placement`]. An outside or unknown checkout is reported as skipped.
+/// Individual edits from outside every checkout associated with the record
+/// are also omitted and counted, even in an accepted transcript. Nested
+/// checkouts keep their paths; sync does not add checkout associations.
 ///
-/// A transcript whose cursor first learns its session records a
-/// [`SessionStart`] from its own metadata, marked as a sidechain when a
-/// subagent record named the session. A subagent transcript carries its
-/// parent's session id, so a session can have several starts; which one
-/// describes the session is a read model over them
-/// ([`session_start`](supersigil_record::observations::session_start)), so a
-/// main transcript synced later still wins. Every turn, edit, command, and
-/// capture limitation is stamped with its transcript's canonical path, since
-/// ordinals from different transcripts share no order.
+/// Adds a [`SessionStart`] when a transcript's cursor first learns its session.
+/// Main and subagent transcripts can therefore add starts for the same session.
+/// Use [`session_start`](supersigil_record::observations::session_start) to
+/// choose the session's display metadata.
+///
+/// Cursor keys and observation transcript paths use the canonical file path,
+/// falling back to the supplied path if resolution fails. Line positions can
+/// be compared only within a single transcript.
 ///
 /// # Errors
 ///
-/// Returns [`SyncError::Io`] if a transcript cannot be read, or the store's
-/// error if the record is locked or cannot be written.
+/// Returns [`SyncError::Io`] if a transcript cannot be read or
+/// [`SyncError::Store`] if locking, reading, writing, or committing the record fails.
+///
+/// # Panics
+///
+/// Panics if a commit is needed and the current revision is [`u64::MAX`].
 pub fn sync(
     store: &Store,
     checkout: &Path,
@@ -163,13 +156,16 @@ pub fn sync(
     })
 }
 
-/// Parses one transcript, appends the observations past its cursor to `tx`,
-/// records them in `appended` by session, and advances the cursor. A
-/// transcript from another checkout is reported as skipped instead.
+/// Appends one transcript's new observations and updates its cursor in `tx`.
 ///
-/// Anything the parse could not turn into evidence is appended as one
-/// [`CaptureLimitation`] after the parsed observations, in the same
-/// transaction as the cursor advance, so the limitation outlives this call.
+/// Also collects the observations in `appended` for recomputing derivations.
+/// Adds a capture-limitation event for parser counts. A transcript with an
+/// outside or unknown checkout is reported as skipped without updating the cursor.
+///
+/// # Errors
+///
+/// Returns [`SyncError::Io`] if reading the transcript fails or
+/// [`SyncError::Store`] if appending observations fails.
 fn sync_transcript(
     tx: &mut WriteTx<'_>,
     checkout: &Path,
@@ -261,19 +257,18 @@ fn sync_transcript(
     })
 }
 
-/// Why a transcript is skipped.
+/// Reason a transcript was not accepted for sync.
 enum Skip {
-    /// No record has named its working directory yet.
+    /// The parser has no working directory for this transcript.
     Unknown,
-    /// Its working directory lies outside the checkout being synced; the
-    /// reason names both.
+    /// The working directory is outside the requested checkout, with a message
+    /// naming both paths.
     Outside(String),
 }
 
 impl Skip {
-    /// The report for a transcript skipped for this reason. Counts are shown
-    /// for a transcript that may yet name this checkout, never for another
-    /// checkout's.
+    /// Creates a skipped-transcript report with no observations or consumed bytes.
+    /// Keeps counts for an unknown checkout and clears them for an outside checkout.
     fn report(
         self,
         path: &Path,
@@ -297,11 +292,12 @@ impl Skip {
     }
 }
 
-/// Decides whether a transcript belongs in the record of `checkout`, and
-/// returns the working directory it names first, with its placement, when it
-/// does: `checkout` itself or a directory inside it. A transcript whose directory is unknown
-/// is skipped, whatever it holds, since its session start would otherwise
-/// claim a checkout no record named.
+/// Accepts the transcript's named directory if it equals or is inside `checkout`.
+///
+/// # Errors
+///
+/// Returns [`Skip::Unknown`] if no directory is known or [`Skip::Outside`] if
+/// the named directory is outside `checkout`.
 fn admit(checkout: &Path, named: Option<&Path>) -> Result<(PathBuf, Placement), Skip> {
     let named = named.ok_or(Skip::Unknown)?;
     match placement(named, checkout) {
@@ -314,9 +310,8 @@ fn admit(checkout: &Path, named: Option<&Path>) -> Result<(PathBuf, Placement), 
     }
 }
 
-/// Counts as outside the checkout, instead of keeping, every edit issued
-/// from a working directory outside all of `associations`, as when a
-/// session changed directory after the one it named first.
+/// Removes edits whose working directories are outside every associated checkout.
+/// Adds the number removed to `outside_checkout`; leaves other observations unchanged.
 fn drop_edits_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
     let before = outcome.observations.len();
     outcome
@@ -330,7 +325,7 @@ fn drop_edits_outside(outcome: &mut ParseOutcome, associations: &[Association]) 
     outcome.counts.outside_checkout += (before - outcome.observations.len()) as u64;
 }
 
-/// Records which transcript a turn, edit, or command came from.
+/// Sets the transcript path on a turn, edit, or command observation.
 fn stamp_transcript(observation: &mut Observation, transcript: &str) {
     let field = match observation {
         Observation::Turn(turn) => &mut turn.transcript,
@@ -341,9 +336,8 @@ fn stamp_transcript(observation: &mut Observation, transcript: &str) {
     *field = Some(transcript.to_owned());
 }
 
-/// The stored cursor when the consumed prefix of `bytes` still hashes to
-/// the recorded one; otherwise a cursor at the start, so a transcript that
-/// shrank or was rewritten in place has its observations appended again.
+/// Reuses the stored cursor if the previously consumed bytes still match its hash.
+/// Returns a cursor at byte zero if none exists, the file shrank, or those bytes changed.
 fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> SourceCursor {
     stored
         .filter(|cursor| {
@@ -361,8 +355,8 @@ fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> SourceCursor {
         })
 }
 
-/// A capture limitation for the ordinals `[from_ordinal, next_ordinal)` of
-/// `outcome`, or `None` when the parse lost nothing.
+/// Wraps parser counts in a capture-limitation event for `from_ordinal..next_ordinal`.
+/// Returns `None` if all capture counts are empty.
 fn capture_limitation(
     session: &SessionId,
     transcript: &str,

@@ -1,21 +1,24 @@
-//! File-backed store whose manifest pins exactly one revision.
+//! JSON storage for session observations and computed derivations.
+//!
+//! The manifest lists each log's committed byte length and each derivation
+//! document's file name. A snapshot keeps one manifest and reads only those
+//! bytes and files, even while a writer prepares the next revision.
 //!
 //! Layout inside a record directory:
 //!
 //! ```text
-//! manifest.json                     identity, revision, pins, cursors
-//! write.lock                        created by the first writer, never removed
-//! observations/<n>.jsonl            append-only log, pinned by byte length
-//! derivations/<n>.r<revision>.json  immutable document, pinned by name
+//! manifest.json                    record ID, revision, file references, sync cursors
+//! write.lock                       OS lock used to allow only one writer
+//! observations/<n>.jsonl           session log, read up to its committed byte length
+//! derivations/<n>.r<revision>.json  derivation results for a session and store revision
 //! ```
 //!
-//! `<n>` is the number the store assigns a session on its first write and
-//! records in the manifest. Session ids come from transcripts, so no file is
-//! named after one.
+//! `<n>` is the number assigned to a session on its first write. Using this
+//! number keeps source-provided session IDs out of file paths.
 //!
-//! Only the operating-system lock held on `write.lock` excludes writers; the
-//! file's presence means nothing. Deleting it while a writer runs would let a
-//! second writer lock a new file, so never clean it up.
+//! Keep `write.lock` in place. Its presence does not mean a writer is active;
+//! the operating-system lock controls access. Deleting the file would let a
+//! second writer create and lock a different file while the first still runs.
 
 mod manifest;
 mod snapshot;
@@ -35,70 +38,69 @@ pub const MANIFEST_FILE: &str = "manifest.json";
 /// File name of the writer lock inside a record directory.
 pub const LOCK_FILE: &str = "write.lock";
 
-/// Relative path of the observation log of the session numbered `number`.
+/// Returns the observation log path for a numbered session.
 fn log_path(number: u64) -> String {
     format!("observations/{number}.jsonl")
 }
 
-/// Logical name of the derivations document of the session numbered
-/// `number`.
+/// Returns the manifest document key for a numbered session's derivations.
 fn derivations_document(number: u64) -> String {
     format!("derivations/{number}")
 }
 
-/// Errors from the store.
+/// Failure to create, read, or write a record.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     /// An I/O operation failed.
     #[error("i/o error at {path}: {source}")]
     Io {
-        /// Path involved.
+        /// File or directory on which the operation failed.
         path: PathBuf,
-        /// Underlying error.
+        /// I/O error returned by the failed operation.
         #[source]
         source: io::Error,
     },
-    /// A file did not contain the expected JSON.
+    /// Record data could not be encoded as JSON or decoded from it.
     #[error("invalid json at {path}: {source}")]
     Json {
-        /// Path involved.
+        /// File being read or written.
         path: PathBuf,
-        /// Underlying error.
+        /// JSON serialization or deserialization error.
         #[source]
         source: serde_json::Error,
     },
-    /// The directory has no manifest.
+    /// The record path has no `manifest.json` file.
     #[error("{0} is not a record directory (no manifest.json)")]
     NotARecord(PathBuf),
-    /// The directory already holds a record.
+    /// A manifest already exists where a new record was requested.
     #[error("{0} already contains a record")]
     AlreadyExists(PathBuf),
     /// Another writer holds the lock.
     #[error("record at {0} is locked by another writer")]
     Locked(PathBuf),
-    /// The manifest changed under the writer.
+    /// The on-disk revision differs from the transaction's starting revision.
     #[error("manifest revision changed under the writer (expected {expected}, found {found})")]
     Conflict {
         /// Revision the writer started from.
         expected: u64,
-        /// Revision found on disk at commit.
+        /// Revision read from disk during commit.
         found: u64,
     },
-    /// The on-disk state violates an invariant.
+    /// Stored files are inconsistent with the manifest, such as a log shorter
+    /// than its committed byte length.
     #[error("record is corrupt: {0}")]
     Corrupt(String),
-    /// The manifest was written with a schema this binary does not support.
-    /// The record is refused rather than rewritten, since rewriting it would
-    /// drop whatever the newer schema added.
+    /// The manifest's schema version is not supported by this version of the crate.
     #[error("record schema version {found} is not supported (this binary supports {supported})")]
     UnsupportedSchema {
         /// Schema version found in the manifest.
         found: u32,
-        /// The only schema version this binary reads and writes.
+        /// Schema version this crate reads and writes.
         supported: u32,
     },
 }
 
+/// Adds the affected path to an I/O error.
 pub(crate) fn io_error(path: &Path, source: io::Error) -> StoreError {
     StoreError::Io {
         path: path.to_path_buf(),
@@ -106,31 +108,36 @@ pub(crate) fn io_error(path: &Path, source: io::Error) -> StoreError {
     }
 }
 
-/// Handle to a record directory.
+/// Path to a record directory, used to create snapshots and write transactions.
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
 }
 
 impl Store {
-    /// Creates a new record at `root` with a fresh identity, one checkout
-    /// association, and revision zero.
+    /// Creates a record at `root` with a random ID and the supplied checkout association.
+    ///
+    /// Creates missing directories and an empty manifest at revision zero.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::AlreadyExists`] if a manifest is already there,
-    /// or an I/O error.
+    /// Returns [`StoreError::AlreadyExists`] if `manifest.json` already exists,
+    /// [`StoreError::Json`] if serialization fails, or [`StoreError::Io`] if a
+    /// directory or file operation fails.
     pub fn create(root: &Path, association: Association) -> Result<Self, StoreError> {
         Self::create_with_id(root, RecordId::generate(), association)
     }
 
-    /// Creates a new record at `root` with the given identity. Callers that
-    /// name the directory after the id use this.
+    /// Creates a record at `root` with the supplied ID and checkout association.
+    ///
+    /// Use this when `root` includes an ID the caller has already generated.
+    /// The initial manifest is empty and starts at revision zero.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::AlreadyExists`] if a manifest is already there,
-    /// or an I/O error.
+    /// Returns [`StoreError::AlreadyExists`] if `manifest.json` already exists,
+    /// [`StoreError::Json`] if serialization fails, or [`StoreError::Io`] if a
+    /// directory or file operation fails.
     pub fn create_with_id(
         root: &Path,
         record_id: RecordId,
@@ -144,15 +151,16 @@ impl Store {
         })
     }
 
-    /// Opens an existing record.
+    /// Returns a handle after checking that `root/manifest.json` is a file.
+    ///
+    /// This checks file metadata only. [`Self::manifest`] reads and validates
+    /// the manifest contents.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotARecord`] if there is no manifest file (the
-    /// manifest or `root` does not exist, `root` is not a directory, or the
-    /// manifest is not a file), and [`StoreError::Io`] if the manifest's
-    /// metadata cannot be read for any other reason, for example missing
-    /// permissions. An unreadable record is never mistaken for an absent one.
+    /// Returns [`StoreError::NotARecord`] if the path is missing, `root` is not
+    /// a directory, or the manifest is not a file. Returns [`StoreError::Io`]
+    /// for other metadata errors, such as denied permission.
     pub fn open(root: &Path) -> Result<Self, StoreError> {
         let path = root.join(MANIFEST_FILE);
         match std::fs::metadata(&path) {
@@ -172,40 +180,42 @@ impl Store {
         }
     }
 
-    /// The record directory.
+    /// Returns the record directory path.
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// Reads the current manifest.
+    /// Reads the current manifest from disk and checks its schema version.
     ///
     /// # Errors
     ///
-    /// Returns an error if the manifest cannot be read or parsed, and
-    /// [`StoreError::UnsupportedSchema`] if it was written with a schema
-    /// version other than [`SCHEMA_VERSION`].
+    /// Returns [`StoreError::NotARecord`] if the manifest is missing,
+    /// [`StoreError::Io`] if it cannot be read, [`StoreError::Json`] if it
+    /// cannot be parsed, or [`StoreError::UnsupportedSchema`] if its version
+    /// differs from [`SCHEMA_VERSION`].
     pub fn manifest(&self) -> Result<Manifest, StoreError> {
         manifest::read(&self.root)
     }
 
-    /// A read view pinned to the manifest as it is right now.
+    /// Reads the current manifest and creates a snapshot that keeps that revision.
+    ///
+    /// Observation logs and derivation documents are read when requested.
     ///
     /// # Errors
     ///
-    /// Returns an error if the manifest cannot be read, including
-    /// [`StoreError::UnsupportedSchema`] for a manifest of another schema.
+    /// Returns the same errors as [`Self::manifest`].
     pub fn snapshot(&self) -> Result<RecordSnapshot, StoreError> {
         Ok(RecordSnapshot::new(self.root.clone(), self.manifest()?))
     }
 
-    /// Starts a write transaction, taking the writer lock.
+    /// Acquires the writer lock and starts a transaction at the current revision.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Locked`] if another writer is active, and
-    /// [`StoreError::UnsupportedSchema`] for a manifest of another schema,
-    /// which is never rewritten.
+    /// Returns [`StoreError::Locked`] if another writer holds the lock,
+    /// [`StoreError::Io`] if the lock file cannot be opened or locked, or any
+    /// error returned by [`Self::manifest`].
     pub fn begin(&self) -> Result<WriteTx<'_>, StoreError> {
         WriteTx::begin(self)
     }

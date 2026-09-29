@@ -1,8 +1,8 @@
-//! Derivation layer: rebuildable findings computed from observations.
+//! Restores and gaps found by comparing recorded file states.
 //!
-//! Every set records the observation revision and algorithm version it was
-//! computed from. A newer computation supersedes an older one; nothing here
-//! is a timeless fact.
+//! [`crate::derive::derive`] computes these results from observations. Each
+//! [`DerivationSet`] records the input revision and algorithm version so callers
+//! can tell which observations and comparison rules produced the results.
 
 use std::path::PathBuf;
 
@@ -10,46 +10,53 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{EventId, Revision, SessionId};
 
-/// Version of the derivation algorithms in [`crate::derive`].
+/// Version of the comparison rules used by [`crate::derive::derive`].
 pub const ALGORITHM_VERSION: u32 = 1;
 
-/// An edit whose after-content equals the before-content of earlier edits on
-/// the same checkout and path. An observation, not an explanation.
+/// An edit that returns a file to content recorded before an earlier edit.
+///
+/// For example, after `A -> B` followed by `B -> A`, the second edit restores
+/// the content from before the first. The comparison uses known content hashes
+/// for the same checkout, path, and transcript. It does not establish why the
+/// content was restored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Restore {
-    /// The restoring edit.
+    /// ID of the edit that returned to earlier content.
     pub edit: EventId,
-    /// Earlier edits whose before-content this edit returned to, oldest first.
+    /// IDs of earlier edits whose before-content matches the restoring edit's
+    /// after-content, ordered by position in the transcript.
     pub restores: Vec<EventId>,
 }
 
-/// Two consecutive edits on one path whose known states do not meet: the
-/// available observations have a gap between them. Absence is a known
-/// state, so a file the earlier edit left present and the later edit found
-/// absent, or the reverse, is a gap too; unknown content never is.
+/// A mismatch between the file state after one edit and before the next.
+///
+/// For example, one edit leaves content `B`, but the next starts with content
+/// `C`. The edits belong to the same checkout, path, and transcript. A missing
+/// file also counts as a known state. If either state has unknown content,
+/// the comparison cannot detect a discontinuity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Discontinuity {
     /// Path relative to the checkout.
     pub path: PathBuf,
-    /// Checkout the edits happened in.
+    /// Checkout directory shared by both edits.
     pub checkout: PathBuf,
-    /// The earlier edit.
+    /// ID of the earlier edit, whose after-state is compared.
     pub prev: EventId,
-    /// The later edit whose before-state did not match.
+    /// ID of the next edit, whose before-state differs from that after-state.
     pub next: EventId,
 }
 
-/// All derivations for one session at one observation revision.
+/// Restores and discontinuities computed for one session at a given revision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DerivationSet {
-    /// Session the derivations describe.
+    /// Session whose edits were compared.
     pub session: SessionId,
-    /// Observation revision the input was read at.
+    /// Record revision from which the input observations were read.
     pub observation_revision: Revision,
-    /// Algorithm version that produced the set.
+    /// Version of the comparison rules that produced these results.
     pub algorithm_version: u32,
-    /// Restores found.
+    /// Edits that returned to earlier content, sorted by the restoring edit ID.
     pub restores: Vec<Restore>,
-    /// Discontinuities found.
+    /// Consecutive edits with mismatched file states.
     pub discontinuities: Vec<Discontinuity>,
 }

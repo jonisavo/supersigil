@@ -1,22 +1,24 @@
-//! Identifiers shared by every layer of the record.
+//! Content hashes, record and event IDs, timestamps, and revision numbers.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Hash of file content. Absence of a file is never represented by a content
-/// id; see [`crate::observations::FileState`].
+/// SHA-256 hash of a file's bytes, stored as `sha256:<hex>`.
+///
+/// An empty file has a content hash. A missing file is represented by
+/// [`crate::observations::FileState::Absent`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ContentId(String);
 
 impl ContentId {
-    /// Hashes `bytes` with SHA-256.
+    /// Computes the SHA-256 hash of `bytes` and prefixes its hex encoding with `sha256:`.
     #[must_use]
     pub fn of(bytes: &[u8]) -> Self {
         Self(format!("sha256:{}", hex::encode(Sha256::digest(bytes))))
     }
 
-    /// The `sha256:<hex>` form.
+    /// Returns the stored hash string.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -31,13 +33,13 @@ macro_rules! string_id {
         pub struct $name(String);
 
         impl $name {
-            /// Wraps an existing identifier string.
+            /// Stores `value` without validating its format.
             #[must_use]
             pub fn new(value: impl Into<String>) -> Self {
                 Self(value.into())
             }
 
-            /// The identifier as a string slice.
+            /// Returns the stored string.
             #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
@@ -53,31 +55,35 @@ macro_rules! string_id {
 }
 
 string_id!(
-    /// Identifier of a session, taken from the source (Claude Code's `sessionId`).
+    /// Session ID supplied by the source, such as Claude Code's `sessionId`.
     SessionId
 );
 string_id!(
-    /// Identifier of a turn, taken from the source (Claude Code's record `uuid`).
+    /// Turn ID supplied by the source, such as a Claude Code record's `uuid`.
     TurnId
 );
 string_id!(
-    /// Identifier of an edit or command event, derived from its source id.
+    /// Edit or command ID derived from its kind, session, and source tool-use ID.
     EventId
 );
 string_id!(
-    /// Identifier of a record (one per repository association set).
+    /// ID of a stored development history, shared by its associated checkouts.
     RecordId
 );
 string_id!(
-    /// RFC 3339 UTC timestamp string. Ordering is lexicographic, which is
-    /// correct for the fixed-width form Claude Code writes.
+    /// Timestamp string expected to contain an RFC 3339 UTC value.
+    ///
+    /// Values are stored without parsing and compared as strings. This gives
+    /// chronological order for Claude Code's fixed-width UTC timestamps.
     Timestamp
 );
 
 impl EventId {
-    /// Derives a stable event id from the event kind, its session, and the
-    /// source's own id for it (for example a `tool_use` id). Re-syncing the
-    /// same transcript yields the same ids.
+    /// Builds an event ID from `kind`, `session`, and the source's tool-use ID.
+    ///
+    /// Hashes the three strings with NUL separators using SHA-256. The ID is
+    /// `kind:<hex>`, where `<hex>` encodes the first eight bytes of the hash.
+    /// The same inputs produce the same ID when a transcript is read again.
     #[must_use]
     pub fn derive(kind: &str, session: &SessionId, source_id: &str) -> Self {
         let mut hasher = Sha256::new();
@@ -92,23 +98,23 @@ impl EventId {
 }
 
 impl RecordId {
-    /// Generates a fresh random record id.
+    /// Generates a random UUID v4 as the record ID.
     #[must_use]
     pub fn generate() -> Self {
         Self(uuid::Uuid::new_v4().to_string())
     }
 }
 
-/// Monotonic revision number of a record manifest.
+/// Record version number, incremented each time a write transaction commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Revision(u64);
 
 impl Revision {
-    /// The revision of an empty record before any commit.
+    /// Initial revision of a newly created record.
     pub const ZERO: Self = Self(0);
 
-    /// The following revision.
+    /// Returns this revision plus one.
     ///
     /// # Panics
     ///
@@ -118,7 +124,7 @@ impl Revision {
         Self(self.0.checked_add(1).expect("revision counter overflow"))
     }
 
-    /// The numeric value.
+    /// Returns the revision number as a `u64`.
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0

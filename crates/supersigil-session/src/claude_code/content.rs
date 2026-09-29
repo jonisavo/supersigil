@@ -1,8 +1,12 @@
-//! Recomputes a file's content after an editing tool ran, from the retained
-//! original and the tool's input. Returns `None` whenever the result cannot
-//! be established, which the caller records as an unknown state.
+//! Applies recorded text replacements to reconstruct a file's content.
+//!
+//! A replacement fails if its old text is empty or cannot be found. Callers
+//! record the resulting `None` as unknown content.
 
-/// Applies one `Edit` replacement. `None` if `old` is empty or absent.
+/// Replaces `old` with `new` in `original`.
+///
+/// Replaces the first occurrence unless `replace_all` is `true`. Returns
+/// `None` if `old` is empty or does not occur in `original`.
 #[must_use]
 pub fn apply_edit(original: &str, old: &str, new: &str, replace_all: bool) -> Option<String> {
     if old.is_empty() || !original.contains(old) {
@@ -15,7 +19,10 @@ pub fn apply_edit(original: &str, old: &str, new: &str, replace_all: bool) -> Op
     })
 }
 
-/// Applies `MultiEdit` replacements in order. `None` if any step fails.
+/// Applies `(old, new, replace_all)` replacements in order.
+///
+/// Each replacement uses the result of the previous one. Returns `None` if
+/// any [`apply_edit`] call fails. An empty list returns a copy of `original`.
 #[must_use]
 pub fn apply_multi_edit(original: &str, edits: &[(String, String, bool)]) -> Option<String> {
     edits

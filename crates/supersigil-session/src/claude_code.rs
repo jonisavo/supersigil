@@ -1,14 +1,13 @@
-//! Claude Code JSONL transcript parser.
+//! Parses Claude Code JSONL records into turns, edits, and commands.
 //!
-//! Every line is one record with a `type`. `user` and `assistant` records
-//! are turns; tool uses inside assistant records pair with tool results in
-//! later user records. Claude Code writes each content block of one
-//! assistant message as its own record, so consecutive assistant records do
-//! not mean the agent moved past a tool use. A tool use still unresolved
-//! when a typed message (a person's, or a parent agent's delegation)
-//! arrives is abandoned; one still unresolved at the
-//! end of the input is left for the next parse. The parser is tolerant:
-//! unknown record types and malformed lines are counted, never fatal.
+//! Each line contains a record with a `type`. The parser pairs tool calls in
+//! `assistant` records with results in later `user` records. Consecutive
+//! assistant records may be blocks of the same message, so they do not end
+//! pending tool calls.
+//!
+//! A new human or delegation turn marks pending calls as abandoned. Calls
+//! still awaiting results at the end of the input are left for the next parse.
+//! Unknown record types and malformed lines are counted without stopping the parse.
 
 pub mod content;
 
@@ -23,13 +22,11 @@ use supersigil_record::observations::{
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
-/// Characters kept from an agent turn's text.
+/// Maximum Unicode characters retained from the start of agent and delegation text.
 const AGENT_EXCERPT_CHARS: usize = 240;
-/// Characters kept from the end of a command's output streams.
+/// Maximum Unicode characters retained from the end of each command output stream.
 const OUTPUT_TAIL_CHARS: usize = 2000;
-/// Record types the parser knows and deliberately does not turn into
-/// observations. From `ai-title` on, they are Claude Code UI state, which
-/// carries no turn, edit, or command.
+/// Recognized record types that do not produce turn, edit, or command observations.
 const IGNORED_TYPES: &[&str] = &[
     "system",
     "attachment",
@@ -49,58 +46,45 @@ const IGNORED_TYPES: &[&str] = &[
     "worktree-state",
 ];
 
-/// Result of parsing a transcript.
+/// Captured events, session metadata, and the next position to read in a transcript.
+///
+/// Session metadata comes only from records before [`Self::consumed`]. Records
+/// at or after that byte offset will be read again and may still change.
 #[derive(Debug, Default)]
 pub struct ParseOutcome {
-    /// Observations for every record from the requested ordinal up to
-    /// `consumed`.
+    /// Turns, edits, and commands produced from the requested line position
+    /// up to `next_ordinal`, excluding that final position.
     pub observations: Vec<Observation>,
-    /// Byte offset up to which records were fully turned into observations.
+    /// Byte offset at which the next parse should resume, measured from the file start.
     ///
-    /// A tool use and its result are consumed together: consumption stops at
-    /// the issuing record of a tool use still waiting for its result, and
-    /// further back at the issuing record of any tool use whose result lies
-    /// beyond that point.
+    /// Stops before the earliest tool call still awaiting a result. Moves
+    /// further back if needed to keep every completed call and its result
+    /// together on the same side of that boundary.
     ///
-    /// The offset of the requested ordinal when no session is known and
-    /// `counts` is not empty: what was lost cannot be recorded without a
-    /// session, so nothing more is consumed and the next call reports the
-    /// same lines again, until a record names the session and the counts can
-    /// be attached to it.
+    /// If capture problems were counted but no session is known, stays at
+    /// the requested starting position. The next parse retries those lines
+    /// so the counts can be saved once a session ID is available.
     pub consumed: u64,
-    /// Ordinal for the first record at or after `consumed`.
+    /// Zero-based line position corresponding to `consumed`.
     pub next_ordinal: u64,
-    /// The session id from the first record of any type that carried a
-    /// non-empty one. Like `checkout`, `branch`, `first_time`, and
-    /// `sidechain`, it is learned only from records below `consumed`: a
-    /// record the next parse reads again may still change.
+    /// First non-empty session ID found before `consumed`, from any record type.
     pub session: Option<SessionId>,
-    /// Working directory from the first record of the session that carried
-    /// one, below `consumed`.
+    /// First working directory supplied by a record of this session before `consumed`.
     pub checkout: Option<PathBuf>,
-    /// Branch from the first record of the session that carried one, below
-    /// `consumed`.
+    /// First branch name supplied by a record of this session before `consumed`.
     pub branch: Option<String>,
-    /// Timestamp of the first record of the session that carried one, below
-    /// `consumed`.
+    /// First timestamp supplied by a record of this session before `consumed`.
     pub first_time: Option<Timestamp>,
-    /// Whether the record that named the session, and so began supplying
-    /// `session`, `checkout`, `branch`, and `first_time`, was a sidechain
-    /// (subagent) record. A subagent transcript's metadata describes the
-    /// subagent's start, not the session's.
+    /// Whether the record that first identified the session was marked as a
+    /// subagent record. `false` when no session is known.
     pub sidechain: bool,
-    /// Known record types that were skipped, by type.
+    /// Number of intentionally skipped records for each recognized type.
     pub ignored_records: BTreeMap<String, u64>,
-    /// Whether the input ended in a line without a newline.
+    /// Whether the input ends with a line that has no newline and was left unparsed.
     pub trailing_partial: bool,
-    /// What the parse could not turn into evidence below `consumed`: unknown
-    /// record types, malformed lines, edits outside the checkout, abandoned
-    /// tool uses, editing tool uses the harness flagged as failed, editing
-    /// tool uses whose input and result name different files, tool results
-    /// that match no tool use, turns of another session, tool uses without an
-    /// id, and editing tools the capture does not read. When no session is
-    /// known, what was seen before the cutoff is still counted, though none
-    /// of it is consumed.
+    /// Capture problems in the returned range, such as malformed records or failed edits.
+    /// When no session is known, includes counts for lines held back for retry
+    /// even though `consumed` has not advanced.
     pub counts: CaptureCounts,
 }
 
@@ -176,12 +160,12 @@ struct PendingTool {
     turn: TurnId,
     time: Timestamp,
     cwd: PathBuf,
-    /// Subagent of the issuing record, when inside a subagent.
+    /// Subagent ID from the record that issued the tool call, if available.
     agent_id: Option<String>,
     record_index: usize,
 }
 
-/// A per-record tally toward [`ParseOutcome`]'s counts.
+/// One skipped record or tool call to add to [`ParseOutcome`]'s counts.
 #[derive(Debug)]
 enum Count {
     Ignored(String),
@@ -192,25 +176,24 @@ enum Count {
     Failed,
     Conflicting,
     Unmatched,
-    /// A turn whose session id is not the established session's.
+    /// A turn whose session ID differs from the transcript's session.
     SessionMismatch,
-    /// A tool use without a non-empty id.
+    /// A tool call with a missing or empty ID.
     Unnamed,
-    /// A resolved tool use of an editing tool the capture does not read.
+    /// A completed call to an unsupported editing tool.
     Unsupported,
 }
 
-/// What one line contributed, kept with the line's index so that effects of
-/// lines beyond the consumption cutoff can be dropped.
+/// Observation or count produced by one transcript line.
+/// Stored with its line index so results beyond the resume position can be discarded.
 #[derive(Debug)]
 enum Effect {
     Observation(Box<Observation>),
     Count(Count),
 }
 
-/// Line index of the record each piece of session metadata was learned
-/// from, so metadata from lines beyond the consumption cutoff can be
-/// dropped.
+/// Line indexes where session metadata was first found.
+/// Used to discard metadata from records that the next parse will read again.
 #[derive(Debug, Default)]
 struct LearnedAt {
     session: Option<usize>,
@@ -220,9 +203,8 @@ struct LearnedAt {
 }
 
 impl LearnedAt {
-    /// Forgets in `outcome` whatever was learned at or beyond `cutoff`. The
-    /// checkout, branch, and first time belong to the learned session, so
-    /// they go with it.
+    /// Clears metadata read at or after `cutoff`.
+    /// Clearing the session also clears its checkout, branch, time, and subagent flag.
     fn truncate(&self, outcome: &mut ParseOutcome, cutoff: usize) {
         let beyond = |at: Option<usize>| at.is_some_and(|at| at >= cutoff);
         if beyond(self.session) {
@@ -245,14 +227,13 @@ impl LearnedAt {
     }
 }
 
-/// Mutable state while walking the records in order.
+/// Parser state accumulated while reading records in transcript order.
 struct Walk {
     outcome: ParseOutcome,
     learned_at: LearnedAt,
     effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
-    /// Line indexes of each resolved tool use's issuing record and of the
-    /// record carrying its result.
+    /// Pairs of line indexes for completed tool calls and their results.
     resolved: Vec<(usize, usize)>,
 }
 
@@ -266,13 +247,11 @@ impl Walk {
             .push((index, Effect::Observation(Box::new(observation))));
     }
 
-    /// Learns the session and its metadata from a record of any type, so a
-    /// transcript that opens with records the parser skips still has a
-    /// session to attach their capture limitation to. The first non-empty
-    /// `sessionId` names the session; the checkout, branch, and first time
-    /// come from the first record of that session carrying each. An empty
-    /// `sessionId` is no session id at all. Whether the naming record was a
-    /// sidechain record is kept with the metadata.
+    /// Reads session metadata before filtering by record type.
+    ///
+    /// The first non-empty `sessionId` identifies the session and supplies its
+    /// subagent flag. For that session, keeps the first checkout, branch, and
+    /// timestamp found. Records without that session ID supply no metadata.
     fn learn_session(&mut self, index: usize, raw: &RawRecord) {
         let id = raw.session_id.as_deref().filter(|id| !id.is_empty());
         let Some(id) = id else {
@@ -301,13 +280,11 @@ impl Walk {
         }
     }
 
-    /// Handles the record on line `index`: learns the session, counts
-    /// skipped types, then stages its turn and pairs its tool uses and
-    /// results. A turn naming a session other than the learned one is
-    /// counted and not staged, so one session's
-    /// evidence never lands in another. Only a typed message abandons
-    /// unresolved tool uses; an assistant record never does, since one
-    /// message's blocks arrive as consecutive assistant records.
+    /// Reads session metadata, records the turn, and matches tool calls with results.
+    ///
+    /// Counts and skips unsupported record types and turns from another session.
+    /// Human and delegation turns abandon pending calls after their own tool
+    /// results are matched. Assistant records leave pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
         match raw.kind.as_str() {
@@ -382,9 +359,8 @@ impl Walk {
         }
     }
 
-    /// Counts every unresolved tool use as abandoned and emits shell
-    /// commands among them with an unavailable result. Called when a typed
-    /// message arrives, after that record's own results are matched.
+    /// Marks pending tool calls as abandoned when a human or delegation turn arrives.
+    /// Records pending shell commands with unavailable results, then clears the queue.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in std::mem::take(&mut self.pending) {
             self.count(tool.record_index, Count::Abandoned);
@@ -394,9 +370,8 @@ impl Walk {
         }
     }
 
-    /// Queues the record's tool uses, taking their inputs out of `raw`. A
-    /// tool use without a non-empty id can never be paired with its result,
-    /// so it is counted instead of queued.
+    /// Moves tool-call inputs from `raw` into the pending queue.
+    /// Counts calls with missing or empty IDs instead of queuing them.
     fn queue_tool_uses(
         &mut self,
         index: usize,
@@ -438,8 +413,8 @@ impl Walk {
         }
     }
 
-    /// Pairs the record's tool results with awaited tool uses. The record's
-    /// own timestamp, when it has one, is when the results were recorded.
+    /// Matches tool results to pending calls by ID.
+    /// Uses the result record's timestamp as the completion time when available.
     fn resolve_results(&mut self, index: usize, raw: &RawRecord, session: &SessionId) {
         let ended = raw.timestamp.as_deref().map(Timestamp::new);
         let content = raw.message.as_ref().map(|m| &m.content);
@@ -484,14 +459,16 @@ impl Walk {
     }
 }
 
-/// Parses every complete line of a transcript and returns what the lines
-/// from ordinal `from_ordinal` on contribute, up to the consumption cutoff.
-/// Lines below `from_ordinal` are walked again for their context (the
-/// session, its checkout, and the tool uses they issued) but contribute no
-/// observations or counts, so parsing a growing file from where the last
-/// parse stopped yields the same observations as parsing it whole.
+/// Parses a full transcript and returns new events starting at `from_ordinal`.
 ///
-/// See the module docs and [`ParseOutcome`] for what is and is not consumed.
+/// `from_ordinal` is a zero-based line position, normally the previous result's
+/// [`ParseOutcome::next_ordinal`]. Earlier lines are read for session metadata
+/// and tool-call context but produce no returned observations or counts.
+/// Lines without a final newline and calls still awaiting results are left
+/// for a later parse. [`ParseOutcome::consumed`] identifies where to resume.
+///
+/// Malformed records and unsupported tool calls are counted in the result.
+/// This function reads only `bytes`; it does not access files or run commands.
 #[must_use]
 pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
     let mut walk = Walk {
@@ -551,11 +528,11 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
     outcome
 }
 
-/// The index of the first line not to consume. A tool use still waiting for
-/// its result blocks consumption from its issuing record onward, so the next
-/// parse sees it with its result. Lowering the cutoff can leave a resolved
-/// tool use's issuing record below it and its result at or beyond it; the
-/// cutoff then drops to that issuing record too, until no pair is split.
+/// Finds the first line to leave for the next parse.
+///
+/// Starts at the earliest pending tool call. Moves backward across completed
+/// call/result pairs until none crosses the boundary. This lets the next
+/// parse handle each call together with its result.
 fn consumption_cutoff(lines: usize, pending: &[PendingTool], resolved: &[(usize, usize)]) -> usize {
     let mut cutoff = pending
         .iter()
@@ -573,20 +550,21 @@ fn consumption_cutoff(lines: usize, pending: &[PendingTool], resolved: &[(usize,
     cutoff
 }
 
-/// Whether `block` is a content block of type `ty`.
+/// Checks whether `block` has the content type `ty`.
 fn is_block(block: &Value, ty: &str) -> bool {
     block.get("type").and_then(Value::as_str) == Some(ty)
 }
 
-/// The content blocks of a message; none unless the content is an array.
+/// Iterates over an array of content blocks, yielding nothing for other values.
 fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
     content.and_then(Value::as_array).into_iter().flatten()
 }
-/// The speaker of a record. A `user` record is harness metadata when marked
-/// meta, tool output when it holds only tool results, and otherwise a typed
-/// message: from a person in a main transcript, and from the parent agent
-/// in a sidechain (subagent) transcript, where it is a delegation rather
-/// than human intent.
+/// Classifies the record as agent text, metadata, tool output, delegation, or human text.
+///
+/// Assistant records are agent text. User records are metadata when marked
+/// `isMeta`, or tool output when their non-empty content contains only tool
+/// results. Remaining user records are delegation in subagent transcripts
+/// and human text in main transcripts.
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
@@ -604,14 +582,13 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     Role::Human
 }
 
-/// Text of a message's content, empty when it carries none.
+/// Extracts message text, returning an empty string when there is none.
 fn text_of(content: Option<&Value>) -> String {
     content_text(content).unwrap_or_default()
 }
 
-/// Text of message or `tool_result` content: the string itself, or its text
-/// blocks joined by newlines. `None` when it carries no text, which differs
-/// from carrying empty text.
+/// Extracts a content string or joins an array's text blocks with newlines.
+/// Returns `None` if no text is present and `Some("")` for explicitly empty text.
 fn content_text(content: Option<&Value>) -> Option<String> {
     match content? {
         Value::String(text) => Some(text.clone()),
@@ -652,13 +629,16 @@ fn string_field<'a>(value: Option<&'a Value>, key: &str) -> Option<&'a str> {
     value?.get(key)?.as_str()
 }
 
-/// The edit's path relative to the checkout, read from both the input's
-/// `file_path` and the result's `filePath`. A path on one side only is used
-/// as it is. When both sides carry one, each is made relative to the
-/// checkout and they must agree; if they do not, which file was edited is
-/// uncertain and the edit is counted as [`Count::Conflicting`] rather than
-/// recorded under either path. A path that cannot be shown to lie inside
-/// the checkout is [`Count::Outside`].
+/// Reads the edited path from the input's `file_path` and the result's `filePath`.
+///
+/// Converts each supplied path to a checkout-relative path with [`contained`].
+/// Uses whichever is present, requiring equal results when both are supplied.
+///
+/// # Errors
+///
+/// Returns [`Count::Conflicting`] if the converted paths differ, including when
+/// only one is inside the checkout. Returns [`Count::Outside`] if neither
+/// supplies a path inside the checkout.
 fn relative_path(tool: &PendingTool, result: Option<&Value>) -> Result<PathBuf, Count> {
     let from_input = string_field(Some(&tool.input), "file_path").map(|p| contained(&tool.cwd, p));
     let from_result = string_field(result, "filePath").map(|p| contained(&tool.cwd, p));
@@ -669,12 +649,11 @@ fn relative_path(tool: &PendingTool, result: Option<&Value>) -> Result<PathBuf, 
     }
 }
 
-/// `path` relative to `checkout`, or `None` when it cannot be shown to lie
-/// inside it. Containment is lexical: the checkout must be non-empty, the
-/// path must start with it, and the remainder may contain only normal
-/// components. `/work/repo/../secret` strips to `../secret` and is rejected
-/// here. Symlinks are not resolved in this plan; plan 2 checks paths against
-/// the git tree, which never contains one that escapes.
+/// Returns the part of `path` below `checkout`, without accessing the file system.
+///
+/// Requires a non-empty checkout prefix and a non-empty remainder containing
+/// only normal path components. For example, `/work/repo/../secret` is rejected
+/// under `/work/repo`. Returns `None` if these checks fail. Does not resolve symlinks.
 fn contained(checkout: &Path, path: &str) -> Option<PathBuf> {
     if checkout.as_os_str().is_empty() {
         return None;
@@ -712,19 +691,18 @@ fn state_of(text: Option<&str>) -> FileState {
     })
 }
 
-/// Why a text field is not retained when neither the result nor the input
-/// carries it.
+/// Reason recorded when text is missing from both the input and result.
 const FIELD_MISSING: &str = "field missing";
-/// Why a command stream is not retained when the source does not carry it.
+/// Reason recorded when a command output stream is missing.
 const NOT_CAPTURED: &str = "not captured";
-/// Why a command's streams are not retained when it has no result.
+/// Reason recorded when a command has no result.
 const NO_RESULT: &str = "no result recorded";
 
-/// One field of an editing tool, read from the tool result first (it
-/// reflects what was applied) and from the input otherwise.
+/// Editing-tool field taken from the result, falling back to the input.
+/// Tracks disagreement when both provide values.
 struct Field<T> {
     value: Option<T>,
-    /// Both sides carry the field and they disagree.
+    /// Whether the input and result both supplied values that differ.
     conflict: bool,
 }
 
@@ -737,7 +715,7 @@ impl<T: PartialEq> Field<T> {
         }
     }
 
-    /// Present on at least one side and not contradicted by the other.
+    /// Returns the value if present and the input and result do not disagree.
     fn settled(&self) -> Option<&T> {
         if self.conflict {
             None
@@ -747,7 +725,7 @@ impl<T: PartialEq> Field<T> {
     }
 }
 
-/// The text as retained material, else unavailable for `reason`.
+/// Stores supplied text as retained material, or records `reason` when it is absent.
 fn retained_or(text: Option<&str>, reason: &str) -> Material<String> {
     text.map_or_else(
         || Material::unavailable(reason),
@@ -755,7 +733,7 @@ fn retained_or(text: Option<&str>, reason: &str) -> Material<String> {
     )
 }
 
-/// What one editing tool did to a file, apart from the path and timing.
+/// File states and replacement text extracted from an editing tool call.
 struct EditParts {
     before: FileState,
     after: FileState,
@@ -764,9 +742,11 @@ struct EditParts {
     replace_all: bool,
 }
 
-/// An `Edit`. The after-state is computed only when the original and all
-/// three fields are known and neither side contradicts the other; a missing
-/// field is never read as an empty string or a default.
+/// Reconstructs the file states and replacement text for an `Edit` call.
+///
+/// Computes after-content only when the original text, old text, new text,
+/// and `replace_all` are available and the input and result do not disagree.
+/// If any required value is missing or replacement fails, the after-state is unknown.
 fn edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     let input = Some(&tool.input);
     let original = string_field(result, "originalFile");
@@ -802,9 +782,11 @@ fn edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     }
 }
 
-/// A `Write`. The written content comes from the result, else the input.
-/// Without either, or when both carry it and they differ, the after-state
-/// is unknown; the result's text is still retained.
+/// Reconstructs file states for a `Write` call.
+///
+/// Uses content from the result, falling back to the input. Missing or
+/// conflicting content leaves the after-state unknown. Conflicting result
+/// text is still retained for inspection.
 fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     let content = Field::reconcile(
         string_field(result, "content"),
@@ -824,8 +806,9 @@ fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     }
 }
 
-/// A `MultiEdit`. Without any edits, or with an edit missing its old or new
-/// text, the after-state is unknown rather than a no-op or a deletion.
+/// Reconstructs file states by applying a `MultiEdit` call's replacements in order.
+/// Missing original text, empty or incomplete edits, or a failed replacement
+/// leave the after-state unknown.
 fn multi_edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     let original = string_field(result, "originalFile");
     let edits: Option<Vec<(String, String, bool)>> = tool
@@ -859,21 +842,25 @@ fn multi_edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     }
 }
 
-/// The result side of a resolved tool use.
+/// Tool-result data matched to a pending call.
 struct Resolution<'a> {
-    /// The record's `toolUseResult`, when it can belong to this tool use.
+    /// Structured `toolUseResult`, when it can be assigned to this call.
     structured: Option<&'a Value>,
     /// The `tool_result` content block.
     block: &'a Value,
-    /// Whether the harness flagged the result as an error.
+    /// Whether the source marked the result as an error.
     is_error: bool,
-    /// Time of the record carrying the result, when it has one.
+    /// Timestamp of the record carrying the result, if available.
     ended: Option<&'a Timestamp>,
 }
 
-/// The edit a resolved editing tool made, or what to count instead. The
-/// edit's time is when its result was recorded, or the issuing record's time
-/// when the result record carries none.
+/// Builds an edit observation from a supported editing call and its result.
+/// Uses the result timestamp, falling back to the call timestamp when absent.
+///
+/// # Errors
+///
+/// Returns [`Count::Failed`] if the tool reported an error, or the path error
+/// from [`relative_path`].
 fn build_edit(
     tool: &PendingTool,
     session: &SessionId,
@@ -921,8 +908,8 @@ fn stream_tail(text: Option<&str>) -> Material<String> {
     )
 }
 
-/// The shell command a tool use ran, as known before any result: its
-/// streams unavailable, no error, no outcome, and no end time.
+/// Builds a command from its tool call, before any result is known.
+/// Output is unavailable, `reported_error` is false, and outcome and end time are absent.
 fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
     let cmd = string_field(Some(&tool.input), "command")
         .unwrap_or_default()
@@ -982,10 +969,13 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
     })
 }
 
-/// What a resolved tool use contributes: an edit, a command, or a count.
-/// An editing tool the capture does not read is counted rather than passed
-/// over, so the missing edit evidence is visible. Other tools contribute
-/// nothing.
+/// Builds an observation for `Edit`, `Write`, `MultiEdit`, or `Bash`.
+/// Returns `None` for other tools except `NotebookEdit`, which is counted as unsupported.
+///
+/// # Errors
+///
+/// Returns `Some(Err(...))` for a `NotebookEdit` call or an editing call rejected
+/// by [`build_edit`].
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
@@ -999,28 +989,24 @@ fn build_resolved(
     }
 }
 
-/// A shell command still without a result when a typed message arrived.
+/// Records an abandoned `Bash` call with no result. Returns `None` for other tools.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
     (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
 }
 
-/// Coarse classification of a shell command line, read from the programs it
-/// runs rather than from any text it mentions.
+/// Classifies a shell command line by recognized program names and subcommands.
 ///
-/// The line is split into simple commands at `;`, `&`, `|`, and newlines
-/// outside quotes (so `&&` and `||` split as well, but the `&` of a
-/// redirection such as `2>&1` does not), and each into words with quotes
-/// removed. Heredoc bodies (from the line after `<<` or `<<-` up to and
-/// including the terminator line) and `#` comments are data, not commands,
-/// and are skipped; after a heredoc without a terminator, nothing more is
-/// read. Leading variable assignments (`RUST_LOG=debug`), `sudo`, `time`,
-/// `env`, and a `mise exec ... --` prefix are skipped; what remains names
-/// the program, and for `cargo`, `go`, `npm`, and `pnpm` its subcommand
-/// too. A test run in any simple command makes the line a
-/// [`CommandCategory::TestRun`], else a build a
-/// [`CommandCategory::Build`], else git or `gh` a [`CommandCategory::Git`].
-/// So `cat nextest-results.txt` and `echo "cargo test"` are
-/// [`CommandCategory::Other`].
+/// Splits commands at unquoted `;`, `&`, `|`, and newlines, including `&&`
+/// and `||`. Redirections such as `2>&1` do not split commands. Skips comments
+/// and heredoc bodies, stopping if a heredoc terminator is missing.
+///
+/// Before identifying the program, skips leading assignments, `sudo`, `time`,
+/// `env`, and `mise exec ... --`. For example, `RUST_LOG=debug cargo test` is
+/// a test run, while `echo "cargo test"` and `cat nextest-results.txt` are `Other`.
+///
+/// When several commands match, the result uses this priority: `TestRun`,
+/// `Build`, `Git`, then `Other`. This recognizes specific command forms;
+/// it does not evaluate shell syntax or execute the command.
 #[must_use]
 pub fn classify_command(cmd: &str) -> CommandCategory {
     simple_commands(cmd)
@@ -1030,7 +1016,7 @@ pub fn classify_command(cmd: &str) -> CommandCategory {
         .unwrap_or(CommandCategory::Other)
 }
 
-/// Precedence of a category when a line runs several commands.
+/// Returns a category's priority when a line contains several commands.
 const fn rank(category: CommandCategory) -> u8 {
     match category {
         CommandCategory::Other => 0,
@@ -1040,7 +1026,7 @@ const fn rank(category: CommandCategory) -> u8 {
     }
 }
 
-/// The category of one simple command, given its words from the program on.
+/// Classifies words starting with a program name and followed by its arguments.
 fn category_of(words: &[String]) -> CommandCategory {
     let word = |i: usize| words.get(i).map(String::as_str);
     // A program named by path, such as `/usr/bin/cargo`, is still `cargo`.
@@ -1058,8 +1044,7 @@ fn category_of(words: &[String]) -> CommandCategory {
     }
 }
 
-/// `words` from the program on: leading assignments, `sudo`, `time`, `env`,
-/// and `mise exec ... --` are skipped.
+/// Removes leading assignments and `sudo`, `time`, `env`, or `mise exec ... --` prefixes.
 fn program_words(words: &[String]) -> &[String] {
     let mut rest = words;
     loop {
@@ -1077,7 +1062,7 @@ fn program_words(words: &[String]) -> &[String] {
     }
 }
 
-/// Whether `word` is a shell variable assignment such as `RUST_LOG=debug`.
+/// Checks for a shell variable assignment such as `RUST_LOG=debug`.
 fn is_assignment(word: &str) -> bool {
     word.split_once('=').is_some_and(|(name, _)| {
         name.chars()
@@ -1087,9 +1072,8 @@ fn is_assignment(word: &str) -> bool {
     })
 }
 
-/// Splits a command line into simple commands, each a list of words with
-/// quotes and backslash escapes removed. See [`classify_command`] for where
-/// it splits and what it skips.
+/// Splits a command line into word lists, removing quotes and backslash escapes.
+/// Uses the separators and exclusions described in [`classify_command`].
 fn simple_commands(line: &str) -> Vec<Vec<String>> {
     let mut split = Splitter::default();
     let mut chars = line.char_indices().peekable();
@@ -1151,21 +1135,21 @@ fn simple_commands(line: &str) -> Vec<Vec<String>> {
     split.finish()
 }
 
-/// State of [`simple_commands`] between characters.
+/// Words, commands, and heredoc delimiters accumulated by the command-line parser.
 #[derive(Default)]
 struct Splitter {
     commands: Vec<Vec<String>>,
     words: Vec<String>,
     word: String,
-    /// Whether a word has begun, which an empty quoted word also does.
+    /// Whether a word has started, including an empty quoted argument.
     in_word: bool,
-    /// Delimiters of heredocs opened on the current line, with whether
-    /// leading tabs are stripped from their terminator (`<<-`).
+    /// Heredoc delimiters opened on this line, paired with whether `<<-`
+    /// allows leading tabs on the terminator line.
     heredocs: Vec<(String, bool)>,
 }
 
 impl Splitter {
-    /// Moves a begun word into the current command.
+    /// Adds the current word to the command if a word has started.
     fn end_word(&mut self) {
         if std::mem::take(&mut self.in_word) {
             self.words.push(std::mem::take(&mut self.word));
@@ -1186,10 +1170,10 @@ impl Splitter {
     }
 }
 
-/// Reads a heredoc's delimiter after `<<`: an optional `-`, spaces, then
-/// either a quoted delimiter, which is the text up to the matching quote,
-/// whitespace included, or one word with its quotes and backslashes removed
-/// (`\EOF` is `EOF`). `None` when a quote is never closed.
+/// Reads the delimiter after `<<` and whether `-` enables tab stripping.
+///
+/// Skips spaces and tabs, then reads either a quoted string or an unquoted
+/// word with quotes and backslashes removed. Returns `None` for an unclosed quote.
 fn heredoc_delimiter(
     chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
 ) -> Option<(String, bool)> {
@@ -1216,10 +1200,10 @@ fn heredoc_delimiter(
     Some((delimiter, strip_tabs))
 }
 
-/// Skips the bodies of `heredocs`, in order, starting at byte `start` of
-/// `line`: each runs up to and including its terminator line, which must be
-/// the delimiter exactly (after leading tabs for `<<-`). Returns where
-/// commands resume, or `None` when a terminator is missing.
+/// Skips heredoc bodies and terminator lines, starting at byte `start`.
+///
+/// A terminator must equal its delimiter, ignoring leading tabs for `<<-`.
+/// Returns the byte position where commands resume, or `None` if a terminator is missing.
 fn skip_heredoc_bodies(
     line: &str,
     start: usize,
@@ -1245,13 +1229,12 @@ fn skip_heredoc_bodies(
     Some(pos)
 }
 
-/// Reads a pass or fail verdict from cargo test or nextest output.
+/// Infers pass or fail from `cargo test` or nextest markers in both output streams.
 ///
-/// Failure takes precedence: a workspace run prints one `test result:` line
-/// per binary, and one failing binary after several passing ones is a
-/// failed run. Every nextest summary line is inspected, so a failing suite
-/// after a passing one is a failed run too. `None` means no verdict could be
-/// read, not success.
+/// Returns `Failed` if either stream contains `FAILED` or a nextest summary
+/// reports a non-zero failed count. Otherwise returns `Passed` for
+/// `test result: ok` or a nextest summary. Failure takes priority even when
+/// other binaries passed. Returns `None` when no result marker is recognized.
 #[must_use]
 pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
     let text = format!("{stdout}\n{stderr}");
@@ -1270,8 +1253,8 @@ pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
     None
 }
 
-/// Whether a nextest summary line reports a non-zero failed count, such as
-/// `2 passed, 1 failed`. `0 failed` is not a failure.
+/// Checks for a positive number followed by `failed`, such as `1 failed`.
+/// A `0 failed` count returns `false`.
 fn summary_has_failures(line: &str) -> bool {
     let tokens: Vec<&str> = line
         .split(|c: char| c.is_whitespace() || c == ',')

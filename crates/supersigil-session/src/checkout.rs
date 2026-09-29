@@ -1,27 +1,28 @@
-//! How checkouts are spelled, and where one lies relative to another.
+//! Resolves checkout paths and checks whether one path is inside another.
 //!
-//! The CLI and records spell a checkout [`canonical`]ly. Transcripts keep
-//! the working directory Claude Code wrote, which a symlinked directory can
-//! spell differently, so comparisons go through [`placement`].
+//! Stored checkout paths are canonical, but transcripts may use symlinks or
+//! different path separators. [`placement`] accounts for these differences
+//! when comparing a transcript's working directory with a checkout.
 
 use std::path::{Path, PathBuf};
 
-/// Where a path lies relative to a root checkout.
+/// Whether a path is the checkout root, a descendant, or outside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placement {
     /// The root itself.
     Same,
-    /// Strictly inside the root, this many components below it, such as a
-    /// worktree under `.claude/worktrees` (three).
+    /// A descendant of the root, with its depth in path components.
+    /// For example, `.claude/worktrees/example` has depth 3.
     Nested(usize),
-    /// Anywhere else.
+    /// Neither the root nor a descendant of it.
     Outside,
 }
 
-/// Where `path` lies relative to `root`. When both exist on disk their
-/// [`canonical`] paths decide; otherwise the paths as written are compared
-/// by component, with `\` also separating components in a Windows path.
-/// Inside means below `root` through normal components only, so
+/// Checks whether `path` equals `root`, is inside it, or is outside it.
+///
+/// Compares canonical paths if both can be resolved. Otherwise compares the
+/// supplied path components, treating `\` as a separator in Windows paths.
+/// In that fallback, any `..` after the root makes the path outside, so
 /// `/work/repo/../other` is outside `/work/repo`.
 #[must_use]
 pub fn placement(path: &Path, root: &Path) -> Placement {
@@ -31,12 +32,11 @@ pub fn placement(path: &Path, root: &Path) -> Placement {
     }
 }
 
-/// `path` made absolute with every symlink resolved, as
-/// [`std::fs::canonicalize`] does, but without the verbatim prefix that
-/// function adds on Windows: `\\?\C:\x` becomes `C:\x`, and
-/// `\\?\UNC\server\share` becomes `\\server\share`. Claude Code never
-/// writes that prefix, so neither its transcripts nor its project directory
-/// names would match a checkout spelled with it.
+/// Returns an absolute path with symlinks resolved and no Windows verbatim prefix.
+///
+/// Calls [`std::fs::canonicalize`], then converts `\\?\C:\x` to `C:\x` and
+/// `\\?\UNC\server\share` to `\\server\share`. This matches the path format
+/// used in Claude Code transcripts and project directory names.
 ///
 /// # Errors
 ///
@@ -45,7 +45,7 @@ pub fn canonical(path: &Path) -> std::io::Result<PathBuf> {
     std::fs::canonicalize(path).map(without_verbatim_prefix)
 }
 
-/// `path` without a Windows verbatim prefix; other paths as they are.
+/// Removes a Windows verbatim prefix, leaving other paths unchanged.
 fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     let stripped = {
         let text = path.to_string_lossy();
@@ -58,7 +58,7 @@ fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     stripped.map_or(path, PathBuf::from)
 }
 
-/// [`placement`] of two paths as written, by [`comparable`] components.
+/// Compares normalized path components without accessing the file system.
 fn placement_as_written(path: &Path, root: &Path) -> Placement {
     let (path, root) = (comparable(path), comparable(root));
     match path.strip_prefix(root.as_slice()) {
@@ -68,12 +68,12 @@ fn placement_as_written(path: &Path, root: &Path) -> Placement {
     }
 }
 
-/// The components of `path` for comparison, alike on every platform.
+/// Splits `path` into components for comparison across platforms.
 ///
-/// In a Windows path (one starting with a drive letter or `\\`, or any path
-/// on Windows) `\` separates components as `/` does. `.` and empty
-/// components are dropped, and a drive letter is upper-cased. The first component records the root: `/`, `//` for a UNC
-/// path, or nothing.
+/// Treats `\` as a separator on Windows and in paths starting with a drive
+/// letter or `\\`. Removes empty and `.` components and uppercases drive
+/// letters. The first component is `/`, `//` for UNC paths, or an empty string
+/// for paths without either root.
 fn comparable(path: &Path) -> Vec<String> {
     let text = path.to_string_lossy();
     let windows = cfg!(windows) || text.starts_with(r"\\") || has_drive(&text);
@@ -100,7 +100,7 @@ fn comparable(path: &Path) -> Vec<String> {
     components
 }
 
-/// Whether `text` starts with a drive letter and a colon, as in `C:`.
+/// Returns whether `text` starts with an ASCII drive letter and a colon, such as `C:`.
 fn has_drive(text: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'

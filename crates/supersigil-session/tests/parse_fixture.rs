@@ -1,4 +1,4 @@
-//! Parser behavior on the synthetic slice session.
+//! Tests transcript parsing with synthetic sessions and tool results.
 
 mod common;
 
@@ -56,8 +56,8 @@ fn unavailable(reason: &str) -> Material<String> {
     }
 }
 
-/// A two-record transcript: an assistant record issuing tool use `t1`, then
-/// a user record carrying `result_block` and, if given, `toolUseResult`.
+/// Creates a two-line transcript containing tool call `t1` and its result.
+/// The result includes `result_block` and the optional structured `toolUseResult`.
 fn tool_exchange(
     name: &str,
     input: Value,
@@ -90,7 +90,7 @@ fn ok_block() -> Value {
     json!({"type": "tool_result", "tool_use_id": "t1", "content": "ok"})
 }
 
-/// The single edit parsed from a tool exchange.
+/// Parses a tool exchange and asserts that it produced exactly one edit.
 fn only_edit(
     name: &str,
     input: Value,
@@ -103,7 +103,7 @@ fn only_edit(
     edits[0].clone()
 }
 
-/// The single command parsed from a tool exchange.
+/// Parses a tool exchange and asserts that it produced exactly one command.
 fn only_command(
     result_block: Value,
     tool_use_result: Option<Value>,
@@ -965,7 +965,7 @@ fn malformed_lines_before_any_session_are_not_consumed() {
     assert_eq!(outcome.counts.malformed_lines, 1);
 }
 
-/// A user record of session `session` with a typed message.
+/// Creates a human message record for `session`.
 fn human(uuid: &str, session: &str) -> Value {
     json!({
         "type": "user", "uuid": uuid, "parentUuid": null, "sessionId": session,
@@ -975,7 +975,7 @@ fn human(uuid: &str, session: &str) -> Value {
     })
 }
 
-/// An assistant record of session `session` with a text block.
+/// Creates an assistant message record with one text block for `session`.
 fn agent(uuid: &str, session: &str) -> Value {
     json!({
         "type": "assistant", "uuid": uuid, "parentUuid": null, "sessionId": session,
@@ -1132,8 +1132,8 @@ fn results_without_a_timestamp_have_no_end_time() {
     assert_eq!(edits[0].time.as_str(), "2026-09-28T10:00:00.000Z");
 }
 
-/// Tool use `ta` (a `Write`) then `tb` (a `Bash`) in separate assistant
-/// records, then `ta`'s result, then `tb`'s: four lines.
+/// Creates four records in order: `Write` call `ta`, `Bash` call `tb`, then
+/// the results of `ta` and `tb`.
 fn interleaved_tool_uses() -> Vec<String> {
     let issue = |uuid: &str, block: Value| {
         json!({

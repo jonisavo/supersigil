@@ -1,15 +1,16 @@
-//! Finds Claude Code transcripts for a checkout without a hook.
+//! Finds a checkout's Claude Code transcripts by scanning its project directory.
 //!
-//! Claude Code stores transcripts under `~/.claude/projects/<encoded cwd>/`,
-//! where the encoding replaces path separators and dots with dashes, and a
-//! session's subagent transcripts under `<session id>/subagents/`. Hooks
-//! hand over `transcript_path` directly; this module is the fallback for
-//! sessions recorded before the hook existed.
+//! Searches `~/.claude/projects/<encoded checkout>/` for main transcripts and
+//! `<session id>/subagents/` for subagent transcripts. Use this when no hook
+//! supplied a `transcript_path`, such as when importing older sessions.
 
 use std::path::{Path, PathBuf};
 
-/// Encodes a checkout path the way Claude Code names its project directories:
-/// every character outside `A-Z`, `a-z`, and `0-9` becomes a dash.
+/// Converts a checkout path to a Claude Code project directory name.
+///
+/// Replaces every character outside ASCII letters and digits with `-`.
+/// For example, `/work/my.repo` becomes `-work-my-repo`. Uses the supplied
+/// path without resolving symlinks or making it absolute.
 #[must_use]
 pub fn encode_project_dir(checkout: &Path) -> String {
     checkout
@@ -19,18 +20,18 @@ pub fn encode_project_dir(checkout: &Path) -> String {
         .collect()
 }
 
-/// Transcripts for `checkout` under `claude_home` (normally `~/.claude`):
-/// first the main transcripts, the `.jsonl` files in the project directory,
-/// then the subagent transcripts `<session id>/subagents/agent-*.jsonl`
-/// beside them, each group sorted by path. Anything else,
-/// such as a subagent's `.meta.json` or a session's `tool-results`, is left
-/// out. Empty when the project directory does not exist.
+/// Lists the main and subagent transcripts for `checkout`.
+///
+/// `claude_home` is normally `~/.claude`. Searches its `projects` directory
+/// using [`encode_project_dir`] on the supplied checkout path. Returns main
+/// `.jsonl` paths first, then `<session id>/subagents/agent-*.jsonl` paths,
+/// with each group sorted by path. Ignores other files and directories.
+/// Returns an empty vector if the project directory is missing.
 ///
 /// # Errors
 ///
-/// Returns the I/O error if the project directory or an existing
-/// `subagents` directory cannot be read, or if one of their entries cannot
-/// be read.
+/// Returns an I/O error if an existing project or subagent directory, or an
+/// entry needed for the scan, cannot be read.
 pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Result<Vec<PathBuf>> {
     let dir = claude_home
         .join("projects")
@@ -55,8 +56,11 @@ pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Res
     Ok(main)
 }
 
-/// The `agent-*.jsonl` files in a session's `subagents` directory; none
-/// when it does not exist.
+/// Lists `agent-*.jsonl` paths in `dir`, or returns an empty vector if it is missing.
+///
+/// # Errors
+///
+/// Returns an I/O error if the directory or one of its entries cannot be read.
 fn subagent_transcripts(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let Some(entries) = read_dir_if_present(dir)? else {
         return Ok(Vec::new());
@@ -74,7 +78,11 @@ fn subagent_transcripts(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// The directory's entries, or `None` when it does not exist.
+/// Opens a directory for reading, returning `None` if it does not exist.
+///
+/// # Errors
+///
+/// Returns any error other than [`std::io::ErrorKind::NotFound`].
 fn read_dir_if_present(dir: &Path) -> std::io::Result<Option<std::fs::ReadDir>> {
     match std::fs::read_dir(dir) {
         Ok(entries) => Ok(Some(entries)),

@@ -1,4 +1,4 @@
-//! Incremental sync of the slice fixture into a record.
+//! Tests incremental transcript imports, cursor updates, and checkout filtering.
 
 mod common;
 
@@ -41,8 +41,8 @@ fn setup(bytes: &[u8]) -> Setup {
     }
 }
 
-/// The cursor key of a transcript: its canonical path. Temporary
-/// directories may sit behind a symlink.
+/// Returns the canonical transcript path used as its cursor key.
+/// Resolves symlinks that may appear in temporary directory paths.
 fn cursor_key(path: &Path) -> String {
     canonical(path).unwrap().display().to_string()
 }
@@ -444,7 +444,7 @@ fn an_empty_session_id_does_not_block_sync() {
     assert!(manifest.logs.is_empty());
 }
 
-/// A subagent transcript of the fixture's session: one `Write` and its result.
+/// Creates a subagent transcript with one `Write` call and its result.
 fn subagent_transcript() -> String {
     format!(
         "{}\n{}\n",
@@ -627,7 +627,7 @@ fn a_transcript_from_another_checkout_is_skipped() {
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
 
-/// `absolute` spelled relative to the current directory.
+/// Expresses `absolute` as a path relative to the current directory.
 #[cfg(unix)]
 fn relative_spelling(absolute: &Path) -> PathBuf {
     let cwd = std::env::current_dir().unwrap();
@@ -663,7 +663,7 @@ fn relative_and_absolute_spellings_share_one_cursor() {
     assert_eq!(unique.len(), 17);
 }
 
-/// An assistant record in session `session` issuing Bash tool use `t1`.
+/// Creates an assistant record in `session` that issues `Bash` call `t1`.
 fn pending_tool_use(session: &str) -> String {
     format!(
         r#"{{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"{session}","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"t1","name":"Bash","input":{{"command":"ls"}}}}]}}}}{}"#,
@@ -734,8 +734,8 @@ fn malformed_lines_before_a_session_are_recorded_once_it_is_known() {
     assert_eq!(recorded[0].to_ordinal, 2);
 }
 
-/// Tool use `ta` (a `Write`) then `tb` (a `Bash`) in separate assistant
-/// records, then `ta`'s result, then `tb`'s: one line each.
+/// Creates four records in order: `Write` call `ta`, `Bash` call `tb`, then
+/// the results of `ta` and `tb`.
 fn interleaved_tool_uses() -> Vec<String> {
     let issue = |uuid: &str, block: &str| {
         format!(
@@ -828,8 +828,8 @@ fn only_checkouts_inside_the_requested_tree_are_accepted() {
     }
 }
 
-/// A session-bearing record without `cwd`, then a `Write` issued from
-/// `/other/repo`, then its result: one line each.
+/// Creates a session record without `cwd`, followed by a `Write` call from
+/// `/other/repo` and its result, as three separate lines.
 fn late_foreign_checkout() -> Vec<String> {
     vec![
         r#"{"type":"user","uuid":"u0","parentUuid":null,"sessionId":"s","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#.to_owned(),
@@ -856,7 +856,7 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
 
-/// The fixture's lines, without their newlines.
+/// Returns fixture lines without newline characters.
 fn fixture_lines() -> Vec<String> {
     String::from_utf8(fixture())
         .unwrap()
@@ -865,7 +865,7 @@ fn fixture_lines() -> Vec<String> {
         .collect()
 }
 
-/// `lines`, each ended by a newline.
+/// Joins `lines`, adding a newline after each one.
 fn joined(lines: &[String]) -> String {
     lines
         .iter()
@@ -873,8 +873,7 @@ fn joined(lines: &[String]) -> String {
         .collect()
 }
 
-/// A `Write` of `file` issued from `cwd` after the fixture's last turn, and
-/// its result.
+/// Creates a `Write` call for `file` from `cwd` and its result, after the fixture's last turn.
 fn write_from(cwd: &str, file: &str) -> [String; 2] {
     [
         format!(
@@ -886,16 +885,16 @@ fn write_from(cwd: &str, file: &str) -> [String; 2] {
     ]
 }
 
-/// The fixture followed by `extra`.
+/// Appends `extra` records to the fixture lines.
 fn fixture_and(extra: [String; 2]) -> Vec<String> {
     let mut lines = fixture_lines();
     lines.extend(extra);
     lines
 }
 
-/// Every observation of every session as JSON, except capture limitations,
-/// whose ordinal ranges depend on where the syncs happened to cut. The
-/// temporary directory is replaced, so two setups compare equal.
+/// Serializes stored observations for comparison between test setups.
+/// Excludes capture limitations because their ranges depend on sync boundaries.
+/// Replaces the temporary directory path with `<dir>`.
 fn evidence(s: &Setup) -> Vec<String> {
     let dir = canonical(s.dir.path()).unwrap();
     let dir = serde_json::to_string(&dir).unwrap();

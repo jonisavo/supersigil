@@ -1,4 +1,4 @@
-//! Computes derivations from a session's observations.
+//! Compares a session's edits to find restores and discontinuities.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -7,24 +7,26 @@ use crate::derivations::{ALGORITHM_VERSION, DerivationSet, Discontinuity, Restor
 use crate::ids::{ContentId, EventId, Revision, SessionId};
 use crate::observations::{Content, Edit, FileState, Observation};
 
-/// Derives restores and discontinuities from `observations`.
+/// Finds restores and discontinuities among the edits belonging to `session`.
 ///
-/// Edits are grouped by checkout, path, and transcript, and ordered by
-/// `source_ordinal` within each group. Ordinals are positions in one
-/// transcript, and ordinals from different transcripts share no order, so
-/// restores and discontinuities are claimed only within one transcript's
-/// ordering. How edits from different transcripts (a subagent's, or another
-/// main transcript of the session) relate is left to attribution.
-/// A restore is claimed only where both content ids involved are known. A
-/// discontinuity is claimed where both adjacent states are known and differ:
-/// an absent file is a known state, so a file left present that the next
-/// edit finds absent (or the reverse) is a gap, while unknown content on
-/// either side makes no claim.
+/// Keeps the first occurrence of each edit ID in `observations`, then groups
+/// edits by checkout, path, and transcript. Each group is sorted by
+/// [`Edit::source_ordinal`], preserving input order for ties. Timestamps do not
+/// affect this order. Edits without a transcript path form their own group
+/// for each checkout and path.
 ///
-/// Each event counts once: a transcript read again from the start appends
-/// its edits again under the same ids, and only the first record of an
-/// [`EventId`] in log order is used. Without this, a replayed edit would
-/// look like a gap between an edit and itself.
+/// Within each group:
+///
+/// - A restore matches an edit's after-content hash to an earlier edit's
+///   before-content hash. Both hashes must be known. An edit with identical
+///   before and after hashes is not reported as a restore.
+/// - A discontinuity compares one edit's after-state with the next edit's
+///   before-state. Different known hashes, or a known hash paired with an
+///   absent file, count as a mismatch. Unknown content prevents comparison.
+///
+/// Copies `observation_revision` into the result to identify the input revision.
+/// Comparisons use only the supplied observations and cannot establish that
+/// every file change was recorded.
 #[must_use]
 pub fn derive(
     session: &SessionId,
@@ -92,7 +94,7 @@ pub fn derive(
     }
 }
 
-/// `state` when it is fully known: absent, or present with known content.
+/// Returns `state` if the file is absent or has a known content hash.
 fn known_state(state: &FileState) -> Option<&FileState> {
     match state {
         FileState::Present {
