@@ -757,3 +757,100 @@ fn malformed_lines_before_a_session_are_recorded_once_it_is_known() {
     assert_eq!(recorded[0].from_ordinal, 0);
     assert_eq!(recorded[0].to_ordinal, 2);
 }
+
+/// Tool use `ta` (a `Write`) then `tb` (a `Bash`) in separate assistant
+/// records, then `ta`'s result, then `tb`'s: one line each.
+fn interleaved_tool_uses() -> Vec<String> {
+    let issue = |uuid: &str, block: &str| {
+        format!(
+            r#"{{"type":"assistant","uuid":"{uuid}","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{block}]}}}}"#
+        )
+    };
+    let result = |uuid: &str, id: &str, structured: &str| {
+        format!(
+            r#"{{"type":"user","uuid":"{uuid}","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"{id}","content":"ok"}}]}},"toolUseResult":{structured}}}"#
+        )
+    };
+    vec![
+        issue(
+            "a1",
+            r#"{"type":"tool_use","id":"ta","name":"Write","input":{"file_path":"/work/repo/a.txt","content":"x\n"}}"#,
+        ),
+        issue(
+            "a2",
+            r#"{"type":"tool_use","id":"tb","name":"Bash","input":{"command":"ls"}}"#,
+        ),
+        result(
+            "u1",
+            "ta",
+            r#"{"type":"create","filePath":"/work/repo/a.txt","content":"x\n","structuredPatch":[]}"#,
+        ),
+        result(
+            "u2",
+            "tb",
+            r#"{"stdout":"a.txt\n","stderr":"","interrupted":false}"#,
+        ),
+    ]
+}
+
+/// Each observation's kind and id, in log order.
+fn observation_ids(store: &Store, session: &SessionId) -> Vec<String> {
+    store
+        .snapshot()
+        .unwrap()
+        .observations(session)
+        .unwrap()
+        .iter()
+        .map(|o| match o {
+            Observation::SessionStart(_) => "session_start".to_owned(),
+            Observation::SessionEnd(_) => "session_end".to_owned(),
+            Observation::Turn(t) => format!("turn {}", t.id.as_str()),
+            Observation::Edit(e) => format!("edit {}", e.id.as_str()),
+            Observation::Command(c) => format!("command {}", c.id.as_str()),
+            Observation::CaptureLimitation(_) => "capture_limitation".to_owned(),
+        })
+        .collect()
+}
+
+#[test]
+fn staged_sync_matches_whole_file_ingestion() {
+    let lines = interleaved_tool_uses();
+    let text = |n: usize| -> String {
+        let mut text = String::new();
+        for line in &lines[..n] {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text
+    };
+    let session = SessionId::new("s");
+
+    let whole = setup(text(4).as_bytes());
+    sync(
+        &whole.store,
+        &whole.checkout,
+        std::slice::from_ref(&whole.transcript),
+    )
+    .unwrap();
+    let expected = observation_ids(&whole.store, &session);
+    assert!(expected.iter().any(|id| id.starts_with("edit ")));
+    assert!(expected.iter().any(|id| id.starts_with("command ")));
+
+    // Cut after `ta`'s result, while `tb` is still pending.
+    let staged = setup(text(3).as_bytes());
+    sync(
+        &staged.store,
+        &staged.checkout,
+        std::slice::from_ref(&staged.transcript),
+    )
+    .unwrap();
+    std::fs::write(&staged.transcript, text(4)).unwrap();
+    let report = sync(
+        &staged.store,
+        &staged.checkout,
+        std::slice::from_ref(&staged.transcript),
+    )
+    .unwrap();
+    assert_eq!(report.transcripts[0].counts.unmatched_tool_results, 0);
+    assert_eq!(observation_ids(&staged.store, &session), expected);
+}

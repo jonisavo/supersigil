@@ -55,6 +55,11 @@ pub struct ParseOutcome {
     pub observations: Vec<Observation>,
     /// Byte offset up to which records were fully turned into observations.
     ///
+    /// A tool use and its result are consumed together: consumption stops at
+    /// the issuing record of a tool use still waiting for its result, and
+    /// further back at the issuing record of any tool use whose result lies
+    /// beyond that point.
+    ///
     /// Zero when no session is known and `counts` is not empty: what was
     /// lost cannot be recorded without a session, so nothing is consumed and
     /// the same lines are read again on the next call, until a record names
@@ -248,6 +253,9 @@ struct Walk {
     start_ordinal: u64,
     effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
+    /// Line indexes of each resolved tool use's issuing record and of the
+    /// record carrying its result.
+    resolved: Vec<(usize, usize)>,
 }
 
 impl Walk {
@@ -453,6 +461,7 @@ impl Walk {
                 continue;
             };
             let tool = self.pending.remove(position);
+            self.resolved.push((tool.record_index, index));
             let resolution = Resolution {
                 structured,
                 block: result,
@@ -502,6 +511,7 @@ pub fn parse_transcript_with_session(
         start_ordinal,
         effects: Vec::new(),
         pending: Vec::new(),
+        resolved: Vec::new(),
     };
     // One complete line at a time: parse it, walk it, drop it. A line that
     // is not a JSON object is counted; a trailing line without a newline is
@@ -524,19 +534,16 @@ pub fn parse_transcript_with_session(
     }
     let complete_end = cursor;
 
-    // A tool use still waiting for its result at the end blocks consumption
-    // from its record onward, so the next parse sees it with its result.
     let Walk {
         mut outcome,
         mut effects,
         pending,
+        resolved,
         learned_at,
         ..
     } = walk;
-    let (cutoff, consumed) = match pending.iter().map(|p| p.record_index).min() {
-        Some(cut) => (cut, starts[cut]),
-        None => (starts.len(), complete_end),
-    };
+    let cutoff = consumption_cutoff(starts.len(), &pending, &resolved);
+    let consumed = starts.get(cutoff).copied().unwrap_or(complete_end);
     learned_at.truncate(&mut outcome, cutoff);
     effects.retain(|(index, _)| *index < cutoff);
     for (_, effect) in effects {
@@ -555,6 +562,28 @@ pub fn parse_transcript_with_session(
         outcome.next_ordinal = start_ordinal + cutoff as u64;
     }
     outcome
+}
+
+/// The index of the first line not to consume. A tool use still waiting for
+/// its result blocks consumption from its issuing record onward, so the next
+/// parse sees it with its result. Lowering the cutoff can leave a resolved
+/// tool use's issuing record below it and its result at or beyond it; the
+/// cutoff then drops to that issuing record too, until no pair is split.
+fn consumption_cutoff(lines: usize, pending: &[PendingTool], resolved: &[(usize, usize)]) -> usize {
+    let mut cutoff = pending
+        .iter()
+        .map(|p| p.record_index)
+        .min()
+        .unwrap_or(lines);
+    while let Some(issued) = resolved
+        .iter()
+        .filter(|(issued, result)| *issued < cutoff && *result >= cutoff)
+        .map(|(issued, _)| *issued)
+        .min()
+    {
+        cutoff = issued;
+    }
+    cutoff
 }
 
 /// Whether `block` is a content block of type `ty`.

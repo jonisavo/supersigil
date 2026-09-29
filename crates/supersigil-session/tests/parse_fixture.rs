@@ -1161,3 +1161,77 @@ fn results_without_a_timestamp_have_no_end_time() {
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0].time.as_str(), "2026-09-28T10:00:00.000Z");
 }
+
+/// Tool use `ta` (a `Write`) then `tb` (a `Bash`) in separate assistant
+/// records, then `ta`'s result, then `tb`'s: four lines.
+fn interleaved_tool_uses() -> Vec<String> {
+    let issue = |uuid: &str, block: Value| {
+        json!({
+            "type": "assistant", "uuid": uuid, "parentUuid": null, "sessionId": "s",
+            "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+            "message": {"role": "assistant", "content": [block]}
+        })
+        .to_string()
+    };
+    let result = |uuid: &str, id: &str, structured: Value| {
+        json!({
+            "type": "user", "uuid": uuid, "parentUuid": null, "sessionId": "s",
+            "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false, "isMeta": false,
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": id, "content": "ok"}
+            ]},
+            "toolUseResult": structured
+        })
+        .to_string()
+    };
+    vec![
+        issue(
+            "a1",
+            json!({"type": "tool_use", "id": "ta", "name": "Write",
+                "input": {"file_path": "/work/repo/a.txt", "content": "x\n"}}),
+        ),
+        issue(
+            "a2",
+            json!({"type": "tool_use", "id": "tb", "name": "Bash", "input": {"command": "ls"}}),
+        ),
+        result(
+            "u1",
+            "ta",
+            json!({"type": "create", "filePath": "/work/repo/a.txt", "content": "x\n", "structuredPatch": []}),
+        ),
+        result(
+            "u2",
+            "tb",
+            json!({"stdout": "a.txt\n", "stderr": "", "interrupted": false}),
+        ),
+    ]
+}
+
+#[test]
+fn the_cutoff_never_splits_a_tool_use_from_its_result() {
+    let lines = interleaved_tool_uses();
+    // Cut after `ta`'s result while `tb` is still pending: consuming `ta`'s
+    // issuing record without its result would lose the edit.
+    let joined = |lines: &[String]| {
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text
+    };
+    let cut = joined(&lines[..3]);
+    let outcome = parse_transcript(cut.as_bytes(), 0);
+    assert_eq!(outcome.consumed, 0);
+    assert_eq!(outcome.next_ordinal, 0);
+    assert!(outcome.observations.is_empty());
+
+    let whole = joined(&lines);
+    let outcome = parse_transcript(whole.as_bytes(), 0);
+    assert_eq!(outcome.consumed, whole.len() as u64);
+    assert_eq!(edits(&outcome).len(), 1);
+    assert_eq!(commands(&outcome).len(), 1);
+    assert_eq!(outcome.counts.unmatched_tool_results, 0);
+}
