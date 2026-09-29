@@ -1,7 +1,7 @@
 //! The manifest: identity, revision, and what the revision pins.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -91,27 +91,31 @@ pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
 
 /// Publishes the initial manifest atomically and without overwriting.
 ///
-/// The bytes go to `manifest.json.<record id>.tmp` first and are fsynced,
-/// then the temporary file is hard-linked to `manifest.json`. Linking fails
-/// with `AlreadyExists` when a manifest is there, so of two racing creators
-/// exactly one succeeds, and a reader never sees a partially written
-/// manifest. A creator killed before linking leaves only its temporary file,
-/// which does not make the directory a record.
+/// The bytes go to a temporary file with a name unique to this attempt,
+/// `manifest.json.<uuid>.tmp`, created with `create_new` so it can never
+/// truncate an existing file, and are fsynced. The temporary file is then
+/// hard-linked to `manifest.json`. Linking fails with `AlreadyExists` when a
+/// manifest is there, so of two racing creators exactly one succeeds, and a
+/// reader never sees a partially written manifest. The temporary link is
+/// removed in either case; a creator killed before that leaves only a file
+/// no later creator will ever open again.
 pub(super) fn create(root: &Path, manifest: &Manifest) -> Result<(), StoreError> {
     let path = root.join(MANIFEST_FILE);
-    let tmp_path = root.join(format!(
-        "{MANIFEST_FILE}.{}.tmp",
-        manifest.record_id.as_str()
-    ));
+    let tmp_path = root.join(format!("{MANIFEST_FILE}.{}.tmp", uuid::Uuid::new_v4()));
     let bytes = serde_json::to_vec_pretty(manifest).map_err(|source| StoreError::Json {
         path: path.clone(),
         source,
     })?;
-    write_synced(&tmp_path, &bytes)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp_path)
+        .map_err(|e| io_error(&tmp_path, e))?;
+    file.write_all(&bytes).map_err(|e| io_error(&tmp_path, e))?;
+    file.sync_all().map_err(|e| io_error(&tmp_path, e))?;
+    drop(file);
     let linked = fs::hard_link(&tmp_path, &path);
-    // The temporary name is private to this creator and harmless if it
-    // survives, so failing to remove it does not fail the creation.
-    let _ = fs::remove_file(&tmp_path);
+    fs::remove_file(&tmp_path).map_err(|e| io_error(&tmp_path, e))?;
     linked.map_err(|e| {
         if e.kind() == std::io::ErrorKind::AlreadyExists {
             StoreError::AlreadyExists(root.to_path_buf())

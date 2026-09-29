@@ -510,17 +510,38 @@ fn missing_write_content_is_unknown() {
     assert_eq!(missing.after, FileState::unknown());
     assert_eq!(missing.new_text, unavailable("field missing"));
 
-    // The result reflects what was written, so it wins over the input.
-    let from_result = only_edit(
+    // Input and result disagree: the result's text is kept, but the
+    // conflicting evidence yields no content hash.
+    let conflicting = only_edit(
         "Write",
         json!({"file_path": path, "content": "asked\n"}),
         json!({"type": "update", "filePath": path, "content": "written\n", "originalFile": "old\n", "structuredPatch": []}),
     );
-    assert_eq!(from_result.after, known("written\n"));
+    assert_eq!(conflicting.after, FileState::unknown());
     assert_eq!(
-        from_result.new_text,
+        conflicting.new_text,
         Material::Retained("written\n".to_owned())
     );
+
+    // Input and result agree: the written content is known.
+    let agreeing = only_edit(
+        "Write",
+        json!({"file_path": path, "content": "written\n"}),
+        json!({"type": "update", "filePath": path, "content": "written\n", "originalFile": "old\n", "structuredPatch": []}),
+    );
+    assert_eq!(agreeing.after, known("written\n"));
+    assert_eq!(
+        agreeing.new_text,
+        Material::Retained("written\n".to_owned())
+    );
+
+    // Only the result carries it.
+    let from_result = only_edit(
+        "Write",
+        json!({"file_path": path}),
+        json!({"type": "update", "filePath": path, "content": "written\n", "originalFile": "old\n", "structuredPatch": []}),
+    );
+    assert_eq!(from_result.after, known("written\n"));
 
     // An explicitly empty file is known content, not a missing field.
     let empty = only_edit(

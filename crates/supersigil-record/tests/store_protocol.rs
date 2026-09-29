@@ -614,3 +614,55 @@ fn open_of_an_unreadable_record_is_an_io_error() {
         "expected an i/o error, got {opened:?}"
     );
 }
+
+fn tmp_names(dir: &std::path::Path) -> Vec<String> {
+    dir_names(dir)
+        .into_iter()
+        .filter(|n| std::path::Path::new(n).extension() == Some("tmp".as_ref()))
+        .collect()
+}
+
+#[test]
+fn initial_publish_never_truncates_an_existing_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = RecordId::generate();
+    Store::create_with_id(dir.path(), id.clone(), assoc()).unwrap();
+    let manifest = dir.path().join("manifest.json");
+    let before = fs::read(&manifest).unwrap();
+
+    assert!(matches!(
+        Store::create_with_id(dir.path(), id, assoc()),
+        Err(StoreError::AlreadyExists(_))
+    ));
+    assert_eq!(fs::read(&manifest).unwrap(), before);
+    assert!(tmp_names(dir.path()).is_empty());
+}
+
+#[test]
+fn a_leftover_temporary_link_cannot_truncate_the_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = RecordId::generate();
+    Store::create_with_id(dir.path(), id.clone(), assoc()).unwrap();
+    let manifest = dir.path().join("manifest.json");
+    let before = fs::read(&manifest).unwrap();
+    // A creator whose temporary-file removal failed leaves a second link to
+    // the live manifest under the old per-record temporary name.
+    let stale = dir
+        .path()
+        .join(format!("manifest.json.{}.tmp", id.as_str()));
+    fs::hard_link(&manifest, &stale).unwrap();
+
+    // A different association makes a rewrite through that link visible.
+    let other = Association {
+        checkout: PathBuf::from("/work/other"),
+    };
+    assert!(matches!(
+        Store::create_with_id(dir.path(), id, other),
+        Err(StoreError::AlreadyExists(_))
+    ));
+    assert_eq!(fs::read(&manifest).unwrap(), before);
+    assert_eq!(
+        tmp_names(dir.path()),
+        vec![stale.file_name().unwrap().to_string_lossy().into_owned()]
+    );
+}

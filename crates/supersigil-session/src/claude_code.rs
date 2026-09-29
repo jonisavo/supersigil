@@ -642,11 +642,14 @@ fn edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     }
 }
 
-/// A `Write`. The written content comes from the result, else the input;
-/// without either the after-state is unknown.
+/// A `Write`. The written content comes from the result, else the input.
+/// Without either, or when both carry it and they differ, the after-state
+/// is unknown; the result's text is still retained.
 fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
-    let text =
-        string_field(result, "content").or_else(|| string_field(Some(&tool.input), "content"));
+    let content = Field::reconcile(
+        string_field(result, "content"),
+        string_field(Some(&tool.input), "content"),
+    );
     let before = if string_field(result, "type") == Some("create") {
         FileState::Absent
     } else {
@@ -654,11 +657,11 @@ fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     };
     EditParts {
         before,
-        after: state_of(text),
+        after: state_of(content.settled().copied()),
         old_text: Material::Unavailable {
             reason: "write replaces the whole file".to_owned(),
         },
-        new_text: retained_or_missing(text),
+        new_text: retained_or_missing(content.value),
         replace_all: false,
     }
 }
