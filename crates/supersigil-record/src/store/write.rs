@@ -7,11 +7,10 @@ use std::path::PathBuf;
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, is_log_name, observations_log,
-    validate_name,
+    LOCK_FILE, RecordSnapshot, Store, StoreError, derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
-use crate::ids::Revision;
+use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 
 /// An open write transaction. Dropping it without [`WriteTx::commit`]
@@ -73,29 +72,33 @@ impl<'a> WriteTx<'a> {
         RecordSnapshot::new(self.store.root().to_path_buf(), self.starting.clone())
     }
 
-    /// Appends lines to a log. Any bytes beyond the pinned length (a crash
-    /// tail) are truncated first. Lines must not contain newlines.
-    ///
-    /// Log names end in `.jsonl`, which keeps them disjoint from documents
-    /// and the store's own files (see the [module docs](super)).
+    /// Appends observations to their sessions' logs as JSON lines,
+    /// numbering each session new to the record.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidName`] for a name that is not a canonical
-    /// relative path or does not end in `.jsonl`,
-    /// [`StoreError::Corrupt`] for a line with a newline or a file shorter
-    /// than its pinned length, or an I/O error.
-    pub fn append_log(&mut self, log: &str, lines: &[&[u8]]) -> Result<(), StoreError> {
-        validate_name(log)?;
-        if !is_log_name(log) {
-            return Err(StoreError::InvalidName(log.to_owned()));
+    /// Returns [`StoreError::Corrupt`] for a log shorter than its pinned
+    /// length, or an error if serialization or the append fails.
+    pub fn append_observations(&mut self, observations: &[Observation]) -> Result<(), StoreError> {
+        let mut lines: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        for observation in observations {
+            let number = self.session_number(observation.session());
+            let bytes = lines.entry(number).or_default();
+            serde_json::to_writer(&mut *bytes, observation).map_err(|source| StoreError::Json {
+                path: self.store.root().join(log_path(number)),
+                source,
+            })?;
+            bytes.push(b'\n');
         }
-        if let Some(bad) = lines.iter().find(|l| l.contains(&b'\n')) {
-            return Err(StoreError::Corrupt(format!(
-                "log line contains a newline: {}",
-                String::from_utf8_lossy(bad)
-            )));
+        for (number, bytes) in &lines {
+            self.append_log(&log_path(*number), bytes)?;
         }
+        Ok(())
+    }
+
+    /// Appends whole lines to a log. Any bytes beyond the pinned length (a
+    /// crash tail) are truncated first.
+    fn append_log(&mut self, log: &str, bytes: &[u8]) -> Result<(), StoreError> {
         let path = self.store.root().join(log);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
@@ -117,40 +120,16 @@ impl<'a> WriteTx<'a> {
         file.set_len(pinned).map_err(|e| io_error(&path, e))?;
         file.seek(SeekFrom::Start(pinned))
             .map_err(|e| io_error(&path, e))?;
-        let mut written = pinned;
-        for line in lines {
-            file.write_all(line).map_err(|e| io_error(&path, e))?;
-            file.write_all(b"\n").map_err(|e| io_error(&path, e))?;
-            written += line.len() as u64 + 1;
-        }
-        self.manifest.logs.insert(log.to_owned(), written);
+        file.write_all(bytes).map_err(|e| io_error(&path, e))?;
+        self.manifest
+            .logs
+            .insert(log.to_owned(), pinned + bytes.len() as u64);
         self.touched.insert(path);
         Ok(())
     }
 
-    /// Appends observations to their sessions' logs as JSON lines.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if serialization or the append fails.
-    pub fn append_observations(&mut self, observations: &[Observation]) -> Result<(), StoreError> {
-        let mut by_log: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
-        for observation in observations {
-            let log = observations_log(observation.session());
-            let line = serde_json::to_vec(observation).map_err(|source| StoreError::Json {
-                path: self.store.root().join(&log),
-                source,
-            })?;
-            by_log.entry(log).or_default().push(line);
-        }
-        for (log, lines) in &by_log {
-            let refs: Vec<&[u8]> = lines.iter().map(Vec::as_slice).collect();
-            self.append_log(log, &refs)?;
-        }
-        Ok(())
-    }
-
-    /// Writes a session's derivations as this revision's document.
+    /// Writes a session's derivations as this revision's document, numbering
+    /// the session if it is new to the record.
     ///
     /// # Errors
     ///
@@ -161,37 +140,31 @@ impl<'a> WriteTx<'a> {
     /// Panics if the next revision number would overflow `u64`, as
     /// [`Revision::next`] does.
     pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
-        let logical = DerivationSet::document_name(&set.session);
-        let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
-            path: self.store.root().join(&logical),
-            source,
-        })?;
-        self.put_document(&logical, &bytes)
-    }
-
-    /// Writes an immutable document for this revision and points the logical
-    /// name at it.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::InvalidName`] for a name that is not a canonical
-    /// relative path, or an I/O error.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the next revision number would overflow `u64`, as
-    /// [`Revision::next`] does.
-    pub fn put_document(&mut self, logical: &str, bytes: &[u8]) -> Result<(), StoreError> {
-        validate_name(logical)?;
+        let logical = derivations_document(self.session_number(&set.session));
         let rel = format!("{logical}.r{}.json", self.starting.revision.next().get());
         let path = self.store.root().join(&rel);
+        let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
+            path: path.clone(),
+            source,
+        })?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
         fs::write(&path, bytes).map_err(|e| io_error(&path, e))?;
-        self.manifest.documents.insert(logical.to_owned(), rel);
+        self.manifest.documents.insert(logical, rel);
         self.touched.insert(path);
         Ok(())
+    }
+
+    /// The session's number. A session new to the record gets the next one,
+    /// the count of sessions numbered so far.
+    fn session_number(&mut self, session: &SessionId) -> u64 {
+        if let Some(&number) = self.manifest.sessions.get(session) {
+            return number;
+        }
+        let number = self.manifest.sessions.len() as u64;
+        self.manifest.sessions.insert(session.clone(), number);
+        number
     }
 
     /// Records where sync left off in a transcript.

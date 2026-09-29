@@ -1,10 +1,10 @@
 //! A read view pinned to one manifest.
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use super::{Manifest, StoreError, decode_storage_key, io_error, observations_log, validate_name};
+use super::{Manifest, StoreError, derivations_document, io_error, log_path};
 use crate::derivations::DerivationSet;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
@@ -33,94 +33,55 @@ impl RecordSnapshot {
         self.manifest.revision
     }
 
-    /// Lines of a log up to its committed length. An unpinned log is empty.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file is shorter than its pinned length or
-    /// cannot be read.
-    pub fn read_log(&self, log: &str) -> Result<Vec<Vec<u8>>, StoreError> {
-        validate_name(log)?;
-        let Some(&pinned) = self.manifest.logs.get(log) else {
-            return Ok(Vec::new());
-        };
-        let path = self.root.join(log);
-        let bytes = read_prefix(&path, pinned)?;
-        let mut lines: Vec<Vec<u8>> = bytes.split(|b| *b == b'\n').map(<[u8]>::to_vec).collect();
-        // Every line ends in a newline, so the last segment is always empty.
-        if lines.last().is_some_and(Vec::is_empty) {
-            lines.pop();
-        }
-        Ok(lines)
-    }
-
     /// A session's derivations at this revision, if any were written.
     ///
     /// # Errors
     ///
     /// Returns an error if the document cannot be read or parsed.
     pub fn derivations(&self, session: &SessionId) -> Result<Option<DerivationSet>, StoreError> {
-        let logical = DerivationSet::document_name(session);
-        let Some(bytes) = self.read_document(&logical)? else {
+        let Some(rel) = self
+            .manifest
+            .sessions
+            .get(session)
+            .and_then(|&number| self.manifest.documents.get(&derivations_document(number)))
+        else {
             return Ok(None);
         };
+        let path = self.root.join(rel);
+        let bytes = fs::read(&path).map_err(|e| io_error(&path, e))?;
         serde_json::from_slice(&bytes)
             .map(Some)
-            .map_err(|source| StoreError::Json {
-                path: self.root.join(&logical),
-                source,
-            })
+            .map_err(|source| StoreError::Json { path, source })
     }
 
-    /// Bytes of a logical document at this revision, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the pinned file cannot be read.
-    pub fn read_document(&self, logical: &str) -> Result<Option<Vec<u8>>, StoreError> {
-        validate_name(logical)?;
-        let Some(rel) = self.manifest.documents.get(logical) else {
-            return Ok(None);
-        };
-        validate_name(rel)?;
-        let path = self.root.join(rel);
-        std::fs::read(&path)
-            .map(Some)
-            .map_err(|e| io_error(&path, e))
-    }
-
-    /// Sessions that have an observation log in this revision.
+    /// Sessions the store has numbered by this revision, in id order.
     #[must_use]
     pub fn sessions(&self) -> Vec<SessionId> {
-        self.manifest
-            .logs
-            .keys()
-            .filter_map(|log| {
-                log.strip_prefix("observations/")?
-                    .strip_suffix("/events.jsonl")
-                    .map(decode_storage_key)
-            })
-            .collect()
+        self.manifest.sessions.keys().cloned().collect()
     }
 
-    /// All observations of a session, in log order.
+    /// All observations of a session up to the log's committed length, in
+    /// log order. A session without a log in this revision has none.
     ///
     /// # Errors
     ///
-    /// Returns an error if the log cannot be read or a line is not a valid
-    /// observation.
+    /// Returns an error if the log is shorter than its pinned length or
+    /// cannot be read, or a line is not a valid observation.
     pub fn observations(&self, session: &SessionId) -> Result<Vec<Observation>, StoreError> {
-        let log = observations_log(session);
-        let path = self.root.join(&log);
-        self.read_log(&log)?
-            .iter()
-            .map(|line| {
-                serde_json::from_slice(line).map_err(|source| StoreError::Json {
-                    path: path.clone(),
-                    source,
-                })
-            })
-            .collect()
+        let Some((log, &pinned)) = self
+            .manifest
+            .sessions
+            .get(session)
+            .and_then(|&number| self.manifest.logs.get_key_value(&log_path(number)))
+        else {
+            return Ok(Vec::new());
+        };
+        let path = self.root.join(log);
+        let bytes = read_prefix(&path, pinned)?;
+        serde_json::Deserializer::from_slice(&bytes)
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .map_err(|source| StoreError::Json { path, source })
     }
 }
 

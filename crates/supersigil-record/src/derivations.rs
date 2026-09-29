@@ -53,13 +53,3 @@ pub struct DerivationSet {
     /// Discontinuities found.
     pub discontinuities: Vec<Discontinuity>,
 }
-
-impl DerivationSet {
-    /// Logical document name for a session's derivations. The session part is
-    /// the session's storage key, so an identifier taken from a transcript
-    /// never becomes a raw path component.
-    #[must_use]
-    pub fn document_name(session: &SessionId) -> String {
-        format!("derivations/{}", crate::store::storage_key(session))
-    }
-}

@@ -48,14 +48,15 @@ pub struct Manifest {
     pub revision: Revision,
     /// Checkouts this record is associated with.
     pub associations: Vec<Association>,
+    /// Number the store assigned each session on its first write. A
+    /// session's files are named by its number, never by its id, which
+    /// comes from a transcript.
+    pub sessions: BTreeMap<SessionId, u64>,
     /// Committed byte length per append-only log, keyed by relative path.
-    #[serde(default)]
     pub logs: BTreeMap<String, u64>,
     /// Immutable file name per logical document.
-    #[serde(default)]
     pub documents: BTreeMap<String, String>,
     /// Sync cursors keyed by transcript path.
-    #[serde(default)]
     pub cursors: BTreeMap<String, SourceCursor>,
 }
 
@@ -68,6 +69,7 @@ impl Manifest {
             schema_version: SCHEMA_VERSION,
             revision: Revision::ZERO,
             associations: vec![association],
+            sessions: BTreeMap::new(),
             logs: BTreeMap::new(),
             documents: BTreeMap::new(),
             cursors: BTreeMap::new(),

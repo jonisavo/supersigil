@@ -3,143 +3,47 @@
 //! Layout inside a record directory:
 //!
 //! ```text
-//! manifest.json                       identity, revision, pins, cursors
-//! write.lock                          created by the first writer, never removed
-//! observations/<session>/events.jsonl append-only log, pinned by byte length
-//! <logical>.r<revision>.json          immutable documents, pinned by name
+//! manifest.json                     identity, revision, pins, cursors
+//! write.lock                        created by the first writer, never removed
+//! observations/<n>.jsonl            append-only log, pinned by byte length
+//! derivations/<n>.r<revision>.json  immutable document, pinned by name
 //! ```
+//!
+//! `<n>` is the number the store assigns a session on its first write and
+//! records in the manifest. Session ids come from transcripts, so no file is
+//! named after one.
 //!
 //! Only the operating-system lock held on `write.lock` excludes writers; the
 //! file's presence means nothing. Deleting it while a writer runs would let a
 //! second writer lock a new file, so never clean it up.
-//!
-//! The namespaces are disjoint by suffix. Log names must end in `.jsonl`;
-//! document files end in `.r<revision>.json`; the store's own files
-//! (`manifest.json`, its temporary files, and `write.lock`) end in neither
-//! `.jsonl` nor a revision suffix. So a log can never alias a document of any
-//! revision or a store file, and no document can alias either.
 
 mod manifest;
 mod snapshot;
 mod write;
 
-use std::fmt::Write as _;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub use manifest::{Association, Manifest, SCHEMA_VERSION, SourceCursor};
 pub use snapshot::RecordSnapshot;
 pub use write::WriteTx;
 
-use crate::ids::{RecordId, SessionId};
+use crate::ids::RecordId;
 
 /// File name of the manifest inside a record directory.
 pub const MANIFEST_FILE: &str = "manifest.json";
 /// File name of the writer lock inside a record directory.
 pub const LOCK_FILE: &str = "write.lock";
 
-/// Encodes a session id into one safe path component: every byte outside
-/// `a-z 0-9 _ -` becomes `%XX`, so an id taken from a transcript can never
-/// contain a separator or spell `..`. Uppercase letters are escaped too, so
-/// two ids that differ only in case stay two files on a case-insensitive
-/// file system: the only uppercase letters in a key are escape hex digits.
-/// An id whose part before the first `.` is a Windows reserved device name
-/// (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`, in any
-/// case) has its first byte escaped as well, so `con` becomes `%63on`.
-#[must_use]
-pub fn storage_key(session: &SessionId) -> String {
-    let id = session.as_str();
-    let reserved = is_reserved_device_name(id.split('.').next().unwrap_or_default());
-    let mut key = String::new();
-    for (i, byte) in id.bytes().enumerate() {
-        let plain =
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-';
-        if plain && !(reserved && i == 0) {
-            key.push(char::from(byte));
-        } else {
-            let _ = write!(key, "%{byte:02X}");
-        }
-    }
-    key
+/// Relative path of the observation log of the session numbered `number`.
+fn log_path(number: u64) -> String {
+    format!("observations/{number}.jsonl")
 }
 
-/// Whether `stem` names a Windows device (`con`, `prn`, `aux`, `nul`,
-/// `com1`..`com9`, `lpt1`..`lpt9`), ignoring case. Windows cannot create a
-/// file under such a name, with or without an extension.
-fn is_reserved_device_name(stem: &str) -> bool {
-    let stem = stem.to_ascii_lowercase();
-    match stem.as_bytes() {
-        b"con" | b"prn" | b"aux" | b"nul" => true,
-        [b'c', b'o', b'm', digit] | [b'l', b'p', b't', digit] => (b'1'..=b'9').contains(digit),
-        _ => false,
-    }
-}
-
-/// Inverts [`storage_key`]. A malformed escape is kept as-is.
-#[must_use]
-pub fn decode_storage_key(key: &str) -> SessionId {
-    let bytes = key.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
-            && let Ok(value) = u8::from_str_radix(hex, 16)
-        {
-            out.push(value);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    SessionId::new(String::from_utf8_lossy(&out).into_owned())
-}
-
-/// Relative path of a session's observation log.
-#[must_use]
-pub fn observations_log(session: &SessionId) -> String {
-    format!("observations/{}/events.jsonl", storage_key(session))
-}
-
-/// Checks that a log or document name is canonical: `/`-separated segments,
-/// each non-empty and neither `.` nor `..`, with no `\`, `:`, or NUL byte
-/// and no leading `/`. The raw string is checked rather than only
-/// `Path::components()`, which silently drops interior `.` and repeated
-/// separators and so would let two spellings name one file.
-///
-/// The components are checked as well: a name the platform parses as a
-/// drive prefix or a rooted path (`C:/x`, `C:x`, `//server/share`) would make
-/// `root.join(name)` discard the record root. Rejecting `:` outright makes
-/// the drive forms invalid on every platform, not only where they parse.
-pub(crate) fn validate_name(name: &str) -> Result<(), StoreError> {
-    let canonical = !name.is_empty()
-        && !name.starts_with('/')
-        && name.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment != "."
-                && segment != ".."
-                && !segment.contains(['\\', '\0', ':'])
-        })
-        && Path::new(name)
-            .components()
-            .all(|component| !matches!(component, Component::Prefix(_) | Component::RootDir));
-    if canonical {
-        Ok(())
-    } else {
-        Err(StoreError::InvalidName(name.to_owned()))
-    }
-}
-
-/// Suffix of every log name. Compared case-sensitively on purpose: names
-/// are canonical, so `.JSONL` is not a log.
-const LOG_SUFFIX: &str = ".jsonl";
-
-/// Whether `name` is in the log namespace: it ends in `.jsonl`, which no
-/// document or store file does.
-pub(crate) fn is_log_name(name: &str) -> bool {
-    name.ends_with(LOG_SUFFIX)
+/// Logical name of the derivations document of the session numbered
+/// `number`.
+fn derivations_document(number: u64) -> String {
+    format!("derivations/{number}")
 }
 
 /// Errors from the store.
@@ -183,9 +87,6 @@ pub enum StoreError {
     /// The on-disk state violates an invariant.
     #[error("record is corrupt: {0}")]
     Corrupt(String),
-    /// A log or document name is not a plain relative path.
-    #[error("invalid record file name: {0:?}")]
-    InvalidName(String),
     /// The manifest was written with a schema this binary does not support.
     /// The record is refused rather than rewritten, since rewriting it would
     /// drop whatever the newer schema added.
