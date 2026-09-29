@@ -1038,7 +1038,10 @@ fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observatio
 /// The line is split into simple commands at `;`, `&`, `|`, and newlines
 /// outside quotes (so `&&` and `||` split as well, but the `&` of a
 /// redirection such as `2>&1` does not), and each into words with quotes
-/// removed. Leading variable assignments (`RUST_LOG=debug`), `sudo`, `time`,
+/// removed. Heredoc bodies (from the line after `<<` or `<<-` up to and
+/// including the terminator line) and `#` comments are data, not commands,
+/// and are skipped; after a heredoc without a terminator, nothing more is
+/// read. Leading variable assignments (`RUST_LOG=debug`), `sudo`, `time`,
 /// `env`, and a `mise exec ... --` prefix are skipped; what remains names
 /// the program, and for `cargo`, `go`, `npm`, and `pnpm` its subcommand
 /// too. A test run in any simple command makes the line a
@@ -1114,60 +1117,142 @@ fn is_assignment(word: &str) -> bool {
 
 /// Splits a command line into simple commands, each a list of words with
 /// quotes and backslash escapes removed. See [`classify_command`] for where
-/// it splits.
+/// it splits and what it skips.
 fn simple_commands(line: &str) -> Vec<Vec<String>> {
-    let mut commands = Vec::new();
-    let mut words = Vec::new();
-    let mut word = String::new();
-    // Whether a word has begun, which an empty quoted word also does.
-    let mut in_word = false;
+    let mut split = Splitter::default();
+    let mut chars = line.char_indices().peekable();
     let mut quote: Option<char> = None;
     let mut prev: Option<char> = None;
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
+    while let Some((i, c)) = chars.next() {
         match (quote, c) {
             (Some(q), c) if c == q => quote = None,
-            (Some('"'), '\\') => word.extend(chars.next()),
-            (Some(_), c) => word.push(c),
+            (Some('"'), '\\') => split.word.extend(chars.next().map(|(_, c)| c)),
+            (Some(_), c) => split.word.push(c),
             (None, '\'' | '"') => {
                 quote = Some(c);
-                in_word = true;
+                split.in_word = true;
             }
             (None, '\\') => {
-                word.extend(chars.next());
-                in_word = true;
+                split.word.extend(chars.next().map(|(_, c)| c));
+                split.in_word = true;
             }
-            // `2>&1`, `>&2`, and `&>file` redirect; they do not split.
-            (None, '&') if matches!(prev, Some('>' | '<')) || chars.peek() == Some(&'>') => {
-                word.push(c);
-                in_word = true;
-            }
-            (None, ';' | '&' | '|' | '\n') => {
-                end_word(&mut words, &mut word, &mut in_word);
-                if !words.is_empty() {
-                    commands.push(std::mem::take(&mut words));
+            // A comment runs to the end of its line.
+            (None, '#') if !split.in_word => while chars.next_if(|&(_, c)| c != '\n').is_some() {},
+            (None, '<') if chars.next_if(|&(_, c)| c == '<').is_some() => {
+                // `<<<` is a here-string, whose word follows as an argument;
+                // `<<` opens a heredoc whose body starts on the next line.
+                if chars.next_if(|&(_, c)| c == '<').is_none() {
+                    split.end_word();
+                    split.heredocs.push(heredoc_delimiter(&mut chars));
                 }
             }
-            (None, c) if c.is_whitespace() => end_word(&mut words, &mut word, &mut in_word),
+            // `2>&1`, `>&2`, and `&>file` redirect; they do not split.
+            (None, '&')
+                if matches!(prev, Some('>' | '<'))
+                    || chars.peek().is_some_and(|&(_, c)| c == '>') =>
+            {
+                split.word.push(c);
+                split.in_word = true;
+            }
+            (None, ';' | '&' | '|' | '\n') => {
+                split.end_command();
+                if c == '\n' && !split.heredocs.is_empty() {
+                    let Some(resume) = skip_heredoc_bodies(line, i + 1, &mut split.heredocs) else {
+                        // No terminator: the rest is data of unknown extent.
+                        return split.finish();
+                    };
+                    while chars.next_if(|&(j, _)| j < resume).is_some() {}
+                }
+            }
+            (None, c) if c.is_whitespace() => split.end_word(),
             (None, c) => {
-                word.push(c);
-                in_word = true;
+                split.word.push(c);
+                split.in_word = true;
             }
         }
         prev = Some(c);
     }
-    end_word(&mut words, &mut word, &mut in_word);
-    if !words.is_empty() {
-        commands.push(words);
-    }
-    commands
+    split.finish()
 }
 
-/// Moves a begun word into `words`.
-fn end_word(words: &mut Vec<String>, word: &mut String, in_word: &mut bool) {
-    if std::mem::take(in_word) {
-        words.push(std::mem::take(word));
+/// State of [`simple_commands`] between characters.
+#[derive(Default)]
+struct Splitter {
+    commands: Vec<Vec<String>>,
+    words: Vec<String>,
+    word: String,
+    /// Whether a word has begun, which an empty quoted word also does.
+    in_word: bool,
+    /// Delimiters of heredocs opened on the current line, with whether
+    /// leading tabs are stripped from their terminator (`<<-`).
+    heredocs: Vec<(String, bool)>,
+}
+
+impl Splitter {
+    /// Moves a begun word into the current command.
+    fn end_word(&mut self) {
+        if std::mem::take(&mut self.in_word) {
+            self.words.push(std::mem::take(&mut self.word));
+        }
     }
+
+    /// Ends the current command, if it has any words.
+    fn end_command(&mut self) {
+        self.end_word();
+        if !self.words.is_empty() {
+            self.commands.push(std::mem::take(&mut self.words));
+        }
+    }
+
+    fn finish(mut self) -> Vec<Vec<String>> {
+        self.end_command();
+        self.commands
+    }
+}
+
+/// Reads a heredoc's delimiter after `<<`: an optional `-`, then one word
+/// with its quotes removed.
+fn heredoc_delimiter(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> (String, bool) {
+    let strip_tabs = chars.next_if(|&(_, c)| c == '-').is_some();
+    while chars.next_if(|&(_, c)| c == ' ' || c == '\t').is_some() {}
+    let mut delimiter = String::new();
+    while let Some((_, c)) = chars.next_if(|&(_, c)| {
+        !c.is_whitespace() && !matches!(c, ';' | '&' | '|' | '<' | '>' | '(' | ')')
+    }) {
+        if !matches!(c, '\'' | '"' | '\\') {
+            delimiter.push(c);
+        }
+    }
+    (delimiter, strip_tabs)
+}
+
+/// Skips the bodies of `heredocs`, in order, starting at byte `start` of
+/// `line`: each runs up to and including its terminator line. Returns where
+/// commands resume, or `None` when a terminator is missing.
+fn skip_heredoc_bodies(
+    line: &str,
+    start: usize,
+    heredocs: &mut Vec<(String, bool)>,
+) -> Option<usize> {
+    let mut pos = start;
+    for (delimiter, strip_tabs) in heredocs.drain(..) {
+        loop {
+            if pos >= line.len() {
+                return None;
+            }
+            let end = line[pos..].find('\n').map_or(line.len(), |n| pos + n);
+            let mut text = &line[pos..end];
+            text = text.strip_suffix('\r').unwrap_or(text);
+            if strip_tabs {
+                text = text.trim_start_matches('\t');
+            }
+            pos = end + 1;
+            if text == delimiter {
+                break;
+            }
+        }
+    }
+    Some(pos)
 }
 
 /// Reads a pass or fail verdict from cargo test or nextest output.

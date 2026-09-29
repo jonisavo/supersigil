@@ -1279,3 +1279,48 @@ fn a_seeded_parse_still_learns_the_checkout_and_branch() {
     assert_eq!(outcome.first_time, None);
     assert!(!outcome.sidechain);
 }
+
+#[test]
+fn heredoc_bodies_and_comments_are_not_commands() {
+    use supersigil_session::claude_code::classify_command;
+    let report =
+        "cat <<'EOF' > report.md\nRan cargo test:\ncargo test\ntest result: ok. 3 passed\nEOF";
+    for (cmd, category) in [
+        (report, CommandCategory::Other),
+        (
+            "cargo nextest run <<EOF\ninput\nEOF",
+            CommandCategory::TestRun,
+        ),
+        ("# cargo test\nls", CommandCategory::Other),
+        ("ls # cargo test", CommandCategory::Other),
+        // Unterminated: the rest is opaque.
+        ("cat <<EOF\ncargo test", CommandCategory::Other),
+        // `<<-` strips leading tabs from the terminator; after it, commands
+        // count again.
+        (
+            "cat > f <<-\"END\"\n\tcargo test\n\tEND\ncargo test",
+            CommandCategory::TestRun,
+        ),
+        (
+            "git commit -F - <<EOF\ncargo test\nEOF\n",
+            CommandCategory::Git,
+        ),
+        // A here-string is not a heredoc.
+        ("cat <<< 'x'\ncargo test", CommandCategory::TestRun),
+    ] {
+        assert_eq!(classify_command(cmd), category, "{cmd:?}");
+    }
+
+    // Printed test output does not become a test verdict.
+    let lines = tool_exchange(
+        "Bash",
+        json!({"command": report}),
+        ok_block(),
+        Some(json!({"stdout": "test result: ok. 3 passed\n", "stderr": "", "interrupted": false})),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].category, CommandCategory::Other);
+    assert_eq!(commands[0].outcome, None);
+}
