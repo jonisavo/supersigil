@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use supersigil_record::RecordId;
-use supersigil_record::store::{Association, Store};
+use supersigil_record::store::{Association, Store, StoreError};
 
 use crate::error::CliError;
 
@@ -54,8 +54,10 @@ pub fn canonical_checkout(flag: Option<&Path>) -> Result<PathBuf, CliError> {
 /// # Errors
 ///
 /// Returns [`CliError::Io`] if the records directory exists but cannot be
-/// read, a store error if a record's manifest cannot be read, or
-/// [`CliError::CommandFailed`] on duplicate associations.
+/// read, a store error if a record's manifest cannot be accessed or read
+/// (only entries without a manifest are skipped, so an unreadable record is
+/// never mistaken for an absent one), or [`CliError::CommandFailed`] on
+/// duplicate associations.
 pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>, CliError> {
     let entries = match std::fs::read_dir(records_dir) {
         Ok(entries) => entries,
@@ -69,8 +71,10 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
     candidates.sort();
     let mut matches = Vec::new();
     for candidate in candidates {
-        let Ok(store) = Store::open(&candidate) else {
-            continue;
+        let store = match Store::open(&candidate) {
+            Ok(store) => store,
+            Err(StoreError::NotARecord(_)) => continue,
+            Err(e) => return Err(e.into()),
         };
         if store
             .manifest()?

@@ -14,7 +14,7 @@ use crate::commands::{
     SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
 };
 use crate::error::CliError;
-use crate::format::{ColorConfig, OutputFormat, hint, write_json};
+use crate::format::{ColorConfig, OutputFormat, escape_control, hint, write_json};
 use crate::record_dir;
 
 /// One row of `session list`.
@@ -113,6 +113,8 @@ fn run_sync(
     Ok(())
 }
 
+/// Prints a sync report. Transcript paths, session ids, and record type
+/// names come from outside the tool and are escaped.
 fn print_sync_report(report: &SyncReport) -> io::Result<()> {
     let mut out = io::stdout().lock();
     writeln!(
@@ -130,9 +132,9 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
         writeln!(
             out,
             "  {}: {} new, {}",
-            t.path.display(),
+            escape_control(&t.path.display().to_string()),
             t.new_observations,
-            session
+            escape_control(session)
         )?;
         if t.trailing_partial {
             writeln!(out, "    incomplete final line left for the next sync")?;
@@ -141,7 +143,7 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
             let list: Vec<String> = t
                 .unknown_records
                 .iter()
-                .map(|(k, v)| format!("{k} ({v})"))
+                .map(|(k, v)| format!("{} ({v})", escape_control(k)))
                 .collect();
             writeln!(out, "    unknown record types: {}", list.join(", "))?;
         }
@@ -231,14 +233,15 @@ fn run_list(
     match args.format {
         OutputFormat::Json => write_json(&rows)?,
         OutputFormat::Terminal => {
+            // Session ids, times, and branches come from transcripts.
             let mut out = io::stdout().lock();
             for row in &rows {
                 writeln!(
                     out,
                     "{}  {}  {}  {} turns, {} edits, {} commands, {} restores, {} discontinuities",
-                    row.session,
-                    row.started.as_deref().unwrap_or("-"),
-                    row.branch.as_deref().unwrap_or("-"),
+                    escape_control(row.session.as_str()),
+                    escape_control(row.started.as_deref().unwrap_or("-")),
+                    escape_control(row.branch.as_deref().unwrap_or("-")),
                     row.turns,
                     row.edits,
                     row.commands,
@@ -273,7 +276,7 @@ fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Resu
             )));
         }
         many => {
-            let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
+            let ids: Vec<String> = many.iter().map(|id| escape_control(id.as_str())).collect();
             return Err(CliError::CommandFailed(format!(
                 "'{}' matches several sessions: {}",
                 args.session,

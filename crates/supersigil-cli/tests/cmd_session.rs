@@ -279,3 +279,121 @@ fn unreadable_records_dir_is_an_error() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
 }
+
+#[test]
+fn terminal_output_escapes_control_bytes() {
+    let e = env();
+    let session = "evil\u{1b}[2Kid";
+    let user = serde_json::json!({
+        "type": "user", "uuid": "u1", "parentUuid": null, "sessionId": session,
+        "cwd": "/work/repo", "gitBranch": "b\u{7}",
+        "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false, "isMeta": false,
+        "message": {"role": "user", "content": "hello"}
+    });
+    let agent = serde_json::json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": "u1", "sessionId": session,
+        "cwd": "/work/repo", "gitBranch": "b\u{7}",
+        "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}
+    });
+    let transcript = e.checkout.join("evil.jsonl");
+    std::fs::write(&transcript, format!("{user}\n{agent}\n")).unwrap();
+
+    let synced = session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .output()
+        .unwrap();
+    assert!(synced.status.success());
+    let sync_out = String::from_utf8(synced.stdout).unwrap();
+    assert!(sync_out.contains(r"evil\x1b[2Kid"), "{sync_out}");
+    assert!(!sync_out.contains('\u{1b}'));
+
+    let listed = session_cmd(&e).arg("list").output().unwrap();
+    assert!(listed.status.success());
+    let stdout = String::from_utf8(listed.stdout).unwrap();
+    assert!(stdout.contains(r"\x1b[2K"), "{stdout}");
+    assert!(stdout.contains(r"\x07"), "{stdout}");
+    assert!(!stdout.contains('\u{1b}'));
+    assert!(!stdout.contains('\u{7}'));
+
+    // JSON keeps the original value.
+    let json = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(list[0]["session"], session);
+}
+
+#[test]
+fn ambiguous_session_error_escapes_control_bytes() {
+    let e = env();
+    let record = |session: &str| {
+        serde_json::json!({
+            "type": "user", "uuid": format!("u-{session}"), "parentUuid": null,
+            "sessionId": session, "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false, "isMeta": false,
+            "message": {"role": "user", "content": "hello"}
+        })
+    };
+    for (name, session) in [
+        ("one.jsonl", "x\u{1b}]0;one"),
+        ("two.jsonl", "x\u{1b}]0;two"),
+    ] {
+        let transcript = e.checkout.join(name);
+        std::fs::write(&transcript, format!("{}\n", record(session))).unwrap();
+        session_cmd(&e)
+            .args(["sync", "--transcript"])
+            .arg(&transcript)
+            .assert()
+            .success();
+    }
+    let output = session_cmd(&e).args(["show", "x"]).output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("matches several sessions"), "{stderr}");
+    assert!(stderr.contains(r"x\x1b]0;one"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'));
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_child_record_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let e = env();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_path())
+        .assert()
+        .success();
+    let record_dirs = || -> Vec<PathBuf> {
+        std::fs::read_dir(&e.records)
+            .unwrap()
+            .flatten()
+            .filter(|d| d.file_name() != ".lock")
+            .map(|d| d.path())
+            .collect()
+    };
+    let records = record_dirs();
+    assert_eq!(records.len(), 1);
+    let record = &records[0];
+    std::fs::set_permissions(record, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::metadata(record.join("manifest.json")).is_ok() {
+        // Permissions are ignored (running as root); nothing to test.
+        std::fs::set_permissions(record, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let listed = session_cmd(&e).arg("list").output().unwrap();
+    let synced = session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_path())
+        .output()
+        .unwrap();
+    std::fs::set_permissions(record, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!listed.status.success());
+    assert!(String::from_utf8_lossy(&listed.stderr).contains("error:"));
+    assert!(!synced.status.success());
+    assert!(String::from_utf8_lossy(&synced.stderr).contains("error:"));
+    assert_eq!(record_dirs().len(), 1);
+}

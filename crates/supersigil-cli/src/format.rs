@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::io::{self, IsTerminal, Write};
 
 use anstyle::{AnsiColor, Effects, Style};
@@ -213,6 +213,31 @@ pub fn hint(color: ColorConfig, msg: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Escaping
+// ---------------------------------------------------------------------------
+
+/// Makes control characters in `text` visible for terminal output.
+///
+/// Every character in `U+0000..=U+001F` except tab, plus `U+007F` and the C1
+/// range `U+0080..=U+009F`, becomes `\x` and two lowercase hex digits, for
+/// example `\x1b`. Everything else passes through. Values taken from a
+/// transcript go through this before they reach a terminal, so an escape
+/// sequence in a session id cannot erase or forge the lines around it.
+#[must_use]
+pub fn escape_control(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        let code = u32::from(c);
+        if (code <= 0x1f && c != '\t') || (0x7f..=0x9f).contains(&code) {
+            let _ = write!(out, "\\x{code:02x}");
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // OutputFormat
 // ---------------------------------------------------------------------------
 
@@ -246,4 +271,20 @@ pub fn write_json<T: Serialize>(value: &T) -> io::Result<()> {
     serde_json::to_writer_pretty(&mut handle, value).map_err(io::Error::other)?;
     writeln!(handle)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_control_makes_control_characters_visible() {
+        assert_eq!(escape_control("a\u{1b}[2Kb"), r"a\x1b[2Kb");
+        assert_eq!(escape_control("bell\u{7}"), r"bell\x07");
+        assert_eq!(escape_control("line\nbreak\r"), r"line\x0abreak\x0d");
+        assert_eq!(escape_control("nul\u{0}del\u{7f}"), r"nul\x00del\x7f");
+        assert_eq!(escape_control("c1\u{9b}31m"), r"c1\x9b31m");
+        assert_eq!(escape_control("tab\tstays"), "tab\tstays");
+        assert_eq!(escape_control("ünïcode ✔ \u{a0}"), "ünïcode ✔ \u{a0}");
+    }
 }
