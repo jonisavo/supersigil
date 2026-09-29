@@ -497,12 +497,15 @@ associations of exact certainty; matching contents never infer a checkout.
 $XDG_DATA_HOME/supersigil/records/<record_id>/
   manifest.json                      identity, schema version, revision, associations,
                                      and for every file below: name plus committed length
-  observations/<session>/events.jsonl        append-only
+  observations/<n>.jsonl                     append-only
   derivations/<observation_revision>.<algorithm_version>.json   immutable per generation
-  interpretations/<session>/<revision>.json  immutable per revision
+  interpretations/<n>/<revision>.json        immutable per revision
   contributions/judgments.jsonl              append-only
   index/                                     rebuildable, not pinned
 ```
+
+`<n>` is the number the manifest assigns a session on its first write.
+Session ids come from transcripts, so they never become file names.
 
 The manifest pins a revision precisely: for append-only logs, the committed
 byte length; for generated documents, the immutable file name. Readers load
@@ -534,8 +537,8 @@ effects are defined:
 ### Data flow
 
 1. **Sync.** From the stop hook or on demand, and always on review open.
-   Discover transcripts, parse incrementally from the last committed offset,
-   append observations, recompute derivations for changed sessions, publish a
+   Discover transcripts, parse each one whole, append the observations that
+   lie past its cursor, recompute derivations for changed sessions, publish a
    revision. Idempotent.
 2. **Annotate.** The annotate skill runs `supersigil session show <id>
    --format json`, which emits the skeleton, applicable corrections, and turn
