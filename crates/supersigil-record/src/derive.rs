@@ -19,7 +19,9 @@ pub fn derive(
 ) -> DerivationSet {
     let mut groups: BTreeMap<(PathBuf, PathBuf), Vec<&Edit>> = BTreeMap::new();
     for observation in observations {
-        if let Observation::Edit(edit) = observation {
+        if let Observation::Edit(edit) = observation
+            && edit.session == *session
+        {
             groups
                 .entry((edit.checkout.clone(), edit.path.clone()))
                 .or_default()
@@ -219,5 +221,20 @@ mod tests {
         let set = derive(&session(), &obs, Revision::ZERO.next());
         assert!(set.restores.is_empty());
         assert!(set.discontinuities.is_empty());
+    }
+
+    #[test]
+    fn edits_from_other_sessions_are_ignored() {
+        let mut obs = vec![
+            edit("t1", "notes.txt", 1, known("draft\n"), known("final\n")),
+            edit("t2", "notes.txt", 2, known("final\n"), known("draft\n")),
+        ];
+        if let Observation::Edit(e) = &mut obs[1] {
+            e.session = SessionId::new("other");
+        }
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert!(set.restores.is_empty());
+        assert!(set.discontinuities.is_empty());
+        assert_eq!(set.session, session());
     }
 }
