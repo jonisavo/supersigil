@@ -43,7 +43,8 @@ pub struct ParseOutcome {
     pub consumed: u64,
     /// Ordinal for the first record at or after `consumed`.
     pub next_ordinal: u64,
-    /// Session id from the first record that carried one.
+    /// The session given to [`parse_transcript_with_session`], else the
+    /// session id from the first record that carried one.
     pub session: Option<SessionId>,
     /// Working directory from the first record that carried one.
     pub checkout: Option<PathBuf>,
@@ -236,10 +237,9 @@ impl Walk {
         let content = raw.message.as_ref().map(|m| &m.content);
 
         let role = classify_role(raw, content);
-        // The agent moved on: a later assistant record or a human message
-        // abandons unresolved tool uses. Tool results and meta records never
-        // do, since parallel tool calls get one user record per result.
-        if role == Role::Agent || role == Role::Human {
+        // The agent moved on: a later assistant record abandons unresolved
+        // tool uses before it issues its own.
+        if role == Role::Agent {
             self.abandon_pending(&session_id);
         }
         self.staged.push((
@@ -260,7 +260,15 @@ impl Walk {
         if raw.kind == "assistant" {
             self.queue_tool_uses(record, &turn_id, &time);
         } else {
+            // A human message abandons what is still unresolved, but only
+            // after its own tool results are matched: a typed message can
+            // share a record with the results it follows. Tool results and
+            // meta records never abandon, since parallel tool calls get one
+            // user record per result.
             self.resolve_results(record, &session_id, &time);
+            if role == Role::Human {
+                self.abandon_pending(&session_id);
+            }
         }
     }
 
@@ -335,9 +343,12 @@ impl Walk {
             if let Some(observation) = build_resolved(
                 &tool,
                 session,
-                structured,
-                is_error,
-                time,
+                &Resolution {
+                    structured,
+                    block: result,
+                    is_error,
+                    ended: time,
+                },
                 &mut Tally {
                     index: record.index,
                     counts: &mut self.counts,
@@ -352,9 +363,31 @@ impl Walk {
 /// Parses complete lines of a transcript starting at ordinal `start_ordinal`.
 ///
 /// See the module docs and [`ParseOutcome`] for what is and is not consumed.
+/// Equivalent to [`parse_transcript_with_session`] without a known session.
 #[must_use]
 pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
-    let mut outcome = ParseOutcome::default();
+    parse_transcript_with_session(bytes, start_ordinal, None)
+}
+
+/// Parses complete lines of a transcript starting at ordinal `start_ordinal`,
+/// continuing a transcript whose session is already known.
+///
+/// Sync resumes mid-file, where appended records need not repeat the
+/// session id. With `session` given, records without a `sessionId` belong to
+/// it and [`ParseOutcome::session`] is that session, so parsing a file in
+/// chunks yields the same observations as parsing it whole. The session,
+/// checkout, branch, and first time are only read from records when no
+/// session is given.
+#[must_use]
+pub fn parse_transcript_with_session(
+    bytes: &[u8],
+    start_ordinal: u64,
+    session: Option<&SessionId>,
+) -> ParseOutcome {
+    let mut outcome = ParseOutcome {
+        session: session.cloned(),
+        ..ParseOutcome::default()
+    };
     let lines = split_records(bytes, start_ordinal, &mut outcome);
     let mut walk = Walk {
         outcome,
@@ -365,7 +398,7 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
             .map(|i| (*i, Count::Malformed))
             .collect(),
         pending: Vec::new(),
-        session: None,
+        session: session.cloned(),
     };
     for record in &lines.records {
         walk.record(record);
@@ -520,6 +553,48 @@ fn state_of(text: Option<&str>) -> FileState {
     })
 }
 
+/// Why a text field is not retained when neither the result nor the input
+/// carries it.
+const FIELD_MISSING: &str = "field missing";
+/// Why a command stream is not retained when the source does not carry it.
+const NOT_CAPTURED: &str = "not captured";
+
+/// One field of an editing tool, read from the tool result first (it
+/// reflects what was applied) and from the input otherwise.
+struct Field<T> {
+    value: Option<T>,
+    /// Both sides carry the field and they disagree.
+    conflict: bool,
+}
+
+impl<T: PartialEq> Field<T> {
+    fn reconcile(from_result: Option<T>, from_input: Option<T>) -> Self {
+        let conflict = matches!((&from_result, &from_input), (Some(r), Some(i)) if r != i);
+        Self {
+            value: from_result.or(from_input),
+            conflict,
+        }
+    }
+
+    /// Present on at least one side and not contradicted by the other.
+    fn settled(&self) -> Option<&T> {
+        if self.conflict {
+            None
+        } else {
+            self.value.as_ref()
+        }
+    }
+}
+
+fn retained_or_missing(text: Option<&str>) -> Material<String> {
+    text.map_or_else(
+        || Material::Unavailable {
+            reason: FIELD_MISSING.to_owned(),
+        },
+        |t| Material::Retained(t.to_owned()),
+    )
+}
+
 /// What one editing tool did to a file, apart from the path and timing.
 struct EditParts {
     before: FileState,
@@ -529,34 +604,49 @@ struct EditParts {
     replace_all: bool,
 }
 
+/// An `Edit`. The after-state is computed only when the original and all
+/// three fields are known and neither side contradicts the other; a missing
+/// field is never read as an empty string or a default.
 fn edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
+    let input = Some(&tool.input);
     let original = string_field(result, "originalFile");
-    let old = string_field(Some(&tool.input), "old_string")
-        .or_else(|| string_field(result, "oldString"))
-        .unwrap_or_default();
-    let new = string_field(Some(&tool.input), "new_string")
-        .or_else(|| string_field(result, "newString"))
-        .unwrap_or_default();
-    let replace_all = tool
-        .input
-        .get("replace_all")
-        .and_then(Value::as_bool)
-        .or_else(|| result?.get("replaceAll")?.as_bool())
-        .unwrap_or(false);
-    let after = original.and_then(|o| content::apply_edit(o, old, new, replace_all));
+    let old = Field::reconcile(
+        string_field(result, "oldString"),
+        string_field(input, "old_string"),
+    );
+    let new = Field::reconcile(
+        string_field(result, "newString"),
+        string_field(input, "new_string"),
+    );
+    let replace_all = Field::reconcile(
+        result.and_then(|r| r.get("replaceAll")?.as_bool()),
+        tool.input.get("replace_all").and_then(Value::as_bool),
+    );
+    let after = match (
+        original,
+        old.settled(),
+        new.settled(),
+        replace_all.settled(),
+    ) {
+        (Some(original), Some(old), Some(new), Some(all)) => {
+            content::apply_edit(original, old, new, *all)
+        }
+        _ => None,
+    };
     EditParts {
         before: state_of(original),
         after: state_of(after.as_deref()),
-        old_text: Material::Retained(old.to_owned()),
-        new_text: Material::Retained(new.to_owned()),
-        replace_all,
+        old_text: retained_or_missing(old.value),
+        new_text: retained_or_missing(new.value),
+        replace_all: replace_all.value.unwrap_or(false),
     }
 }
 
+/// A `Write`. The written content comes from the result, else the input;
+/// without either the after-state is unknown.
 fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
-    let text = string_field(Some(&tool.input), "content")
-        .or_else(|| string_field(result, "content"))
-        .unwrap_or_default();
+    let text =
+        string_field(result, "content").or_else(|| string_field(Some(&tool.input), "content"));
     let before = if string_field(result, "type") == Some("create") {
         FileState::Absent
     } else {
@@ -564,41 +654,41 @@ fn write_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     };
     EditParts {
         before,
-        after: state_of(Some(text)),
+        after: state_of(text),
         old_text: Material::Unavailable {
             reason: "write replaces the whole file".to_owned(),
         },
-        new_text: Material::Retained(text.to_owned()),
+        new_text: retained_or_missing(text),
         replace_all: false,
     }
 }
 
+/// A `MultiEdit`. Without any edits, or with an edit missing its old or new
+/// text, the after-state is unknown rather than a no-op or a deletion.
 fn multi_edit_parts(tool: &PendingTool, result: Option<&Value>) -> EditParts {
     let original = string_field(result, "originalFile");
-    let edits: Vec<(String, String, bool)> = tool
+    let edits: Option<Vec<(String, String, bool)>> = tool
         .input
         .get("edits")
         .and_then(Value::as_array)
-        .map(|items| {
+        .filter(|items| !items.is_empty())
+        .and_then(|items| {
             items
                 .iter()
                 .map(|e| {
-                    (
-                        string_field(Some(e), "old_string")
-                            .unwrap_or_default()
-                            .to_owned(),
-                        string_field(Some(e), "new_string")
-                            .unwrap_or_default()
-                            .to_owned(),
+                    Some((
+                        string_field(Some(e), "old_string")?.to_owned(),
+                        string_field(Some(e), "new_string")?.to_owned(),
                         e.get("replace_all")
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
-                    )
+                    ))
                 })
                 .collect()
-        })
-        .unwrap_or_default();
-    let after = original.and_then(|o| content::apply_multi_edit(o, &edits));
+        });
+    let after = original
+        .zip(edits.as_deref())
+        .and_then(|(o, edits)| content::apply_multi_edit(o, edits));
     EditParts {
         before: state_of(original),
         after: state_of(after.as_deref()),
@@ -618,21 +708,32 @@ struct Tally<'a> {
     counts: &'a mut Vec<(usize, Count)>,
 }
 
+/// The result side of a resolved tool use.
+struct Resolution<'a> {
+    /// The record's `toolUseResult`, when it can belong to this tool use.
+    structured: Option<&'a Value>,
+    /// The `tool_result` content block.
+    block: &'a Value,
+    /// Whether the harness flagged the result as an error.
+    is_error: bool,
+    /// Time of the record carrying the result.
+    ended: &'a Timestamp,
+}
+
 fn build_edit(
     tool: &PendingTool,
     session: &SessionId,
-    result: Option<&Value>,
-    is_error: bool,
-    ended: &Timestamp,
+    resolution: &Resolution,
     tally: &mut Tally,
 ) -> Option<Observation> {
-    if is_error {
+    if resolution.is_error {
         // The harness says the tool failed. Whatever the input asked for did
         // not necessarily reach the disk, so there is no edit and no hash to
         // compute.
         tally.counts.push((tally.index, Count::Failed));
         return None;
     }
+    let result = resolution.structured;
     let Some(path) = relative_path(tool, result) else {
         tally.counts.push((tally.index, Count::Outside));
         return None;
@@ -654,32 +755,64 @@ fn build_edit(
         new_text: parts.new_text,
         replace_all: parts.replace_all,
         checkout: tool.cwd.clone(),
-        time: ended.clone(),
+        time: resolution.ended.clone(),
         source_ordinal: tool.ordinal,
     }))
 }
 
-fn build_command(
-    tool: &PendingTool,
-    session: &SessionId,
-    result: Option<&Value>,
-    is_error: bool,
-    ended: &Timestamp,
-) -> Observation {
+/// Text of a `tool_result` block's content: the string itself, or its text
+/// blocks joined by newlines. `None` when the block carries no text.
+fn block_text(block: &Value) -> Option<String> {
+    match block.get("content")? {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(items) => {
+            let texts: Vec<&str> = items
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .collect();
+            (!texts.is_empty()).then(|| texts.join("\n"))
+        }
+        _ => None,
+    }
+}
+
+fn stream_tail(text: Option<&str>) -> Material<String> {
+    text.map_or_else(
+        || Material::Unavailable {
+            reason: NOT_CAPTURED.to_owned(),
+        },
+        |t| Material::Retained(tail_chars(t, OUTPUT_TAIL_CHARS)),
+    )
+}
+
+fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolution) -> Observation {
+    let result = resolution.structured;
     let cmd = string_field(Some(&tool.input), "command")
         .unwrap_or_default()
         .to_owned();
     let category = classify_command(&cmd);
-    let stdout = string_field(result, "stdout").unwrap_or_default();
-    let stderr = string_field(result, "stderr").unwrap_or_default();
+    // Without structured streams, the tool result's own content is the
+    // command's output as the harness showed it to the agent.
+    let stdout = string_field(result, "stdout")
+        .map(str::to_owned)
+        .or_else(|| block_text(resolution.block));
+    let stderr = string_field(result, "stderr");
     let interrupted = result
         .and_then(|r| r.get("interrupted"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let outcome_value = if category == CommandCategory::TestRun && !interrupted {
-        test_outcome(stdout, stderr).or(is_error.then_some(Outcome::Failed))
-    } else {
+    // A reported error is failure evidence and outranks any success line in
+    // the output, for example a passing binary before a compilation error.
+    let outcome_value = if category != CommandCategory::TestRun || interrupted {
         None
+    } else if resolution.is_error {
+        Some(Outcome::Failed)
+    } else {
+        test_outcome(
+            stdout.as_deref().unwrap_or_default(),
+            stderr.unwrap_or_default(),
+        )
     };
     Observation::Command(Command {
         id: EventId::derive("command", session, &tool.id),
@@ -687,13 +820,13 @@ fn build_command(
         session: session.clone(),
         cmd,
         exit: None,
-        stdout_tail: Material::Retained(tail_chars(stdout, OUTPUT_TAIL_CHARS)),
-        stderr_tail: Material::Retained(tail_chars(stderr, OUTPUT_TAIL_CHARS)),
+        stdout_tail: stream_tail(stdout.as_deref()),
+        stderr_tail: stream_tail(stderr),
         category,
-        reported_error: is_error,
+        reported_error: resolution.is_error,
         outcome: outcome_value,
         started: tool.time.clone(),
-        ended: Some(ended.clone()),
+        ended: Some(resolution.ended.clone()),
         checkout: tool.cwd.clone(),
         source_ordinal: tool.ordinal,
     })
@@ -702,14 +835,12 @@ fn build_command(
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
-    result: Option<&Value>,
-    is_error: bool,
-    ended: &Timestamp,
+    resolution: &Resolution,
     tally: &mut Tally,
 ) -> Option<Observation> {
     match tool.name.as_str() {
-        "Edit" | "Write" | "MultiEdit" => build_edit(tool, session, result, is_error, ended, tally),
-        "Bash" => Some(build_command(tool, session, result, is_error, ended)),
+        "Edit" | "Write" | "MultiEdit" => build_edit(tool, session, resolution, tally),
+        "Bash" => Some(build_command(tool, session, resolution)),
         _ => None,
     }
 }
@@ -781,20 +912,23 @@ pub fn classify_command(cmd: &str) -> CommandCategory {
 ///
 /// Failure takes precedence: a workspace run prints one `test result:` line
 /// per binary, and one failing binary after several passing ones is a
-/// failed run. `None` means no verdict could be read, not success.
+/// failed run. Every nextest summary line is inspected, so a failing suite
+/// after a passing one is a failed run too. `None` means no verdict could be
+/// read, not success.
 #[must_use]
 pub fn test_outcome(stdout: &str, stderr: &str) -> Option<Outcome> {
     let text = format!("{stdout}\n{stderr}");
-    let nextest_summary = text
+    let nextest_summaries: Vec<&str> = text
         .lines()
-        .find(|l| l.contains("tests run:") || l.contains("test run:"));
+        .filter(|l| l.contains("tests run:") || l.contains("test run:"))
+        .collect();
     let failed = text.contains("test result: FAILED")
-        || nextest_summary.is_some_and(summary_has_failures)
+        || nextest_summaries.iter().any(|l| summary_has_failures(l))
         || text.contains("FAILED");
     if failed {
         return Some(Outcome::Failed);
     }
-    if text.contains("test result: ok") || nextest_summary.is_some() {
+    if text.contains("test result: ok") || !nextest_summaries.is_empty() {
         return Some(Outcome::Passed);
     }
     None

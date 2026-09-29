@@ -8,7 +8,7 @@ use supersigil_record::observations::{Observation, SessionStart, Source};
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
 use supersigil_record::{Revision, SessionId};
 
-use crate::claude_code::parse_transcript;
+use crate::claude_code::parse_transcript_with_session;
 
 /// Errors from sync.
 #[derive(Debug, thiserror::Error)]
@@ -164,7 +164,13 @@ fn sync_transcript(
     let start = usize::try_from(cursor.offset)
         .unwrap_or(usize::MAX)
         .min(bytes.len());
-    let outcome = parse_transcript(&bytes[start..], cursor.next_ordinal);
+    // Appended records need not repeat the session id, so a resumed parse
+    // starts from the session the cursor already knows.
+    let outcome = parse_transcript_with_session(
+        &bytes[start..],
+        cursor.next_ordinal,
+        cursor.session.as_ref(),
+    );
 
     let mut new = Vec::new();
     if cursor.session.is_none()

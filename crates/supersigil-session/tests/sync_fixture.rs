@@ -248,3 +248,23 @@ fn cursor_only_progress_is_committed() {
     assert_eq!(s.store.manifest().unwrap().revision.get(), 1);
     assert!(again.transcripts[0].unknown_records.is_empty());
 }
+
+#[test]
+fn appended_records_without_a_session_id_join_the_known_session() {
+    let bytes = fixture();
+    let starts = line_starts(&bytes);
+    let s = setup(&bytes[..starts[18]]);
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(turn_ids(&s.store).len(), 16);
+
+    let last = String::from_utf8(bytes[starts[18]..].to_vec())
+        .unwrap()
+        .replace(&format!(r#""sessionId":"{SESSION}","#), "");
+    let mut appended = bytes[..starts[18]].to_vec();
+    appended.extend_from_slice(last.as_bytes());
+    std::fs::write(&s.transcript, &appended).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.new_observations, 1);
+    assert!(report.transcripts[0].unknown_records.is_empty());
+    assert_eq!(turn_ids(&s.store).last().map(String::as_str), Some("a8"));
+}

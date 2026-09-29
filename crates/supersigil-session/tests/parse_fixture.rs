@@ -2,11 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
+use serde_json::{Value, json};
 use supersigil_record::observations::{
     CommandCategory, Content, FileState, Material, Observation, Outcome, Role,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
-use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
+use supersigil_session::claude_code::{
+    ParseOutcome, parse_transcript, parse_transcript_with_session,
+};
 
 const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 
@@ -59,6 +62,76 @@ fn turns(outcome: &ParseOutcome) -> Vec<&supersigil_record::observations::Turn> 
 
 fn known(text: &str) -> FileState {
     FileState::known(ContentId::of(text.as_bytes()))
+}
+
+fn unavailable(reason: &str) -> Material<String> {
+    Material::Unavailable {
+        reason: reason.to_owned(),
+    }
+}
+
+/// A two-record transcript: an assistant record issuing tool use `t1`, then
+/// a user record carrying `result_block` and, if given, `toolUseResult`.
+fn tool_exchange(
+    name: &str,
+    input: Value,
+    result_block: Value,
+    tool_use_result: Option<Value>,
+) -> String {
+    let mut issue = json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": name}
+        ]}
+    });
+    issue["message"]["content"][0]["input"] = input;
+    let mut result = json!({
+        "type": "user", "uuid": "u1", "parentUuid": "a1", "sessionId": "s",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false, "isMeta": false,
+        "message": {"role": "user"}
+    });
+    result["message"]["content"] = Value::Array(vec![result_block]);
+    if let Some(structured) = tool_use_result {
+        result["toolUseResult"] = structured;
+    }
+    format!("{issue}\n{result}\n")
+}
+
+fn ok_block() -> Value {
+    json!({"type": "tool_result", "tool_use_id": "t1", "content": "ok"})
+}
+
+/// The single edit parsed from a tool exchange.
+fn only_edit(
+    name: &str,
+    input: Value,
+    tool_use_result: Value,
+) -> supersigil_record::observations::Edit {
+    let lines = tool_exchange(name, input, ok_block(), Some(tool_use_result));
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let edits = edits(&outcome);
+    assert_eq!(edits.len(), 1, "expected one edit from {lines}");
+    edits[0].clone()
+}
+
+/// The single command parsed from a tool exchange.
+fn only_command(
+    result_block: Value,
+    tool_use_result: Option<Value>,
+) -> supersigil_record::observations::Command {
+    let lines = tool_exchange(
+        "Bash",
+        json!({"command": "ls"}),
+        result_block,
+        tool_use_result,
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1, "expected one command from {lines}");
+    commands[0].clone()
 }
 
 #[test]
@@ -423,4 +496,251 @@ fn counts_stop_at_the_consumption_cutoff() {
     let outcome = parse_transcript(full.as_bytes(), 0);
     assert_eq!(outcome.unknown_records.get("ai-title"), Some(&1));
     assert_eq!(outcome.malformed_lines, 1);
+}
+
+#[test]
+fn missing_write_content_is_unknown() {
+    let path = "/work/repo/a.txt";
+    let missing = only_edit(
+        "Write",
+        json!({"file_path": path}),
+        json!({"type": "update", "filePath": path, "originalFile": "old\n", "structuredPatch": []}),
+    );
+    assert_eq!(missing.before, known("old\n"));
+    assert_eq!(missing.after, FileState::unknown());
+    assert_eq!(missing.new_text, unavailable("field missing"));
+
+    // The result reflects what was written, so it wins over the input.
+    let from_result = only_edit(
+        "Write",
+        json!({"file_path": path, "content": "asked\n"}),
+        json!({"type": "update", "filePath": path, "content": "written\n", "originalFile": "old\n", "structuredPatch": []}),
+    );
+    assert_eq!(from_result.after, known("written\n"));
+    assert_eq!(
+        from_result.new_text,
+        Material::Retained("written\n".to_owned())
+    );
+
+    // An explicitly empty file is known content, not a missing field.
+    let empty = only_edit(
+        "Write",
+        json!({"file_path": path, "content": ""}),
+        json!({"type": "update", "filePath": path, "content": "", "originalFile": "old\n", "structuredPatch": []}),
+    );
+    assert_eq!(empty.after, known(""));
+    assert_eq!(empty.new_text, Material::Retained(String::new()));
+}
+
+#[test]
+fn missing_edit_fields_are_unknown() {
+    let path = "/work/repo/a.txt";
+    let no_new = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a "}),
+        json!({"filePath": path, "oldString": "a ", "originalFile": "a b\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(no_new.before, known("a b\n"));
+    assert_eq!(no_new.after, FileState::unknown());
+    assert_eq!(no_new.old_text, Material::Retained("a ".to_owned()));
+    assert_eq!(no_new.new_text, unavailable("field missing"));
+
+    let no_old = only_edit(
+        "Edit",
+        json!({"file_path": path, "new_string": "c"}),
+        json!({"filePath": path, "newString": "c", "originalFile": "a b\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(no_old.after, FileState::unknown());
+    assert_eq!(no_old.old_text, unavailable("field missing"));
+
+    let no_replace_all = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a ", "new_string": ""}),
+        json!({"filePath": path, "oldString": "a ", "newString": "", "originalFile": "a b\n", "structuredPatch": []}),
+    );
+    assert_eq!(no_replace_all.after, FileState::unknown());
+
+    // An explicitly empty replacement is a deletion the evidence supports.
+    let deletion = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a ", "new_string": "", "replace_all": false}),
+        json!({"filePath": path, "oldString": "a ", "newString": "", "originalFile": "a b\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(deletion.after, known("b\n"));
+    assert_eq!(deletion.new_text, Material::Retained(String::new()));
+
+    // Fields only the input carries are used when the result lacks them.
+    let from_input = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a", "new_string": "c", "replace_all": false}),
+        json!({"filePath": path, "originalFile": "a b\n", "structuredPatch": []}),
+    );
+    assert_eq!(from_input.after, known("c b\n"));
+
+    // A multi-edit without edits says nothing about the file afterwards.
+    let no_edits = only_edit(
+        "MultiEdit",
+        json!({"file_path": path, "edits": []}),
+        json!({"filePath": path, "originalFile": "a b\n", "structuredPatch": []}),
+    );
+    assert_eq!(no_edits.after, FileState::unknown());
+    let absent_edits = only_edit(
+        "MultiEdit",
+        json!({"file_path": path}),
+        json!({"filePath": path, "originalFile": "a b\n", "structuredPatch": []}),
+    );
+    assert_eq!(absent_edits.after, FileState::unknown());
+}
+
+#[test]
+fn conflicting_edit_fields_are_unknown() {
+    let path = "/work/repo/a.txt";
+    let new_differs = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a", "new_string": "asked", "replace_all": false}),
+        json!({"filePath": path, "oldString": "a", "newString": "applied", "originalFile": "a\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(new_differs.before, known("a\n"));
+    assert_eq!(new_differs.after, FileState::unknown());
+    assert_eq!(
+        new_differs.new_text,
+        Material::Retained("applied".to_owned())
+    );
+
+    let replace_all_differs = only_edit(
+        "Edit",
+        json!({"file_path": path, "old_string": "a", "new_string": "b", "replace_all": true}),
+        json!({"filePath": path, "oldString": "a", "newString": "b", "originalFile": "a a\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(replace_all_differs.after, FileState::unknown());
+}
+
+#[test]
+fn missing_command_streams_fall_back_to_result_content_or_unavailable() {
+    let from_string = only_command(
+        json!({"type": "tool_result", "tool_use_id": "t1", "content": "file1\nfile2"}),
+        None,
+    );
+    assert_eq!(
+        from_string.stdout_tail,
+        Material::Retained("file1\nfile2".to_owned())
+    );
+    assert_eq!(from_string.stderr_tail, unavailable("not captured"));
+
+    let from_blocks = only_command(
+        json!({"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "text", "text": "one"}, {"type": "text", "text": "two"}
+        ]}),
+        None,
+    );
+    assert_eq!(
+        from_blocks.stdout_tail,
+        Material::Retained("one\ntwo".to_owned())
+    );
+
+    let nothing = only_command(json!({"type": "tool_result", "tool_use_id": "t1"}), None);
+    assert_eq!(nothing.stdout_tail, unavailable("not captured"));
+    assert_eq!(nothing.stderr_tail, unavailable("not captured"));
+
+    // Explicitly empty streams are retained as empty, not replaced.
+    let empty = only_command(
+        json!({"type": "tool_result", "tool_use_id": "t1", "content": "ignored"}),
+        Some(json!({"stdout": "", "stderr": "", "interrupted": false})),
+    );
+    assert_eq!(empty.stdout_tail, Material::Retained(String::new()));
+    assert_eq!(empty.stderr_tail, Material::Retained(String::new()));
+}
+
+#[test]
+fn mixed_text_and_tool_result_record_keeps_the_result() {
+    let path = "/work/repo/a.txt";
+    let lines = tool_exchange(
+        "Edit",
+        json!({"file_path": path, "old_string": "a", "new_string": "b"}),
+        json!({"type": "tool_result", "tool_use_id": "t1", "content": "ok"}),
+        Some(
+            json!({"filePath": path, "oldString": "a", "newString": "b", "originalFile": "a\n", "structuredPatch": [], "replaceAll": false}),
+        ),
+    );
+    // Put a typed message next to the tool result in the same user record.
+    let lines = lines.replacen(
+        r#""content":[{"content":"ok""#,
+        r#""content":[{"type":"text","text":"also rename it"},{"content":"ok""#,
+        1,
+    );
+    assert!(
+        lines.contains("also rename it"),
+        "fixture edit failed: {lines}"
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.abandoned_tool_uses, 0);
+    let edits = edits(&outcome);
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].after, known("b\n"));
+    let user = turns(&outcome)
+        .into_iter()
+        .find(|t| t.id.as_str() == "u1")
+        .unwrap();
+    assert_eq!(user.role, Role::Human);
+}
+
+#[test]
+fn every_nextest_summary_is_inspected() {
+    use supersigil_session::claude_code::test_outcome;
+    let stdout = concat!(
+        "     Summary [   0.512s] 3 tests run: 3 passed, 0 skipped\n",
+        "     Summary [   0.210s] 2 tests run: 1 passed, 1 failed, 0 skipped\n",
+    );
+    assert_eq!(test_outcome(stdout, ""), Some(Outcome::Failed));
+}
+
+#[test]
+fn harness_error_overrides_a_passing_test_result() {
+    let lines = tool_exchange(
+        "Bash",
+        json!({"command": "cargo test"}),
+        json!({"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "exit 101"}),
+        Some(json!({
+            "stdout": "running 3 tests\ntest result: ok. 3 passed; 0 failed\n",
+            "stderr": "error: could not compile `later`",
+            "interrupted": false
+        })),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1);
+    assert!(commands[0].reported_error);
+    assert_eq!(commands[0].outcome, Some(Outcome::Failed));
+}
+
+#[test]
+fn seeded_chunked_parse_matches_the_whole_file() {
+    let bytes = fixture();
+    let starts = line_starts(&bytes);
+    let whole = parse_transcript(&bytes, 0);
+
+    let first = parse_transcript(&bytes[..starts[15]], 0);
+    let consumed = usize::try_from(first.consumed).unwrap();
+    // Appended records need not repeat the session id; the cursor knows it.
+    let rest_text = String::from_utf8(bytes[consumed..].to_vec())
+        .unwrap()
+        .replace(&format!(r#""sessionId":"{SESSION}","#), "");
+    assert!(!rest_text.contains("sessionId"));
+    let seed = first.session.clone().unwrap();
+    let rest = parse_transcript_with_session(rest_text.as_bytes(), first.next_ordinal, Some(&seed));
+
+    assert_eq!(rest.session, Some(seed));
+    assert_eq!(rest.next_ordinal, whole.next_ordinal);
+    assert!(!rest.unknown_records.contains_key("no-session"));
+    let chunked: Vec<_> = first
+        .observations
+        .iter()
+        .chain(&rest.observations)
+        .cloned()
+        .collect();
+    assert_eq!(chunked, whole.observations);
+
+    // Unseeded, the same chunk cannot place its records in any session.
+    let unseeded = parse_transcript(rest_text.as_bytes(), first.next_ordinal);
+    assert!(turns(&unseeded).is_empty());
 }

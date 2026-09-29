@@ -6,7 +6,7 @@
 
 pub mod claude_code;
 
-pub use claude_code::{ParseOutcome, parse_transcript};
+pub use claude_code::{ParseOutcome, parse_transcript, parse_transcript_with_session};
 pub mod discover;
 pub mod sync;
 
