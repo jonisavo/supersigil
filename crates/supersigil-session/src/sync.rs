@@ -48,7 +48,8 @@ pub struct TranscriptReport {
     #[serde(flatten)]
     pub counts: CaptureCounts,
     /// Why nothing was taken from this transcript, when it was skipped: it
-    /// names a checkout outside the one being synced. A skipped
+    /// names a checkout outside the one being synced, or it has produced
+    /// evidence before any record named a checkout. A skipped
     /// transcript appends nothing and its cursor does not move.
     #[serde(default)]
     pub skipped: Option<String>,
@@ -72,12 +73,17 @@ pub struct SyncReport {
 ///
 /// Transcripts are read in the given order, each from its cursor. A
 /// transcript is identified by its canonical path (the path as given when it
-/// cannot be canonicalized), so two spellings of one file share a cursor. A
-/// transcript whose records name a working directory outside `checkout` is
-/// skipped and reported, so another repository's history never enters this
-/// record. One inside it, such as a subagent's worktree, is taken in, its
-/// directory is added as an association of the record, and its observations
-/// keep their own checkout. A transcript whose cursor first learns its session records a
+/// cannot be canonicalized), so two spellings of one file share a cursor.
+///
+/// A transcript whose records name a working directory outside `checkout`
+/// is skipped and reported, so another repository's history never enters
+/// this record; so is one whose evidence arrives before any record names a
+/// checkout. The checkout first learned is kept on the cursor and checked on
+/// every later read. One inside `checkout`, such as a subagent's worktree,
+/// is taken in, its directory is added as an association of the record, and
+/// its observations keep their own checkout.
+///
+/// A transcript whose cursor first learns its session records a
 /// [`SessionStart`] from its own metadata, marked as a sidechain when a
 /// subagent record named the session. A subagent transcript carries its
 /// parent's session id, so a session can have several starts; which one
@@ -181,7 +187,15 @@ fn sync_transcript(
         cursor.next_ordinal,
         cursor.session.as_ref(),
     );
-    if let Some(reason) = admit(tx, checkout, outcome.checkout.as_deref()) {
+    // The checkout as first learned decides every later read too: a resumed
+    // chunk's records need not repeat it.
+    let recorded = cursor.checkout.clone().or_else(|| outcome.checkout.clone());
+    if let Some(reason) = admit(
+        tx,
+        checkout,
+        recorded.as_deref(),
+        !outcome.observations.is_empty(),
+    ) {
         return Ok(TranscriptReport {
             path: path.to_path_buf(),
             session: cursor.session,
@@ -208,10 +222,7 @@ fn sync_transcript(
                 ("transcript".to_owned(), file_name),
                 ("path".to_owned(), key.clone()),
             ]),
-            checkout: outcome
-                .checkout
-                .clone()
-                .unwrap_or_else(|| checkout.to_path_buf()),
+            checkout: recorded.clone().unwrap_or_else(|| checkout.to_path_buf()),
             branch: outcome.branch.clone(),
             time: outcome
                 .first_time
@@ -240,6 +251,7 @@ fn sync_transcript(
                 .push(observation);
         }
     }
+    cursor.checkout = recorded;
     advance(&mut cursor, &bytes, start, &outcome, hasher);
     tx.set_cursor(&key, cursor.clone());
     Ok(TranscriptReport {
@@ -256,9 +268,17 @@ fn sync_transcript(
 /// Decides whether a transcript whose records name the working directory
 /// `recorded` belongs in the record of `checkout`. A directory nested inside
 /// the checkout is added as an association. Returns why the transcript is
-/// skipped when the directory lies outside.
-fn admit(tx: &mut WriteTx<'_>, checkout: &Path, recorded: Option<&Path>) -> Option<String> {
-    let recorded = recorded?;
+/// skipped: its directory lies outside, or no record has named one yet while
+/// the parse produced `observations`, which cannot be admitted blind.
+fn admit(
+    tx: &mut WriteTx<'_>,
+    checkout: &Path,
+    recorded: Option<&Path>,
+    observations: bool,
+) -> Option<String> {
+    let Some(recorded) = recorded else {
+        return observations.then(|| "checkout unknown".to_owned());
+    };
     match placement(recorded, checkout) {
         Placement::Same => None,
         Placement::Nested => {
@@ -393,6 +413,7 @@ fn resume_cursor(stored: Option<&SourceCursor>, bytes: &[u8]) -> Resume {
             next_ordinal: 0,
             session: None,
             prefix_hash: None,
+            checkout: None,
         },
         start: 0,
         hasher: ContentHasher::new(),

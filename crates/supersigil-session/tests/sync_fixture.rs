@@ -401,6 +401,7 @@ fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
             next_ordinal: 3,
             session: Some(SessionId::new(SESSION)),
             prefix_hash: None,
+            checkout: None,
         },
     );
     tx.commit().unwrap();
@@ -910,4 +911,93 @@ fn only_checkouts_inside_the_requested_tree_are_accepted() {
             "{outside}"
         );
     }
+}
+
+/// A session-bearing record without `cwd`, then a `Write` issued from
+/// `/other/repo`, then its result: one line each.
+fn late_foreign_checkout() -> Vec<String> {
+    vec![
+        r#"{"type":"user","uuid":"u0","parentUuid":null,"sessionId":"s","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#.to_owned(),
+        r#"{"type":"assistant","uuid":"a1","parentUuid":"u0","sessionId":"s","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/other/repo/secret.txt","content":"x\n"}}]}}"#.to_owned(),
+        r#"{"type":"user","uuid":"u1","parentUuid":"a1","sessionId":"s","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:02.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"type":"create","filePath":"/other/repo/secret.txt","content":"x\n","structuredPatch":[]}}"#.to_owned(),
+    ]
+}
+
+#[test]
+fn staged_and_whole_syncs_both_reject_a_checkout_named_late() {
+    let lines = late_foreign_checkout();
+    let text = |n: usize| -> String {
+        let mut text = String::new();
+        for line in &lines[..n] {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text
+    };
+    let reason = Some("checkout /other/repo does not match /work/repo".to_owned());
+
+    let whole = setup(text(3).as_bytes());
+    let report = sync(
+        &whole.store,
+        &whole.checkout,
+        std::slice::from_ref(&whole.transcript),
+    )
+    .unwrap();
+    assert_eq!(report.transcripts[0].skipped, reason);
+
+    // Staged: the first sync ends at the pending tool use, whose record is
+    // the only one naming the checkout.
+    let staged = setup(text(2).as_bytes());
+    let first = sync(
+        &staged.store,
+        &staged.checkout,
+        std::slice::from_ref(&staged.transcript),
+    )
+    .unwrap();
+    assert_eq!(
+        first.transcripts[0].skipped.as_deref(),
+        Some("checkout unknown")
+    );
+    std::fs::write(&staged.transcript, text(3)).unwrap();
+    let second = sync(
+        &staged.store,
+        &staged.checkout,
+        std::slice::from_ref(&staged.transcript),
+    )
+    .unwrap();
+    assert_eq!(second.transcripts[0].skipped, reason);
+
+    for s in [&whole, &staged] {
+        let snapshot = s.store.snapshot().unwrap();
+        assert!(snapshot.sessions().is_empty());
+        assert!(snapshot.manifest().cursors.is_empty());
+    }
+}
+
+#[test]
+fn a_resumed_sync_of_an_admitted_transcript_still_admits() {
+    let bytes = fixture();
+    let starts = line_starts(&bytes);
+    let s = setup(&bytes[..starts[18]]);
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let key = cursor_key(&s.transcript);
+    assert_eq!(
+        s.store.manifest().unwrap().cursors[&key]
+            .checkout
+            .as_deref(),
+        Some(Path::new("/work/repo"))
+    );
+
+    // The appended record carries no `cwd`; the cursor remembers the
+    // checkout.
+    let last = String::from_utf8(bytes[starts[18]..].to_vec())
+        .unwrap()
+        .replace(r#""cwd":"/work/repo","#, "");
+    assert!(!last.contains("cwd"));
+    let mut appended = bytes[..starts[18]].to_vec();
+    appended.extend_from_slice(last.as_bytes());
+    std::fs::write(&s.transcript, &appended).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(report.new_observations, 1);
 }

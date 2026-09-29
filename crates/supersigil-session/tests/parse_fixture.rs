@@ -1262,3 +1262,20 @@ fn a_parent_agents_prompt_in_a_sidechain_is_a_delegation() {
         json!("delegation")
     );
 }
+
+#[test]
+fn a_seeded_parse_still_learns_the_checkout_and_branch() {
+    let lines = format!(
+        "{}\n{}\n",
+        json!({"type": "ai-title", "sessionId": "other", "cwd": "/elsewhere"}),
+        agent("a9", "s")
+    );
+    let outcome = parse_transcript_with_session(lines.as_bytes(), 7, Some(&SessionId::new("s")));
+    assert_eq!(outcome.session, Some(SessionId::new("s")));
+    // The record of another session teaches nothing.
+    assert_eq!(outcome.checkout, Some(PathBuf::from("/work/repo")));
+    assert_eq!(outcome.branch.as_deref(), Some("main"));
+    // A resumed parse is not the session's start.
+    assert_eq!(outcome.first_time, None);
+    assert!(!outcome.sidechain);
+}

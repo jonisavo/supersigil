@@ -275,13 +275,19 @@ impl Walk {
     /// `sessionId` names the session; the checkout, branch, and first time
     /// come from the first record of that session carrying each. An empty
     /// `sessionId` is no session id at all. A session given by the caller
-    /// wins and nothing is learned. Whether the naming record was a
-    /// sidechain record is kept with the metadata.
+    /// is fixed: only the checkout and branch are still learned, from records
+    /// that carry no session id or the given one. Whether the naming record
+    /// was a sidechain record is kept with the metadata.
     fn learn_session(&mut self, index: usize, raw: &RawRecord) {
+        let id = raw.session_id.as_deref().filter(|id| !id.is_empty());
         if self.session_given {
+            let given = self.outcome.session.as_ref().map(SessionId::as_str);
+            if id.is_none_or(|id| Some(id) == given) {
+                self.learn_place(index, raw);
+            }
             return;
         }
-        let Some(id) = raw.session_id.as_deref().filter(|id| !id.is_empty()) else {
+        let Some(id) = id else {
             return;
         };
         match &self.outcome.session {
@@ -293,6 +299,16 @@ impl Walk {
             Some(known) if known.as_str() == id => {}
             Some(_) => return,
         }
+        self.learn_place(index, raw);
+        if self.outcome.first_time.is_none() && raw.timestamp.is_some() {
+            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
+            self.learned_at.first_time = Some(index);
+        }
+    }
+
+    /// Learns the checkout and branch from the record on line `index`, where
+    /// not yet known.
+    fn learn_place(&mut self, index: usize, raw: &RawRecord) {
         if self.outcome.checkout.is_none() && raw.cwd.is_some() {
             self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
             self.learned_at.checkout = Some(index);
@@ -300,10 +316,6 @@ impl Walk {
         if self.outcome.branch.is_none() && raw.git_branch.is_some() {
             self.outcome.branch.clone_from(&raw.git_branch);
             self.learned_at.branch = Some(index);
-        }
-        if self.outcome.first_time.is_none() && raw.timestamp.is_some() {
-            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
-            self.learned_at.first_time = Some(index);
         }
     }
 
@@ -494,9 +506,10 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
 /// Sync resumes mid-file, where appended records need not repeat the
 /// session id. With `session` given, records without a `sessionId` belong to
 /// it and [`ParseOutcome::session`] is that session, so parsing a file in
-/// chunks yields the same observations as parsing it whole. The session,
-/// checkout, branch, and first time are only read from records when no
-/// session is given.
+/// chunks yields the same observations as parsing it whole. With a session
+/// given, the checkout and branch are still read from records of that
+/// session, so every chunk can be checked against the checkout; the first
+/// time is only read when no session is given.
 #[must_use]
 pub fn parse_transcript_with_session(
     bytes: &[u8],

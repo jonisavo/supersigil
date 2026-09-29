@@ -38,6 +38,11 @@ pub struct SourceCursor {
     /// a cursor past offset zero and reads the transcript from the start.
     #[serde(default)]
     pub prefix_hash: Option<ContentId>,
+    /// The transcript's checkout as first learned. Sync checks every read of
+    /// the transcript against it, including resumed reads whose records do
+    /// not repeat a working directory.
+    #[serde(default)]
+    pub checkout: Option<PathBuf>,
 }
 
 /// One revision of a record.
