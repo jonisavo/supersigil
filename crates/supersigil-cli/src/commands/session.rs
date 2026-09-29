@@ -87,7 +87,7 @@ fn run_sync(
             color,
             &format!(
                 "no transcripts found for {}; pass --transcript <path> or --claude-home <dir>",
-                checkout.display()
+                Untrusted(&checkout.to_string_lossy())
             ),
         );
         if matches!(args.format, OutputFormat::Json) {
@@ -176,6 +176,20 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
                 counts.outside_checkout
             )?;
         }
+        if counts.conflicting_tool_results > 0 {
+            writeln!(
+                out,
+                "    edits whose input and result name different files dropped: {}",
+                counts.conflicting_tool_results
+            )?;
+        }
+        if counts.unmatched_tool_results > 0 {
+            writeln!(
+                out,
+                "    tool results without a matching tool use dropped: {}",
+                counts.unmatched_tool_results
+            )?;
+        }
     }
     Ok(())
 }
@@ -219,11 +233,12 @@ fn summarize(store: &Store) -> Result<Vec<SessionSummary>, CliError> {
     Ok(rows)
 }
 
-/// What to say when `checkout` has no record yet.
+/// What to say when `checkout` has no record yet. The checkout path comes
+/// from the file system and is escaped like every other outside value.
 fn no_record_message(checkout: &Path) -> String {
     format!(
         "no record for {}; run `supersigil session sync` first",
-        checkout.display()
+        Untrusted(&checkout.to_string_lossy())
     )
 }
 

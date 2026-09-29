@@ -397,3 +397,82 @@ fn unreadable_child_record_is_an_error() {
     assert!(String::from_utf8_lossy(&synced.stderr).contains("error:"));
     assert_eq!(record_dirs().len(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn checkout_paths_are_escaped_in_terminal_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = dir.path().join("check\u{1b}[2Kout");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let e = Env {
+        records: dir.path().join("records"),
+        checkout,
+        _dir: dir,
+    };
+    let assert_escaped = |label: &str, text: &[u8]| {
+        let text = String::from_utf8(text.to_vec()).unwrap();
+        assert!(text.contains(r"check\x1b[2Kout"), "{label}: {text}");
+        assert!(!text.contains('\u{1b}'), "{label}: {text}");
+    };
+
+    let listed = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(listed.status.success());
+    assert_escaped("list --format json stderr", &listed.stderr);
+
+    let listed = session_cmd(&e).arg("list").output().unwrap();
+    assert!(listed.status.success());
+    assert_escaped("list stdout", &listed.stdout);
+
+    let shown = session_cmd(&e).args(["show", "x"]).output().unwrap();
+    assert!(!shown.status.success());
+    assert_escaped("show stderr", &shown.stderr);
+
+    let synced = session_cmd(&e)
+        .args(["sync", "--claude-home"])
+        .arg(e.checkout.join("no-such-claude-home"))
+        .output()
+        .unwrap();
+    assert!(synced.status.success());
+    assert_escaped("sync stderr", &synced.stderr);
+}
+
+#[test]
+fn sync_reports_conflicting_and_unmatched_tool_results() {
+    let e = env();
+    let issue = serde_json::json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Write",
+            "input": {"file_path": "/work/repo/a.txt", "content": "x"}}]}
+    });
+    let result = serde_json::json!({
+        "type": "user", "uuid": "u1", "parentUuid": "a1", "sessionId": "s",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false, "isMeta": false,
+        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
+        "toolUseResult": {"type": "update", "filePath": "/work/repo/b.txt", "content": "x", "structuredPatch": []}
+    });
+    let stray = serde_json::json!({
+        "type": "user", "uuid": "u2", "parentUuid": "u1", "sessionId": "s",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:02.000Z", "isSidechain": false, "isMeta": false,
+        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "never-issued", "content": "ok"}]}
+    });
+    let transcript = e.checkout.join("t.jsonl");
+    std::fs::write(&transcript, format!("{issue}\n{result}\n{stray}\n")).unwrap();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "edits whose input and result name different files dropped: 1",
+        ))
+        .stdout(predicate::str::contains(
+            "tool results without a matching tool use dropped: 1",
+        ));
+}

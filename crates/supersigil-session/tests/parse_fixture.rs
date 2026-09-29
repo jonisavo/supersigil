@@ -753,3 +753,127 @@ fn seeded_chunked_parse_matches_the_whole_file() {
     let unseeded = parse_transcript(rest_text.as_bytes(), first.next_ordinal);
     assert!(turns(&unseeded).is_empty());
 }
+
+#[test]
+fn conflicting_edit_paths_are_dropped_and_counted() {
+    let edit_input = |path: &str| json!({"file_path": path, "old_string": "a", "new_string": "b", "replace_all": false});
+    let edit_result = |path: &str| json!({"filePath": path, "oldString": "a", "newString": "b", "originalFile": "a\n", "structuredPatch": [], "replaceAll": false});
+    for (input_path, result_path) in [
+        // The input names a file in the checkout; the result one outside it.
+        ("/work/repo/a.txt", "/etc/hosts"),
+        // The input names a file outside; the result one inside.
+        ("/etc/hosts", "/work/repo/a.txt"),
+        // Both inside, but not the same file.
+        ("/work/repo/a.txt", "/work/repo/b.txt"),
+        // A relative input cannot be shown to name the result's file.
+        ("a.txt", "/work/repo/a.txt"),
+    ] {
+        let lines = tool_exchange(
+            "Edit",
+            edit_input(input_path),
+            ok_block(),
+            Some(edit_result(result_path)),
+        );
+        let outcome = parse_transcript(lines.as_bytes(), 0);
+        assert!(
+            edits(&outcome).is_empty(),
+            "an edit was emitted for {input_path:?} vs {result_path:?}"
+        );
+        assert_eq!(
+            outcome.counts.conflicting_tool_results, 1,
+            "{input_path:?} vs {result_path:?}"
+        );
+        assert_eq!(outcome.counts.outside_checkout, 0);
+    }
+
+    // Agreement, or a path on one side only, is not a conflict.
+    let agreed = only_edit(
+        "Edit",
+        edit_input("/work/repo/a.txt"),
+        edit_result("/work/repo/a.txt"),
+    );
+    assert_eq!(agreed.path, PathBuf::from("a.txt"));
+    let result_only = only_edit(
+        "Edit",
+        json!({"old_string": "a", "new_string": "b", "replace_all": false}),
+        edit_result("/work/repo/a.txt"),
+    );
+    assert_eq!(result_only.path, PathBuf::from("a.txt"));
+    let input_only = only_edit(
+        "Edit",
+        edit_input("/work/repo/a.txt"),
+        json!({"oldString": "a", "newString": "b", "originalFile": "a\n", "structuredPatch": [], "replaceAll": false}),
+    );
+    assert_eq!(input_only.path, PathBuf::from("a.txt"));
+
+    // Two paths that both lie outside are counted as outside, not conflicting.
+    let lines = tool_exchange(
+        "Edit",
+        edit_input("/etc/hosts"),
+        ok_block(),
+        Some(edit_result("/etc/passwd")),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(outcome.counts.outside_checkout, 1);
+    assert_eq!(outcome.counts.conflicting_tool_results, 0);
+}
+
+#[test]
+fn unknown_records_before_any_turn_still_yield_the_session() {
+    let lines = concat!(
+        r#"{"type":"ai-title","sessionId":"s","title":"x"}"#,
+        "\n",
+        r#"{"type":"ai-title","sessionId":"s","title":"y"}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.session, Some(SessionId::new("s")));
+    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&2));
+    assert_eq!(outcome.consumed, lines.len() as u64);
+
+    // Metadata missing from the first record is taken from a later one of the
+    // same session.
+    let later = format!(
+        "{lines}{}\n",
+        r#"{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#
+    );
+    let outcome = parse_transcript(later.as_bytes(), 0);
+    assert_eq!(outcome.session, Some(SessionId::new("s")));
+    assert_eq!(outcome.checkout, Some(PathBuf::from("/work/repo")));
+    assert_eq!(outcome.branch.as_deref(), Some("main"));
+    assert_eq!(
+        outcome.first_time,
+        Some(Timestamp::new("2026-09-28T10:00:00.000Z"))
+    );
+    assert_eq!(turns(&outcome).len(), 1);
+}
+
+#[test]
+fn unmatched_tool_result_is_counted() {
+    let lines = concat!(
+        r#"{"type":"user","uuid":"u0","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#,
+        "\n",
+        r#"{"type":"user","uuid":"u1","parentUuid":"u0","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"never-issued","content":"ok"}]},"toolUseResult":{"type":"update","filePath":"/work/repo/a.txt","content":"x","structuredPatch":[]}}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.counts.unmatched_tool_results, 1);
+    assert!(edits(&outcome).is_empty());
+    assert!(!outcome.counts.is_empty());
+    assert_eq!(outcome.consumed, lines.len() as u64);
+}
+
+#[test]
+fn empty_session_id_is_treated_as_absent() {
+    let lines = concat!(
+        r#"{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#,
+        "\n",
+        r#"{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.session, None);
+    assert_eq!(outcome.counts.unknown_records.get("no-session"), Some(&2));
+    assert!(outcome.observations.is_empty());
+}

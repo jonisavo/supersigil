@@ -45,13 +45,15 @@ pub struct ParseOutcome {
     /// Ordinal for the first record at or after `consumed`.
     pub next_ordinal: u64,
     /// The session given to [`parse_transcript_with_session`], else the
-    /// session id from the first record that carried one.
+    /// session id from the first record of any type that carried a
+    /// non-empty one.
     pub session: Option<SessionId>,
-    /// Working directory from the first record that carried one.
+    /// Working directory from the first record of the session that carried
+    /// one.
     pub checkout: Option<PathBuf>,
-    /// Branch from the first record that carried one.
+    /// Branch from the first record of the session that carried one.
     pub branch: Option<String>,
-    /// Timestamp of the first record that carried one.
+    /// Timestamp of the first record of the session that carried one.
     pub first_time: Option<Timestamp>,
     /// Known record types that were skipped, by type.
     pub ignored_records: BTreeMap<String, u64>,
@@ -59,7 +61,9 @@ pub struct ParseOutcome {
     pub trailing_partial: bool,
     /// What the parse could not turn into evidence below `consumed`: unknown
     /// record types, malformed lines, edits outside the checkout, abandoned
-    /// tool uses, and editing tool uses the harness flagged as failed.
+    /// tool uses, editing tool uses the harness flagged as failed, editing
+    /// tool uses whose input and result name different files, and tool
+    /// results that match no tool use.
     pub counts: CaptureCounts,
 }
 
@@ -72,6 +76,8 @@ impl ParseOutcome {
             Count::Outside => self.counts.outside_checkout += 1,
             Count::Abandoned => self.counts.abandoned_tool_uses += 1,
             Count::Failed => self.counts.failed_tool_uses += 1,
+            Count::Conflicting => self.counts.conflicting_tool_results += 1,
+            Count::Unmatched => self.counts.unmatched_tool_results += 1,
         }
     }
 }
@@ -143,6 +149,8 @@ enum Count {
     Outside,
     Abandoned,
     Failed,
+    Conflicting,
+    Unmatched,
 }
 
 /// What one line contributed, kept with the line's index so that effects of
@@ -156,6 +164,8 @@ enum Effect {
 /// Mutable state while walking the records in order.
 struct Walk {
     outcome: ParseOutcome,
+    /// Whether the caller gave the session, so none is learned from records.
+    session_given: bool,
     start_ordinal: u64,
     effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
@@ -171,9 +181,41 @@ impl Walk {
             .push((index, Effect::Observation(Box::new(observation))));
     }
 
-    /// Handles the record on line `index`: counts skipped types, then
-    /// stages its turn and pairs its tool uses and results.
+    /// Learns the session and its metadata from a record of any type, so a
+    /// transcript that opens with records the parser skips still has a
+    /// session to attach their capture limitation to. The first non-empty
+    /// `sessionId` names the session; the checkout, branch, and first time
+    /// come from the first record of that session carrying each. An empty
+    /// `sessionId` is no session id at all. A session given by the caller
+    /// wins and nothing is learned.
+    fn learn_session(&mut self, raw: &RawRecord) {
+        if self.session_given {
+            return;
+        }
+        let Some(id) = raw.session_id.as_deref().filter(|id| !id.is_empty()) else {
+            return;
+        };
+        match &self.outcome.session {
+            None => self.outcome.session = Some(SessionId::new(id)),
+            Some(known) if known.as_str() == id => {}
+            Some(_) => return,
+        }
+        if self.outcome.checkout.is_none() {
+            self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
+        }
+        if self.outcome.branch.is_none() {
+            self.outcome.branch.clone_from(&raw.git_branch);
+        }
+        if self.outcome.first_time.is_none() {
+            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
+        }
+    }
+
+    /// Handles the record on line `index`: learns the session, counts
+    /// skipped types, then stages its turn and pairs its tool uses and
+    /// results.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
+        self.learn_session(&raw);
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
@@ -186,16 +228,6 @@ impl Walk {
             }
         }
 
-        // The one place a session is learned from the records; a session
-        // given by the caller is already set and wins.
-        if self.outcome.session.is_none()
-            && let Some(id) = &raw.session_id
-        {
-            self.outcome.session = Some(SessionId::new(id.clone()));
-            self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
-            self.outcome.branch.clone_from(&raw.git_branch);
-            self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
-        }
         let Some(session_id) = self.outcome.session.clone() else {
             self.count(index, Count::Unknown("no-session".to_owned()));
             return;
@@ -311,7 +343,11 @@ impl Walk {
                 .get("is_error")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            // A result for no awaited tool use (its issuing record is
+            // missing, malformed, or was moved past) cannot be paired, so
+            // what it reported is dropped and counted.
             let Some(position) = self.pending.iter().position(|p| p.id == id) else {
+                self.count(index, Count::Unmatched);
                 continue;
             };
             let tool = self.pending.remove(position);
@@ -359,6 +395,7 @@ pub fn parse_transcript_with_session(
             session: session.cloned(),
             ..ParseOutcome::default()
         },
+        session_given: session.is_some(),
         start_ordinal,
         effects: Vec::new(),
         pending: Vec::new(),
@@ -467,23 +504,38 @@ fn string_field<'a>(value: Option<&'a Value>, key: &str) -> Option<&'a str> {
     value?.get(key)?.as_str()
 }
 
-/// The edit's path relative to the checkout, or `None` when it cannot be
-/// shown to lie inside it. Containment is lexical: the checkout must be
-/// non-empty, the path must start with it, and the remainder may contain
-/// only normal components. `/work/repo/../secret` strips to `../secret` and
-/// is rejected here. Symlinks are not resolved in this plan; plan 2 checks
-/// paths against the git tree, which never contains one that escapes.
-fn relative_path(tool: &PendingTool, result: Option<&Value>) -> Option<PathBuf> {
-    if tool.cwd.as_os_str().is_empty() {
+/// The edit's path relative to the checkout, read from both the input's
+/// `file_path` and the result's `filePath`. A path on one side only is used
+/// as it is. When both sides carry one, each is made relative to the
+/// checkout and they must agree; if they do not, which file was edited is
+/// uncertain and the edit is counted as [`Count::Conflicting`] rather than
+/// recorded under either path. A path that cannot be shown to lie inside
+/// the checkout is [`Count::Outside`].
+fn relative_path(tool: &PendingTool, result: Option<&Value>) -> Result<PathBuf, Count> {
+    let from_input = string_field(Some(&tool.input), "file_path").map(|p| contained(&tool.cwd, p));
+    let from_result = string_field(result, "filePath").map(|p| contained(&tool.cwd, p));
+    match (from_input, from_result) {
+        (Some(input), Some(result)) if input != result => Err(Count::Conflicting),
+        (Some(path), _) | (None, Some(path)) => path.ok_or(Count::Outside),
+        (None, None) => Err(Count::Outside),
+    }
+}
+
+/// `path` relative to `checkout`, or `None` when it cannot be shown to lie
+/// inside it. Containment is lexical: the checkout must be non-empty, the
+/// path must start with it, and the remainder may contain only normal
+/// components. `/work/repo/../secret` strips to `../secret` and is rejected
+/// here. Symlinks are not resolved in this plan; plan 2 checks paths against
+/// the git tree, which never contains one that escapes.
+fn contained(checkout: &Path, path: &str) -> Option<PathBuf> {
+    if checkout.as_os_str().is_empty() {
         return None;
     }
-    let path = string_field(Some(&tool.input), "file_path")
-        .or_else(|| string_field(result, "filePath"))?;
-    let relative = Path::new(path).strip_prefix(&tool.cwd).ok()?;
-    let contained = relative
+    let relative = Path::new(path).strip_prefix(checkout).ok()?;
+    let normal = relative
         .components()
         .all(|c| matches!(c, std::path::Component::Normal(_)));
-    (contained && !relative.as_os_str().is_empty()).then(|| relative.to_path_buf())
+    (normal && !relative.as_os_str().is_empty()).then(|| relative.to_path_buf())
 }
 
 fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
@@ -684,9 +736,7 @@ fn build_edit(
         return Err(Count::Failed);
     }
     let result = resolution.structured;
-    let Some(path) = relative_path(tool, result) else {
-        return Err(Count::Outside);
-    };
+    let path = relative_path(tool, result)?;
     let parts = match tool.name.as_str() {
         "Edit" => edit_parts(tool, result),
         "Write" => write_parts(tool, result),

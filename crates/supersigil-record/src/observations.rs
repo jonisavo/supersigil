@@ -379,6 +379,14 @@ pub struct CaptureCounts {
     pub failed_tool_uses: u64,
     /// Edits outside the checkout that were dropped.
     pub outside_checkout: u64,
+    /// Editing tool uses whose input and result name different files; the
+    /// edit was dropped rather than recorded under either path.
+    #[serde(default)]
+    pub conflicting_tool_results: u64,
+    /// Tool results whose id matches no tool use awaiting a result, so
+    /// whatever they reported was dropped.
+    #[serde(default)]
+    pub unmatched_tool_results: u64,
 }
 
 impl CaptureCounts {
@@ -390,5 +398,7 @@ impl CaptureCounts {
             && self.abandoned_tool_uses == 0
             && self.failed_tool_uses == 0
             && self.outside_checkout == 0
+            && self.conflicting_tool_results == 0
+            && self.unmatched_tool_results == 0
     }
 }

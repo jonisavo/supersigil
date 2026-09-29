@@ -388,3 +388,52 @@ fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
     assert_eq!(cursor.next_ordinal, 19);
     assert_eq!(cursor.prefix_hash, Some(ContentId::of(&bytes)));
 }
+
+#[test]
+fn a_transcript_of_only_unknown_records_keeps_its_capture_limitation() {
+    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"s\",\"title\":\"t\"}\n";
+    let s = setup(bytes);
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].session, Some(SessionId::new("s")));
+    let observations = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new("s"))
+        .unwrap();
+    let recorded: Vec<&CaptureLimitation> = observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::CaptureLimitation(l) => Some(l),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].counts.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(recorded[0].from_ordinal, 0);
+    assert_eq!(recorded[0].to_ordinal, 1);
+}
+
+#[test]
+fn an_empty_session_id_does_not_block_sync() {
+    let bytes = concat!(
+        r#"{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#,
+        "\n",
+        r#"{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}"#,
+        "\n",
+    );
+    let s = setup(bytes.as_bytes());
+    let key = s.transcript.display().to_string();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].session, None);
+    assert_eq!(
+        report.transcripts[0]
+            .counts
+            .unknown_records
+            .get("no-session"),
+        Some(&2)
+    );
+    let manifest = s.store.manifest().unwrap();
+    assert_eq!(manifest.cursors[&key].offset, bytes.len() as u64);
+    assert!(manifest.logs.is_empty());
+}

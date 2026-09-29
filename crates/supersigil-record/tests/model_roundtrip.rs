@@ -86,6 +86,8 @@ fn sample() -> Vec<Observation> {
                 abandoned_tool_uses: 0,
                 failed_tool_uses: 0,
                 outside_checkout: 0,
+                conflicting_tool_results: 0,
+                unmatched_tool_results: 0,
             },
         }),
         Observation::SessionEnd(SessionEnd {
