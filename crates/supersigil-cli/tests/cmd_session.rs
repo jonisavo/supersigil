@@ -476,3 +476,34 @@ fn sync_reports_conflicting_and_unmatched_tool_results() {
             "tool results without a matching tool use dropped: 1",
         ));
 }
+
+#[cfg(unix)]
+#[test]
+fn duplicate_record_error_escapes_paths() {
+    use supersigil_record::store::{Association, Store};
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = dir.path().join("dup\u{1b}[2Kout");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let e = Env {
+        records: dir.path().join("records"),
+        checkout,
+        _dir: dir,
+    };
+    let canonical = e.checkout.canonicalize().unwrap();
+    for name in ["first\u{1b}]0;a", "second"] {
+        Store::create(
+            &e.records.join(name),
+            Association {
+                checkout: canonical.clone(),
+            },
+        )
+        .unwrap();
+    }
+    let output = session_cmd(&e).arg("list").output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("several records"), "{stderr}");
+    assert!(stderr.contains(r"dup\x1b[2Kout"), "{stderr}");
+    assert!(stderr.contains(r"first\x1b]0;a"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'), "{stderr}");
+}
