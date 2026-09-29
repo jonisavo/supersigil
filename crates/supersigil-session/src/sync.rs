@@ -287,35 +287,78 @@ enum Placement {
     Outside,
 }
 
-/// Where `recorded` lies relative to `checkout`, compared lexically by path
-/// components, then by `recorded`'s canonical path when it exists. Inside
-/// means below it through normal components only, so `/work/repo/../other`
-/// is outside `/work/repo`.
+/// Where `recorded` lies relative to `checkout`. When both exist on disk
+/// their canonical paths decide; otherwise the paths as written are
+/// compared by [`comparable`] components. Inside means below it through
+/// normal components only, so `/work/repo/../other` is outside `/work/repo`.
+/// Only the comparison normalizes: the record keeps the transcript's own
+/// spelling of its checkout.
 fn placement(recorded: &Path, checkout: &Path) -> Placement {
-    let lexical = placement_of(recorded, checkout);
-    if lexical != Placement::Outside {
-        return lexical;
+    match (
+        std::fs::canonicalize(recorded),
+        std::fs::canonicalize(checkout),
+    ) {
+        (Ok(recorded), Ok(checkout)) => placement_of(&recorded, &checkout),
+        _ => placement_of(recorded, checkout),
     }
-    std::fs::canonicalize(recorded).map_or(Placement::Outside, |canonical| {
-        placement_of(&canonical, checkout)
-    })
 }
 
-/// [`placement`] of two paths as written.
+/// [`placement`] of two paths as written, by [`comparable`] components.
 fn placement_of(recorded: &Path, checkout: &Path) -> Placement {
-    let Ok(rest) = recorded.strip_prefix(checkout) else {
-        return Placement::Outside;
-    };
-    if rest.as_os_str().is_empty() {
-        Placement::Same
-    } else if rest
-        .components()
-        .all(|c| matches!(c, std::path::Component::Normal(_)))
-    {
-        Placement::Nested
-    } else {
-        Placement::Outside
+    let (recorded, checkout) = (comparable(recorded), comparable(checkout));
+    match recorded.strip_prefix(checkout.as_slice()) {
+        Some([]) => Placement::Same,
+        Some(rest) if rest.iter().all(|c| c != "..") => Placement::Nested,
+        _ => Placement::Outside,
     }
+}
+
+/// The components of `path` for comparing checkouts, alike on every
+/// platform, so a transcript's `C:\work\repo` matches the `\\?\C:\work\repo`
+/// that canonicalization yields on Windows.
+///
+/// A verbatim prefix is dropped (`\\?\UNC\server\share` reads as
+/// `\\server\share`). In a Windows path (one starting with a drive letter or
+/// `\\`, or any path on Windows) `\` separates components as `/` does. `.`
+/// and empty components are dropped, and a drive letter is upper-cased. The
+/// first component records the root: `/`, `//` for a UNC path, or nothing.
+fn comparable(path: &Path) -> Vec<String> {
+    let text = path.to_string_lossy();
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        text.into_owned()
+    };
+    let windows = cfg!(windows) || text.starts_with(r"\\") || has_drive(&text);
+    let separators: &[char] = if windows { &['/', '\\'] } else { &['/'] };
+    let root = if windows && (text.starts_with(r"\\") || text.starts_with("//")) {
+        "//"
+    } else if text.starts_with(separators) {
+        "/"
+    } else {
+        ""
+    };
+    let mut components = vec![root.to_owned()];
+    for (i, component) in text
+        .split(separators)
+        .filter(|c| !c.is_empty() && *c != ".")
+        .enumerate()
+    {
+        if i == 0 && has_drive(component) {
+            components.push(component.to_ascii_uppercase());
+        } else {
+            components.push(component.to_owned());
+        }
+    }
+    components
+}
+
+/// Whether `text` starts with a drive letter and a colon, as in `C:`.
+fn has_drive(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 /// Records which transcript a turn, edit, or command came from.
@@ -417,4 +460,61 @@ fn capture_limitation(
             counts: outcome.counts.clone(),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn relation(recorded: &str, checkout: &str) -> Placement {
+        placement_of(Path::new(recorded), Path::new(checkout))
+    }
+
+    #[test]
+    fn windows_verbatim_prefixes_do_not_change_the_placement() {
+        assert_eq!(
+            relation(r"\\?\C:\work\repo", r"C:\work\repo"),
+            Placement::Same
+        );
+        assert_eq!(
+            relation(r"C:\work\repo", r"\\?\C:\work\repo"),
+            Placement::Same
+        );
+        assert_eq!(
+            relation(r"C:\work\repo\.claude\worktrees\x", r"\\?\C:\work\repo"),
+            Placement::Nested
+        );
+        assert_eq!(
+            relation(r"C:\work\repo\.claude\worktrees\x", r"C:\work\repo"),
+            Placement::Nested
+        );
+        assert_eq!(
+            relation(r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
+            Placement::Same
+        );
+        assert_eq!(
+            relation(r"C:\work\repo2", r"C:\work\repo"),
+            Placement::Outside
+        );
+        assert_eq!(
+            relation(r"C:\work\repo\..\other", r"C:\work\repo"),
+            Placement::Outside
+        );
+    }
+
+    #[test]
+    fn unix_paths_are_compared_by_component() {
+        assert_eq!(relation("/work/repo", "/work/repo"), Placement::Same);
+        assert_eq!(
+            relation("/work/repo/.claude/worktrees/x", "/work/repo"),
+            Placement::Nested
+        );
+        assert_eq!(relation("/other/repo", "/work/repo"), Placement::Outside);
+        assert_eq!(relation("/work/repo2", "/work/repo"), Placement::Outside);
+        assert_eq!(
+            relation("/work/repo/../other", "/work/repo"),
+            Placement::Outside
+        );
+        assert_eq!(relation("/work", "/work/repo"), Placement::Outside);
+    }
 }

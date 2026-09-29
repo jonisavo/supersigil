@@ -44,12 +44,11 @@ fn session_cmd(env: &Env) -> Command {
 }
 
 /// `text` with the fixtures' checkout, `/work/repo`, replaced by the test
-/// checkout: sync skips a transcript whose records name another checkout.
+/// checkout (sync skips a transcript whose records name another checkout).
+/// The path is escaped for a JSON string: a Windows path has backslashes.
 fn in_checkout(e: &Env, text: &str) -> String {
-    text.replace(
-        "/work/repo",
-        &e.checkout.canonicalize().unwrap().to_string_lossy(),
-    )
+    let quoted = serde_json::to_string(&e.checkout.to_string_lossy()).unwrap();
+    text.replace("/work/repo", &quoted[1..quoted.len() - 1])
 }
 
 /// The slice fixture moved into the test checkout, written inside it.
@@ -175,10 +174,7 @@ fn list_json_summarizes_sessions() {
     assert_eq!(entry["session"], "11111111-1111-4111-8111-111111111111");
     assert_eq!(entry["started"], "2026-09-28T10:00:00.000Z");
     assert_eq!(entry["branch"], "main");
-    assert_eq!(
-        entry["checkout"],
-        e.checkout.canonicalize().unwrap().to_str().unwrap()
-    );
+    assert_eq!(entry["checkout"], e.checkout.to_str().unwrap());
     assert_eq!(entry["turns"], 17);
     assert_eq!(entry["edits"], 5);
     assert_eq!(entry["commands"], 2);
@@ -218,10 +214,7 @@ fn list_prefers_the_main_transcript_start_synced_later() {
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["started"], "2026-09-28T10:00:00.000Z");
     assert_eq!(list[0]["branch"], "main");
-    assert_eq!(
-        list[0]["checkout"],
-        e.checkout.canonicalize().unwrap().to_str().unwrap()
-    );
+    assert_eq!(list[0]["checkout"], e.checkout.to_str().unwrap());
 }
 
 #[test]
@@ -709,4 +702,33 @@ fn sync_errors_escape_transcript_paths() {
     assert!(stderr.contains("cannot read transcript"), "{stderr}");
     assert!(stderr.contains(r"gone\x1b[2K.jsonl"), "{stderr}");
     assert!(!stderr.contains('\u{1b}'), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn transcripts_moved_into_a_checkout_with_a_backslash_stay_valid_json() {
+    // A Windows checkout path is full of backslashes; the same character in
+    // a Unix directory name shows whether the rewritten transcripts are
+    // still valid JSON.
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = dir.path().join(r"back\slash");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let e = Env {
+        records: dir.path().join("records"),
+        checkout,
+        _dir: dir,
+    };
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(fixture_in(&e))
+        .assert()
+        .success();
+    let output = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(list[0]["started"], "2026-09-28T10:00:00.000Z");
+    assert_eq!(list[0]["edits"], 5);
+    assert_eq!(list[0]["checkout"], e.checkout.to_str().unwrap());
 }
