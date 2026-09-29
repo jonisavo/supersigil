@@ -7,3 +7,7 @@
 pub mod claude_code;
 
 pub use claude_code::{ParseOutcome, parse_transcript};
+pub mod discover;
+pub mod sync;
+
+pub use sync::{SyncError, SyncReport, TranscriptReport, sync};
