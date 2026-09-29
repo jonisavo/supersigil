@@ -40,6 +40,12 @@ fn setup(bytes: &[u8]) -> Setup {
     }
 }
 
+/// The cursor key of a transcript: its canonical path. Temporary
+/// directories may sit behind a symlink.
+fn cursor_key(path: &Path) -> String {
+    std::fs::canonicalize(path).unwrap().display().to_string()
+}
+
 fn turn_ids(store: &Store) -> Vec<String> {
     store
         .snapshot()
@@ -114,6 +120,10 @@ fn sync_writes_session_start_observations_and_derivations() {
         start.source_ids.get("transcript").map(String::as_str),
         Some("slice.jsonl")
     );
+    assert_eq!(
+        start.source_ids.get("path"),
+        Some(&cursor_key(&s.transcript))
+    );
     assert!(matches!(&observations[1], Observation::Turn(t) if t.role == Role::Human));
 
     let derivations = snapshot
@@ -145,7 +155,7 @@ fn sync_writes_session_start_observations_and_derivations() {
         EventId::derive("edit", &session, "toolu_05")
     );
 
-    let cursor = &snapshot.manifest().cursors[&s.transcript.display().to_string()];
+    let cursor = &snapshot.manifest().cursors[&cursor_key(&s.transcript)];
     assert_eq!(cursor.offset, fixture().len() as u64);
     assert_eq!(cursor.next_ordinal, 19);
     assert_eq!(cursor.session, Some(session));
@@ -200,8 +210,7 @@ fn sync_waits_for_a_pending_tool_result() {
     let starts = line_starts(&bytes);
     let s = setup(&bytes[..starts[15]]);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    let cursor_offset =
-        s.store.manifest().unwrap().cursors[&s.transcript.display().to_string()].offset;
+    let cursor_offset = s.store.manifest().unwrap().cursors[&cursor_key(&s.transcript)].offset;
     assert_eq!(cursor_offset, starts[14] as u64);
     assert_eq!(command_count(&s.store), 1);
 
@@ -227,7 +236,7 @@ fn rewritten_shorter_transcript_is_read_from_the_start() {
     // append-only, so duplicates are visible and later layers dedupe by id.
     assert_eq!(report.transcripts[0].consumed, starts[3] as u64);
     assert_eq!(
-        s.store.manifest().unwrap().cursors[&s.transcript.display().to_string()].offset,
+        s.store.manifest().unwrap().cursors[&cursor_key(&s.transcript)].offset,
         starts[3] as u64
     );
     let after = derivations(&s.store);
@@ -253,7 +262,7 @@ fn missing_transcript_is_an_io_error() {
 fn cursor_only_progress_is_committed() {
     let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"x\",\"title\":\"t\"}\n{not json\n";
     let s = setup(bytes);
-    let key = s.transcript.display().to_string();
+    let key = cursor_key(&s.transcript);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     let manifest = s.store.manifest().unwrap();
     assert_eq!(manifest.revision.get(), 1);
@@ -309,7 +318,7 @@ fn capture_limitations_are_recorded_with_the_cursor_advance() {
     assert_eq!(recorded.len(), 1);
     let limitation = &recorded[0];
     assert_eq!(limitation.session, SessionId::new(SESSION));
-    assert_eq!(limitation.transcript, "slice.jsonl");
+    assert_eq!(limitation.transcript, cursor_key(&s.transcript));
     assert_eq!(limitation.from_ordinal, 0);
     assert_eq!(limitation.to_ordinal, 20);
     assert_eq!(
@@ -339,7 +348,7 @@ fn same_length_rewrite_is_read_from_the_start() {
     let bytes = fixture();
     let s = setup(&bytes);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
-    let key = s.transcript.display().to_string();
+    let key = cursor_key(&s.transcript);
     assert_eq!(
         s.store.manifest().unwrap().cursors[&key].prefix_hash,
         Some(ContentId::of(&bytes))
@@ -383,7 +392,7 @@ fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
     let bytes = fixture();
     let starts = line_starts(&bytes);
     let s = setup(&bytes);
-    let key = s.transcript.display().to_string();
+    let key = cursor_key(&s.transcript);
     let mut tx = s.store.begin().unwrap();
     tx.set_cursor(
         &key,
@@ -442,7 +451,7 @@ fn an_empty_session_id_does_not_block_sync() {
         "\n",
     );
     let s = setup(bytes.as_bytes());
-    let key = s.transcript.display().to_string();
+    let key = cursor_key(&s.transcript);
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].session, None);
     assert_eq!(
@@ -452,8 +461,10 @@ fn an_empty_session_id_does_not_block_sync() {
             .get("no-session"),
         Some(&2)
     );
+    // Without a session their counts cannot be recorded, so the lines are
+    // held back and read again once a session is known.
     let manifest = s.store.manifest().unwrap();
-    assert_eq!(manifest.cursors[&key].offset, bytes.len() as u64);
+    assert_eq!(manifest.cursors[&key].offset, 0);
     assert!(manifest.logs.is_empty());
 }
 
@@ -476,6 +487,7 @@ fn subagent_transcript_joins_the_parent_session() {
         let s = setup(&fixture());
         let side = s.transcript.with_file_name("agent-agent1.jsonl");
         std::fs::write(&side, subagent_transcript()).unwrap();
+        let (main_key, side_key) = (cursor_key(&s.transcript), cursor_key(&side));
         let order = if main_first {
             vec![s.transcript.clone(), side.clone()]
         } else {
@@ -526,12 +538,12 @@ fn subagent_transcript_joins_the_parent_session() {
             .find(|e| e.path == Path::new("src/side.rs"))
             .unwrap();
         assert_eq!(side_edit.agent_id.as_deref(), Some("agent1"));
-        assert_eq!(side_edit.transcript.as_deref(), Some("agent-agent1.jsonl"));
+        assert_eq!(side_edit.transcript.as_deref(), Some(side_key.as_str()));
         assert!(
             edits
                 .iter()
                 .filter(|e| e.path != Path::new("src/side.rs"))
-                .all(|e| e.agent_id.is_none() && e.transcript.as_deref() == Some("slice.jsonl"))
+                .all(|e| e.agent_id.is_none() && e.transcript.as_deref() == Some(main_key.as_str()))
         );
         let side_turns: Vec<_> = observations
             .iter()
@@ -544,10 +556,10 @@ fn subagent_transcript_joins_the_parent_session() {
         assert!(
             side_turns
                 .iter()
-                .all(|t| t.sidechain && t.transcript.as_deref() == Some("agent-agent1.jsonl"))
+                .all(|t| t.sidechain && t.transcript.as_deref() == Some(side_key.as_str()))
         );
         assert!(observations.iter().all(|o| match o {
-            Observation::Command(c) => c.transcript.as_deref() == Some("slice.jsonl"),
+            Observation::Command(c) => c.transcript.as_deref() == Some(main_key.as_str()),
             _ => true,
         }));
         assert!(
@@ -559,7 +571,7 @@ fn subagent_transcript_joins_the_parent_session() {
                 })
                 .all(|t| !t.sidechain)
         );
-        let side_cursor = &snapshot.manifest().cursors[&side.display().to_string()];
+        let side_cursor = &snapshot.manifest().cursors[&side_key];
         assert_eq!(side_cursor.session, Some(SessionId::new(SESSION)));
     }
 }
@@ -604,4 +616,144 @@ fn a_later_main_transcript_takes_over_the_session_start() {
     );
     assert_eq!(start.time.as_str(), "2026-09-28T10:00:00.000Z");
     assert_eq!(turn_ids(&s.store).len(), 19);
+}
+
+#[test]
+fn a_transcript_from_another_checkout_is_skipped() {
+    let foreign = String::from_utf8(fixture())
+        .unwrap()
+        .replace(r#""cwd":"/work/repo""#, r#""cwd":"/other/repo""#);
+    let s = setup(foreign.as_bytes());
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let transcript = &report.transcripts[0];
+    assert_eq!(
+        transcript.skipped.as_deref(),
+        Some("checkout /other/repo does not match /work/repo")
+    );
+    assert_eq!(transcript.session, None);
+    assert_eq!(transcript.new_observations, 0);
+    assert_eq!(transcript.consumed, 0);
+    assert_eq!(report.new_observations, 0);
+    assert!(report.sessions.is_empty());
+
+    let snapshot = s.store.snapshot().unwrap();
+    assert!(snapshot.sessions().is_empty());
+    assert!(
+        !snapshot
+            .manifest()
+            .cursors
+            .contains_key(&cursor_key(&s.transcript))
+    );
+
+    // The same transcript is still skipped on the next call.
+    let again = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert!(again.transcripts[0].skipped.is_some());
+    assert!(s.store.snapshot().unwrap().sessions().is_empty());
+}
+
+/// `absolute` spelled relative to the current directory.
+#[cfg(unix)]
+fn relative_spelling(absolute: &Path) -> PathBuf {
+    let cwd = std::env::current_dir().unwrap();
+    let mut relative = PathBuf::new();
+    for _ in cwd.components().skip(1) {
+        relative.push("..");
+    }
+    relative.push(absolute.strip_prefix("/").unwrap());
+    relative
+}
+
+#[cfg(unix)]
+#[test]
+fn relative_and_absolute_spellings_share_one_cursor() {
+    let s = setup(&fixture());
+    let absolute = std::fs::canonicalize(&s.transcript).unwrap();
+    let relative = relative_spelling(&absolute);
+    assert!(relative.is_relative());
+    assert!(relative.exists());
+
+    sync(&s.store, &s.checkout, std::slice::from_ref(&relative)).unwrap();
+    let again = sync(&s.store, &s.checkout, std::slice::from_ref(&absolute)).unwrap();
+    assert_eq!(again.new_observations, 0);
+    let manifest = s.store.manifest().unwrap();
+    assert_eq!(manifest.revision.get(), 1);
+    assert_eq!(
+        manifest.cursors.keys().collect::<Vec<_>>(),
+        vec![&absolute.display().to_string()]
+    );
+    let ids = turn_ids(&s.store);
+    let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+    assert_eq!(ids.len(), 17);
+    assert_eq!(unique.len(), 17);
+}
+
+/// An assistant record in session `session` issuing Bash tool use `t1`.
+fn pending_tool_use(session: &str) -> String {
+    format!(
+        r#"{{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"{session}","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"t1","name":"Bash","input":{{"command":"ls"}}}}]}}}}{}"#,
+        "\n"
+    )
+}
+
+#[test]
+fn a_session_named_only_beyond_the_cutoff_is_not_recorded() {
+    let s = setup(pending_tool_use("stale").as_bytes());
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].consumed, 0);
+    assert_eq!(report.transcripts[0].session, None);
+    assert_eq!(report.new_observations, 0);
+    let manifest = s.store.manifest().unwrap();
+    assert!(manifest.logs.is_empty());
+    assert!(
+        manifest
+            .cursors
+            .get(&cursor_key(&s.transcript))
+            .is_none_or(|c| c.session.is_none() && c.offset == 0)
+    );
+
+    // The unconsumed line is rewritten under another session, which is the
+    // one recorded.
+    let result = r#"{"type":"user","uuid":"u1","parentUuid":"a1","sessionId":"fresh","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#;
+    std::fs::write(
+        &s.transcript,
+        format!("{}{result}\n", pending_tool_use("fresh")),
+    )
+    .unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.sessions, vec![SessionId::new("fresh")]);
+    assert_eq!(
+        s.store.snapshot().unwrap().sessions(),
+        vec![SessionId::new("fresh")]
+    );
+}
+
+#[test]
+fn malformed_lines_before_a_session_are_recorded_once_it_is_known() {
+    let s = setup(b"{not json\n");
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].consumed, 0);
+    assert_eq!(report.transcripts[0].session, None);
+    assert!(s.store.manifest().unwrap().logs.is_empty());
+
+    let user = r#"{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#;
+    std::fs::write(&s.transcript, format!("{{not json\n{user}\n")).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.sessions, vec![SessionId::new("s")]);
+    let observations = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new("s"))
+        .unwrap();
+    let recorded: Vec<&CaptureLimitation> = observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::CaptureLimitation(l) => Some(l),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].counts.malformed_lines, 1);
+    assert_eq!(recorded[0].from_ordinal, 0);
+    assert_eq!(recorded[0].to_ordinal, 2);
 }

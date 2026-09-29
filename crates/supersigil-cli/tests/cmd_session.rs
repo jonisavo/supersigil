@@ -43,12 +43,29 @@ fn session_cmd(env: &Env) -> Command {
     cmd
 }
 
+/// `text` with the fixtures' checkout, `/work/repo`, replaced by the test
+/// checkout: sync skips a transcript whose records name another checkout.
+fn in_checkout(e: &Env, text: &str) -> String {
+    text.replace(
+        "/work/repo",
+        &e.checkout.canonicalize().unwrap().to_string_lossy(),
+    )
+}
+
+/// The slice fixture moved into the test checkout, written inside it.
+fn fixture_in(e: &Env) -> PathBuf {
+    let text = in_checkout(e, &std::fs::read_to_string(fixture_path()).unwrap());
+    let path = e.checkout.join("slice.jsonl");
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
 #[test]
 fn sync_with_explicit_transcript_creates_a_record() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success()
         .stdout(predicate::str::contains("25 observations"))
@@ -67,7 +84,7 @@ fn sync_with_explicit_transcript_creates_a_record() {
 #[test]
 fn sync_reports_unknown_record_types() {
     let e = env();
-    let mut bytes = std::fs::read(fixture_path()).unwrap();
+    let mut bytes = in_checkout(&e, &std::fs::read_to_string(fixture_path()).unwrap()).into_bytes();
     bytes.extend_from_slice(
         br#"{"type":"totally-new","sessionId":"11111111-1111-4111-8111-111111111111"}"#,
     );
@@ -90,12 +107,12 @@ fn sync_twice_reports_nothing_new() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success()
         .stdout(predicate::str::contains("0 observations"))
@@ -107,7 +124,7 @@ fn sync_json_prints_the_report() {
     let e = env();
     let output = session_cmd(&e)
         .args(["sync", "--format", "json", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -144,7 +161,7 @@ fn list_json_summarizes_sessions() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     let output = session_cmd(&e)
@@ -158,7 +175,10 @@ fn list_json_summarizes_sessions() {
     assert_eq!(entry["session"], "11111111-1111-4111-8111-111111111111");
     assert_eq!(entry["started"], "2026-09-28T10:00:00.000Z");
     assert_eq!(entry["branch"], "main");
-    assert_eq!(entry["checkout"], "/work/repo");
+    assert_eq!(
+        entry["checkout"],
+        e.checkout.canonicalize().unwrap().to_str().unwrap()
+    );
     assert_eq!(entry["turns"], 17);
     assert_eq!(entry["edits"], 5);
     assert_eq!(entry["commands"], 2);
@@ -172,12 +192,12 @@ fn list_prefers_the_main_transcript_start_synced_later() {
     let session = "11111111-1111-4111-8111-111111111111";
     let issue = serde_json::json!({
         "type": "assistant", "uuid": "sa1", "parentUuid": null, "sessionId": session,
-        "agentId": "agent1", "cwd": "/work/repo/.claude/worktrees/side", "gitBranch": "side",
+        "agentId": "agent1", "cwd": "/work/repo", "gitBranch": "side",
         "timestamp": "2026-09-28T10:00:45.000Z", "isSidechain": true,
         "message": {"role": "assistant", "content": [{"type": "text", "text": "on it"}]}
     });
     let side = e.checkout.join("agent-agent1.jsonl");
-    std::fs::write(&side, format!("{issue}\n")).unwrap();
+    std::fs::write(&side, in_checkout(&e, &format!("{issue}\n"))).unwrap();
     session_cmd(&e)
         .args(["sync", "--transcript"])
         .arg(&side)
@@ -185,7 +205,7 @@ fn list_prefers_the_main_transcript_start_synced_later() {
         .success();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
 
@@ -198,7 +218,10 @@ fn list_prefers_the_main_transcript_start_synced_later() {
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["started"], "2026-09-28T10:00:00.000Z");
     assert_eq!(list[0]["branch"], "main");
-    assert_eq!(list[0]["checkout"], "/work/repo");
+    assert_eq!(
+        list[0]["checkout"],
+        e.checkout.canonicalize().unwrap().to_str().unwrap()
+    );
 }
 
 #[test]
@@ -206,7 +229,7 @@ fn list_terminal_prints_one_row_per_session() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     session_cmd(&e)
@@ -223,7 +246,7 @@ fn show_accepts_a_unique_prefix_and_prints_everything() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     let output = session_cmd(&e).args(["show", "1111"]).output().unwrap();
@@ -244,7 +267,7 @@ fn show_unknown_session_fails() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     session_cmd(&e)
@@ -267,7 +290,7 @@ fn two_records_for_one_checkout_is_an_error_that_names_both() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     let checkout = e.checkout.canonicalize().unwrap();
@@ -351,7 +374,7 @@ fn terminal_output_escapes_control_bytes() {
         "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}
     });
     let transcript = e.checkout.join("evil.jsonl");
-    std::fs::write(&transcript, format!("{user}\n{agent}\n")).unwrap();
+    std::fs::write(&transcript, in_checkout(&e, &format!("{user}\n{agent}\n"))).unwrap();
 
     let synced = session_cmd(&e)
         .args(["sync", "--transcript"])
@@ -396,7 +419,11 @@ fn ambiguous_session_error_escapes_control_bytes() {
         ("two.jsonl", "x\u{1b}]0;two"),
     ] {
         let transcript = e.checkout.join(name);
-        std::fs::write(&transcript, format!("{}\n", record(session))).unwrap();
+        std::fs::write(
+            &transcript,
+            in_checkout(&e, &format!("{}\n", record(session))),
+        )
+        .unwrap();
         session_cmd(&e)
             .args(["sync", "--transcript"])
             .arg(&transcript)
@@ -418,7 +445,7 @@ fn unreadable_child_record_is_an_error() {
     let e = env();
     session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .assert()
         .success();
     let record_dirs = || -> Vec<PathBuf> {
@@ -441,7 +468,7 @@ fn unreadable_child_record_is_an_error() {
     let listed = session_cmd(&e).arg("list").output().unwrap();
     let synced = session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(fixture_path())
+        .arg(fixture_in(&e))
         .output()
         .unwrap();
     std::fs::set_permissions(record, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -517,7 +544,11 @@ fn sync_reports_conflicting_and_unmatched_tool_results() {
         "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "never-issued", "content": "ok"}]}
     });
     let transcript = e.checkout.join("t.jsonl");
-    std::fs::write(&transcript, format!("{issue}\n{result}\n{stray}\n")).unwrap();
+    std::fs::write(
+        &transcript,
+        in_checkout(&e, &format!("{issue}\n{result}\n{stray}\n")),
+    )
+    .unwrap();
     session_cmd(&e)
         .args(["sync", "--transcript"])
         .arg(&transcript)
@@ -560,4 +591,35 @@ fn duplicate_record_error_escapes_paths() {
     assert!(stderr.contains(r"dup\x1b[2Kout"), "{stderr}");
     assert!(stderr.contains(r"first\x1b]0;a"), "{stderr}");
     assert!(!stderr.contains('\u{1b}'), "{stderr}");
+}
+
+#[test]
+fn sync_reports_a_transcript_from_another_checkout_as_skipped() {
+    let e = env();
+    let foreign = std::fs::read_to_string(fixture_path())
+        .unwrap()
+        // A JSON escape: a raw control character is not valid JSON.
+        .replace("/work/repo", r"/work/re\u001b[2Kpo");
+    let transcript = e.checkout.join("foreign.jsonl");
+    std::fs::write(&transcript, foreign).unwrap();
+    let output = session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("0 new"), "{stdout}");
+    assert!(
+        stdout.contains(r"skipped: checkout /work/re\x1b[2Kpo does not match"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains('\u{1b}'), "{stdout}");
+
+    let listed = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(list, serde_json::json!([]));
 }

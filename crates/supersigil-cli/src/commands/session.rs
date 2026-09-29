@@ -120,8 +120,8 @@ fn run_sync(
     Ok(())
 }
 
-/// Prints a sync report. Transcript paths, session ids, and record type
-/// names come from outside the tool and are escaped.
+/// Prints a sync report. Transcript paths, session ids, record type names,
+/// and skip reasons come from outside the tool and are escaped.
 fn print_sync_report(report: &SyncReport) -> io::Result<()> {
     let mut out = io::stdout().lock();
     writeln!(
@@ -143,6 +143,9 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
             t.new_observations,
             Untrusted(session)
         )?;
+        if let Some(reason) = &t.skipped {
+            writeln!(out, "    skipped: {}", Untrusted(reason))?;
+        }
         if t.trailing_partial {
             writeln!(out, "    incomplete final line left for the next sync")?;
         }

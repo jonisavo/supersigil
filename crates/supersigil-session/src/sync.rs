@@ -47,6 +47,11 @@ pub struct TranscriptReport {
     /// object.
     #[serde(flatten)]
     pub counts: CaptureCounts,
+    /// Why nothing was taken from this transcript, when it was skipped: it
+    /// names a checkout other than the one being synced. A skipped
+    /// transcript appends nothing and its cursor does not move.
+    #[serde(default)]
+    pub skipped: Option<String>,
 }
 
 /// Result of one sync call.
@@ -66,15 +71,19 @@ pub struct SyncReport {
 /// derivations for every touched session, and commits one revision.
 ///
 /// Transcripts are read in the given order, each from its cursor. A
-/// transcript whose cursor first learns its session records a
+/// transcript is identified by its canonical path (the path as given when it
+/// cannot be canonicalized), so two spellings of one file share a cursor. A
+/// transcript whose records name a working directory other than `checkout`
+/// is skipped and reported, so another repository's history never enters
+/// this record. A transcript whose cursor first learns its session records a
 /// [`SessionStart`] from its own metadata, marked as a sidechain when a
 /// subagent record named the session. A subagent transcript carries its
 /// parent's session id, so a session can have several starts; which one
 /// describes the session is a read model over them
 /// ([`session_start`](supersigil_record::observations::session_start)), so a
-/// main transcript synced later still wins. Every turn, edit, and command is
-/// stamped with its transcript's file name, since ordinals from different
-/// transcripts share no order.
+/// main transcript synced later still wins. Every turn, edit, command, and
+/// capture limitation is stamped with its transcript's canonical path, since
+/// ordinals from different transcripts share no order.
 ///
 /// # Errors
 ///
@@ -135,7 +144,8 @@ pub fn sync(
 }
 
 /// Reads one transcript from its cursor, appends the new observations to
-/// `tx`, records them in `appended` by session, and advances the cursor.
+/// `tx`, records them in `appended` by session, and advances the cursor. A
+/// transcript from another checkout is reported as skipped instead.
 ///
 /// Anything the parse could not turn into evidence is appended as one
 /// [`CaptureLimitation`] after the parsed observations, in the same
@@ -146,11 +156,16 @@ fn sync_transcript(
     path: &Path,
     appended: &mut BTreeMap<SessionId, Vec<Observation>>,
 ) -> Result<TranscriptReport, SyncError> {
-    let key = path.display().to_string();
     let bytes = std::fs::read(path).map_err(|source| SyncError::Io {
         path: path.to_path_buf(),
         source,
     })?;
+    // One identity per file, whatever spelling named it: the cursor key and
+    // the stamp on every observation.
+    let key = std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string();
     let Resume {
         mut cursor,
         start,
@@ -164,7 +179,26 @@ fn sync_transcript(
         cursor.next_ordinal,
         cursor.session.as_ref(),
     );
-    let transcript = path
+    if let Some(foreign) = outcome
+        .checkout
+        .as_deref()
+        .filter(|c| !same_checkout(c, checkout))
+    {
+        return Ok(TranscriptReport {
+            path: path.to_path_buf(),
+            session: cursor.session,
+            new_observations: 0,
+            consumed: 0,
+            trailing_partial: false,
+            counts: CaptureCounts::default(),
+            skipped: Some(format!(
+                "checkout {} does not match {}",
+                foreign.display(),
+                checkout.display()
+            )),
+        });
+    }
+    let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -176,7 +210,10 @@ fn sync_transcript(
         new.push(Observation::SessionStart(SessionStart {
             session: session.clone(),
             source: Source::ClaudeCode,
-            source_ids: BTreeMap::from([("transcript".to_owned(), transcript.clone())]),
+            source_ids: BTreeMap::from([
+                ("transcript".to_owned(), file_name),
+                ("path".to_owned(), key.clone()),
+            ]),
             checkout: outcome
                 .checkout
                 .clone()
@@ -193,9 +230,9 @@ fn sync_transcript(
     let limitation = cursor
         .session
         .as_ref()
-        .and_then(|session| capture_limitation(session, &transcript, from_ordinal, &outcome));
+        .and_then(|session| capture_limitation(session, &key, from_ordinal, &outcome));
     for observation in &mut outcome.observations {
-        stamp_transcript(observation, &transcript);
+        stamp_transcript(observation, &key);
     }
     new.append(&mut outcome.observations);
     new.extend(limitation);
@@ -218,7 +255,15 @@ fn sync_transcript(
         consumed: outcome.consumed,
         trailing_partial: outcome.trailing_partial,
         counts: outcome.counts,
+        skipped: None,
     })
+}
+
+/// Whether a transcript's working directory `recorded` names `checkout`:
+/// the same path, or one that canonicalizes to it.
+fn same_checkout(recorded: &Path, checkout: &Path) -> bool {
+    recorded == checkout
+        || std::fs::canonicalize(recorded).is_ok_and(|canonical| canonical == checkout)
 }
 
 /// Records which transcript a turn, edit, or command came from.

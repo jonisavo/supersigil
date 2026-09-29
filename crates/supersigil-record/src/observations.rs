@@ -74,7 +74,8 @@ pub struct SessionStart {
     pub session: SessionId,
     /// Producing harness.
     pub source: Source,
-    /// Source-native identifiers, for example the transcript file name.
+    /// Source-native identifiers. For Claude Code, `transcript` is the
+    /// transcript's file name and `path` its canonical path.
     pub source_ids: BTreeMap<String, String>,
     /// Checkout the session worked in.
     pub checkout: PathBuf,
@@ -186,7 +187,8 @@ pub struct Turn {
     pub excerpt: Material<String>,
     /// Position of the record in the transcript.
     pub source_ordinal: u64,
-    /// File name of the transcript the record came from. Observations from
+    /// Canonical path of the transcript the record came from, as in
+    /// [`SessionStart::source_ids`] under `path`. Observations from
     /// different transcripts share no ordinal order.
     #[serde(default)]
     pub transcript: Option<String>,
@@ -295,7 +297,8 @@ pub struct Edit {
     /// Subagent that produced this event, when inside a subagent.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// File name of the transcript the record came from. Observations from
+    /// Canonical path of the transcript the record came from, as in
+    /// [`SessionStart::source_ids`] under `path`. Observations from
     /// different transcripts share no ordinal order.
     #[serde(default)]
     pub transcript: Option<String>,
@@ -375,7 +378,8 @@ pub struct Command {
     /// Subagent that produced this event, when inside a subagent.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// File name of the transcript the record came from. Observations from
+    /// Canonical path of the transcript the record came from, as in
+    /// [`SessionStart::source_ids`] under `path`. Observations from
     /// different transcripts share no ordinal order.
     #[serde(default)]
     pub transcript: Option<String>,
@@ -393,7 +397,8 @@ pub struct Command {
 pub struct CaptureLimitation {
     /// Session identifier.
     pub session: SessionId,
-    /// Transcript file name, as in [`SessionStart::source_ids`].
+    /// Canonical path of the transcript, as in [`SessionStart::source_ids`]
+    /// under `path`.
     pub transcript: String,
     /// First ordinal of the range.
     pub from_ordinal: u64,

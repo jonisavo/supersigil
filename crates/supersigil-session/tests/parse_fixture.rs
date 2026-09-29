@@ -951,3 +951,47 @@ fn session_metadata_from_a_sidechain_record_is_flagged() {
     let main = sidechain.replace(r#""isSidechain":true"#, r#""isSidechain":false"#);
     assert!(!parse_transcript(main.as_bytes(), 0).sidechain);
 }
+
+#[test]
+fn metadata_beyond_the_consumption_cutoff_is_not_learned() {
+    // The only record issues a tool use still waiting for its result, so
+    // nothing is consumed and nothing it names is known yet.
+    let pending = concat!(
+        r#"{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}]}}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(pending.as_bytes(), 0);
+    assert_eq!(outcome.consumed, 0);
+    assert_eq!(outcome.session, None);
+    assert_eq!(outcome.checkout, None);
+    assert_eq!(outcome.branch, None);
+    assert_eq!(outcome.first_time, None);
+    assert!(!outcome.sidechain);
+
+    // Metadata first carried below the cutoff is kept; a field first carried
+    // beyond it is not.
+    let partly = format!(
+        "{}\n{pending}",
+        r#"{"type":"user","uuid":"u0","parentUuid":null,"sessionId":"s","timestamp":"2026-09-28T09:59:59.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hi"}}"#
+    );
+    let outcome = parse_transcript(partly.as_bytes(), 0);
+    assert_eq!(outcome.consumed, (partly.len() - pending.len()) as u64);
+    assert_eq!(outcome.session, Some(SessionId::new("s")));
+    assert_eq!(
+        outcome.first_time,
+        Some(Timestamp::new("2026-09-28T09:59:59.000Z"))
+    );
+    assert_eq!(outcome.checkout, None);
+    assert_eq!(outcome.branch, None);
+}
+
+#[test]
+fn malformed_lines_before_any_session_are_not_consumed() {
+    let lines = "{not json\n";
+    let outcome = parse_transcript(lines.as_bytes(), 3);
+    assert_eq!(outcome.session, None);
+    assert_eq!(outcome.consumed, 0);
+    assert_eq!(outcome.next_ordinal, 3);
+    // What was seen is still reported.
+    assert_eq!(outcome.counts.malformed_lines, 1);
+}

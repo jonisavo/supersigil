@@ -54,19 +54,28 @@ pub struct ParseOutcome {
     /// Observations for every record below `consumed`.
     pub observations: Vec<Observation>,
     /// Byte offset up to which records were fully turned into observations.
+    ///
+    /// Zero when no session is known and `counts` is not empty: what was
+    /// lost cannot be recorded without a session, so nothing is consumed and
+    /// the same lines are read again on the next call, until a record names
+    /// the session and the counts can be attached to it.
     pub consumed: u64,
     /// Ordinal for the first record at or after `consumed`.
     pub next_ordinal: u64,
     /// The session given to [`parse_transcript_with_session`], else the
     /// session id from the first record of any type that carried a
-    /// non-empty one.
+    /// non-empty one. Like `checkout`, `branch`, `first_time`, and
+    /// `sidechain`, it is learned only from records below `consumed`: a
+    /// record the next parse reads again may still change.
     pub session: Option<SessionId>,
     /// Working directory from the first record of the session that carried
-    /// one.
+    /// one, below `consumed`.
     pub checkout: Option<PathBuf>,
-    /// Branch from the first record of the session that carried one.
+    /// Branch from the first record of the session that carried one, below
+    /// `consumed`.
     pub branch: Option<String>,
-    /// Timestamp of the first record of the session that carried one.
+    /// Timestamp of the first record of the session that carried one, below
+    /// `consumed`.
     pub first_time: Option<Timestamp>,
     /// Whether the record that named the session, and so began supplying
     /// `session`, `checkout`, `branch`, and `first_time`, was a sidechain
@@ -81,7 +90,8 @@ pub struct ParseOutcome {
     /// record types, malformed lines, edits outside the checkout, abandoned
     /// tool uses, editing tool uses the harness flagged as failed, editing
     /// tool uses whose input and result name different files, and tool
-    /// results that match no tool use.
+    /// results that match no tool use. When no session is known, what was
+    /// seen before the cutoff is still counted, though `consumed` is zero.
     pub counts: CaptureCounts,
 }
 
@@ -181,11 +191,49 @@ enum Effect {
     Count(Count),
 }
 
+/// Line index of the record each piece of session metadata was learned
+/// from, so metadata from lines beyond the consumption cutoff can be
+/// dropped.
+#[derive(Debug, Default)]
+struct LearnedAt {
+    session: Option<usize>,
+    checkout: Option<usize>,
+    branch: Option<usize>,
+    first_time: Option<usize>,
+}
+
+impl LearnedAt {
+    /// Forgets in `outcome` whatever was learned at or beyond `cutoff`. The
+    /// checkout, branch, and first time belong to the learned session, so
+    /// they go with it.
+    fn truncate(&self, outcome: &mut ParseOutcome, cutoff: usize) {
+        let beyond = |at: Option<usize>| at.is_some_and(|at| at >= cutoff);
+        if beyond(self.session) {
+            outcome.session = None;
+            outcome.sidechain = false;
+            outcome.checkout = None;
+            outcome.branch = None;
+            outcome.first_time = None;
+            return;
+        }
+        if beyond(self.checkout) {
+            outcome.checkout = None;
+        }
+        if beyond(self.branch) {
+            outcome.branch = None;
+        }
+        if beyond(self.first_time) {
+            outcome.first_time = None;
+        }
+    }
+}
+
 /// Mutable state while walking the records in order.
 struct Walk {
     outcome: ParseOutcome,
     /// Whether the caller gave the session, so none is learned from records.
     session_given: bool,
+    learned_at: LearnedAt,
     start_ordinal: u64,
     effects: Vec<(usize, Effect)>,
     pending: Vec<PendingTool>,
@@ -209,7 +257,7 @@ impl Walk {
     /// `sessionId` is no session id at all. A session given by the caller
     /// wins and nothing is learned. Whether the naming record was a
     /// sidechain record is kept with the metadata.
-    fn learn_session(&mut self, raw: &RawRecord) {
+    fn learn_session(&mut self, index: usize, raw: &RawRecord) {
         if self.session_given {
             return;
         }
@@ -220,18 +268,22 @@ impl Walk {
             None => {
                 self.outcome.session = Some(SessionId::new(id));
                 self.outcome.sidechain = raw.is_sidechain;
+                self.learned_at.session = Some(index);
             }
             Some(known) if known.as_str() == id => {}
             Some(_) => return,
         }
-        if self.outcome.checkout.is_none() {
+        if self.outcome.checkout.is_none() && raw.cwd.is_some() {
             self.outcome.checkout = raw.cwd.as_ref().map(PathBuf::from);
+            self.learned_at.checkout = Some(index);
         }
-        if self.outcome.branch.is_none() {
+        if self.outcome.branch.is_none() && raw.git_branch.is_some() {
             self.outcome.branch.clone_from(&raw.git_branch);
+            self.learned_at.branch = Some(index);
         }
-        if self.outcome.first_time.is_none() {
+        if self.outcome.first_time.is_none() && raw.timestamp.is_some() {
             self.outcome.first_time = raw.timestamp.as_ref().map(|t| Timestamp::new(t.clone()));
+            self.learned_at.first_time = Some(index);
         }
     }
 
@@ -241,7 +293,7 @@ impl Walk {
     /// assistant record never does, since one message's blocks arrive as
     /// consecutive assistant records.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
-        self.learn_session(&raw);
+        self.learn_session(index, &raw);
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
@@ -420,6 +472,7 @@ pub fn parse_transcript_with_session(
             ..ParseOutcome::default()
         },
         session_given: session.is_some(),
+        learned_at: LearnedAt::default(),
         start_ordinal,
         effects: Vec::new(),
         pending: Vec::new(),
@@ -451,20 +504,29 @@ pub fn parse_transcript_with_session(
         mut outcome,
         mut effects,
         pending,
+        learned_at,
         ..
     } = walk;
     let (cutoff, consumed) = match pending.iter().map(|p| p.record_index).min() {
         Some(cut) => (cut, starts[cut]),
         None => (starts.len(), complete_end),
     };
-    outcome.consumed = consumed as u64;
-    outcome.next_ordinal = start_ordinal + cutoff as u64;
+    learned_at.truncate(&mut outcome, cutoff);
     effects.retain(|(index, _)| *index < cutoff);
     for (_, effect) in effects {
         match effect {
             Effect::Observation(observation) => outcome.observations.push(*observation),
             Effect::Count(count) => outcome.add(count),
         }
+    }
+    // Counts without a session cannot be recorded; hold the lines back
+    // until a record names the session.
+    if outcome.session.is_none() && !outcome.counts.is_empty() {
+        outcome.consumed = 0;
+        outcome.next_ordinal = start_ordinal;
+    } else {
+        outcome.consumed = consumed as u64;
+        outcome.next_ordinal = start_ordinal + cutoff as u64;
     }
     outcome
 }
