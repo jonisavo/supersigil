@@ -92,6 +92,7 @@ pub fn sync(
         .any(|a| a.checkout == association.checkout);
     tx.add_association(association);
 
+    let initial_cursors = tx.manifest().cursors.clone();
     let mut reports = Vec::new();
     let mut appended: BTreeMap<SessionId, Vec<Observation>> = BTreeMap::new();
     let mut total = 0usize;
@@ -102,7 +103,8 @@ pub fn sync(
         reports.push(report);
     }
 
-    if total == 0 && !association_is_new {
+    let cursors_moved = tx.manifest().cursors != initial_cursors;
+    if total == 0 && !association_is_new && !cursors_moved {
         return Ok(SyncReport {
             revision: pinned.revision(),
             sessions: Vec::new(),

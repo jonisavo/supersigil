@@ -25,21 +25,29 @@ pub fn encode_project_dir(checkout: &Path) -> String {
 
 /// Sorted `.jsonl` transcripts for `checkout` under `claude_home`
 /// (normally `~/.claude`). Empty when the project directory does not exist.
-#[must_use]
-pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> Vec<PathBuf> {
+///
+/// # Errors
+///
+/// Returns the I/O error if the project directory exists but cannot be read,
+/// or if one of its entries cannot be read.
+pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Result<Vec<PathBuf>> {
     let dir = claude_home
         .join("projects")
         .join(encode_project_dir(checkout));
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
     };
-    let mut found: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "jsonl"))
-        .collect();
+    let mut found = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "jsonl") {
+            found.push(path);
+        }
+    }
     found.sort();
-    found
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -67,8 +75,12 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         std::fs::write(other.join("c.jsonl"), "").unwrap();
 
-        let found = discover_transcripts(Path::new("/work/repo"), home.path());
+        let found = discover_transcripts(Path::new("/work/repo"), home.path()).unwrap();
         assert_eq!(found, vec![dir.join("a.jsonl"), dir.join("b.jsonl")]);
-        assert!(discover_transcripts(Path::new("/nowhere"), home.path()).is_empty());
+        assert!(
+            discover_transcripts(Path::new("/nowhere"), home.path())
+                .unwrap()
+                .is_empty()
+        );
     }
 }

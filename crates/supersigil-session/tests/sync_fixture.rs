@@ -230,3 +230,21 @@ fn missing_transcript_is_an_io_error() {
         Err(supersigil_session::sync::SyncError::Io { .. })
     ));
 }
+
+#[test]
+fn cursor_only_progress_is_committed() {
+    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"x\",\"title\":\"t\"}\n{not json\n";
+    let s = setup(bytes);
+    let key = s.transcript.display().to_string();
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let manifest = s.store.manifest().unwrap();
+    assert_eq!(manifest.revision.get(), 1);
+    assert_eq!(manifest.cursors[&key].offset, bytes.len() as u64);
+    assert_eq!(manifest.cursors[&key].next_ordinal, 2);
+
+    let again = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(again.new_observations, 0);
+    assert_eq!(again.revision.get(), 1);
+    assert_eq!(s.store.manifest().unwrap().revision.get(), 1);
+    assert!(again.transcripts[0].unknown_records.is_empty());
+}
