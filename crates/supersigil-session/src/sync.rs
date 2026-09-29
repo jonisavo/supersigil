@@ -48,7 +48,7 @@ pub struct TranscriptReport {
     #[serde(flatten)]
     pub counts: CaptureCounts,
     /// Why nothing was taken from this transcript, when it was skipped: it
-    /// names a checkout other than the one being synced. A skipped
+    /// names a checkout outside the one being synced. A skipped
     /// transcript appends nothing and its cursor does not move.
     #[serde(default)]
     pub skipped: Option<String>,
@@ -73,9 +73,11 @@ pub struct SyncReport {
 /// Transcripts are read in the given order, each from its cursor. A
 /// transcript is identified by its canonical path (the path as given when it
 /// cannot be canonicalized), so two spellings of one file share a cursor. A
-/// transcript whose records name a working directory other than `checkout`
-/// is skipped and reported, so another repository's history never enters
-/// this record. A transcript whose cursor first learns its session records a
+/// transcript whose records name a working directory outside `checkout` is
+/// skipped and reported, so another repository's history never enters this
+/// record. One inside it, such as a subagent's worktree, is taken in, its
+/// directory is added as an association of the record, and its observations
+/// keep their own checkout. A transcript whose cursor first learns its session records a
 /// [`SessionStart`] from its own metadata, marked as a sidechain when a
 /// subagent record named the session. A subagent transcript carries its
 /// parent's session id, so a session can have several starts; which one
@@ -99,10 +101,9 @@ pub fn sync(
     // snapshot plus the observations this transaction appends, so another
     // writer's commit cannot slip in between reading and deriving.
     let pinned = tx.snapshot();
-    let association = Association {
+    tx.add_association(Association {
         checkout: checkout.to_path_buf(),
-    };
-    let association_is_new = tx.add_association(association);
+    });
 
     let initial_cursors = tx.manifest().cursors.clone();
     let mut reports = Vec::new();
@@ -116,7 +117,8 @@ pub fn sync(
     }
 
     let cursors_moved = tx.manifest().cursors != initial_cursors;
-    if total == 0 && !association_is_new && !cursors_moved {
+    let associations_added = tx.manifest().associations != pinned.manifest().associations;
+    if total == 0 && !associations_added && !cursors_moved {
         return Ok(SyncReport {
             revision: pinned.revision(),
             sessions: Vec::new(),
@@ -179,11 +181,7 @@ fn sync_transcript(
         cursor.next_ordinal,
         cursor.session.as_ref(),
     );
-    if let Some(foreign) = outcome
-        .checkout
-        .as_deref()
-        .filter(|c| !same_checkout(c, checkout))
-    {
+    if let Some(reason) = admit(tx, checkout, outcome.checkout.as_deref()) {
         return Ok(TranscriptReport {
             path: path.to_path_buf(),
             session: cursor.session,
@@ -191,11 +189,7 @@ fn sync_transcript(
             consumed: 0,
             trailing_partial: false,
             counts: CaptureCounts::default(),
-            skipped: Some(format!(
-                "checkout {} does not match {}",
-                foreign.display(),
-                checkout.display()
-            )),
+            skipped: Some(reason),
         });
     }
     let file_name = path
@@ -259,11 +253,69 @@ fn sync_transcript(
     })
 }
 
-/// Whether a transcript's working directory `recorded` names `checkout`:
-/// the same path, or one that canonicalizes to it.
-fn same_checkout(recorded: &Path, checkout: &Path) -> bool {
-    recorded == checkout
-        || std::fs::canonicalize(recorded).is_ok_and(|canonical| canonical == checkout)
+/// Decides whether a transcript whose records name the working directory
+/// `recorded` belongs in the record of `checkout`. A directory nested inside
+/// the checkout is added as an association. Returns why the transcript is
+/// skipped when the directory lies outside.
+fn admit(tx: &mut WriteTx<'_>, checkout: &Path, recorded: Option<&Path>) -> Option<String> {
+    let recorded = recorded?;
+    match placement(recorded, checkout) {
+        Placement::Same => None,
+        Placement::Nested => {
+            tx.add_association(Association {
+                checkout: recorded.to_path_buf(),
+            });
+            None
+        }
+        Placement::Outside => Some(format!(
+            "checkout {} does not match {}",
+            recorded.display(),
+            checkout.display()
+        )),
+    }
+}
+
+/// Where a transcript's working directory lies relative to the checkout
+/// being synced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    /// The checkout itself.
+    Same,
+    /// Strictly inside it, such as a worktree under `.claude/worktrees`.
+    Nested,
+    /// Anywhere else.
+    Outside,
+}
+
+/// Where `recorded` lies relative to `checkout`, compared lexically by path
+/// components, then by `recorded`'s canonical path when it exists. Inside
+/// means below it through normal components only, so `/work/repo/../other`
+/// is outside `/work/repo`.
+fn placement(recorded: &Path, checkout: &Path) -> Placement {
+    let lexical = placement_of(recorded, checkout);
+    if lexical != Placement::Outside {
+        return lexical;
+    }
+    std::fs::canonicalize(recorded).map_or(Placement::Outside, |canonical| {
+        placement_of(&canonical, checkout)
+    })
+}
+
+/// [`placement`] of two paths as written.
+fn placement_of(recorded: &Path, checkout: &Path) -> Placement {
+    let Ok(rest) = recorded.strip_prefix(checkout) else {
+        return Placement::Outside;
+    };
+    if rest.as_os_str().is_empty() {
+        Placement::Same
+    } else if rest
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
+        Placement::Nested
+    } else {
+        Placement::Outside
+    }
 }
 
 /// Records which transcript a turn, edit, or command came from.

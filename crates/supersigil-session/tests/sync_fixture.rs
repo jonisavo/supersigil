@@ -854,3 +854,60 @@ fn staged_sync_matches_whole_file_ingestion() {
     assert_eq!(report.transcripts[0].counts.unmatched_tool_results, 0);
     assert_eq!(observation_ids(&staged.store, &session), expected);
 }
+
+#[test]
+fn a_transcript_from_a_worktree_nested_in_the_checkout_is_accepted() {
+    let worktree = "/work/repo/.claude/worktrees/x";
+    let nested = String::from_utf8(fixture())
+        .unwrap()
+        .replace("/work/repo", worktree);
+    let s = setup(nested.as_bytes());
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(report.sessions, vec![SessionId::new(SESSION)]);
+
+    let snapshot = s.store.snapshot().unwrap();
+    let associations: Vec<&Path> = snapshot
+        .manifest()
+        .associations
+        .iter()
+        .map(|a| a.checkout.as_path())
+        .collect();
+    assert_eq!(
+        associations,
+        vec![Path::new("/work/repo"), Path::new(worktree)]
+    );
+    let observations = snapshot.observations(&SessionId::new(SESSION)).unwrap();
+    let edits: Vec<_> = observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::Edit(e) => Some(e),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(edits.len(), 5);
+    assert!(edits.iter().all(|e| e.checkout == Path::new(worktree)));
+    let start = session_start(&observations).unwrap();
+    assert_eq!(start.checkout, Path::new(worktree));
+}
+
+#[test]
+fn only_checkouts_inside_the_requested_tree_are_accepted() {
+    for outside in ["/other/repo", "/work/repo2", "/work/repo/../other", "/work"] {
+        let text = String::from_utf8(fixture())
+            .unwrap()
+            .replace(r#""cwd":"/work/repo""#, &format!(r#""cwd":"{outside}""#));
+        let s = setup(text.as_bytes());
+        let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+        assert_eq!(
+            report.transcripts[0].skipped,
+            Some(format!("checkout {outside} does not match /work/repo")),
+            "{outside}"
+        );
+        assert_eq!(
+            s.store.manifest().unwrap().associations.len(),
+            1,
+            "{outside}"
+        );
+    }
+}
