@@ -4,10 +4,17 @@
 //!
 //! ```text
 //! manifest.json                       identity, revision, pins, cursors
-//! write.lock                          present only while a writer is active
+//! write.lock                          created by the first writer, never removed
 //! observations/<session>/events.jsonl append-only log, pinned by byte length
 //! <logical>.r<revision>.json          immutable documents, pinned by name
 //! ```
+//!
+//! Only the operating-system lock held on `write.lock` excludes writers; the
+//! file's presence means nothing. Deleting it while a writer runs would let a
+//! second writer lock a new file, so never clean it up.
+//!
+//! Log names end in `.jsonl` and document files in `.r<revision>.json`, so a
+//! log can never alias a document of any revision.
 
 mod manifest;
 mod snapshot;
@@ -75,16 +82,21 @@ pub fn observations_log(session: &SessionId) -> String {
     format!("observations/{}/events.jsonl", storage_key(session))
 }
 
-/// Checks that a log or document name is a relative path of plain
-/// components: no `..`, no root, no `.`, no empty component.
+/// Checks that a log or document name is canonical: `/`-separated segments,
+/// each non-empty and neither `.` nor `..`, with no `\` or NUL byte and no
+/// leading `/`. The raw string is checked rather than `Path::components()`,
+/// which silently drops interior `.` and repeated separators and so would
+/// let two spellings name one file.
 pub(crate) fn validate_name(name: &str) -> Result<(), StoreError> {
-    let plain = !name.is_empty()
-        && !name.contains("//")
-        && !name.ends_with('/')
-        && Path::new(name)
-            .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)));
-    if plain {
+    let canonical = !name.is_empty()
+        && !name.starts_with('/')
+        && name.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment != "."
+                && segment != ".."
+                && !segment.contains(['\\', '\0'])
+        });
+    if canonical {
         Ok(())
     } else {
         Err(StoreError::InvalidName(name.to_owned()))
@@ -195,14 +207,28 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotARecord`] if there is no manifest.
+    /// Returns [`StoreError::NotARecord`] if there is no manifest file (the
+    /// manifest or `root` does not exist, `root` is not a directory, or the
+    /// manifest is not a file), and [`StoreError::Io`] if the manifest's
+    /// metadata cannot be read for any other reason, for example missing
+    /// permissions. An unreadable record is never mistaken for an absent one.
     pub fn open(root: &Path) -> Result<Self, StoreError> {
-        if !root.join(MANIFEST_FILE).is_file() {
-            return Err(StoreError::NotARecord(root.to_path_buf()));
+        let path = root.join(MANIFEST_FILE);
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => Ok(Self {
+                root: root.to_path_buf(),
+            }),
+            Ok(_) => Err(StoreError::NotARecord(root.to_path_buf())),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                Err(StoreError::NotARecord(root.to_path_buf()))
+            }
+            Err(e) => Err(io_error(&path, e)),
         }
-        Ok(Self {
-            root: root.to_path_buf(),
-        })
     }
 
     /// The record directory.

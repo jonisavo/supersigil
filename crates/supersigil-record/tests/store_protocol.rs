@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use supersigil_record::store::{
     Association, SourceCursor, Store, StoreError, observations_log, storage_key,
 };
-use supersigil_record::{Revision, SessionId};
+use supersigil_record::{RecordId, Revision, SessionId};
 
 fn assoc() -> Association {
     Association {
@@ -17,6 +17,15 @@ fn assoc() -> Association {
 
 fn session() -> SessionId {
     SessionId::new("s1")
+}
+
+fn dir_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
 }
 
 #[test]
@@ -367,10 +376,10 @@ fn reserved_and_pinned_names_are_rejected() {
         tx.append_log(&pinned, &[b"x"]),
         Err(StoreError::InvalidName(_))
     ));
-    // A document whose generated file name is an existing log is rejected too.
-    tx.append_log("derivations/s2.r2.json", &[b"x"]).unwrap();
+    // A log may not take a document's file-name form, so no document can
+    // ever alias a log either.
     assert!(matches!(
-        tx.put_document("derivations/s2", b"{}"),
+        tx.append_log("derivations/s2.r2.json", &[b"x"]),
         Err(StoreError::InvalidName(_))
     ));
     assert!(
@@ -407,6 +416,38 @@ fn create_is_atomic_against_an_existing_manifest() {
         Err(StoreError::AlreadyExists(_))
     ));
     assert_eq!(fs::read(dir.path().join("manifest.json")).unwrap(), b"{}");
+
+    // An empty manifest left by anything else is not overwritten either.
+    let empty = tempfile::tempdir().unwrap();
+    fs::write(empty.path().join("manifest.json"), b"").unwrap();
+    assert!(matches!(
+        Store::create_with_id(empty.path(), RecordId::generate(), assoc()),
+        Err(StoreError::AlreadyExists(_))
+    ));
+    assert_eq!(fs::read(empty.path().join("manifest.json")).unwrap(), b"");
+    assert_eq!(dir_names(empty.path()), vec!["manifest.json".to_owned()]);
+}
+
+#[test]
+fn create_publishes_a_complete_manifest_and_leaves_no_temporary_file() {
+    let dir = tempfile::tempdir().unwrap();
+    // A creator killed before linking leaves only its temporary file, which
+    // neither makes the directory a record nor blocks the next creator.
+    let stale = RecordId::generate();
+    let stale_tmp = format!("manifest.json.{}.tmp", stale.as_str());
+    fs::write(dir.path().join(&stale_tmp), b"{\"partial").unwrap();
+    assert!(matches!(
+        Store::open(dir.path()),
+        Err(StoreError::NotARecord(_))
+    ));
+
+    let id = RecordId::generate();
+    let store = Store::create_with_id(dir.path(), id.clone(), assoc()).unwrap();
+    assert_eq!(store.manifest().unwrap().record_id, id);
+    assert_eq!(
+        dir_names(dir.path()),
+        vec!["manifest.json".to_owned(), stale_tmp]
+    );
 }
 
 #[test]
@@ -443,5 +484,131 @@ fn derivations_round_trip_through_the_store() {
     assert_eq!(
         snapshot.derivations(&SessionId::new("other")).unwrap(),
         None
+    );
+}
+
+#[test]
+fn noncanonical_names_cannot_alias_a_committed_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let log = "observations/s1/events.jsonl";
+    let mut tx = store.begin().unwrap();
+    tx.append_log(log, &[b"keep me"]).unwrap();
+    tx.commit().unwrap();
+
+    let mut tx = store.begin().unwrap();
+    for alias in [
+        "observations/s1/./events.jsonl",
+        "observations/./s1/events.jsonl",
+        "a\\b.jsonl",
+        "a/../b.jsonl",
+        "a/b\0.jsonl",
+        "observations/s1/events.jsonl/",
+    ] {
+        assert!(
+            matches!(
+                tx.append_log(alias, &[b"x"]),
+                Err(StoreError::InvalidName(_))
+            ),
+            "append_log accepted {alias:?}"
+        );
+    }
+    assert!(matches!(
+        tx.put_document("a\\b", b"{}"),
+        Err(StoreError::InvalidName(_))
+    ));
+    assert!(matches!(
+        tx.put_document("a/../b", b"{}"),
+        Err(StoreError::InvalidName(_))
+    ));
+    drop(tx);
+    assert_eq!(fs::read(dir.path().join(log)).unwrap(), b"keep me\n");
+    assert_eq!(
+        store.snapshot().unwrap().read_log(log).unwrap(),
+        vec![b"keep me".to_vec()]
+    );
+}
+
+#[test]
+fn logs_cannot_alias_documents_of_any_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.put_document("d", b"{\"v\":1}").unwrap();
+    tx.commit().unwrap();
+    let first = store.snapshot().unwrap();
+
+    let mut tx = store.begin().unwrap();
+    tx.put_document("d", b"{\"v\":2}").unwrap();
+    // `d.r1.json` is no longer the current pin once r2 is staged, but the
+    // first snapshot still reads it.
+    assert!(matches!(
+        tx.append_log("d.r1.json", &[b"x"]),
+        Err(StoreError::InvalidName(_))
+    ));
+    assert!(matches!(
+        tx.append_log("notes.txt", &[b"x"]),
+        Err(StoreError::InvalidName(_))
+    ));
+    drop(tx);
+    assert_eq!(first.read_document("d").unwrap().unwrap(), b"{\"v\":1}");
+    assert_eq!(
+        fs::read(dir.path().join("d.r1.json")).unwrap(),
+        b"{\"v\":1}"
+    );
+}
+
+#[test]
+fn commit_into_a_new_nested_directory_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let log = observations_log(&SessionId::new("fresh"));
+    assert!(!dir.path().join("observations").exists());
+    let mut tx = store.begin().unwrap();
+    tx.append_log(&log, &[b"one"]).unwrap();
+    tx.put_document("derivations/fresh", b"{}").unwrap();
+    assert_eq!(tx.commit().unwrap(), Revision::ZERO.next());
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.read_log(&log).unwrap(), vec![b"one".to_vec()]);
+    assert_eq!(
+        snapshot
+            .read_document("derivations/fresh")
+            .unwrap()
+            .unwrap(),
+        b"{}"
+    );
+}
+
+#[test]
+fn open_rejects_a_manifest_that_is_not_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("manifest.json")).unwrap();
+    assert!(matches!(
+        Store::open(dir.path()),
+        Err(StoreError::NotARecord(_))
+    ));
+    let file = dir.path().join("plain-file");
+    fs::write(&file, b"").unwrap();
+    assert!(matches!(Store::open(&file), Err(StoreError::NotARecord(_))));
+}
+
+#[cfg(unix)]
+#[test]
+fn open_of_an_unreadable_record_is_an_io_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("record");
+    Store::create(&root, assoc()).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::metadata(root.join("manifest.json")).is_ok() {
+        // Permissions are ignored (running as root); nothing to test.
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let opened = Store::open(&root);
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(opened, Err(StoreError::Io { .. })),
+        "expected an i/o error, got {opened:?}"
     );
 }

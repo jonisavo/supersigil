@@ -1,6 +1,6 @@
 //! A write transaction: lock, stage, fsync, publish.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek as _, SeekFrom, Write as _};
 use std::path::PathBuf;
@@ -13,6 +13,9 @@ use super::{
 use crate::derivations::DerivationSet;
 use crate::ids::Revision;
 use crate::observations::Observation;
+
+/// Suffix every log name carries; document files never end in it.
+const LOG_SUFFIX: &str = ".jsonl";
 
 /// An open write transaction. Dropping it without [`WriteTx::commit`]
 /// releases the lock and leaves the manifest untouched.
@@ -77,13 +80,21 @@ impl<'a> WriteTx<'a> {
     /// Appends lines to a log. Any bytes beyond the pinned length (a crash
     /// tail) are truncated first. Lines must not contain newlines.
     ///
+    /// Log names end in `.jsonl`. Document files end in `.r<revision>.json`,
+    /// so a log can never alias a document of any revision, whether it is
+    /// pinned now, superseded, or staged by this transaction.
+    ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidName`] for a name that is not a plain
-    /// relative path, [`StoreError::Corrupt`] for a line with a newline or a
-    /// file shorter than its pinned length, or an I/O error.
+    /// Returns [`StoreError::InvalidName`] for a name that is not a canonical
+    /// relative path, does not end in `.jsonl`, or belongs to the store,
+    /// [`StoreError::Corrupt`] for a line with a newline or a file shorter
+    /// than its pinned length, or an I/O error.
     pub fn append_log(&mut self, log: &str, lines: &[&[u8]]) -> Result<(), StoreError> {
         validate_name(log)?;
+        if !log.ends_with(LOG_SUFFIX) {
+            return Err(StoreError::InvalidName(log.to_owned()));
+        }
         reject_reserved(log)?;
         if self.manifest.documents.values().any(|rel| rel == log) {
             return Err(StoreError::InvalidName(log.to_owned()));
@@ -153,6 +164,11 @@ impl<'a> WriteTx<'a> {
     /// # Errors
     ///
     /// Returns an error if serialization or the write fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the next revision number would overflow `u64`, as
+    /// [`Revision::next`] does.
     pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
         let logical = DerivationSet::document_name(&set.session);
         let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
@@ -167,8 +183,13 @@ impl<'a> WriteTx<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidName`] for a name that is not a plain
+    /// Returns [`StoreError::InvalidName`] for a name that is not a canonical
     /// relative path, or an I/O error.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the next revision number would overflow `u64`, as
+    /// [`Revision::next`] does.
     pub fn put_document(&mut self, logical: &str, bytes: &[u8]) -> Result<(), StoreError> {
         validate_name(logical)?;
         let rel = format!("{logical}.r{}.json", self.expected.next().get());
@@ -203,18 +224,41 @@ impl<'a> WriteTx<'a> {
         }
     }
 
-    /// Fsyncs every touched file, checks the manifest has not moved, and
-    /// publishes the next revision.
+    /// Fsyncs every touched file and every directory from each file's parent
+    /// up to the record root, checks the manifest has not moved, and
+    /// publishes the next revision. Nothing the new manifest references can
+    /// be lost to a power failure after it is published.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if the on-disk revision is not the one
-    /// this transaction started from, or an I/O error.
+    /// this transaction started from, or an I/O error, including a failure to
+    /// sync a directory where the platform supports it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the next revision number would overflow `u64`, as
+    /// [`Revision::next`] does.
     pub fn commit(mut self) -> Result<Revision, StoreError> {
+        let root = self.store.root();
+        let mut dirs = BTreeSet::new();
         for path in &self.touched {
-            File::open(path)
+            // Write access: Windows flushes through `FlushFileBuffers`, which
+            // needs it.
+            OpenOptions::new()
+                .write(true)
+                .open(path)
                 .and_then(|f| f.sync_all())
                 .map_err(|e| io_error(path, e))?;
+            for dir in path.ancestors().skip(1) {
+                dirs.insert(dir.to_path_buf());
+                if dir == root {
+                    break;
+                }
+            }
+        }
+        for dir in &dirs {
+            manifest::sync_dir(dir)?;
         }
         let on_disk = manifest::read(self.store.root())?;
         if on_disk.revision != self.expected {
