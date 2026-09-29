@@ -354,6 +354,12 @@ impl Walk {
         }
         let Some(uuid) = &raw.uuid else {
             self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
+            // No turn without an id, but the tool results it carries still
+            // pair: left unresolved, their tool uses would hold the cursor
+            // at their issuing records forever.
+            if raw.kind == "user" {
+                self.resolve_results(index, &raw, &session_id);
+            }
             return;
         };
         let turn_id = TurnId::new(uuid.clone());

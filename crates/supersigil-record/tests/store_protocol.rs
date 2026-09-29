@@ -374,6 +374,23 @@ fn storage_keys_stay_distinct_when_case_is_folded() {
 }
 
 #[test]
+fn windows_reserved_device_names_are_not_plain_keys() {
+    for id in [
+        "con", "NUL", "com1", "lpt9", "aux", "prn", "nul.txt", "Com3.log",
+    ] {
+        let session = SessionId::new(id);
+        let key = storage_key(&session);
+        assert!(key.starts_with('%'), "{id} -> {key}");
+        assert_eq!(decode_storage_key(&key), session, "{id}");
+    }
+    assert_eq!(storage_key(&SessionId::new("con")), "%63on");
+    assert_eq!(storage_key(&SessionId::new("nul.txt")), "%6Eul%2Etxt");
+    for id in ["console", "com10", "lpt", "xnul"] {
+        assert_eq!(storage_key(&SessionId::new(id)), id, "{id}");
+    }
+}
+
+#[test]
 fn names_outside_the_log_namespace_are_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();

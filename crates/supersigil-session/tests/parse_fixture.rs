@@ -1357,3 +1357,37 @@ fn quoted_heredoc_delimiters_may_contain_spaces() {
         assert_eq!(classify_command(cmd), category, "{cmd:?}");
     }
 }
+
+#[test]
+fn a_tool_result_in_a_user_record_without_a_uuid_still_resolves() {
+    let lines = tool_exchange(
+        "Write",
+        json!({"file_path": "/work/repo/a.txt", "content": "x\n"}),
+        ok_block(),
+        Some(
+            json!({"type": "create", "filePath": "/work/repo/a.txt", "content": "x\n", "structuredPatch": []}),
+        ),
+    );
+    let mut records: Vec<Value> = lines
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    records[1].as_object_mut().unwrap().remove("uuid");
+    let mut text = String::new();
+    for record in &records {
+        text.push_str(&record.to_string());
+        text.push('\n');
+    }
+    let outcome = parse_transcript(text.as_bytes(), 0);
+    let edits = edits(&outcome);
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].turn.as_str(), "a1");
+    assert_eq!(outcome.consumed, text.len() as u64);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
+    assert_eq!(
+        outcome.counts.unknown_records.get("user-without-uuid"),
+        Some(&1)
+    );
+    // No turn is staged for the record without a uuid.
+    assert_eq!(turns(&outcome).len(), 1);
+}

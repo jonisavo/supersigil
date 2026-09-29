@@ -43,17 +43,36 @@ pub const LOCK_FILE: &str = "write.lock";
 /// contain a separator or spell `..`. Uppercase letters are escaped too, so
 /// two ids that differ only in case stay two files on a case-insensitive
 /// file system: the only uppercase letters in a key are escape hex digits.
+/// An id whose part before the first `.` is a Windows reserved device name
+/// (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`, in any
+/// case) has its first byte escaped as well, so `con` becomes `%63on`.
 #[must_use]
 pub fn storage_key(session: &SessionId) -> String {
+    let id = session.as_str();
+    let reserved = is_reserved_device_name(id.split('.').next().unwrap_or_default());
     let mut key = String::new();
-    for byte in session.as_str().bytes() {
-        if byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-' {
+    for (i, byte) in id.bytes().enumerate() {
+        let plain =
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-';
+        if plain && !(reserved && i == 0) {
             key.push(char::from(byte));
         } else {
             let _ = write!(key, "%{byte:02X}");
         }
     }
     key
+}
+
+/// Whether `stem` names a Windows device (`con`, `prn`, `aux`, `nul`,
+/// `com1`..`com9`, `lpt1`..`lpt9`), ignoring case. Windows cannot create a
+/// file under such a name, with or without an extension.
+fn is_reserved_device_name(stem: &str) -> bool {
+    let stem = stem.to_ascii_lowercase();
+    match stem.as_bytes() {
+        b"con" | b"prn" | b"aux" | b"nul" => true,
+        [b'c', b'o', b'm', digit] | [b'l', b'p', b't', digit] => (b'1'..=b'9').contains(digit),
+        _ => false,
+    }
 }
 
 /// Inverts [`storage_key`]. A malformed escape is kept as-is.
