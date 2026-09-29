@@ -92,18 +92,15 @@ fn sync_writes_session_start_observations_and_derivations() {
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.revision.get(), 1);
     assert_eq!(report.sessions, vec![SessionId::new(SESSION)]);
-    assert_eq!(report.new_observations, 26);
+    assert_eq!(report.new_observations, 25);
     assert_eq!(report.transcripts.len(), 1);
     assert!(!report.transcripts[0].trailing_partial);
-    assert_eq!(
-        report.transcripts[0].counts.unknown_records.get("ai-title"),
-        Some(&1)
-    );
+    assert!(report.transcripts[0].counts.is_empty());
     assert_eq!(report.transcripts[0].counts.failed_tool_uses, 0);
 
     let snapshot = s.store.snapshot().unwrap();
     let observations = snapshot.observations(&SessionId::new(SESSION)).unwrap();
-    assert_eq!(observations.len(), 26);
+    assert_eq!(observations.len(), 25);
     let Observation::SessionStart(start) = &observations[0] else {
         panic!("first observation must be the session start");
     };
@@ -290,7 +287,21 @@ fn appended_records_without_a_session_id_join_the_known_session() {
 
 #[test]
 fn capture_limitations_are_recorded_with_the_cursor_advance() {
-    let s = setup(&fixture());
+    // The plain fixture loses nothing, so it records no limitation.
+    let plain = setup(&fixture());
+    sync(
+        &plain.store,
+        &plain.checkout,
+        std::slice::from_ref(&plain.transcript),
+    )
+    .unwrap();
+    assert!(limitations(&plain.store).is_empty());
+
+    let mut bytes = fixture();
+    bytes.extend_from_slice(
+        format!("{{\"type\":\"totally-new\",\"sessionId\":\"{SESSION}\"}}\n").as_bytes(),
+    );
+    let s = setup(&bytes);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     let recorded = limitations(&s.store);
     assert_eq!(recorded.len(), 1);
@@ -298,8 +309,11 @@ fn capture_limitations_are_recorded_with_the_cursor_advance() {
     assert_eq!(limitation.session, SessionId::new(SESSION));
     assert_eq!(limitation.transcript, "slice.jsonl");
     assert_eq!(limitation.from_ordinal, 0);
-    assert_eq!(limitation.to_ordinal, 19);
-    assert_eq!(limitation.counts.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(limitation.to_ordinal, 20);
+    assert_eq!(
+        limitation.counts.unknown_records.get("totally-new"),
+        Some(&1)
+    );
     assert_eq!(limitation.counts.malformed_lines, 0);
     // It is the last observation of the call, after the parsed ones.
     let observations = s
@@ -391,7 +405,7 @@ fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
 
 #[test]
 fn a_transcript_of_only_unknown_records_keeps_its_capture_limitation() {
-    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"s\",\"title\":\"t\"}\n";
+    let bytes = b"{\"type\":\"totally-new\",\"sessionId\":\"s\"}\n";
     let s = setup(bytes);
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].session, Some(SessionId::new("s")));
@@ -409,7 +423,10 @@ fn a_transcript_of_only_unknown_records_keeps_its_capture_limitation() {
         })
         .collect();
     assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0].counts.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(
+        recorded[0].counts.unknown_records.get("totally-new"),
+        Some(&1)
+    );
     assert_eq!(recorded[0].from_ordinal, 0);
     assert_eq!(recorded[0].to_ordinal, 1);
 }

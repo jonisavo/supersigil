@@ -137,7 +137,8 @@ fn whole_fixture_is_consumed_with_session_metadata() {
     );
     assert!(!outcome.trailing_partial);
     assert_eq!(outcome.counts.malformed_lines, 0);
-    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&1));
+    assert!(outcome.counts.unknown_records.is_empty());
+    assert_eq!(outcome.ignored_records.get("ai-title"), Some(&1));
     assert_eq!(
         outcome.ignored_records.get("file-history-snapshot"),
         Some(&1)
@@ -498,7 +499,7 @@ fn counts_stop_at_the_consumption_cutoff() {
     let pending = concat!(
         r#"{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}]}}"#,
         "\n",
-        r#"{"type":"ai-title","sessionId":"s","title":"x"}"#,
+        r#"{"type":"totally-new","sessionId":"s"}"#,
         "\n",
         "{not json\n",
     );
@@ -514,7 +515,7 @@ fn counts_stop_at_the_consumption_cutoff() {
         r#"{"type":"user","uuid":"u1","parentUuid":"a1","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false}}"#
     );
     let outcome = parse_transcript(full.as_bytes(), 0);
-    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&1));
+    assert_eq!(outcome.counts.unknown_records.get("totally-new"), Some(&1));
     assert_eq!(outcome.counts.malformed_lines, 1);
 }
 
@@ -854,14 +855,14 @@ fn conflicting_edit_paths_are_dropped_and_counted() {
 #[test]
 fn unknown_records_before_any_turn_still_yield_the_session() {
     let lines = concat!(
-        r#"{"type":"ai-title","sessionId":"s","title":"x"}"#,
+        r#"{"type":"totally-new","sessionId":"s"}"#,
         "\n",
-        r#"{"type":"ai-title","sessionId":"s","title":"y"}"#,
+        r#"{"type":"totally-new","sessionId":"s"}"#,
         "\n",
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.session, Some(SessionId::new("s")));
-    assert_eq!(outcome.counts.unknown_records.get("ai-title"), Some(&2));
+    assert_eq!(outcome.counts.unknown_records.get("totally-new"), Some(&2));
     assert_eq!(outcome.consumed, lines.len() as u64);
 
     // Metadata missing from the first record is taken from a later one of the
@@ -908,4 +909,30 @@ fn empty_session_id_is_treated_as_absent() {
     assert_eq!(outcome.session, None);
     assert_eq!(outcome.counts.unknown_records.get("no-session"), Some(&2));
     assert!(outcome.observations.is_empty());
+}
+
+#[test]
+fn claude_code_ui_state_records_are_ignored() {
+    let kinds = [
+        "ai-title",
+        "atis-latch",
+        "bridge-session",
+        "cost-state",
+        "pr-link",
+        "queue-operation",
+        "relocated",
+        "worktree-state",
+    ];
+    let mut lines = String::new();
+    for kind in kinds {
+        lines.push_str(&json!({"type": kind, "sessionId": "s"}).to_string());
+        lines.push('\n');
+    }
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert!(outcome.counts.is_empty(), "{:?}", outcome.counts);
+    assert!(outcome.observations.is_empty());
+    assert_eq!(outcome.consumed, lines.len() as u64);
+    for kind in kinds {
+        assert_eq!(outcome.ignored_records.get(kind), Some(&1), "{kind}");
+    }
 }

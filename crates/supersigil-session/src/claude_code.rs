@@ -27,7 +27,8 @@ const AGENT_EXCERPT_CHARS: usize = 240;
 /// Characters kept from the end of a command's output streams.
 const OUTPUT_TAIL_CHARS: usize = 2000;
 /// Record types the parser knows and deliberately does not turn into
-/// observations.
+/// observations. From `ai-title` on, they are Claude Code UI state, which
+/// carries no turn, edit, or command.
 const IGNORED_TYPES: &[&str] = &[
     "system",
     "attachment",
@@ -37,6 +38,14 @@ const IGNORED_TYPES: &[&str] = &[
     "last-prompt",
     "mode",
     "permission-mode",
+    "ai-title",
+    "atis-latch",
+    "bridge-session",
+    "cost-state",
+    "pr-link",
+    "queue-operation",
+    "relocated",
+    "worktree-state",
 ];
 
 /// Result of parsing a byte range of a transcript.
