@@ -7,19 +7,14 @@
 
 use std::path::{Path, PathBuf};
 
-/// Encodes a checkout path the way Claude Code names its project directories.
+/// Encodes a checkout path the way Claude Code names its project directories:
+/// every character outside `A-Z`, `a-z`, and `0-9` becomes a dash.
 #[must_use]
 pub fn encode_project_dir(checkout: &Path) -> String {
     checkout
         .to_string_lossy()
         .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '.' {
-                '-'
-            } else {
-                c
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
 }
 
@@ -55,12 +50,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn encodes_separators_and_dots_as_dashes() {
+    fn encodes_every_non_alphanumeric_byte_as_a_dash() {
         assert_eq!(
             encode_project_dir(Path::new("/home/joni/.local/src/supersigil")),
             "-home-joni--local-src-supersigil"
         );
         assert_eq!(encode_project_dir(Path::new("/work/repo")), "-work-repo");
+        assert_eq!(
+            encode_project_dir(Path::new(r"C:\Users\me\proj")),
+            "C--Users-me-proj"
+        );
+        assert_eq!(encode_project_dir(Path::new(r"\\?\C:\x")), "----C--x");
+        assert_eq!(
+            encode_project_dir(Path::new("/tmp/my repo")),
+            "-tmp-my-repo"
+        );
     }
 
     #[test]
