@@ -68,6 +68,11 @@ pub struct ParseOutcome {
     pub branch: Option<String>,
     /// Timestamp of the first record of the session that carried one.
     pub first_time: Option<Timestamp>,
+    /// Whether the record that named the session, and so began supplying
+    /// `session`, `checkout`, `branch`, and `first_time`, was a sidechain
+    /// (subagent) record. A subagent transcript's metadata describes the
+    /// subagent's start, not the session's. False when the session was given.
+    pub sidechain: bool,
     /// Known record types that were skipped, by type.
     pub ignored_records: BTreeMap<String, u64>,
     /// Whether the input ended in a line without a newline.
@@ -202,7 +207,8 @@ impl Walk {
     /// `sessionId` names the session; the checkout, branch, and first time
     /// come from the first record of that session carrying each. An empty
     /// `sessionId` is no session id at all. A session given by the caller
-    /// wins and nothing is learned.
+    /// wins and nothing is learned. Whether the naming record was a
+    /// sidechain record is kept with the metadata.
     fn learn_session(&mut self, raw: &RawRecord) {
         if self.session_given {
             return;
@@ -211,7 +217,10 @@ impl Walk {
             return;
         };
         match &self.outcome.session {
-            None => self.outcome.session = Some(SessionId::new(id)),
+            None => {
+                self.outcome.session = Some(SessionId::new(id));
+                self.outcome.sidechain = raw.is_sidechain;
+            }
             Some(known) if known.as_str() == id => {}
             Some(_) => return,
         }

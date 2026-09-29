@@ -19,10 +19,10 @@ pub fn encode_project_dir(checkout: &Path) -> String {
         .collect()
 }
 
-/// Sorted transcripts for `checkout` under `claude_home` (normally
-/// `~/.claude`): the `.jsonl` files in the project directory, and the
-/// subagent transcripts `<session id>/subagents/agent-*.jsonl` beside them.
-/// Main and subagent transcripts are sorted together by path. Anything else,
+/// Transcripts for `checkout` under `claude_home` (normally `~/.claude`):
+/// first the main transcripts, the `.jsonl` files in the project directory,
+/// then the subagent transcripts `<session id>/subagents/agent-*.jsonl`
+/// beside them, each group sorted by path. Anything else,
 /// such as a subagent's `.meta.json` or a session's `tool-results`, is left
 /// out. Empty when the project directory does not exist.
 ///
@@ -38,18 +38,21 @@ pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Res
     let Some(entries) = read_dir_if_present(&dir)? else {
         return Ok(Vec::new());
     };
-    let mut found = Vec::new();
+    let mut main = Vec::new();
+    let mut subagents = Vec::new();
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
         if entry.file_type()?.is_dir() {
-            found.extend(subagent_transcripts(&path.join("subagents"))?);
+            subagents.extend(subagent_transcripts(&path.join("subagents"))?);
         } else if is_jsonl(&path) {
-            found.push(path);
+            main.push(path);
         }
     }
-    found.sort();
-    Ok(found)
+    main.sort();
+    subagents.sort();
+    main.append(&mut subagents);
+    Ok(main)
 }
 
 /// The `agent-*.jsonl` files in a session's `subagents` directory; none
@@ -113,6 +116,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("b.jsonl"), "").unwrap();
         std::fs::write(dir.join("a.jsonl"), "").unwrap();
+        // A main transcript beside its session directory: main transcripts
+        // come before subagent ones, although `s1` sorts before `s1.jsonl`
+        // as a path.
+        std::fs::write(dir.join("s1.jsonl"), "").unwrap();
         std::fs::write(dir.join("notes.txt"), "").unwrap();
         let subagents = dir.join("s1").join("subagents");
         std::fs::create_dir_all(&subagents).unwrap();
@@ -131,6 +138,7 @@ mod tests {
             vec![
                 dir.join("a.jsonl"),
                 dir.join("b.jsonl"),
+                dir.join("s1.jsonl"),
                 subagents.join("agent-x.jsonl"),
             ]
         );

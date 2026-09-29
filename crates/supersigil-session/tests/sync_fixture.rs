@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use common::{SESSION, fixture, line_starts};
 
-use supersigil_record::observations::{CaptureLimitation, Observation, Role, Source};
+use supersigil_record::observations::{CaptureLimitation, Observation, Role, SessionStart, Source};
 use supersigil_record::store::{Association, SourceCursor, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::sync::sync;
@@ -490,6 +490,19 @@ fn subagent_transcript_joins_the_parent_session() {
             .filter(|o| matches!(o, Observation::SessionStart(_)))
             .count();
         assert_eq!(starts, 1, "{order:?}");
+        // Whatever the order, the session starts where the main transcript
+        // says it does.
+        let Observation::SessionStart(start) = &observations[0] else {
+            panic!("first observation must be the session start: {order:?}");
+        };
+        assert_eq!(start.time.as_str(), "2026-09-28T10:00:00.000Z", "{order:?}");
+        assert_eq!(start.branch.as_deref(), Some("main"), "{order:?}");
+        assert_eq!(start.checkout, PathBuf::from("/work/repo"), "{order:?}");
+        assert_eq!(
+            start.source_ids.get("transcript").map(String::as_str),
+            Some("slice.jsonl"),
+            "{order:?}"
+        );
         let edits: Vec<_> = observations
             .iter()
             .filter_map(|o| match o {
@@ -530,4 +543,42 @@ fn subagent_transcript_joins_the_parent_session() {
         let side_cursor = &snapshot.manifest().cursors[&side.display().to_string()];
         assert_eq!(side_cursor.session, Some(SessionId::new(SESSION)));
     }
+}
+
+#[test]
+fn a_lone_subagent_transcript_starts_the_session_once() {
+    let s = setup(&fixture());
+    let side = s.transcript.with_file_name("agent-agent1.jsonl");
+    std::fs::write(&side, subagent_transcript()).unwrap();
+    let session = SessionId::new(SESSION);
+    let session_starts = |store: &Store| -> Vec<SessionStart> {
+        store
+            .snapshot()
+            .unwrap()
+            .observations(&session)
+            .unwrap()
+            .into_iter()
+            .filter_map(|o| match o {
+                Observation::SessionStart(start) => Some(start),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // Without the main transcript, the subagent's is the only evidence.
+    sync(&s.store, &s.checkout, std::slice::from_ref(&side)).unwrap();
+    let starts = session_starts(&s.store);
+    assert_eq!(starts.len(), 1);
+    assert_eq!(
+        starts[0].source_ids.get("transcript").map(String::as_str),
+        Some("agent-agent1.jsonl")
+    );
+    assert_eq!(starts[0].time.as_str(), "2026-09-28T10:00:45.000Z");
+
+    // The main transcript arriving later joins the session without starting
+    // it again.
+    let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), side]).unwrap();
+    assert!(report.new_observations > 0);
+    assert_eq!(session_starts(&s.store).len(), 1);
+    assert_eq!(turn_ids(&s.store).len(), 19);
 }

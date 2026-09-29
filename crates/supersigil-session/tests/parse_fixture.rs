@@ -136,6 +136,7 @@ fn whole_fixture_is_consumed_with_session_metadata() {
         Some("2026-09-28T10:00:00.000Z")
     );
     assert!(!outcome.trailing_partial);
+    assert!(!outcome.sidechain);
     assert_eq!(outcome.counts.malformed_lines, 0);
     assert!(outcome.counts.unknown_records.is_empty());
     assert_eq!(outcome.ignored_records.get("ai-title"), Some(&1));
@@ -935,4 +936,18 @@ fn claude_code_ui_state_records_are_ignored() {
     for kind in kinds {
         assert_eq!(outcome.ignored_records.get(kind), Some(&1), "{kind}");
     }
+}
+
+#[test]
+fn session_metadata_from_a_sidechain_record_is_flagged() {
+    let sidechain = concat!(
+        r#"{"type":"user","uuid":"su1","parentUuid":null,"sessionId":"s","agentId":"agent1","cwd":"/work/repo/.claude/worktrees/x","gitBranch":"side","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":true,"isMeta":false,"message":{"role":"user","content":"do the side task"}}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(sidechain.as_bytes(), 0);
+    assert_eq!(outcome.session, Some(SessionId::new("s")));
+    assert!(outcome.sidechain);
+
+    let main = sidechain.replace(r#""isSidechain":true"#, r#""isSidechain":false"#);
+    assert!(!parse_transcript(main.as_bytes(), 0).sidechain);
 }
