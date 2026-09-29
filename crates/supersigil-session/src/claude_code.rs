@@ -75,7 +75,8 @@ pub struct ParseOutcome {
     /// record the next parse reads again may still change.
     pub session: Option<SessionId>,
     /// Working directory from the first record of the session that carried
-    /// one, below `consumed`.
+    /// one, below `consumed`; else the seeded checkout
+    /// ([`ParseSeed::checkout`]), if any.
     pub checkout: Option<PathBuf>,
     /// Branch from the first record of the session that carried one, below
     /// `consumed`.
@@ -250,6 +251,9 @@ struct Walk {
     outcome: ParseOutcome,
     /// Whether the caller gave the session, so none is learned from records.
     session_given: bool,
+    /// The checkout given by the caller, which records without `cwd`
+    /// inherit.
+    seeded_checkout: Option<PathBuf>,
     learned_at: LearnedAt,
     start_ordinal: u64,
     effects: Vec<(usize, Effect)>,
@@ -422,7 +426,14 @@ impl Walk {
         turn: &TurnId,
         time: &Timestamp,
     ) {
-        let cwd = PathBuf::from(raw.cwd.as_deref().unwrap_or_default());
+        // A record without `cwd` ran where the transcript already was, when
+        // the caller knows that.
+        let cwd = raw
+            .cwd
+            .as_deref()
+            .map(PathBuf::from)
+            .or_else(|| self.seeded_checkout.clone())
+            .unwrap_or_default();
         let Some(items) = raw.message.as_mut().and_then(|m| m.content.as_array_mut()) else {
             return;
         };
@@ -515,19 +526,52 @@ pub fn parse_transcript(bytes: &[u8], start_ordinal: u64) -> ParseOutcome {
 /// chunks yields the same observations as parsing it whole. With a session
 /// given, the checkout and branch are still read from records of that
 /// session, so every chunk can be checked against the checkout; the first
-/// time is only read when no session is given.
+/// time is only read when no session is given. Equivalent to
+/// [`parse_transcript_seeded`] with only the session seeded.
 #[must_use]
 pub fn parse_transcript_with_session(
     bytes: &[u8],
     start_ordinal: u64,
     session: Option<&SessionId>,
 ) -> ParseOutcome {
+    parse_transcript_seeded(
+        bytes,
+        start_ordinal,
+        ParseSeed {
+            session,
+            checkout: None,
+        },
+    )
+}
+
+/// What a resumed parse already knows about its transcript.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ParseSeed<'a> {
+    /// The transcript's session; see [`parse_transcript_with_session`].
+    pub session: Option<&'a SessionId>,
+    /// The transcript's checkout as first learned. Tool uses on records
+    /// without `cwd` ran there, and [`ParseOutcome::checkout`] is this
+    /// checkout when no record below the cutoff names one.
+    pub checkout: Option<&'a Path>,
+}
+
+/// Parses complete lines of a transcript starting at ordinal `start_ordinal`,
+/// continuing from what `seed` knows. See [`parse_transcript_with_session`]
+/// for the session and [`ParseSeed::checkout`] for the checkout.
+#[must_use]
+pub fn parse_transcript_seeded(
+    bytes: &[u8],
+    start_ordinal: u64,
+    seed: ParseSeed<'_>,
+) -> ParseOutcome {
+    let ParseSeed { session, checkout } = seed;
     let mut walk = Walk {
         outcome: ParseOutcome {
             session: session.cloned(),
             ..ParseOutcome::default()
         },
         session_given: session.is_some(),
+        seeded_checkout: checkout.map(Path::to_path_buf),
         learned_at: LearnedAt::default(),
         start_ordinal,
         effects: Vec::new(),
@@ -561,11 +605,15 @@ pub fn parse_transcript_with_session(
         pending,
         resolved,
         learned_at,
+        seeded_checkout,
         ..
     } = walk;
     let cutoff = consumption_cutoff(starts.len(), &pending, &resolved);
     let consumed = starts.get(cutoff).copied().unwrap_or(complete_end);
     learned_at.truncate(&mut outcome, cutoff);
+    if outcome.checkout.is_none() {
+        outcome.checkout = seeded_checkout;
+    }
     effects.retain(|(index, _)| *index < cutoff);
     for (_, effect) in effects {
         match effect {

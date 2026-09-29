@@ -1026,3 +1026,70 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     assert!(manifest.cursors.is_empty());
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
+
+#[test]
+fn a_resumed_chunk_naming_another_checkout_is_skipped() {
+    let s = setup(&fixture());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let before = s.store.manifest().unwrap();
+
+    let issue = format!(
+        r#"{{"type":"assistant","uuid":"x1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_x","name":"Write","input":{{"file_path":"/other/repo/secret.txt","content":"x\n"}}}}]}}}}"#
+    );
+    let result = format!(
+        r#"{{"type":"user","uuid":"x2","parentUuid":"x1","sessionId":"{SESSION}","cwd":"/other/repo","gitBranch":"main","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_x","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"/other/repo/secret.txt","content":"x\n","structuredPatch":[]}}}}"#
+    );
+    let mut bytes = fixture();
+    bytes.extend_from_slice(format!("{issue}\n{result}\n").as_bytes());
+    std::fs::write(&s.transcript, &bytes).unwrap();
+
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(
+        report.transcripts[0].skipped.as_deref(),
+        Some("checkout changed from /work/repo to /other/repo")
+    );
+    assert_eq!(report.new_observations, 0);
+    assert_eq!(s.store.manifest().unwrap(), before);
+    assert!(!turn_ids(&s.store).iter().any(|id| id == "x1" || id == "x2"));
+}
+
+#[test]
+fn a_resumed_chunk_moving_into_a_nested_worktree_is_admitted() {
+    // Claude Code rewrites `cwd` when a session enters one of the checkout's
+    // worktrees; that is not another repository.
+    let s = setup(&fixture());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let worktree = "/work/repo/.claude/worktrees/x";
+    let issue = format!(
+        r#"{{"type":"assistant","uuid":"w1","parentUuid":"a8","sessionId":"{SESSION}","cwd":"{worktree}","gitBranch":"x","timestamp":"2026-09-28T11:00:00.000Z","isSidechain":false,"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_w","name":"Write","input":{{"file_path":"{worktree}/w.txt","content":"w\n"}}}}]}}}}"#
+    );
+    let result = format!(
+        r#"{{"type":"user","uuid":"w2","parentUuid":"w1","sessionId":"{SESSION}","cwd":"{worktree}","gitBranch":"x","timestamp":"2026-09-28T11:00:01.000Z","isSidechain":false,"isMeta":false,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_w","content":"ok"}}]}},"toolUseResult":{{"type":"create","filePath":"{worktree}/w.txt","content":"w\n","structuredPatch":[]}}}}"#
+    );
+    let mut bytes = fixture();
+    bytes.extend_from_slice(format!("{issue}\n{result}\n").as_bytes());
+    std::fs::write(&s.transcript, &bytes).unwrap();
+
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(report.new_observations, 3);
+    let edit = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap()
+        .into_iter()
+        .find_map(|o| match o {
+            Observation::Edit(e) if e.path == Path::new("w.txt") => Some(e),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(edit.checkout, Path::new(worktree));
+    assert_eq!(
+        s.store.manifest().unwrap().cursors[&cursor_key(&s.transcript)]
+            .checkout
+            .as_deref(),
+        Some(Path::new("/work/repo"))
+    );
+}

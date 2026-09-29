@@ -1391,3 +1391,37 @@ fn a_tool_result_in_a_user_record_without_a_uuid_still_resolves() {
     // No turn is staged for the record without a uuid.
     assert_eq!(turns(&outcome).len(), 1);
 }
+
+#[test]
+fn records_without_cwd_inherit_the_seeded_checkout() {
+    use std::path::Path;
+    use supersigil_session::claude_code::{ParseSeed, parse_transcript_seeded};
+    let lines = tool_exchange(
+        "Write",
+        json!({"file_path": "/work/repo/x.rs", "content": "x\n"}),
+        ok_block(),
+        Some(json!({"type": "create", "filePath": "/work/repo/x.rs", "content": "x\n", "structuredPatch": []})),
+    )
+    .replace(r#""cwd":"/work/repo","#, "");
+    assert!(!lines.contains("\"cwd\""));
+    let session = SessionId::new("s");
+
+    let seeded = parse_transcript_seeded(
+        lines.as_bytes(),
+        0,
+        ParseSeed {
+            session: Some(&session),
+            checkout: Some(Path::new("/work/repo")),
+        },
+    );
+    let found = edits(&seeded);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].checkout, PathBuf::from("/work/repo"));
+    assert_eq!(found[0].path, PathBuf::from("x.rs"));
+    assert_eq!(seeded.counts.outside_checkout, 0);
+    assert_eq!(seeded.checkout, Some(PathBuf::from("/work/repo")));
+
+    let unseeded = parse_transcript_with_session(lines.as_bytes(), 0, Some(&session));
+    assert!(edits(&unseeded).is_empty());
+    assert_eq!(unseeded.counts.outside_checkout, 1);
+}
