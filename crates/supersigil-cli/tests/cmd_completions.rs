@@ -14,7 +14,9 @@ fn parse_completions_accepts_every_supported_shell() {
         ("powershell", Shell::PowerShell),
     ] {
         let cli = Cli::parse_from(["supersigil", "completions", name]);
-        let Command::Completions(args) = cli.command;
+        let Command::Completions(args) = cli.command else {
+            panic!("expected the completions command");
+        };
         assert_eq!(args.shell, shell, "parsing {name}");
     }
 }

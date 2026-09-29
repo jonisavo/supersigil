@@ -667,6 +667,8 @@ dependencies = [
  "predicates",
  "serde",
  "serde_json",
+ "supersigil-record",
+ "supersigil-session",
  "tempfile",
  "thiserror",
 ]

@@ -4,12 +4,13 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use supersigil_cli::error::CliError;
-use supersigil_cli::{Cli, Command};
+use supersigil_cli::{Cli, ColorConfig, Command};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let color = ColorConfig::resolve(cli.color);
 
-    match run(&cli) {
+    match run(&cli, color) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             if is_broken_pipe(&e) {
@@ -25,8 +26,9 @@ fn is_broken_pipe(err: &CliError) -> bool {
     matches!(err, CliError::Io(io_err) if io_err.kind() == std::io::ErrorKind::BrokenPipe)
 }
 
-fn run(cli: &Cli) -> Result<(), CliError> {
+fn run(cli: &Cli, color: ColorConfig) -> Result<(), CliError> {
     match cli.command {
         Command::Completions(ref args) => supersigil_cli::commands::completions::run(args),
+        Command::Session(ref args) => supersigil_cli::commands::session::run(args, color),
     }
 }
