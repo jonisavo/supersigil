@@ -343,3 +343,82 @@ fn odd_session_ids_get_safe_storage_keys() {
     sessions.sort();
     assert_eq!(sessions, vec![attacker, victim]);
 }
+
+#[test]
+fn reserved_and_pinned_names_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    for reserved in ["manifest.json", "manifest.json.tmp", "write.lock"] {
+        assert!(
+            matches!(
+                tx.append_log(reserved, &[b"x"]),
+                Err(StoreError::InvalidName(_))
+            ),
+            "append_log accepted {reserved:?}"
+        );
+    }
+    tx.put_document("derivations/s1", b"{}").unwrap();
+    tx.commit().unwrap();
+
+    let pinned = store.manifest().unwrap().documents["derivations/s1"].clone();
+    let mut tx = store.begin().unwrap();
+    assert!(matches!(
+        tx.append_log(&pinned, &[b"x"]),
+        Err(StoreError::InvalidName(_))
+    ));
+    // A document whose generated file name is an existing log is rejected too.
+    tx.append_log("derivations/s2.r2.json", &[b"x"]).unwrap();
+    assert!(matches!(
+        tx.put_document("derivations/s2", b"{}"),
+        Err(StoreError::InvalidName(_))
+    ));
+    assert!(
+        fs::read_to_string(dir.path().join("manifest.json"))
+            .unwrap()
+            .contains("record_id")
+    );
+}
+
+#[test]
+fn pinned_document_names_are_validated_at_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.put_document("d", b"{}").unwrap();
+    tx.commit().unwrap();
+
+    let manifest_path = dir.path().join("manifest.json");
+    let text = fs::read_to_string(&manifest_path).unwrap();
+    fs::write(&manifest_path, text.replace("d.r1.json", "../outside.json")).unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert!(matches!(
+        snapshot.read_document("d"),
+        Err(StoreError::InvalidName(_))
+    ));
+}
+
+#[test]
+fn create_is_atomic_against_an_existing_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("manifest.json"), b"{}").unwrap();
+    assert!(matches!(
+        Store::create(dir.path(), assoc()),
+        Err(StoreError::AlreadyExists(_))
+    ));
+    assert_eq!(fs::read(dir.path().join("manifest.json")).unwrap(), b"{}");
+}
+
+#[test]
+fn empty_log_lines_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let log = observations_log(&session());
+    let mut tx = store.begin().unwrap();
+    tx.append_log(&log, &[b"", b"x", b""]).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().read_log(&log).unwrap(),
+        vec![Vec::new(), b"x".to_vec(), Vec::new()]
+    );
+}

@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, observations_log, validate_name,
+    LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, observations_log, reject_reserved,
+    validate_name,
 };
 use crate::ids::Revision;
 use crate::observations::Observation;
@@ -82,6 +83,10 @@ impl<'a> WriteTx<'a> {
     /// file shorter than its pinned length, or an I/O error.
     pub fn append_log(&mut self, log: &str, lines: &[&[u8]]) -> Result<(), StoreError> {
         validate_name(log)?;
+        reject_reserved(log)?;
+        if self.manifest.documents.values().any(|rel| rel == log) {
+            return Err(StoreError::InvalidName(log.to_owned()));
+        }
         if let Some(bad) = lines.iter().find(|l| l.contains(&b'\n')) {
             return Err(StoreError::Corrupt(format!(
                 "log line contains a newline: {}",
@@ -152,6 +157,10 @@ impl<'a> WriteTx<'a> {
     pub fn put_document(&mut self, logical: &str, bytes: &[u8]) -> Result<(), StoreError> {
         validate_name(logical)?;
         let rel = format!("{logical}.r{}.json", self.expected.next().get());
+        reject_reserved(&rel)?;
+        if self.manifest.logs.contains_key(&rel) {
+            return Err(StoreError::InvalidName(rel));
+        }
         let path = self.store.root().join(&rel);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;

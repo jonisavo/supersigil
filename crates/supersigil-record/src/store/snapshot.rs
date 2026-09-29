@@ -45,11 +45,12 @@ impl RecordSnapshot {
         };
         let path = self.root.join(log);
         let bytes = read_prefix(&path, pinned)?;
-        Ok(bytes
-            .split(|b| *b == b'\n')
-            .filter(|line| !line.is_empty())
-            .map(<[u8]>::to_vec)
-            .collect())
+        let mut lines: Vec<Vec<u8>> = bytes.split(|b| *b == b'\n').map(<[u8]>::to_vec).collect();
+        // Every line ends in a newline, so the last segment is always empty.
+        if lines.last().is_some_and(Vec::is_empty) {
+            lines.pop();
+        }
+        Ok(lines)
     }
 
     /// Bytes of a logical document at this revision, if it exists.
@@ -62,6 +63,7 @@ impl RecordSnapshot {
         let Some(rel) = self.manifest.documents.get(logical) else {
             return Ok(None);
         };
+        validate_name(rel)?;
         let path = self.root.join(rel);
         std::fs::read(&path)
             .map(Some)

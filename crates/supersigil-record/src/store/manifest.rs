@@ -1,7 +1,7 @@
 //! The manifest: identity, revision, and what the revision pins.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -80,6 +80,32 @@ pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
         }
     })?;
     serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
+}
+
+/// Writes the initial manifest with `create_new`, so of two racing creators
+/// exactly one succeeds and the other gets [`StoreError::AlreadyExists`].
+pub(super) fn create(root: &Path, manifest: &Manifest) -> Result<(), StoreError> {
+    let path = root.join(MANIFEST_FILE);
+    let bytes = serde_json::to_vec_pretty(manifest).map_err(|source| StoreError::Json {
+        path: path.clone(),
+        source,
+    })?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                StoreError::AlreadyExists(root.to_path_buf())
+            } else {
+                io_error(&path, e)
+            }
+        })?;
+    file.write_all(&bytes).map_err(|e| io_error(&path, e))?;
+    file.sync_all().map_err(|e| io_error(&path, e))?;
+    drop(file);
+    sync_dir(root);
+    Ok(())
 }
 
 /// Writes the manifest to a temporary file, fsyncs it, renames it into
