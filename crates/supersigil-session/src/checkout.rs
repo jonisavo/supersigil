@@ -1,10 +1,8 @@
-//! Where one checkout path lies relative to another.
+//! How checkouts are spelled, and where one lies relative to another.
 //!
-//! Transcripts, the CLI, and records spell the same directory differently:
-//! a transcript writes `C:\work\repo` where canonicalization on Windows
-//! yields `\\?\C:\work\repo`, and a symlinked directory has two spellings on
-//! any platform. Comparisons go through this module; stored paths keep the
-//! spelling their source used.
+//! The CLI and records spell a checkout [`canonical`]ly. Transcripts keep
+//! the working directory Claude Code wrote, which a symlinked directory can
+//! spell differently, so comparisons go through [`placement`].
 
 use std::path::{Path, PathBuf};
 
@@ -21,31 +19,43 @@ pub enum Placement {
 }
 
 /// Where `path` lies relative to `root`. When both exist on disk their
-/// canonical paths decide; otherwise the paths as written are compared by
-/// component, after [`normalized`] and with `\` also separating components
-/// in a Windows path. Inside means below `root` through normal components
-/// only, so `/work/repo/../other` is outside `/work/repo`.
+/// [`canonical`] paths decide; otherwise the paths as written are compared
+/// by component, with `\` also separating components in a Windows path.
+/// Inside means below `root` through normal components only, so
+/// `/work/repo/../other` is outside `/work/repo`.
 #[must_use]
 pub fn placement(path: &Path, root: &Path) -> Placement {
-    match (std::fs::canonicalize(path), std::fs::canonicalize(root)) {
+    match (canonical(path), canonical(root)) {
         (Ok(path), Ok(root)) => placement_as_written(&path, &root),
         _ => placement_as_written(path, root),
     }
 }
 
-/// `path` without a Windows verbatim prefix: `\\?\C:\x` becomes `C:\x`, and
-/// `\\?\UNC\server\share` becomes `\\server\share`. Other paths are
-/// returned as they are.
-#[must_use]
-pub fn normalized(path: &Path) -> PathBuf {
-    let text = path.to_string_lossy();
-    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        PathBuf::from(format!(r"\\{rest}"))
-    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
-        PathBuf::from(rest)
-    } else {
-        path.to_path_buf()
-    }
+/// `path` made absolute with every symlink resolved, as
+/// [`std::fs::canonicalize`] does, but without the verbatim prefix that
+/// function adds on Windows: `\\?\C:\x` becomes `C:\x`, and
+/// `\\?\UNC\server\share` becomes `\\server\share`. Claude Code never
+/// writes that prefix, so neither its transcripts nor its project directory
+/// names would match a checkout spelled with it.
+///
+/// # Errors
+///
+/// Returns the I/O error if `path` does not exist or cannot be resolved.
+pub fn canonical(path: &Path) -> std::io::Result<PathBuf> {
+    std::fs::canonicalize(path).map(without_verbatim_prefix)
+}
+
+/// `path` without a Windows verbatim prefix; other paths as they are.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let stripped = {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            Some(format!(r"\\{rest}"))
+        } else {
+            text.strip_prefix(r"\\?\").map(str::to_owned)
+        }
+    };
+    stripped.map_or(path, PathBuf::from)
 }
 
 /// [`placement`] of two paths as written, by [`comparable`] components.
@@ -60,13 +70,12 @@ fn placement_as_written(path: &Path, root: &Path) -> Placement {
 
 /// The components of `path` for comparison, alike on every platform.
 ///
-/// The path is [`normalized`]. In a Windows path (one starting with a drive
-/// letter or `\\`, or any path on Windows) `\` separates components as `/`
-/// does. `.` and empty components are dropped, and a drive letter is
-/// upper-cased. The first component records the root: `/`, `//` for a UNC
+/// In a Windows path (one starting with a drive letter or `\\`, or any path
+/// on Windows) `\` separates components as `/` does. `.` and empty
+/// components are dropped, and a drive letter is upper-cased. The first component records the root: `/`, `//` for a UNC
 /// path, or nothing.
 fn comparable(path: &Path) -> Vec<String> {
-    let text = normalized(path).to_string_lossy().into_owned();
+    let text = path.to_string_lossy();
     let windows = cfg!(windows) || text.starts_with(r"\\") || has_drive(&text);
     let separators: &[char] = if windows { &['/', '\\'] } else { &['/'] };
     let root = if windows && (text.starts_with(r"\\") || text.starts_with("//")) {
@@ -106,25 +115,16 @@ mod tests {
     }
 
     #[test]
-    fn windows_verbatim_prefixes_do_not_change_the_placement() {
-        assert_eq!(
-            relation(r"\\?\C:\work\repo", r"C:\work\repo"),
-            Placement::Same
-        );
-        assert_eq!(
-            relation(r"C:\work\repo", r"\\?\C:\work\repo"),
-            Placement::Same
-        );
-        assert_eq!(
-            relation(r"C:\work\repo\.claude\worktrees\x", r"\\?\C:\work\repo"),
-            Placement::Nested(3)
-        );
+    fn windows_paths_are_compared_by_component() {
+        assert_eq!(relation(r"C:\work\repo", r"C:\work\repo"), Placement::Same);
+        assert_eq!(relation(r"c:\work\repo", r"C:\work\repo"), Placement::Same);
+        assert_eq!(relation("C:/work/repo", r"C:\work\repo"), Placement::Same);
         assert_eq!(
             relation(r"C:\work\repo\.claude\worktrees\x", r"C:\work\repo"),
             Placement::Nested(3)
         );
         assert_eq!(
-            relation(r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
+            relation(r"\\server\share\repo", r"\\server\share\repo"),
             Placement::Same
         );
         assert_eq!(
@@ -154,18 +154,27 @@ mod tests {
     }
 
     #[test]
-    fn normalized_drops_only_verbatim_prefixes() {
+    fn verbatim_prefixes_are_dropped() {
         assert_eq!(
-            normalized(Path::new(r"\\?\C:\work\repo")),
+            without_verbatim_prefix(PathBuf::from(r"\\?\C:\work\repo")),
             PathBuf::from(r"C:\work\repo")
         );
         assert_eq!(
-            normalized(Path::new(r"\\?\UNC\server\share")),
+            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share")),
             PathBuf::from(r"\\server\share")
         );
         assert_eq!(
-            normalized(Path::new("/work/repo")),
+            without_verbatim_prefix(PathBuf::from("/work/repo")),
             PathBuf::from("/work/repo")
         );
+    }
+
+    #[test]
+    fn canonical_paths_are_placed_like_their_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical = canonical(dir.path()).unwrap();
+        assert!(!canonical.to_string_lossy().starts_with(r"\\?\"));
+        assert_eq!(placement(&canonical, dir.path()), Placement::Same);
+        assert_eq!(placement(dir.path(), &canonical), Placement::Same);
     }
 }

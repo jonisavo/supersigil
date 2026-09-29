@@ -102,7 +102,6 @@ mod tests {
             encode_project_dir(Path::new(r"C:\Users\me\proj")),
             "C--Users-me-proj"
         );
-        assert_eq!(encode_project_dir(Path::new(r"\\?\C:\x")), "----C--x");
         assert_eq!(
             encode_project_dir(Path::new("/tmp/my repo")),
             "-tmp-my-repo"

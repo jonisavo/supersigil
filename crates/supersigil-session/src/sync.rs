@@ -10,7 +10,7 @@ use supersigil_record::observations::{
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
 use supersigil_record::{ContentId, Revision, SessionId, Timestamp};
 
-use crate::checkout::{Placement, placement};
+use crate::checkout::{Placement, canonical, placement};
 use crate::claude_code::{ParseOutcome, parse_transcript};
 
 /// Errors from sync.
@@ -95,9 +95,10 @@ pub struct SyncReport {
 ///
 /// A transcript inside `checkout`, such as a subagent's worktree, is taken
 /// in and reported as nested, and its observations keep their own checkout.
-/// Which record owns a nested checkout is left to record lookup; sync adds
-/// only `checkout` itself as an association. Placement is decided by
-/// [`placement`](crate::checkout::placement).
+/// Which record owns a checkout, nested or not, is left to record lookup,
+/// which also keeps the record's associations; sync changes none. Placement
+/// is decided by [`placement`](crate::checkout::placement), so any spelling
+/// of `checkout` works.
 ///
 /// A transcript whose cursor first learns its session records a
 /// [`SessionStart`] from its own metadata, marked as a sidechain when a
@@ -123,17 +124,6 @@ pub fn sync(
     // snapshot plus the observations this transaction appends, so another
     // writer's commit cannot slip in between reading and deriving.
     let pinned = tx.snapshot();
-    // Record lookup may already have added `checkout` in another spelling.
-    let associated = tx
-        .manifest()
-        .associations
-        .iter()
-        .any(|a| placement(checkout, &a.checkout) == Placement::Same);
-    if !associated {
-        tx.add_association(Association {
-            checkout: checkout.to_path_buf(),
-        });
-    }
 
     let mut reports = Vec::new();
     let mut appended: BTreeMap<SessionId, Vec<Observation>> = BTreeMap::new();
@@ -145,10 +135,8 @@ pub fn sync(
         reports.push(report);
     }
 
-    let started = pinned.manifest();
-    let cursors_moved = tx.manifest().cursors != started.cursors;
-    let associations_added = tx.manifest().associations != started.associations;
-    if total == 0 && !associations_added && !cursors_moved {
+    let cursors_moved = tx.manifest().cursors != pinned.manifest().cursors;
+    if total == 0 && !cursors_moved {
         return Ok(SyncReport {
             revision: pinned.revision(),
             sessions: Vec::new(),
@@ -194,7 +182,7 @@ fn sync_transcript(
     })?;
     // One identity per file, whatever spelling named it: the cursor key and
     // the stamp on every observation.
-    let key = std::fs::canonicalize(path)
+    let key = canonical(path)
         .unwrap_or_else(|_| path.to_path_buf())
         .display()
         .to_string();

@@ -11,6 +11,7 @@ use supersigil_record::observations::{
 };
 use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
+use supersigil_session::checkout::canonical;
 use supersigil_session::sync::sync;
 
 struct Setup {
@@ -43,7 +44,7 @@ fn setup(bytes: &[u8]) -> Setup {
 /// The cursor key of a transcript: its canonical path. Temporary
 /// directories may sit behind a symlink.
 fn cursor_key(path: &Path) -> String {
-    std::fs::canonicalize(path).unwrap().display().to_string()
+    canonical(path).unwrap().display().to_string()
 }
 
 fn turn_ids(store: &Store) -> Vec<String> {
@@ -896,7 +897,7 @@ fn fixture_and(extra: [String; 2]) -> Vec<String> {
 /// whose ordinal ranges depend on where the syncs happened to cut. The
 /// temporary directory is replaced, so two setups compare equal.
 fn evidence(s: &Setup) -> Vec<String> {
-    let dir = std::fs::canonicalize(s.dir.path()).unwrap();
+    let dir = canonical(s.dir.path()).unwrap();
     let dir = serde_json::to_string(&dir).unwrap();
     let dir = dir.trim_matches('"');
     let snapshot = s.store.snapshot().unwrap();

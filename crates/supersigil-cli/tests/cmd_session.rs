@@ -7,7 +7,7 @@ use std::process::Command;
 
 use assert_cmd::assert::OutputAssertExt;
 use predicates::prelude::*;
-use supersigil_session::checkout::normalized;
+use supersigil_session::checkout::canonical;
 
 fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -292,7 +292,7 @@ fn two_records_for_one_checkout_is_an_error_that_names_both() {
         .arg(fixture_in(&e))
         .assert()
         .success();
-    let checkout = e.checkout.canonicalize().unwrap();
+    let checkout = canonical(&e.checkout).unwrap();
     Store::create(&e.records.join("second"), Association { checkout }).unwrap();
     let first = std::fs::read_dir(&e.records)
         .unwrap()
@@ -573,12 +573,12 @@ fn duplicate_record_error_escapes_paths() {
         checkout,
         _dir: dir,
     };
-    let canonical = e.checkout.canonicalize().unwrap();
+    let checkout = canonical(&e.checkout).unwrap();
     for name in ["first\u{1b}]0;a", "second"] {
         Store::create(
             &e.records.join(name),
             Association {
-                checkout: canonical.clone(),
+                checkout: checkout.clone(),
             },
         )
         .unwrap();
@@ -792,15 +792,12 @@ fn a_nested_checkout_uses_the_record_of_its_parent() {
 
     let records = record_dirs(&e);
     assert_eq!(records.len(), 1);
-    // Compared without Windows verbatim prefixes, which spelling varies.
-    let spelled =
-        |paths: Vec<PathBuf>| -> Vec<PathBuf> { paths.iter().map(|p| normalized(p)).collect() };
     assert_eq!(
-        spelled(associations(&records[0])),
-        spelled(vec![
-            e.checkout.canonicalize().unwrap(),
-            worktree.canonicalize().unwrap()
-        ])
+        associations(&records[0]),
+        vec![
+            canonical(&e.checkout).unwrap(),
+            canonical(&worktree).unwrap()
+        ]
     );
 }
 
@@ -825,10 +822,9 @@ fn a_worktree_with_its_own_record_keeps_it_when_its_parent_syncs_its_transcript(
 
     let records = record_dirs(&e);
     assert_eq!(records.len(), 2);
-    let canonical = |p: &Path| p.canonicalize().unwrap();
     let parent = records
         .iter()
-        .find(|r| associations(r) == vec![canonical(&e.checkout)])
+        .find(|r| associations(r) == vec![canonical(&e.checkout).unwrap()])
         .expect("the parent record claims only the parent");
     let listed = session_cmd(&e)
         .args(["list", "--format", "json"])

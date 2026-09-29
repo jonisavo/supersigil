@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use supersigil_record::RecordId;
 use supersigil_record::store::{Association, Store, StoreError};
-use supersigil_session::checkout::{Placement, normalized, placement};
+use supersigil_session::checkout::{self, Placement, placement};
 
 use crate::error::CliError;
 
@@ -35,7 +35,8 @@ pub fn resolve_record_dir(flag: Option<&Path>) -> Result<PathBuf, CliError> {
     ))
 }
 
-/// The checkout to operate on, canonicalized.
+/// The checkout to operate on, in its [`checkout::canonical`] spelling,
+/// which is the one records store.
 ///
 /// # Errors
 ///
@@ -45,7 +46,7 @@ pub fn canonical_checkout(flag: Option<&Path>) -> Result<PathBuf, CliError> {
         Some(p) => p.to_path_buf(),
         None => std::env::current_dir()?,
     };
-    Ok(path.canonicalize()?)
+    Ok(checkout::canonical(&path)?)
 }
 
 /// Finds the record that owns `checkout`, if any.
@@ -131,8 +132,7 @@ fn rank(association: &Path, checkout: &Path) -> Option<usize> {
 /// Lookup and creation happen under an exclusive lock on
 /// `<records_dir>/.lock`, so two first syncs racing on one checkout cannot
 /// both create a record. A record found through an ancestor of `checkout`
-/// gains `checkout` itself as an association, in its [`normalized`]
-/// spelling, before it is returned.
+/// gains `checkout` itself as an association before it is returned.
 ///
 /// # Errors
 ///
@@ -151,7 +151,7 @@ pub fn open_or_create_record(records_dir: &Path, checkout: &Path) -> Result<Stor
         Some((store, _)) => {
             let mut tx = store.begin()?;
             tx.add_association(Association {
-                checkout: normalized(checkout),
+                checkout: checkout.to_path_buf(),
             });
             tx.commit()?;
             store
@@ -203,14 +203,11 @@ mod tests {
         // Windows spellings, compared on every platform.
         assert_eq!(
             rank(
-                Path::new(r"\\?\C:\repo"),
-                Path::new(r"C:\repo\.claude\worktrees\x")
+                Path::new(r"C:\repo"),
+                Path::new(r"c:\repo\.claude\worktrees\x")
             ),
             Some(3)
         );
-        assert_eq!(
-            rank(Path::new(r"C:\repo"), Path::new(r"\\?\C:\repo")),
-            Some(0)
-        );
+        assert_eq!(rank(Path::new(r"C:\repo"), Path::new("C:/repo")), Some(0));
     }
 }
