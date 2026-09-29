@@ -87,7 +87,11 @@ pub struct SyncReport {
 /// is skipped and reported, so another repository's history never enters
 /// this record; so is one whose records have not named a checkout yet, since
 /// a session start never borrows `checkout`. The first working directory a
-/// transcript names decides.
+/// transcript names decides. An edit issued later from outside every
+/// checkout the record is associated with is counted as outside the
+/// checkout instead of recorded; the record's associations decide, not
+/// `checkout`, since a transcript's cursor is shared by every checkout of
+/// the record and what it skips is never read again.
 ///
 /// A transcript inside `checkout`, such as a subagent's worktree, is taken
 /// in and reported as nested, and its observations keep their own checkout.
@@ -202,6 +206,7 @@ fn sync_transcript(
         Ok(admitted) => admitted,
         Err(skip) => return Ok(skip.report(path, cursor.session, outcome.counts)),
     };
+    drop_edits_outside(&mut outcome, &tx.manifest().associations);
     let nested_checkout = (place != Placement::Same).then(|| own.clone());
     let file_name = path
         .file_name()
@@ -319,6 +324,22 @@ fn admit(checkout: &Path, named: Option<&Path>) -> Result<(PathBuf, Placement), 
         ))),
         place => Ok((named.to_path_buf(), place)),
     }
+}
+
+/// Counts as outside the checkout, instead of keeping, every edit issued
+/// from a working directory outside all of `associations`, as when a
+/// session changed directory after the one it named first.
+fn drop_edits_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
+    let before = outcome.observations.len();
+    outcome
+        .observations
+        .retain(|observation| match observation {
+            Observation::Edit(edit) => associations
+                .iter()
+                .any(|a| placement(&edit.checkout, &a.checkout) != Placement::Outside),
+            _ => true,
+        });
+    outcome.counts.outside_checkout += (before - outcome.observations.len()) as u64;
 }
 
 /// Records which transcript a turn, edit, or command came from.

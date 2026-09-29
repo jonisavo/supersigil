@@ -959,6 +959,63 @@ fn syncing_at_every_line_boundary_matches_one_whole_sync() {
 }
 
 #[test]
+fn which_checkout_of_a_record_syncs_first_does_not_change_what_it_records() {
+    // A session starts in one of the checkout's worktrees and then writes a
+    // file in the checkout itself.
+    let worktree = "/work/repo/.claude/worktrees/x";
+    let mut lines: Vec<String> = fixture_lines()
+        .iter()
+        .map(|line| line.replace("/work/repo", worktree))
+        .collect();
+    lines.extend(write_from("/work/repo", "p.txt"));
+    let text = joined(&lines);
+
+    let whole = setup(text.as_bytes());
+    sync(
+        &whole.store,
+        &whole.checkout,
+        std::slice::from_ref(&whole.transcript),
+    )
+    .unwrap();
+    let expected = evidence(&whole);
+    assert!(expected.iter().any(|o| o.contains(r#""path":"p.txt""#)));
+
+    // The worktree syncs the transcript first, then the checkout.
+    let staged = setup(text.as_bytes());
+    for checkout in [Path::new(worktree), staged.checkout.as_path()] {
+        sync(
+            &staged.store,
+            checkout,
+            std::slice::from_ref(&staged.transcript),
+        )
+        .unwrap();
+    }
+    assert_eq!(evidence(&staged), expected);
+}
+
+#[test]
+fn an_edit_issued_from_outside_the_checkout_is_counted_not_recorded() {
+    let lines = fixture_and(write_from("/other/repo", "secret.txt"));
+    let s = setup(joined(&lines).as_bytes());
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(report.transcripts[0].counts.outside_checkout, 1);
+    let observations = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap();
+    assert!(
+        !observations
+            .iter()
+            .any(|o| matches!(o, Observation::Edit(e) if e.path == Path::new("secret.txt")))
+    );
+    // The turns belong to the session's conversation and stay.
+    assert!(turn_ids(&s.store).iter().any(|id| id == "x1"));
+}
+
+#[test]
 fn a_session_moving_into_a_nested_worktree_keeps_its_edits() {
     // Claude Code rewrites `cwd` when a session enters one of the checkout's
     // worktrees; that is not another repository.
