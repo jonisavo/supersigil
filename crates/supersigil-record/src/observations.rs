@@ -118,6 +118,9 @@ pub enum Role {
     Human,
     /// The agent wrote it.
     Agent,
+    /// An instruction written by a parent agent to a subagent; not human
+    /// intent.
+    Delegation,
     /// Tool results only; not human intent.
     Tool,
     /// Harness metadata presented as a user message.
@@ -416,7 +419,7 @@ pub struct CaptureCounts {
     pub unknown_records: BTreeMap<String, u64>,
     /// Lines that were not valid JSON.
     pub malformed_lines: u64,
-    /// Tool uses still without a recorded result when a human message
+    /// Tool uses still without a recorded result when a typed message
     /// arrived.
     pub abandoned_tool_uses: u64,
     /// Editing tool uses the harness reported as failed; no edit was recorded.

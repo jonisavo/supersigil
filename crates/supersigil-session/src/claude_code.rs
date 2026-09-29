@@ -5,7 +5,8 @@
 //! later user records. Claude Code writes each content block of one
 //! assistant message as its own record, so consecutive assistant records do
 //! not mean the agent moved past a tool use. A tool use still unresolved
-//! when a human message arrives is abandoned; one still unresolved at the
+//! when a typed message (a person's, or a parent agent's delegation)
+//! arrives is abandoned; one still unresolved at the
 //! end of the input is left for the next parse. The parser is tolerant:
 //! unknown record types and malformed lines are counted, never fatal.
 
@@ -310,7 +311,7 @@ impl Walk {
     /// skipped types, then stages its turn and pairs its tool uses and
     /// results. A turn naming a session other than the established one
     /// (learned or given) is counted and not staged, so one session's
-    /// evidence never lands in another. Only a human message abandons
+    /// evidence never lands in another. Only a typed message abandons
     /// unresolved tool uses; an assistant record never does, since one
     /// message's blocks arrive as consecutive assistant records.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
@@ -368,20 +369,21 @@ impl Walk {
         if raw.kind == "assistant" {
             self.queue_tool_uses(index, &mut raw, &turn_id, &time);
         } else {
-            // A human message abandons what is still unresolved, but only
-            // after its own tool results are matched: a typed message can
-            // share a record with the results it follows. Tool results and
-            // meta records never abandon, since parallel tool calls get one
-            // user record per result.
+            // A typed message, from a person or a delegating parent agent,
+            // abandons what is still unresolved, but only after its own tool
+            // results are matched: a typed message can share a record with
+            // the results it follows. Tool results and meta records never
+            // abandon, since parallel tool calls get one user record per
+            // result.
             self.resolve_results(index, &raw, &session_id);
-            if role == Role::Human {
+            if matches!(role, Role::Human | Role::Delegation) {
                 self.abandon_pending(&session_id);
             }
         }
     }
 
     /// Counts every unresolved tool use as abandoned and emits shell
-    /// commands among them with an unavailable result. Called when a human
+    /// commands among them with an unavailable result. Called when a typed
     /// message arrives, after that record's own results are matched.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in std::mem::take(&mut self.pending) {
@@ -452,7 +454,7 @@ impl Walk {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             // A result for no awaited tool use (its issuing record is
-            // missing or malformed, a human message abandoned it, or it
+            // missing or malformed, a typed message abandoned it, or it
             // names no tool use at all) cannot be paired, so what it
             // reported is dropped and counted.
             let Some(position) = id.and_then(|id| self.pending.iter().position(|p| p.id == id))
@@ -595,6 +597,11 @@ fn is_block(block: &Value, ty: &str) -> bool {
 fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
     content.and_then(Value::as_array).into_iter().flatten()
 }
+/// The speaker of a record. A `user` record is harness metadata when marked
+/// meta, tool output when it holds only tool results, and otherwise a typed
+/// message: from a person in a main transcript, and from the parent agent
+/// in a sidechain (subagent) transcript, where it is a delegation rather
+/// than human intent.
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
@@ -605,6 +612,9 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     let mut items = blocks(content).peekable();
     if items.peek().is_some() && items.all(|b| is_block(b, "tool_result")) {
         return Role::Tool;
+    }
+    if raw.is_sidechain {
+        return Role::Delegation;
     }
     Role::Human
 }
@@ -625,7 +635,9 @@ fn text_of(content: Option<&Value>) -> String {
 fn excerpt_for(role: Role, content: Option<&Value>) -> Material<String> {
     match role {
         Role::Human => Material::Retained(text_of(content)),
-        Role::Agent => Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS)),
+        Role::Agent | Role::Delegation => {
+            Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS))
+        }
         Role::Tool => Material::unavailable("tool result"),
         Role::Meta => Material::unavailable("harness metadata"),
         Role::Summary => Material::unavailable("compaction summary"),
@@ -1009,7 +1021,7 @@ fn build_resolved(
     }
 }
 
-/// A shell command still without a result when a human message arrived.
+/// A shell command still without a result when a typed message arrived.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
     (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
 }

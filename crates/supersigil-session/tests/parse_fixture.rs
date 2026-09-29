@@ -1235,3 +1235,30 @@ fn the_cutoff_never_splits_a_tool_use_from_its_result() {
     assert_eq!(commands(&outcome).len(), 1);
     assert_eq!(outcome.counts.unmatched_tool_results, 0);
 }
+
+#[test]
+fn a_parent_agents_prompt_in_a_sidechain_is_a_delegation() {
+    let prompt = "Implement the task. ".repeat(20);
+    let lines = format!(
+        "{}\n",
+        json!({
+            "type": "user", "uuid": "su1", "parentUuid": null, "sessionId": "s",
+            "agentId": "agent1", "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": true, "isMeta": false,
+            "message": {"role": "user", "content": prompt}
+        })
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let turns = turns(&outcome);
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].role, Role::Delegation);
+    assert_eq!(
+        turns[0].excerpt.retained().map(|t| t.chars().count()),
+        Some(240)
+    );
+    assert!(turns.iter().all(|t| t.role != Role::Human));
+    assert_eq!(
+        serde_json::to_value(Role::Delegation).unwrap(),
+        json!("delegation")
+    );
+}
