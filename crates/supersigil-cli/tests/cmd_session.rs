@@ -673,7 +673,7 @@ fn sync_reports_other_sessions_unnamed_and_unsupported_tool_uses() {
             "tool uses without an id dropped: 1",
         ))
         .stdout(predicate::str::contains(
-            "unsupported editing tool uses, not recorded as edits: 1",
+            "tool uses the capture cannot read, not recorded: 1",
         ));
 }
 

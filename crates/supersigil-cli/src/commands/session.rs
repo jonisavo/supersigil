@@ -183,7 +183,7 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
             ),
             ("tool uses without an id dropped", counts.unnamed_tool_uses),
             (
-                "unsupported editing tool uses, not recorded as edits",
+                "tool uses the capture cannot read, not recorded",
                 counts.unsupported_tool_uses,
             ),
         ];

@@ -180,7 +180,8 @@ enum Count {
     SessionMismatch,
     /// A tool call with a missing or empty ID.
     Unnamed,
-    /// A completed call to an unsupported editing tool.
+    /// A completed call the capture cannot read: an unsupported editing
+    /// tool, or a `Bash` call without a command.
     Unsupported,
 }
 
@@ -918,11 +919,11 @@ fn stream_tail(text: Option<&str>) -> Material<String> {
 
 /// Builds a command from its tool call, before any result is known.
 /// Output is unavailable, `reported_error` is false, and outcome and end time are absent.
-fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
-    let cmd = string_field(Some(&tool.input), "command")
-        .unwrap_or_default()
-        .to_owned();
-    Command {
+/// Returns `None` when the call carries no command text, which is never
+/// replaced by an empty command.
+fn command_base(tool: &PendingTool, session: &SessionId) -> Option<Command> {
+    let cmd = string_field(Some(&tool.input), "command")?.to_owned();
+    Some(Command {
         id: EventId::derive("command", session, &tool.id),
         turn: tool.turn.clone(),
         session: session.clone(),
@@ -939,11 +940,17 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Command {
         source_ordinal: tool.record_index as u64,
         agent_id: tool.agent_id.clone(),
         transcript: None,
-    }
+    })
 }
 
-fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolution) -> Observation {
-    let base = command_base(tool, session);
+/// Builds a command from its tool call and result. Returns `None` when the
+/// call carries no command text.
+fn build_command(
+    tool: &PendingTool,
+    session: &SessionId,
+    resolution: &Resolution,
+) -> Option<Observation> {
+    let base = command_base(tool, session)?;
     let result = resolution.structured;
     // Without structured streams, the tool result's own content is the
     // command's output as the harness showed it to the agent.
@@ -967,14 +974,14 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
             stderr.unwrap_or_default(),
         )
     };
-    Observation::Command(Command {
+    Some(Observation::Command(Command {
         stdout_tail: stream_tail(stdout.as_deref()),
         stderr_tail: stream_tail(stderr),
         reported_error: resolution.is_error,
         outcome,
         ended: resolution.ended.cloned(),
         ..base
-    })
+    }))
 }
 
 /// Builds an observation for `Edit`, `Write`, `MultiEdit`, or `Bash`.
@@ -982,8 +989,8 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
 ///
 /// # Errors
 ///
-/// Returns `Some(Err(...))` for a `NotebookEdit` call or an editing call rejected
-/// by [`build_edit`].
+/// Returns `Some(Err(...))` for a `NotebookEdit` call, a `Bash` call without
+/// a command, or an editing call rejected by [`build_edit`].
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
@@ -991,15 +998,19 @@ fn build_resolved(
 ) -> Option<Result<Observation, Count>> {
     match tool.name.as_str() {
         "Edit" | "Write" | "MultiEdit" => Some(build_edit(tool, session, resolution)),
-        "Bash" => Some(Ok(build_command(tool, session, resolution))),
+        "Bash" => Some(build_command(tool, session, resolution).ok_or(Count::Unsupported)),
         "NotebookEdit" => Some(Err(Count::Unsupported)),
         _ => None,
     }
 }
 
-/// Records an abandoned `Bash` call with no result. Returns `None` for other tools.
+/// Records an abandoned `Bash` call with no result. Returns `None` for other
+/// tools and for a call without command text.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
-    (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
+    if tool.name != "Bash" {
+        return None;
+    }
+    command_base(tool, session).map(Observation::Command)
 }
 
 /// Classifies a shell command line by recognized program names and subcommands.

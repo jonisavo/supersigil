@@ -445,8 +445,9 @@ pub struct CaptureCounts {
     /// Tool calls omitted because they had no non-empty ID to match a result against.
     #[serde(default)]
     pub unnamed_tool_uses: u64,
-    /// Completed calls to unsupported editing tools, such as `NotebookEdit`,
-    /// for which no edit was recorded.
+    /// Completed tool calls the capture cannot read, so nothing was recorded
+    /// for them: calls to unsupported editing tools, such as `NotebookEdit`,
+    /// and `Bash` calls without a command.
     #[serde(default)]
     pub unsupported_tool_uses: u64,
 }

@@ -1006,6 +1006,28 @@ fn a_typed_message_of_another_session_abandons_pending_tool_uses() {
 }
 
 #[test]
+fn a_bash_call_without_a_command_is_counted_not_recorded() {
+    let streams = json!({"stdout": "x\n", "stderr": "", "interrupted": false});
+    for input in [json!({"description": "list"}), json!({"command": 42})] {
+        let lines = tool_exchange("Bash", input.clone(), ok_block(), Some(streams.clone()));
+        let outcome = parse_transcript(lines.as_bytes(), 0);
+        assert!(commands(&outcome).is_empty(), "{input}");
+        assert_eq!(outcome.counts.unsupported_tool_uses, 1, "{input}");
+    }
+
+    // Abandoned before any result, it is counted as abandoned only.
+    let issue = tool_exchange("Bash", json!({}), ok_block(), None)
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let lines = format!("{issue}\n{}\n", human("u2", "s"));
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert!(commands(&outcome).is_empty());
+    assert_eq!(outcome.counts.abandoned_tool_uses, 1);
+}
+
+#[test]
 fn records_of_another_session_are_counted_not_staged() {
     let lines = format!(
         "{}\n{}\n{}\n{}\n",
