@@ -2,8 +2,12 @@
 //!
 //! Every line is one record with a `type`. `user` and `assistant` records
 //! are turns; tool uses inside assistant records pair with tool results in
-//! later user records. The parser is tolerant: unknown record types and
-//! malformed lines are counted, never fatal.
+//! later user records. Claude Code writes each content block of one
+//! assistant message as its own record, so consecutive assistant records do
+//! not mean the agent moved past a tool use. A tool use still unresolved
+//! when a human message arrives is abandoned; one still unresolved at the
+//! end of the input is left for the next parse. The parser is tolerant:
+//! unknown record types and malformed lines are counted, never fatal.
 
 pub mod content;
 
@@ -213,7 +217,9 @@ impl Walk {
 
     /// Handles the record on line `index`: learns the session, counts
     /// skipped types, then stages its turn and pairs its tool uses and
-    /// results.
+    /// results. Only a human message abandons unresolved tool uses; an
+    /// assistant record never does, since one message's blocks arrive as
+    /// consecutive assistant records.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(&raw);
         match raw.kind.as_str() {
@@ -242,11 +248,6 @@ impl Walk {
         let content = raw.message.as_ref().map(|m| &m.content);
 
         let role = classify_role(&raw, content);
-        // The agent moved on: a later assistant record abandons unresolved
-        // tool uses before it issues its own.
-        if role == Role::Agent {
-            self.abandon_pending(&session_id);
-        }
         self.observe(
             index,
             Observation::Turn(Turn {
@@ -278,7 +279,8 @@ impl Walk {
     }
 
     /// Counts every unresolved tool use as abandoned and emits shell
-    /// commands among them with an unavailable result.
+    /// commands among them with an unavailable result. Called when a human
+    /// message arrives, after that record's own results are matched.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in std::mem::take(&mut self.pending) {
             self.count(tool.record_index, Count::Abandoned);
@@ -344,8 +346,8 @@ impl Walk {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             // A result for no awaited tool use (its issuing record is
-            // missing, malformed, or was moved past) cannot be paired, so
-            // what it reported is dropped and counted.
+            // missing or malformed, or a human message abandoned it) cannot
+            // be paired, so what it reported is dropped and counted.
             let Some(position) = self.pending.iter().position(|p| p.id == id) else {
                 self.count(index, Count::Unmatched);
                 continue;
@@ -856,7 +858,7 @@ fn build_resolved(
     }
 }
 
-/// A shell command the agent moved past without a result.
+/// A shell command still without a result when a human message arrived.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
     (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
 }

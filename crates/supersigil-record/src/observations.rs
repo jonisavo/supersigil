@@ -373,7 +373,8 @@ pub struct CaptureCounts {
     pub unknown_records: BTreeMap<String, u64>,
     /// Lines that were not valid JSON.
     pub malformed_lines: u64,
-    /// Tool uses the agent moved past without a recorded result.
+    /// Tool uses still without a recorded result when a human message
+    /// arrived.
     pub abandoned_tool_uses: u64,
     /// Editing tool uses the harness reported as failed; no edit was recorded.
     pub failed_tool_uses: u64,

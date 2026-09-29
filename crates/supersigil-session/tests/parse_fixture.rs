@@ -335,6 +335,38 @@ fn abandoned_tool_use_is_counted_and_command_emitted_without_result() {
 }
 
 #[test]
+fn split_assistant_message_keeps_both_tool_uses() {
+    // Claude Code writes each content block of one assistant message as its
+    // own record with the same `message.id`.
+    let lines = concat!(
+        r#"{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Editing and testing."}]}}"#,
+        "\n",
+        r#"{"type":"assistant","uuid":"a2","parentUuid":"a1","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.100Z","isSidechain":false,"message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/work/repo/a.txt","old_string":"a","new_string":"b","replace_all":false}}]}}"#,
+        "\n",
+        r#"{"type":"assistant","uuid":"a3","parentUuid":"a2","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.200Z","isSidechain":false,"message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"ls"}}]}}"#,
+        "\n",
+        r#"{"type":"user","uuid":"u1","parentUuid":"a3","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"filePath":"/work/repo/a.txt","oldString":"a","newString":"b","originalFile":"a\n","structuredPatch":[],"replaceAll":false}}"#,
+        "\n",
+        r#"{"type":"user","uuid":"u2","parentUuid":"u1","sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:02.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"a.txt"}]},"toolUseResult":{"stdout":"a.txt","stderr":"","interrupted":false}}"#,
+        "\n",
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.consumed, lines.len() as u64);
+    assert_eq!(outcome.next_ordinal, 5);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 0);
+    assert_eq!(outcome.counts.unmatched_tool_results, 0);
+    let edits = edits(&outcome);
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].after, known("b\n"));
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1);
+    assert_eq!(
+        commands[0].ended,
+        Some(Timestamp::new("2026-09-28T10:00:02.000Z"))
+    );
+}
+
+#[test]
 fn edit_outside_checkout_is_counted_and_dropped() {
     let lines = concat!(
         r#"{"type":"assistant","uuid":"a1","parentUuid":null,"sessionId":"s","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-09-28T10:00:00.000Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/etc/hosts","content":"x"}}]}}"#,
