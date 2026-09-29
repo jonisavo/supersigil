@@ -200,6 +200,27 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
                 counts.unmatched_tool_results
             )?;
         }
+        if counts.session_mismatch > 0 {
+            writeln!(
+                out,
+                "    records of another session dropped: {}",
+                counts.session_mismatch
+            )?;
+        }
+        if counts.unnamed_tool_uses > 0 {
+            writeln!(
+                out,
+                "    tool uses without an id dropped: {}",
+                counts.unnamed_tool_uses
+            )?;
+        }
+        if counts.unsupported_tool_uses > 0 {
+            writeln!(
+                out,
+                "    unsupported editing tool uses, not recorded as edits: {}",
+                counts.unsupported_tool_uses
+            )?;
+        }
     }
     Ok(())
 }

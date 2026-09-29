@@ -94,6 +94,9 @@ fn sample() -> Vec<Observation> {
                 outside_checkout: 0,
                 conflicting_tool_results: 0,
                 unmatched_tool_results: 0,
+                session_mismatch: 0,
+                unnamed_tool_uses: 0,
+                unsupported_tool_uses: 0,
             },
         }),
         Observation::SessionEnd(SessionEnd {

@@ -89,8 +89,10 @@ pub struct ParseOutcome {
     /// What the parse could not turn into evidence below `consumed`: unknown
     /// record types, malformed lines, edits outside the checkout, abandoned
     /// tool uses, editing tool uses the harness flagged as failed, editing
-    /// tool uses whose input and result name different files, and tool
-    /// results that match no tool use. When no session is known, what was
+    /// tool uses whose input and result name different files, tool results
+    /// that match no tool use, turns of another session, tool uses without an
+    /// id, and editing tools the capture does not read. When no session is
+    /// known, what was
     /// seen before the cutoff is still counted, though `consumed` is zero.
     pub counts: CaptureCounts,
 }
@@ -106,6 +108,9 @@ impl ParseOutcome {
             Count::Failed => self.counts.failed_tool_uses += 1,
             Count::Conflicting => self.counts.conflicting_tool_results += 1,
             Count::Unmatched => self.counts.unmatched_tool_results += 1,
+            Count::SessionMismatch => self.counts.session_mismatch += 1,
+            Count::Unnamed => self.counts.unnamed_tool_uses += 1,
+            Count::Unsupported => self.counts.unsupported_tool_uses += 1,
         }
     }
 }
@@ -181,6 +186,12 @@ enum Count {
     Failed,
     Conflicting,
     Unmatched,
+    /// A turn whose session id is not the established session's.
+    SessionMismatch,
+    /// A tool use without a non-empty id.
+    Unnamed,
+    /// A resolved tool use of an editing tool the capture does not read.
+    Unsupported,
 }
 
 /// What one line contributed, kept with the line's index so that effects of
@@ -289,9 +300,11 @@ impl Walk {
 
     /// Handles the record on line `index`: learns the session, counts
     /// skipped types, then stages its turn and pairs its tool uses and
-    /// results. Only a human message abandons unresolved tool uses; an
-    /// assistant record never does, since one message's blocks arrive as
-    /// consecutive assistant records.
+    /// results. A turn naming a session other than the established one
+    /// (learned or given) is counted and not staged, so one session's
+    /// evidence never lands in another. Only a human message abandons
+    /// unresolved tool uses; an assistant record never does, since one
+    /// message's blocks arrive as consecutive assistant records.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
         match raw.kind.as_str() {
@@ -310,6 +323,14 @@ impl Walk {
             self.count(index, Count::Unknown("no-session".to_owned()));
             return;
         };
+        if raw
+            .session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty() && id != session_id.as_str())
+        {
+            self.count(index, Count::SessionMismatch);
+            return;
+        }
         let Some(uuid) = &raw.uuid else {
             self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
             return;
@@ -344,7 +365,7 @@ impl Walk {
             // share a record with the results it follows. Tool results and
             // meta records never abandon, since parallel tool calls get one
             // user record per result.
-            self.resolve_results(index, &raw, &session_id, &time);
+            self.resolve_results(index, &raw, &session_id);
             if role == Role::Human {
                 self.abandon_pending(&session_id);
             }
@@ -363,7 +384,9 @@ impl Walk {
         }
     }
 
-    /// Queues the record's tool uses, taking their inputs out of `raw`.
+    /// Queues the record's tool uses, taking their inputs out of `raw`. A
+    /// tool use without a non-empty id can never be paired with its result,
+    /// so it is counted instead of queued.
     fn queue_tool_uses(
         &mut self,
         index: usize,
@@ -376,9 +399,13 @@ impl Walk {
             return;
         };
         for block in items.iter_mut().filter(|b| is_block(b, "tool_use")) {
-            let id = string_field(Some(block), "id")
-                .unwrap_or_default()
-                .to_owned();
+            let Some(id) = string_field(Some(block), "id")
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+            else {
+                self.count(index, Count::Unnamed);
+                continue;
+            };
             let name = string_field(Some(block), "name")
                 .unwrap_or_default()
                 .to_owned();
@@ -396,13 +423,10 @@ impl Walk {
         }
     }
 
-    fn resolve_results(
-        &mut self,
-        index: usize,
-        raw: &RawRecord,
-        session: &SessionId,
-        time: &Timestamp,
-    ) {
+    /// Pairs the record's tool results with awaited tool uses. The record's
+    /// own timestamp, when it has one, is when the results were recorded.
+    fn resolve_results(&mut self, index: usize, raw: &RawRecord, session: &SessionId) {
+        let ended = raw.timestamp.as_deref().map(Timestamp::new);
         let content = raw.message.as_ref().map(|m| &m.content);
         let results = || blocks(content).filter(|b| is_block(b, "tool_result"));
         let structured = if results().count() == 1 {
@@ -414,15 +438,17 @@ impl Walk {
             let id = result
                 .get("tool_use_id")
                 .and_then(Value::as_str)
-                .unwrap_or_default();
+                .filter(|id| !id.is_empty());
             let is_error = result
                 .get("is_error")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             // A result for no awaited tool use (its issuing record is
-            // missing or malformed, or a human message abandoned it) cannot
-            // be paired, so what it reported is dropped and counted.
-            let Some(position) = self.pending.iter().position(|p| p.id == id) else {
+            // missing or malformed, a human message abandoned it, or it
+            // names no tool use at all) cannot be paired, so what it
+            // reported is dropped and counted.
+            let Some(position) = id.and_then(|id| self.pending.iter().position(|p| p.id == id))
+            else {
                 self.count(index, Count::Unmatched);
                 continue;
             };
@@ -431,7 +457,7 @@ impl Walk {
                 structured,
                 block: result,
                 is_error,
-                ended: time,
+                ended: ended.as_ref(),
             };
             match build_resolved(&tool, session, &resolution) {
                 Some(Ok(observation)) => self.observe(index, observation),
@@ -805,11 +831,13 @@ struct Resolution<'a> {
     block: &'a Value,
     /// Whether the harness flagged the result as an error.
     is_error: bool,
-    /// Time of the record carrying the result.
-    ended: &'a Timestamp,
+    /// Time of the record carrying the result, when it has one.
+    ended: Option<&'a Timestamp>,
 }
 
-/// The edit a resolved editing tool made, or what to count instead.
+/// The edit a resolved editing tool made, or what to count instead. The
+/// edit's time is when its result was recorded, or the issuing record's time
+/// when the result record carries none.
 fn build_edit(
     tool: &PendingTool,
     session: &SessionId,
@@ -840,7 +868,10 @@ fn build_edit(
         new_text: parts.new_text,
         replace_all: parts.replace_all,
         checkout: tool.cwd.clone(),
-        time: resolution.ended.clone(),
+        time: resolution
+            .ended
+            .cloned()
+            .unwrap_or_else(|| tool.time.clone()),
         source_ordinal: tool.ordinal,
         agent_id: tool.agent_id.clone(),
         transcript: None,
@@ -927,13 +958,15 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
         stderr_tail: stream_tail(stderr),
         reported_error: resolution.is_error,
         outcome,
-        ended: Some(resolution.ended.clone()),
+        ended: resolution.ended.cloned(),
         ..base
     })
 }
 
 /// What a resolved tool use contributes: an edit, a command, or a count.
-/// Other tools contribute nothing.
+/// An editing tool the capture does not read is counted rather than passed
+/// over, so the missing edit evidence is visible. Other tools contribute
+/// nothing.
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
@@ -942,6 +975,7 @@ fn build_resolved(
     match tool.name.as_str() {
         "Edit" | "Write" | "MultiEdit" => Some(build_edit(tool, session, resolution)),
         "Bash" => Some(Ok(build_command(tool, session, resolution))),
+        "NotebookEdit" => Some(Err(Count::Unsupported)),
         _ => None,
     }
 }
@@ -951,37 +985,141 @@ fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observatio
     (tool.name == "Bash").then(|| Observation::Command(command_base(tool, session)))
 }
 
-const TESTS: &[&str] = &[
-    "nextest",
-    "cargo test",
-    "vitest",
-    "pnpm test",
-    "npm test",
-    "pytest",
-    "go test",
-    "jest",
-];
-const BUILDS: &[&str] = &[
-    "cargo build",
-    "cargo check",
-    "cargo clippy",
-    "tsc",
-    "pnpm build",
-    "npm run build",
-];
-
-/// Coarse classification of a shell command line.
+/// Coarse classification of a shell command line, read from the programs it
+/// runs rather than from any text it mentions.
+///
+/// The line is split into simple commands at `;`, `&`, `|`, and newlines
+/// outside quotes (so `&&` and `||` split as well, but the `&` of a
+/// redirection such as `2>&1` does not), and each into words with quotes
+/// removed. Leading variable assignments (`RUST_LOG=debug`), `sudo`, `time`,
+/// `env`, and a `mise exec ... --` prefix are skipped; what remains names
+/// the program, and for `cargo`, `go`, `npm`, and `pnpm` its subcommand
+/// too. A test run in any simple command makes the line a
+/// [`CommandCategory::TestRun`], else a build a
+/// [`CommandCategory::Build`], else git or `gh` a [`CommandCategory::Git`].
+/// So `cat nextest-results.txt` and `echo "cargo test"` are
+/// [`CommandCategory::Other`].
 #[must_use]
 pub fn classify_command(cmd: &str) -> CommandCategory {
-    let lower = cmd.to_lowercase();
-    if TESTS.iter().any(|t| lower.contains(t)) {
-        CommandCategory::TestRun
-    } else if lower.starts_with("git ") || lower.contains("&& git ") || lower.starts_with("gh ") {
-        CommandCategory::Git
-    } else if BUILDS.iter().any(|b| lower.contains(b)) {
-        CommandCategory::Build
-    } else {
-        CommandCategory::Other
+    simple_commands(cmd)
+        .iter()
+        .map(|words| category_of(program_words(words)))
+        .max_by_key(|category| rank(*category))
+        .unwrap_or(CommandCategory::Other)
+}
+
+/// Precedence of a category when a line runs several commands.
+const fn rank(category: CommandCategory) -> u8 {
+    match category {
+        CommandCategory::Other => 0,
+        CommandCategory::Git => 1,
+        CommandCategory::Build => 2,
+        CommandCategory::TestRun => 3,
+    }
+}
+
+/// The category of one simple command, given its words from the program on.
+fn category_of(words: &[String]) -> CommandCategory {
+    let word = |i: usize| words.get(i).map(String::as_str);
+    // A program named by path, such as `/usr/bin/cargo`, is still `cargo`.
+    let program = word(0).map(|p| p.rsplit('/').next().unwrap_or(p));
+    match (program, word(1), word(2)) {
+        (Some("cargo"), Some("test" | "nextest"), _)
+        | (Some("go" | "npm" | "pnpm"), Some("test"), _)
+        | (Some("pytest" | "vitest" | "jest"), _, _) => CommandCategory::TestRun,
+        (Some("cargo"), Some("build" | "check" | "clippy"), _)
+        | (Some("tsc"), _, _)
+        | (Some("pnpm"), Some("build"), _)
+        | (Some("npm"), Some("run"), Some("build")) => CommandCategory::Build,
+        (Some("git" | "gh"), _, _) => CommandCategory::Git,
+        _ => CommandCategory::Other,
+    }
+}
+
+/// `words` from the program on: leading assignments, `sudo`, `time`, `env`,
+/// and `mise exec ... --` are skipped.
+fn program_words(words: &[String]) -> &[String] {
+    let mut rest = words;
+    loop {
+        match rest.first().map(String::as_str) {
+            Some("sudo" | "time" | "env") => rest = &rest[1..],
+            Some(word) if is_assignment(word) => rest = &rest[1..],
+            Some("mise") if rest.get(1).is_some_and(|w| w == "exec") => {
+                match rest.iter().position(|w| w == "--") {
+                    Some(dashes) => rest = &rest[dashes + 1..],
+                    None => return rest,
+                }
+            }
+            _ => return rest,
+        }
+    }
+}
+
+/// Whether `word` is a shell variable assignment such as `RUST_LOG=debug`.
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        name.chars()
+            .enumerate()
+            .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
+            && !name.is_empty()
+    })
+}
+
+/// Splits a command line into simple commands, each a list of words with
+/// quotes and backslash escapes removed. See [`classify_command`] for where
+/// it splits.
+fn simple_commands(line: &str) -> Vec<Vec<String>> {
+    let mut commands = Vec::new();
+    let mut words = Vec::new();
+    let mut word = String::new();
+    // Whether a word has begun, which an empty quoted word also does.
+    let mut in_word = false;
+    let mut quote: Option<char> = None;
+    let mut prev: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some('"'), '\\') => word.extend(chars.next()),
+            (Some(_), c) => word.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                in_word = true;
+            }
+            (None, '\\') => {
+                word.extend(chars.next());
+                in_word = true;
+            }
+            // `2>&1`, `>&2`, and `&>file` redirect; they do not split.
+            (None, '&') if matches!(prev, Some('>' | '<')) || chars.peek() == Some(&'>') => {
+                word.push(c);
+                in_word = true;
+            }
+            (None, ';' | '&' | '|' | '\n') => {
+                end_word(&mut words, &mut word, &mut in_word);
+                if !words.is_empty() {
+                    commands.push(std::mem::take(&mut words));
+                }
+            }
+            (None, c) if c.is_whitespace() => end_word(&mut words, &mut word, &mut in_word),
+            (None, c) => {
+                word.push(c);
+                in_word = true;
+            }
+        }
+        prev = Some(c);
+    }
+    end_word(&mut words, &mut word, &mut in_word);
+    if !words.is_empty() {
+        commands.push(words);
+    }
+    commands
+}
+
+/// Moves a begun word into `words`.
+fn end_word(words: &mut Vec<String>, word: &mut String, in_word: &mut bool) {
+    if std::mem::take(in_word) {
+        words.push(std::mem::take(word));
     }
 }
 

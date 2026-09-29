@@ -623,3 +623,57 @@ fn sync_reports_a_transcript_from_another_checkout_as_skipped() {
     let list: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(list, serde_json::json!([]));
 }
+
+#[test]
+fn sync_reports_other_sessions_unnamed_and_unsupported_tool_uses() {
+    let e = env();
+    let record = |kind: &str, uuid: &str, session: &str, content: serde_json::Value| {
+        serde_json::json!({
+            "type": kind, "uuid": uuid, "parentUuid": null, "sessionId": session,
+            "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false, "isMeta": false,
+            "message": {"role": kind, "content": content}
+        })
+    };
+    let lines = [
+        record("user", "u1", "s", serde_json::json!("hi")),
+        record(
+            "assistant",
+            "a1",
+            "s",
+            serde_json::json!([
+                {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+                {"type": "tool_use", "id": "t2", "name": "NotebookEdit",
+                    "input": {"notebook_path": "/work/repo/a.ipynb", "new_source": "x"}}
+            ]),
+        ),
+        record(
+            "user",
+            "u2",
+            "s",
+            serde_json::json!([{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}]),
+        ),
+        record("user", "u3", "other", serde_json::json!("not this session")),
+    ];
+    let mut text = String::new();
+    for line in &lines {
+        text.push_str(&line.to_string());
+        text.push('\n');
+    }
+    let transcript = e.checkout.join("t.jsonl");
+    std::fs::write(&transcript, in_checkout(&e, &text)).unwrap();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "records of another session dropped: 1",
+        ))
+        .stdout(predicate::str::contains(
+            "tool uses without an id dropped: 1",
+        ))
+        .stdout(predicate::str::contains(
+            "unsupported editing tool uses, not recorded as edits: 1",
+        ));
+}

@@ -995,3 +995,169 @@ fn malformed_lines_before_any_session_are_not_consumed() {
     // What was seen is still reported.
     assert_eq!(outcome.counts.malformed_lines, 1);
 }
+
+/// A user record of session `session` with a typed message.
+fn human(uuid: &str, session: &str) -> Value {
+    json!({
+        "type": "user", "uuid": uuid, "parentUuid": null, "sessionId": session,
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false, "isMeta": false,
+        "message": {"role": "user", "content": "hi"}
+    })
+}
+
+/// An assistant record of session `session` with a text block.
+fn agent(uuid: &str, session: &str) -> Value {
+    json!({
+        "type": "assistant", "uuid": uuid, "parentUuid": null, "sessionId": session,
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "hello"}]}
+    })
+}
+
+#[test]
+fn records_of_another_session_are_counted_not_staged() {
+    let lines = format!(
+        "{}\n{}\n{}\n{}\n",
+        human("ua", "a"),
+        agent("aa", "a"),
+        human("ub", "b"),
+        agent("ab", "b")
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.session, Some(SessionId::new("a")));
+    let ids: Vec<&str> = turns(&outcome).iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(ids, vec!["ua", "aa"]);
+    assert_eq!(outcome.counts.session_mismatch, 2);
+    assert!(!outcome.counts.is_empty());
+    assert_eq!(outcome.consumed, lines.len() as u64);
+
+    // A seeded session is established too.
+    let appended = format!("{}\n", human("ub", "b"));
+    let outcome = parse_transcript_with_session(appended.as_bytes(), 4, Some(&SessionId::new("a")));
+    assert!(turns(&outcome).is_empty());
+    assert_eq!(outcome.counts.session_mismatch, 1);
+}
+
+#[test]
+fn tool_uses_and_results_without_an_id_are_not_paired() {
+    for id in [None, Some("")] {
+        let mut tool_use = json!({"type": "tool_use", "name": "Bash", "input": {"command": "ls"}});
+        let mut result = json!({"type": "tool_result", "content": "ok"});
+        if let Some(id) = id {
+            tool_use["id"] = json!(id);
+            result["tool_use_id"] = json!(id);
+        }
+        let issue = json!({
+            "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+            "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+            "message": {"role": "assistant", "content": [tool_use]}
+        });
+        let answer = json!({
+            "type": "user", "uuid": "u1", "parentUuid": "a1", "sessionId": "s",
+            "cwd": "/work/repo", "gitBranch": "main",
+            "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false, "isMeta": false,
+            "message": {"role": "user", "content": [result]},
+            "toolUseResult": {"stdout": "", "stderr": "", "interrupted": false}
+        });
+        let lines = format!("{issue}\n{answer}\n");
+        let outcome = parse_transcript(lines.as_bytes(), 0);
+        assert!(commands(&outcome).is_empty(), "{id:?}");
+        assert_eq!(outcome.counts.unnamed_tool_uses, 1, "{id:?}");
+        assert_eq!(outcome.counts.unmatched_tool_results, 1, "{id:?}");
+        // The unnamed tool use is never awaited, so it does not hold the
+        // cursor back.
+        assert_eq!(outcome.consumed, lines.len() as u64, "{id:?}");
+    }
+}
+
+#[test]
+fn unsupported_editing_tools_are_counted() {
+    let lines = tool_exchange(
+        "NotebookEdit",
+        json!({"notebook_path": "/work/repo/a.ipynb", "new_source": "x = 1"}),
+        ok_block(),
+        Some(json!({"notebook_path": "/work/repo/a.ipynb", "new_source": "x = 1"})),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(outcome.counts.unsupported_tool_uses, 1);
+}
+
+#[test]
+fn command_categories_come_from_command_positions() {
+    use supersigil_session::claude_code::classify_command;
+    for (cmd, category) in [
+        ("cat nextest-results.txt", CommandCategory::Other),
+        ("echo \"cargo test\"", CommandCategory::Other),
+        ("grep -r 'cargo test' docs", CommandCategory::Other),
+        ("cargo fmt && cargo nextest run", CommandCategory::TestRun),
+        ("RUST_LOG=debug cargo test", CommandCategory::TestRun),
+        ("cargo nextest run", CommandCategory::TestRun),
+        ("cargo test -p foo 2>&1 | tail -5", CommandCategory::TestRun),
+        ("cd crates/x; go test ./...", CommandCategory::TestRun),
+        ("pnpm test", CommandCategory::TestRun),
+        ("npm test", CommandCategory::TestRun),
+        ("pytest -q", CommandCategory::TestRun),
+        ("vitest run", CommandCategory::TestRun),
+        ("jest", CommandCategory::TestRun),
+        ("cargo clippy --workspace", CommandCategory::Build),
+        ("cargo build && git status", CommandCategory::Build),
+        ("tsc --noEmit", CommandCategory::Build),
+        ("pnpm build", CommandCategory::Build),
+        ("npm run build", CommandCategory::Build),
+        ("git status", CommandCategory::Git),
+        ("cargo fmt || git diff", CommandCategory::Git),
+        ("gh pr view 14", CommandCategory::Git),
+        ("cargo fmt --all", CommandCategory::Other),
+        ("echo git", CommandCategory::Other),
+        ("rm old.txt", CommandCategory::Other),
+    ] {
+        assert_eq!(classify_command(cmd), category, "{cmd}");
+    }
+}
+
+#[test]
+fn results_without_a_timestamp_have_no_end_time() {
+    let without_time = |lines: String| {
+        let mut records: Vec<Value> = lines
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        records[1].as_object_mut().unwrap().remove("timestamp");
+        let mut text = String::new();
+        for record in &records {
+            text.push_str(&record.to_string());
+            text.push('\n');
+        }
+        text
+    };
+
+    let lines = without_time(tool_exchange(
+        "Bash",
+        json!({"command": "ls"}),
+        ok_block(),
+        Some(json!({"stdout": "a\n", "stderr": "", "interrupted": false})),
+    ));
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].ended, None);
+    assert_eq!(commands[0].started.as_str(), "2026-09-28T10:00:00.000Z");
+
+    // An edit keeps the issuing record's time instead.
+    let lines = without_time(tool_exchange(
+        "Write",
+        json!({"file_path": "/work/repo/a.txt", "content": "x\n"}),
+        ok_block(),
+        Some(
+            json!({"type": "create", "filePath": "/work/repo/a.txt", "content": "x\n", "structuredPatch": []}),
+        ),
+    ));
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let edits = edits(&outcome);
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].time.as_str(), "2026-09-28T10:00:00.000Z");
+}

@@ -431,6 +431,18 @@ pub struct CaptureCounts {
     /// whatever they reported was dropped.
     #[serde(default)]
     pub unmatched_tool_results: u64,
+    /// Turns whose session id differs from the transcript's established
+    /// session; they were not attributed to either session.
+    #[serde(default)]
+    pub session_mismatch: u64,
+    /// Tool uses without a non-empty id, which no result can be paired
+    /// with; whatever they did was dropped.
+    #[serde(default)]
+    pub unnamed_tool_uses: u64,
+    /// Resolved tool uses that may have changed files through a tool the
+    /// capture does not read, such as `NotebookEdit`; no edit was recorded.
+    #[serde(default)]
+    pub unsupported_tool_uses: u64,
 }
 
 impl CaptureCounts {
@@ -444,6 +456,9 @@ impl CaptureCounts {
             && self.outside_checkout == 0
             && self.conflicting_tool_results == 0
             && self.unmatched_tool_results == 0
+            && self.session_mismatch == 0
+            && self.unnamed_tool_uses == 0
+            && self.unsupported_tool_uses == 0
     }
 }
 
@@ -461,6 +476,28 @@ mod tests {
             time: Timestamp::new(time),
             sidechain,
         })
+    }
+
+    #[test]
+    fn every_count_makes_counts_non_empty() {
+        let each = [
+            CaptureCounts {
+                session_mismatch: 1,
+                ..CaptureCounts::default()
+            },
+            CaptureCounts {
+                unnamed_tool_uses: 1,
+                ..CaptureCounts::default()
+            },
+            CaptureCounts {
+                unsupported_tool_uses: 1,
+                ..CaptureCounts::default()
+            },
+        ];
+        assert!(CaptureCounts::default().is_empty());
+        for counts in each {
+            assert!(!counts.is_empty(), "{counts:?}");
+        }
     }
 
     fn chosen(observations: &[Observation]) -> Option<&str> {
