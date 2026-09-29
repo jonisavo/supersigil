@@ -1324,3 +1324,36 @@ fn heredoc_bodies_and_comments_are_not_commands() {
     assert_eq!(commands[0].category, CommandCategory::Other);
     assert_eq!(commands[0].outcome, None);
 }
+
+#[test]
+fn quoted_heredoc_delimiters_may_contain_spaces() {
+    use supersigil_session::claude_code::classify_command;
+    for (cmd, category) in [
+        (
+            "cat <<'END NOTE'\ncargo test\nEND NOTE\ncargo nextest run",
+            CommandCategory::TestRun,
+        ),
+        (
+            "cat <<'END NOTE'\ncargo test\nEND NOTE",
+            CommandCategory::Other,
+        ),
+        (
+            "cat <<-\"END NOTE\"\n\tcargo test\n\tEND NOTE\ngit status",
+            CommandCategory::Git,
+        ),
+        // `\EOF` is the word `EOF`.
+        (
+            "cat <<\\EOF\ncargo test\nEOF\ngit status",
+            CommandCategory::Git,
+        ),
+        // The terminator must match exactly.
+        (
+            "cat <<'END NOTE'\ncargo test\nEND\ngit status",
+            CommandCategory::Other,
+        ),
+        // An unterminated quote leaves the rest opaque.
+        ("cat <<'END NOTE\ncargo test", CommandCategory::Other),
+    ] {
+        assert_eq!(classify_command(cmd), category, "{cmd:?}");
+    }
+}

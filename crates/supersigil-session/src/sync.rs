@@ -49,9 +49,9 @@ pub struct TranscriptReport {
     #[serde(flatten)]
     pub counts: CaptureCounts,
     /// Why nothing was taken from this transcript, when it was skipped: it
-    /// names a checkout outside the one being synced, or it has produced
-    /// evidence before any record named a checkout. A skipped
-    /// transcript appends nothing and its cursor does not move.
+    /// names a checkout outside the one being synced, or no record has named
+    /// its checkout yet (`checkout unknown`, reported with its counts). A
+    /// skipped transcript appends nothing and its cursor does not move.
     #[serde(default)]
     pub skipped: Option<String>,
     /// The transcript's checkout when it lies strictly inside the one being
@@ -83,8 +83,8 @@ pub struct SyncReport {
 ///
 /// A transcript whose records name a working directory outside `checkout`
 /// is skipped and reported, so another repository's history never enters
-/// this record; so is one whose evidence arrives before any record names a
-/// checkout. The checkout first learned is kept on the cursor and checked on
+/// this record; so is one whose records have not named a checkout yet, since
+/// a session start never borrows `checkout`. The checkout first learned is kept on the cursor and checked on
 /// every later read. One inside `checkout`, such as a subagent's worktree,
 /// is taken in and reported as nested, and its observations keep their own
 /// checkout. Which record owns a nested checkout is left to record lookup;
@@ -206,25 +206,28 @@ fn sync_transcript(
     // The checkout as first learned decides every later read too: a resumed
     // chunk's records need not repeat it.
     let recorded = cursor.checkout.clone().or_else(|| outcome.checkout.clone());
-    let nested_checkout = match admit(
-        checkout,
-        recorded.as_deref(),
-        !outcome.observations.is_empty(),
-    ) {
-        Ok(nested) => nested,
-        Err(reason) => {
+    let own = match admit(checkout, recorded) {
+        Ok(own) => own,
+        Err(skip) => {
+            // Counts are shown for a transcript that may yet name this
+            // checkout, never for another checkout's.
+            let counts = match skip {
+                Skip::Unknown => outcome.counts,
+                Skip::Outside(_) => CaptureCounts::default(),
+            };
             return Ok(TranscriptReport {
                 path: path.to_path_buf(),
                 session: cursor.session,
                 new_observations: 0,
                 consumed: 0,
                 trailing_partial: false,
-                counts: CaptureCounts::default(),
-                skipped: Some(reason),
+                counts,
+                skipped: Some(skip.reason()),
                 nested_checkout: None,
             });
         }
     };
+    let nested_checkout = (placement(&own, checkout) != Placement::Same).then(|| own.clone());
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -241,7 +244,7 @@ fn sync_transcript(
                 ("transcript".to_owned(), file_name),
                 ("path".to_owned(), key.clone()),
             ]),
-            checkout: recorded.clone().unwrap_or_else(|| checkout.to_path_buf()),
+            checkout: own.clone(),
             branch: outcome.branch.clone(),
             time: outcome
                 .first_time
@@ -270,7 +273,7 @@ fn sync_transcript(
                 .push(observation);
         }
     }
-    cursor.checkout = recorded;
+    cursor.checkout = Some(own);
     advance(&mut cursor, &bytes, start, &outcome, hasher);
     tx.set_cursor(&key, cursor.clone());
     Ok(TranscriptReport {
@@ -285,31 +288,38 @@ fn sync_transcript(
     })
 }
 
+/// Why a transcript is skipped.
+enum Skip {
+    /// No record has named its working directory yet.
+    Unknown,
+    /// Its working directory lies outside the checkout being synced; the
+    /// reason names both.
+    Outside(String),
+}
+
+impl Skip {
+    fn reason(self) -> String {
+        match self {
+            Self::Unknown => "checkout unknown".to_owned(),
+            Self::Outside(reason) => reason,
+        }
+    }
+}
+
 /// Decides whether a transcript whose records name the working directory
-/// `recorded` belongs in the record of `checkout`. Returns the directory when
-/// it is nested inside the checkout, or why the transcript is skipped: its
-/// directory lies outside, or no record has named one yet while the parse
-/// produced `observations`, which cannot be admitted blind.
-fn admit(
-    checkout: &Path,
-    recorded: Option<&Path>,
-    observations: bool,
-) -> Result<Option<PathBuf>, String> {
-    let Some(recorded) = recorded else {
-        return if observations {
-            Err("checkout unknown".to_owned())
-        } else {
-            Ok(None)
-        };
-    };
-    match placement(recorded, checkout) {
-        Placement::Same => Ok(None),
-        Placement::Nested(_) => Ok(Some(recorded.to_path_buf())),
-        Placement::Outside => Err(format!(
+/// `recorded` belongs in the record of `checkout`, and returns that
+/// directory when it does: `checkout` itself or a directory inside it. A
+/// transcript whose directory is unknown is skipped whatever it holds, since
+/// its session start would otherwise claim a checkout no record named.
+fn admit(checkout: &Path, recorded: Option<PathBuf>) -> Result<PathBuf, Skip> {
+    let recorded = recorded.ok_or(Skip::Unknown)?;
+    match placement(&recorded, checkout) {
+        Placement::Same | Placement::Nested(_) => Ok(recorded),
+        Placement::Outside => Err(Skip::Outside(format!(
             "checkout {} does not match {}",
             recorded.display(),
             checkout.display()
-        )),
+        ))),
     }
 }
 

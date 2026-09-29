@@ -260,7 +260,7 @@ fn missing_transcript_is_an_io_error() {
 
 #[test]
 fn cursor_only_progress_is_committed() {
-    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"x\",\"title\":\"t\"}\n{not json\n";
+    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"x\",\"cwd\":\"/work/repo\",\"title\":\"t\"}\n{not json\n";
     let s = setup(bytes);
     let key = cursor_key(&s.transcript);
     sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
@@ -417,7 +417,7 @@ fn cursor_offset_without_a_prefix_hash_is_read_from_the_start() {
 
 #[test]
 fn a_transcript_of_only_unknown_records_keeps_its_capture_limitation() {
-    let bytes = b"{\"type\":\"totally-new\",\"sessionId\":\"s\"}\n";
+    let bytes = b"{\"type\":\"totally-new\",\"sessionId\":\"s\",\"cwd\":\"/work/repo\"}\n";
     let s = setup(bytes);
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].session, Some(SessionId::new("s")));
@@ -462,10 +462,15 @@ fn an_empty_session_id_does_not_block_sync() {
             .get("no-session"),
         Some(&2)
     );
-    // Without a session their counts cannot be recorded, so the lines are
-    // held back and read again once a session is known.
+    // Without a session their counts cannot be recorded, and no record of
+    // the session names its checkout, so the lines are held back and read
+    // again later.
+    assert_eq!(
+        report.transcripts[0].skipped.as_deref(),
+        Some("checkout unknown")
+    );
     let manifest = s.store.manifest().unwrap();
-    assert_eq!(manifest.cursors[&key].offset, 0);
+    assert!(manifest.cursors.get(&key).is_none_or(|c| c.offset == 0));
     assert!(manifest.logs.is_empty());
 }
 
@@ -1002,4 +1007,22 @@ fn a_resumed_sync_of_an_admitted_transcript_still_admits() {
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(report.transcripts[0].skipped, None);
     assert_eq!(report.new_observations, 1);
+}
+
+#[test]
+fn a_session_start_is_never_given_the_requested_checkout() {
+    // The only session-bearing record names no working directory and
+    // produces no observation.
+    let bytes = b"{\"type\":\"ai-title\",\"sessionId\":\"s\",\"title\":\"t\"}\n";
+    let s = setup(bytes);
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(
+        report.transcripts[0].skipped.as_deref(),
+        Some("checkout unknown")
+    );
+    assert_eq!(report.revision.get(), 0);
+    let manifest = s.store.manifest().unwrap();
+    assert_eq!(manifest.revision.get(), 0);
+    assert!(manifest.cursors.is_empty());
+    assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }

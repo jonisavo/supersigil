@@ -1143,7 +1143,11 @@ fn simple_commands(line: &str) -> Vec<Vec<String>> {
                 // `<<` opens a heredoc whose body starts on the next line.
                 if chars.next_if(|&(_, c)| c == '<').is_none() {
                     split.end_word();
-                    split.heredocs.push(heredoc_delimiter(&mut chars));
+                    let Some(heredoc) = heredoc_delimiter(&mut chars) else {
+                        // An unclosed quote: the rest is of unknown extent.
+                        return split.finish();
+                    };
+                    split.heredocs.push(heredoc);
                 }
             }
             // `2>&1`, `>&2`, and `&>file` redirect; they do not split.
@@ -1210,11 +1214,25 @@ impl Splitter {
     }
 }
 
-/// Reads a heredoc's delimiter after `<<`: an optional `-`, then one word
-/// with its quotes removed.
-fn heredoc_delimiter(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> (String, bool) {
+/// Reads a heredoc's delimiter after `<<`: an optional `-`, spaces, then
+/// either a quoted delimiter, which is the text up to the matching quote,
+/// whitespace included, or one word with its quotes and backslashes removed
+/// (`\EOF` is `EOF`). `None` when a quote is never closed.
+fn heredoc_delimiter(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> Option<(String, bool)> {
     let strip_tabs = chars.next_if(|&(_, c)| c == '-').is_some();
     while chars.next_if(|&(_, c)| c == ' ' || c == '\t').is_some() {}
+    if let Some((_, quote)) = chars.next_if(|&(_, c)| c == '\'' || c == '"') {
+        let mut delimiter = String::new();
+        for (_, c) in chars.by_ref() {
+            if c == quote {
+                return Some((delimiter, strip_tabs));
+            }
+            delimiter.push(c);
+        }
+        return None;
+    }
     let mut delimiter = String::new();
     while let Some((_, c)) = chars.next_if(|&(_, c)| {
         !c.is_whitespace() && !matches!(c, ';' | '&' | '|' | '<' | '>' | '(' | ')')
@@ -1223,11 +1241,12 @@ fn heredoc_delimiter(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>)
             delimiter.push(c);
         }
     }
-    (delimiter, strip_tabs)
+    Some((delimiter, strip_tabs))
 }
 
 /// Skips the bodies of `heredocs`, in order, starting at byte `start` of
-/// `line`: each runs up to and including its terminator line. Returns where
+/// `line`: each runs up to and including its terminator line, which must be
+/// the delimiter exactly (after leading tabs for `<<-`). Returns where
 /// commands resume, or `None` when a terminator is missing.
 fn skip_heredoc_bodies(
     line: &str,
@@ -1242,7 +1261,6 @@ fn skip_heredoc_bodies(
             }
             let end = line[pos..].find('\n').map_or(line.len(), |n| pos + n);
             let mut text = &line[pos..end];
-            text = text.strip_suffix('\r').unwrap_or(text);
             if strip_tabs {
                 text = text.trim_start_matches('\t');
             }
