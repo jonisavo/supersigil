@@ -5,6 +5,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use super::{Manifest, StoreError, decode_storage_key, io_error, observations_log, validate_name};
+use crate::derivations::DerivationSet;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 
@@ -51,6 +52,24 @@ impl RecordSnapshot {
             lines.pop();
         }
         Ok(lines)
+    }
+
+    /// A session's derivations at this revision, if any were written.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the document cannot be read or parsed.
+    pub fn derivations(&self, session: &SessionId) -> Result<Option<DerivationSet>, StoreError> {
+        let logical = DerivationSet::document_name(session);
+        let Some(bytes) = self.read_document(&logical)? else {
+            return Ok(None);
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|source| StoreError::Json {
+                path: self.root.join(&logical),
+                source,
+            })
     }
 
     /// Bytes of a logical document at this revision, if it exists.

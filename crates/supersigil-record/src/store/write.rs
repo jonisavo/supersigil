@@ -10,6 +10,7 @@ use super::{
     LOCK_FILE, RecordSnapshot, Store, StoreError, io_error, observations_log, reject_reserved,
     validate_name,
 };
+use crate::derivations::DerivationSet;
 use crate::ids::Revision;
 use crate::observations::Observation;
 
@@ -145,6 +146,20 @@ impl<'a> WriteTx<'a> {
             self.append_log(log, &refs)?;
         }
         Ok(())
+    }
+
+    /// Writes a session's derivations as this revision's document.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization or the write fails.
+    pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
+        let logical = DerivationSet::document_name(&set.session);
+        let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
+            path: self.store.root().join(&logical),
+            source,
+        })?;
+        self.put_document(&logical, &bytes)
     }
 
     /// Writes an immutable document for this revision and points the logical

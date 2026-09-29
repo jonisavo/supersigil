@@ -422,3 +422,26 @@ fn empty_log_lines_round_trip() {
         vec![Vec::new(), b"x".to_vec(), Vec::new()]
     );
 }
+
+#[test]
+fn derivations_round_trip_through_the_store() {
+    use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let set = DerivationSet {
+        session: session(),
+        observation_revision: Revision::ZERO.next(),
+        algorithm_version: ALGORITHM_VERSION,
+        restores: Vec::new(),
+        discontinuities: Vec::new(),
+    };
+    let mut tx = store.begin().unwrap();
+    tx.put_derivations(&set).unwrap();
+    tx.commit().unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.derivations(&session()).unwrap(), Some(set));
+    assert_eq!(
+        snapshot.derivations(&SessionId::new("other")).unwrap(),
+        None
+    );
+}
