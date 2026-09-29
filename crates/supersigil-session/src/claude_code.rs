@@ -284,7 +284,9 @@ impl Walk {
     ///
     /// Counts and skips unsupported record types and turns from another session.
     /// Human and delegation turns abandon pending calls after their own tool
-    /// results are matched. Assistant records leave pending calls open.
+    /// results are matched, and so does a typed message of another session,
+    /// which ends this session's turn as surely. Assistant records leave
+    /// pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
         match raw.kind.as_str() {
@@ -309,6 +311,12 @@ impl Walk {
             .is_some_and(|id| !id.is_empty() && id != session_id.as_str())
         {
             self.count(index, Count::SessionMismatch);
+            let content = raw.message.as_ref().map(|m| &m.content);
+            if raw.kind == "user"
+                && matches!(classify_role(&raw, content), Role::Human | Role::Delegation)
+            {
+                self.abandon_pending(&session_id);
+            }
             return;
         }
         let Some(uuid) = &raw.uuid else {

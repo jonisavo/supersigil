@@ -986,6 +986,26 @@ fn agent(uuid: &str, session: &str) -> Value {
 }
 
 #[test]
+fn a_typed_message_of_another_session_abandons_pending_tool_uses() {
+    // Session `a` issues a Bash call that never gets a result, then a person
+    // types in session `b`, as in two transcripts written into one file.
+    let issue = json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "a",
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}
+        ]}
+    });
+    let lines = format!("{issue}\n{}\n", human("ub", "b"));
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(outcome.consumed, lines.len() as u64);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 1);
+    assert_eq!(outcome.counts.session_mismatch, 1);
+    assert_eq!(commands(&outcome).len(), 1);
+}
+
+#[test]
 fn records_of_another_session_are_counted_not_staged() {
     let lines = format!(
         "{}\n{}\n{}\n{}\n",
