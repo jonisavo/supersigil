@@ -1,0 +1,22 @@
+[package]
+name = "supersigil-session"
+version = "0.14.0"
+description = "Agent session transcript sources for the supersigil record"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+supersigil-record.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

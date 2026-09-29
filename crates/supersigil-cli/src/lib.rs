@@ -9,8 +9,13 @@ pub mod commands;
 pub mod error;
 /// Terminal formatting, color configuration, and output helpers.
 pub mod format;
+/// Records directory resolution and record lookup.
+pub mod record_dir;
 
-pub use commands::{Command, CompletionsArgs};
+pub use commands::{
+    Command, CompletionsArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs,
+    SessionSyncArgs,
+};
 pub use format::{ColorChoice, ColorConfig, OutputFormat};
 
 use clap::Parser;
