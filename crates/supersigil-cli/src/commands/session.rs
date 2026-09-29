@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use supersigil_record::observations::Observation;
 use supersigil_record::store::Store;
-use supersigil_record::{DerivationSet, SessionId};
+use supersigil_record::{DerivationSet, Revision, SessionId};
 use supersigil_session::discover::discover_transcripts;
 use supersigil_session::sync::{SyncReport, sync};
 
@@ -58,7 +58,7 @@ pub fn run(args: &SessionArgs, color: ColorConfig) -> Result<(), CliError> {
     let checkout = record_dir::canonical_checkout(args.checkout.as_deref())?;
     match &args.command {
         SessionCommand::Sync(sync_args) => run_sync(sync_args, &records_dir, &checkout, color),
-        SessionCommand::List(list_args) => run_list(list_args, &records_dir, &checkout),
+        SessionCommand::List(list_args) => run_list(list_args, &records_dir, &checkout, color),
         SessionCommand::Show(show_args) => run_show(show_args, &records_dir, &checkout),
     }
 }
@@ -90,6 +90,18 @@ fn run_sync(
                 checkout.display()
             ),
         );
+        if matches!(args.format, OutputFormat::Json) {
+            let revision = match record_dir::find_record(records_dir, checkout)? {
+                Some(store) => store.manifest()?.revision,
+                None => Revision::ZERO,
+            };
+            write_json(&SyncReport {
+                revision,
+                sessions: Vec::new(),
+                new_observations: 0,
+                transcripts: Vec::new(),
+            })?;
+        }
         return Ok(());
     }
     let store = record_dir::open_or_create_record(records_dir, checkout)?;
@@ -195,12 +207,24 @@ fn summarize(store: &Store) -> Result<(u64, Vec<SessionSummary>), CliError> {
     Ok((snapshot.revision().get(), rows))
 }
 
-fn run_list(args: &SessionListArgs, records_dir: &Path, checkout: &Path) -> Result<(), CliError> {
+fn run_list(
+    args: &SessionListArgs,
+    records_dir: &Path,
+    checkout: &Path,
+    color: ColorConfig,
+) -> Result<(), CliError> {
     let Some(store) = record_dir::find_record(records_dir, checkout)? else {
-        println!(
+        let message = format!(
             "no record for {}; run `supersigil session sync` first",
             checkout.display()
         );
+        match args.format {
+            OutputFormat::Json => {
+                hint(color, &message);
+                write_json(&Vec::<SessionSummary>::new())?;
+            }
+            OutputFormat::Terminal => println!("{message}"),
+        }
         return Ok(());
     };
     let (_, rows) = summarize(&store)?;

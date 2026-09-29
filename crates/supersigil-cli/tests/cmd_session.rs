@@ -232,3 +232,50 @@ fn two_records_for_one_checkout_is_an_error_that_names_both() {
         .stderr(predicate::str::contains(&first))
         .stderr(predicate::str::contains("second"));
 }
+
+#[test]
+fn list_json_before_any_sync_prints_an_empty_array() {
+    let e = env();
+    let output = session_cmd(&e)
+        .args(["list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let list: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(list, serde_json::json!([]));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no record for"));
+}
+
+#[test]
+fn sync_json_without_transcripts_prints_an_empty_report() {
+    let e = env();
+    let output = session_cmd(&e)
+        .args(["sync", "--format", "json", "--claude-home"])
+        .arg(e.checkout.join("no-such-claude-home"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["new_observations"], 0);
+    assert_eq!(report["transcripts"], serde_json::json!([]));
+    assert_eq!(report["revision"], 0);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no transcripts found"));
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_records_dir_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let e = env();
+    std::fs::create_dir_all(&e.records).unwrap();
+    std::fs::set_permissions(&e.records, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_dir(&e.records).is_ok() {
+        // Permissions are ignored (running as root); nothing to test.
+        std::fs::set_permissions(&e.records, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let output = session_cmd(&e).arg("list").output().unwrap();
+    std::fs::set_permissions(&e.records, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
+}

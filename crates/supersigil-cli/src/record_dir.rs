@@ -53,13 +53,19 @@ pub fn canonical_checkout(flag: Option<&Path>) -> Result<PathBuf, CliError> {
 ///
 /// # Errors
 ///
-/// Returns a store error if a record directory cannot be read, or
+/// Returns [`CliError::Io`] if the records directory exists but cannot be
+/// read, a store error if a record's manifest cannot be read, or
 /// [`CliError::CommandFailed`] on duplicate associations.
 pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>, CliError> {
-    let Ok(entries) = std::fs::read_dir(records_dir) else {
-        return Ok(None);
+    let entries = match std::fs::read_dir(records_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
     };
-    let mut candidates: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    let mut candidates = Vec::new();
+    for entry in entries {
+        candidates.push(entry?.path());
+    }
     candidates.sort();
     let mut matches = Vec::new();
     for candidate in candidates {
