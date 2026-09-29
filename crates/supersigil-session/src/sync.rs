@@ -105,7 +105,6 @@ pub fn sync(
         checkout: checkout.to_path_buf(),
     });
 
-    let initial_cursors = tx.manifest().cursors.clone();
     let mut reports = Vec::new();
     let mut appended: BTreeMap<SessionId, Vec<Observation>> = BTreeMap::new();
     let mut total = 0usize;
@@ -116,8 +115,9 @@ pub fn sync(
         reports.push(report);
     }
 
-    let cursors_moved = tx.manifest().cursors != initial_cursors;
-    let associations_added = tx.manifest().associations != pinned.manifest().associations;
+    let started = pinned.manifest();
+    let cursors_moved = tx.manifest().cursors != started.cursors;
+    let associations_added = tx.manifest().associations != started.associations;
     if total == 0 && !associations_added && !cursors_moved {
         return Ok(SyncReport {
             revision: pinned.revision(),

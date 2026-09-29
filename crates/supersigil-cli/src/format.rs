@@ -220,17 +220,23 @@ pub fn hint(color: ColorConfig, msg: &str) {
 ///
 /// Every character in `U+0000..=U+001F` except tab, plus `U+007F` and the C1
 /// range `U+0080..=U+009F`, becomes `\x` and two lowercase hex digits, for
-/// example `\x1b`. Everything else passes through. Values taken from a
-/// transcript go through this before they reach a terminal, so an escape
-/// sequence in a session id cannot erase or forge the lines around it.
+/// example `\x1b`. Everything else passes through. See [`Untrusted`] for
+/// which values need it.
 #[must_use]
 pub fn escape_control(text: &str) -> String {
     Untrusted(text).to_string()
 }
 
-/// Text from outside the tool, such as a transcript, that displays with its
-/// control characters made visible as [`escape_control`] describes. Format
-/// every such value through it before it reaches a terminal.
+/// Text from outside the tool that displays with its control characters made
+/// visible as [`escape_control`] describes, so an escape sequence in it
+/// cannot erase or forge the lines around it.
+///
+/// Every such value goes through it before it reaches a terminal: session
+/// ids, times, branches, record type names, and skip reasons from
+/// transcripts; transcript, checkout, and record paths from the file system;
+/// and command-line arguments. Error messages may carry any of these
+/// unescaped, so the binary escapes each rendered error message once, as a
+/// whole, when it prints it.
 #[derive(Debug, Clone, Copy)]
 pub struct Untrusted<'a>(pub &'a str);
 

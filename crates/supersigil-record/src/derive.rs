@@ -1,7 +1,7 @@
 //! Computes derivations from a session's observations.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::derivations::{ALGORITHM_VERSION, DerivationSet, Discontinuity, Restore};
 use crate::ids::{ContentId, EventId, Revision, SessionId};
@@ -32,18 +32,14 @@ pub fn derive(
     observation_revision: Revision,
 ) -> DerivationSet {
     let mut seen: BTreeSet<&EventId> = BTreeSet::new();
-    let mut groups: BTreeMap<(PathBuf, PathBuf, Option<&str>), Vec<&Edit>> = BTreeMap::new();
+    let mut groups: BTreeMap<(&Path, &Path, Option<&str>), Vec<&Edit>> = BTreeMap::new();
     for observation in observations {
         if let Observation::Edit(edit) = observation
             && edit.session == *session
             && seen.insert(&edit.id)
         {
             groups
-                .entry((
-                    edit.checkout.clone(),
-                    edit.path.clone(),
-                    edit.transcript.as_deref(),
-                ))
+                .entry((&edit.checkout, &edit.path, edit.transcript.as_deref()))
                 .or_default()
                 .push(edit);
         }
@@ -77,8 +73,8 @@ pub fn derive(
                 && a != b
             {
                 discontinuities.push(Discontinuity {
-                    path: path.clone(),
-                    checkout: checkout.clone(),
+                    path: path.to_path_buf(),
+                    checkout: checkout.to_path_buf(),
                     prev: prev.id.clone(),
                     next: next.id.clone(),
                 });
@@ -111,6 +107,8 @@ fn known_state(state: &FileState) -> Option<&FileState> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::path::PathBuf;
 
     use super::*;
     use crate::ids::{Timestamp, TurnId};

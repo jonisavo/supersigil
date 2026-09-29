@@ -93,8 +93,6 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
                 .iter()
                 .map(|s| s.root().to_string_lossy().into_owned())
                 .collect();
-            // The paths come from the file system; the binary escapes every
-            // error message before it reaches a terminal.
             Err(CliError::CommandFailed(format!(
                 "{} is associated with several records: {}. Remove or merge all but one.",
                 checkout.to_string_lossy(),

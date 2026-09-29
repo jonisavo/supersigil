@@ -215,8 +215,10 @@ impl<'a> WriteTx<'a> {
 
     /// Fsyncs every touched file and every directory from each file's parent
     /// up to the record root, checks the manifest has not moved, and
-    /// publishes the next revision. Nothing the new manifest references can
-    /// be lost to a power failure after it is published.
+    /// publishes the next revision. Where directories can be synced, nothing
+    /// the new manifest references can be lost to a power failure after it
+    /// is published; on Windows, which cannot open a directory to sync it,
+    /// directory syncing is skipped and new entries rely on the file system.
     ///
     /// # Errors
     ///
@@ -262,6 +264,3 @@ impl<'a> WriteTx<'a> {
         Ok(self.manifest.revision)
     }
 }
-
-// No `Drop` impl: dropping `_lock` releases the OS lock, and the manifest on
-// disk is untouched until `commit` publishes it.

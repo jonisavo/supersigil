@@ -1,11 +1,7 @@
 //! CLI error types.
 
-/// Top-level CLI error type.
-///
-/// Messages may carry paths, session ids, and arguments from outside the
-/// tool unescaped; the binary escapes the rendered message once, with
-/// [`escape_control`](crate::format::escape_control), before it reaches a
-/// terminal.
+/// Top-level CLI error type. Messages are not escaped; see
+/// [`Untrusted`](crate::format::Untrusted).
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     /// Record store error.

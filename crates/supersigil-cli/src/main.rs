@@ -17,8 +17,6 @@ fn main() -> ExitCode {
             if is_broken_pipe(&e) {
                 return ExitCode::SUCCESS;
             }
-            // Errors carry paths, session ids, and arguments from outside
-            // the tool; every one is escaped here, once, at the terminal.
             eprintln!("error: {}", escape_control(&e.to_string()));
             ExitCode::from(1)
         }

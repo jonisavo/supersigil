@@ -17,14 +17,8 @@ use crate::error::CliError;
 use crate::format::{ColorConfig, OutputFormat, Untrusted, hint, write_json};
 use crate::record_dir;
 
-/// One row of `session list`.
-///
-/// `started`, `branch`, and `checkout` come from a read model over the
-/// session's [`SessionStart`](supersigil_record::observations::SessionStart)
-/// observations, one per transcript that named the session: the earliest
-/// start from a main transcript, else the earliest start from a subagent
-/// sidechain (see [`session_start`]). A main transcript synced after its
-/// subagents therefore still describes the session.
+/// One row of `session list`; `started`, `branch`, and `checkout` come from
+/// the start [`session_start`] selects.
 #[derive(Debug, Serialize)]
 pub struct SessionSummary {
     /// Session id.
@@ -120,8 +114,7 @@ fn run_sync(
     Ok(())
 }
 
-/// Prints a sync report. Transcript paths, session ids, record type names,
-/// and skip reasons come from outside the tool and are escaped.
+/// Prints a sync report.
 fn print_sync_report(report: &SyncReport) -> io::Result<()> {
     let mut out = io::stdout().lock();
     writeln!(
@@ -158,68 +151,39 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
                 .collect();
             writeln!(out, "    unknown record types: {}", list.join(", "))?;
         }
-        if counts.malformed_lines > 0 {
-            writeln!(
-                out,
-                "    malformed lines skipped: {}",
-                counts.malformed_lines
-            )?;
-        }
-        if counts.abandoned_tool_uses > 0 {
-            writeln!(
-                out,
-                "    tool uses without a result: {}",
-                counts.abandoned_tool_uses
-            )?;
-        }
-        if counts.failed_tool_uses > 0 {
-            writeln!(
-                out,
-                "    failed editing tool uses, not recorded as edits: {}",
-                counts.failed_tool_uses
-            )?;
-        }
-        if counts.outside_checkout > 0 {
-            writeln!(
-                out,
-                "    edits outside the checkout dropped: {}",
-                counts.outside_checkout
-            )?;
-        }
-        if counts.conflicting_tool_results > 0 {
-            writeln!(
-                out,
-                "    edits whose input and result name different files dropped: {}",
-                counts.conflicting_tool_results
-            )?;
-        }
-        if counts.unmatched_tool_results > 0 {
-            writeln!(
-                out,
-                "    tool results without a matching tool use dropped: {}",
-                counts.unmatched_tool_results
-            )?;
-        }
-        if counts.session_mismatch > 0 {
-            writeln!(
-                out,
-                "    records of another session dropped: {}",
-                counts.session_mismatch
-            )?;
-        }
-        if counts.unnamed_tool_uses > 0 {
-            writeln!(
-                out,
-                "    tool uses without an id dropped: {}",
-                counts.unnamed_tool_uses
-            )?;
-        }
-        if counts.unsupported_tool_uses > 0 {
-            writeln!(
-                out,
-                "    unsupported editing tool uses, not recorded as edits: {}",
-                counts.unsupported_tool_uses
-            )?;
+        let lines = [
+            ("malformed lines skipped", counts.malformed_lines),
+            ("tool uses without a result", counts.abandoned_tool_uses),
+            (
+                "failed editing tool uses, not recorded as edits",
+                counts.failed_tool_uses,
+            ),
+            (
+                "edits outside the checkout dropped",
+                counts.outside_checkout,
+            ),
+            (
+                "edits whose input and result name different files dropped",
+                counts.conflicting_tool_results,
+            ),
+            (
+                "tool results without a matching tool use dropped",
+                counts.unmatched_tool_results,
+            ),
+            (
+                "records of another session dropped",
+                counts.session_mismatch,
+            ),
+            ("tool uses without an id dropped", counts.unnamed_tool_uses),
+            (
+                "unsupported editing tool uses, not recorded as edits",
+                counts.unsupported_tool_uses,
+            ),
+        ];
+        for (label, count) in lines {
+            if count > 0 {
+                writeln!(out, "    {label}: {count}")?;
+            }
         }
     }
     Ok(())
@@ -261,8 +225,7 @@ fn summarize(store: &Store) -> Result<Vec<SessionSummary>, CliError> {
     Ok(rows)
 }
 
-/// What to say when `checkout` has no record yet. The checkout path comes
-/// from the file system and is escaped like every other outside value.
+/// What to say when `checkout` has no record yet.
 fn no_record_message(checkout: &Path) -> String {
     format!(
         "no record for {}; run `supersigil session sync` first",
@@ -291,7 +254,6 @@ fn run_list(
     match args.format {
         OutputFormat::Json => write_json(&rows)?,
         OutputFormat::Terminal => {
-            // Session ids, times, and branches come from transcripts.
             let mut out = io::stdout().lock();
             for row in &rows {
                 writeln!(
@@ -331,7 +293,6 @@ fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Resu
             )));
         }
         many => {
-            // Escaped with the whole message when it is printed.
             let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
             return Err(CliError::CommandFailed(format!(
                 "'{}' matches several sessions: {}",

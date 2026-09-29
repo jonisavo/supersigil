@@ -619,16 +619,26 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     Role::Human
 }
 
+/// Text of a message's content, empty when it carries none.
 fn text_of(content: Option<&Value>) -> String {
-    match content {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter(|b| is_block(b, "text"))
-            .filter_map(|b| b.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
+    content_text(content).unwrap_or_default()
+}
+
+/// Text of message or `tool_result` content: the string itself, or its text
+/// blocks joined by newlines. `None` when it carries no text, which differs
+/// from carrying empty text.
+fn content_text(content: Option<&Value>) -> Option<String> {
+    match content? {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(items) => {
+            let texts: Vec<&str> = items
+                .iter()
+                .filter(|b| is_block(b, "text"))
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .collect();
+            (!texts.is_empty()).then(|| texts.join("\n"))
+        }
+        _ => None,
     }
 }
 
@@ -919,23 +929,6 @@ fn build_edit(
     }))
 }
 
-/// Text of a `tool_result` block's content: the string itself, or its text
-/// blocks joined by newlines. `None` when the block carries no text.
-fn block_text(block: &Value) -> Option<String> {
-    match block.get("content")? {
-        Value::String(text) => Some(text.clone()),
-        Value::Array(items) => {
-            let texts: Vec<&str> = items
-                .iter()
-                .filter(|b| is_block(b, "text"))
-                .filter_map(|b| b.get("text").and_then(Value::as_str))
-                .collect();
-            (!texts.is_empty()).then(|| texts.join("\n"))
-        }
-        _ => None,
-    }
-}
-
 fn stream_tail(text: Option<&str>) -> Material<String> {
     text.map_or_else(
         || Material::unavailable(NOT_CAPTURED),
@@ -976,7 +969,7 @@ fn build_command(tool: &PendingTool, session: &SessionId, resolution: &Resolutio
     // command's output as the harness showed it to the agent.
     let stdout = string_field(result, "stdout")
         .map(str::to_owned)
-        .or_else(|| block_text(resolution.block));
+        .or_else(|| content_text(resolution.block.get("content")));
     let stderr = string_field(result, "stderr");
     let interrupted = result
         .and_then(|r| r.get("interrupted"))
