@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::derivations::{ALGORITHM_VERSION, DerivationSet, Discontinuity, Restore};
 use crate::ids::{ContentId, EventId, Revision, SessionId};
-use crate::observations::{Edit, Observation};
+use crate::observations::{Content, Edit, FileState, Observation};
 
 /// Derives restores and discontinuities from `observations`.
 ///
@@ -15,7 +15,11 @@ use crate::observations::{Edit, Observation};
 /// restores and discontinuities are claimed only within one transcript's
 /// ordering. How edits from different transcripts (a subagent's, or another
 /// main transcript of the session) relate is left to attribution.
-/// A claim is made only where both content ids involved are known.
+/// A restore is claimed only where both content ids involved are known. A
+/// discontinuity is claimed where both adjacent states are known and differ:
+/// an absent file is a known state, so a file left present that the next
+/// edit finds absent (or the reverse) is a gap, while unknown content on
+/// either side makes no claim.
 ///
 /// Each event counts once: a transcript read again from the start appends
 /// its edits again under the same ids, and only the first record of an
@@ -69,7 +73,7 @@ pub fn derive(
         }
         for pair in edits.windows(2) {
             let (prev, next) = (pair[0], pair[1]);
-            if let (Some(a), Some(b)) = (prev.after_content(), next.before_content())
+            if let (Some(a), Some(b)) = (known_state(&prev.after), known_state(&next.before))
                 && a != b
             {
                 discontinuities.push(Discontinuity {
@@ -92,12 +96,25 @@ pub fn derive(
     }
 }
 
+/// `state` when it is fully known: absent, or present with known content.
+fn known_state(state: &FileState) -> Option<&FileState> {
+    match state {
+        FileState::Present {
+            content: Content::Unknown,
+        } => None,
+        FileState::Absent
+        | FileState::Present {
+            content: Content::Known(_),
+        } => Some(state),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
     use crate::ids::{Timestamp, TurnId};
-    use crate::observations::{FileState, Material};
+    use crate::observations::Material;
 
     fn session() -> SessionId {
         SessionId::new("s1")
@@ -266,6 +283,48 @@ mod tests {
         let set = derive(&session(), &obs, Revision::ZERO.next());
         assert!(set.restores.is_empty());
         assert!(set.discontinuities.is_empty());
+    }
+
+    #[test]
+    fn a_file_deleted_between_edits_is_a_discontinuity() {
+        let obs = vec![
+            edit("t1", "a.txt", 1, known("x\n"), known("y\n")),
+            edit("t2", "a.txt", 2, FileState::Absent, known("z\n")),
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert_eq!(
+            set.discontinuities,
+            vec![Discontinuity {
+                path: PathBuf::from("a.txt"),
+                checkout: PathBuf::from("/work/repo"),
+                prev: id("t1"),
+                next: id("t2"),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_file_created_between_edits_is_a_discontinuity() {
+        let obs = vec![
+            edit("t1", "a.txt", 1, known("x\n"), FileState::Absent),
+            edit("t2", "a.txt", 2, known("y\n"), known("z\n")),
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert_eq!(set.discontinuities.len(), 1);
+        assert_eq!(set.discontinuities[0].prev, id("t1"));
+        assert_eq!(set.discontinuities[0].next, id("t2"));
+
+        // Absent to absent meets, and unknown content on either side makes
+        // no claim.
+        let obs = vec![
+            edit("t1", "a.txt", 1, known("x\n"), FileState::Absent),
+            edit("t2", "a.txt", 2, FileState::Absent, known("z\n")),
+            edit("t3", "a.txt", 3, FileState::unknown(), FileState::Absent),
+            edit("t4", "a.txt", 4, FileState::Absent, FileState::unknown()),
+            edit("t5", "a.txt", 5, FileState::Absent, known("w\n")),
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert!(set.discontinuities.is_empty(), "{:?}", set.discontinuities);
     }
 
     #[test]

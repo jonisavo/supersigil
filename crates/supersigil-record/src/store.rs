@@ -39,13 +39,15 @@ pub const MANIFEST_FILE: &str = "manifest.json";
 pub const LOCK_FILE: &str = "write.lock";
 
 /// Encodes a session id into one safe path component: every byte outside
-/// `A-Z a-z 0-9 _ -` becomes `%XX`, so an id taken from a transcript can never
-/// contain a separator or spell `..`.
+/// `a-z 0-9 _ -` becomes `%XX`, so an id taken from a transcript can never
+/// contain a separator or spell `..`. Uppercase letters are escaped too, so
+/// two ids that differ only in case stay two files on a case-insensitive
+/// file system: the only uppercase letters in a key are escape hex digits.
 #[must_use]
 pub fn storage_key(session: &SessionId) -> String {
     let mut key = String::new();
     for byte in session.as_str().bytes() {
-        if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-' {
             key.push(char::from(byte));
         } else {
             let _ = write!(key, "%{byte:02X}");

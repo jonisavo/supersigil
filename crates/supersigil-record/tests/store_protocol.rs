@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use supersigil_record::store::{
-    Association, SourceCursor, Store, StoreError, observations_log, storage_key,
+    Association, SourceCursor, Store, StoreError, decode_storage_key, observations_log, storage_key,
 };
 use supersigil_record::{RecordId, Revision, SessionId};
 
@@ -353,6 +353,22 @@ fn odd_session_ids_get_safe_storage_keys() {
     let mut sessions = snapshot.sessions();
     sessions.sort();
     assert_eq!(sessions, vec![attacker, victim]);
+}
+
+#[test]
+fn storage_keys_stay_distinct_when_case_is_folded() {
+    // Case-insensitive file systems fold `S` and `s` into one file name, so
+    // uppercase letters are escaped like every other byte outside the plain
+    // set.
+    assert_eq!(storage_key(&SessionId::new("S")), "%53");
+    assert_eq!(storage_key(&SessionId::new("s")), "s");
+    assert_ne!(
+        storage_key(&SessionId::new("S")).to_lowercase(),
+        storage_key(&SessionId::new("s")).to_lowercase()
+    );
+    assert_eq!(decode_storage_key("%53"), SessionId::new("S"));
+    let uuid = "11111111-1111-4111-8111-111111111111";
+    assert_eq!(storage_key(&SessionId::new(uuid)), uuid);
 }
 
 #[test]

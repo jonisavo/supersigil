@@ -24,7 +24,9 @@ pub struct Restore {
 }
 
 /// Two consecutive edits on one path whose known states do not meet: the
-/// available observations have a gap between them.
+/// available observations have a gap between them. Absence is a known
+/// state, so a file the earlier edit left present and the later edit found
+/// absent, or the reverse, is a gap too; unknown content never is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Discontinuity {
     /// Path relative to the checkout.
