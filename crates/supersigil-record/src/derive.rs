@@ -11,18 +11,21 @@ use crate::observations::{Content, Edit, FileState, Observation};
 ///
 /// Keeps the first occurrence of each edit ID in `observations`, then groups
 /// edits by checkout, path, and transcript. Each group is sorted by
-/// [`Edit::source_ordinal`], preserving input order for ties. Timestamps do not
-/// affect this order. Edits without a transcript path form their own group
-/// for each checkout and path.
+/// [`Edit::source_ordinal`]. Timestamps do not affect this order. Edits
+/// without a transcript path form their own group for each checkout and path.
+/// Edits with equal ordinals were issued by one record, such as parallel tool
+/// calls, and nothing records which ran first.
 ///
 /// Within each group:
 ///
-/// - A restore matches an edit's after-content hash to an earlier edit's
-///   before-content hash. Both hashes must be known. An edit with identical
-///   before and after hashes is not reported as a restore.
+/// - A restore matches an edit's after-content hash to the before-content
+///   hash of an edit with a lower ordinal. Both hashes must be known. An edit
+///   with identical before and after hashes is not reported as a restore.
 /// - A discontinuity compares one edit's after-state with the next edit's
 ///   before-state. Different known hashes, or a known hash paired with an
-///   absent file, count as a mismatch. Unknown content prevents comparison.
+///   absent file, count as a mismatch. Unknown content prevents comparison,
+///   and so does an edit that shares its ordinal, since which edit came
+///   next is unknown.
 ///
 /// Copies `observation_revision` into the result to identify the input revision.
 /// Comparisons use only the supplied observations and cannot establish that
@@ -51,26 +54,36 @@ pub fn derive(
     let mut discontinuities = Vec::new();
     for ((checkout, path, _), mut edits) in groups {
         edits.sort_by_key(|e| e.source_ordinal);
-        // Known before-contents of the edits seen so far in this group, each
-        // with its edits oldest first.
+        // The edits of each ordinal, in ordinal order.
+        let issued: Vec<&[&Edit]> = edits
+            .chunk_by(|a, b| a.source_ordinal == b.source_ordinal)
+            .collect();
+        // Known before-contents of the edits with lower ordinals, each with
+        // its edits oldest first.
         let mut befores: BTreeMap<&ContentId, Vec<EventId>> = BTreeMap::new();
-        for edit in &edits {
-            let earlier = edit
-                .after_content()
-                .filter(|after| edit.before_content() != Some(after))
-                .and_then(|after| befores.get(after));
-            if let Some(earlier) = earlier {
-                restores.push(Restore {
-                    edit: edit.id.clone(),
-                    restores: earlier.clone(),
-                });
+        for &together in &issued {
+            for edit in together {
+                let earlier = edit
+                    .after_content()
+                    .filter(|after| edit.before_content() != Some(after))
+                    .and_then(|after| befores.get(after));
+                if let Some(earlier) = earlier {
+                    restores.push(Restore {
+                        edit: edit.id.clone(),
+                        restores: earlier.clone(),
+                    });
+                }
             }
-            if let Some(before) = edit.before_content() {
-                befores.entry(before).or_default().push(edit.id.clone());
+            for edit in together {
+                if let Some(before) = edit.before_content() {
+                    befores.entry(before).or_default().push(edit.id.clone());
+                }
             }
         }
-        for pair in edits.windows(2) {
-            let (prev, next) = (pair[0], pair[1]);
+        for pair in issued.windows(2) {
+            let (&[prev], &[next]) = (pair[0], pair[1]) else {
+                continue;
+            };
             if let (Some(a), Some(b)) = (known_state(&prev.after), known_state(&next.before))
                 && a != b
             {
@@ -171,6 +184,39 @@ mod tests {
         assert!(set.discontinuities.is_empty());
         assert_eq!(set.observation_revision, Revision::ZERO.next());
         assert_eq!(set.algorithm_version, ALGORITHM_VERSION);
+    }
+
+    #[test]
+    fn edits_issued_by_one_record_make_no_claim_between_them() {
+        // Two parallel edits of one file, issued by the record at ordinal 3:
+        // either could have run first.
+        let obs = vec![
+            edit("t1", "notes.txt", 3, known("draft\n"), known("final\n")),
+            edit("t2", "notes.txt", 3, known("final\n"), known("draft\n")),
+            edit("t3", "src/lib.rs", 3, known("a\n"), known("b\n")),
+            edit("t4", "src/lib.rs", 3, known("c\n"), known("d\n")),
+        ];
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert!(set.restores.is_empty(), "{:?}", set.restores);
+        assert!(set.discontinuities.is_empty(), "{:?}", set.discontinuities);
+
+        // A later edit still restores content from before both.
+        let mut obs = obs;
+        obs.push(edit(
+            "t5",
+            "notes.txt",
+            4,
+            known("draft\n"),
+            known("final\n"),
+        ));
+        let set = derive(&session(), &obs, Revision::ZERO.next());
+        assert_eq!(
+            set.restores,
+            vec![Restore {
+                edit: id("t5"),
+                restores: vec![id("t2")]
+            }]
+        );
     }
 
     #[test]
