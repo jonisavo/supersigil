@@ -407,3 +407,57 @@ fn a_linked_worktree_is_snapshotted_from_its_own_index() {
         "a\n"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn a_pathspec_this_platform_cannot_represent_is_refused() {
+    let repo = committed();
+    // A lone surrogate is not UTF-8, so the path has no Windows form.
+    let options = SnapshotOptions {
+        pathspecs: vec![RepoPath::new(b"x\xff".to_vec())],
+        ..SnapshotOptions::default()
+    };
+    let result = snapshot_working_tree(&repo.repo(), &options);
+    assert!(result.is_err(), "{result:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_magic_looking_ignored_name_is_ignored_and_refused() {
+    let repo = committed();
+    repo.write(".gitignore", b"/:(literal)x\n");
+    repo.write(":(literal)x", b"secret\n");
+    let options = SnapshotOptions {
+        include_untracked: vec![RepoPath::from_utf8(":(literal)x")],
+        ..SnapshotOptions::default()
+    };
+    let result = snapshot_working_tree(&repo.repo(), &options);
+    assert!(
+        matches!(&result, Err(GitError::Untracked { reason, .. }) if reason == "ignored"),
+        "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_directory_is_an_error_not_a_missing_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let repo = TestRepo::new();
+    repo.write("dir/f.txt", b"f\n");
+    repo.commit_all("dir");
+    repo.run(&["update-index", "--assume-unchanged", "dir/f.txt"]);
+    let dir = repo.root.join("dir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let restore = || std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+    if std::fs::symlink_metadata(dir.join("f.txt")).is_ok() {
+        restore().unwrap();
+        return; // running as root: permissions do not apply
+    }
+    let result = snapshot_working_tree(&repo.repo(), &SnapshotOptions::default());
+    restore().unwrap();
+    assert!(
+        matches!(result, Err(GitError::Io { .. })),
+        "{:?}",
+        result.map(|s| s.not_captured)
+    );
+}

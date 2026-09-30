@@ -97,11 +97,18 @@ pub fn snapshot_working_tree(
     repo: &Repo,
     options: &SnapshotOptions,
 ) -> Result<WorkingTreeSnapshot, GitError> {
-    let pathspecs: Vec<OsString> = options
+    let pathspecs = options
         .pathspecs
         .iter()
-        .filter_map(RepoPath::literal_pathspec)
-        .collect();
+        .map(|path| {
+            path.literal_pathspec().ok_or_else(|| {
+                GitError::Parse(format!(
+                    "path {} is not representable on this platform",
+                    path.display()
+                ))
+            })
+        })
+        .collect::<Result<Vec<OsString>, GitError>>()?;
     // Read from the real index before anything else, without the override.
     let unmerged = unmerged_paths(repo, &pathspecs)?;
     let index = real_index_path(repo)?;
@@ -219,17 +226,26 @@ fn include(repo: &Repo, staging: &Staging, path: &RepoPath) -> Result<(), GitErr
     let (Some(relative), Some(spec)) = (path.to_path(), path.literal_pathspec()) else {
         return Err(refuse("not representable on this platform"));
     };
-    if repo.root().join(&relative).symlink_metadata().is_err() {
-        return Err(refuse("no such file"));
+    match repo.root().join(&relative).symlink_metadata() {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(refuse("no such file")),
+        Err(e) => return Err(io_error("cannot inspect an included path", e)),
     }
-    let ignored = staging.raw(&[
-        "check-ignore".into(),
-        "-q".into(),
-        "--".into(),
-        relative.into(),
-    ])?;
-    if ignored.status.success() {
-        return Err(refuse("ignored"));
+    // `check-ignore` reads its arguments as pathspecs and refuses magic, so a
+    // `./` prefix keeps a name such as `:(literal)x` from being parsed as one.
+    let mut named = OsString::from("./");
+    named.push(relative);
+    let ignored = staging.raw(&["check-ignore".into(), "-q".into(), "--".into(), named])?;
+    match ignored.status.code() {
+        Some(0) => return Err(refuse("ignored")),
+        Some(1) => {}
+        status => {
+            return Err(GitError::Failed {
+                args: "check-ignore".to_owned(),
+                status,
+                stderr: String::from_utf8_lossy(&ignored.stderr).trim().to_owned(),
+            });
+        }
     }
     staging.run(&["add".into(), "--".into(), spec])?;
     Ok(())
@@ -265,7 +281,7 @@ fn not_staged(
         let on_disk = if status.first() == Some(&b'D') {
             OnDisk::Missing
         } else {
-            on_disk(repo, &path)
+            on_disk(repo, &path)?
         };
         listed.push(NotCaptured {
             path,
@@ -300,12 +316,12 @@ fn flagged_entries(
         let path = RepoPath::new(path.to_vec());
         if tag.is_ascii_lowercase() {
             listed.push(NotCaptured {
-                on_disk: on_disk(repo, &path),
+                on_disk: on_disk(repo, &path)?,
                 path,
                 cause: NotCapturedCause::AssumeUnchanged,
             });
         } else if *tag == b'S' {
-            match on_disk(repo, &path) {
+            match on_disk(repo, &path)? {
                 OnDisk::Present => listed.push(NotCaptured {
                     path,
                     on_disk: OnDisk::Present,
@@ -351,14 +367,25 @@ fn untracked_paths(staging: &Staging, pathspecs: &[OsString]) -> Result<Vec<Repo
 }
 
 /// Whether `path` exists under the worktree root (a dangling symlink exists).
-fn on_disk(repo: &Repo, path: &RepoPath) -> OnDisk {
-    let exists = path
-        .to_path()
-        .is_some_and(|relative| repo.root().join(relative).symlink_metadata().is_ok());
-    if exists {
-        OnDisk::Present
-    } else {
-        OnDisk::Missing
+/// Only "not found" means missing; any other failure (for example an
+/// inaccessible parent directory) is an error, never a guess.
+///
+/// # Errors
+///
+/// Returns [`GitError::Parse`] if the platform cannot represent the path, or
+/// [`GitError::Io`] if the file cannot be inspected for a reason other than
+/// its absence.
+fn on_disk(repo: &Repo, path: &RepoPath) -> Result<OnDisk, GitError> {
+    let relative = path.to_path().ok_or_else(|| {
+        GitError::Parse(format!(
+            "path {} is not representable on this platform",
+            path.display()
+        ))
+    })?;
+    match repo.root().join(relative).symlink_metadata() {
+        Ok(_) => Ok(OnDisk::Present),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(OnDisk::Missing),
+        Err(e) => Err(io_error(&format!("cannot inspect {}", path.display()), e)),
     }
 }
 
