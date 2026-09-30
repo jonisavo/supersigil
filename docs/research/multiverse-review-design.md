@@ -9,6 +9,14 @@ section 8. Section 6 records how each review point was handled. Section 7
 records the author's decisions on points the first review reopened. Section 8
 describes the vertical slice that starts implementation.
 
+Amended on 2026-09-29 by the plan 2 design
+(`docs/research/2026-09-29-review-slice-2-design.md`): a fifth library
+crate for git (section 4), measured facts about Claude Code transcripts
+(section 4), how the working-tree target is built and when the retention ref
+is written (section 5, snapshots), the review basis pinning several records
+(section 5, data model), and the attribution claims and relations (section 5,
+attribution). The plan 2 design holds the detail and the reasoning.
+
 Guiding principle, adopted from the first review:
 
 > Supersigil should make the development history easier to inspect without
@@ -157,9 +165,9 @@ in the interpretation layer, drawn as a dotted stub, never a code state.
 
 A review is a selected change between a base snapshot and a target snapshot,
 within a stated scope. Both snapshots are complete git trees. For the working
-tree, Supersigil builds the complete target tree by applying the saved on-disk
-state, including deletions, to the base through a temporary index, so two
-different deletions never share an identity. The scope states what the review
+tree, Supersigil builds the complete target tree from a temporary copy of
+the checkout's index updated with the saved on-disk state, including
+deletions, so two different deletions never share an identity. The scope states what the review
 includes: tracked changes always; untracked files, path filters, binary and
 unsupported files, and mode-only changes according to explicit options with
 stated defaults. Sessions are contributors to a review. Selecting a session
@@ -253,8 +261,10 @@ that exact code and evidence state.
 
 ## 4. Architecture (agreed)
 
-Four new library crates, all deterministic, one TUI crate, and CLI commands.
-Editors and the LSP come in a later arc.
+Five new library crates, one TUI crate, and CLI commands. Editors and the
+LSP come in a later arc. All library crates except `supersigil-git` are
+deterministic and pure over their inputs; `supersigil-git` is the one that
+runs git, so the others stay testable without repositories.
 
 - **supersigil-session.** Transcript sources behind one trait, Claude Code
   first. Discovery uses the `transcript_path` and `cwd` that Claude Code hooks
@@ -282,6 +292,13 @@ Editors and the LSP come in a later arc.
   chain composes, labeled content matching when it does not, with capture
   completeness reported separately. A span can have several contributors, in
   named relations. Symbol anchors through tree-sitter are a later arc.
+- **supersigil-git.** Everything that talks to git, through the git CLI so
+  the working-tree target is exactly the tree `git add` would write under
+  every filter, index, and hook configuration: snapshots of a base and a
+  target, changed paths, blob bytes and their worktree-form conversion,
+  worktrees, and the per-worktree reflogs that say which worktree originated
+  a commit. It never writes the real index, the worktree, or a ref (the
+  retention ref is written by the judgment path, section 5).
 - **supersigil-review.** Pure functions that build the review model from a
   review basis, the record, and anchors: both perspectives, decision groups,
   attempts, consequences, and the closing gate with stable item identities.
@@ -340,6 +357,25 @@ review. Hook: stop-hook snippet installed by `supersigil init`.
   are the starting corpus, not a contract; the parser degrades visibly when a
   field is absent.
 
+Measured on 2026-09-29 over every transcript on the author's machine (1,058
+Edit and 860 Write calls, Claude Code 2.1.258 to 2.1.284):
+
+- `originalFile` is present only for small files (at most 8,996 characters
+  observed) and null for larger ones, so the before- and after-states of
+  most real edits carry no content hash.
+- `structuredPatch` is a display rendering, not bytes: tabs are expanded.
+  `oldString`, `newString`, and Write `content` are byte-faithful; replacing
+  the located `newString` with `oldString` reproduced `originalFile` for all
+  151 edits that had one. Attribution and every rendering of a historical
+  patch use the replacement texts, never the hunks; attribution uses a hunk
+  only as a consistency check where no recorded hash decides, under the
+  display rule measured over the same corpus (every tab shown as two spaces,
+  274 of 274 hunks), and ignores a hunk that contradicts the rule (one holding
+  a literal tab). A rule changed in a way that check cannot see could reject
+  the true reading of a hashless edit and hide an alternative; that is the
+  stated cost of using the rule.
+- MultiEdit does not occur.
+
 ## 5. Model and mechanics (draft, awaiting the author's review)
 
 ### Layers
@@ -391,8 +427,11 @@ Motivates  { from: RestoreId, to: DecisionId, basis: Rationale }
 
 # Contributions
 ReviewBasis { id, base: TreeId, target: TreeId, scope: Scope,
-              record_revision, annotation_revisions: [(session, revision)],
+              record_revisions: [(RecordId, revision)],
+              annotation_revisions: [(session, revision)],
               derivation_version }
+              # one review can involve several records: a sibling worktree
+              # or a subdirectory checkout has its own
 Judgment    { id, kind: Ack | Dismiss | Comment | Correction | Complete,
               basis: ReviewBasisId, decision?, gate_item?: GateItemId,
               anchor?, who, time, text? ,
@@ -411,12 +450,17 @@ timestamps are used for display, never to break ties in lineage.
 
 ### Snapshots and scope
 
-The base is a commit tree. The working-tree target is a complete tree built
-by applying the saved on-disk state to the base through a temporary index,
-honoring the scope's inclusion options, and written to the repository's object
-database. A ref under `refs/supersigil/reviews/<basis id>` points at a commit
-wrapping that tree so the reviewed bytes survive garbage collection and a
-completed review can be reopened later; the ref is local and never pushed. If
+The base is a commit tree, or the empty tree when there is no commit. The
+working-tree target is a complete tree built from a temporary copy of the
+checkout's index, updated with the saved on-disk state as `git add -u` would
+(and with explicitly listed untracked paths), honoring the scope's inclusion
+options, and written to the repository's object database; paths whose
+on-disk state that procedure does not capture are listed. When the first
+judgment binds to a basis, a ref under `refs/supersigil/reviews/<basis id>`
+is created pointing at a commit wrapping that tree, so the reviewed bytes
+survive garbage collection and a completed review can be reopened later; the
+ref is local and never pushed. Reviews that nobody judged write no ref, since
+every sync mints a new basis. If
 the capture policy forbids retaining the bytes, the basis records that the
 target is not reproducible, and reopening shows the judgments without the
 diff. Scope defaults for the first arc: tracked changes included, untracked
@@ -469,23 +513,39 @@ the final code.
 
 ### Attribution
 
-Two claims are kept apart. Transformation exactness: the retained patches
-compose against their recorded inputs and produce the target bytes; this is
-checked, and when it holds, spans are tracked through the composition.
-Capture completeness: the observations account for everything that happened
-between the states; this is never claimed. A composed chain with no
-discontinuity is reported as "exact patch correspondence within the observed
-chain", and a discontinuity is a detected gap in the available observations,
+Two claims are kept apart. Transformation exactness: the retained
+replacements, each validated by executing it forward with the recording
+tool's semantics, compose against their recorded inputs and produce the
+target bytes; this is checked, and when it holds, spans are tracked through
+the composition. Capture completeness: the observations account for
+everything that happened between the states; this is never claimed. Because
+most real edits carry no content hash (section 4), a chain is classed by
+what verifies it: *exact from the base* when replaying it from the base
+reproduces the target, *exact from its start* when every step's recorded
+hashes verify but its start is not the base (a gap), and *consistent* when
+neither holds, reported as "consistent with the recorded edits; not
+verified". A discontinuity is a detected gap in the available observations,
 not a promise that every unobserved transition is detectable.
 
 Contributors to a span are recorded in named relations: introduced the
-retained content, rewrote its presentation only (whitespace and formatting,
-detected by normalized comparison), replaced its behavior, or participated
-earlier in the region's history. Grouping the final diff by decision uses
-introduced and replaced; the others appear in the history perspective. A
-formatter pass therefore neither erases the decision beneath it nor claims
-authorship. When several sequences fit the evidence equally, the span is
-reported ambiguous with the competing chains, and time does not decide.
+retained content, replaced base content, changed only whitespace, or
+participated earlier in the region's history. Grouping the final diff by
+decision uses introduced and replaced, so a formatter pass neither erases
+the decision beneath it nor claims authorship. A whitespace-only change is
+an observed property, not a claim that presentation alone changed (whitespace
+can matter inside strings and in indentation-sensitive code), so it stays
+visible to decision grouping or the gate and is never dropped as formatting.
+When several readings of different recorded events fit the evidence, the
+span is reported ambiguous with the competing chains, and time does not
+decide. A reading that differs from one reaching the base only in something
+the record does not hold (where a replacement happened, the order of calls
+one message issued) or in how far back the recorded evidence reaches (the
+base-reaching reading may continue into sessions the other never reached),
+holds no recorded edit that one lacks, and needs an
+unrecorded change to explain its start is listed as an alternative that
+assumes an unrecorded change, not combined: that is the claim every exact
+chain makes, since capture completeness is never claimed. A reading holding
+recorded evidence the base-reaching one lacks is never set aside.
 
 Attribution across checkouts uses the record's associations. A commit target
 with no originating-checkout association is attributed only through git
