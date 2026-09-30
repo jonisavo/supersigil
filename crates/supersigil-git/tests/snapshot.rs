@@ -461,3 +461,21 @@ fn an_unreadable_directory_is_an_error_not_a_missing_file() {
         result.map(|s| s.not_captured)
     );
 }
+
+#[test]
+fn a_fatal_ignore_check_is_an_error_not_a_clean_path() {
+    let repo = committed();
+    // Beside the worktree: it exists, but `check-ignore` refuses it as
+    // outside the repository (exit 128).
+    std::fs::write(repo.dir.path().join("outside"), b"x\n").unwrap();
+    let options = SnapshotOptions {
+        include_untracked: vec![RepoPath::from_utf8("../outside")],
+        ..SnapshotOptions::default()
+    };
+    let result = snapshot_working_tree(&repo.repo(), &options);
+    assert!(
+        matches!(&result, Err(GitError::Failed { args, status: Some(128), stderr }) if args == "check-ignore" && stderr.contains("outside repository")),
+        "{:?}",
+        result.map(|s| s.tree)
+    );
+}
