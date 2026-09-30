@@ -8,7 +8,7 @@ use common::{SESSION, fixture, line_starts};
 
 use serde_json::{Value, json};
 use supersigil_record::observations::{
-    CommandCategory, Content, FileState, Material, Observation, Outcome, Role,
+    CommandCategory, Content, EditOperation, FileState, Material, Observation, Outcome, Role,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
@@ -223,6 +223,34 @@ fn edits_carry_both_sides_and_computed_after_states() {
     let capitalised = manual.replace("format!(\"hello {name}\")", "format!(\"Hello, {name}!\")");
     assert_eq!(edits[4].before, known(&manual));
     assert_eq!(edits[4].after, known(&capitalised));
+}
+
+#[test]
+fn fixture_edits_record_their_operation() {
+    let outcome = parse_transcript(&fixture(), 0);
+    let operations: Vec<EditOperation> = edits(&outcome).iter().map(|e| e.operation).collect();
+    assert_eq!(
+        operations,
+        [
+            EditOperation::Replace,
+            EditOperation::Write,
+            EditOperation::Replace,
+            EditOperation::Replace,
+            EditOperation::Replace,
+        ]
+    );
+}
+
+#[test]
+fn multi_edit_operation_is_unknown() {
+    let path = "/work/repo/a.txt";
+    let multi = only_edit(
+        "MultiEdit",
+        json!({"file_path": path, "edits": [{"old_string": "a", "new_string": "c"}]}),
+        json!({"filePath": path, "originalFile": "a b\n", "structuredPatch": []}),
+    );
+    assert_eq!(multi.after, known("c b\n"));
+    assert_eq!(multi.operation, EditOperation::Unknown);
 }
 
 #[test]

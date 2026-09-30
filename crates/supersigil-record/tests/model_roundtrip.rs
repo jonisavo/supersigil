@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use supersigil_record::observations::{
-    CaptureCounts, CaptureLimitation, Command, CommandCategory, Content, Edit, EndReason,
-    FileState, Hunk, Material, Observation, Outcome, Role, SessionEnd, SessionStart, Source, Turn,
+    CaptureCounts, CaptureLimitation, Command, CommandCategory, Content, Edit, EditOperation,
+    EndReason, FileState, Hunk, Material, Observation, Outcome, Role, SessionEnd, SessionStart,
+    Source, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -55,6 +56,7 @@ fn sample() -> Vec<Observation> {
                 policy: "capture.edit_text".to_owned(),
             },
             replace_all: false,
+            operation: EditOperation::Replace,
             checkout: checkout.clone(),
             time: Timestamp::new("2026-09-28T10:00:06.000Z"),
             source_ordinal: 2,
@@ -127,6 +129,28 @@ fn observations_round_trip_through_json_lines() {
     assert_eq!(
         parsed[2].session().as_str(),
         "11111111-1111-4111-8111-111111111111"
+    );
+}
+
+#[test]
+fn edit_without_operation_deserializes_as_unknown() {
+    let Observation::Edit(recorded) = &sample()[2] else {
+        panic!("sample()[2] is the edit");
+    };
+    let mut json = serde_json::to_value(&sample()[2]).unwrap();
+    assert_eq!(json["operation"], "replace");
+    json.as_object_mut().unwrap().remove("operation");
+    let parsed: Observation = serde_json::from_value(json).unwrap();
+    let Observation::Edit(parsed) = parsed else {
+        panic!("still an edit");
+    };
+    assert_eq!(parsed.operation, EditOperation::Unknown);
+    assert_eq!(
+        Edit {
+            operation: EditOperation::Replace,
+            ..parsed
+        },
+        *recorded
     );
 }
 

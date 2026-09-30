@@ -277,6 +277,23 @@ pub struct Hunk {
     pub lines: Vec<String>,
 }
 
+/// Editing operation recorded for an edit.
+///
+/// Reconstructing an earlier file state depends on it: an Edit replaced
+/// `old_text` with `new_text`, a Write replaced the whole file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditOperation {
+    /// Claude Code's Edit tool: `old_text` replaced by `new_text`.
+    Replace,
+    /// Claude Code's Write tool: the whole file becomes `new_text`.
+    Write,
+    /// Not recorded (logs written before this field existed) or a tool
+    /// anchor cannot reverse, such as `MultiEdit`.
+    #[default]
+    Unknown,
+}
+
 /// A file edit made through the agent's editing tools.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
@@ -300,6 +317,9 @@ pub struct Edit {
     pub new_text: Material<String>,
     /// Whether the editing tool was instructed to replace every matching occurrence.
     pub replace_all: bool,
+    /// Editing operation, `Unknown` for observations recorded before it was kept.
+    #[serde(default)]
+    pub operation: EditOperation,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
     /// Timestamp of the tool result, falling back to the issuing record's

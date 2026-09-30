@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 use supersigil_record::observations::{
-    CaptureCounts, Command, CommandCategory, Edit, FileState, Hunk, Material, Observation, Outcome,
-    Role, Turn,
+    CaptureCounts, Command, CommandCategory, Edit, EditOperation, FileState, Hunk, Material,
+    Observation, Outcome, Role, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -883,10 +883,10 @@ fn build_edit(
     }
     let result = resolution.structured;
     let path = relative_path(tool, result)?;
-    let parts = match tool.name.as_str() {
-        "Edit" => edit_parts(tool, result),
-        "Write" => write_parts(tool, result),
-        _ => multi_edit_parts(tool, result),
+    let (parts, operation) = match tool.name.as_str() {
+        "Edit" => (edit_parts(tool, result), EditOperation::Replace),
+        "Write" => (write_parts(tool, result), EditOperation::Write),
+        _ => (multi_edit_parts(tool, result), EditOperation::Unknown),
     };
     Ok(Observation::Edit(Edit {
         id: EventId::derive("edit", session, &tool.id),
@@ -899,6 +899,7 @@ fn build_edit(
         old_text: parts.old_text,
         new_text: parts.new_text,
         replace_all: parts.replace_all,
+        operation,
         checkout: tool.cwd.clone(),
         time: resolution
             .ended
