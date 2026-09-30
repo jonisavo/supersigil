@@ -112,3 +112,47 @@ jobs:
 
       - name: Test
         run: cargo nextest run
+
+  test-git-minimum:
+    name: Test (git 2.36.0)
+    runs-on: ubuntu-latest
+    env:
+      GIT_MINIMUM: 2.36.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master, "Add 1.94.1 patch release"
+        with:
+          toolchain: stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Cache git ${{ env.GIT_MINIMUM }}
+        id: git-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/git-${{ env.GIT_MINIMUM }}
+          key: git-${{ env.GIT_MINIMUM }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build git ${{ env.GIT_MINIMUM }}
+        if: steps.git-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y zlib1g-dev
+          curl -fsSL "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_MINIMUM}.tar.xz" | tar -xJ
+          make -C "git-${GIT_MINIMUM}" -j"$(nproc)" prefix="$HOME/git-${GIT_MINIMUM}" \
+            NO_CURL=1 NO_EXPAT=1 NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 install
+
+      - name: Install nextest
+        uses: taiki-e/install-action@1ed3272338f573e042a2e6bca3893aa19f43b47a # v2.71.3
+        with:
+          tool: cargo-nextest@0.9.132
+
+      - name: Test the git crate with git ${{ env.GIT_MINIMUM }}
+        run: |
+          export PATH="$HOME/git-${GIT_MINIMUM}/bin:$PATH"
+          git --version
+          test "$(git version)" = "git version ${GIT_MINIMUM}"
+          cargo nextest run -p supersigil-git
