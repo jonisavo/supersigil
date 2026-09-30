@@ -1,0 +1,19 @@
+[package]
+name = "supersigil-anchor"
+version = "0.14.0"
+description = "Attribution of reviewed changes to recorded agent edits for supersigil"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde.workspace = true
+supersigil-record.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
