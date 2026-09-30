@@ -121,37 +121,77 @@ impl Repo {
         parse_output(&output, self.format)
     }
 
-    /// Returns the commit HEAD points at, or `None` for an unborn branch.
+    /// Returns the commit HEAD points at, or `None` when HEAD is a symbolic
+    /// ref to a branch that does not exist yet (an unborn branch).
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`Git::raw`], or [`GitError::Parse`] for output
-    /// that is not an object id.
+    /// Returns [`GitError::Failed`] when HEAD cannot be read for any other
+    /// reason: a detached or symbolic HEAD whose commit object is missing, a
+    /// corrupt HEAD, or a fatal git failure. Also returns the errors of
+    /// [`Git::raw`], or [`GitError::Parse`] for output that is not an object
+    /// id.
     pub fn head(&self) -> Result<Option<ObjectId>, GitError> {
-        let output = self
-            .git
-            .raw(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
-        if !output.status.success() {
-            return Ok(None);
+        let args = ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"];
+        let output = self.git.raw(args)?;
+        if output.status.success() {
+            return parse_output(&output.stdout, self.format).map(Some);
         }
-        parse_output(&output.stdout, self.format).map(Some)
+        let failed = |output: &std::process::Output, args: &[&str]| GitError::Failed {
+            args: args.join(" "),
+            status: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        };
+        if output.status.code() != Some(1) {
+            return Err(failed(&output, &args));
+        }
+        // Exit 1 means HEAD did not resolve to a commit: unborn only if HEAD
+        // is a symbolic ref whose branch does not exist.
+        let symbolic = self.git.raw(["symbolic-ref", "--quiet", "HEAD"])?;
+        if !symbolic.status.success() {
+            return Err(failed(&output, &args));
+        }
+        let name = String::from_utf8_lossy(symbolic.stdout.trim_ascii()).into_owned();
+        let show = ["show-ref", "--verify", "--quiet", "--end-of-options", &name];
+        let exists = self.git.raw(show)?;
+        match exists.status.code() {
+            Some(1) => Ok(None),
+            _ => Err(failed(&output, &args)),
+        }
     }
 
     /// Returns the first parent of `commit`, or `None` for a root commit.
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`Git::output`], or [`GitError::Parse`] for
-    /// output that is not a list of object ids.
+    /// Returns [`GitError::MissingParent`] when the commit names a parent
+    /// whose object cannot be read (a shallow boundary or otherwise
+    /// unavailable history), never treating it as a root. Also returns the
+    /// errors of [`Git::output`], or [`GitError::Parse`] for a commit or id
+    /// this crate cannot read.
     pub fn first_parent(&self, commit: &ObjectId) -> Result<Option<ObjectId>, GitError> {
-        let output = self
-            .git
-            .output(["rev-list", "--parents", "-n", "1", commit.as_str()])?;
-        let text = String::from_utf8_lossy(&output);
-        text.split_whitespace()
-            .nth(1)
-            .map(|parent| ObjectId::parse(parent, self.format))
-            .transpose()
+        let output = self.git.output(["cat-file", "commit", commit.as_str()])?;
+        // Headers end at the first blank line; a commit message is not parsed.
+        let header_end = output
+            .windows(2)
+            .position(|w| w == b"\n\n")
+            .map_or(output.len(), |i| i + 1);
+        let parent = output[..header_end]
+            .split(|&b| b == b'\n')
+            .find_map(|line| line.strip_prefix(b"parent "));
+        let Some(parent) = parent else {
+            return Ok(None);
+        };
+        let parent = ObjectId::parse(&String::from_utf8_lossy(parent), self.format)?;
+        let spec = format!("{parent}^{{commit}}");
+        let readable = self.git.raw(["cat-file", "-e", &spec])?;
+        if !readable.status.success() {
+            return Err(GitError::MissingParent {
+                commit: commit.clone(),
+                parent,
+            });
+        }
+        Ok(Some(parent))
     }
 
     /// Writes the empty tree and returns its id. The id depends on the object

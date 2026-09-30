@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::oid::ObjectId;
 use crate::run::GitVersion;
 
 /// Failure to run git, or git output this crate cannot use.
@@ -49,6 +50,15 @@ pub enum GitError {
     /// A revision did not resolve to a commit.
     #[error("unknown revision: {0}")]
     UnknownRevision(String),
+    /// A commit names a parent whose object cannot be read, for example at a
+    /// shallow boundary.
+    #[error("commit {commit} names parent {parent}, which is not available")]
+    MissingParent {
+        /// The commit whose parent is unavailable.
+        commit: ObjectId,
+        /// The parent it names.
+        parent: ObjectId,
+    },
     /// A path given to include as untracked could not be included.
     #[error("cannot include untracked path {path}: {reason}")]
     Untracked {

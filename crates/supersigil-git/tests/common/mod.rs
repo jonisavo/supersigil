@@ -24,6 +24,11 @@ pub fn isolated(git: Git, home: &Path) -> Git {
         .with_env("GIT_COMMITTER_EMAIL", "test@example.com")
 }
 
+/// Whether two paths name the same directory once symlinks are resolved.
+pub fn same_dir(a: &Path, b: &Path) -> bool {
+    std::fs::canonicalize(a).unwrap() == std::fs::canonicalize(b).unwrap()
+}
+
 /// A repository in a temporary directory, with `core.autocrlf=false`.
 pub struct TestRepo {
     /// Holds the temporary directory: `home/` for configuration, `repo/` for

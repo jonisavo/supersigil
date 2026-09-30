@@ -2,14 +2,8 @@
 
 mod common;
 
-use std::path::Path;
-
-use common::TestRepo;
+use common::{TestRepo, same_dir};
 use supersigil_git::worktree::list_worktrees;
-
-fn same_dir(a: &Path, b: &Path) -> bool {
-    std::fs::canonicalize(a).unwrap() == std::fs::canonicalize(b).unwrap()
-}
 
 #[test]
 fn worktrees_are_listed_main_first_with_their_heads() {

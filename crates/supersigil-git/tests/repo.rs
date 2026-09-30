@@ -2,17 +2,11 @@
 
 mod common;
 
-use std::path::Path;
-
-use common::{TestRepo, isolated};
+use common::{TestRepo, isolated, same_dir};
 use supersigil_git::{
     Ancestry, Git, GitError, MIN_VERSION, ObjectFormat, Repo, ResolvedTarget, TargetSpec,
     resolve_range,
 };
-
-fn same_dir(a: &Path, b: &Path) -> bool {
-    std::fs::canonicalize(a).unwrap() == std::fs::canonicalize(b).unwrap()
-}
 
 #[test]
 fn installed_git_meets_the_minimum() {
@@ -212,6 +206,7 @@ fn boolean_config_is_read_and_unset_is_none() {
     assert_eq!(opened.config_bool("core.ignorecase").unwrap(), Some(true));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_worktree_directory_ending_in_a_space_is_opened_exactly() {
     let dir = tempfile::tempdir().unwrap();
@@ -221,7 +216,55 @@ fn a_worktree_directory_ending_in_a_space_is_opened_exactly() {
     std::fs::create_dir(&home).unwrap();
     let git = isolated(Git::new(&root), &home);
     git.output(["init", "-q", "-b", "main"]).unwrap();
+    git.output(["config", "core.autocrlf", "false"]).unwrap();
     let opened = Repo::open(git).unwrap();
     assert!(opened.root().to_str().unwrap().ends_with("trailing space "));
     assert!(same_dir(opened.root(), &root));
+}
+
+#[test]
+fn head_with_a_missing_commit_object_is_an_error() {
+    let repo = TestRepo::new();
+    repo.write("a.txt", b"a\n");
+    let head = repo.commit_all("first");
+    let opened = repo.repo();
+    let (dir, rest) = head.split_at(2);
+    std::fs::remove_file(repo.root.join(".git/objects").join(dir).join(rest)).unwrap();
+    opened.head().unwrap_err();
+    resolve_range(&opened, None, &TargetSpec::WorkingTree).unwrap_err();
+}
+
+#[test]
+fn head_that_git_cannot_read_is_an_error() {
+    let repo = TestRepo::new();
+    repo.write("a.txt", b"a\n");
+    repo.commit_all("first");
+    let opened = repo.repo();
+    std::fs::write(repo.root.join(".git/HEAD"), b"garbage\n").unwrap();
+    opened.head().unwrap_err();
+}
+
+#[test]
+fn a_shallow_boundary_commit_is_not_a_root() {
+    let repo = TestRepo::new();
+    repo.write("a.txt", b"a\n");
+    let first = repo.commit_all("first");
+    repo.write("a.txt", b"b\n");
+    repo.commit_all("second");
+    let clone = repo.dir.path().join("shallow");
+    let source = format!("file://{}", repo.root.display());
+    repo.run(&[
+        "clone",
+        "-q",
+        "--depth",
+        "1",
+        &source,
+        clone.to_str().unwrap(),
+    ]);
+    let opened = Repo::open(repo.git().in_dir(&clone)).unwrap();
+    let result = resolve_range(&opened, None, &TargetSpec::Commit("HEAD".into()));
+    assert!(
+        matches!(&result, Err(GitError::MissingParent { parent, .. }) if parent.as_str() == first),
+        "{result:?}"
+    );
 }
