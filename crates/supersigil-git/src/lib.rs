@@ -12,6 +12,7 @@ pub mod oid;
 pub mod path;
 pub mod repo;
 pub mod run;
+pub mod snapshot;
 pub mod worktree;
 
 pub use error::GitError;

@@ -1,5 +1,6 @@
 //! Repository-relative paths as git stores them: raw bytes.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// A path relative to the repository root, `/`-separated, as the raw bytes
@@ -69,12 +70,26 @@ impl RepoPath {
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStringExt as _;
-            Some(PathBuf::from(std::ffi::OsString::from_vec(self.0.clone())))
+            Some(PathBuf::from(OsString::from_vec(self.0.clone())))
         }
         #[cfg(not(unix))]
         {
             self.to_str().map(PathBuf::from)
         }
+    }
+
+    /// Returns the path as an argument for git, or `None` when this platform
+    /// cannot represent its bytes.
+    pub(crate) fn to_os_string(&self) -> Option<OsString> {
+        self.to_path().map(PathBuf::into_os_string)
+    }
+
+    /// Returns `:(literal)<path>`, a pathspec that matches this path and
+    /// everything below it without interpreting wildcards.
+    pub(crate) fn literal_pathspec(&self) -> Option<OsString> {
+        let mut spec = OsString::from(":(literal)");
+        spec.push(self.to_os_string()?);
+        Some(spec)
     }
 }
 
@@ -105,5 +120,11 @@ mod tests {
         assert_ne!(a.escaped(), b.escaped());
         assert_eq!(a.to_str(), None);
         assert_eq!(RepoPath::from_utf8("é").to_str(), Some("é"));
+    }
+
+    #[test]
+    fn literal_pathspecs_keep_wildcards_literal() {
+        let spec = RepoPath::from_utf8("src/*.rs").literal_pathspec().unwrap();
+        assert_eq!(spec, OsString::from(":(literal)src/*.rs"));
     }
 }
