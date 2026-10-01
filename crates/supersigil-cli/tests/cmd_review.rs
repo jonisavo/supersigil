@@ -1036,7 +1036,7 @@ fn a_conflicting_edit_id_attributes_neither_path() {
             added.iter().all(|(_, o)| o["kind"] == "unattributed"),
             "{path}: {added:?}"
         );
-        assert_eq!(file["attribution"]["conflicting_edits"][0]["edit"], id);
+        assert_eq!(file["conflicting_edits"][0]["edit"], id);
     }
     assert_eq!(review["evidence"]["conflicting_edits"][0]["edit"], id);
     assert!(review["edits"].get(&id).is_none());
@@ -1073,9 +1073,9 @@ fn a_conflict_with_a_non_candidate_worktree_attributes_neither() {
     let added = side_lines(a, "target");
     assert_eq!(added.len(), 1);
     assert_eq!(added[0].1["kind"], "unattributed", "{added:?}");
-    assert_eq!(a["attribution"]["conflicting_edits"][0]["edit"], id);
+    assert_eq!(a["conflicting_edits"][0]["edit"], id);
     let b = file(&review, "b.rs");
-    assert_eq!(b["attribution"]["conflicting_edits"], json!([]));
+    assert_eq!(b["conflicting_edits"], json!([]));
     assert_eq!(review["evidence"]["conflicting_edits"][0]["edit"], id);
     assert_eq!(
         review["evidence"]["conflicting_edits"][0]["records"]
@@ -1158,7 +1158,7 @@ fn a_conflict_is_listed_on_a_file_whose_attribution_is_unavailable() {
         "conversion changed line structure"
     );
     assert_eq!(
-        a["attribution"]["conflicting_edits"][0]["edit"],
+        a["conflicting_edits"][0]["edit"],
         edit_id("s-dup", "toolu_dup")
     );
 }
@@ -1253,4 +1253,32 @@ fn edit_maps_hold_only_the_edits_the_analysis_refers_to() {
         .success()
         .stdout(predicate::str::contains("not attributed"))
         .stdout(predicate::str::contains("  edit ").not());
+}
+
+#[test]
+fn a_conflict_is_listed_on_a_file_that_is_not_diffed() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    record_dup_sighting(&f, &f.repo.join("x"), "a.bin");
+    record_dup_sighting(&f, &f.repo.join("y"), "b.rs");
+    // The file on disk is binary: listed, not diffed, with no attribution.
+    std::fs::write(f.repo.join("x/a.bin"), b"\0\x01binary\n").unwrap();
+
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "x/a.bin",
+    ];
+    let review = f.json(&f.repo, &args);
+
+    let a = file(&review, "x/a.bin");
+    assert_eq!(a["kind"], "binary");
+    assert!(a["attribution"].is_null());
+    assert_eq!(
+        a["conflicting_edits"][0]["edit"],
+        edit_id("s-dup", "toolu_dup")
+    );
 }

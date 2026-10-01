@@ -49,6 +49,7 @@ fn input<'a>(
         target_blob: target,
         attribution,
         mentions: Vec::new(),
+        conflicting_edits: Vec::new(),
     }
 }
 
@@ -246,43 +247,65 @@ fn unavailable_attribution_marks_every_line_and_the_file() {
     }
 }
 
+/// `input` with `conflict` listed on it.
+fn with_conflict<'a>(input: FileInput<'a>, conflict: &Conflict) -> FileInput<'a> {
+    FileInput {
+        conflicting_edits: vec![conflict.clone()],
+        ..input
+    }
+}
+
 #[test]
-fn conflicting_edits_are_listed_on_the_file() {
+fn conflicting_edits_are_listed_on_the_file_whatever_its_attribution() {
     let conflict = Conflict {
         edit: eid("e9"),
         records: vec![RecordId::new("r1"), RecordId::new("r2")],
     };
-    let mut attr = attribution(vec![], vec![unexplained()], vec![no_fate()]);
-    attr.conflicts = vec![conflict.clone()];
+    let attr = attribution(vec![], vec![unexplained()], vec![no_fate()]);
     let path = path("src/lib.rs");
-    let review = file_review(input(
-        &path,
-        FileStatus::Modified,
-        Some(b"a\n"),
-        Some(b"b\n"),
-        AttributionState::Available(&attr),
+    let attributed = file_review(with_conflict(
+        input(
+            &path,
+            FileStatus::Modified,
+            Some(b"a\n"),
+            Some(b"b\n"),
+            AttributionState::Available(&attr),
+        ),
+        &conflict,
     ));
-    assert_eq!(
-        review.attribution.unwrap().conflicting_edits,
-        vec![conflict]
-    );
-
-    let unavailable = file_review(input(
-        &path,
-        FileStatus::Modified,
-        Some(b"a\n"),
-        Some(b"b\n"),
-        AttributionState::Unavailable {
-            reason: "conversion changed line structure".to_owned(),
+    let unavailable = file_review(with_conflict(
+        input(
+            &path,
+            FileStatus::Modified,
+            Some(b"a\n"),
+            Some(b"b\n"),
+            AttributionState::Unavailable {
+                reason: "conversion changed line structure".to_owned(),
+            },
+        ),
+        &conflict,
+    ));
+    let binary = file_review(with_conflict(
+        FileInput {
+            kind: FileKindInfo::Binary,
+            base_blob: None,
+            target_blob: None,
+            ..input(
+                &path,
+                FileStatus::Modified,
+                Some(b"a\n"),
+                Some(b"b\n"),
+                AttributionState::Unavailable {
+                    reason: "not diffed: binary".to_owned(),
+                },
+            )
         },
+        &conflict,
     ));
-    assert!(
-        unavailable
-            .attribution
-            .unwrap()
-            .conflicting_edits
-            .is_empty()
-    );
+    assert!(binary.attribution.is_none());
+    for review in [attributed, unavailable, binary] {
+        assert_eq!(review.conflicting_edits, vec![conflict.clone()]);
+    }
 }
 
 #[test]

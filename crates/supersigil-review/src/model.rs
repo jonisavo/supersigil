@@ -381,6 +381,11 @@ pub struct FileReview {
     pub attribution_bytes: BytesStatus,
     /// Anchor's status and chains; null when the file is not diffed.
     pub attribution: Option<AttributionInfo>,
+    /// Edits excluded from this file as conflicting evidence, whether or
+    /// not the file was diffed or attributed: an edit id whose sightings in
+    /// different records disagree is excluded from every file any sighting
+    /// touched, and listed on each of them.
+    pub conflicting_edits: Vec<Conflict>,
     /// Whether the diff is one coarse hunk.
     pub coarse: bool,
     /// Changed regions with their spans.
@@ -487,10 +492,6 @@ pub struct AttributionInfo {
     pub set_aside: Vec<Chain>,
     /// Why attribution is unavailable, when it is.
     pub unavailable: Option<String>,
-    /// Edits excluded from this file as conflicting evidence: an edit id
-    /// whose sightings in different records disagree is excluded from every
-    /// file any sighting touched, and listed on each of them.
-    pub conflicting_edits: Vec<Conflict>,
 }
 
 /// One changed region with its spans.
@@ -631,6 +632,8 @@ pub struct FileInput<'a> {
     pub attribution: AttributionState<'a>,
     /// Commands mentioning the path.
     pub mentions: Vec<Mention>,
+    /// Edits excluded from the path as conflicting evidence.
+    pub conflicting_edits: Vec<Conflict>,
 }
 
 /// Builds one file's review: the reviewed diff, each changed line's outcome
@@ -670,6 +673,7 @@ pub fn file_review(input: FileInput<'_>) -> FileReview {
         kind: input.kind,
         attribution_bytes: input.bytes_status,
         attribution,
+        conflicting_edits: input.conflicting_edits,
         coarse,
         hunks,
         mentions: input.mentions,
@@ -739,14 +743,12 @@ fn attribution_info(state: &AttributionState<'_>) -> AttributionInfo {
             chains: attr.chains.clone(),
             set_aside: attr.set_aside.clone(),
             unavailable: None,
-            conflicting_edits: attr.conflicts.clone(),
         },
         AttributionState::Unavailable { reason } => AttributionInfo {
             status: None,
             chains: Vec::new(),
             set_aside: Vec::new(),
             unavailable: Some(reason.clone()),
-            conflicting_edits: Vec::new(),
         },
     }
 }

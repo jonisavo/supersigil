@@ -93,7 +93,11 @@ evidence:
     - checkout: /work/repo/.claude/worktrees/x
       transcripts: 2
       reason: records directory locked
-  conflicting_edits: []
+  conflicting_edits:
+    - edit: e9
+      records:
+        - rec-1
+        - rec-2
 files:
   - path: logo.png
     path_escaped: ~
@@ -107,6 +111,11 @@ files:
       base: identical
       target: identical
     attribution: ~
+    conflicting_edits:
+      - edit: e9
+        records:
+          - rec-1
+          - rec-2
     coarse: false
     hunks: []
     mentions: []
@@ -130,7 +139,7 @@ files:
       chains: []
       set_aside: []
       unavailable: ~
-      conflicting_edits: []
+    conflicting_edits: []
     coarse: false
     hunks:
       - base_start: 1
@@ -198,7 +207,7 @@ files:
       chains: []
       set_aside: []
       unavailable: ~
-      conflicting_edits: []
+    conflicting_edits: []
     coarse: false
     hunks:
       - base_start: 1
@@ -257,7 +266,7 @@ files:
             kind: base
       set_aside: []
       unavailable: ~
-      conflicting_edits: []
+    conflicting_edits: []
     coarse: false
     hunks:
       - base_start: 2

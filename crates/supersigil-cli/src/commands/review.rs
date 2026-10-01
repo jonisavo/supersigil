@@ -213,13 +213,10 @@ fn review_file(
         target_blob: new.filter(|_| text).map(|(_, b)| b),
         attribution: state,
         mentions,
+        // Listed on every file its sightings touched, whatever the file's
+        // kind and whether or not attribution ran.
+        conflicting_edits: conflicts_for(g, &change.path),
     });
-    // A conflicting edit is listed on every file its sightings touched,
-    // whether or not attribution ran (`attribute_path` lists them when it
-    // did).
-    if let (Err(_), Some(info)) = (&attribution, file.attribution.as_mut()) {
-        info.conflicting_edits = conflicts_for(g, &change.path);
-    }
     // Mentions matter where nothing else explains the file (design section 4).
     if file.status != FileStatus::Deleted && !has_unattributed(&file) {
         file.mentions.clear();

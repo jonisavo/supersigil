@@ -8,11 +8,11 @@ use common::{
     attribution, base_line, chain, eid, escape, introduced, kept, no_fate, replaced, unexplained,
 };
 use supersigil_anchor::lines::split_lines;
-use supersigil_anchor::{ChainClass, ChainEnd, PathAttribution, PathStatus, StopReason};
-use supersigil_record::SessionId;
+use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathAttribution, PathStatus, StopReason};
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, EditOperation, Material, Role,
 };
+use supersigil_record::{RecordId, SessionId};
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, EditInfo, EvidenceInfo, FileInput, FileKindInfo,
     FileReview, FileStatus, Mention, MentionResult, NotCapturedInfo, OriginsInfo, PromptInfo,
@@ -77,6 +77,14 @@ fn evidence() -> EvidenceInfo {
     }
 }
 
+/// An edit whose sightings in two records disagree.
+fn conflict() -> Conflict {
+    Conflict {
+        edit: eid("e9"),
+        records: vec![RecordId::new("rec-1"), RecordId::new("rec-2")],
+    }
+}
+
 fn edits() -> BTreeMap<String, EditInfo> {
     BTreeMap::from([(
         "e1".to_owned(),
@@ -130,6 +138,7 @@ fn text_file(
         target_blob: target,
         attribution: AttributionState::Available(attr),
         mentions,
+        conflicting_edits: Vec::new(),
     })
 }
 
@@ -155,6 +164,7 @@ fn sample_files() -> Vec<FileReview> {
             reason: "binary".to_owned(),
         },
         mentions: Vec::new(),
+        conflicting_edits: vec![conflict()],
     });
     let mut notes = attribution(vec![], vec![unexplained()], vec![no_fate()]);
     notes.status = PathStatus::NotComposed {
@@ -249,7 +259,10 @@ fn sample_review() -> Review {
         scope,
         origins: OriginsInfo::default(),
         records: records(),
-        evidence: evidence(),
+        evidence: EvidenceInfo {
+            conflicting_edits: vec![conflict()],
+            ..evidence()
+        },
         files,
         edits: edits(),
     }
