@@ -14,11 +14,12 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+use crate::bytes::nul_fields;
 use crate::error::GitError;
 use crate::oid::{ObjectId, parse_output};
-use crate::path::{RepoPath, path_from_git};
+use crate::path::{RepoPath, path_from_line};
 use crate::repo::Repo;
-use crate::run::{Git, io_error};
+use crate::run::{Git, found, io_error};
 
 /// What to include beyond tracked changes, and which paths the listings cover.
 #[derive(Debug, Clone, Default)]
@@ -190,7 +191,7 @@ fn real_index_path(repo: &Repo) -> Result<PathBuf, GitError> {
     let output = repo.git().output(["rev-parse", "--git-path", "index"])?;
     // `rev-parse --git-path` has no `-z` form; strip only its line terminator,
     // because a path may end in spaces.
-    let path = path_from_git(output.strip_suffix(b"\n").unwrap_or(&output))
+    let path = path_from_line(&output)
         .ok_or_else(|| GitError::Parse("index path not representable".to_owned()))?;
     Ok(if path.is_absolute() {
         path
@@ -226,10 +227,10 @@ fn include(repo: &Repo, staging: &Staging, path: &RepoPath) -> Result<(), GitErr
     let (Some(relative), Some(spec)) = (path.to_path(), path.literal_pathspec()) else {
         return Err(refuse("not representable on this platform"));
     };
-    match repo.root().join(&relative).symlink_metadata() {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(refuse("no such file")),
-        Err(e) => return Err(io_error("cannot inspect an included path", e)),
+    let metadata = found(repo.root().join(&relative).symlink_metadata())
+        .map_err(|e| io_error("cannot inspect an included path", e))?;
+    if metadata.is_none() {
+        return Err(refuse("no such file"));
     }
     // `check-ignore` reads its arguments as pathspecs and refuses magic, so a
     // `./` prefix keeps a name such as `:(literal)x` from being parsed as one.
@@ -382,16 +383,9 @@ fn on_disk(repo: &Repo, path: &RepoPath) -> Result<OnDisk, GitError> {
             path.display()
         ))
     })?;
-    match repo.root().join(relative).symlink_metadata() {
-        Ok(_) => Ok(OnDisk::Present),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(OnDisk::Missing),
-        Err(e) => Err(io_error(&format!("cannot inspect {}", path.display()), e)),
-    }
-}
-
-/// Splits NUL-terminated output into its non-empty fields.
-pub(crate) fn nul_fields(output: &[u8]) -> impl Iterator<Item = &[u8]> {
-    output.split(|&b| b == 0).filter(|field| !field.is_empty())
+    let metadata = found(repo.root().join(relative).symlink_metadata())
+        .map_err(|e| io_error(&format!("cannot inspect {}", path.display()), e))?;
+    Ok(metadata.map_or(OnDisk::Missing, |_| OnDisk::Present))
 }
 
 #[cfg(test)]
@@ -417,12 +411,5 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"DIRC");
         let modified = |p: &Path| std::fs::metadata(p).unwrap().modified().unwrap();
         assert_eq!(modified(&target), modified(&source));
-    }
-
-    #[test]
-    fn nul_fields_skip_the_terminator() {
-        let fields: Vec<&[u8]> = nul_fields(b"a\0b c\0").collect();
-        assert_eq!(fields, [&b"a"[..], &b"b c"[..]]);
-        assert_eq!(nul_fields(b"").count(), 0);
     }
 }

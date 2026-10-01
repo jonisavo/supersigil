@@ -146,17 +146,8 @@ pub fn worktree_form(
         // be read, this is an error, not a failed conversion.
         // `cat-file -e` documents exit 1 for a missing object; any other
         // failure stays an error of git itself.
-        let check = repo.git().raw(["cat-file", "-e", blob.as_str()])?;
-        match check.status.code() {
-            Some(0) => {}
-            Some(1) => return Err(GitError::Parse(format!("object {blob} is missing"))),
-            status => {
-                return Err(GitError::Failed {
-                    args: format!("cat-file -e {blob}"),
-                    status,
-                    stderr: String::from_utf8_lossy(&check.stderr).trim().to_owned(),
-                });
-            }
+        if !repo.git().probe(["cat-file", "-e", blob.as_str()])? {
+            return Err(GitError::Parse(format!("object {blob} is missing")));
         }
         return Ok(Conversion::Failed {
             status: output.status.code(),
@@ -167,5 +158,34 @@ pub fn worktree_form(
         Ok(Conversion::Identical)
     } else {
         Ok(Conversion::Converted(output.stdout))
+    }
+}
+
+/// Splits NUL-terminated output at every NUL, keeping empty fields: callers
+/// that read an empty field as a record separator need them.
+pub(crate) fn nul_split(output: &[u8]) -> impl Iterator<Item = &[u8]> {
+    output.split(|&b| b == 0)
+}
+
+/// Splits NUL-terminated output into its non-empty fields.
+pub(crate) fn nul_fields(output: &[u8]) -> impl Iterator<Item = &[u8]> {
+    nul_split(output).filter(|field| !field.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nul_fields_skip_the_terminator() {
+        let fields: Vec<&[u8]> = nul_fields(b"a\0b c\0").collect();
+        assert_eq!(fields, [&b"a"[..], &b"b c"[..]]);
+        assert_eq!(nul_fields(b"").count(), 0);
+    }
+
+    #[test]
+    fn nul_split_keeps_empty_fields() {
+        let fields: Vec<&[u8]> = nul_split(b"a\0\0b\0").collect();
+        assert_eq!(fields, [&b"a"[..], b"", b"b", b""]);
     }
 }

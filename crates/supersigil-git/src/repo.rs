@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::error::GitError;
 use crate::oid::{ObjectFormat, ObjectId, parse_output};
-use crate::path::path_from_git;
-use crate::run::{Git, GitVersion, MIN_VERSION};
+use crate::path::path_from_line;
+use crate::run::{Git, GitVersion, MIN_VERSION, failed};
 
 /// A git worktree opened for review: its root, object format, and git version.
 #[derive(Debug, Clone)]
@@ -49,8 +49,7 @@ impl Repo {
         let root = top
             .status
             .success()
-            .then(|| top.stdout.strip_suffix(b"\n").map(path_from_git))
-            .flatten()
+            .then(|| path_from_line(&top.stdout))
             .flatten()
             .filter(|root| !root.as_os_str().is_empty())
             .ok_or_else(|| GitError::NotAWorktree(git.cwd().to_path_buf()))?;
@@ -137,26 +136,21 @@ impl Repo {
         if output.status.success() {
             return parse_output(&output.stdout, self.format).map(Some);
         }
-        let failed = |output: &std::process::Output, args: &[&str]| GitError::Failed {
-            args: args.join(" "),
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        };
         if output.status.code() != Some(1) {
-            return Err(failed(&output, &args));
+            return Err(failed(&args, &output));
         }
         // Exit 1 means HEAD did not resolve to a commit: unborn only if HEAD
         // is a symbolic ref whose branch does not exist.
         let symbolic = self.git.raw(["symbolic-ref", "--quiet", "HEAD"])?;
         if !symbolic.status.success() {
-            return Err(failed(&output, &args));
+            return Err(failed(&args, &output));
         }
         let name = String::from_utf8_lossy(symbolic.stdout.trim_ascii()).into_owned();
         let show = ["show-ref", "--verify", "--quiet", "--end-of-options", &name];
         let exists = self.git.raw(show)?;
         match exists.status.code() {
             Some(1) => Ok(None),
-            _ => Err(failed(&output, &args)),
+            _ => Err(failed(&args, &output)),
         }
     }
 
@@ -169,7 +163,7 @@ impl Repo {
     /// unavailable history), never treating it as a root. Also returns the
     /// errors of [`Git::output`], or [`GitError::Parse`] for a commit or id
     /// this crate cannot read.
-    pub fn first_parent(&self, commit: &ObjectId) -> Result<Option<ObjectId>, GitError> {
+    pub(crate) fn first_parent(&self, commit: &ObjectId) -> Result<Option<ObjectId>, GitError> {
         let output = self.git.output(["cat-file", "commit", commit.as_str()])?;
         // Headers end at the first blank line; a commit message is not parsed.
         let header_end = output
@@ -213,26 +207,17 @@ impl Repo {
     ///
     /// Returns [`GitError::Failed`] for an exit status other than 0 or 1, or
     /// the errors of [`Git::raw`].
-    pub fn is_ancestor(
+    pub(crate) fn is_ancestor(
         &self,
         ancestor: &ObjectId,
         descendant: &ObjectId,
     ) -> Result<bool, GitError> {
-        let output = self.git.raw([
+        self.git.probe([
             "merge-base",
             "--is-ancestor",
             ancestor.as_str(),
             descendant.as_str(),
-        ])?;
-        match output.status.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            status => Err(GitError::Failed {
-                args: format!("merge-base --is-ancestor {ancestor} {descendant}"),
-                status,
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            }),
-        }
+        ])
     }
 
     /// Returns the commits reachable from `target` but not from `base`,
@@ -243,7 +228,7 @@ impl Repo {
     ///
     /// Returns the errors of [`Git::output`], or [`GitError::Parse`] for
     /// output that is not a list of object ids.
-    pub fn commits_in_range(
+    pub(crate) fn commits_in_range(
         &self,
         base: Option<&ObjectId>,
         target: &ObjectId,
@@ -266,23 +251,19 @@ impl Repo {
     /// Returns [`GitError::Failed`] when git rejects the key or the value is
     /// not a boolean, or the errors of [`Git::raw`].
     pub fn config_bool(&self, key: &str) -> Result<Option<bool>, GitError> {
-        let output = self.git.raw(["config", "--type=bool", "--get", key])?;
-        match output.status.code() {
-            Some(0) => match output.stdout.trim_ascii() {
-                b"true" => Ok(Some(true)),
-                b"false" => Ok(Some(false)),
+        let output = self
+            .git
+            .probe_output(["config", "--type=bool", "--get", key])?;
+        output
+            .map(|stdout| match stdout.trim_ascii() {
+                b"true" => Ok(true),
+                b"false" => Ok(false),
                 other => Err(GitError::Parse(format!(
                     "config {key}: {}",
                     String::from_utf8_lossy(other)
                 ))),
-            },
-            Some(1) => Ok(None),
-            status => Err(GitError::Failed {
-                args: format!("config --type=bool --get {key}"),
-                status,
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            }),
-        }
+            })
+            .transpose()
     }
 }
 

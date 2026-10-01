@@ -2,11 +2,11 @@
 
 use std::ffi::OsString;
 
+use crate::bytes::nul_fields;
 use crate::error::GitError;
 use crate::oid::ObjectId;
 use crate::path::RepoPath;
 use crate::repo::Repo;
-use crate::snapshot::nul_fields;
 
 /// A file mode as git records it in a tree, `Mode(0)` for an absent side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

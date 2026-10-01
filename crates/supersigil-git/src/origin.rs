@@ -10,11 +10,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use crate::bytes::nul_fields;
 use crate::error::{GitError, status_text};
 use crate::oid::ObjectId;
 use crate::repo::Repo;
-use crate::run::stderr_tail;
-use crate::snapshot::nul_fields;
+use crate::run::{failed, found, stderr_tail};
 use crate::worktree::Worktree;
 
 /// Actions of the sequencer (rebase, cherry-pick, revert, and pull with
@@ -50,7 +50,7 @@ const SEQUENCER_SUFFIXES: [&str; 7] = [
 /// Any other action, including a bare `rebase`, is not evidence. Git writes
 /// these subjects in English regardless of locale.
 #[must_use]
-pub fn is_origin_subject(subject: &str) -> bool {
+pub(crate) fn is_origin_subject(subject: &str) -> bool {
     let Some((action, message)) = subject.split_once(": ") else {
         return false;
     };
@@ -115,11 +115,7 @@ pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, Git
         if check.status.code() == Some(1) {
             return Ok(Vec::new());
         }
-        return Err(GitError::Failed {
-            args: args.join(" "),
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        });
+        return Err(failed(&args, &output));
     }
     let mut entries = Vec::new();
     for record in nul_fields(&output.stdout) {
@@ -184,14 +180,12 @@ impl Origins {
 /// Returns whether `path` is a directory. A path that does not exist is
 /// `false`; any other failure to look at it is an error, not an absence.
 fn directory_exists(path: &Path) -> Result<bool, GitError> {
-    match std::fs::metadata(path) {
-        Ok(metadata) => Ok(metadata.is_dir()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(source) => Err(GitError::Io {
+    found(std::fs::metadata(path))
+        .map(|metadata| metadata.is_some_and(|m| m.is_dir()))
+        .map_err(|source| GitError::Io {
             context: format!("checking worktree directory {}", path.display()),
             source,
-        }),
-    }
+        })
 }
 
 /// Finds, for each of `commits`, the worktrees whose own HEAD reflog has a

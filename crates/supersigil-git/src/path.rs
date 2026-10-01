@@ -99,9 +99,23 @@ pub(crate) fn path_from_git(bytes: &[u8]) -> Option<PathBuf> {
     RepoPath::new(bytes.to_vec()).to_path()
 }
 
+/// Converts one line of git output into a [`PathBuf`], stripping exactly the
+/// one trailing newline (a path may end in spaces), or `None` when the
+/// platform cannot represent the bytes.
+pub(crate) fn path_from_line(output: &[u8]) -> Option<PathBuf> {
+    path_from_git(output.strip_suffix(b"\n").unwrap_or(output))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_loses_exactly_one_newline() {
+        assert_eq!(path_from_line(b"a b  \n"), Some(PathBuf::from("a b  ")));
+        assert_eq!(path_from_line(b"a\n\n"), Some(PathBuf::from("a\n")));
+        assert_eq!(path_from_line(b"a"), Some(PathBuf::from("a")));
+    }
 
     #[test]
     fn escaping_is_reversible_and_ascii() {

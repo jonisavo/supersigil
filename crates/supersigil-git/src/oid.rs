@@ -16,7 +16,7 @@ pub enum ObjectFormat {
 impl ObjectFormat {
     /// Returns the number of hex digits in an object id of this format.
     #[must_use]
-    pub const fn hex_len(self) -> usize {
+    pub(crate) const fn hex_len(self) -> usize {
         match self {
             Self::Sha1 => 40,
             Self::Sha256 => 64,

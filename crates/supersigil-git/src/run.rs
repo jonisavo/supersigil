@@ -168,6 +168,49 @@ impl Git {
         succeeded(&args, output)
     }
 
+    /// Runs git with `args` for a yes-or-no answer: exit 0 is `true`, exit 1
+    /// is `false`, and any other status is an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GitError::Failed`], with the arguments that ran, for an exit
+    /// status other than 0 or 1, or the errors of [`Git::raw`].
+    pub(crate) fn probe<I, S>(&self, args: I) -> Result<bool, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args = collect(args);
+        let output = self.run(&args, None)?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(failed(&args, &output)),
+        }
+    }
+
+    /// Runs git with `args` for a value that may be absent: exit 0 returns
+    /// standard output, exit 1 returns `None`, and any other status is an
+    /// error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GitError::Failed`], with the arguments that ran, for an exit
+    /// status other than 0 or 1, or the errors of [`Git::raw`].
+    pub(crate) fn probe_output<I, S>(&self, args: I) -> Result<Option<Vec<u8>>, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args = collect(args);
+        let output = self.run(&args, None)?;
+        match output.status.code() {
+            Some(0) => Ok(Some(output.stdout)),
+            Some(1) => Ok(None),
+            _ => Err(failed(&args, &output)),
+        }
+    }
+
     /// Runs git with `args`, writes `input` to its standard input, and returns
     /// standard output. Input is written from a second thread, so git can
     /// produce output of any size while it reads.
@@ -257,15 +300,31 @@ fn succeeded(args: &[OsString], output: Output) -> Result<Vec<u8>, GitError> {
     if output.status.success() {
         return Ok(output.stdout);
     }
-    Err(GitError::Failed {
+    Err(failed(args, &output))
+}
+
+/// Builds [`GitError::Failed`] from the arguments that ran and what git
+/// answered.
+pub(crate) fn failed<S: AsRef<OsStr>>(args: &[S], output: &Output) -> GitError {
+    GitError::Failed {
         args: args
             .iter()
-            .map(|a| a.to_string_lossy())
+            .map(|a| a.as_ref().to_string_lossy())
             .collect::<Vec<_>>()
             .join(" "),
         status: output.status.code(),
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-    })
+    }
+}
+
+/// Maps "not found" to `None`, so a missing file is an absence and any other
+/// failure stays an error for the caller to give context.
+pub(crate) fn found<T>(result: std::io::Result<T>) -> std::io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Characters of standard error kept by [`stderr_tail`].
@@ -291,6 +350,56 @@ pub(crate) fn io_error(context: &str, source: std::io::Error) -> GitError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A runner in an empty directory that is not inside any repository.
+    fn outside_a_repository(dir: &tempfile::TempDir) -> Git {
+        Git::new(dir.path()).with_env("GIT_CEILING_DIRECTORIES", dir.path().parent().unwrap())
+    }
+
+    #[test]
+    fn a_probe_reads_exit_zero_and_one_and_fails_on_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = outside_a_repository(&dir);
+        assert!(git.probe(["version"]).unwrap());
+        assert!(!git.probe(["config", "--get", "no.such"]).unwrap());
+        let err = git.probe(["rev-parse", "--git-dir"]).unwrap_err();
+        assert!(
+            matches!(&err, GitError::Failed { args, status: Some(128), .. } if args == "rev-parse --git-dir"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn a_probe_output_returns_the_output_for_exit_zero_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = outside_a_repository(&dir);
+        let out = git.probe_output(["version"]).unwrap().unwrap();
+        assert!(out.starts_with(b"git version"));
+        assert_eq!(
+            git.probe_output(["config", "--get", "no.such"]).unwrap(),
+            None
+        );
+        let err = git.probe_output(["rev-parse", "--git-dir"]).unwrap_err();
+        assert!(matches!(
+            err,
+            GitError::Failed {
+                status: Some(128),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn found_turns_only_not_found_into_none() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(found(Ok(1)).unwrap(), Some(1));
+        assert_eq!(
+            found::<u8>(Err(Error::from(ErrorKind::NotFound))).unwrap(),
+            None
+        );
+        let err = found::<u8>(Err(Error::from(ErrorKind::PermissionDenied))).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+    }
 
     #[test]
     fn versions_parse_across_platform_suffixes() {
