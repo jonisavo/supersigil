@@ -1,7 +1,7 @@
 //! Whether anchor's lines, over worktree-form bytes, map one to one onto the
 //! reviewed diff's lines, over blob bytes.
 
-use supersigil_anchor::lines::split_lines;
+use supersigil_anchor::lines::{split_lines, without_terminator};
 
 /// Returns whether `attribution` bytes correspond line for line to `blob`
 /// bytes: they are identical, or they have the same number of lines and each
@@ -22,13 +22,7 @@ pub fn lines_correspond(blob: &[u8], attribution: &[u8]) -> bool {
         && blob_lines
             .iter()
             .zip(&attribution_lines)
-            .all(|(a, b)| without_line_ending(a) == without_line_ending(b))
-}
-
-/// `line` without its `\n` and then without a trailing `\r`.
-fn without_line_ending(line: &[u8]) -> &[u8] {
-    let line = line.strip_suffix(b"\n").unwrap_or(line);
-    line.strip_suffix(b"\r").unwrap_or(line)
+            .all(|(a, b)| without_terminator(a) == without_terminator(b))
 }
 
 #[cfg(test)]

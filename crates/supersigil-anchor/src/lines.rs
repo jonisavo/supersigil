@@ -22,18 +22,23 @@ pub fn line_starts(bytes: &[u8]) -> Vec<usize> {
     starts
 }
 
+/// Iterates the lines of `bytes`, each keeping its terminator, without
+/// collecting them.
+pub fn lines(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    bytes.split_inclusive(|&b| b == b'\n')
+}
+
 /// Splits `bytes` into lines, each keeping its terminator.
 #[must_use]
 pub fn split_lines(bytes: &[u8]) -> Vec<&[u8]> {
-    let starts = line_starts(bytes);
-    starts
-        .iter()
-        .enumerate()
-        .map(|(i, &start)| {
-            let end = starts.get(i + 1).copied().unwrap_or(bytes.len());
-            &bytes[start..end]
-        })
-        .collect()
+    lines(bytes).collect()
+}
+
+/// `line` without its `\n` and then without a trailing `\r`.
+#[must_use]
+pub fn without_terminator(line: &[u8]) -> &[u8] {
+    let line = line.strip_suffix(b"\n").unwrap_or(line);
+    line.strip_suffix(b"\r").unwrap_or(line)
 }
 
 /// Returns the index of the line containing `offset`, given [`line_starts`].

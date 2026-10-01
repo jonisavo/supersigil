@@ -27,6 +27,7 @@ use supersigil_record::EventId;
 use supersigil_record::observations::EditOperation;
 
 use crate::input::State;
+use crate::lines::lines;
 use crate::result::{BaseLineOutcome, ContentMatches, LineOutcome, Origin};
 use crate::step::Budget;
 use crate::walk::AcceptedEdit;
@@ -414,29 +415,11 @@ impl<'p> Kmp<'p> {
     }
 }
 
-/// The lines of `bytes`, each keeping its terminator, as
-/// [`split_lines`](crate::lines::split_lines) splits them, without
-/// collecting them.
-fn lines(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
-    bytes.split_inclusive(|&b| b == b'\n')
-}
-
-/// A line's content, before its `\n` or `\r\n` terminator.
+/// A line's content, before its `\n` or `\r\n` terminator. Unlike
+/// [`without_terminator`](crate::lines::without_terminator), a lone trailing
+/// `\r` on an unterminated last line stays part of the content.
 fn content(line: &[u8]) -> &[u8] {
     line.strip_suffix(b"\r\n")
         .or_else(|| line.strip_suffix(b"\n"))
         .unwrap_or(line)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lines::split_lines;
-
-    #[test]
-    fn lines_split_as_anchor_splits_them() {
-        for bytes in [&b""[..], b"a", b"a\n", b"a\nb", b"\n\n", b"a\r\nb\n"] {
-            assert_eq!(lines(bytes).collect::<Vec<_>>(), split_lines(bytes));
-        }
-    }
 }

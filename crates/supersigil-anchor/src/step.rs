@@ -33,7 +33,7 @@ use std::ops::Range;
 use supersigil_record::observations::{Content, Edit, EditOperation, FileState, Hunk, Material};
 
 use crate::input::State;
-use crate::lines::{line_of, line_starts};
+use crate::lines::{line_of, line_starts, without_terminator};
 use crate::result::StopReason;
 
 /// One replacement an edit made.
@@ -206,17 +206,17 @@ impl Budget {
 #[must_use]
 pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) -> Reversed {
     if edit.operation == EditOperation::Unknown {
-        return stop(StopReason::OperationUnknown {
+        return Reversed::Stop(StopReason::OperationUnknown {
             edit: edit.id.clone(),
         });
     }
     // Charged before reading, so a reversal that proposes nothing still
     // costs what it read: the walk tries one per branch.
     if !budget.charge(current.byte_len()) {
-        return Reversed::Candidates(Vec::new());
+        return out_of_budget();
     }
     if current.matches(&edit.after) == Some(false) {
-        return stop(StopReason::AfterHashMismatch {
+        return Reversed::Stop(StopReason::AfterHashMismatch {
             edit: edit.id.clone(),
         });
     }
@@ -233,7 +233,7 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
                 .map(String::len)
                 .sum();
             if !budget.charge(bytes) {
-                return Reversed::Candidates(Vec::new());
+                return out_of_budget();
             }
             Patch::new(hunks, bytes, current)
         }
@@ -243,7 +243,7 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
         && !is_known(&edit.after)
         && !patch.shown_after(&patch.current)
     {
-        return stop(StopReason::AfterPatchMismatch {
+        return Reversed::Stop(StopReason::AfterPatchMismatch {
             edit: edit.id.clone(),
         });
     }
@@ -386,11 +386,6 @@ fn displays(line: &[u8], shown: &str) -> bool {
     rest.is_empty()
 }
 
-fn without_terminator(bytes: &[u8]) -> &[u8] {
-    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-    bytes.strip_suffix(b"\r").unwrap_or(bytes)
-}
-
 /// Lines of a state, each with its terminator.
 trait Lines {
     fn count(&self) -> usize;
@@ -509,8 +504,10 @@ impl Lines for Spliced<'_> {
     }
 }
 
-fn stop(reason: StopReason) -> Reversed {
-    Reversed::Stop(reason)
+/// The result when the budget refused a charge: no candidates, with
+/// [`Budget::exhausted`] set.
+const fn out_of_budget() -> Reversed {
+    Reversed::Candidates(Vec::new())
 }
 
 fn retained(material: &Material<String>) -> Option<&[u8]> {
@@ -762,26 +759,26 @@ fn reverse_replace(
 ) -> Reversed {
     let id = || edit.id.clone();
     let (Some(old), Some(new)) = (retained(&edit.old_text), retained(&edit.new_text)) else {
-        return stop(StopReason::TextUnavailable { edit: id() });
+        return Reversed::Stop(StopReason::TextUnavailable { edit: id() });
     };
     let Some(bytes) = current.bytes() else {
-        return stop(StopReason::NotLocatable { edit: id() });
+        return Reversed::Stop(StopReason::NotLocatable { edit: id() });
     };
     if old.is_empty() {
-        return stop(StopReason::NotLocatable { edit: id() });
+        return Reversed::Stop(StopReason::NotLocatable { edit: id() });
     }
     if edit.replace_all {
         return reverse_replace_all(edit, current, bytes, old, new, budget);
     }
     if (new.is_empty() && !old.ends_with(b"\n")) || new.len() > bytes.len() {
-        return stop(StopReason::NotLocatable { edit: id() });
+        return Reversed::Stop(StopReason::NotLocatable { edit: id() });
     }
     let hint = patch.and_then(|patch| Some((patch.current.starts.as_slice(), patch.hint?)));
     // Each search for `new_text` (one each way from a hint) prepares a table
     // as long as it.
     let searches = if hint.is_some() { 2 } else { 1 };
     if !budget.charge(new.len().saturating_mul(searches)) {
-        return Reversed::Candidates(Vec::new());
+        return out_of_budget();
     }
     // A known before-hash decides alone; the old side is consulted only
     // without one.
@@ -821,10 +818,10 @@ fn reverse_replace(
         }
     }
     if !proposed {
-        return stop(StopReason::NotLocatable { edit: id() });
+        return Reversed::Stop(StopReason::NotLocatable { edit: id() });
     }
     if accepted.is_empty() && !budget.exhausted() {
-        return stop(StopReason::NoAcceptedCandidate { edit: id() });
+        return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
     }
     let choice = accepted.len() > 1;
     for reversal in &mut accepted {
@@ -842,7 +839,7 @@ fn reverse_replace_all(
     budget: &mut Budget,
 ) -> Reversed {
     let unverified = || {
-        stop(StopReason::ReplaceAllUnverified {
+        Reversed::Stop(StopReason::ReplaceAllUnverified {
             edit: edit.id.clone(),
         })
     };
@@ -856,7 +853,7 @@ fn reverse_replace_all(
         return unverified();
     }
     let not_locatable = || {
-        stop(StopReason::NotLocatable {
+        Reversed::Stop(StopReason::NotLocatable {
             edit: edit.id.clone(),
         })
     };
@@ -864,7 +861,7 @@ fn reverse_replace_all(
         return not_locatable();
     }
     if !budget.charge(new.len()) {
-        return Reversed::Candidates(Vec::new());
+        return out_of_budget();
     }
     let count = Matches::new(bytes, new, Reading::Leftmost).count();
     if count == 0 {
@@ -885,7 +882,7 @@ fn reverse_replace_all(
         .saturating_add(len)
         .saturating_add(old.len());
     if !budget.charge(cost) {
-        return Reversed::Candidates(Vec::new());
+        return out_of_budget();
     }
     let mut before = Vec::with_capacity(len);
     let mut last = 0;
@@ -916,24 +913,26 @@ fn reverse_replace_all(
 fn reverse_write(edit: &Edit, current: &State, base: &State, budget: &mut Budget) -> Reversed {
     let id = || edit.id.clone();
     let Some(content) = retained(&edit.new_text) else {
-        return stop(StopReason::TextUnavailable { edit: id() });
+        return Reversed::Stop(StopReason::TextUnavailable { edit: id() });
     };
     if !budget.charge(candidate_cost(base.byte_len(), current.byte_len())) {
-        return Reversed::Candidates(Vec::new());
+        return out_of_budget();
     }
     if current.bytes() != Some(content) {
-        return stop(StopReason::NoAcceptedCandidate { edit: id() });
+        return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
     }
     let before = match &edit.before {
         FileState::Absent => State::Absent,
         FileState::Present {
             content: Content::Known(recorded),
         } if base.content_id().as_ref() == Some(recorded) => base.clone(),
-        FileState::Present { .. } => return stop(StopReason::WholeFileWrite { edit: id() }),
+        FileState::Present { .. } => {
+            return Reversed::Stop(StopReason::WholeFileWrite { edit: id() });
+        }
     };
     match validate(edit, before, current) {
         Some(reversal) => Reversed::Candidates(vec![reversal]),
-        None => stop(StopReason::NoAcceptedCandidate { edit: id() }),
+        None => Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() }),
     }
 }
 

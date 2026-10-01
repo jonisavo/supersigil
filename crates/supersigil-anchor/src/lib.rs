@@ -28,5 +28,5 @@ pub use attribute::attribute;
 pub use input::{CandidateEdit, DEFAULT_BUDGET_BYTES, Request, State, TargetKind};
 pub use result::{
     BaseLineOutcome, Chain, ChainClass, ChainEnd, Conflict, Fate, LineOutcome, Origin,
-    PathAttribution, PathStatus, Provenance, Reading, StopReason,
+    PathAttribution, PathStatus, Provenance, Reading, StopReason, one_based,
 };

@@ -23,7 +23,7 @@
 
 use std::collections::BTreeSet;
 
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::{
     BaseLineOutcome, ChainClass, Fate, LineOutcome, Origin, PathAttribution, PathStatus, Provenance,
@@ -117,7 +117,7 @@ pub enum Outcome {
     Realigned {
         /// The corresponding line on the other side (0-based; 1-based in
         /// JSON).
-        #[serde(serialize_with = "one_based")]
+        #[serde(serialize_with = "supersigil_anchor::one_based")]
         line: usize,
     },
 }
@@ -147,10 +147,6 @@ pub fn target_line_outcome(
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> (Outcome, Value) {
-    let attr = match attribution {
-        AttributionState::Unavailable { reason } => return (unavailable(reason), Value::Null),
-        AttributionState::Available(attr) => *attr,
-    };
     let missing = LineOutcome::Agreed {
         provenance: Provenance {
             origins: BTreeSet::from([Origin::Unexplained]),
@@ -158,30 +154,25 @@ pub fn target_line_outcome(
         },
         class: None,
     };
-    let combined = attr.target.get(line).unwrap_or(&missing);
-    let provenance = json(combined);
-    if attr.status == PathStatus::SearchIncomplete {
-        return (
-            Outcome::Unresolved {
-                candidates: provenance.clone(),
+    line_outcome(
+        attribution,
+        line,
+        |attr| &attr.target,
+        &missing,
+        |attr, combined| match combined {
+            LineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
+                readings: json(readings),
             },
-            provenance,
-        );
-    }
-    let outcome = match combined {
-        LineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
-            readings: json(readings),
+            LineOutcome::Agreed { provenance, class } => agreed_target(
+                attr,
+                line,
+                provenance,
+                *class,
+                base_blob_lines,
+                target_blob_lines,
+            ),
         },
-        LineOutcome::Agreed { provenance, class } => agreed_target(
-            attr,
-            line,
-            provenance,
-            *class,
-            base_blob_lines,
-            target_blob_lines,
-        ),
-    };
-    (outcome, provenance)
+    )
 }
 
 /// The outcome of removed diff line `line` (0-based base line) and its full
@@ -194,15 +185,46 @@ pub fn base_line_outcome(
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> (Outcome, Value) {
-    let attr = match attribution {
-        AttributionState::Unavailable { reason } => return (unavailable(reason), Value::Null),
-        AttributionState::Available(attr) => *attr,
-    };
     let missing = BaseLineOutcome::Agreed {
         fates: BTreeSet::new(),
         class: None,
     };
-    let combined = attr.base.get(line).unwrap_or(&missing);
+    line_outcome(
+        attribution,
+        line,
+        |attr| &attr.base,
+        &missing,
+        |attr, combined| match combined {
+            BaseLineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
+                readings: json(readings),
+            },
+            BaseLineOutcome::Agreed { fates, class } => agreed_base(
+                attr,
+                line,
+                fates,
+                *class,
+                base_blob_lines,
+                target_blob_lines,
+            ),
+        },
+    )
+}
+
+/// What both sides share: unavailable attribution, the default for a line
+/// anchor has no entry for, and an incomplete search. `decide` gives the
+/// outcome for a complete search.
+fn line_outcome<T: Serialize>(
+    attribution: &AttributionState<'_>,
+    line: usize,
+    side: impl FnOnce(&PathAttribution) -> &[T],
+    missing: &T,
+    decide: impl FnOnce(&PathAttribution, &T) -> Outcome,
+) -> (Outcome, Value) {
+    let attr = match attribution {
+        AttributionState::Unavailable { reason } => return (unavailable(reason), Value::Null),
+        AttributionState::Available(attr) => *attr,
+    };
+    let combined = side(attr).get(line).unwrap_or(missing);
     let provenance = json(combined);
     if attr.status == PathStatus::SearchIncomplete {
         return (
@@ -212,20 +234,7 @@ pub fn base_line_outcome(
             provenance,
         );
     }
-    let outcome = match combined {
-        BaseLineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
-            readings: json(readings),
-        },
-        BaseLineOutcome::Agreed { fates, class } => agreed_base(
-            attr,
-            line,
-            fates,
-            *class,
-            base_blob_lines,
-            target_blob_lines,
-        ),
-    };
-    (outcome, provenance)
+    (decide(attr, combined), provenance)
 }
 
 /// Rules 3 to 5 for an added line every chain agrees on.
@@ -376,16 +385,6 @@ fn unavailable(reason: &str) -> Outcome {
             reason: reason.to_owned(),
         },
     }
-}
-
-/// Writes a 0-based line number as the 1-based one JSON shows, like anchor's
-/// own line numbers.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's serialize_with passes the field by reference"
-)]
-fn one_based<S: Serializer>(line: &usize, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_u64(u64::try_from(*line).unwrap_or(u64::MAX).saturating_add(1))
 }
 
 /// Serializes anchor's outcome types. They contain no map with non-string

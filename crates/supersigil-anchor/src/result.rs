@@ -182,11 +182,13 @@ pub enum Fate {
 }
 
 /// Writes a 0-based line number as the 1-based one JSON shows.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's serialize_with passes the field by reference"
-)]
-fn one_based<S: Serializer>(line: &usize, serializer: S) -> Result<S::Ok, S::Error> {
+///
+/// For use as `#[serde(serialize_with = "...")]`.
+///
+/// # Errors
+///
+/// Returns the serializer's error if it fails to write the number.
+pub fn one_based<S: Serializer>(line: &usize, serializer: S) -> Result<S::Ok, S::Error> {
     serde::Serialize::serialize(&line.saturating_add(1), serializer)
 }
 

@@ -389,6 +389,12 @@ struct Tries {
 }
 
 impl Tries {
+    /// Tries over `edits` with the same edits as the pool for subsets.
+    fn whole(group: usize, bucket: usize, edits: Vec<usize>, rest: Rest) -> Self {
+        let pool = edits.clone();
+        Self::new(group, bucket, edits, pool, rest)
+    }
+
     fn new(group: usize, bucket: usize, edits: Vec<usize>, pool: Vec<usize>, rest: Rest) -> Self {
         Self {
             group,
@@ -735,18 +741,12 @@ impl<'a> Search<'a> {
                         *group += 1;
                         let last = grp.buckets.len() - 1;
                         let edits = grp.buckets[last].clone();
-                        return Some(Tries::new(g, last, edits.clone(), edits, Rest::All));
+                        return Some(Tries::whole(g, last, edits, Rest::All));
                     }
                     if let Some(edits) = grp.buckets.get(*bucket) {
                         let b = *bucket;
                         *bucket += 1;
-                        return Some(Tries::new(
-                            g,
-                            b,
-                            edits.clone(),
-                            edits.clone(),
-                            Rest::AnySubset,
-                        ));
+                        return Some(Tries::whole(g, b, edits.clone(), Rest::AnySubset));
                     }
                     *group += 1;
                     *bucket = 0;
@@ -768,23 +768,11 @@ impl<'a> Search<'a> {
                     });
                     if !at.remaining.is_empty() {
                         let edits = at.remaining.clone();
-                        return Some(Tries::new(
-                            at.group,
-                            at.bucket,
-                            edits.clone(),
-                            edits,
-                            Rest::All,
-                        ));
+                        return Some(Tries::whole(at.group, at.bucket, edits, Rest::All));
                     }
                     if at.bucket > 0 {
                         let edits = self.groups[at.group].buckets[at.bucket - 1].clone();
-                        return Some(Tries::new(
-                            at.group,
-                            at.bucket - 1,
-                            edits.clone(),
-                            edits,
-                            Rest::All,
-                        ));
+                        return Some(Tries::whole(at.group, at.bucket - 1, edits, Rest::All));
                     }
                 }
                 Cursor::Links {
