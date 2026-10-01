@@ -178,7 +178,9 @@ impl Budget {
 ///   first.
 /// - Edit with `replace_all`: one joint candidate replacing every
 ///   non-overlapping occurrence of `new_text`, only when the before-hash is
-///   known.
+///   known. Forward execution would replace every occurrence of `old_text`
+///   in it, so a candidate whose forward output would not have the current
+///   bytes' length is rejected before that output is built.
 /// - Write creating a file (recorded before-state absent): the before-state
 ///   is absent.
 /// - Write overwriting a file: the before-state is `base`, only when the
@@ -197,7 +199,8 @@ impl Budget {
 /// hash, its lines, the search for the edit's text), the retained hunks
 /// where they are consulted, the table each search prepares, and each
 /// candidate (the lines a patch check splices, then the before-state built
-/// and the after-state forward execution makes from it). Candidates are
+/// and the after-state forward execution makes from it; for a joint
+/// inverse, also the search counting `old_text` in it). Candidates are
 /// generated one at a time. When a charge is refused, the candidates
 /// accepted so far are returned and [`Budget::exhausted`] is set.
 #[must_use]
@@ -868,16 +871,19 @@ fn reverse_replace_all(
         return not_locatable();
     }
     // The joint inverse puts every occurrence back to `old_text`. Its
-    // length is charged, with its validation and the second search that
-    // builds it, before anything is built. The occurrences do not overlap,
-    // so they fit in the bytes.
+    // length is charged, with its validation, the second search that
+    // builds it, and the search that counts `old_text` in it, before
+    // anything is built. The occurrences do not overlap, so they fit in the
+    // bytes.
     let len = count
         .checked_mul(old.len())
         .and_then(|restored| (bytes.len() - count * new.len()).checked_add(restored))
         .unwrap_or(usize::MAX);
     let cost = candidate_cost(len, bytes.len())
         .saturating_add(bytes.len())
-        .saturating_add(new.len());
+        .saturating_add(new.len())
+        .saturating_add(len)
+        .saturating_add(old.len());
     if !budget.charge(cost) {
         return Reversed::Candidates(Vec::new());
     }
@@ -889,6 +895,18 @@ fn reverse_replace_all(
         last = position + new.len();
     }
     before.extend_from_slice(&bytes[last..]);
+    // Forward execution replaces every occurrence of `old_text` in the
+    // inverse, also those the current bytes held unchanged, so its output
+    // can be far longer than the current bytes it was charged as. Its
+    // length follows from the count: an inverse whose forward output
+    // cannot be the current bytes' length is rejected before it is built.
+    let replaced = Matches::new(&before, old, Reading::Leftmost).count();
+    let forward_len = replaced
+        .checked_mul(new.len())
+        .and_then(|added| (len - replaced * old.len()).checked_add(added));
+    if forward_len != Some(bytes.len()) {
+        return unverified();
+    }
     match validate(edit, State::Present(before), current) {
         Some(reversal) => Reversed::Candidates(vec![reversal]),
         None => unverified(),

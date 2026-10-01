@@ -550,6 +550,55 @@ fn a_growing_joint_inverse_is_charged_before_it_is_built() {
 }
 
 #[test]
+fn a_joint_inverse_whose_forward_execution_would_grow_is_rejected_unbuilt() {
+    // Every "a" becomes 1 MiB of "b". The current bytes are 4,095 "a" and
+    // one such replacement; its joint inverse, 4,096 "a", matches the
+    // recorded before-hash (the after-hash is unknown). Executing the edit
+    // forward on it would replace all 4,096 and build 4 GiB, though the
+    // reversal was charged about 5 MiB: the forward length is known from
+    // the occurrences, so the inverse is rejected before anything is built.
+    let new = "b".repeat(1 << 20);
+    let current = format!("{}{new}", "a".repeat(4_095));
+    let mut e = with_hashes(
+        replace_all("e1", "t", 1, "a", &new),
+        &"a".repeat(4_096),
+        &current,
+    );
+    e.after = FileState::unknown();
+    #[cfg(target_os = "linux")]
+    let peak_before = peak_resident_kib();
+    let (out, exhausted) = finishes_within(Duration::from_secs(2), move || {
+        let mut budget = Budget::new(DEFAULT_BUDGET_BYTES);
+        let out = reverse(&e, &state(Some(&current)), &State::Absent, &mut budget);
+        (out, budget.exhausted())
+    });
+    assert_eq!(
+        out,
+        Reversed::Stop(StopReason::ReplaceAllUnverified { edit: id("e1") })
+    );
+    assert!(!exhausted);
+    // Building the forward output is fast enough to escape a time limit, so
+    // its size is observed instead: the reversal's own work is a few MiB.
+    #[cfg(target_os = "linux")]
+    {
+        let grown = peak_resident_kib() - peak_before;
+        assert!(grown < 1 << 20, "peak memory grew by {grown} KiB");
+    }
+}
+
+/// The process's peak resident memory in KiB (`VmHWM`).
+#[cfg(target_os = "linux")]
+fn peak_resident_kib() -> u64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|value| value.trim().strip_suffix("kB"))
+        .map(|kib| kib.trim().parse().unwrap())
+        .unwrap()
+}
+
+#[test]
 fn preparing_a_search_is_charged_unless_no_match_fits() {
     // Searching for a text first prepares a table as long as the text,
     // charged after the reading: 1,000 bytes cover the reading, not the
