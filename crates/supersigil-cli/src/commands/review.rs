@@ -168,9 +168,12 @@ fn review_file(
         }
     });
     let text = kind == FileKind::Text;
+    // Listed on every file its sightings touched, whatever the file's kind
+    // and whether or not attribution ran.
+    let conflicts = conflicts_for(g, &change.path);
     let (bytes_status, attribution) = if text {
         let bytes = path_bytes(&g.repo, &change.path, old, new)?;
-        let attribution = attribute_path(g, &change.path, &bytes);
+        let attribution = attribute_path(g, &change.path, &bytes, &conflicts);
         (bytes.status, attribution)
     } else {
         let not_read = BytesStatus {
@@ -214,9 +217,7 @@ fn review_file(
         target_blob: new.filter(|_| text).map(|(_, b)| b),
         attribution: state,
         mentions,
-        // Listed on every file its sightings touched, whatever the file's
-        // kind and whether or not attribution ran.
-        conflicting_edits: conflicts_for(g, &change.path),
+        conflicting_edits: conflicts,
     });
     // Mentions matter where nothing else explains the file (design section 4).
     if file.status != FileStatus::Deleted && !has_unattributed(&file) {

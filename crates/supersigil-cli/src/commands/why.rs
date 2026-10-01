@@ -66,8 +66,10 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
             "{typed} is not a text file; why explains lines of text"
         )));
     }
+    // Conflicts touching this path, whether or not attribution ran.
+    let conflicts = conflicts_for(&g, &path);
     let side = path_bytes(&g.repo, &path, None, Some((&blob, &bytes)))?;
-    let attribution = attribute_path(&g, &path, &side);
+    let attribution = attribute_path(&g, &path, &side, &conflicts);
     let on_disk = on_disk_check(&g, &path, side.target_worktree_form(), &bytes);
     let target_lines = split_lines(&bytes);
     let analysis = if on_disk == OnDiskCheck::Captured {
@@ -108,8 +110,6 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
             .collect(),
         Err(_) => BTreeMap::new(),
     };
-    // Conflicts touching this path, whether or not attribution ran.
-    let conflicts = conflicts_for(&g, &path);
     let why = Why {
         schema: WHY_SCHEMA,
         path: path.display(),

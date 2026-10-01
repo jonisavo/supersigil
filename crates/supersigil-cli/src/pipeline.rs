@@ -4,6 +4,7 @@
 //! the recorded edits onto worktrees. Also the conversions from git and
 //! record data to the review model's plain types.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -82,7 +83,7 @@ pub struct MappedCandidate {
 /// An edit that survived deduplication across every involved record, with
 /// the path its file has in its worktree.
 #[derive(Debug, Clone)]
-pub struct MappedAccepted {
+struct MappedAccepted {
     /// The deduplicated edit and every record that holds a sighting of it.
     pub accepted: AcceptedEdit,
     /// The file's path relative to its worktree, components joined with `/`.
@@ -92,13 +93,85 @@ pub struct MappedAccepted {
 /// An edit id whose sightings disagree, and every path its sightings in
 /// candidate worktrees map to.
 #[derive(Debug, Clone)]
-pub struct PathConflict {
+struct PathConflict {
     /// The conflicting edit and the records that hold its sightings.
     pub conflict: Conflict,
     /// The paths its sightings in candidate worktrees touched, relative to
     /// their worktrees. A sighting elsewhere names a file outside the
     /// review, so its path is never matched against a reviewed one.
     pub paths: BTreeSet<String>,
+}
+
+/// Items, each found by every path it touches as [`same_path`] matches
+/// paths: exactly, or ignoring ASCII case when the repository sets
+/// `core.ignorecase`.
+#[derive(Debug)]
+pub struct ByPath<T> {
+    /// Every item, in order.
+    items: Vec<T>,
+    /// The positions in `items` of the items touching each path key
+    /// ([`path_key`]), ascending.
+    positions: BTreeMap<String, Vec<usize>>,
+    /// Whether paths are compared ignoring ASCII case.
+    ignore_case: bool,
+}
+
+impl<T> ByPath<T> {
+    /// Indexes `items`, each paired with the paths it touches.
+    fn new<P: AsRef<str>>(
+        items: impl IntoIterator<Item = (T, impl IntoIterator<Item = P>)>,
+        ignore_case: bool,
+    ) -> Self {
+        let mut index = Self {
+            items: Vec::new(),
+            positions: BTreeMap::new(),
+            ignore_case,
+        };
+        for (item, paths) in items {
+            let keys: BTreeSet<String> = paths
+                .into_iter()
+                .map(|path| path_key(path.as_ref(), ignore_case).into_owned())
+                .collect();
+            for key in keys {
+                index
+                    .positions
+                    .entry(key)
+                    .or_default()
+                    .push(index.items.len());
+            }
+            index.items.push(item);
+        }
+        index
+    }
+
+    /// Every item, in order.
+    #[must_use]
+    pub fn all(&self) -> &[T] {
+        &self.items
+    }
+
+    /// The items touching `path`, in order; none when `path` is not UTF-8.
+    pub fn touching(&self, path: &RepoPath) -> impl Iterator<Item = &T> {
+        path.to_str()
+            .and_then(|path| {
+                self.positions
+                    .get(path_key(path, self.ignore_case).as_ref())
+            })
+            .into_iter()
+            .flatten()
+            .map(|&position| &self.items[position])
+    }
+}
+
+/// The key [`ByPath`] finds `path` by: as written, or ASCII-lowercased when
+/// paths are compared ignoring case. Two paths have the same key exactly
+/// when [`same_path`] matches them.
+fn path_key(path: &str, ignore_case: bool) -> Cow<'_, str> {
+    if ignore_case {
+        Cow::Owned(path.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(path)
+    }
 }
 
 /// One involved record, pinned at the revision the review reads.
@@ -149,11 +222,13 @@ pub struct Gathered {
     pub candidate_transcripts: BTreeSet<String>,
     /// The edits whose file lies in a candidate worktree, after
     /// deduplicating every sighting in every involved record, wherever it
-    /// maps: the only edits attribution sees.
-    pub accepted: Vec<MappedAccepted>,
+    /// maps: the only edits attribution sees. Each is found by the path its
+    /// file has in its worktree.
+    pub accepted: ByPath<AcceptedEdit>,
     /// Edit ids excluded because their sightings disagree, each with a
-    /// sighting in a candidate worktree.
-    pub conflicts: Vec<PathConflict>,
+    /// sighting in a candidate worktree. Each is found by every path its
+    /// sightings there touched.
+    pub conflicts: ByPath<Conflict>,
     /// Edit sightings no registered worktree contains.
     pub unplaced_edits: usize,
     /// Whether the repository sets `core.ignorecase`.
@@ -238,6 +313,14 @@ pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
     let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
     let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
     let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
+    let accepted = ByPath::new(
+        accepted.into_iter().map(|m| (m.accepted, [m.path])),
+        ignore_case,
+    );
+    let conflicts = ByPath::new(
+        conflicts.into_iter().map(|c| (c.conflict, c.paths)),
+        ignore_case,
+    );
     let evidence = Evidence::index(records.iter().flat_map(|r| &r.observations));
     let candidate_transcripts = evidence.candidate_transcripts(
         candidates.iter().map(|m| &m.candidate.edit),
@@ -479,7 +562,7 @@ fn deduplicate(
     // sighting of an edit id counts. A conflict lists every path any of its
     // sightings touched, later sightings within a record included.
     let mut first_in_record: BTreeSet<(&RecordId, &EventId)> = BTreeSet::new();
-    let mut first_paths: BTreeMap<&EventId, BTreeSet<String>> = BTreeMap::new();
+    let mut first_paths: BTreeMap<&EventId, &str> = BTreeMap::new();
     let mut touched: BTreeMap<&EventId, BTreeSet<String>> = BTreeMap::new();
     for sighting in sightings {
         let id = &sighting.candidate.edit.id;
@@ -487,10 +570,7 @@ fn deduplicate(
         if let Some(mapped) = candidate_mapping(sighting, candidate_worktrees) {
             touched.entry(id).or_default().insert(mapped.path.clone());
             if first {
-                first_paths
-                    .entry(id)
-                    .or_default()
-                    .insert(mapped.path.clone());
+                first_paths.entry(id).or_insert(&mapped.path);
             }
         }
     }
@@ -501,14 +581,14 @@ fn deduplicate(
             // The sightings `dedup` compared agree on their payload, so on
             // where they map: one path when that is a candidate worktree,
             // none otherwise.
-            let path = first_paths.get(&accepted.edit.id)?.first()?.clone();
+            let path = first_paths.remove(&accepted.edit.id)?.to_owned();
             Some(MappedAccepted { accepted, path })
         })
         .collect();
     let conflicts = conflicts
         .into_iter()
         .filter_map(|conflict| {
-            let paths = touched.get(&conflict.edit)?.clone();
+            let paths = touched.remove(&conflict.edit)?;
             Some(PathConflict { conflict, paths })
         })
         .collect();
@@ -758,8 +838,8 @@ fn conversion_failure(status: Option<i32>, stderr_tail: &str) -> (String, String
 }
 
 /// Runs anchor for `path` with the accepted edits mapped to it, each passed
-/// as one candidate carrying its first record, and attaches the conflicts
-/// whose sightings touched the path.
+/// as one candidate carrying its first record, and attaches `conflicts`,
+/// those whose sightings touched the path ([`conflicts_for`]).
 ///
 /// # Errors
 ///
@@ -768,18 +848,18 @@ pub fn attribute_path(
     g: &Gathered,
     path: &RepoPath,
     bytes: &PathBytes,
+    conflicts: &[Conflict],
 ) -> Result<PathAttribution, String> {
     let base = bytes.base.clone()?;
     let target = bytes.target.clone()?;
     let edits = g
         .accepted
-        .iter()
-        .filter(|m| same_path(&m.path, path, g.ignore_case))
-        .filter_map(|m| {
+        .touching(path)
+        .filter_map(|accepted| {
             Some(CandidateEdit {
-                record: m.accepted.records.first()?.clone(),
-                worktree: m.accepted.worktree.clone(),
-                edit: m.accepted.edit.clone(),
+                record: accepted.records.first()?.clone(),
+                worktree: accepted.worktree.clone(),
+                edit: accepted.edit.clone(),
             })
         })
         .collect();
@@ -795,25 +875,21 @@ pub fn attribute_path(
         edits,
         budget_bytes: DEFAULT_BUDGET_BYTES,
     });
-    attribution.conflicts = conflicts_for(g, path);
+    attribution.conflicts = conflicts.to_vec();
     Ok(attribution)
 }
 
 /// The conflicts any of whose sightings touched `path`.
 #[must_use]
 pub fn conflicts_for(g: &Gathered, path: &RepoPath) -> Vec<Conflict> {
-    g.conflicts
-        .iter()
-        .filter(|c| c.paths.iter().any(|p| same_path(p, path, g.ignore_case)))
-        .map(|c| c.conflict.clone())
-        .collect()
+    g.conflicts.touching(path).cloned().collect()
 }
 
 /// Every conflict with a sighting in a candidate worktree, for the evidence
 /// block.
 #[must_use]
 pub fn all_conflicts(g: &Gathered) -> Vec<Conflict> {
-    g.conflicts.iter().map(|c| c.conflict.clone()).collect()
+    g.conflicts.all().to_vec()
 }
 
 /// The review model's base block.
@@ -993,7 +1069,7 @@ mod tests {
     use supersigil_session::checkout::canonical;
 
     use super::{
-        PinnedRecord, Sighting, conversion_failure, deduplicate, display_from, mode_text,
+        ByPath, PinnedRecord, Sighting, conversion_failure, deduplicate, display_from, mode_text,
         path_filters, repo_path, same_path, unavailable_associations,
     };
     use crate::mapping::MappedEdit;
@@ -1182,6 +1258,31 @@ mod tests {
         assert!(paths.is_empty());
         assert!(whole);
         path_filters(root, root, &typed(&[".", "../other/a.rs"])).unwrap_err();
+    }
+
+    #[test]
+    fn indexed_items_are_found_as_same_path_matches_paths() {
+        let items = || {
+            [
+                ("a", vec!["src/Lib.rs", "src/lib.rs"]),
+                ("b", vec!["x.rs"]),
+                ("c", vec!["src/LIB.rs"]),
+            ]
+        };
+        let found = |index: &ByPath<&'static str>, path: &RepoPath| -> Vec<&'static str> {
+            index.touching(path).copied().collect()
+        };
+        let lib = RepoPath::from_utf8("src/lib.rs");
+        let exact = ByPath::new(items(), false);
+        assert_eq!(found(&exact, &lib), ["a"]);
+        assert_eq!(found(&exact, &RepoPath::from_utf8("src/LIB.rs")), ["c"]);
+        // Ignoring case, an item is found once, in order, even when several
+        // of its paths differ only in case.
+        let folded = ByPath::new(items(), true);
+        assert_eq!(found(&folded, &lib), ["a", "c"]);
+        assert_eq!(folded.all(), ["a", "b", "c"]);
+        // A path that is not UTF-8 matches no mapped path.
+        assert!(found(&folded, &RepoPath::new(b"src/\xff".to_vec())).is_empty());
     }
 
     #[test]
