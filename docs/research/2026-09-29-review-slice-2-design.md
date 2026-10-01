@@ -118,7 +118,7 @@ blob contents are opaque bytes.
   - *attribution bytes*: the same blob converted to worktree form
     (`cat-file --filters --path`), because the transcript hashes were
     computed over worktree files. Returned with a status: identical to the
-    blob bytes, converted, or conversion failed. Conversion depends on the
+    blob bytes, converted, too large, or conversion failed. Conversion depends on the
     current attributes and config, so it is evidence of this review run, not
     a property of the tree.
 - *Origins*: the commits in base..target and, per commit, the worktrees whose
@@ -354,9 +354,11 @@ a gitlink change between two trees is hidden for a submodule configured
 --batch` process. Attribution bytes come from one `cat-file --filters
 --path=<path> <blob>` process per text blob: on git 2.55, `--batch --filters`
 writes the filtered bytes but reports the unfiltered size in its header, so
-batch framing breaks. The status compares the two: identical, converted, or
-conversion failed (with the exit status and a stderr tail). Attributes are
-read from the reviewed worktree as it is now.
+batch framing breaks. The status compares the two: identical, converted,
+too large (the converted output passed the 8 MiB limit while it was read; the
+process is stopped and attribution is unavailable), or conversion failed
+(with the exit status and a stderr tail). Attributes are read from the
+reviewed worktree as it is now.
 
 **Origins.**
 
