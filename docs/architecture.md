@@ -75,7 +75,10 @@ Do not resolve a symlink within an edit path to attribute an unrelated file.
 Candidate transcripts include both transcripts containing candidate edits
 and transcripts with observations from candidate worktrees. Fix this set
 before attribution. Keep their capture limitations visible even when no edit
-is attributed, or every changed line is attributed.
+is attributed, or every changed line is attributed. When several records hold
+one transcript, take its capture limitations from the record whose reports
+reach furthest into it. One record's reports cover disjoint ranges; adding
+another record's copies would count one problem twice.
 
 ## Attribution claims
 
@@ -105,7 +108,10 @@ reading that contains recorded evidence the base-reaching readings lack.
 Search, replay, and fallback matching have bounded work budgets. An incomplete
 search produces unresolved outcomes, never exact attribution from the subset
 explored. Fallback content matches remain labeled matches, not transformation
-proof. A partial fallback search must retain its incomplete status.
+proof. A partial fallback search must retain its incomplete status: a content
+match records whether its search completed, because one found before the
+budget ran out may not name every covering edit. Exhausting the fallback
+budget never marks the chain search incomplete.
 
 Claude Code's `structuredPatch` is display text, not file bytes. Hunk checks
 can reject inconsistent hashless candidates under the supported display
@@ -120,6 +126,16 @@ are observations, not attribution. Commands recorded in transcripts are never
 replayed.
 
 ## Trees, bytes, and scope
+
+Git locates the repository from its working directory. Every git process
+loses inherited variables that name another repository, index, or object
+store (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`,
+`GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`) or set how every
+pathspec is read (`GIT_LITERAL_PATHSPECS`, `GIT_GLOB_PATHSPECS`,
+`GIT_NOGLOB_PATHSPECS`, `GIT_ICASE_PATHSPECS`); Supersigil writes its
+pathspecs as literal paths. Replacement refs are disabled, so every object
+id in a review names the object stored under it. The user's configuration,
+attributes, and filters still apply.
 
 Both review endpoints are complete git trees. Defaults are HEAD for a
 working-tree review and the target's first parent for a commit review. Root
