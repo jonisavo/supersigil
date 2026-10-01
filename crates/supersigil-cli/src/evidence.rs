@@ -147,8 +147,9 @@ impl Evidence {
     /// Commands from `transcripts`, run in a checkout inside one of
     /// `worktrees`, whose text contains `path` (relative to a worktree that
     /// contains the checkout) as seen from the command's checkout, through
-    /// `..` when the file is not below it, or as an absolute path. Textual evidence only: a mention is never
-    /// attribution, and commands are never replayed.
+    /// `..` when the file is not below it, or as an absolute path. Textual
+    /// evidence only: a mention is never attribution, and commands are
+    /// never replayed.
     #[must_use]
     pub fn mentions(
         &self,
