@@ -142,20 +142,18 @@ impl Evidence {
             .collect()
     }
 
-    /// Commands from `transcripts`, run in a checkout inside one of
-    /// `worktrees`, whose text contains `path` (relative to a worktree that
-    /// contains the checkout) as seen from the command's checkout, through
-    /// `..` when the file is not below it, or as an absolute path. Textual
-    /// evidence only: a mention is never attribution, and commands are
-    /// never replayed.
+    /// Commands from `transcripts` run in a checkout inside one of
+    /// `worktrees`, in id order, to search for mentions of paths
+    /// ([`CandidateCommands::mentions`]). Which worktrees contain each
+    /// checkout, and the checkout's resolved spelling, are looked up once
+    /// here rather than once per path.
     #[must_use]
-    pub fn mentions(
-        &self,
+    pub fn candidate_commands<'a>(
+        &'a self,
         transcripts: &BTreeSet<String>,
-        worktrees: &[PathBuf],
-        path: &str,
-    ) -> Vec<Mention> {
-        let mut mentions = Vec::new();
+        worktrees: &'a [PathBuf],
+    ) -> CandidateCommands<'a> {
+        let mut commands = Vec::new();
         for command in self.commands.values() {
             if !command
                 .transcript
@@ -164,33 +162,24 @@ impl Evidence {
             {
                 continue;
             }
-            let text = &command.cmd;
             // Every worktree containing the checkout, not just the first:
             // with nested candidate worktrees the outer one contains the
             // inner one's checkouts too.
-            let mentioned = worktrees
+            let containing: Vec<&Path> = worktrees
                 .iter()
                 .filter(|w| within(&command.checkout, w))
-                .any(|worktree| {
-                    let absolute = worktree.join(path).to_string_lossy().into_owned();
-                    let relative = relative_to_checkout(&command.checkout, worktree, path);
-                    text.contains(&absolute) || relative.is_some_and(|r| text.contains(r.as_str()))
-                });
-            if mentioned {
-                mentions.push(Mention {
-                    command: command.id.as_str().to_owned(),
-                    session: command.session.as_str().to_owned(),
-                    turn: command.turn.as_str().to_owned(),
-                    checkout: command.checkout.display().to_string(),
-                    text: text.clone(),
-                    result: command.ended.as_ref().map(|_| MentionResult {
-                        exit: command.exit,
-                        outcome: command.outcome.map(outcome_word),
-                    }),
-                });
+                .map(PathBuf::as_path)
+                .collect();
+            if containing.is_empty() {
+                continue;
             }
+            commands.push(CandidateCommand {
+                command,
+                checkout: canonical(&command.checkout).unwrap_or_else(|_| command.checkout.clone()),
+                worktrees: containing,
+            });
         }
-        mentions
+        CandidateCommands { commands }
     }
 
     /// The nearest recorded ancestor of `edit`'s turn, following parent
@@ -221,6 +210,64 @@ impl Evidence {
             parent = turn.parent.as_ref();
         }
         None
+    }
+}
+
+/// The commands a review searches for mentions of its paths
+/// ([`Evidence::candidate_commands`]).
+#[derive(Debug)]
+pub struct CandidateCommands<'a> {
+    /// Each command whose checkout lies in a searched worktree, in id order.
+    commands: Vec<CandidateCommand<'a>>,
+}
+
+/// A command whose checkout lies in a searched worktree.
+#[derive(Debug)]
+struct CandidateCommand<'a> {
+    /// The command.
+    command: &'a Command,
+    /// Its checkout, canonical when that can be resolved, as written
+    /// otherwise.
+    checkout: PathBuf,
+    /// The searched worktrees containing its checkout, in their order.
+    worktrees: Vec<&'a Path>,
+}
+
+impl CandidateCommands<'_> {
+    /// The commands whose text contains `path` (relative to a worktree that
+    /// contains the checkout) as seen from the command's checkout, through
+    /// `..` when the file is not below it, or as an absolute path. Textual
+    /// evidence only: a mention is never attribution, and commands are
+    /// never replayed.
+    #[must_use]
+    pub fn mentions(&self, path: &str) -> Vec<Mention> {
+        self.commands
+            .iter()
+            .filter(|candidate| {
+                let text = &candidate.command.cmd;
+                candidate.worktrees.iter().any(|worktree| {
+                    let absolute = worktree.join(path).to_string_lossy().into_owned();
+                    let relative = relative_to_checkout(&candidate.checkout, worktree, path);
+                    text.contains(&absolute) || relative.is_some_and(|r| text.contains(r.as_str()))
+                })
+            })
+            .map(|candidate| mention(candidate.command))
+            .collect()
+    }
+}
+
+/// The mention entry for `command`.
+fn mention(command: &Command) -> Mention {
+    Mention {
+        command: command.id.as_str().to_owned(),
+        session: command.session.as_str().to_owned(),
+        turn: command.turn.as_str().to_owned(),
+        checkout: command.checkout.display().to_string(),
+        text: command.cmd.clone(),
+        result: command.ended.as_ref().map(|_| MentionResult {
+            exit: command.exit,
+            outcome: command.outcome.map(outcome_word),
+        }),
     }
 }
 
@@ -259,10 +306,10 @@ fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
 /// `path` (relative to `worktree`, `/`-separated) as seen from `checkout`,
 /// a directory inside it, through their common ancestor: one `..` for each
 /// directory climbed, so the root file `old.txt` is `../old.txt` from `src`.
-/// `None` when `checkout` is not inside `worktree`, a component of it is not
-/// a plain UTF-8 name, or `path` names `checkout` or one of its ancestors.
+/// `checkout` is compared as given, so callers resolve it first. `None` when
+/// `checkout` is not inside `worktree`, a component of it is not a plain
+/// UTF-8 name, or `path` names `checkout` or one of its ancestors.
 fn relative_to_checkout(checkout: &Path, worktree: &Path, path: &str) -> Option<String> {
-    let checkout = canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf());
     let below = checkout.strip_prefix(worktree).ok()?;
     let from = below
         .components()
@@ -401,7 +448,8 @@ mod tests {
         let worktrees = [repo];
         let ids = |path: &str| -> Vec<String> {
             evidence
-                .mentions(&transcripts, &worktrees, path)
+                .candidate_commands(&transcripts, &worktrees)
+                .mentions(path)
                 .into_iter()
                 .map(|m| m.command)
                 .collect()
@@ -432,7 +480,8 @@ mod tests {
         let worktrees = [repo];
         let ids = |path: &str| -> Vec<String> {
             evidence
-                .mentions(&transcripts, &worktrees, path)
+                .candidate_commands(&transcripts, &worktrees)
+                .mentions(path)
                 .into_iter()
                 .map(|m| m.command)
                 .collect()
@@ -453,7 +502,8 @@ mod tests {
         // comes first and also contains the command's checkout.
         let worktrees = [repo, nested];
         let ids: Vec<String> = evidence
-            .mentions(&transcripts, &worktrees, "old.txt")
+            .candidate_commands(&transcripts, &worktrees)
+            .mentions("old.txt")
             .into_iter()
             .map(|m| m.command)
             .collect();

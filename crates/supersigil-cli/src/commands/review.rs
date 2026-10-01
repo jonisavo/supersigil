@@ -22,7 +22,7 @@ use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::commands::ReviewArgs;
 use crate::error::CliError;
-use crate::evidence::add_referenced_edits;
+use crate::evidence::{CandidateCommands, add_referenced_edits};
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::pipeline::{
     BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, attribution_state,
@@ -77,16 +77,13 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
         ResolvedTarget::WorkingTree { .. } => vec![g.worktree.clone()],
         ResolvedTarget::Commit { .. } => g.candidate_worktrees.clone(),
     };
+    let commands = g
+        .evidence
+        .candidate_commands(&g.candidate_transcripts, &mention_worktrees);
     let mut files = Vec::new();
     let mut edits: BTreeMap<String, EditInfo> = BTreeMap::new();
     for change in &changes {
-        let (file, attribution) = review_file(
-            g,
-            change,
-            &blobs,
-            &g.candidate_transcripts,
-            &mention_worktrees,
-        )?;
+        let (file, attribution) = review_file(g, change, &blobs, &commands)?;
         // Only the edits the file's analysis names.
         if let Some(attribution) = attribution {
             add_referenced_edits(
@@ -142,8 +139,7 @@ fn review_file(
     g: &Gathered,
     change: &Change,
     blobs: &BTreeMap<ObjectId, Blob>,
-    transcripts: &BTreeSet<String>,
-    mention_worktrees: &[PathBuf],
+    commands: &CandidateCommands<'_>,
 ) -> Result<(FileReview, Option<PathAttribution>), CliError> {
     // Both references borrow from the map, so they outlive the lookup key.
     let side = |id: Option<&ObjectId>| match id.and_then(|id| blobs.get_key_value(id)) {
@@ -194,7 +190,7 @@ fn review_file(
     let mentions = change
         .path
         .to_str()
-        .map(|p| g.evidence.mentions(transcripts, mention_worktrees, p))
+        .map(|p| commands.mentions(p))
         .unwrap_or_default();
     let mut file = file_review(FileInput {
         path: &path,
