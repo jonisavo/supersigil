@@ -56,6 +56,7 @@ expression: sample()
     value:
       policy: capture.edit_text
   replace_all: false
+  operation: replace
   checkout: /work/repo
   time: "2026-09-28T10:00:06.000Z"
   source_ordinal: 2

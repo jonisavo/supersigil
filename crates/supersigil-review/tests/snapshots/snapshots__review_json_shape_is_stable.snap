@@ -1,0 +1,330 @@
+---
+source: crates/supersigil-review/tests/snapshots.rs
+expression: sample_review()
+---
+schema: supersigil.review/1
+worktree: /work/repo
+base:
+  commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tree: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  ancestry: ancestor
+target:
+  kind: working_tree
+  commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tree: cccccccccccccccccccccccccccccccccccccccc
+unattributed:
+  files:
+    - path: notes.txt
+      unattributed: 2
+      content_match_incomplete: 0
+      unresolved: 0
+      ambiguous: 0
+      line_ending: 0
+      content_match_only: 0
+    - path: old.txt
+      unattributed: 1
+      content_match_incomplete: 0
+      unresolved: 0
+      ambiguous: 0
+      line_ending: 0
+      content_match_only: 0
+  coarse: []
+  attribution_unavailable: []
+  not_diffed:
+    - path: logo.png
+      kind: binary
+  untracked_with_recorded_edits:
+    - src/new.rs
+  not_captured:
+    - config.toml
+scope:
+  include_untracked: []
+  paths: []
+  untracked_excluded:
+    - path: src/new.rs
+      recorded_edit: true
+      include_flag: "--include-untracked src/new.rs"
+    - path: scratch.txt
+      recorded_edit: false
+      include_flag: "--include-untracked scratch.txt"
+  not_captured:
+    - path: config.toml
+      on_disk: present
+      cause: assume_unchanged
+  skip_worktree_absent: 0
+  unmerged: []
+  ancestry_note: ~
+  path_note: ~
+origins:
+  commits: []
+  without_origin: []
+  unavailable: []
+records:
+  - id: rec-1
+    revision: 4
+    reconciled: true
+    reason: ~
+  - id: rec-2
+    revision: 2
+    reconciled: false
+    reason: locked by another writer
+evidence:
+  candidate_transcripts:
+    - transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+      session: s1
+      capture_limitations:
+        - session: s1
+          transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+          from_ordinal: 0
+          to_ordinal: 19
+          unknown_records: {}
+          malformed_lines: 0
+          abandoned_tool_uses: 1
+          failed_tool_uses: 0
+          outside_checkout: 0
+          conflicting_tool_results: 0
+          unmatched_tool_results: 0
+          session_mismatch: 0
+          unnamed_tool_uses: 0
+          unsupported_tool_uses: 0
+      localized: false
+  unplaced_edits: 0
+  unreconciled_checkouts:
+    - checkout: /work/repo/.claude/worktrees/x
+      transcripts: 2
+      reason: records directory locked
+  conflicting_edits:
+    - edit: e9
+      records:
+        - rec-1
+        - rec-2
+files:
+  - path: logo.png
+    path_escaped: ~
+    status: modified
+    old_mode: "100644"
+    new_mode: "100644"
+    old_blob: logo.png@base
+    new_blob: logo.png@target
+    kind: binary
+    attribution_bytes:
+      base: identical
+      target: identical
+    attribution: ~
+    conflicting_edits:
+      - edit: e9
+        records:
+          - rec-1
+          - rec-2
+    coarse: false
+    hunks: []
+    mentions: []
+  - path: notes.txt
+    path_escaped: ~
+    status: modified
+    old_mode: "100644"
+    new_mode: "100644"
+    old_blob: notes.txt@base
+    new_blob: notes.txt@target
+    kind: text
+    attribution_bytes:
+      base: identical
+      target: identical
+    attribution:
+      status:
+        kind: not_composed
+        reasons:
+          - kind: no_accepted_candidate
+            edit: e2
+      chains: []
+      set_aside: []
+      unavailable: ~
+    conflicting_edits: []
+    coarse: false
+    hunks:
+      - base_start: 1
+        base_count: 1
+        target_start: 1
+        target_count: 1
+        removed:
+          - "draft\n"
+        added:
+          - "final\n"
+        spans:
+          - side: base
+            start: 1
+            count: 1
+            outcome:
+              kind: unattributed
+              reason:
+                kind: no_surviving_chain
+                status:
+                  kind: not_composed
+                  reasons:
+                    - kind: no_accepted_candidate
+                      edit: e2
+            provenance:
+              - class: ~
+                fates: []
+                kind: agreed
+          - side: target
+            start: 1
+            count: 1
+            outcome:
+              kind: unattributed
+              reason:
+                kind: no_surviving_chain
+                status:
+                  kind: not_composed
+                  reasons:
+                    - kind: no_accepted_candidate
+                      edit: e2
+            provenance:
+              - class: ~
+                kind: agreed
+                provenance:
+                  earlier: []
+                  origins:
+                    - kind: unexplained
+                  whitespace_only: []
+    mentions: []
+  - path: old.txt
+    path_escaped: ~
+    status: deleted
+    old_mode: "100644"
+    new_mode: "000000"
+    old_blob: old.txt@base
+    new_blob: ~
+    kind: text
+    attribution_bytes:
+      base: identical
+      target: absent
+    attribution:
+      status:
+        kind: not_composed
+        reasons:
+          - kind: no_predecessor
+      chains: []
+      set_aside: []
+      unavailable: ~
+    conflicting_edits: []
+    coarse: false
+    hunks:
+      - base_start: 1
+        base_count: 1
+        target_start: 0
+        target_count: 0
+        removed:
+          - "gone\n"
+        added: []
+        spans:
+          - side: base
+            start: 1
+            count: 1
+            outcome:
+              kind: unattributed
+              reason:
+                kind: no_surviving_chain
+                status:
+                  kind: not_composed
+                  reasons:
+                    - kind: no_predecessor
+            provenance:
+              - class: ~
+                fates: []
+                kind: agreed
+    mentions:
+      - command: "command:1"
+        session: s1
+        turn: a6
+        checkout: /work/repo
+        text: rm old.txt
+        result:
+          exit: 0
+          outcome: ~
+  - path: src/lib.rs
+    path_escaped: ~
+    status: modified
+    old_mode: "100644"
+    new_mode: "100644"
+    old_blob: src/lib.rs@base
+    new_blob: src/lib.rs@target
+    kind: text
+    attribution_bytes:
+      base: identical
+      target: identical
+    attribution:
+      status:
+        kind: composed
+      chains:
+        - id: 0
+          class: exact_from_base
+          head: e1
+          edits:
+            - e1
+          end:
+            kind: base
+      set_aside: []
+      unavailable: ~
+    conflicting_edits: []
+    coarse: false
+    hunks:
+      - base_start: 2
+        base_count: 1
+        target_start: 2
+        target_count: 1
+        removed:
+          - "fn old() {}\n"
+        added:
+          - "fn new() {}\n"
+        spans:
+          - side: base
+            start: 2
+            count: 1
+            outcome:
+              kind: attributed
+              edits:
+                - edit: e1
+                  relation: replaced
+                  classes:
+                    - exact_from_base
+            provenance:
+              - class: exact_from_base
+                fates:
+                  - edit: e1
+                    kind: replaced
+                kind: agreed
+          - side: target
+            start: 2
+            count: 1
+            outcome:
+              kind: attributed
+              edits:
+                - edit: e1
+                  relation: introduced
+                  classes:
+                    - exact_from_base
+            provenance:
+              - class: exact_from_base
+                kind: agreed
+                provenance:
+                  earlier: []
+                  origins:
+                    - kind: introduced
+                      value: e1
+                  whitespace_only: []
+    mentions: []
+edits:
+  e1:
+    session: s1
+    transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+    turn: a1
+    time: "2026-09-28T10:00:01.000Z"
+    worktree: /work/repo
+    operation: replace
+    prompt:
+      turn: u1
+      role: human
+      excerpt:
+        state: retained
+        value: Add a greeting function and clean up.

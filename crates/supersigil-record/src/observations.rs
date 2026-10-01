@@ -277,6 +277,23 @@ pub struct Hunk {
     pub lines: Vec<String>,
 }
 
+/// Editing operation recorded for an edit.
+///
+/// Reconstructing an earlier file state depends on it: an Edit replaced
+/// `old_text` with `new_text`, a Write replaced the whole file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditOperation {
+    /// Claude Code's Edit tool: `old_text` replaced by `new_text`.
+    Replace,
+    /// Claude Code's Write tool: the whole file becomes `new_text`.
+    Write,
+    /// Not recorded (logs written before this field existed) or a tool
+    /// anchor cannot reverse, such as `MultiEdit`.
+    #[default]
+    Unknown,
+}
+
 /// A file edit made through the agent's editing tools.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
@@ -300,6 +317,9 @@ pub struct Edit {
     pub new_text: Material<String>,
     /// Whether the editing tool was instructed to replace every matching occurrence.
     pub replace_all: bool,
+    /// Editing operation, `Unknown` for observations recorded before it was kept.
+    #[serde(default)]
+    pub operation: EditOperation,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
     /// Timestamp of the tool result, falling back to the issuing record's
@@ -469,9 +489,90 @@ impl CaptureCounts {
     }
 }
 
+impl std::ops::AddAssign<&Self> for CaptureCounts {
+    /// Adds every count of `rhs`, merging `unknown_records` by reason.
+    fn add_assign(&mut self, rhs: &Self) {
+        for (reason, count) in &rhs.unknown_records {
+            *self.unknown_records.entry(reason.clone()).or_default() += count;
+        }
+        self.malformed_lines += rhs.malformed_lines;
+        self.abandoned_tool_uses += rhs.abandoned_tool_uses;
+        self.failed_tool_uses += rhs.failed_tool_uses;
+        self.outside_checkout += rhs.outside_checkout;
+        self.conflicting_tool_results += rhs.conflicting_tool_results;
+        self.unmatched_tool_results += rhs.unmatched_tool_results;
+        self.session_mismatch += rhs.session_mismatch;
+        self.unnamed_tool_uses += rhs.unnamed_tool_uses;
+        self.unsupported_tool_uses += rhs.unsupported_tool_uses;
+    }
+}
+
+impl<'a> std::iter::Sum<&'a Self> for CaptureCounts {
+    /// Totals the counts, starting from none.
+    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        iter.fold(Self::default(), |mut total, counts| {
+            total += counts;
+            total
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_counts_add_up_field_by_field() {
+        let a = CaptureCounts {
+            unknown_records: BTreeMap::from([("x".to_owned(), 1), ("y".to_owned(), 2)]),
+            malformed_lines: 1,
+            abandoned_tool_uses: 2,
+            failed_tool_uses: 3,
+            outside_checkout: 4,
+            conflicting_tool_results: 5,
+            unmatched_tool_results: 6,
+            session_mismatch: 7,
+            unnamed_tool_uses: 8,
+            unsupported_tool_uses: 9,
+        };
+        let b = CaptureCounts {
+            unknown_records: BTreeMap::from([("y".to_owned(), 10), ("z".to_owned(), 1)]),
+            malformed_lines: 10,
+            abandoned_tool_uses: 20,
+            failed_tool_uses: 30,
+            outside_checkout: 40,
+            conflicting_tool_results: 50,
+            unmatched_tool_results: 60,
+            session_mismatch: 70,
+            unnamed_tool_uses: 80,
+            unsupported_tool_uses: 90,
+        };
+        let total: CaptureCounts = [&a, &b].into_iter().sum();
+        assert_eq!(
+            total,
+            CaptureCounts {
+                unknown_records: BTreeMap::from([
+                    ("x".to_owned(), 1),
+                    ("y".to_owned(), 12),
+                    ("z".to_owned(), 1),
+                ]),
+                malformed_lines: 11,
+                abandoned_tool_uses: 22,
+                failed_tool_uses: 33,
+                outside_checkout: 44,
+                conflicting_tool_results: 55,
+                unmatched_tool_results: 66,
+                session_mismatch: 77,
+                unnamed_tool_uses: 88,
+                unsupported_tool_uses: 99,
+            }
+        );
+        assert!(
+            std::iter::empty::<&CaptureCounts>()
+                .sum::<CaptureCounts>()
+                .is_empty()
+        );
+    }
 
     fn start(transcript: &str, time: &str, sidechain: bool) -> Observation {
         Observation::SessionStart(SessionStart {

@@ -12,12 +12,10 @@
 
 ---
 
-Supersigil is being rebuilt. The new tool records what agent sessions did
-to a repository, links every changed span to the recorded edits and the
-rationale behind them, keeps what was tried and reverted, and lets you
-review a change in the terminal with that history beside the diff. It stays
-honest about what the evidence does and does not show. The design is in
-[`docs/research/multiverse-review-design.md`](docs/research/multiverse-review-design.md).
+Supersigil records agent activity and connects changed lines to recorded
+edits. It reports missing evidence, competing explanations, and incomplete
+searches alongside the change. See the [architecture](docs/architecture.md)
+for the evidence model and attribution rules.
 
 The previous Supersigil, a spec-driven development tool with a
 verification engine, an LSP server, and editor extensions, lives at the
@@ -27,9 +25,21 @@ not maintained.
 
 ## Status
 
-Only shell completions exist in this tree today. The first arc lands in
-three steps: the local record of agent sessions, the review model with
-attribution, and a terminal review.
+The current CLI imports Claude Code sessions, reviews working-tree or commit
+changes, and explains individual lines. It prints JSON or a plain terminal
+summary. Sourced annotations, human judgments, and an interactive terminal
+review remain planned.
+
+```sh
+supersigil session sync
+supersigil review --format terminal
+supersigil review --base main --target HEAD --format json
+supersigil why src/lib.rs:12 --format terminal
+```
+
+`review` and `why` reconcile relevant records before reading the change.
+Untracked files are excluded from a review unless named with
+`--include-untracked PATH`. Unattributed lines remain visible.
 
 ## Development
 

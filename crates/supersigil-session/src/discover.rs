@@ -6,6 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::found;
+
 /// Converts a checkout path to a Claude Code project directory name.
 ///
 /// Replaces every character outside ASCII letters and digits with `-`.
@@ -23,20 +25,34 @@ pub fn encode_project_dir(checkout: &Path) -> String {
 /// Lists the main and subagent transcripts for `checkout`.
 ///
 /// `claude_home` is normally `~/.claude`. Searches its `projects` directory
-/// using [`encode_project_dir`] on the supplied checkout path. Returns main
-/// `.jsonl` paths first, then `<session id>/subagents/agent-*.jsonl` paths,
-/// with each group sorted by path. Ignores other files and directories.
-/// Returns an empty vector if the project directory is missing.
+/// using [`encode_project_dir`] on the supplied checkout path, as
+/// [`transcripts_in`] describes. Returns an empty vector if the project
+/// directory is missing.
 ///
 /// # Errors
 ///
 /// Returns an I/O error if an existing project or subagent directory, or an
 /// entry needed for the scan, cannot be read.
 pub fn discover_transcripts(checkout: &Path, claude_home: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let dir = claude_home
-        .join("projects")
-        .join(encode_project_dir(checkout));
-    let Some(entries) = read_dir_if_present(&dir)? else {
+    transcripts_in(
+        &claude_home
+            .join("projects")
+            .join(encode_project_dir(checkout)),
+    )
+}
+
+/// Lists the main and subagent transcripts in one Claude Code project directory.
+///
+/// Returns main `.jsonl` paths first, then `<session id>/subagents/agent-*.jsonl`
+/// paths, with each group sorted by path. Ignores other files and directories.
+/// Returns an empty vector if `project_dir` is missing.
+///
+/// # Errors
+///
+/// Returns an I/O error if an existing project or subagent directory, or an
+/// entry needed for the scan, cannot be read.
+pub fn transcripts_in(project_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let Some(entries) = read_dir_if_present(project_dir)? else {
         return Ok(Vec::new());
     };
     let mut main = Vec::new();
@@ -84,11 +100,7 @@ fn subagent_transcripts(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 ///
 /// Returns any error other than [`std::io::ErrorKind::NotFound`].
 fn read_dir_if_present(dir: &Path) -> std::io::Result<Option<std::fs::ReadDir>> {
-    match std::fs::read_dir(dir) {
-        Ok(entries) => Ok(Some(entries)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
+    found(std::fs::read_dir(dir))
 }
 
 fn is_jsonl(path: &Path) -> bool {
@@ -151,6 +163,25 @@ mod tests {
         );
         assert!(
             discover_transcripts(Path::new("/nowhere"), home.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn transcripts_in_scans_one_project_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join("-work-repo--claude-worktrees-x");
+        let subagents = dir.join("s1").join("subagents");
+        std::fs::create_dir_all(&subagents).unwrap();
+        std::fs::write(dir.join("s1.jsonl"), "").unwrap();
+        std::fs::write(subagents.join("agent-y.jsonl"), "").unwrap();
+        assert_eq!(
+            transcripts_in(&dir).unwrap(),
+            vec![dir.join("s1.jsonl"), subagents.join("agent-y.jsonl")]
+        );
+        assert!(
+            transcripts_in(&home.path().join("missing"))
                 .unwrap()
                 .is_empty()
         );

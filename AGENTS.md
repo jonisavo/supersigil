@@ -21,9 +21,16 @@ No warnings or errors should be left.
 
 Supersigil is being rebuilt as a tool for reviewing agent-made changes with
 the recorded reasoning behind them. Read
-`docs/research/multiverse-review-design.md` before changing the model. The
-guiding rule: make development history easier to inspect without making it
-look more certain than the evidence allows.
+`docs/architecture.md` and `docs/research/multiverse-review-design.md` before
+changing the model. The guiding rule: make development history easier to
+inspect without making it look more certain than the evidence allows.
+
+Keep plans, specs, and execution notes in the gitignored `.planning/`
+directory. Keep durable documentation of behavior and design constraints in
+`docs/`, separate from those working documents.
+
+Keep `docs/research/multiverse-review-design.md` tracked for now; it retains
+product decisions not yet covered by the architecture document.
 
 # Style
 

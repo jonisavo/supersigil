@@ -1,0 +1,26 @@
+---
+source: crates/supersigil-review/tests/snapshots.rs
+expression: "render_summary(&sample_review(), escape)"
+---
+review of /work/repo
+  base: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
+  target: working tree over aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree cccccccccccccccccccccccccccccccccccccccc)
+  record rec-2 not reconciled: locked by another writer
+  checkout /work/repo/.claude/worktrees/x not reconciled (2 transcripts): records directory locked
+  capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path
+
+unattributed:
+  src/new.rs: untracked, a recorded edit wrote this file; not included (--include-untracked src/new.rs)
+  notes.txt: 2 unattributed
+  old.txt: 1 unattributed
+  logo.png: not diffed: binary
+  config.toml: on-disk state not captured
+
+files:
+  M logo.png  not diffed: binary
+  M notes.txt  +1 -1  2 unattributed: no surviving chain
+  D old.txt  +0 -1  1 unattributed: no surviving chain
+  M src/lib.rs  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session
+
+scope: 2 untracked files excluded
+scope: config.toml not captured (assume_unchanged, present on disk)

@@ -1,0 +1,22 @@
+[package]
+name = "supersigil-review"
+version = "0.14.0"
+description = "Review model: the reviewed diff with per-line attribution for supersigil"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+similar.workspace = true
+supersigil-anchor.workspace = true
+supersigil-record.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

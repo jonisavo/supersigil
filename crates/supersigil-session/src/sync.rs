@@ -10,7 +10,7 @@ use supersigil_record::observations::{
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
 use supersigil_record::{ContentId, Revision, SessionId, Timestamp};
 
-use crate::checkout::{Placement, canonical, placement};
+use crate::checkout::{Placement, canonical, placement, within};
 use crate::claude_code::{ParseOutcome, parse_transcript};
 
 /// Failure to read a transcript or update the record during sync.
@@ -315,11 +315,7 @@ fn admit(checkout: &Path, named: Option<&Path>) -> Result<(PathBuf, Placement), 
 /// associated checkout. Adds the number removed to `outside_checkout`;
 /// leaves other observations unchanged.
 fn drop_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
-    let inside = |dir: &Path| {
-        associations
-            .iter()
-            .any(|a| placement(dir, &a.checkout) != Placement::Outside)
-    };
+    let inside = |dir: &Path| associations.iter().any(|a| within(dir, &a.checkout));
     let before = outcome.observations.len();
     outcome
         .observations

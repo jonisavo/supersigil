@@ -32,6 +32,27 @@ pub fn placement(path: &Path, root: &Path) -> Placement {
     }
 }
 
+/// Checks whether `path` equals `root` or is inside it, by [`placement`].
+#[must_use]
+pub fn within(path: &Path, root: &Path) -> bool {
+    placement(path, root) != Placement::Outside
+}
+
+/// Checks whether either path equals or is inside the other, by [`placement`].
+#[must_use]
+pub fn overlaps(a: &Path, b: &Path) -> bool {
+    within(a, b) || within(b, a)
+}
+
+/// Returns [`canonical`], or `path` as written when it does not exist.
+///
+/// # Errors
+///
+/// Returns any I/O error other than [`std::io::ErrorKind::NotFound`].
+pub fn canonical_or_written(path: &Path) -> std::io::Result<PathBuf> {
+    Ok(crate::found(canonical(path))?.unwrap_or_else(|| path.to_path_buf()))
+}
+
 /// Returns an absolute path with symlinks resolved and no Windows verbatim prefix.
 ///
 /// Calls [`std::fs::canonicalize`], then converts `\\?\C:\x` to `C:\x` and
@@ -58,8 +79,15 @@ fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     stripped.map_or(path, PathBuf::from)
 }
 
-/// Compares normalized path components without accessing the file system.
-fn placement_as_written(path: &Path, root: &Path) -> Placement {
+/// Checks whether `path` equals `root`, is inside it, or is outside it, as
+/// written: normalized components are compared without accessing the file
+/// system, so no symlink is resolved on either side.
+///
+/// Normalization is [`placement`]'s fallback: `\` is a separator in Windows
+/// paths, empty and `.` components are dropped, drive letters are compared
+/// uppercased, and any `..` after the root makes the path outside.
+#[must_use]
+pub fn placement_as_written(path: &Path, root: &Path) -> Placement {
     let (path, root) = (comparable(path), comparable(root));
     match path.strip_prefix(root.as_slice()) {
         Some([]) => Placement::Same,
@@ -112,6 +140,44 @@ mod tests {
 
     fn relation(path: &str, root: &str) -> Placement {
         placement_as_written(Path::new(path), Path::new(root))
+    }
+
+    #[test]
+    fn within_and_overlaps_follow_placement() {
+        let (root, inner, other) = (
+            Path::new("/work/repo"),
+            Path::new("/work/repo/sub"),
+            Path::new("/work/other"),
+        );
+        assert!(within(root, root));
+        assert!(within(inner, root));
+        assert!(!within(root, inner));
+        assert!(!within(other, root));
+        assert!(overlaps(root, inner) && overlaps(inner, root));
+        assert!(!overlaps(root, other));
+    }
+
+    #[test]
+    fn canonical_or_written_falls_back_only_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing");
+        assert_eq!(canonical_or_written(&missing).unwrap(), missing);
+        assert_eq!(
+            canonical_or_written(dir.path()).unwrap(),
+            canonical(dir.path()).unwrap()
+        );
+    }
+
+    // Unix reports a path beneath a regular file as "not a directory", an
+    // error; Windows reports it as not found, so there the written path is kept.
+    #[cfg(unix)]
+    #[test]
+    fn canonical_or_written_reports_a_path_beneath_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        std::fs::write(&file, b"").unwrap();
+        let err = canonical_or_written(&file.join("child")).unwrap_err();
+        assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]
