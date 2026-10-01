@@ -211,6 +211,11 @@ pub fn finishes_within<T: Send + 'static>(
         .expect("the work finishes within its time limit")
 }
 
+/// Lines of a state, counted the way anchor counts them.
+pub fn line_count(state: &State) -> usize {
+    supersigil_anchor::lines::line_starts(state.bytes().unwrap_or_default()).len()
+}
+
 /// A request with the default budget, reviewing [`WT`].
 pub fn request(
     base: Option<&str>,
