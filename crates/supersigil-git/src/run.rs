@@ -268,6 +268,18 @@ fn succeeded(args: &[OsString], output: Output) -> Result<Vec<u8>, GitError> {
     })
 }
 
+/// Characters of standard error kept by [`stderr_tail`].
+const STDERR_TAIL_CHARS: usize = 500;
+
+/// The end of `stderr`, trimmed and at most [`STDERR_TAIL_CHARS`] characters,
+/// for reports that keep git's own words without its whole output.
+pub(crate) fn stderr_tail(stderr: &str) -> String {
+    let chars: Vec<char> = stderr.trim().chars().collect();
+    chars[chars.len().saturating_sub(STDERR_TAIL_CHARS)..]
+        .iter()
+        .collect()
+}
+
 /// Wraps an I/O error with what was being done.
 pub(crate) fn io_error(context: &str, source: std::io::Error) -> GitError {
     GitError::Io {

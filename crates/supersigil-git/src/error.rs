@@ -69,8 +69,9 @@ pub enum GitError {
     },
 }
 
-/// Describes an exit status for an error message.
-fn status_text(status: Option<i32>) -> String {
+/// Describes an exit status for a message: `exit <code>`, or that git was
+/// ended by a signal.
+pub(crate) fn status_text(status: Option<i32>) -> String {
     status.map_or_else(
         || "killed by a signal".to_owned(),
         |code| format!("exit {code}"),

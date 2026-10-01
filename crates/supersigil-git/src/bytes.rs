@@ -13,6 +13,7 @@ use crate::error::GitError;
 use crate::oid::ObjectId;
 use crate::path::RepoPath;
 use crate::repo::Repo;
+use crate::run::stderr_tail;
 
 /// Returns the size of each blob with `cat-file --batch-check`.
 ///
@@ -108,9 +109,6 @@ pub enum Conversion {
     },
 }
 
-/// Characters of standard error kept in [`Conversion::Failed`].
-const STDERR_TAIL_CHARS: usize = 500;
-
 /// Converts `blob` to its worktree form for `path` with
 /// `cat-file --filters --path=<path>`, one process per blob: on git 2.55,
 /// `--batch --filters` writes the filtered bytes but reports the unfiltered
@@ -160,14 +158,9 @@ pub fn worktree_form(
                 });
             }
         }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let chars: Vec<char> = stderr.trim().chars().collect();
-        let tail: String = chars[chars.len().saturating_sub(STDERR_TAIL_CHARS)..]
-            .iter()
-            .collect();
         return Ok(Conversion::Failed {
             status: output.status.code(),
-            stderr_tail: tail,
+            stderr_tail: stderr_tail(&String::from_utf8_lossy(&output.stderr)),
         });
     }
     if output.stdout == blob_bytes {

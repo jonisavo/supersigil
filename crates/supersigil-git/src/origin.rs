@@ -3,14 +3,17 @@
 //! A worktree originates a commit when its own HEAD reflog has a
 //! commit-family entry for it. The association is computed at review time
 //! and never stored; an expired reflog or a pruned worktree simply leaves a
-//! commit without an origin, which the review reports.
+//! commit without an origin, which the review reports. A reflog git cannot
+//! read is never taken for an empty one: that worktree's origin evidence is
+//! reported unavailable, with git's exit status and the end of its stderr.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::error::GitError;
+use crate::error::{GitError, status_text};
 use crate::oid::ObjectId;
 use crate::repo::Repo;
+use crate::run::stderr_tail;
 use crate::snapshot::nul_fields;
 use crate::worktree::Worktree;
 
@@ -80,14 +83,19 @@ pub struct ReflogEntry {
 
 /// Reads the HEAD reflog of the worktree at `worktree`, newest first. Each
 /// linked worktree has its own. A worktree without a reflog (logging
-/// disabled, or an unborn HEAD) has no entries.
+/// disabled, or an unborn HEAD that never moved) has no entries. A reflog
+/// that exists but git cannot read is an error, never an empty history.
 ///
 /// # Errors
 ///
-/// Returns the errors of [`crate::Git::raw`], or [`GitError::Parse`] for
-/// entries this function does not understand.
+/// Returns [`GitError::Failed`] when `log -g` fails and `reflog exists`
+/// does not report the reflog absent: for example a configuration git
+/// rejects, or an unborn HEAD (`switch --orphan`) whose reflog holds
+/// earlier entries. Returns [`GitError::Parse`] for entries this function
+/// does not understand, or the errors of [`crate::Git::raw`].
 pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, GitError> {
-    let output = repo.git().in_dir(worktree).raw([
+    let git = repo.git().in_dir(worktree);
+    let args = [
         "log",
         "-g",
         "-z",
@@ -97,9 +105,21 @@ pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, Git
         "--format=%H%x1f%gs",
         "HEAD",
         "--",
-    ])?;
+    ];
+    let output = git.raw(args)?;
     if !output.status.success() {
-        return Ok(Vec::new());
+        // Only a reflog that does not exist is empty: `reflog exists` exits
+        // 1 for one that does not. Whatever else it reports, the reflog was
+        // not read, and the log's own failure says why.
+        let check = git.raw(["reflog", "exists", "HEAD"])?;
+        if check.status.code() == Some(1) {
+            return Ok(Vec::new());
+        }
+        return Err(GitError::Failed {
+            args: args.join(" "),
+            status: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
     }
     let mut entries = Vec::new();
     for record in nul_fields(&output.stdout) {
@@ -125,12 +145,15 @@ pub struct CommitOrigin {
     pub worktrees: Vec<PathBuf>,
 }
 
-/// A worktree whose reflog could not be read.
+/// A worktree whose origin evidence is unavailable: its directory is
+/// missing, or git could not read its HEAD reflog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnavailableOrigin {
     /// The worktree's registered path.
     pub worktree: PathBuf,
-    /// Why its evidence is unavailable.
+    /// What was observed, without the "origin evidence unavailable" label
+    /// a renderer adds: for example `worktree directory is missing`, or
+    /// `HEAD reflog could not be read (exit 128): <end of stderr>`.
     pub reason: String,
 }
 
@@ -141,7 +164,9 @@ pub struct Origins {
     pub commits: Vec<CommitOrigin>,
     /// Commits no readable reflog records creating, in the order given.
     pub without_origin: Vec<ObjectId>,
-    /// Registered worktrees whose directory is missing.
+    /// Registered worktrees whose origin evidence is unavailable: their
+    /// directory is missing, or git could not read their HEAD reflog. Any
+    /// reviewed commit may have come from one of them.
     pub unavailable: Vec<UnavailableOrigin>,
 }
 
@@ -172,13 +197,15 @@ fn directory_exists(path: &Path) -> Result<bool, GitError> {
 /// Finds, for each of `commits`, the worktrees whose own HEAD reflog has a
 /// commit-family entry for it ([`is_origin_subject`]). Bare entries are
 /// skipped; a prunable worktree or one whose directory is missing is listed
-/// as unavailable.
+/// as unavailable, and so is one whose reflog git cannot read
+/// ([`head_reflog`]'s [`GitError::Failed`]), with the exit status or signal
+/// and the end of git's stderr.
 ///
 /// # Errors
 ///
-/// Returns the errors of [`head_reflog`], or [`GitError::Io`] when a
-/// worktree directory cannot be inspected for a reason other than not
-/// existing.
+/// Returns the errors of [`head_reflog`] other than [`GitError::Failed`],
+/// or [`GitError::Io`] when a worktree directory cannot be inspected for a
+/// reason other than not existing.
 pub fn find_origins(
     repo: &Repo,
     worktrees: &[Worktree],
@@ -195,7 +222,22 @@ pub fn find_origins(
             });
             continue;
         }
-        for entry in head_reflog(repo, &worktree.path)? {
+        let entries = match head_reflog(repo, &worktree.path) {
+            Ok(entries) => entries,
+            Err(GitError::Failed { status, stderr, .. }) => {
+                unavailable.push(UnavailableOrigin {
+                    worktree: worktree.path.clone(),
+                    reason: format!(
+                        "HEAD reflog could not be read ({}): {}",
+                        status_text(status),
+                        stderr_tail(&stderr)
+                    ),
+                });
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        for entry in entries {
             if wanted.contains(&entry.commit) && is_origin_subject(&entry.subject) {
                 found
                     .entry(entry.commit)

@@ -319,6 +319,78 @@ fn an_unborn_worktree_has_no_reflog_entries() {
     assert!(head_reflog(&repo.repo(), &repo.root).unwrap().is_empty());
 }
 
+#[test]
+fn a_reflog_git_cannot_read_is_unavailable_not_absent() {
+    let repo = TestRepo::new();
+    repo.write("a.txt", b"a\n");
+    let base = repo.commit_all("base");
+    let linked = repo.dir.path().join("linked");
+    repo.run(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "feature",
+        linked.to_str().unwrap(),
+    ]);
+    std::fs::write(linked.join("f.txt"), b"f\n").unwrap();
+    repo.run_in(&linked, &["add", "f.txt"]);
+    repo.run_in(&linked, &["commit", "-q", "-m", "feature"]);
+    let feature = head(&repo, &linked);
+    // A date format git rejects, set for the linked worktree only, makes
+    // `log -g` exit 128 there while the main worktree's reflog still reads.
+    repo.run(&["config", "extensions.worktreeConfig", "true"]);
+    repo.run_in(&linked, &["config", "--worktree", "log.date", "not-a-date"]);
+
+    let failed = head_reflog(&repo.repo(), &linked);
+    assert!(
+        matches!(
+            &failed,
+            Err(supersigil_git::GitError::Failed {
+                status: Some(128),
+                ..
+            })
+        ),
+        "{failed:?}"
+    );
+
+    let origins = origins_of(&repo, &[&base, &feature]);
+    assert_eq!(origin_dirs(&origins, &base), [canonical(&repo.root)]);
+    assert_eq!(origins.without_origin, [id(&feature)]);
+    let found: Vec<(PathBuf, &str)> = origins
+        .unavailable
+        .iter()
+        .map(|u| (canonical(&u.worktree), u.reason.as_str()))
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, canonical(&linked));
+    let reason = found[0].1;
+    assert!(
+        reason.starts_with("HEAD reflog could not be read (exit 128): "),
+        "{reason}"
+    );
+    assert!(reason.contains("not-a-date"), "{reason}");
+}
+
+#[test]
+fn an_orphaned_head_with_reflog_history_is_unavailable_not_absent() {
+    let repo = TestRepo::new();
+    repo.write("a.txt", b"a\n");
+    let commit = repo.commit_all("first");
+    // HEAD is unborn again, but its reflog still records creating `commit`.
+    repo.run(&["switch", "-q", "--orphan", "fresh"]);
+    let origins = origins_of(&repo, &[&commit]);
+    assert_eq!(origins.without_origin, [id(&commit)]);
+    assert_eq!(origins.unavailable.len(), 1, "{:?}", origins.unavailable);
+    assert!(
+        origins.unavailable[0]
+            .reason
+            .starts_with("HEAD reflog could not be read (exit 128): "),
+        "{:?}",
+        origins.unavailable
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn an_unreadable_worktree_directory_is_an_error_not_a_missing_one() {
