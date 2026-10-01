@@ -1,9 +1,12 @@
 //! Involved records and bounded reconcile, tested against the library.
 
+mod common;
+
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use common::{canonical_tempdir, project_transcript};
 use supersigil_cli::reconcile::{LOCK_WAIT, involved_records, reconcile, transcripts_below};
 use supersigil_cli::record_dir::open_or_create_record;
 use supersigil_record::store::{Association, Store};
@@ -22,8 +25,7 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
-    let root = canonical(dir.path()).unwrap();
+    let (dir, root) = canonical_tempdir();
     let repo = root.join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     Fixture {
@@ -60,15 +62,6 @@ fn transcript(session: &str, cwd: &Path) -> String {
             "assistant",
             serde_json::json!([{"type": "text", "text": "hi"}]),
         )
-}
-
-/// Writes `text` as `<name>` in the Claude Code project directory of `cwd`.
-fn project_transcript(home: &Path, cwd: &Path, name: &str, text: &str) -> PathBuf {
-    let dir = home.join("projects").join(encode_project_dir(cwd));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(name);
-    std::fs::write(&path, text).unwrap();
-    path
 }
 
 fn sessions(store: &Store) -> Vec<String> {

@@ -14,8 +14,6 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use supersigil_record::store::Store;
 use supersigil_record::{EventId, SessionId};
-use supersigil_session::checkout::canonical;
-use supersigil_session::discover::encode_project_dir;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -38,8 +36,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = canonical(dir.path()).unwrap();
+        let (dir, root) = common::canonical_tempdir();
         let repo = root.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let fixture = Self {
@@ -107,11 +104,9 @@ impl Fixture {
     /// directory of `cwd`, with the fixtures' `/work/repo` replaced by `cwd`
     /// (escaped for a JSON string: a Windows path has backslashes).
     fn transcript(&self, cwd: &Path, name: &str, text: &str) {
-        let dir = self.claude.join("projects").join(encode_project_dir(cwd));
-        std::fs::create_dir_all(&dir).unwrap();
         let quoted = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
         let text = text.replace("/work/repo", &quoted[1..quoted.len() - 1]);
-        std::fs::write(dir.join(name), text).unwrap();
+        common::project_transcript(&self.claude, cwd, name, &text);
     }
 
     /// `supersigil <args>` in `dir`, isolated, as typed.
