@@ -7,6 +7,8 @@
 //! Git runs only through [`Git`], which scrubs the variables that could point
 //! it at another repository or index and honors the user's configuration.
 
+pub mod bytes;
+pub mod changes;
 pub mod error;
 pub mod oid;
 pub mod path;
