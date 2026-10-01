@@ -5,6 +5,8 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use supersigil_anchor::result::ContentMatches;
 use supersigil_anchor::{
@@ -128,4 +130,20 @@ pub fn escape(text: &str) -> String {
         }
     }
     out
+}
+
+/// Runs `work` on another thread and returns its result, failing the test
+/// when it takes longer than `limit`. A hang becomes a failure instead of a
+/// stuck test run; the thread is left to the process's exit.
+pub fn finishes_within<T: Send + 'static>(
+    limit: Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (done, result) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(work());
+    });
+    result
+        .recv_timeout(limit)
+        .expect("the work finishes within its time limit")
 }

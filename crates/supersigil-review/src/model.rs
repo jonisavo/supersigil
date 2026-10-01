@@ -16,7 +16,7 @@ use supersigil_record::observations::{CaptureLimitation, EditOperation, Material
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::outcome::{
-    AttributionState, Outcome, UnattributedReason, base_line_outcome, target_line_outcome,
+    AttributionState, Outcome, UnattributedReason, Verdict, base_line_verdict, target_line_verdict,
 };
 
 /// Schema string of the review JSON; a version marker, not a promise, while
@@ -774,7 +774,7 @@ fn hunk_review(
         hunk.base_start,
         removed
             .clone()
-            .map(|line| base_line_outcome(attribution, line, base_lines, target_lines)),
+            .map(|line| base_line_verdict(attribution, line, base_lines, target_lines)),
     );
     push_spans(
         &mut spans,
@@ -782,7 +782,7 @@ fn hunk_review(
         hunk.target_start,
         added
             .clone()
-            .map(|line| target_line_outcome(attribution, line, base_lines, target_lines)),
+            .map(|line| target_line_verdict(attribution, line, base_lines, target_lines)),
     );
     HunkReview {
         base_start: one_based_start(hunk.base_start, hunk.base_count),
@@ -795,30 +795,33 @@ fn hunk_review(
     }
 }
 
-/// Groups consecutive lines with equal outcomes, starting at 0-based `first`.
-fn push_spans(
+/// Groups consecutive lines with equal verdicts, starting at 0-based
+/// `first`. Each span's outcome is built once, from its lines' shared
+/// verdict, so what every line of a path shares is copied once per span.
+fn push_spans<'s>(
     spans: &mut Vec<Span>,
     side: SpanSide,
     first: usize,
-    outcomes: impl Iterator<Item = (Outcome, Value)>,
+    verdicts: impl Iterator<Item = (Verdict<'s>, Value)>,
 ) {
-    let mut current: Option<Span> = None;
-    for (offset, (outcome, provenance)) in outcomes.enumerate() {
-        if let Some(span) = current.as_mut().filter(|span| span.outcome == outcome) {
-            span.count += 1;
-            span.provenance.push(provenance);
+    // The open span: its verdict, first line (1-based), and provenance.
+    let mut current: Option<(Verdict<'s>, usize, Vec<Value>)> = None;
+    let close = |(verdict, start, provenance): (Verdict<'_>, usize, Vec<Value>)| Span {
+        side,
+        start,
+        count: provenance.len(),
+        outcome: verdict.into_outcome(),
+        provenance,
+    };
+    for (offset, (verdict, provenance)) in verdicts.enumerate() {
+        if let Some((_, _, lines)) = current.as_mut().filter(|(open, ..)| *open == verdict) {
+            lines.push(provenance);
             continue;
         }
-        spans.extend(current.take());
-        current = Some(Span {
-            side,
-            start: first + offset + 1,
-            count: 1,
-            outcome,
-            provenance: vec![provenance],
-        });
+        spans.extend(current.take().map(close));
+        current = Some((verdict, first + offset + 1, vec![provenance]));
     }
-    spans.extend(current);
+    spans.extend(current.map(close));
 }
 
 /// Unified-diff numbering: 1-based, and for an empty range the line before.

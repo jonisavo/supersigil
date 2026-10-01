@@ -134,6 +134,58 @@ pub enum AttributionState<'a> {
     },
 }
 
+/// A line's outcome before what every line of a path shares is copied into
+/// it: the path's status when no chain survived (one stop reason per
+/// rejected head) and the reason attribution is unavailable. Copying either
+/// per line costs lines times its size, so spans group lines on verdicts,
+/// which tell shared parts apart by address, and copy them once per span
+/// ([`Verdict::into_outcome`]).
+#[derive(Debug)]
+pub(crate) enum Verdict<'a> {
+    /// An outcome that shares nothing with other lines.
+    Decided(Outcome),
+    /// Unattributed because no chain survived, with anchor's status for the
+    /// path.
+    NoSurvivingChain(&'a PathStatus),
+    /// Unattributed because the file's attribution could not be computed,
+    /// with the reason.
+    Unavailable(&'a str),
+}
+
+impl PartialEq for Verdict<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        // Every line of a path borrows the same status and reason, so equal
+        // addresses decide without comparing what they hold.
+        match (self, other) {
+            (Self::Decided(a), Self::Decided(b)) => a == b,
+            (Self::NoSurvivingChain(a), Self::NoSurvivingChain(b)) => {
+                std::ptr::eq(*a, *b) || a == b
+            }
+            (Self::Unavailable(a), Self::Unavailable(b)) => std::ptr::eq(*a, *b) || a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Verdict<'_> {
+    /// The outcome, with its own copy of any shared part.
+    pub(crate) fn into_outcome(self) -> Outcome {
+        match self {
+            Self::Decided(outcome) => outcome,
+            Self::NoSurvivingChain(status) => Outcome::Unattributed {
+                reason: UnattributedReason::NoSurvivingChain {
+                    status: status.clone(),
+                },
+            },
+            Self::Unavailable(reason) => Outcome::Unattributed {
+                reason: UnattributedReason::AttributionUnavailable {
+                    reason: reason.to_owned(),
+                },
+            },
+        }
+    }
+}
+
 /// The outcome of added diff line `line` (0-based target line) and its full
 /// provenance (anchor's `LineOutcome` as JSON, or null when attribution is
 /// unavailable).
@@ -147,6 +199,18 @@ pub fn target_line_outcome(
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> (Outcome, Value) {
+    let (verdict, provenance) =
+        target_line_verdict(attribution, line, base_blob_lines, target_blob_lines);
+    (verdict.into_outcome(), provenance)
+}
+
+/// [`target_line_outcome`] with the shared part of the outcome borrowed.
+pub(crate) fn target_line_verdict<'s>(
+    attribution: &'s AttributionState<'_>,
+    line: usize,
+    base_blob_lines: &[&[u8]],
+    target_blob_lines: &[&[u8]],
+) -> (Verdict<'s>, Value) {
     let missing = LineOutcome::Agreed {
         provenance: Provenance {
             origins: BTreeSet::from([Origin::Unexplained]),
@@ -154,15 +218,15 @@ pub fn target_line_outcome(
         },
         class: None,
     };
-    line_outcome(
+    line_verdict(
         attribution,
         line,
         |attr| &attr.target,
         &missing,
         |attr, combined| match combined {
-            LineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
+            LineOutcome::Ambiguous { readings } => Verdict::Decided(Outcome::Ambiguous {
                 readings: json(readings),
-            },
+            }),
             LineOutcome::Agreed { provenance, class } => agreed_target(
                 attr,
                 line,
@@ -185,19 +249,31 @@ pub fn base_line_outcome(
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> (Outcome, Value) {
+    let (verdict, provenance) =
+        base_line_verdict(attribution, line, base_blob_lines, target_blob_lines);
+    (verdict.into_outcome(), provenance)
+}
+
+/// [`base_line_outcome`] with the shared part of the outcome borrowed.
+pub(crate) fn base_line_verdict<'s>(
+    attribution: &'s AttributionState<'_>,
+    line: usize,
+    base_blob_lines: &[&[u8]],
+    target_blob_lines: &[&[u8]],
+) -> (Verdict<'s>, Value) {
     let missing = BaseLineOutcome::Agreed {
         fates: BTreeSet::new(),
         class: None,
     };
-    line_outcome(
+    line_verdict(
         attribution,
         line,
         |attr| &attr.base,
         &missing,
         |attr, combined| match combined {
-            BaseLineOutcome::Ambiguous { readings } => Outcome::Ambiguous {
+            BaseLineOutcome::Ambiguous { readings } => Verdict::Decided(Outcome::Ambiguous {
                 readings: json(readings),
-            },
+            }),
             BaseLineOutcome::Agreed { fates, class } => agreed_base(
                 attr,
                 line,
@@ -212,25 +288,27 @@ pub fn base_line_outcome(
 
 /// What both sides share: unavailable attribution, the default for a line
 /// anchor has no entry for, and an incomplete search. `decide` gives the
-/// outcome for a complete search.
-fn line_outcome<T: Serialize>(
-    attribution: &AttributionState<'_>,
+/// verdict for a complete search.
+fn line_verdict<'s, T: Serialize>(
+    attribution: &'s AttributionState<'_>,
     line: usize,
     side: impl FnOnce(&PathAttribution) -> &[T],
     missing: &T,
-    decide: impl FnOnce(&PathAttribution, &T) -> Outcome,
-) -> (Outcome, Value) {
-    let attr = match attribution {
-        AttributionState::Unavailable { reason } => return (unavailable(reason), Value::Null),
-        AttributionState::Available(attr) => *attr,
+    decide: impl FnOnce(&'s PathAttribution, &T) -> Verdict<'s>,
+) -> (Verdict<'s>, Value) {
+    let attr: &'s PathAttribution = match attribution {
+        AttributionState::Unavailable { reason } => {
+            return (Verdict::Unavailable(reason), Value::Null);
+        }
+        AttributionState::Available(attr) => attr,
     };
     let combined = side(attr).get(line).unwrap_or(missing);
     let provenance = json(combined);
     if attr.status == PathStatus::SearchIncomplete {
         return (
-            Outcome::Unresolved {
+            Verdict::Decided(Outcome::Unresolved {
                 candidates: provenance.clone(),
-            },
+            }),
             provenance,
         );
     }
@@ -238,17 +316,34 @@ fn line_outcome<T: Serialize>(
 }
 
 /// Rules 3 to 5 for an added line every chain agrees on.
-fn agreed_target(
-    attr: &PathAttribution,
+fn agreed_target<'s>(
+    attr: &'s PathAttribution,
+    line: usize,
+    provenance: &Provenance,
+    class: Option<ChainClass>,
+    base_blob_lines: &[&[u8]],
+    target_blob_lines: &[&[u8]],
+) -> Verdict<'s> {
+    if provenance.origins.is_empty() || provenance.origins.contains(&Origin::Unexplained) {
+        return fallback(attr, &attr.content.target, line, Relation::Introduced);
+    }
+    Verdict::Decided(explained_target(
+        line,
+        provenance,
+        class,
+        base_blob_lines,
+        target_blob_lines,
+    ))
+}
+
+/// Rules 4 and 5 for an added line whose every origin is explained.
+fn explained_target(
     line: usize,
     provenance: &Provenance,
     class: Option<ChainClass>,
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> Outcome {
-    if provenance.origins.is_empty() || provenance.origins.contains(&Origin::Unexplained) {
-        return fallback(attr, &attr.content.target, line, Relation::Introduced);
-    }
     let introduced: Vec<AttributedEdit> = provenance
         .origins
         .iter()
@@ -296,17 +391,34 @@ fn agreed_target(
 }
 
 /// Rules 3 to 5 for a removed line every chain agrees on.
-fn agreed_base(
-    attr: &PathAttribution,
+fn agreed_base<'s>(
+    attr: &'s PathAttribution,
+    line: usize,
+    fates: &BTreeSet<Fate>,
+    class: Option<ChainClass>,
+    base_blob_lines: &[&[u8]],
+    target_blob_lines: &[&[u8]],
+) -> Verdict<'s> {
+    if fates.is_empty() {
+        return fallback(attr, &attr.content.base, line, Relation::Replaced);
+    }
+    Verdict::Decided(fated_base(
+        line,
+        fates,
+        class,
+        base_blob_lines,
+        target_blob_lines,
+    ))
+}
+
+/// Rules 4 and 5 for a removed line with at least one fate.
+fn fated_base(
     line: usize,
     fates: &BTreeSet<Fate>,
     class: Option<ChainClass>,
     base_blob_lines: &[&[u8]],
     target_blob_lines: &[&[u8]],
 ) -> Outcome {
-    if fates.is_empty() {
-        return fallback(attr, &attr.content.base, line, Relation::Replaced);
-    }
     let replaced: Vec<AttributedEdit> = fates
         .iter()
         .filter_map(|fate| match fate {
@@ -355,35 +467,25 @@ fn agreed_base(
 }
 
 /// Rule 3's content-match fallback, then the unattributed reason.
-fn fallback(
-    attr: &PathAttribution,
+fn fallback<'s>(
+    attr: &'s PathAttribution,
     matches: &[BTreeSet<EventId>],
     line: usize,
     relation: Relation,
-) -> Outcome {
+) -> Verdict<'s> {
     if let Some(edits) = matches.get(line).filter(|edits| !edits.is_empty()) {
-        return Outcome::ContentMatch {
+        return Verdict::Decided(Outcome::ContentMatch {
             relation,
             edits: edits.iter().cloned().collect(),
-        };
+        });
     }
-    let reason = if attr.content.incomplete {
-        UnattributedReason::ContentMatchIncomplete
+    let unattributed = |reason| Verdict::Decided(Outcome::Unattributed { reason });
+    if attr.content.incomplete {
+        unattributed(UnattributedReason::ContentMatchIncomplete)
     } else if attr.chains.is_empty() {
-        UnattributedReason::NoSurvivingChain {
-            status: attr.status.clone(),
-        }
+        Verdict::NoSurvivingChain(&attr.status)
     } else {
-        UnattributedReason::GapBeforeChain
-    };
-    Outcome::Unattributed { reason }
-}
-
-fn unavailable(reason: &str) -> Outcome {
-    Outcome::Unattributed {
-        reason: UnattributedReason::AttributionUnavailable {
-            reason: reason.to_owned(),
-        },
+        unattributed(UnattributedReason::GapBeforeChain)
     }
 }
 

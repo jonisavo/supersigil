@@ -3,9 +3,11 @@
 mod common;
 
 use common::{
-    attribution, base_line, chain, eid, introduced, kept, no_fate, replaced, unexplained,
+    attribution, base_line, chain, eid, finishes_within, introduced, kept, no_fate, replaced,
+    unexplained,
 };
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
 use supersigil_record::RecordId;
@@ -244,6 +246,54 @@ fn unavailable_attribution_marks_every_line_and_the_file() {
                 reason: UnattributedReason::AttributionUnavailable { .. }
             }
         ));
+    }
+}
+
+#[test]
+fn many_rejected_heads_over_many_changed_lines_are_grouped_promptly() {
+    // 10,000 heads rejected for an unknown operation, and 100,000 changed
+    // lines on each side that no chain explains. The path's status is the
+    // same on every line, so grouping them must not copy or compare its
+    // 10,000 reasons once per line (two billion copies).
+    let mut attr = attribution(Vec::new(), Vec::new(), Vec::new());
+    attr.status = PathStatus::NotComposed {
+        reasons: (0..10_000)
+            .map(|i| StopReason::OperationUnknown {
+                edit: eid(&format!("e{i}")),
+            })
+            .collect(),
+    };
+    let base = "b\n".repeat(100_000);
+    let target = "a\n".repeat(100_000);
+    let review = finishes_within(Duration::from_secs(20), move || {
+        let path = path("big.txt");
+        file_review(input(
+            &path,
+            FileStatus::Modified,
+            Some(base.as_bytes()),
+            Some(target.as_bytes()),
+            AttributionState::Available(&attr),
+        ))
+    });
+    assert!(review.coarse);
+    let spans = &review.hunks[0].spans;
+    assert_eq!(
+        spans.iter().map(|s| (s.side, s.count)).collect::<Vec<_>>(),
+        [(SpanSide::Base, 100_000), (SpanSide::Target, 100_000)]
+    );
+    for span in spans {
+        assert!(
+            matches!(
+                &span.outcome,
+                Outcome::Unattributed {
+                    reason: UnattributedReason::NoSurvivingChain {
+                        status: PathStatus::NotComposed { reasons }
+                    }
+                } if reasons.len() == 10_000
+            ),
+            "{:?}",
+            span.side
+        );
     }
 }
 
