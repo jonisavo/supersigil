@@ -564,11 +564,14 @@ exact.
   lacks a hash and the chain does not end at B. Reported as "consistent with
   the recorded edits; not verified".
 
-**Evidence alternatives and unrecorded choices.** Heads, verified links, and
-different transcripts are *evidence alternatives*: each is a reading of
-different recorded events, and they are always kept. A step's replacement
-location (several occurrences of `new_text`, the positions of a deletion)
-and the order within a bucket are *unrecorded choices*: sibling branches that
+**Evidence alternatives and unrecorded choices.** Heads in different
+transcripts, verified links, and different transcripts are *evidence
+alternatives*: each is a reading of different recorded events, and they are
+always kept. A step's replacement location (several occurrences of
+`new_text`, the positions of a deletion), the order within a bucket, and,
+within one transcript, which of its edits a target's state stopped at (a
+commit target, or an originating worktree, may carry any of its states, and
+nothing records which) are *unrecorded choices*: sibling branches that
 differ only in one of them are readings of the same recorded events. Each sibling must pass its own checks;
 none is eliminated by another's success. "Exact from the base" never claims
 capture completeness, so every exact chain has alternatives that assume some
@@ -592,7 +595,11 @@ is dropped. This is not a claim that they are false; it is the claim every
 exact chain makes, applied consistently to the alternatives the location
 search happens to generate. When all such siblings end at B, or none does,
 they all stay. Evidence alternatives are never set aside by this rule, so a
-verified reading from another head or link always keeps its claim.
+verified reading from another transcript or link always keeps its claim. A
+chain from an earlier edit of the same transcript is a sibling: for a commit
+target of one session with edits E1 then E2 on different lines, the reading
+that starts at E1 needs an unrecorded change to produce E2's line, holds no
+edit the E1-then-E2 chain lacks, and is set aside when that chain ends at B.
 
 In practice: one session editing a committed file of any size, with no edits
 by other means, has a chain exact from the base when every step is a
@@ -938,8 +945,9 @@ sets these variables: it honors the user's configuration.
      `a→x`, `b→a`, `x→b`, delete `a` with unknown hashes (both the whole
      sequence and the deletion alone replay from B, so target line `b` is
      ambiguous); a chain with a verified step behind an unknown-hash step
-     competing with a verified chain from another head (ambiguous, not set
-     aside); the occurrence choice from B=`a\nx\n`, T=`a\na\n` with one
+     competing with a verified chain from another transcript's head
+     (ambiguous, not set aside); a commit target of one session's E1 then E2
+     on different lines (the chain starting at E1 is set aside); the occurrence choice from B=`a\nx\n`, T=`a\na\n` with one
      unknown-hash replacement `x\n`→`a\n` (the reading that edits line 2 ends
      at B and attributes line 2; the other is listed as an alternative that
      assumes an unrecorded change); the same fork where the branches use

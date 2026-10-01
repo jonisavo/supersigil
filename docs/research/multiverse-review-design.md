@@ -539,7 +539,8 @@ When several readings of different recorded events fit the evidence, the
 span is reported ambiguous with the competing chains, and time does not
 decide. A reading that differs from one reaching the base only in something
 the record does not hold (where a replacement happened, the order of calls
-one message issued) or in how far back the recorded evidence reaches (the
+one message issued, which of one session's states a commit captured) or in
+how far back the recorded evidence reaches (the
 base-reaching reading may continue into sessions the other never reached),
 holds no recorded edit that one lacks, and needs an
 unrecorded change to explain its start is listed as an alternative that
