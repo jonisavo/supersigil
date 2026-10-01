@@ -7,6 +7,7 @@
 //! lock wait, so a stop hook holding a record never blocks a review; what it
 //! could not reconcile is reported, never hidden.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -21,7 +22,7 @@ use supersigil_session::found;
 use supersigil_session::sync::{SyncError, SyncReport, sync};
 
 use crate::error::CliError;
-use crate::record_dir::{Acquired, Contention, RETRY, open_or_create_record_within};
+use crate::record_dir::{Acquired, Contention, open_or_create_record_within, poll, records_in};
 
 /// How long reconcile waits for each lock before reporting it held.
 pub const LOCK_WAIT: Duration = Duration::from_secs(2);
@@ -78,31 +79,26 @@ pub struct Reconciliation {
 /// Returns [`CliError::Io`] if `records_dir` exists but cannot be read, or a
 /// store error if a record's manifest cannot be accessed or read.
 pub fn involved_records(records_dir: &Path, worktrees: &[PathBuf]) -> Result<Vec<Store>, CliError> {
-    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
-        return Ok(Vec::new());
-    };
-    let mut candidates = Vec::new();
-    for entry in entries {
-        candidates.push(entry?.path());
-    }
-    candidates.sort();
     let mut involved = Vec::new();
-    for candidate in candidates {
-        let store = match Store::open(&candidate) {
-            Ok(store) => store,
-            Err(StoreError::NotARecord(_)) => continue,
-            Err(e) => return Err(e.into()),
-        };
-        let touches = store
-            .manifest()?
-            .associations
-            .iter()
-            .any(|a| worktrees.iter().any(|w| overlaps(&a.checkout, w)));
-        if touches {
+    for store in records_in(records_dir)? {
+        if touches(&store, worktrees)? {
             involved.push(store);
         }
     }
     Ok(involved)
+}
+
+/// Whether one of `store`'s associations overlaps one of `worktrees`.
+///
+/// # Errors
+///
+/// Returns a store error if the manifest cannot be read.
+fn touches(store: &Store, worktrees: &[PathBuf]) -> Result<bool, CliError> {
+    Ok(store
+        .manifest()?
+        .associations
+        .iter()
+        .any(|a| worktrees.iter().any(|w| overlaps(&a.checkout, w))))
 }
 
 /// Lists the transcripts in the Claude Code project directories at or below
@@ -196,11 +192,17 @@ pub fn reconcile(
 ) -> Result<Reconciliation, CliError> {
     let mut reasons: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut admitted: BTreeSet<PathBuf> = BTreeSet::new();
-    for store in involved_records(records_dir, worktrees)? {
-        if let Some(reason) = sync_record(&store, claude_home, wait, &mut admitted)? {
+    let mut involved = involved_records(records_dir, worktrees)?;
+    for store in &involved {
+        if let Some(reason) = sync_record(store, claude_home, wait, &mut admitted)? {
             reasons.insert(store.root().to_path_buf(), reason);
         }
     }
+
+    // Associations are only ever added, so the records listed above stay
+    // involved; the ones the sync below created or gained an association
+    // for are the only others that can have become involved.
+    let mut touched: Vec<Store> = Vec::new();
 
     let mut unreconciled = Vec::new();
     if let Some(home) = claude_home {
@@ -212,6 +214,7 @@ pub fn reconcile(
                     if sync_within(&store, &checkout, &transcripts, wait)?.is_none() {
                         reasons.insert(store.root().to_path_buf(), WRITER_LOCKED.to_owned());
                     }
+                    touched.push(store);
                 }
                 Acquired::Busy(Contention::Directory) => unreconciled.push(UnreconciledCheckout {
                     checkout,
@@ -225,8 +228,15 @@ pub fn reconcile(
         }
     }
 
+    for store in touched {
+        if involved.iter().all(|s| s.root() != store.root()) && touches(&store, worktrees)? {
+            involved.push(store);
+        }
+    }
+    involved.sort_by(|a, b| a.root().cmp(b.root()));
+
     let mut records = Vec::new();
-    for store in involved_records(records_dir, worktrees)? {
+    for store in involved {
         let record_id = store.manifest()?.record_id;
         let not_reconciled = reasons.get(store.root()).cloned();
         records.push(InvolvedRecord {
@@ -319,6 +329,10 @@ fn unowned_transcripts(
     admitted: &BTreeSet<PathBuf>,
 ) -> Result<BTreeMap<PathBuf, Vec<PathBuf>>, CliError> {
     let mut groups: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    // The working directory each transcript records, parsed once per run
+    // however many worktrees reach it. Always the whole transcript: the
+    // working directory can appear anywhere in it.
+    let mut checkouts: BTreeMap<PathBuf, Option<PathBuf>> = BTreeMap::new();
     for worktree in worktrees {
         let mut sources: Vec<(PathBuf, PathBuf)> = transcripts_below(claude_home, worktree)?
             .into_iter()
@@ -333,11 +347,18 @@ fn unowned_transcripts(
             }
         }
         for (transcript, admit_under) in sources {
-            if admitted.contains(&identity(&transcript)?) {
+            let transcript_id = identity(&transcript)?;
+            if admitted.contains(&transcript_id) {
                 continue;
             }
-            let bytes = std::fs::read(&transcript)?;
-            let Some(cwd) = parse_transcript(&bytes, 0).checkout else {
+            let cwd = match checkouts.entry(transcript_id) {
+                Entry::Occupied(known) => known.get().clone(),
+                Entry::Vacant(slot) => {
+                    let bytes = std::fs::read(&transcript)?;
+                    slot.insert(parse_transcript(&bytes, 0).checkout).clone()
+                }
+            };
+            let Some(cwd) = cwd else {
                 continue;
             };
             if !within(&cwd, &admit_under) {
@@ -378,19 +399,13 @@ fn sync_within(
     transcripts: &[PathBuf],
     wait: Duration,
 ) -> Result<Option<SyncReport>, CliError> {
-    let deadline = Instant::now() + wait;
-    loop {
+    poll(Instant::now() + wait, || {
         match sync(store, checkout, transcripts) {
-            Ok(report) => return Ok(Some(report)),
-            Err(SyncError::Store(StoreError::Locked(_) | StoreError::Conflict { .. })) => {
-                if Instant::now() >= deadline {
-                    return Ok(None);
-                }
-                std::thread::sleep(RETRY);
-            }
-            Err(e) => return Err(e.into()),
+            Ok(report) => Ok(Some(report)),
+            Err(SyncError::Store(StoreError::Locked(_) | StoreError::Conflict { .. })) => Ok(None),
+            Err(e) => Err(CliError::from(e)),
         }
-    }
+    })
 }
 
 /// Whether `path` is an existing file. A missing path is `false`, so a

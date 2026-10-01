@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use supersigil_record::RecordId;
-use supersigil_record::store::{Association, Store, StoreError};
+use supersigil_record::store::{Association, Store, StoreError, WriteTx};
 use supersigil_session::checkout::{self, Placement, placement};
 use supersigil_session::found;
 
@@ -75,21 +75,8 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
 /// [`find_record`], with how far the owning association lies above
 /// `checkout`: zero for an exact match.
 fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usize)>, CliError> {
-    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
-        return Ok(None);
-    };
-    let mut candidates = Vec::new();
-    for entry in entries {
-        candidates.push(entry?.path());
-    }
-    candidates.sort();
     let mut matches: Vec<(Store, usize)> = Vec::new();
-    for candidate in candidates {
-        let store = match Store::open(&candidate) {
-            Ok(store) => store,
-            Err(StoreError::NotARecord(_)) => continue,
-            Err(e) => return Err(e.into()),
-        };
+    for store in records_in(records_dir)? {
         let distance = store
             .manifest()?
             .associations
@@ -116,6 +103,35 @@ fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usiz
         checkout.to_string_lossy(),
         roots.join(", ")
     )))
+}
+
+/// Opens every record in `records_dir`, sorted by record directory.
+///
+/// Entries without a manifest are skipped, so an unreadable record is never
+/// mistaken for an absent one; a missing `records_dir` has no records.
+///
+/// # Errors
+///
+/// Returns [`CliError::Io`] if `records_dir` exists but cannot be read, or a
+/// store error if a record's manifest cannot be accessed.
+pub fn records_in(records_dir: &Path) -> Result<Vec<Store>, CliError> {
+    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
+        return Ok(Vec::new());
+    };
+    let mut candidates = Vec::new();
+    for entry in entries {
+        candidates.push(entry?.path());
+    }
+    candidates.sort();
+    let mut stores = Vec::new();
+    for candidate in candidates {
+        match Store::open(&candidate) {
+            Ok(store) => stores.push(store),
+            Err(StoreError::NotARecord(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(stores)
 }
 
 /// How many components `association` lies above `checkout`: zero when it is
@@ -147,11 +163,7 @@ pub fn open_or_create_record(records_dir: &Path, checkout: &Path) -> Result<Stor
     let store = match find_owner(records_dir, checkout)? {
         Some((store, 0)) => store,
         Some((store, _)) => {
-            let mut tx = store.begin()?;
-            tx.add_association(Association {
-                checkout: checkout.to_path_buf(),
-            });
-            tx.commit()?;
+            add_association(store.begin()?, checkout)?;
             store
         }
         None => create_record(records_dir, checkout)?,
@@ -203,36 +215,30 @@ pub fn open_or_create_record_within(
 ) -> Result<Acquired<Store>, CliError> {
     let deadline = Instant::now() + wait;
     let guard = records_lock_file(records_dir)?;
-    loop {
-        match guard.try_lock() {
-            Ok(()) => break,
-            Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
-                std::thread::sleep(RETRY);
-            }
-            Err(TryLockError::WouldBlock) => return Ok(Acquired::Busy(Contention::Directory)),
-            Err(TryLockError::Error(e)) => return Err(e.into()),
-        }
+    let locked = poll(deadline, || match guard.try_lock() {
+        Ok(()) => Ok(Some(())),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(e)) => Err(CliError::from(e)),
+    })?;
+    if locked.is_none() {
+        return Ok(Acquired::Busy(Contention::Directory));
     }
     let acquired = match find_owner(records_dir, checkout)? {
         Some((store, 0)) => Acquired::Ready(store),
-        Some((store, _)) => loop {
-            match store.begin() {
-                Ok(mut tx) => {
-                    tx.add_association(Association {
-                        checkout: checkout.to_path_buf(),
-                    });
-                    tx.commit()?;
-                    break Acquired::Ready(store);
+        Some((store, _)) => {
+            let added = poll(deadline, || match store.begin() {
+                Ok(tx) => {
+                    add_association(tx, checkout)?;
+                    Ok(Some(()))
                 }
-                Err(StoreError::Locked(_)) if Instant::now() < deadline => {
-                    std::thread::sleep(RETRY);
-                }
-                Err(StoreError::Locked(_)) => {
-                    break Acquired::Busy(Contention::Record(store.root().to_path_buf()));
-                }
-                Err(e) => return Err(e.into()),
+                Err(StoreError::Locked(_)) => Ok(None),
+                Err(e) => Err(CliError::from(e)),
+            })?;
+            match added {
+                Some(()) => Acquired::Ready(store),
+                None => Acquired::Busy(Contention::Record(store.root().to_path_buf())),
             }
-        },
+        }
         None => Acquired::Ready(create_record(records_dir, checkout)?),
     };
     drop(guard);
@@ -241,6 +247,42 @@ pub fn open_or_create_record_within(
 
 /// Interval between attempts on a held lock.
 pub(crate) const RETRY: Duration = Duration::from_millis(50);
+
+/// Runs `attempt` until it yields a value, retrying every [`RETRY`] while it
+/// yields `None` and `deadline` has not passed. Returns `None` when the
+/// deadline passes first; the deadline is checked after each attempt, so
+/// `attempt` always runs at least once.
+///
+/// # Errors
+///
+/// Returns the first error `attempt` returns.
+pub(crate) fn poll<T, E>(
+    deadline: Instant,
+    mut attempt: impl FnMut() -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+    loop {
+        if let Some(value) = attempt()? {
+            return Ok(Some(value));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(RETRY);
+    }
+}
+
+/// Adds `checkout` as an association through `tx` and commits it.
+///
+/// # Errors
+///
+/// Returns a store error if the commit fails.
+fn add_association(mut tx: WriteTx<'_>, checkout: &Path) -> Result<(), StoreError> {
+    tx.add_association(Association {
+        checkout: checkout.to_path_buf(),
+    });
+    tx.commit()?;
+    Ok(())
+}
 
 /// Opens `<records_dir>/.lock`, creating the directory and the file if needed.
 ///
