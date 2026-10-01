@@ -49,7 +49,18 @@ impl TestRepo {
         Self::init(&["--object-format=sha256"])
     }
 
+    /// `git init -b main --ref-format=reftable`, or `None` when this git
+    /// cannot create a reftable repository (before 2.45).
+    pub fn new_reftable() -> Option<Self> {
+        Self::try_init(&["--ref-format=reftable"]).ok()
+    }
+
     fn init(extra: &[&str]) -> Self {
+        Self::try_init(extra).unwrap_or_else(|stderr| panic!("git init {extra:?}: {stderr}"))
+    }
+
+    /// `git init -b main` with `extra`, or git's stderr when it fails.
+    fn try_init(extra: &[&str]) -> Result<Self, String> {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("home")).unwrap();
         let root = dir.path().join("repo");
@@ -57,9 +68,12 @@ impl TestRepo {
         let repo = Self { dir, root };
         let mut args = vec!["init", "-q", "-b", "main"];
         args.extend_from_slice(extra);
-        repo.run(&args);
+        let init = repo.git().raw(&args).unwrap();
+        if !init.status.success() {
+            return Err(String::from_utf8_lossy(&init.stderr).into_owned());
+        }
         repo.run(&["config", "core.autocrlf", "false"]);
-        repo
+        Ok(repo)
     }
 
     /// The directory used as `HOME`.

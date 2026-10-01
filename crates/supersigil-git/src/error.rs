@@ -38,6 +38,18 @@ pub enum GitError {
         #[source]
         source: std::io::Error,
     },
+    /// A worktree's own HEAD reflog exists but cannot be read apart from
+    /// its branch's reflog: its file cannot be opened, or git keeps it
+    /// outside a reflog file (a reftable ref store). `log -g HEAD` reads the
+    /// branch's reflog when HEAD's yields no entries, so walking it could
+    /// credit this worktree with commits made in another.
+    #[error("the HEAD reflog in {} cannot be read: {reason}", .worktree.display())]
+    UnreadableReflog {
+        /// The worktree.
+        worktree: PathBuf,
+        /// What was observed.
+        reason: String,
+    },
     /// Git printed something this crate does not understand.
     #[error("unexpected git output: {0}")]
     Parse(String),

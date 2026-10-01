@@ -3,18 +3,25 @@
 //! A worktree originates a commit when its own HEAD reflog has a
 //! commit-family entry for it. The association is computed at review time
 //! and never stored; an expired reflog or a pruned worktree simply leaves a
-//! commit without an origin, which the review reports. A reflog git cannot
-//! read is never taken for an empty one: that worktree's origin evidence is
-//! reported unavailable, with git's exit status and the end of its stderr.
+//! commit without an origin, which the review reports. A reflog that cannot
+//! be read is never taken for an empty one: that worktree's origin evidence
+//! is reported unavailable, with git's exit status and the end of its
+//! stderr, or what reading the reflog file reported. Only the worktree's own
+//! HEAD reflog counts: `log -g HEAD` reads the reflog of the branch HEAD
+//! names when HEAD's own yields no entries, and a branch's reflog records
+//! commits made in every worktree that had it checked out, so HEAD's reflog
+//! file is checked for entries before git walks it.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use crate::bytes::nul_fields;
 use crate::error::{GitError, status_text};
 use crate::oid::ObjectId;
+use crate::path::path_from_line;
 use crate::repo::Repo;
-use crate::run::{failed, found, stderr_tail};
+use crate::run::{Git, failed, found, stderr_tail};
 use crate::worktree::Worktree;
 
 /// Actions of the sequencer (rebase, cherry-pick, revert, and pull with
@@ -82,19 +89,28 @@ pub struct ReflogEntry {
 }
 
 /// Reads the HEAD reflog of the worktree at `worktree`, newest first. Each
-/// linked worktree has its own. A worktree without a reflog (logging
-/// disabled, or an unborn HEAD that never moved) has no entries. A reflog
-/// that exists but git cannot read is an error, never an empty history.
+/// linked worktree has its own, and only that one is read: its reflog file
+/// is checked for entries first, so git's fallback to the branch's reflog,
+/// when HEAD's own yields none, never runs. A worktree without a reflog
+/// (logging disabled, or an unborn HEAD that never moved) or with an empty
+/// one (every entry expired) has no entries. A reflog that exists but cannot
+/// be read is an error, never an empty history.
 ///
 /// # Errors
 ///
-/// Returns [`GitError::Failed`] when `log -g` fails and `reflog exists`
-/// does not report the reflog absent: for example a configuration git
-/// rejects, or an unborn HEAD (`switch --orphan`) whose reflog holds
-/// earlier entries. Returns [`GitError::Parse`] for entries this function
-/// does not understand, or the errors of [`crate::Git::raw`].
+/// Returns [`GitError::UnreadableReflog`] when the worktree's reflog file
+/// cannot be opened or is not a regular file, or git reports a HEAD reflog
+/// that is not kept in a file (a reftable ref store).
+/// Returns [`GitError::Failed`] when git cannot locate the reflog file or
+/// `log -g` fails: for example a configuration git rejects, or an unborn
+/// HEAD (`switch --orphan`) whose reflog holds earlier entries. Returns
+/// [`GitError::Parse`] for output this function does not understand, or the
+/// errors of [`crate::Git::raw`].
 pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, GitError> {
     let git = repo.git().in_dir(worktree);
+    if !own_head_reflog_has_entries(&git, worktree)? {
+        return Ok(Vec::new());
+    }
     let args = [
         "log",
         "-g",
@@ -108,13 +124,6 @@ pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, Git
     ];
     let output = git.raw(args)?;
     if !output.status.success() {
-        // Only a reflog that does not exist is empty: `reflog exists` exits
-        // 1 for one that does not. Whatever else it reports, the reflog was
-        // not read, and the log's own failure says why.
-        let check = git.raw(["reflog", "exists", "HEAD"])?;
-        if check.status.code() == Some(1) {
-            return Ok(Vec::new());
-        }
         return Err(failed(&args, &output));
     }
     let mut entries = Vec::new();
@@ -132,6 +141,58 @@ pub fn head_reflog(repo: &Repo, worktree: &Path) -> Result<Vec<ReflogEntry>, Git
     Ok(entries)
 }
 
+/// Whether the HEAD reflog of the worktree `git` runs in has entries, read
+/// from its own file before any walk: `log -g HEAD` reads the reflog of the
+/// branch HEAD names when HEAD's own yields no entries (git's
+/// `reflog-walk.c`). A missing file has no entries unless git reports a HEAD
+/// reflog all the same, which it keeps elsewhere (a reftable ref store) and
+/// which therefore cannot be checked; an empty file has none.
+///
+/// # Errors
+///
+/// Returns [`GitError::UnreadableReflog`] for a file that cannot be opened
+/// or is not a regular file, or a reflog git keeps outside a file;
+/// [`GitError::Parse`] when the file's path cannot be represented on this
+/// platform; or the errors of [`Git::output`] and [`Git::probe`].
+fn own_head_reflog_has_entries(git: &Git, worktree: &Path) -> Result<bool, GitError> {
+    let unreadable = |reason: String| GitError::UnreadableReflog {
+        worktree: worktree.to_path_buf(),
+        reason,
+    };
+    let output = git.output([
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "logs/HEAD",
+    ])?;
+    let path = path_from_line(&output).ok_or_else(|| {
+        GitError::Parse(format!(
+            "reflog path {:?}",
+            String::from_utf8_lossy(&output)
+        ))
+    })?;
+    let file = match found(File::open(&path)) {
+        Ok(Some(file)) => file,
+        Ok(None) => {
+            if git.probe(["reflog", "exists", "HEAD"])? {
+                return Err(unreadable(
+                    "git keeps it outside a reflog file, so it cannot be told apart from the branch's reflog".to_owned(),
+                ));
+            }
+            return Ok(false);
+        }
+        Err(e) => return Err(unreadable(e.to_string())),
+    };
+    let metadata = file.metadata().map_err(|e| unreadable(e.to_string()))?;
+    if !metadata.is_file() {
+        return Err(unreadable(format!(
+            "{} is not a regular file",
+            path.display()
+        )));
+    }
+    Ok(metadata.len() > 0)
+}
+
 /// A reviewed commit and the worktrees that created it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitOrigin {
@@ -142,14 +203,15 @@ pub struct CommitOrigin {
 }
 
 /// A worktree whose origin evidence is unavailable: its directory is
-/// missing, or git could not read its HEAD reflog.
+/// missing, or its HEAD reflog could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnavailableOrigin {
     /// The worktree's registered path.
     pub worktree: PathBuf,
     /// What was observed, without the "origin evidence unavailable" label
-    /// a renderer adds: for example `worktree directory is missing`, or
-    /// `HEAD reflog could not be read (exit 128): <end of stderr>`.
+    /// a renderer adds: for example `worktree directory is missing`,
+    /// `HEAD reflog could not be read (exit 128): <end of stderr>`, or
+    /// `HEAD reflog could not be read: Permission denied (os error 13)`.
     pub reason: String,
 }
 
@@ -161,7 +223,7 @@ pub struct Origins {
     /// Commits no readable reflog records creating, in the order given.
     pub without_origin: Vec<ObjectId>,
     /// Registered worktrees whose origin evidence is unavailable: their
-    /// directory is missing, or git could not read their HEAD reflog. Any
+    /// directory is missing, or their HEAD reflog could not be read. Any
     /// reviewed commit may have come from one of them.
     pub unavailable: Vec<UnavailableOrigin>,
 }
@@ -191,15 +253,16 @@ fn directory_exists(path: &Path) -> Result<bool, GitError> {
 /// Finds, for each of `commits`, the worktrees whose own HEAD reflog has a
 /// commit-family entry for it (`is_origin_subject`). Bare entries are
 /// skipped; a prunable worktree or one whose directory is missing is listed
-/// as unavailable, and so is one whose reflog git cannot read
-/// ([`head_reflog`]'s [`GitError::Failed`]), with the exit status or signal
-/// and the end of git's stderr.
+/// as unavailable, and so is one whose reflog cannot be read
+/// ([`head_reflog`]'s [`GitError::Failed`], with the exit status or signal
+/// and the end of git's stderr, or its [`GitError::UnreadableReflog`], with
+/// what was observed).
 ///
 /// # Errors
 ///
-/// Returns the errors of [`head_reflog`] other than [`GitError::Failed`],
-/// or [`GitError::Io`] when a worktree directory cannot be inspected for a
-/// reason other than not existing.
+/// Returns the errors of [`head_reflog`] other than [`GitError::Failed`]
+/// and [`GitError::UnreadableReflog`], or [`GitError::Io`] when a worktree
+/// directory cannot be inspected for a reason other than not existing.
 pub fn find_origins(
     repo: &Repo,
     worktrees: &[Worktree],
@@ -226,6 +289,13 @@ pub fn find_origins(
                         status_text(status),
                         stderr_tail(&stderr)
                     ),
+                });
+                continue;
+            }
+            Err(GitError::UnreadableReflog { reason, .. }) => {
+                unavailable.push(UnavailableOrigin {
+                    worktree: worktree.path.clone(),
+                    reason: format!("HEAD reflog could not be read: {reason}"),
                 });
                 continue;
             }

@@ -313,6 +313,111 @@ fn an_expired_reflog_leaves_commits_without_origin() {
     assert_eq!(origins.without_origin, [id(&commit)]);
 }
 
+/// Commits on `feature` in a linked worktree that then leaves the branch,
+/// and checks `feature` out in the main worktree: `feature`'s own reflog,
+/// the branch the main worktree's HEAD now names, records a commit the
+/// linked worktree made. Returns the linked worktree and that commit.
+fn feature_made_in_a_linked_worktree_checked_out_in_main(repo: &TestRepo) -> (PathBuf, String) {
+    repo.write("a.txt", b"a\n");
+    repo.commit_all("base");
+    let linked = repo.dir.path().join("linked");
+    repo.run(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "feature",
+        linked.to_str().unwrap(),
+    ]);
+    std::fs::write(linked.join("f.txt"), b"f\n").unwrap();
+    repo.run_in(&linked, &["add", "f.txt"]);
+    repo.run_in(&linked, &["commit", "-q", "-m", "feature"]);
+    let feature = head(repo, &linked);
+    repo.run_in(&linked, &["switch", "-q", "--detach"]);
+    repo.run(&["switch", "-q", "feature"]);
+    (linked, feature)
+}
+
+#[test]
+fn a_head_reflog_expired_alone_never_reads_the_branch_reflog() {
+    let repo = TestRepo::new();
+    let (linked, feature) = feature_made_in_a_linked_worktree_checked_out_in_main(&repo);
+    // Only the main worktree's HEAD reflog is expired; `feature`'s reflog
+    // still records the commit the linked worktree made.
+    repo.run(&["reflog", "expire", "--expire=now", "HEAD"]);
+    let entries = head_reflog(&repo.repo(), &repo.root).unwrap();
+    assert!(entries.is_empty(), "{entries:?}");
+    let origins = origins_of(&repo, &[&feature]);
+    assert_eq!(origin_dirs(&origins, &feature), [canonical(&linked)]);
+    assert!(origins.unavailable.is_empty(), "{:?}", origins.unavailable);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_head_reflog_is_unavailable_and_never_reads_the_branch_reflog() {
+    use std::os::unix::fs::PermissionsExt;
+    use supersigil_git::GitError;
+
+    let repo = TestRepo::new();
+    let (linked, feature) = feature_made_in_a_linked_worktree_checked_out_in_main(&repo);
+    let log = repo.root.join(".git/logs/HEAD");
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let can_read = std::fs::File::open(&log).is_ok();
+    let entries = head_reflog(&repo.repo(), &repo.root);
+    let origins = origins_of(&repo, &[&feature]);
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o644)).unwrap();
+    if can_read {
+        return; // running as a user who ignores permissions
+    }
+    assert!(
+        matches!(&entries, Err(GitError::UnreadableReflog { .. })),
+        "{entries:?}"
+    );
+    assert_eq!(origin_dirs(&origins, &feature), [canonical(&linked)]);
+    let found: Vec<(PathBuf, &str)> = origins
+        .unavailable
+        .iter()
+        .map(|u| (canonical(&u.worktree), u.reason.as_str()))
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, canonical(&repo.root));
+    assert!(
+        found[0].1.starts_with("HEAD reflog could not be read: "),
+        "{}",
+        found[0].1
+    );
+}
+
+#[test]
+fn a_head_reflog_kept_outside_a_file_is_unavailable_not_absent() {
+    use supersigil_git::GitError;
+
+    // Reftable ref stores (git 2.45 and newer) keep no reflog files, so the
+    // HEAD reflog cannot be checked for entries apart from the branch's.
+    let Some(repo) = TestRepo::new_reftable() else {
+        return;
+    };
+    // Unborn and never moved: git reports no HEAD reflog, so none is read.
+    assert!(head_reflog(&repo.repo(), &repo.root).unwrap().is_empty());
+    repo.write("a.txt", b"a\n");
+    let commit = repo.commit_all("first");
+    let entries = head_reflog(&repo.repo(), &repo.root);
+    assert!(
+        matches!(&entries, Err(GitError::UnreadableReflog { .. })),
+        "{entries:?}"
+    );
+    let origins = origins_of(&repo, &[&commit]);
+    assert_eq!(origins.without_origin, [id(&commit)]);
+    assert_eq!(origins.unavailable.len(), 1, "{:?}", origins.unavailable);
+    assert!(
+        origins.unavailable[0]
+            .reason
+            .starts_with("HEAD reflog could not be read: "),
+        "{:?}",
+        origins.unavailable
+    );
+}
+
 #[test]
 fn an_unborn_worktree_has_no_reflog_entries() {
     let repo = TestRepo::new();
