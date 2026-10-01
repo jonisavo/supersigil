@@ -161,6 +161,9 @@ recorded material.
 
 ## Limits and product direction
 
+The [product design](research/multiverse-review-design.md) retains the intended
+review workflow and decisions for features not yet implemented.
+
 Current attribution is path-based. Renames appear as deletion plus addition.
 Several hashless sessions can remain ambiguous. Claude Code file-history
 backups are not read. Captured trees have no retention ref and can disappear
