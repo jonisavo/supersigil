@@ -7,7 +7,7 @@
 //! Delegation message in the conversation, not a cause.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
@@ -146,8 +146,8 @@ impl Evidence {
 
     /// Commands from `transcripts`, run in a checkout inside one of
     /// `worktrees`, whose text contains `path` (relative to a worktree that
-    /// contains the checkout) as seen from the command's checkout or as an
-    /// absolute path. Textual evidence only: a mention is never
+    /// contains the checkout) as seen from the command's checkout, through
+    /// `..` when the file is not below it, or as an absolute path. Textual evidence only: a mention is never
     /// attribution, and commands are never replayed.
     #[must_use]
     pub fn mentions(
@@ -240,20 +240,29 @@ pub fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
     }
 }
 
-/// `path` (relative to `worktree`) as seen from `checkout`, a directory
-/// inside it: `None` when the file is not below `checkout`.
+/// `path` (relative to `worktree`, `/`-separated) as seen from `checkout`,
+/// a directory inside it, through their common ancestor: one `..` for each
+/// directory climbed, so the root file `old.txt` is `../old.txt` from `src`.
+/// `None` when `checkout` is not inside `worktree`, a component of it is not
+/// a plain UTF-8 name, or `path` names `checkout` or one of its ancestors.
 fn relative_to_checkout(checkout: &Path, worktree: &Path, path: &str) -> Option<String> {
     let checkout = canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf());
     let below = checkout.strip_prefix(worktree).ok()?;
-    let prefix = below
+    let from = below
         .components()
-        .map(|c| c.as_os_str().to_str())
+        .map(|c| match c {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
         .collect::<Option<Vec<_>>>()?;
-    if prefix.is_empty() {
-        return Some(path.to_owned());
+    let to: Vec<&str> = path.split('/').collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    if common == to.len() {
+        return None;
     }
-    path.strip_prefix(&format!("{}/", prefix.join("/")))
-        .map(str::to_owned)
+    let mut parts = vec![".."; from.len() - common];
+    parts.extend_from_slice(&to[common..]);
+    Some(parts.join("/"))
 }
 
 /// The JSON word for a command outcome.
@@ -384,6 +393,37 @@ mod tests {
         assert_eq!(ids("old.txt"), vec!["c1"]);
         // c3 ran outside the file's worktree; c4 is not a candidate transcript.
         assert_eq!(ids("src/lib.rs"), vec!["c2"]);
+    }
+
+    #[test]
+    fn mentions_match_paths_relative_through_a_parent_directory() {
+        let repo = PathBuf::from("/work/repo");
+        let src = repo.join("src");
+        let observations = [
+            // A root file deleted from a subdirectory.
+            command("c1", "rm ../old.txt", &src, "t.jsonl"),
+            // A file in a sibling directory, from one and two levels down.
+            command("c2", "rm ../docs/old.md", &src, "t.jsonl"),
+            command("c3", "rm ../../docs/old.md", &src.join("deep"), "t.jsonl"),
+            // From the subdirectory, `old.txt` is src/old.txt, not the root
+            // file.
+            command("c4", "rm old.txt", &src, "t.jsonl"),
+            // A file beside the checkout, through their common parent.
+            command("c5", "cat ../lib.rs", &src.join("deep"), "t.jsonl"),
+        ];
+        let evidence = Evidence::index(&observations);
+        let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
+        let worktrees = [repo];
+        let ids = |path: &str| -> Vec<String> {
+            evidence
+                .mentions(&transcripts, &worktrees, path)
+                .into_iter()
+                .map(|m| m.command)
+                .collect()
+        };
+        assert_eq!(ids("old.txt"), vec!["c1"]);
+        assert_eq!(ids("docs/old.md"), vec!["c2", "c3"]);
+        assert_eq!(ids("src/lib.rs"), vec!["c5"]);
     }
 
     #[test]
