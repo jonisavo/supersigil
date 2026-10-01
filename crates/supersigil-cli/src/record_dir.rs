@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use supersigil_record::RecordId;
 use supersigil_record::store::{Association, Store, StoreError};
 use supersigil_session::checkout::{self, Placement, placement};
+use supersigil_session::found;
 
 use crate::error::CliError;
 
@@ -74,10 +75,8 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
 /// [`find_record`], with how far the owning association lies above
 /// `checkout`: zero for an exact match.
 fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usize)>, CliError> {
-    let entries = match std::fs::read_dir(records_dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
+    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
+        return Ok(None);
     };
     let mut candidates = Vec::new();
     for entry in entries {

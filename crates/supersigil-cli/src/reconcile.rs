@@ -14,9 +14,10 @@ use std::time::{Duration, Instant};
 use supersigil_record::RecordId;
 use supersigil_record::observations::Observation;
 use supersigil_record::store::{RecordSnapshot, Store, StoreError};
-use supersigil_session::checkout::{Placement, canonical, placement};
+use supersigil_session::checkout::{canonical_or_written, overlaps, within};
 use supersigil_session::claude_code::parse_transcript;
 use supersigil_session::discover::{discover_transcripts, encode_project_dir, transcripts_in};
+use supersigil_session::found;
 use supersigil_session::sync::{SyncError, SyncReport, sync};
 
 use crate::error::CliError;
@@ -66,7 +67,7 @@ pub struct Reconciliation {
 /// Finds every record with an association equal to, inside, or containing
 /// one of `worktrees`, sorted by record directory.
 ///
-/// Paths are compared with [`placement`], which normalizes their spelling.
+/// Paths are compared with [`overlaps`], which normalizes their spelling.
 /// A worktree can have several records (a sibling worktree's own, a
 /// subdirectory's), and one record can cover several worktrees. Entries of
 /// `records_dir` without a manifest are skipped; a missing `records_dir`
@@ -77,10 +78,8 @@ pub struct Reconciliation {
 /// Returns [`CliError::Io`] if `records_dir` exists but cannot be read, or a
 /// store error if a record's manifest cannot be accessed or read.
 pub fn involved_records(records_dir: &Path, worktrees: &[PathBuf]) -> Result<Vec<Store>, CliError> {
-    let entries = match std::fs::read_dir(records_dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
+    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
+        return Ok(Vec::new());
     };
     let mut candidates = Vec::new();
     for entry in entries {
@@ -94,12 +93,11 @@ pub fn involved_records(records_dir: &Path, worktrees: &[PathBuf]) -> Result<Vec
             Err(StoreError::NotARecord(_)) => continue,
             Err(e) => return Err(e.into()),
         };
-        let touches = store.manifest()?.associations.iter().any(|a| {
-            worktrees.iter().any(|w| {
-                placement(&a.checkout, w) != Placement::Outside
-                    || placement(w, &a.checkout) != Placement::Outside
-            })
-        });
+        let touches = store
+            .manifest()?
+            .associations
+            .iter()
+            .any(|a| worktrees.iter().any(|w| overlaps(&a.checkout, w)));
         if touches {
             involved.push(store);
         }
@@ -125,10 +123,8 @@ pub fn transcripts_below(claude_home: &Path, worktree: &Path) -> std::io::Result
     let projects = claude_home.join("projects");
     let own = encode_project_dir(worktree);
     let nested = format!("{own}-");
-    let entries = match std::fs::read_dir(&projects) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e),
+    let Some(entries) = found(std::fs::read_dir(&projects))? else {
+        return Ok(Vec::new());
     };
     let mut dirs = Vec::new();
     for entry in entries {
@@ -266,9 +262,9 @@ fn sync_record(
             transcripts.extend(discover_transcripts(&association.checkout, home)?);
         }
         for key in manifest.cursors.keys() {
-            let under = recorded.get(key).is_none_or(|checkout| {
-                placement(checkout, &association.checkout) != Placement::Outside
-            });
+            let under = recorded
+                .get(key)
+                .is_none_or(|checkout| within(checkout, &association.checkout));
             let path = PathBuf::from(key);
             if under && is_present_file(&path)? && !transcripts.contains(&path) {
                 transcripts.push(path);
@@ -344,7 +340,7 @@ fn unowned_transcripts(
             let Some(cwd) = parse_transcript(&bytes, 0).checkout else {
                 continue;
             };
-            if placement(&cwd, &admit_under) == Placement::Outside {
+            if !within(&cwd, &admit_under) {
                 continue;
             }
             let key = identity(&cwd)?;
@@ -364,7 +360,7 @@ fn ancestors_within(worktree: &Path, main_worktree: &Path) -> Vec<PathBuf> {
     worktree
         .ancestors()
         .skip(1)
-        .take_while(|ancestor| placement(ancestor, main_worktree) != Placement::Outside)
+        .take_while(|ancestor| within(ancestor, main_worktree))
         .map(Path::to_path_buf)
         .collect()
 }
@@ -406,11 +402,7 @@ fn sync_within(
 /// Returns [`CliError::Io`] if the path cannot be inspected for a reason
 /// other than not existing.
 fn is_present_file(path: &Path) -> Result<bool, CliError> {
-    match std::fs::metadata(path) {
-        Ok(metadata) => Ok(metadata.is_file()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e.into()),
-    }
+    Ok(found(std::fs::metadata(path))?.is_some_and(|metadata| metadata.is_file()))
 }
 
 /// The path sync keys a path by: canonical when it exists, as written when
@@ -420,9 +412,5 @@ fn is_present_file(path: &Path) -> Result<bool, CliError> {
 ///
 /// Returns [`CliError::Io`] if the path exists but cannot be resolved.
 fn identity(path: &Path) -> Result<PathBuf, CliError> {
-    match canonical(path) {
-        Ok(resolved) => Ok(resolved),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(path.to_path_buf()),
-        Err(e) => Err(e.into()),
-    }
+    Ok(canonical_or_written(path)?)
 }

@@ -15,7 +15,7 @@ use supersigil_record::observations::{
 };
 use supersigil_record::{EventId, SessionId, TurnId};
 use supersigil_review::model::{EditInfo, Mention, MentionResult, PromptInfo, TranscriptInfo};
-use supersigil_session::checkout::{Placement, canonical, placement};
+use supersigil_session::checkout::{canonical, within};
 
 /// Turns, commands, capture limitations, and transcript locations of every
 /// pinned record, indexed for the lookups a review makes.
@@ -109,11 +109,9 @@ impl Evidence {
             .filter_map(|e| e.transcript.clone())
             .collect();
         for (transcript, checkouts) in &self.checkouts {
-            let inside = checkouts.iter().any(|c| {
-                worktrees
-                    .iter()
-                    .any(|w| placement(c, w) != Placement::Outside)
-            });
+            let inside = checkouts
+                .iter()
+                .any(|c| worktrees.iter().any(|w| within(c, w)));
             if inside {
                 transcripts.insert(transcript.clone());
             }
@@ -172,7 +170,7 @@ impl Evidence {
             // inner one's checkouts too.
             let mentioned = worktrees
                 .iter()
-                .filter(|w| placement(&command.checkout, w) != Placement::Outside)
+                .filter(|w| within(&command.checkout, w))
                 .any(|worktree| {
                     let absolute = worktree.join(path).to_string_lossy().into_owned();
                     let relative = relative_to_checkout(&command.checkout, worktree, path);

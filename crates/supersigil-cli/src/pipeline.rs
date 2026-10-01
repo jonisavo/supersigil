@@ -31,7 +31,8 @@ use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommitOriginInfo, EvidenceInfo, FileKindInfo, FileStatus,
     OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo, UnreconciledInfo,
 };
-use supersigil_session::checkout::{Placement, canonical, placement};
+use supersigil_session::checkout::{canonical, overlaps};
+use supersigil_session::found;
 
 use crate::error::CliError;
 use crate::evidence::Evidence;
@@ -310,10 +311,7 @@ fn unavailable_associations(
 ) -> Result<Vec<UnavailableOrigin>, CliError> {
     let mut unavailable = Vec::new();
     for association in records.iter().flat_map(|r| &r.associations) {
-        let registered = worktrees.iter().any(|w| {
-            placement(association, &w.path) != Placement::Outside
-                || placement(&w.path, association) != Placement::Outside
-        });
+        let registered = worktrees.iter().any(|w| overlaps(association, &w.path));
         // What was observed, never more: a missing directory does not show
         // that a worktree registration was lost.
         let reason = match (exists(association)?, registered) {
@@ -339,15 +337,10 @@ fn unavailable_associations(
 /// Returns [`CliError::Io`] when `path` cannot be inspected for a reason
 /// other than not existing.
 fn exists(path: &Path) -> Result<bool, CliError> {
-    match std::fs::metadata(path) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(std::io::Error::new(
-            e.kind(),
-            format!("cannot inspect {}: {e}", path.display()),
-        )
-        .into()),
-    }
+    let metadata = found(std::fs::metadata(path)).map_err(|e| {
+        std::io::Error::new(e.kind(), format!("cannot inspect {}: {e}", path.display()))
+    })?;
+    Ok(metadata.is_some())
 }
 
 /// Origin worktrees, plus the reviewed worktree for a working-tree target.
