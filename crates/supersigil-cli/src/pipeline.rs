@@ -1,7 +1,9 @@
 //! The steps `review` and `why` share:
 //! resolve the change, find the originating worktrees, reconcile and pin
 //! every involved record, capture the working tree after the pin, and map
-//! the recorded edits onto worktrees. Also the conversions from git and
+//! the recorded edits onto worktrees. [`prepare`](crate::pipeline::prepare)
+//! runs the first step alone, so a caller can add to what the capture
+//! includes before any record is read. Also the conversions from git and
 //! record data to the review model's plain types.
 
 use std::borrow::Cow;
@@ -231,7 +233,9 @@ pub struct Gathered {
     pub unplaced_edits: usize,
     /// Whether the repository sets `core.ignorecase`.
     pub ignore_case: bool,
-    /// `--include-untracked`, relative to the worktree.
+    /// The untracked paths the capture included, relative to the worktree:
+    /// `--include-untracked`, or any path added with
+    /// [`Prepared::include_untracked`].
     pub include_untracked: Vec<RepoPath>,
     /// Path filters, relative to the worktree; empty when none was given or
     /// one named the worktree root.
@@ -243,113 +247,206 @@ pub struct Gathered {
     pub evidence: Evidence,
 }
 
-/// Runs the shared steps and returns what they found.
+/// What the first shared step found: the reviewed worktree, the typed paths
+/// relative to it, and the range. No record has been read and nothing
+/// captured yet, so what the working-tree capture includes can still grow
+/// ([`Prepared::include_untracked`]) before [`Prepared::gather`] runs the
+/// other steps.
+#[derive(Debug)]
+pub struct Prepared {
+    /// The repository, opened in the reviewed worktree.
+    repo: Repo,
+    /// Canonical root of the reviewed worktree.
+    worktree: PathBuf,
+    /// Canonical current directory.
+    cwd: PathBuf,
+    /// Records directory.
+    records_dir: PathBuf,
+    /// Claude home used for discovery, if any.
+    claude_home: Option<PathBuf>,
+    /// Base, target, and ancestry.
+    range: ResolvedRange,
+    /// Untracked paths the capture includes, relative to the worktree.
+    include_untracked: Vec<RepoPath>,
+    /// Path filters, relative to the worktree.
+    paths: Vec<RepoPath>,
+    /// Whether a path selector named the worktree root.
+    whole_worktree: bool,
+}
+
+/// Runs the first shared step: opens the repository, converts the typed
+/// paths, and resolves the range.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Git`] if git fails or is too old, the checkout is not
 /// in a worktree, or a revision does not resolve;
 /// [`CliError::CommandFailed`] if a typed path lies outside the worktree or
-/// is not UTF-8; [`CliError::Io`] if the worktree root cannot be resolved;
-/// and the errors of [`reconcile`].
-pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
+/// is not UTF-8; and [`CliError::Io`] if the worktree root cannot be
+/// resolved.
+pub fn prepare(args: &PipelineArgs) -> Result<Prepared, CliError> {
     // 1. The reviewed worktree, the base, and the target kind.
     let repo = Repo::open(Git::new(&args.checkout))?;
     let worktree = canonical(repo.root())?;
     let include_untracked = untracked_paths(&worktree, &args.cwd, &args.include_untracked)?;
     let (paths, whole_worktree) = path_filters(&worktree, &args.cwd, &args.paths)?;
     let range = resolve(&repo, &args.base, &args.target)?;
-
-    // 2. The commits in range and the worktrees that originated them.
-    let commits = range.commits(&repo)?;
-    let worktrees = registered_worktrees(&repo)?;
-    let mut origins = find_origins(&repo, &worktrees, &commits)?;
-    let candidate_worktrees = candidates_for(&range, &origins, &worktree);
-
-    // 3 and 4. Every involved record, reconciled with bounded lock waits.
-    //    `list_worktrees` lists the main worktree first; discovery reads the
-    //    project directories of a nested worktree's ancestors up to it.
-    let main_worktree = worktrees
-        .first()
-        .map_or_else(|| worktree.clone(), |main| main.path.clone());
-    let reconciliation = reconcile(
-        &args.records_dir,
-        args.claude_home.as_deref(),
-        &candidate_worktrees,
-        &main_worktree,
-        LOCK_WAIT,
-    )?;
-
-    // 5. One pinned snapshot per record. Their checkouts that no
-    //    registered worktree holds have no origin evidence either.
-    let records = pin(reconciliation.records)?;
-    origins
-        .unavailable
-        .extend(unavailable_associations(&records, &worktrees)?);
-
-    // 6. The working tree, captured after the pin, so every pinned
-    //    observation predates it.
-    let (target_tree, snapshot) = match &range.target {
-        ResolvedTarget::WorkingTree { .. } => {
-            let options = SnapshotOptions {
-                include_untracked: include_untracked.clone(),
-                pathspecs: paths.clone(),
-            };
-            let snapshot = snapshot_working_tree(&repo, &options)?;
-            (snapshot.tree.clone(), Some(snapshot))
-        }
-        ResolvedTarget::Commit { tree, .. } => (tree.clone(), None),
-    };
-
-    // 7. Every recorded edit, mapped onto the registered worktrees and
-    //    deduplicated once across all of them, before anything is filtered
-    //    to candidate worktrees or partitioned by path: an edit id whose
-    //    sightings disagree is excluded from every path, even when only one
-    //    of its sightings lies in a candidate worktree.
-    let ignore_case = repo.config_bool("core.ignorecase")?.unwrap_or(false);
-    let sightings = map_sightings(&records, &worktrees, ignore_case);
-    let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
-    let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
-    let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
-    let accepted = ByPath::new(
-        accepted.into_iter().map(|m| (m.accepted, [m.path])),
-        ignore_case,
-    );
-    let conflicts = ByPath::new(
-        conflicts.into_iter().map(|c| (c.conflict, c.paths)),
-        ignore_case,
-    );
-    let evidence = Evidence::index(
-        records
-            .iter()
-            .map(|r| (&r.record_id, r.observations.as_slice())),
-    );
-    let candidate_transcripts = evidence.candidate_transcripts(
-        candidates.iter().map(|m| &m.candidate.edit),
-        &candidate_worktrees,
-    );
-    Ok(Gathered {
+    Ok(Prepared {
         repo,
         worktree,
         cwd: args.cwd.clone(),
+        records_dir: args.records_dir.clone(),
+        claude_home: args.claude_home.clone(),
         range,
-        target_tree,
-        snapshot,
-        origins,
-        candidate_worktrees,
-        records,
-        unreconciled: reconciliation.unreconciled,
-        candidates,
-        candidate_transcripts,
-        accepted,
-        conflicts,
-        unplaced_edits,
-        ignore_case,
         include_untracked,
         paths,
         whole_worktree,
-        evidence,
     })
+}
+
+/// Runs the shared steps and returns what they found.
+///
+/// # Errors
+///
+/// Returns the errors of [`prepare`] and [`Prepared::gather`].
+pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
+    prepare(args)?.gather()
+}
+
+impl Prepared {
+    /// The repository, opened in the reviewed worktree.
+    #[must_use]
+    pub fn repo(&self) -> &Repo {
+        &self.repo
+    }
+
+    /// Canonical root of the reviewed worktree.
+    #[must_use]
+    pub fn worktree(&self) -> &Path {
+        &self.worktree
+    }
+
+    /// Adds `path`, relative to the worktree, to the untracked paths a
+    /// working-tree capture includes.
+    pub fn include_untracked(&mut self, path: RepoPath) {
+        self.include_untracked.push(path);
+    }
+
+    /// Runs the shared steps after the first: reconciles and pins every
+    /// involved record, then captures a working-tree target once, and
+    /// returns what they found.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CliError::Git`] if git fails, including when an included
+    /// untracked path is missing or ignored; [`CliError::Record`] if a pinned
+    /// revision cannot be read; [`CliError::Io`] if a record checkout cannot
+    /// be inspected; and the errors of [`reconcile`].
+    pub fn gather(self) -> Result<Gathered, CliError> {
+        let Self {
+            repo,
+            worktree,
+            cwd,
+            records_dir,
+            claude_home,
+            range,
+            include_untracked,
+            paths,
+            whole_worktree,
+        } = self;
+
+        // 2. The commits in range and the worktrees that originated them.
+        let commits = range.commits(&repo)?;
+        let worktrees = registered_worktrees(&repo)?;
+        let mut origins = find_origins(&repo, &worktrees, &commits)?;
+        let candidate_worktrees = candidates_for(&range, &origins, &worktree);
+
+        // 3 and 4. Every involved record, reconciled with bounded lock
+        //    waits. `list_worktrees` lists the main worktree first; discovery
+        //    reads the project directories of a nested worktree's ancestors
+        //    up to it.
+        let main_worktree = worktrees
+            .first()
+            .map_or_else(|| worktree.clone(), |main| main.path.clone());
+        let reconciliation = reconcile(
+            &records_dir,
+            claude_home.as_deref(),
+            &candidate_worktrees,
+            &main_worktree,
+            LOCK_WAIT,
+        )?;
+
+        // 5. One pinned snapshot per record. Their checkouts that no
+        //    registered worktree holds have no origin evidence either.
+        let records = pin(reconciliation.records)?;
+        origins
+            .unavailable
+            .extend(unavailable_associations(&records, &worktrees)?);
+
+        // 6. The working tree, captured after the pin, so every pinned
+        //    observation predates it.
+        let (target_tree, snapshot) = match &range.target {
+            ResolvedTarget::WorkingTree { .. } => {
+                let options = SnapshotOptions {
+                    include_untracked: include_untracked.clone(),
+                    pathspecs: paths.clone(),
+                };
+                let snapshot = snapshot_working_tree(&repo, &options)?;
+                (snapshot.tree.clone(), Some(snapshot))
+            }
+            ResolvedTarget::Commit { tree, .. } => (tree.clone(), None),
+        };
+
+        // 7. Every recorded edit, mapped onto the registered worktrees and
+        //    deduplicated once across all of them, before anything is
+        //    filtered to candidate worktrees or partitioned by path: an edit
+        //    id whose sightings disagree is excluded from every path, even
+        //    when only one of its sightings lies in a candidate worktree.
+        let ignore_case = repo.config_bool("core.ignorecase")?.unwrap_or(false);
+        let sightings = map_sightings(&records, &worktrees, ignore_case);
+        let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
+        let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
+        let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
+        let accepted = ByPath::new(
+            accepted.into_iter().map(|m| (m.accepted, [m.path])),
+            ignore_case,
+        );
+        let conflicts = ByPath::new(
+            conflicts.into_iter().map(|c| (c.conflict, c.paths)),
+            ignore_case,
+        );
+        let evidence = Evidence::index(
+            records
+                .iter()
+                .map(|r| (&r.record_id, r.observations.as_slice())),
+        );
+        let candidate_transcripts = evidence.candidate_transcripts(
+            candidates.iter().map(|m| &m.candidate.edit),
+            &candidate_worktrees,
+        );
+        Ok(Gathered {
+            repo,
+            worktree,
+            cwd,
+            range,
+            target_tree,
+            snapshot,
+            origins,
+            candidate_worktrees,
+            records,
+            unreconciled: reconciliation.unreconciled,
+            candidates,
+            candidate_transcripts,
+            accepted,
+            conflicts,
+            unplaced_edits,
+            ignore_case,
+            include_untracked,
+            paths,
+            whole_worktree,
+            evidence,
+        })
+    }
 }
 
 /// Resolves the range, replacing the base with the empty tree for `why`.

@@ -149,6 +149,29 @@ pub fn snapshot_working_tree(
     })
 }
 
+/// Whether the index of `repo` has an entry named exactly `path`, in any
+/// stage; a directory with entries below it has none. A snapshot holds a
+/// path without an entry only when [`SnapshotOptions::include_untracked`]
+/// lists it, and one with an entry whose file exists without that: `add -u`
+/// keeps or stages every such entry, intent-to-add ones included, except an
+/// intent-to-add entry also flagged assume-unchanged or skip-worktree.
+///
+/// # Errors
+///
+/// Returns [`GitError::Parse`] if the platform cannot represent `path`, or
+/// the errors of `git ls-files`.
+pub fn is_tracked(repo: &Repo, path: &RepoPath) -> Result<bool, GitError> {
+    let spec = path.literal_pathspec().ok_or_else(|| {
+        GitError::Parse(format!(
+            "path {} is not representable on this platform",
+            path.display()
+        ))
+    })?;
+    let args: [OsString; 4] = ["ls-files".into(), "-z".into(), "--".into(), spec];
+    let output = repo.git().output(&args)?;
+    Ok(nul_fields(&output).any(|entry| entry == path.as_bytes()))
+}
+
 /// Git pointed at the temporary index, with the configuration that keeps it
 /// from writing anything but the temporary index and objects.
 struct Staging {

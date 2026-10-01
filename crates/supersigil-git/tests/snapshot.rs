@@ -8,7 +8,7 @@ use std::process::Command;
 
 use common::{TestRepo, isolated};
 use supersigil_git::snapshot::{
-    NotCaptured, NotCapturedCause, OnDisk, SnapshotOptions, snapshot_working_tree,
+    NotCaptured, NotCapturedCause, OnDisk, SnapshotOptions, is_tracked, snapshot_working_tree,
 };
 use supersigil_git::{Git, GitError, Repo, RepoPath};
 
@@ -150,6 +150,38 @@ fn listed_untracked_paths_are_included_and_bad_ones_refused() {
             "{path}: {result:?}"
         );
     }
+}
+
+#[test]
+fn tracked_paths_are_the_index_entries_named_exactly() {
+    let fresh = TestRepo::new();
+    fresh.write("a.txt", b"a\n");
+    // Without an index, nothing is tracked.
+    assert!(!is_tracked(&fresh.repo(), &RepoPath::from_utf8("a.txt")).unwrap());
+
+    let repo = committed();
+    repo.write("src/x.rs", b"x\n");
+    repo.write("gone.txt", b"gone\n");
+    repo.commit_all("more files");
+    std::fs::remove_file(repo.root.join("gone.txt")).unwrap();
+    repo.write("new.txt", b"new\n");
+    repo.write("planned.txt", b"planned\n");
+    repo.run(&["add", "-N", "planned.txt"]);
+    repo.write("[ab].txt", b"glob\n");
+    let opened = repo.repo();
+    let tracked = |path: &str| is_tracked(&opened, &RepoPath::from_utf8(path)).unwrap();
+
+    // An entry counts whatever is on disk, intent-to-add included.
+    assert!(tracked("a.txt"));
+    assert!(tracked("src/x.rs"));
+    assert!(tracked("gone.txt"));
+    assert!(tracked("planned.txt"));
+    // A file with no entry, a directory holding entries, and a name that
+    // would match a tracked file as a glob are not tracked.
+    assert!(!tracked("new.txt"));
+    assert!(!tracked("src"));
+    assert!(!tracked("[ab].txt"));
+    assert!(!tracked("missing.txt"));
 }
 
 #[test]

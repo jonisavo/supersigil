@@ -10,19 +10,20 @@ use supersigil_git::bytes::{Blob, read_blobs_within};
 use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, Mode, changed_paths, classify_bytes,
 };
-use supersigil_git::snapshot::{SnapshotOptions, snapshot_working_tree};
+use supersigil_git::snapshot::is_tracked;
 use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::WHY_SCHEMA;
 use supersigil_review::mapping::lines_correspond;
-use supersigil_review::why::{OnDiskCheck, Why, WhyLine, WhyTarget, render_why, why_line};
+use supersigil_review::why::{OnDiskCheck, Why, WhyTarget, render_why, why_line};
 
 use crate::commands::WhyArgs;
 use crate::error::CliError;
 use crate::evidence::add_referenced_edits;
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::pipeline::{
-    BaseChoice, Gathered, PipelineArgs, attribute_path, attribution_state, claude_home,
-    conflicts_for, evidence_info, gather, not_captured_reason, path_bytes, records_info, repo_path,
+    BaseChoice, Gathered, PipelineArgs, Prepared, attribute_path, attribution_state, claude_home,
+    conflicts_for, evidence_info, not_captured_reason, path_bytes, prepare, records_info,
+    repo_path,
 };
 use crate::record_dir;
 
@@ -31,13 +32,14 @@ use crate::record_dir;
 /// # Errors
 ///
 /// Returns [`CliError::CommandFailed`] for a malformed location, a path that
-/// is not a regular text file of at most [`MAX_DIFF_BYTES`] bytes in the
-/// captured working tree, or a line beyond the end of the file; otherwise
-/// the errors of [`gather`].
+/// names the worktree or is not a regular text file of at most
+/// [`MAX_DIFF_BYTES`] bytes in the captured working tree, or a line beyond
+/// the end of the file; [`CliError::Git`] when the index cannot be read;
+/// otherwise the errors of [`prepare`] and [`Prepared::gather`].
 pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     let (typed, line) = parse_location(&args.location)?;
     let cwd = record_dir::canonical_checkout(None)?;
-    let g = gather(&PipelineArgs {
+    let mut prepared = prepare(&PipelineArgs {
         checkout: record_dir::canonical_checkout(args.checkout.as_deref())?,
         cwd: cwd.clone(),
         records_dir: record_dir::resolve_record_dir(args.record_dir.as_deref())?,
@@ -47,10 +49,16 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         include_untracked: Vec::new(),
         paths: Vec::new(),
     })?;
-    let path = repo_path(&g.worktree, &cwd, &typed)?.ok_or_else(|| {
+    let path = repo_path(prepared.worktree(), &cwd, &typed)?.ok_or_else(|| {
         CliError::CommandFailed(format!("{typed} names the worktree, not a file"))
     })?;
-    let (tree, blob) = target_blob(&g, &path, &typed)?;
+    // Capturing tracked changes never takes an untracked file, so the one
+    // capture, after the pin, lists the named file when it is one.
+    if untracked_file(&prepared, &path)? {
+        prepared.include_untracked(path.clone());
+    }
+    let g = prepared.gather()?;
+    let blob = target_blob(&g, &path, &typed)?;
     let Blob::Read(bytes) = read_one(&g, &blob)? else {
         return Err(CliError::CommandFailed(format!(
             "{typed} is larger than {MAX_DIFF_BYTES} bytes; why explains lines of text"
@@ -65,9 +73,12 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     let conflicts = conflicts_for(&g, &path);
     let side = path_bytes(&g.repo, &path, None, Some((&blob, &bytes)))?;
     let on_disk = on_disk_check(&g, &path, side.target_worktree_form(), &bytes);
-    let attribution = attribute_path(&g, &path, side.base, side.target, &conflicts);
-    let target_lines = split_lines(&bytes);
+    // A line whose capture is not what is on disk is not explained, so
+    // neither it nor the path's attribution is worked out, and no edit is
+    // referred to.
+    let mut edits = BTreeMap::new();
     let analysis = if on_disk == OnDiskCheck::Captured {
+        let target_lines = split_lines(&bytes);
         let index = line
             .checked_sub(1)
             .filter(|index| *index < target_lines.len())
@@ -78,32 +89,28 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
                 ))
             })?;
         let head = head_blob(&g, &path)?;
-        let state = attribution_state(&attribution);
-        Some(why_line(
-            &state,
+        let attribution = attribute_path(&g, &path, side.base, side.target, &conflicts);
+        let analysis = why_line(
+            &attribution_state(&attribution),
             index,
             &target_lines,
             head.as_deref().map_err(String::as_str),
-        ))
+        );
+        // Only the edits the line's analysis names.
+        if let Ok(found) = &attribution {
+            let referenced = analysis.referenced_edits();
+            add_referenced_edits(&mut edits, &found.accepted, &referenced, &g.evidence);
+        }
+        Some(analysis)
     } else {
         None
     };
-    // Only the edits the line's analysis names: none when no line was
-    // analyzed.
-    let referenced = analysis
-        .as_ref()
-        .map(WhyLine::referenced_edits)
-        .unwrap_or_default();
-    let mut edits = BTreeMap::new();
-    if let Ok(found) = &attribution {
-        add_referenced_edits(&mut edits, &found.accepted, &referenced, &g.evidence);
-    }
     let why = Why {
         schema: WHY_SCHEMA,
         path: path.display(),
         target: WhyTarget {
             worktree: g.worktree.display().to_string(),
-            tree: tree.to_string(),
+            tree: g.target_tree.to_string(),
             blob: Some(blob.to_string()),
             attribution_bytes: side.status.target,
         },
@@ -143,39 +150,32 @@ fn parse_location(location: &str) -> Result<(String, usize), CliError> {
     Ok((file.to_owned(), line))
 }
 
-/// The captured tree and the path's blob in it. A tracked path keeps the
-/// snapshot `add -u` produced; only a path absent from it and present on
-/// disk (the user named an untracked file) is captured again with that one
-/// path included.
+/// Whether the capture must list `path` to hold it: a file on disk (or a
+/// symbolic link to one) without an index entry, which a capture of
+/// tracked changes never adds. A file with an entry needs no listing
+/// ([`is_tracked`]).
 ///
 /// # Errors
 ///
-/// Returns [`CliError::CommandFailed`] when the path is in neither capture
-/// or is not a regular file there, or the git errors of the snapshot and
-/// the diff.
-fn target_blob(
-    g: &Gathered,
-    path: &RepoPath,
-    typed: &str,
-) -> Result<(ObjectId, ObjectId), CliError> {
-    if let Some(entry) = entry_at(g, &g.target_tree, path)? {
-        return Ok((g.target_tree.clone(), file_blob(entry, typed)?));
-    }
-    let on_disk = path.to_path().is_some_and(|p| g.worktree.join(p).is_file());
-    if on_disk {
-        let options = SnapshotOptions {
-            include_untracked: vec![path.clone()],
-            pathspecs: Vec::new(),
-        };
-        let snapshot = snapshot_working_tree(&g.repo, &options)?;
-        if let Some(entry) = entry_at(g, &snapshot.tree, path)? {
-            let blob = file_blob(entry, typed)?;
-            return Ok((snapshot.tree, blob));
-        }
-    }
-    Err(CliError::CommandFailed(format!(
-        "{typed} is not in the captured working tree"
-    )))
+/// Returns the git errors of reading the index.
+fn untracked_file(prepared: &Prepared, path: &RepoPath) -> Result<bool, CliError> {
+    let on_disk = path
+        .to_path()
+        .is_some_and(|p| prepared.worktree().join(p).is_file());
+    Ok(on_disk && !is_tracked(prepared.repo(), path)?)
+}
+
+/// The path's blob in the captured tree.
+///
+/// # Errors
+///
+/// Returns [`CliError::CommandFailed`] when the path is not in the capture
+/// or is not a regular file there, or the git errors of the diff.
+fn target_blob(g: &Gathered, path: &RepoPath, typed: &str) -> Result<ObjectId, CliError> {
+    let entry = entry_at(g, &g.target_tree, path)?.ok_or_else(|| {
+        CliError::CommandFailed(format!("{typed} is not in the captured working tree"))
+    })?;
+    file_blob(entry, typed)
 }
 
 /// The entry `path` has in `tree`, found by diffing the empty tree against
