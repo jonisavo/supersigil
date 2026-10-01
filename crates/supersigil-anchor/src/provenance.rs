@@ -53,6 +53,15 @@ pub struct ChainProvenance {
 /// Every contributor copied into a new set or into the output, and the
 /// output's entry for each line, is charged to `budget` before it is made.
 /// Returns `None` when the budget runs out.
+///
+/// # Panics
+///
+/// Panics when `chain` does not link: a step's alignment names a line
+/// beyond that step's before- or after-state, or a step's before-state is
+/// not the previous step's after-state (for the first step, `chain.start`),
+/// so a whitespace-only region's characters cannot be carried one to one.
+/// Every chain [`crate::walk::walk`] returns links, with alignments from
+/// [`crate::align::align`].
 #[must_use]
 pub fn replay(
     chain: &WalkedChain,

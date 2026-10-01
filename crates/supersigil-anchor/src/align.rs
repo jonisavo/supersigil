@@ -49,7 +49,15 @@ pub struct Alignment {
 ///
 /// `replacements` are in increasing byte order, as [`Forward`] holds them.
 ///
+/// # Panics
+///
+/// Panics when a replacement's `before` range ends past `before`'s bytes,
+/// or its `after` range past `after`'s bytes (an absent state has none).
+/// The replacements [`execute_forward`] makes from `before`, with `after`
+/// its result, always lie within them.
+///
 /// [`Forward`]: crate::step::Forward
+/// [`execute_forward`]: crate::step::execute_forward
 #[must_use]
 pub fn align(before: &State, after: &State, replacements: &[Replacement]) -> Alignments {
     let old = Side::new(before.bytes().unwrap_or_default());
