@@ -3,7 +3,9 @@
 mod common;
 
 use common::TestRepo;
-use supersigil_git::bytes::{Conversion, blob_sizes, read_blobs, worktree_form};
+use supersigil_git::bytes::{
+    Blob, Conversion, blob_sizes, read_blobs, read_blobs_within, worktree_form,
+};
 use supersigil_git::changes::{
     Change, ChangeStatus, FileKind, Mode, changed_paths, classify_change,
 };
@@ -252,6 +254,49 @@ fn a_missing_object_is_an_error() {
         blob_sizes(&opened, &[missing]),
         Err(GitError::Parse(_))
     ));
+}
+
+#[test]
+fn blobs_within_the_limit_are_read_and_larger_ones_only_sized() {
+    let repo = TestRepo::new();
+    let contents: [&[u8]; 4] = [b"", b"abc", b"abcd", b"bin\0ary\n\0"];
+    let ids: Vec<ObjectId> = contents
+        .iter()
+        .map(|c| id(&repo.run_input(&["hash-object", "-w", "--stdin"], c)))
+        .collect();
+    let opened = repo.repo();
+    // The limit is inclusive: a blob of exactly `max` bytes is read.
+    let blobs = read_blobs_within(&opened, &ids, 3).unwrap();
+    assert_eq!(blobs.len(), ids.len());
+    assert_eq!(blobs[&ids[0]], Blob::Read(Vec::new()));
+    assert_eq!(blobs[&ids[1]], Blob::Read(b"abc".to_vec()));
+    assert_eq!(blobs[&ids[2]], Blob::TooLarge(4));
+    assert_eq!(blobs[&ids[3]], Blob::TooLarge(9));
+}
+
+#[test]
+fn blobs_within_list_each_id_once_and_need_none() {
+    let repo = TestRepo::new();
+    let blob = id(&repo.run_input(&["hash-object", "-w", "--stdin"], b"a\n"));
+    let opened = repo.repo();
+    let blobs = read_blobs_within(&opened, &[blob.clone(), blob.clone()], 2).unwrap();
+    assert_eq!(blobs.len(), 1);
+    assert_eq!(blobs[&blob], Blob::Read(b"a\n".to_vec()));
+    assert!(read_blobs_within(&opened, &[], 2).unwrap().is_empty());
+}
+
+#[test]
+fn blobs_within_a_limit_still_fail_on_a_missing_object() {
+    let repo = TestRepo::new();
+    let missing = id(&"3".repeat(40));
+    let opened = repo.repo();
+    // Missing whether it would be read or only sized.
+    for max in [0, u64::MAX] {
+        assert!(matches!(
+            read_blobs_within(&opened, std::slice::from_ref(&missing), max),
+            Err(GitError::Parse(_))
+        ));
+    }
 }
 
 #[test]

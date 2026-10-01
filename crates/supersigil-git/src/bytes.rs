@@ -67,6 +67,58 @@ pub fn read_blobs(repo: &Repo, ids: &[ObjectId]) -> Result<BTreeMap<ObjectId, Ve
     Ok(blobs)
 }
 
+/// A blob as [`read_blobs_within`] returns it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Blob {
+    /// The blob's bytes.
+    Read(Vec<u8>),
+    /// The blob is larger than the limit; its size, with nothing read.
+    TooLarge(u64),
+}
+
+/// Reads each blob of at most `max` bytes and only sizes the larger ones:
+/// every size is asked of git ([`blob_sizes`]) before anything is read
+/// ([`read_blobs`]), so the limit bounds what is read. Every id gets an
+/// entry.
+///
+/// # Errors
+///
+/// Returns [`GitError::Parse`] if an object is missing, whether or not it
+/// would be read, and the errors of [`blob_sizes`] and [`read_blobs`].
+pub fn read_blobs_within(
+    repo: &Repo,
+    ids: &[ObjectId],
+    max: u64,
+) -> Result<BTreeMap<ObjectId, Blob>, GitError> {
+    let sizes = blob_sizes(repo, ids)?;
+    let small: Vec<ObjectId> = sizes
+        .iter()
+        .filter(|(_, size)| **size <= max)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let mut read = if small.is_empty() {
+        BTreeMap::new()
+    } else {
+        read_blobs(repo, &small)?
+    };
+    let mut blobs = BTreeMap::new();
+    for id in ids.iter().collect::<BTreeSet<_>>() {
+        let size = *sizes
+            .get(id)
+            .ok_or_else(|| GitError::Parse(format!("cat-file reported no size for {id}")))?;
+        let blob = if size <= max {
+            Blob::Read(
+                read.remove(id)
+                    .ok_or_else(|| GitError::Parse(format!("cat-file returned no {id}")))?,
+            )
+        } else {
+            Blob::TooLarge(size)
+        };
+        blobs.insert(id.clone(), blob);
+    }
+    Ok(blobs)
+}
+
 /// One object id per line.
 fn request(ids: &BTreeSet<&ObjectId>) -> Vec<u8> {
     let mut input = Vec::new();

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, Read, Write as _};
 
 use supersigil_anchor::lines::split_lines;
-use supersigil_git::bytes::{blob_sizes, read_blobs};
+use supersigil_git::bytes::{Blob, read_blobs_within};
 use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, Mode, changed_paths, classify_bytes,
 };
@@ -56,13 +56,11 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         CliError::CommandFailed(format!("{typed} names the worktree, not a file"))
     })?;
     let (tree, blob) = target_blob(&g, &path, &typed)?;
-    // The size is asked of git first, so the limit bounds what is read.
-    if too_large(&g, &blob)? {
+    let Blob::Read(bytes) = read_one(&g, &blob)? else {
         return Err(CliError::CommandFailed(format!(
             "{typed} is larger than {MAX_DIFF_BYTES} bytes; why explains lines of text"
         )));
-    }
-    let bytes = read_one(&g, &blob)?;
+    };
     if classify_bytes(None, Some(&bytes)) != FileKind::Text {
         return Err(CliError::CommandFailed(format!(
             "{typed} is not a text file; why explains lines of text"
@@ -230,14 +228,15 @@ fn file_blob(entry: Change, typed: &str) -> Result<ObjectId, CliError> {
     )))
 }
 
-/// Reads one blob.
+/// Reads one blob when it is within [`MAX_DIFF_BYTES`], asking its size
+/// first so the limit bounds what is read ([`read_blobs_within`]).
 ///
 /// # Errors
 ///
-/// Returns the git errors of the read, or [`CliError::CommandFailed`] when
-/// git returns nothing for the id.
-fn read_one(g: &Gathered, id: &ObjectId) -> Result<Vec<u8>, CliError> {
-    read_blobs(&g.repo, std::slice::from_ref(id))?
+/// Returns the git errors of the size and the read, or
+/// [`CliError::CommandFailed`] when git returns nothing for the id.
+fn read_one(g: &Gathered, id: &ObjectId) -> Result<Blob, CliError> {
+    read_blobs_within(&g.repo, std::slice::from_ref(id), MAX_DIFF_BYTES)?
         .remove(id)
         .ok_or_else(|| CliError::CommandFailed(format!("blob {id} could not be read")))
 }
@@ -245,7 +244,8 @@ fn read_one(g: &Gathered, id: &ObjectId) -> Result<Vec<u8>, CliError> {
 /// The path's bytes at HEAD, or why there is no text to compare with: HEAD
 /// is unborn, the path is not in it, it is not a regular file there (a
 /// symbolic link's or a submodule's object is no text baseline), or its
-/// blob is over [`MAX_DIFF_BYTES`], which is checked before it is read.
+/// blob is over [`MAX_DIFF_BYTES`], which is checked before it is read
+/// ([`read_one`]).
 ///
 /// # Errors
 ///
@@ -262,27 +262,12 @@ fn head_blob(g: &Gathered, path: &RepoPath) -> Result<Result<Vec<u8>, String>, C
     let Some(id) = entry.new_blob.filter(|_| entry.new_mode.is_file()) else {
         return Ok(Err("the path is not a regular file in HEAD".to_owned()));
     };
-    if too_large(g, &id)? {
-        return Ok(Err(format!(
+    Ok(match read_one(g, &id)? {
+        Blob::Read(bytes) => Ok(bytes),
+        Blob::TooLarge(_) => Err(format!(
             "the file in HEAD is larger than {MAX_DIFF_BYTES} bytes"
-        )));
-    }
-    Ok(Ok(read_one(g, &id)?))
-}
-
-/// Whether `blob` is larger than [`MAX_DIFF_BYTES`], asked of git before
-/// anything is read.
-///
-/// # Errors
-///
-/// Returns the git errors of reading the size, or
-/// [`CliError::CommandFailed`] when git reports none for the blob.
-fn too_large(g: &Gathered, blob: &ObjectId) -> Result<bool, CliError> {
-    let sizes = blob_sizes(&g.repo, std::slice::from_ref(blob))?;
-    let size = sizes
-        .get(blob)
-        .ok_or_else(|| CliError::CommandFailed(format!("blob {blob} has no size")))?;
-    Ok(*size > MAX_DIFF_BYTES)
+        )),
+    })
 }
 
 /// Whether target line `index` lies in a changed hunk against HEAD, with the

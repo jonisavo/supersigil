@@ -7,7 +7,7 @@ use std::io::{self, Write as _};
 use std::path::PathBuf;
 
 use supersigil_anchor::PathAttribution;
-use supersigil_git::bytes::{blob_sizes, read_blobs};
+use supersigil_git::bytes::{Blob, read_blobs_within};
 use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, changed_paths, classify_bytes, classify_change,
 };
@@ -72,7 +72,7 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
 fn build(g: &Gathered) -> Result<Review, CliError> {
     let mut changes = changed_paths(&g.repo, &g.range.base.tree, &g.target_tree, &g.paths)?;
     changes.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
-    let blobs = small_blobs(g, &changes)?;
+    let blobs = diffable_blobs(g, &changes)?;
     let transcripts = candidate_transcripts(g);
     let mention_worktrees: Vec<PathBuf> = match g.range.target {
         ResolvedTarget::WorkingTree { .. } => vec![g.worktree.clone()],
@@ -112,13 +112,13 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
     })
 }
 
-/// Blob bytes of every side that can be diffed: not classified away by mode
-/// or path, and within [`MAX_DIFF_BYTES`].
+/// Every side that can be diffed (not classified away by mode or path):
+/// its bytes when within [`MAX_DIFF_BYTES`], its size otherwise.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Git`] if the sizes or the blobs cannot be read.
-fn small_blobs(g: &Gathered, changes: &[Change]) -> Result<BTreeMap<ObjectId, Vec<u8>>, CliError> {
+fn diffable_blobs(g: &Gathered, changes: &[Change]) -> Result<BTreeMap<ObjectId, Blob>, CliError> {
     let ids: Vec<ObjectId> = changes
         .iter()
         .filter(|c| classify_change(c).is_none())
@@ -127,12 +127,7 @@ fn small_blobs(g: &Gathered, changes: &[Change]) -> Result<BTreeMap<ObjectId, Ve
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let sizes = blob_sizes(&g.repo, &ids)?;
-    let small: Vec<ObjectId> = ids
-        .into_iter()
-        .filter(|id| sizes.get(id).is_some_and(|size| *size <= MAX_DIFF_BYTES))
-        .collect();
-    Ok(read_blobs(&g.repo, &small)?)
+    Ok(read_blobs_within(&g.repo, &ids, MAX_DIFF_BYTES)?)
 }
 
 /// Reviews one changed path; returns anchor's result with it when the path
@@ -144,23 +139,25 @@ fn small_blobs(g: &Gathered, changes: &[Change]) -> Result<BTreeMap<ObjectId, Ve
 fn review_file(
     g: &Gathered,
     change: &Change,
-    blobs: &BTreeMap<ObjectId, Vec<u8>>,
+    blobs: &BTreeMap<ObjectId, Blob>,
     transcripts: &BTreeSet<String>,
     mention_worktrees: &[PathBuf],
 ) -> Result<(FileReview, Option<PathAttribution>), CliError> {
     // Both references borrow from the map, so they outlive the lookup key.
-    let side = |id: Option<&ObjectId>| {
-        id.and_then(|id| blobs.get_key_value(id))
-            .map(|(id, bytes)| (id, bytes.as_slice()))
+    let side = |id: Option<&ObjectId>| match id.and_then(|id| blobs.get_key_value(id)) {
+        Some((id, Blob::Read(bytes))) => Some((id, bytes.as_slice())),
+        _ => None,
     };
     let (old, new) = (
         side(change.old_blob.as_ref()),
         side(change.new_blob.as_ref()),
     );
-    let unread = (change.old_blob.is_some() && old.is_none())
-        || (change.new_blob.is_some() && new.is_none());
+    let too_large = [&change.old_blob, &change.new_blob]
+        .into_iter()
+        .flatten()
+        .any(|id| matches!(blobs.get(id), Some(Blob::TooLarge(_))));
     let kind = classify_change(change).unwrap_or_else(|| {
-        if unread {
+        if too_large {
             FileKind::TooLarge
         } else {
             classify_bytes(old.map(|(_, b)| b), new.map(|(_, b)| b))
