@@ -7,7 +7,6 @@
 //! always present, whatever the on-disk check found.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -17,7 +16,7 @@ use supersigil_record::observations::Material;
 
 use crate::model::{EditInfo, EvidenceInfo, RecordInfo, analysis_edits, outcome_edits, text};
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
-use crate::summary::{class_words, context_lines, reason_words, relation_words};
+use crate::summary::{class_words, context_lines, push, reason_words, relation_words};
 
 /// The `why` result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -168,12 +167,10 @@ pub fn why_line(
     attribution: &AttributionState<'_>,
     line: usize,
     target_blob_lines: &[&[u8]],
-    base_blob_lines: &[&[u8]],
     differs_from_head: Tristate,
     differs_from_head_reason: Option<String>,
 ) -> WhyLine {
-    let (outcome, provenance) =
-        target_line_outcome(attribution, line, base_blob_lines, target_blob_lines);
+    let (outcome, provenance) = target_line_outcome(attribution, line, &[], target_blob_lines);
     let contributors = match attribution {
         AttributionState::Available(attr) => contributors(&outcome, attr.target.get(line)),
         AttributionState::Unavailable { .. } => BTreeMap::new(),
@@ -397,8 +394,4 @@ fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {
         }
         Outcome::Realigned { line } => format!("unchanged from line {}", line + 1),
     }
-}
-
-fn push(out: &mut String, line: &str) {
-    let _ = writeln!(out, "{line}");
 }

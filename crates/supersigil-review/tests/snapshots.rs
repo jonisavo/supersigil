@@ -302,7 +302,6 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
             &AttributionState::Available(&attr),
             0,
             &split_lines(target),
-            &[],
             Tristate::Yes,
             None,
         )),
@@ -356,7 +355,6 @@ fn why_says_why_differs_from_head_is_unknown() {
         &AttributionState::Available(&attr),
         0,
         &split_lines(b"fn greet() {}\n"),
-        &[],
         Tristate::Unknown,
         Some("coarse diff".to_owned()),
     );
@@ -414,7 +412,6 @@ fn why_prints_no_contributors_for_an_unattributed_line() {
         &AttributionState::Available(&attr),
         1,
         &split_lines(b"fn greet() {}\nfn other() {}\n"),
-        &[],
         Tristate::Yes,
         None,
     ));
@@ -448,7 +445,6 @@ fn why_on_first_line(attr: &PathAttribution, ids: &[&str]) -> String {
         &AttributionState::Available(attr),
         0,
         &split_lines(b"fn greet() {}\n"),
-        &[],
         Tristate::Yes,
         None,
     ));
@@ -625,7 +621,6 @@ fn why_line_refers_to_its_chains_and_its_outcome() {
             &AttributionState::Available(&attr),
             index,
             &lines,
-            &[],
             Tristate::Yes,
             None,
         )

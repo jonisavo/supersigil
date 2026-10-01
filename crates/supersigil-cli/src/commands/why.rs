@@ -91,7 +91,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
                 reason: reason.clone(),
             },
         };
-        Some(why_line(&state, index, &target_lines, &[], differs, reason))
+        Some(why_line(&state, index, &target_lines, differs, reason))
     } else {
         None
     };

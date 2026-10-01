@@ -235,6 +235,10 @@ pub struct NotDiffed {
     pub kind: String,
 }
 
+/// The note a review carries when the base is not an ancestor of the target.
+pub const ANCESTRY_NOTE: &str =
+    "the base is not an ancestor of the target; the diff includes changes made on the base side";
+
 /// The options used and the snapshot's listing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
@@ -250,7 +254,8 @@ pub struct ScopeInfo {
     pub skip_worktree_absent: usize,
     /// Paths unmerged in the real index, taken in their on-disk form.
     pub unmerged: Vec<String>,
-    /// Set when the base is not an ancestor of the target.
+    /// Set (to [`ANCESTRY_NOTE`]) when the base is not an ancestor of the
+    /// target.
     pub ancestry_note: Option<String>,
     /// Set when a path selector named the worktree root, so the review has
     /// no path filter.

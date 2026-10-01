@@ -13,8 +13,8 @@ use supersigil_git::changes::{
 };
 use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::model::{
-    BytesStatus, EditInfo, FileInput, FileReview, FileStatus, NotCapturedInfo, RepoPathInfo,
-    ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
+    ANCESTRY_NOTE, BytesStatus, EditInfo, FileInput, FileReview, FileStatus, NotCapturedInfo,
+    RepoPathInfo, ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::outcome::{AttributionState, Outcome};
 use supersigil_review::summary::render_summary;
@@ -247,10 +247,8 @@ fn scope_info(g: &Gathered) -> ScopeInfo {
             "a path selector names the worktree root, so the review covers the whole worktree"
                 .to_owned()
         }),
-        ancestry_note: (g.range.ancestry == Ancestry::NotAncestor).then(|| {
-            "the base is not an ancestor of the target; the diff includes changes made on the base side"
-                .to_owned()
-        }),
+        ancestry_note: (g.range.ancestry == Ancestry::NotAncestor)
+            .then(|| ANCESTRY_NOTE.to_owned()),
     };
     let Some(snapshot) = &g.snapshot else {
         return info;

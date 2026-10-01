@@ -11,14 +11,14 @@
 //! path cannot rewrite the terminal.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
+use std::fmt::{Display, Write as _};
 
 use supersigil_anchor::ChainClass;
 use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
 
 use crate::model::{
-    AncestryInfo, EvidenceInfo, FileKindInfo, FileReview, RecordInfo, Review, SpanSide,
-    TargetKindInfo,
+    ANCESTRY_NOTE, AncestryInfo, EvidenceInfo, FileKindInfo, FileReview, RecordInfo, Review,
+    SpanSide, TargetKindInfo,
 };
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 
@@ -129,7 +129,7 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
         ));
     }
     for counts in &summary.files {
-        let parts: Vec<String> = [
+        let parts = count_phrases([
             (counts.unattributed, "unattributed"),
             (
                 counts.content_match_incomplete,
@@ -139,11 +139,7 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
             (counts.ambiguous, "ambiguous"),
             (counts.line_ending, "line ending changed"),
             (counts.content_match_only, "content match only"),
-        ]
-        .into_iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, label)| format!("{count} {label}"))
-        .collect();
+        ]);
         lines.push(format!("{}: {}", escape(&counts.path), parts.join(", ")));
     }
     for path in &summary.attribution_unavailable {
@@ -262,18 +258,14 @@ impl Tally {
     }
 
     fn words(&self, escape: fn(&str) -> String) -> Vec<String> {
-        let mut words: Vec<String> = [
+        let mut words = count_phrases([
             (self.whitespace, "whitespace-only"),
             (self.realigned, "realigned"),
             (self.line_ending, "line ending changed"),
             (self.content_match, "content match"),
             (self.ambiguous, "ambiguous"),
             (self.unresolved, "unresolved (search incomplete)"),
-        ]
-        .into_iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, label)| format!("{count} {label}"))
-        .collect();
+        ]);
         if self.unattributed > 0 {
             let reason = self.reason.as_ref().map_or_else(String::new, |reason| {
                 format!(": {}", reason_words(reason, escape))
@@ -324,10 +316,7 @@ fn notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     if let Some(note) = &scope.ancestry_note {
         notes.push(format!("scope: {}", escape(note)));
     } else if review.base.ancestry == AncestryInfo::NotAncestor {
-        notes.push(
-            "scope: the base is not an ancestor of the target; the diff includes changes made on the base side"
-                .to_owned(),
-        );
+        notes.push(format!("scope: {ANCESTRY_NOTE}"));
     }
     let origins = &review.origins;
     let reviewed = origins.commits.len() + origins.without_origin.len();
@@ -377,28 +366,15 @@ pub(crate) const fn relation_words(relation: Relation) -> &'static str {
 
 /// Sums the counts of every capture limitation of one transcript.
 fn total_counts(limitations: &[CaptureLimitation]) -> CaptureCounts {
-    let mut total = CaptureCounts::default();
-    for limitation in limitations {
-        let counts = &limitation.counts;
-        for (kind, count) in &counts.unknown_records {
-            *total.unknown_records.entry(kind.clone()).or_default() += count;
-        }
-        total.malformed_lines += counts.malformed_lines;
-        total.abandoned_tool_uses += counts.abandoned_tool_uses;
-        total.failed_tool_uses += counts.failed_tool_uses;
-        total.outside_checkout += counts.outside_checkout;
-        total.conflicting_tool_results += counts.conflicting_tool_results;
-        total.unmatched_tool_results += counts.unmatched_tool_results;
-        total.session_mismatch += counts.session_mismatch;
-        total.unnamed_tool_uses += counts.unnamed_tool_uses;
-        total.unsupported_tool_uses += counts.unsupported_tool_uses;
-    }
-    total
+    limitations
+        .iter()
+        .map(|limitation| &limitation.counts)
+        .sum()
 }
 
 fn count_words(counts: &CaptureCounts) -> Vec<String> {
     let unknown: u64 = counts.unknown_records.values().sum();
-    [
+    count_phrases([
         (unknown, "unknown records"),
         (counts.malformed_lines, "malformed lines"),
         (counts.abandoned_tool_uses, "tool uses without a result"),
@@ -412,13 +388,21 @@ fn count_words(counts: &CaptureCounts) -> Vec<String> {
         (counts.session_mismatch, "records of another session"),
         (counts.unnamed_tool_uses, "tool uses without an id"),
         (counts.unsupported_tool_uses, "unsupported tool uses"),
-    ]
-    .into_iter()
-    .filter(|(count, _)| *count > 0)
-    .map(|(count, label)| format!("{count} {label}"))
-    .collect()
+    ])
 }
 
-fn push(out: &mut String, line: &str) {
+/// `"{count} {label}"` for each pair whose count is not zero.
+pub(crate) fn count_phrases<'a, T: Display + Default + PartialEq>(
+    items: impl IntoIterator<Item = (T, &'a str)>,
+) -> Vec<String> {
+    items
+        .into_iter()
+        .filter(|(count, _)| *count != T::default())
+        .map(|(count, label)| format!("{count} {label}"))
+        .collect()
+}
+
+/// Appends `line` and a newline to `out`.
+pub(crate) fn push(out: &mut String, line: &str) {
     let _ = writeln!(out, "{line}");
 }
