@@ -460,6 +460,31 @@ fn working_tree_heads_are_only_the_last_bucket_of_the_reviewed_worktree() {
 }
 
 #[test]
+fn a_commit_state_stopped_at_an_earlier_edit_of_one_transcript_is_set_aside() {
+    // Which of one transcript's edits a commit's state stopped at is an
+    // unrecorded choice. Head e1 reverses to `a\na\n` and stops there with
+    // no predecessor, leaving target line 2 unexplained; head e2 reaches the
+    // base through e1. The e1-headed chain holds no edit the exact chain
+    // lacks, so it is set aside rather than kept as a competing reading.
+    let out = walk(&request(
+        Some("a\nb\n"),
+        Some("x\na\n"),
+        TargetKind::Commit,
+        vec![
+            candidate(replace("e1", "t", 1, "a\n", "x\n")),
+            candidate(replace("e2", "t", 2, "b\n", "a\n")),
+        ],
+    ));
+    assert_eq!(
+        summary(&out),
+        vec![(ids(&["e1", "e2"]), ChainClass::ExactFromBase, true)]
+    );
+    assert_eq!(out.set_aside.len(), 1);
+    assert_eq!(out.set_aside[0].chain.edits, ids(&["e1"]));
+    assert_eq!(out.set_aside[0].start, common::state(Some("a\na\n")));
+}
+
+#[test]
 fn an_edit_in_an_originating_worktree_can_be_a_working_tree_head() {
     // The reviewed worktree has no edit of the path; the commit came from W1.
     let out = wt(
