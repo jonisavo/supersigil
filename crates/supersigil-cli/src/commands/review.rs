@@ -25,10 +25,9 @@ use crate::error::CliError;
 use crate::evidence::edit_info;
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::pipeline::{
-    BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, base_info,
-    candidate_transcripts, cause_word, claude_home, conflicts_for, display_from, evidence_info,
-    file_kind, file_status, gather, mode_text, on_disk_word, origins_info, path_bytes,
-    records_info, same_path, target_info,
+    BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, base_info, cause_word,
+    claude_home, conflicts_for, display_from, evidence_info, file_kind, file_status, gather,
+    mode_text, on_disk_word, origins_info, path_bytes, records_info, same_path, target_info,
 };
 use crate::record_dir;
 
@@ -73,7 +72,6 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
     let mut changes = changed_paths(&g.repo, &g.range.base.tree, &g.target_tree, &g.paths)?;
     changes.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
     let blobs = diffable_blobs(g, &changes)?;
-    let transcripts = candidate_transcripts(g);
     let mention_worktrees: Vec<PathBuf> = match g.range.target {
         ResolvedTarget::WorkingTree { .. } => vec![g.worktree.clone()],
         ResolvedTarget::Commit { .. } => g.candidate_worktrees.clone(),
@@ -81,7 +79,13 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
     let mut files = Vec::new();
     let mut edits: BTreeMap<String, EditInfo> = BTreeMap::new();
     for change in &changes {
-        let (file, attribution) = review_file(g, change, &blobs, &transcripts, &mention_worktrees)?;
+        let (file, attribution) = review_file(
+            g,
+            change,
+            &blobs,
+            &g.candidate_transcripts,
+            &mention_worktrees,
+        )?;
         // Only the edits the file's analysis names; an edit offered to
         // anchor that no chain, stop reason, or outcome names stays out.
         if let Some(attribution) = attribution {

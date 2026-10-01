@@ -131,8 +131,6 @@ pub struct Gathered {
     pub target_tree: ObjectId,
     /// The working-tree snapshot, for a working-tree target.
     pub snapshot: Option<WorkingTreeSnapshot>,
-    /// Registered worktrees, with paths canonical when they exist.
-    pub worktrees: Vec<Worktree>,
     /// The commits in range and the worktrees that originated them, and
     /// every worktree or record checkout whose origin evidence is
     /// unavailable.
@@ -145,6 +143,10 @@ pub struct Gathered {
     pub unreconciled: Vec<UnreconciledCheckout>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
+    /// The candidate transcripts (design section 1, step 7): those holding
+    /// one of `candidates`, and those with an observation whose working
+    /// directory lies in a candidate worktree.
+    pub candidate_transcripts: BTreeSet<String>,
     /// The edits whose file lies in a candidate worktree, after
     /// deduplicating every sighting in every involved record, wherever it
     /// maps: the only edits attribution sees.
@@ -237,6 +239,10 @@ pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
     let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
     let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
     let evidence = Evidence::index(records.iter().flat_map(|r| &r.observations));
+    let candidate_transcripts = evidence.candidate_transcripts(
+        candidates.iter().map(|m| &m.candidate.edit),
+        &candidate_worktrees,
+    );
     Ok(Gathered {
         repo,
         worktree,
@@ -244,12 +250,12 @@ pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
         range,
         target_tree,
         snapshot,
-        worktrees,
         origins,
         candidate_worktrees,
         records,
         unreconciled: reconciliation.unreconciled,
         candidates,
+        candidate_transcripts,
         accepted,
         conflicts,
         unplaced_edits,
@@ -810,15 +816,6 @@ pub fn all_conflicts(g: &Gathered) -> Vec<Conflict> {
     g.conflicts.iter().map(|c| c.conflict.clone()).collect()
 }
 
-/// The candidate transcripts of `g` (design section 1, step 7).
-#[must_use]
-pub fn candidate_transcripts(g: &Gathered) -> BTreeSet<String> {
-    g.evidence.candidate_transcripts(
-        g.candidates.iter().map(|m| &m.candidate.edit),
-        &g.candidate_worktrees,
-    )
-}
-
 /// The review model's base block.
 #[must_use]
 pub fn base_info(g: &Gathered) -> BaseInfo {
@@ -905,7 +902,7 @@ pub fn records_info(g: &Gathered) -> Vec<RecordInfo> {
 #[must_use]
 pub fn evidence_info(g: &Gathered, conflicting_edits: Vec<Conflict>) -> EvidenceInfo {
     EvidenceInfo {
-        candidate_transcripts: g.evidence.transcripts(&candidate_transcripts(g)),
+        candidate_transcripts: g.evidence.transcripts(&g.candidate_transcripts),
         unplaced_edits: g.unplaced_edits,
         unreconciled_checkouts: g
             .unreconciled
