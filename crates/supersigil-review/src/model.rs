@@ -392,7 +392,8 @@ pub struct FileReview {
 /// Attribution-bytes status per side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BytesStatus {
-    /// `identical`, `converted`, `failed: <stderr tail>`, or `absent`.
+    /// `identical`, `converted`, `failed: <stderr tail>`, `absent`, or `not read`
+    /// (the file's bytes are not read).
     pub base: String,
     /// Same values as `base`.
     pub target: String,
