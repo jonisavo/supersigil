@@ -8,8 +8,8 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    candidate, finishes_within, overwrite, replace, replace_all, request, unknown_op, with_hashes,
-    with_patch,
+    candidate, finishes_within, id, overwrite, replace, replace_all, request, unknown_op,
+    with_hashes, with_patch,
 };
 use supersigil_anchor::walk::walk;
 use supersigil_anchor::{
@@ -17,10 +17,6 @@ use supersigil_anchor::{
     PathStatus, Provenance, StopReason, TargetKind, attribute,
 };
 use supersigil_record::EventId;
-
-fn id(name: &str) -> EventId {
-    EventId::new(name)
-}
 
 fn wt(base: &str, target: &str, edits: Vec<CandidateEdit>) -> PathAttribution {
     attribute(request(

@@ -15,6 +15,16 @@ use supersigil_record::{ContentId, EventId, RecordId, SessionId, Timestamp, Turn
 /// The reviewed worktree in tests.
 pub const WT: &str = "/work/repo";
 
+/// An event id named `name`.
+pub fn id(name: &str) -> EventId {
+    EventId::new(name)
+}
+
+/// Event ids named `names`, in order.
+pub fn ids(names: &[&str]) -> Vec<EventId> {
+    names.iter().map(|n| id(n)).collect()
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "a private builder behind the named helpers below"

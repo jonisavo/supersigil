@@ -8,17 +8,13 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    candidate, create, finishes_within, in_worktree, replace, replace_all, request, unknown_op,
-    with_hashes, with_patch,
+    candidate, create, finishes_within, ids, in_worktree, replace, replace_all, request,
+    unknown_op, with_hashes, with_patch,
 };
 use supersigil_anchor::walk::{Walk, dedup, walk};
 use supersigil_anchor::{CandidateEdit, ChainClass, ChainEnd, PathStatus, StopReason, TargetKind};
 use supersigil_record::observations::{EditOperation, Hunk, Material};
 use supersigil_record::{EventId, RecordId};
-
-fn ids(names: &[&str]) -> Vec<EventId> {
-    names.iter().map(|n| EventId::new(*n)).collect()
-}
 
 /// (edits oldest first, class, ended at the base) of every chain.
 fn summary(walk: &Walk) -> Vec<(Vec<EventId>, ChainClass, bool)> {

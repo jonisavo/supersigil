@@ -6,13 +6,12 @@ mod common;
 use std::time::Duration;
 
 use common::{
-    create, finishes_within, overwrite, replace, replace_all, state, unknown_op, with_hashes,
+    create, finishes_within, id, overwrite, replace, replace_all, state, unknown_op, with_hashes,
     with_patch,
 };
 use supersigil_anchor::result::StopReason;
 use supersigil_anchor::step::{Budget, Replacement, Reversed, execute_forward, reverse};
 use supersigil_anchor::{DEFAULT_BUDGET_BYTES, State};
-use supersigil_record::EventId;
 use supersigil_record::observations::{Edit, FileState, Hunk, Material};
 
 fn befores(reversed: &Reversed) -> Vec<String> {
@@ -32,10 +31,6 @@ fn run(edit: &Edit, current: &str, base: Option<&str>) -> Reversed {
         &state(base),
         &mut Budget::new(1 << 20),
     )
-}
-
-fn id(name: &str) -> EventId {
-    EventId::new(name)
 }
 
 fn location_choices(reversed: &Reversed) -> Vec<bool> {
