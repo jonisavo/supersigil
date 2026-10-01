@@ -285,17 +285,27 @@ fn a_submodule_configured_ignore_all_is_listed_not_captured() {
     repo.run_in(&sm, &["config", "core.autocrlf", "false"]);
     repo.write("sm/s.txt", b"two\n");
     repo.run_in(&sm, &["commit", "-q", "-am", "sub two"]);
+    let new = repo.run_in(&sm, &["rev-parse", "HEAD"]);
     let snapshot = snapshot_working_tree(&repo.repo(), &SnapshotOptions::default()).unwrap();
     let spec = format!("{}:sm", snapshot.tree);
-    assert_eq!(repo.run(&["rev-parse", &spec]), old);
-    assert_eq!(
-        listed(&snapshot.not_captured),
-        [(
-            "sm".to_owned(),
-            OnDisk::Present,
-            NotCapturedCause::NotStaged
-        )]
-    );
+    let captured = repo.run(&["rev-parse", &spec]);
+    // Newer git's `add -u` honors `ignore = all` and keeps the old gitlink,
+    // which `diff-files` then lists; git 2.36 stages the advanced gitlink, so
+    // nothing is left to list. Either is coherent; a kept gitlink that is not
+    // listed, or a captured one that is, is not.
+    if captured == old {
+        assert_eq!(
+            listed(&snapshot.not_captured),
+            [(
+                "sm".to_owned(),
+                OnDisk::Present,
+                NotCapturedCause::NotStaged
+            )]
+        );
+    } else {
+        assert_eq!(captured, new);
+        assert!(listed(&snapshot.not_captured).is_empty());
+    }
 }
 
 #[test]

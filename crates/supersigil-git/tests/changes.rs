@@ -103,11 +103,14 @@ fn a_rename_is_a_deletion_plus_an_addition_even_with_rename_config() {
 #[test]
 fn pathspecs_are_literal_prefixes() {
     let repo = TestRepo::new();
+    // `[x]` is glob magic that every platform allows in a file name: read as
+    // a glob, `src[x]` would match the file `srcx`.
     repo.write("src/a.rs", b"a\n");
-    repo.write("src*/b.rs", b"b\n");
+    repo.write("src[x]/b.rs", b"b\n");
+    repo.write("srcx", b"d\n");
     repo.write("docs/c.md", b"c\n");
     repo.commit_all("base");
-    for path in ["src/a.rs", "src*/b.rs", "docs/c.md"] {
+    for path in ["src/a.rs", "src[x]/b.rs", "srcx", "docs/c.md"] {
         repo.write(path, b"changed\n");
     }
     repo.commit_all("target");
@@ -125,7 +128,7 @@ fn pathspecs_are_literal_prefixes() {
             .collect::<Vec<_>>()
     };
     assert_eq!(only("src"), ["src/a.rs"]);
-    assert_eq!(only("src*"), ["src*/b.rs"]);
+    assert_eq!(only("src[x]"), ["src[x]/b.rs"]);
 }
 
 #[test]
