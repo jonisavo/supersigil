@@ -341,5 +341,5 @@ fn a_missing_blob_is_an_error_not_a_failed_conversion() {
         &missing,
         b"a\n",
     );
-    assert!(matches!(result, Err(GitError::Failed { .. })), "{result:?}");
+    assert!(matches!(result, Err(GitError::Parse(_))), "{result:?}");
 }

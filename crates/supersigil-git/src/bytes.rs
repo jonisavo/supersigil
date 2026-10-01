@@ -120,7 +120,7 @@ const STDERR_TAIL_CHARS: usize = 500;
 /// # Errors
 ///
 /// Returns [`GitError::Parse`] if `path` cannot be passed to git on this
-/// platform, [`GitError::Failed`] if `blob` cannot be read, or the errors of
+/// platform, [`GitError::Parse`] if `blob` is missing, or the errors of
 /// [`crate::Git::raw`]. A conversion git refuses is
 /// [`Conversion::Failed`], not an error.
 pub fn worktree_form(
@@ -146,7 +146,20 @@ pub fn worktree_form(
     if !output.status.success() {
         // Only a conversion git refuses is a result. If the blob itself cannot
         // be read, this is an error, not a failed conversion.
-        repo.git().output(["cat-file", "-e", blob.as_str()])?;
+        // `cat-file -e` documents exit 1 for a missing object; any other
+        // failure stays an error of git itself.
+        let check = repo.git().raw(["cat-file", "-e", blob.as_str()])?;
+        match check.status.code() {
+            Some(0) => {}
+            Some(1) => return Err(GitError::Parse(format!("object {blob} is missing"))),
+            status => {
+                return Err(GitError::Failed {
+                    args: format!("cat-file -e {blob}"),
+                    status,
+                    stderr: String::from_utf8_lossy(&check.stderr).trim().to_owned(),
+                });
+            }
+        }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let chars: Vec<char> = stderr.trim().chars().collect();
         let tail: String = chars[chars.len().saturating_sub(STDERR_TAIL_CHARS)..]
