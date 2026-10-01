@@ -7,11 +7,14 @@
 //! 1. the path's search is incomplete: *unresolved*;
 //! 2. the line is ambiguous: *ambiguous*;
 //! 3. an added line with any unexplained origin, or a removed line with no
-//!    fate: *content match* when whole-edit blocks cover it, otherwise
-//!    *unattributed* with the reason, which is that content matching ran
-//!    out of budget whenever it did, since a match may exist that was never
-//!    looked for. A partly explained line lands here, so it is never shown
-//!    as attributed;
+//!    fate: *content match* when whole-edit blocks cover it, saying whether
+//!    the content search completed (when it ran out of budget, other edits
+//!    may cover the line too), otherwise *unattributed* with the reason,
+//!    which is that content matching ran out of budget whenever it did,
+//!    since a match may exist that was never looked for. The content search
+//!    has its own budget, so its running out never makes the line
+//!    *unresolved*. A partly explained line lands here, so it is never
+//!    shown as attributed;
 //! 4. an introducing edit among the origins, or a replacing edit among the
 //!    fates: *attributed*;
 //! 5. everything is base content: *whitespace-only change* when whitespace
@@ -92,8 +95,12 @@ pub enum Outcome {
     ContentMatch {
         /// Introduced for added lines, replaced for removed lines.
         relation: Relation,
-        /// Every covering edit; nothing picks among them.
+        /// Every covering edit found; nothing picks among them.
         edits: Vec<EventId>,
+        /// Whether the content search completed. When it ran out of budget,
+        /// `edits` are the matches found so far, and other edits may cover
+        /// the line too.
+        search_complete: bool,
     },
     /// Nothing explains the line.
     Unattributed {
@@ -477,6 +484,7 @@ fn fallback<'s>(
         return Verdict::Decided(Outcome::ContentMatch {
             relation,
             edits: edits.iter().cloned().collect(),
+            search_complete: !attr.content.incomplete,
         });
     }
     let unattributed = |reason| Verdict::Decided(Outcome::Unattributed { reason });

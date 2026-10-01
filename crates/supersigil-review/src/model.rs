@@ -198,7 +198,8 @@ pub struct FileCounts {
     pub ambiguous: usize,
     /// Lines with the *line ending changed* outcome.
     pub line_ending: usize,
-    /// Lines explained only by a content match.
+    /// Lines explained only by a content match, whether or not its search
+    /// completed: each line's outcome says.
     pub content_match_only: usize,
 }
 

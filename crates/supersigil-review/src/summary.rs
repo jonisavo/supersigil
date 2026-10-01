@@ -10,7 +10,7 @@
 //! CLI supplies as its `format::escape_control`, so an escape sequence in a
 //! path cannot rewrite the terminal.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Write as _};
 
 use supersigil_anchor::ChainClass;
@@ -115,6 +115,7 @@ pub(crate) fn context_lines(
 
 fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     let summary = &review.unattributed;
+    let incomplete = incomplete_content_matches(&review.files);
     let mut lines = Vec::new();
     for untracked in review
         .scope
@@ -129,6 +130,7 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
         ));
     }
     for counts in &summary.files {
+        let search_incomplete = incomplete.get(counts.path.as_str()).map_or(0, |n| *n);
         let parts = count_phrases([
             (counts.unattributed, "unattributed"),
             (
@@ -138,7 +140,11 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
             (counts.unresolved, "unresolved (search incomplete)"),
             (counts.ambiguous, "ambiguous"),
             (counts.line_ending, "line ending changed"),
-            (counts.content_match_only, "content match only"),
+            (
+                counts.content_match_only.saturating_sub(search_incomplete),
+                "content match only",
+            ),
+            (search_incomplete, "content match only (search incomplete)"),
         ]);
         lines.push(format!("{}: {}", escape(&counts.path), parts.join(", ")));
     }
@@ -159,6 +165,34 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
         lines.push(format!("{}: on-disk state not captured", escape(path)));
     }
     lines
+}
+
+/// Lines with a content match whose search did not complete, by file path.
+/// The summary's counts do not tell them apart, so they come from the
+/// spans.
+fn incomplete_content_matches(files: &[FileReview]) -> BTreeMap<&str, usize> {
+    let mut incomplete = BTreeMap::new();
+    for file in files {
+        let count: usize = file
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.spans)
+            .filter(|span| {
+                matches!(
+                    span.outcome,
+                    Outcome::ContentMatch {
+                        search_complete: false,
+                        ..
+                    }
+                )
+            })
+            .map(|span| span.count)
+            .sum();
+        if count > 0 {
+            *incomplete.entry(file.path.as_str()).or_default() += count;
+        }
+    }
+    incomplete
 }
 
 /// One line per file: status, path, line counts, and attribution in words.
@@ -234,6 +268,7 @@ struct Tally {
     realigned: usize,
     line_ending: usize,
     content_match: usize,
+    content_match_search_incomplete: usize,
     ambiguous: usize,
     unresolved: usize,
     unattributed: usize,
@@ -246,7 +281,14 @@ impl Tally {
             Outcome::WhitespaceOnly { .. } => self.whitespace += count,
             Outcome::Realigned { .. } => self.realigned += count,
             Outcome::LineEndingChanged => self.line_ending += count,
-            Outcome::ContentMatch { .. } => self.content_match += count,
+            Outcome::ContentMatch {
+                search_complete: true,
+                ..
+            } => self.content_match += count,
+            Outcome::ContentMatch {
+                search_complete: false,
+                ..
+            } => self.content_match_search_incomplete += count,
             Outcome::Ambiguous { .. } => self.ambiguous += count,
             Outcome::Unresolved { .. } => self.unresolved += count,
             Outcome::Unattributed { reason } => {
@@ -262,7 +304,11 @@ impl Tally {
             (self.whitespace, "whitespace-only"),
             (self.realigned, "realigned"),
             (self.line_ending, "line ending changed"),
-            (self.content_match, "content match"),
+            (self.content_match, content_match_words(true)),
+            (
+                self.content_match_search_incomplete,
+                content_match_words(false),
+            ),
             (self.ambiguous, "ambiguous"),
             (self.unresolved, "unresolved (search incomplete)"),
         ]);
@@ -341,6 +387,16 @@ pub(crate) const fn class_words(class: ChainClass) -> &'static str {
         ChainClass::ExactFromBase => "exact from the base",
         ChainClass::ExactFromStart => "exact from its start",
         ChainClass::Consistent => "consistent with the recorded edits, not verified",
+    }
+}
+
+/// What the terminal calls a content match: one whose search ran out of
+/// budget may have more covering edits than it names.
+pub(crate) const fn content_match_words(search_complete: bool) -> &'static str {
+    if search_complete {
+        "content match"
+    } else {
+        "content match (search incomplete)"
     }
 }
 

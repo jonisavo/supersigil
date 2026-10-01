@@ -2,11 +2,12 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use common::{
     attribution, base_line, chain, eid, escape, introduced, kept, no_fate, replaced, unexplained,
 };
+use serde_json::{Value, json};
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{
     ChainClass, ChainEnd, Conflict, LineOutcome, Origin, PathAttribution, PathStatus, Provenance,
@@ -651,4 +652,128 @@ fn terminal_summary_keeps_search_incomplete_lines_unattributed() {
     for word in ["exact", "introduced", "replaced", "session"] {
         assert!(!files.contains(word), "{word} in {files}");
     }
+}
+
+/// One added and one removed line no chain explains, both covered by edit
+/// `e1`'s text, on a path whose chain search completed; the content search
+/// ran out of budget when `incomplete`.
+fn content_matched(incomplete: bool) -> PathAttribution {
+    let mut attr = attribution(
+        vec![chain(0, ChainClass::ExactFromBase, &["e0"], ChainEnd::Base)],
+        vec![unexplained()],
+        vec![no_fate()],
+    );
+    attr.content.target[0] = BTreeSet::from([eid("e1")]);
+    attr.content.base[0] = BTreeSet::from([eid("e1")]);
+    attr.content.incomplete = incomplete;
+    attr
+}
+
+/// The sample review with one file, whose every changed line has a content
+/// match: no unmatched line shows that the search ran out.
+fn content_matched_review(incomplete: bool) -> Review {
+    let attr = content_matched(incomplete);
+    let mut review = sample_review();
+    review.files = vec![text_file(
+        "src/lib.rs",
+        FileStatus::Modified,
+        Some(b"fn old() {}\n"),
+        Some(b"fn new() {}\n"),
+        &attr,
+        Vec::new(),
+    )];
+    review.unattributed = unattributed_summary(&review.files, &review.scope);
+    review
+}
+
+#[test]
+fn a_review_keeps_whether_a_content_match_search_completed() {
+    for (incomplete, search_complete) in [(false, true), (true, false)] {
+        let json = serde_json::to_value(content_matched_review(incomplete)).unwrap();
+        let file = &json["files"][0];
+        let outcomes: Vec<(&Value, &Value, &Value)> = file["hunks"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|span| {
+                (
+                    &span["side"],
+                    &span["outcome"]["kind"],
+                    &span["outcome"]["search_complete"],
+                )
+            })
+            .collect();
+        let expected = json!(search_complete);
+        assert_eq!(
+            outcomes,
+            [
+                (&json!("base"), &json!("content_match"), &expected),
+                (&json!("target"), &json!("content_match"), &expected),
+            ],
+            "incomplete: {incomplete}"
+        );
+        // Only the content search ran out: the chain search's status stays.
+        assert_eq!(file["attribution"]["status"], json!({"kind": "composed"}));
+    }
+
+    let complete = render_summary(&content_matched_review(false), escape);
+    let partial = render_summary(&content_matched_review(true), escape);
+    assert!(
+        complete.contains("\n  src/lib.rs: 2 content match only\n"),
+        "{complete}"
+    );
+    assert!(
+        complete.contains("\n  M src/lib.rs  +1 -1  2 content match\n"),
+        "{complete}"
+    );
+    assert!(
+        partial.contains("\n  src/lib.rs: 2 content match only (search incomplete)\n"),
+        "{partial}"
+    );
+    assert!(
+        partial.contains("\n  M src/lib.rs  +1 -1  2 content match (search incomplete)\n"),
+        "{partial}"
+    );
+}
+
+#[test]
+fn why_keeps_whether_a_content_match_search_completed() {
+    let why = |incomplete| {
+        let attr = content_matched(incomplete);
+        let mut why = sample_why(OnDiskCheck::Captured);
+        why.line = Some(why_line(
+            &AttributionState::Available(&attr),
+            0,
+            &split_lines(b"fn new() {}\n"),
+            Ok(b""),
+        ));
+        why
+    };
+    for (incomplete, search_complete) in [(false, true), (true, false)] {
+        let json = serde_json::to_value(why(incomplete)).unwrap();
+        let line = &json["line"];
+        assert_eq!(
+            (
+                &line["outcome"]["kind"],
+                &line["outcome"]["search_complete"]
+            ),
+            (&json!("content_match"), &json!(search_complete)),
+            "incomplete: {incomplete}"
+        );
+        assert_eq!(line["status"], json!({"kind": "composed"}));
+    }
+
+    let complete = render_why(&why(false), escape);
+    let partial = render_why(&why(true), escape);
+    assert!(
+        complete
+            .contains("\n  matches the text of edit e1 (content match, not a composed chain)\n"),
+        "{complete}"
+    );
+    assert!(
+        partial.contains(
+            "\n  matches the text of edit e1 (content match (search incomplete), not a composed chain)\n"
+        ),
+        "{partial}"
+    );
 }

@@ -83,6 +83,7 @@ fn unexplained_line_with_covering_edits_is_a_content_match() {
         Outcome::ContentMatch {
             relation: Relation::Introduced,
             edits: vec![eid("e3"), eid("e7")],
+            search_complete: true,
         }
     );
 }
@@ -274,6 +275,7 @@ fn base_line_without_fate_falls_back_to_content_match_then_unattributed() {
         Outcome::ContentMatch {
             relation: Relation::Replaced,
             edits: vec![eid("e4")],
+            search_complete: true,
         }
     );
 }
@@ -295,12 +297,14 @@ fn unmatched_lines_are_unattributed_when_content_matching_ran_out() {
     };
     assert_eq!(target_line_outcome(&state, 0, base, target).0, incomplete);
     assert_eq!(base_line_outcome(&state, 0, base, target).0, incomplete);
-    // A match found before the budget ran out still counts.
+    // A match found before the budget ran out still counts, and keeps that
+    // the search did not complete.
     assert_eq!(
         target_line_outcome(&state, 1, base, target).0,
         Outcome::ContentMatch {
             relation: Relation::Introduced,
             edits: vec![eid("e3")],
+            search_complete: false,
         }
     );
 }
@@ -403,4 +407,38 @@ fn search_incomplete_never_attributes_a_removed_line() {
             }
         );
     }
+}
+
+#[test]
+fn a_content_match_says_whether_its_search_completed() {
+    let outcomes = |incomplete| {
+        let mut attr = attribution(exact_chain(), vec![unexplained()], vec![no_fate()]);
+        attr.content.target[0] = BTreeSet::from([eid("e3")]);
+        attr.content.base[0] = BTreeSet::from([eid("e3")]);
+        attr.content.incomplete = incomplete;
+        let state = AttributionState::Available(&attr);
+        let base: &[&[u8]] = &[b"a\n"];
+        let target: &[&[u8]] = &[b"x\n"];
+        [
+            target_line_outcome(&state, 0, base, target).0,
+            base_line_outcome(&state, 0, base, target).0,
+        ]
+        .map(|outcome| serde_json::to_value(outcome).unwrap())
+    };
+    // The same matches either way, still content matches (the chain search
+    // completed), and only the search's completeness differs.
+    assert_eq!(
+        outcomes(false),
+        [
+            json!({"kind": "content_match", "relation": "introduced", "edits": ["e3"], "search_complete": true}),
+            json!({"kind": "content_match", "relation": "replaced", "edits": ["e3"], "search_complete": true}),
+        ]
+    );
+    assert_eq!(
+        outcomes(true),
+        [
+            json!({"kind": "content_match", "relation": "introduced", "edits": ["e3"], "search_complete": false}),
+            json!({"kind": "content_match", "relation": "replaced", "edits": ["e3"], "search_complete": false}),
+        ]
+    );
 }

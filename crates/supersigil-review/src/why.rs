@@ -18,7 +18,9 @@ use supersigil_record::observations::Material;
 use crate::diff::diff_blob_lines;
 use crate::model::{EditInfo, EvidenceInfo, RecordInfo, analysis_edits, outcome_edits, text};
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
-use crate::summary::{class_words, context_lines, push, reason_words, relation_words};
+use crate::summary::{
+    class_words, content_match_words, context_lines, push, reason_words, relation_words,
+};
 
 /// The `why` result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -398,9 +400,14 @@ fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {
                 .collect();
             parts.join("; ")
         }
-        Outcome::ContentMatch { edits, .. } => format!(
-            "matches the text of edit {} (content match, not a composed chain)",
-            ids(&mut edits.iter().map(|e| e.as_str().to_owned()))
+        Outcome::ContentMatch {
+            edits,
+            search_complete,
+            ..
+        } => format!(
+            "matches the text of edit {} ({}, not a composed chain)",
+            ids(&mut edits.iter().map(|e| e.as_str().to_owned())),
+            content_match_words(*search_complete)
         ),
         Outcome::WhitespaceOnly { edits } => format!(
             "only whitespace changed, by edit {}",
