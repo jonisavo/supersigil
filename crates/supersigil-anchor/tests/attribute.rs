@@ -823,10 +823,12 @@ fn repeated_block_matches_are_charged_once() {
         vec![candidate(unknown_op("u", "t", 1, "q\n", &block))],
     );
     let out = finishes_within(Duration::from_secs(20), move || attribute(req));
+    // Charged once, the union fits the default budget: matching completes,
+    // and an implementation that charged every overlapping match would
+    // stop early and fail here.
+    assert!(!out.content.incomplete);
     assert_eq!(out.content.target.len(), 100_000);
-    if !out.content.incomplete {
-        assert!(out.content.target.iter().all(|m| m.contains(&id("u"))));
-    }
+    assert!(out.content.target.iter().all(|m| m.contains(&id("u"))));
 }
 
 /// `count` lines reading `v{step}`: the file after `step` rewrites.
