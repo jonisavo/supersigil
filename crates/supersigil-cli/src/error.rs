@@ -10,6 +10,10 @@ pub enum CliError {
     /// Session sync error.
     #[error("{0}")]
     Session(#[from] supersigil_session::SyncError),
+    /// Git error: git missing or too old, not a worktree, a revision that
+    /// does not resolve, or a git command that failed.
+    #[error("{0}")]
+    Git(#[from] supersigil_git::GitError),
     /// I/O error.
     #[error("{0}")]
     Io(#[from] std::io::Error),

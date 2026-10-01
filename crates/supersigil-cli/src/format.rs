@@ -121,6 +121,30 @@ pub enum OutputFormat {
     Json,
 }
 
+/// Output format for `review` and `why`, which default to `auto`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum AutoFormat {
+    /// Terminal text when stdout is a terminal, JSON otherwise.
+    Auto,
+    /// JSON output.
+    Json,
+    /// Plain terminal text.
+    Terminal,
+}
+
+impl AutoFormat {
+    /// The concrete format: `auto` is terminal text when stdout is a
+    /// terminal and JSON otherwise.
+    #[must_use]
+    pub fn resolve(self) -> OutputFormat {
+        match self {
+            Self::Auto if io::stdout().is_terminal() => OutputFormat::Terminal,
+            Self::Auto | Self::Json => OutputFormat::Json,
+            Self::Terminal => OutputFormat::Terminal,
+        }
+    }
+}
+
 /// Write a value as pretty-printed JSON to stdout.
 ///
 /// # Errors
@@ -147,5 +171,14 @@ mod tests {
         assert_eq!(escape_control("c1\u{9b}31m"), r"c1\x9b31m");
         assert_eq!(escape_control("tab\tstays"), "tab\tstays");
         assert_eq!(escape_control("ünïcode ✔ \u{a0}"), "ünïcode ✔ \u{a0}");
+    }
+
+    #[test]
+    fn explicit_formats_resolve_to_themselves() {
+        assert!(matches!(AutoFormat::Json.resolve(), OutputFormat::Json));
+        assert!(matches!(
+            AutoFormat::Terminal.resolve(),
+            OutputFormat::Terminal
+        ));
     }
 }

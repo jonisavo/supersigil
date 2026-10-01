@@ -7,18 +7,25 @@
 pub mod commands;
 /// CLI error types.
 pub mod error;
+/// Recorded evidence around attribution: candidate transcripts and their
+/// capture limitations, command mentions, and prompts.
+pub mod evidence;
 /// Terminal formatting, color configuration, and output helpers.
 pub mod format;
+/// Mapping recorded edits onto git worktrees.
+pub mod mapping;
+/// The steps `review` and `why` share, and conversions to the review model.
+pub mod pipeline;
 /// Syncing every record a review involves, with bounded lock waits.
 pub mod reconcile;
 /// Records directory resolution and record lookup.
 pub mod record_dir;
 
 pub use commands::{
-    Command, CompletionsArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs,
-    SessionSyncArgs,
+    Command, CompletionsArgs, ReviewArgs, SessionArgs, SessionCommand, SessionListArgs,
+    SessionShowArgs, SessionSyncArgs, WhyArgs,
 };
-pub use format::{ColorChoice, ColorConfig, OutputFormat};
+pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 
 use clap::Parser;
 

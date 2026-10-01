@@ -27,7 +27,10 @@ clap_complete = "4"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+supersigil-anchor.workspace = true
+supersigil-git.workspace = true
 supersigil-record.workspace = true
+supersigil-review.workspace = true
 supersigil-session.workspace = true
 
 [dev-dependencies]

@@ -1,0 +1,1133 @@
+//! `supersigil review` and `supersigil why` end to end, against temporary
+//! git repositories and fixture transcripts.
+
+mod common;
+
+use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use assert_cmd::assert::OutputAssertExt;
+use predicates::prelude::*;
+use serde_json::{Value, json};
+use supersigil_record::store::Store;
+use supersigil_record::{EventId, SessionId};
+use supersigil_session::checkout::canonical;
+use supersigil_session::discover::encode_project_dir;
+
+/// Session id of the slice fixture.
+const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
+/// `src/lib.rs` before the slice session.
+const LIB_BASE: &str = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
+/// `src/lib.rs` after the session and the manual line it never recorded.
+const LIB_FINAL: &str = "// manual\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\npub fn greet(name: &str) -> String {\n    format!(\"Hello, {name}!\")\n}\n";
+/// `src/new.rs` as the slice session wrote it.
+const NEW_RS: &str = "pub const VERSION: &str = \"1\";\n";
+
+/// A temporary repository, Claude home, and records directory, with git
+/// isolated from the machine's configuration.
+struct Fixture {
+    _dir: tempfile::TempDir,
+    root: PathBuf,
+    repo: PathBuf,
+    claude: PathBuf,
+    records: PathBuf,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let fixture = Self {
+            claude: root.join("claude"),
+            records: root.join("records"),
+            repo,
+            root,
+            _dir: dir,
+        };
+        fixture.git(&["init", "-q", "-b", "main"]);
+        fixture.git(&["config", "core.autocrlf", "false"]);
+        fixture
+    }
+
+    /// Git isolation (design section 5) and the records directory. The
+    /// variables git sets for hooks are removed, as `supersigil_git::Git`
+    /// removes them: a test run from a pre-commit hook would otherwise
+    /// point git at the outer repository's index.
+    fn isolate(&self, command: &mut Command) {
+        for key in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+        ] {
+            command.env_remove(key);
+        }
+        command
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", &self.root)
+            .env("XDG_CONFIG_HOME", self.root.join("xdg"))
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .env("SUPERSIGIL_RECORD_DIR", &self.records)
+            .env_remove("XDG_DATA_HOME");
+    }
+
+    /// Runs git in `dir`; panics with its stderr on failure.
+    fn git_in(&self, dir: &Path, args: &[&str]) -> String {
+        let mut command = Command::new("git");
+        self.isolate(&mut command);
+        let output = command.current_dir(dir).args(args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        self.git_in(&self.repo, args)
+    }
+
+    /// Stages everything in `dir`, commits, and returns the commit id.
+    fn commit(&self, dir: &Path, message: &str) -> String {
+        self.git_in(dir, &["add", "-A"]);
+        self.git_in(dir, &["commit", "-q", "-m", message]);
+        self.git_in(dir, &["rev-parse", "HEAD"]).trim().to_owned()
+    }
+
+    /// Writes `text` as transcript `name` in the Claude Code project
+    /// directory of `cwd`, with the fixtures' `/work/repo` replaced by `cwd`
+    /// (escaped for a JSON string: a Windows path has backslashes).
+    fn transcript(&self, cwd: &Path, name: &str, text: &str) {
+        let dir = self.claude.join("projects").join(encode_project_dir(cwd));
+        std::fs::create_dir_all(&dir).unwrap();
+        let quoted = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
+        let text = text.replace("/work/repo", &quoted[1..quoted.len() - 1]);
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+
+    /// `supersigil <args>` in `dir`, isolated, as typed.
+    fn plain(&self, dir: &Path, args: &[&str]) -> Command {
+        let mut command = common::supersigil_cmd();
+        self.isolate(&mut command);
+        command.current_dir(dir).args(args);
+        command
+    }
+
+    /// `supersigil <subcommand> --claude-home <claude> <rest>` in `dir`.
+    fn supersigil(&self, dir: &Path, args: &[&str]) -> Command {
+        let mut command = common::supersigil_cmd();
+        self.isolate(&mut command);
+        command
+            .current_dir(dir)
+            .arg(args[0])
+            .arg("--claude-home")
+            .arg(&self.claude)
+            .args(&args[1..]);
+        command
+    }
+
+    /// Runs a command expected to succeed and parses its JSON output.
+    fn json(&self, dir: &Path, args: &[&str]) -> Value {
+        let output = self.supersigil(dir, args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
+}
+
+/// Writes `content` to `path` under `dir`, creating directories.
+fn write(dir: &Path, path: &str, content: &str) {
+    let path = dir.join(path);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, content).unwrap();
+}
+
+/// Builds the records of one generated session, each chained to the last.
+struct Session<'a> {
+    id: &'a str,
+    cwd: &'a Path,
+    text: String,
+    count: u32,
+    parent: Option<String>,
+}
+
+impl<'a> Session<'a> {
+    fn new(id: &'a str, cwd: &'a Path) -> Self {
+        Self {
+            id,
+            cwd,
+            text: String::new(),
+            count: 0,
+            parent: None,
+        }
+    }
+
+    fn push(&mut self, kind: &str, content: &Value, result: Option<Value>) -> &mut Self {
+        let uuid = format!("{}-{}", self.id, self.count);
+        let mut value = json!({
+            "type": kind, "uuid": uuid, "parentUuid": self.parent, "sessionId": self.id,
+            "cwd": self.cwd.to_string_lossy(),
+            "timestamp": format!("2026-09-29T10:00:{:02}.000Z", self.count),
+            "isSidechain": false, "message": {"role": kind, "content": content},
+        });
+        if let Some(result) = result {
+            value["toolUseResult"] = result;
+        }
+        self.text.push_str(&value.to_string());
+        self.text.push('\n');
+        self.parent = Some(uuid);
+        self.count += 1;
+        self
+    }
+
+    fn prompt(&mut self, text: &str) -> &mut Self {
+        self.push("user", &json!(text), None)
+    }
+
+    /// An Edit call on a file over 10 KB and its result, as Claude Code
+    /// records it: no `originalFile`, and the patch of replacing `old` with
+    /// `new` in `before`, the file as the edit found it.
+    fn edit(&mut self, tool: &str, file: &Path, before: &str, old: &str, new: &str) -> &mut Self {
+        let file = file.to_string_lossy();
+        let call = json!([{"type": "tool_use", "id": tool, "name": "Edit",
+            "input": {"file_path": file, "old_string": old, "new_string": new}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool, "content": "updated"}]);
+        let result = json!({"filePath": file, "oldString": old, "newString": new,
+            "originalFile": null, "structuredPatch": structured_patch(before, old, new),
+            "userModified": false, "replaceAll": false});
+        self.push("assistant", &call, None)
+            .push("user", &done, Some(result))
+    }
+
+    /// A Write call that creates `file`, and its result.
+    fn create(&mut self, tool: &str, file: &Path, content: &str) -> &mut Self {
+        let file = file.to_string_lossy();
+        let call = json!([{"type": "tool_use", "id": tool, "name": "Write",
+            "input": {"file_path": file, "content": content}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool, "content": "File created"}]);
+        let result =
+            json!({"type": "create", "filePath": file, "content": content, "structuredPatch": []});
+        self.push("assistant", &call, None)
+            .push("user", &done, Some(result))
+    }
+
+    /// A `NotebookEdit` call, which the capture cannot read, and its result.
+    fn notebook_edit(&mut self, tool: &str) -> &mut Self {
+        let notebook = self.cwd.join("nb.ipynb");
+        let call = json!([{"type": "tool_use", "id": tool, "name": "NotebookEdit",
+            "input": {"notebook_path": notebook.to_string_lossy(), "new_source": "x"}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool, "content": "ok"}]);
+        self.push("assistant", &call, None)
+            .push("user", &done, None)
+    }
+
+    fn text(&self) -> String {
+        self.text.clone()
+    }
+}
+
+/// Claude Code's `structuredPatch` for replacing `old` with `new` once in
+/// `before`: one hunk with three lines of context, as jsdiff builds it, with
+/// tabs shown as two spaces.
+fn structured_patch(before: &str, old: &str, new: &str) -> Value {
+    let after = before.replacen(old, new, 1);
+    let old_lines: Vec<&str> = before.lines().collect();
+    let new_lines: Vec<&str> = after.lines().collect();
+    let prefix = old_lines
+        .iter()
+        .zip(&new_lines)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = old_lines[prefix..]
+        .iter()
+        .rev()
+        .zip(new_lines[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let (old_changed, new_changed) = (old_lines.len() - suffix, new_lines.len() - suffix);
+    let start = prefix.saturating_sub(3);
+    let old_end = (old_changed + 3).min(old_lines.len());
+    let shown = |marker: &str, lines: &[&str]| -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| format!("{marker}{}", line.replace('\t', "  ")))
+            .collect()
+    };
+    let mut lines = shown(" ", &old_lines[start..prefix]);
+    lines.extend(shown("-", &old_lines[prefix..old_changed]));
+    lines.extend(shown("+", &new_lines[prefix..new_changed]));
+    lines.extend(shown(" ", &old_lines[old_changed..old_end]));
+    let after_context = old_end - old_changed;
+    json!([{"oldStart": start + 1, "oldLines": old_end - start,
+        "newStart": start + 1, "newLines": new_changed + after_context - start,
+        "lines": lines}])
+}
+
+fn slice_text() -> String {
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../supersigil-session/tests/fixtures/slice.jsonl"),
+    )
+    .unwrap()
+}
+
+/// The design's section 8 slice: the files the session found, committed,
+/// then the working tree after the session plus the manual line it never
+/// recorded. `old.txt` appears only in a command, so it is seeded here.
+fn slice(f: &Fixture) {
+    write(&f.repo, "src/lib.rs", LIB_BASE);
+    write(&f.repo, "notes.txt", "draft\n");
+    write(&f.repo, "old.txt", "obsolete\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "src/lib.rs", LIB_FINAL);
+    write(&f.repo, "src/new.rs", NEW_RS);
+    std::fs::remove_file(f.repo.join("old.txt")).unwrap();
+    f.transcript(&f.repo, "slice.jsonl", &slice_text());
+}
+
+/// A limitations-only transcript: one `NotebookEdit` call, no edit recorded.
+fn limits(f: &Fixture) {
+    let text = Session::new("s-limits", &f.repo)
+        .prompt("Edit the notebook.")
+        .notebook_edit("toolu_nb")
+        .text();
+    f.transcript(&f.repo, "limits.jsonl", &text);
+}
+
+fn edit_id(session: &str, tool: &str) -> String {
+    EventId::derive("edit", &SessionId::new(session), tool)
+        .as_str()
+        .to_owned()
+}
+
+fn file<'v>(review: &'v Value, path: &str) -> &'v Value {
+    review["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["path"] == path)
+        .unwrap_or_else(|| panic!("no file {path} in {review:#}"))
+}
+
+/// `(line text, outcome)` for every diff line of `file` on `side`
+/// (`"target"` for added lines, `"base"` for removed ones), in order.
+fn side_lines(file: &Value, side: &str) -> Vec<(String, Value)> {
+    let (start_key, texts_key) = if side == "target" {
+        ("target_start", "added")
+    } else {
+        ("base_start", "removed")
+    };
+    let mut lines = Vec::new();
+    for hunk in file["hunks"].as_array().unwrap() {
+        let first = hunk[start_key].as_u64().unwrap();
+        for span in hunk["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["side"] == side)
+        {
+            for offset in 0..span["count"].as_u64().unwrap() {
+                let index =
+                    usize::try_from(span["start"].as_u64().unwrap() + offset - first).unwrap();
+                let text = hunk[texts_key][index].as_str().unwrap().to_owned();
+                lines.push((text, span["outcome"].clone()));
+            }
+        }
+    }
+    lines
+}
+
+/// 400 lines, about 23 KB: over the size above which Claude Code records no
+/// `originalFile`, so the edits to it carry no hashes.
+fn big_file() -> String {
+    (1..=400).map(big_line).collect()
+}
+
+fn big_line(i: u32) -> String {
+    format!("line {i:03}: the quick brown fox jumps over the lazy dog\n")
+}
+
+#[test]
+fn review_slice_fixture() {
+    let f = Fixture::new();
+    slice(&f);
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let lib = file(&review, "src/lib.rs");
+    assert_eq!(lib["status"], "modified");
+    let chains = lib["attribution"]["chains"].as_array().unwrap();
+    assert_eq!(chains.len(), 1);
+    assert_eq!(chains[0]["class"], "exact_from_start");
+    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    // Every base line survives, so the diff only adds: the manual line and
+    // the four lines of `greet` and the blank line before it.
+    let added = side_lines(lib, "target");
+    assert_eq!(added.len(), 5, "{added:?}");
+    let hello = added
+        .iter()
+        .filter(|(text, _)| text.contains("Hello, {name}!"))
+        .count();
+    assert_eq!(hello, 1, "{added:?}");
+    for (text, outcome) in added {
+        if text.contains("Hello, {name}!") {
+            assert_eq!(outcome["kind"], "attributed", "{text}");
+            assert_eq!(
+                outcome["edits"][0]["edit"],
+                edit_id(SLICE_SESSION, "toolu_05")
+            );
+            assert_eq!(outcome["edits"][0]["relation"], "introduced");
+        } else {
+            // The manual line, and the earlier edit's surviving lines: the
+            // later edit rewrote part of that block, so no whole block of it
+            // occurs in the target and the fallback has nothing to match.
+            assert_eq!(outcome["kind"], "unattributed", "{text}");
+        }
+    }
+    let prompt = &review["edits"][edit_id(SLICE_SESSION, "toolu_05")]["prompt"];
+    assert_eq!(prompt["turn"], "u1");
+    assert_eq!(prompt["role"], "human");
+
+    let old = file(&review, "old.txt");
+    assert_eq!(old["status"], "deleted");
+    let removed = side_lines(old, "base");
+    assert!(!removed.is_empty());
+    assert!(removed.iter().all(|(_, o)| o["kind"] == "unattributed"));
+    let mentions = old["mentions"].as_array().unwrap();
+    assert!(
+        mentions.iter().any(|m| m["text"] == "rm old.txt"),
+        "{mentions:?}"
+    );
+
+    let paths: Vec<&Value> = review["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| &f["path"])
+        .collect();
+    // The restored notes.txt has no net change; the created file is untracked.
+    assert!(!paths.contains(&&json!("notes.txt")));
+    assert!(!paths.contains(&&json!("src/new.rs")));
+    let untracked = &review["scope"]["untracked_excluded"][0];
+    assert_eq!(untracked["path"], "src/new.rs");
+    assert_eq!(untracked["recorded_edit"], true);
+    assert_eq!(untracked["include_flag"], "--include-untracked src/new.rs");
+    assert_eq!(
+        review["unattributed"]["untracked_with_recorded_edits"],
+        json!(["src/new.rs"])
+    );
+    assert_eq!(review["records"][0]["reconciled"], true);
+}
+
+#[test]
+fn review_slice_with_include_untracked() {
+    let f = Fixture::new();
+    slice(&f);
+    let review = f.json(
+        &f.repo,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "src/new.rs",
+        ],
+    );
+
+    let new = file(&review, "src/new.rs");
+    assert_eq!(new["status"], "added");
+    assert_eq!(new["attribution"]["chains"][0]["class"], "exact_from_base");
+    let added = side_lines(new, "target");
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].1["kind"], "attributed");
+    assert_eq!(
+        added[0].1["edits"][0]["edit"],
+        edit_id(SLICE_SESSION, "toolu_02")
+    );
+    assert!(
+        review["scope"]["untracked_excluded"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn review_large_file_single_session() {
+    let f = Fixture::new();
+    write(&f.repo, "big.txt", &big_file());
+    f.commit(&f.repo, "base");
+    let (old, new) = (big_line(200), "line 200: a changed line\n".to_owned());
+    write(&f.repo, "big.txt", &big_file().replacen(&old, &new, 1));
+    let text = Session::new("s-big", &f.repo)
+        .prompt("Change line 200.")
+        .edit(
+            "toolu_big",
+            &f.repo.join("big.txt"),
+            &big_file(),
+            &old,
+            &new,
+        )
+        .text();
+    f.transcript(&f.repo, "big.jsonl", &text);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let big = file(&review, "big.txt");
+    assert_eq!(big["attribution"]["chains"][0]["class"], "exact_from_base");
+    let added = side_lines(big, "target");
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].0, new);
+    assert_eq!(added[0].1["kind"], "attributed");
+    assert_eq!(
+        added[0].1["edits"][0]["edit"],
+        edit_id("s-big", "toolu_big")
+    );
+    let removed = side_lines(big, "base");
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].1["kind"], "attributed");
+    assert_eq!(removed[0].1["edits"][0]["relation"], "replaced");
+}
+
+#[test]
+fn review_large_file_two_sessions() {
+    let f = Fixture::new();
+    write(&f.repo, "big.txt", &big_file());
+    f.commit(&f.repo, "base");
+    let changed = big_file()
+        .replacen(&big_line(100), "line 100: changed by one\n", 1)
+        .replacen(&big_line(300), "line 300: changed by two\n", 1);
+    write(&f.repo, "big.txt", &changed);
+    let big = f.repo.join("big.txt");
+    // Lines 100 and 300 are far apart, so each patch is the same whichever
+    // session edited first.
+    let one = Session::new("s-one", &f.repo)
+        .prompt("Change line 100.")
+        .edit(
+            "toolu_one",
+            &big,
+            &big_file(),
+            &big_line(100),
+            "line 100: changed by one\n",
+        )
+        .text();
+    let two = Session::new("s-two", &f.repo)
+        .prompt("Change line 300.")
+        .edit(
+            "toolu_two",
+            &big,
+            &big_file(),
+            &big_line(300),
+            "line 300: changed by two\n",
+        )
+        .text();
+    f.transcript(&f.repo, "one.jsonl", &one);
+    f.transcript(&f.repo, "two.jsonl", &two);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // No recorded hash joins the two transcripts, so each yields one
+    // consistent chain and they do not compose (design section 3).
+    let big = file(&review, "big.txt");
+    let chains = big["attribution"]["chains"].as_array().unwrap();
+    assert_eq!(chains.len(), 2);
+    assert!(chains.iter().all(|c| c["class"] == "consistent"));
+    let added = side_lines(big, "target");
+    assert_eq!(added.len(), 2);
+    assert!(
+        added.iter().all(|(_, o)| o["kind"] == "ambiguous"),
+        "{added:?}"
+    );
+    // Neither chain reaches the base, so no removed line has a fate; each
+    // edit's old text is a whole block of the base.
+    let removed = side_lines(big, "base");
+    assert_eq!(removed.len(), 2);
+    assert!(
+        removed.iter().all(|(_, o)| o["kind"] == "content_match"),
+        "{removed:?}"
+    );
+}
+
+#[test]
+fn review_commit_target_uses_the_reflog_origin() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let text = Session::new("s-create", &f.repo)
+        .prompt("Add a version.")
+        .create("toolu_create", &f.repo.join("src/new.rs"), NEW_RS)
+        .text();
+    f.transcript(&f.repo, "create.jsonl", &text);
+    write(&f.repo, "src/new.rs", NEW_RS);
+    let head = f.commit(&f.repo, "add new.rs");
+
+    let review = f.json(&f.repo, &["review", "--target", "HEAD", "--format", "json"]);
+
+    assert_eq!(review["origins"]["commits"][0]["commit"], head);
+    assert_eq!(
+        review["origins"]["commits"][0]["worktrees"],
+        json!([f.repo.display().to_string()])
+    );
+    let new = file(&review, "src/new.rs");
+    let added = side_lines(new, "target");
+    assert_eq!(added[0].1["kind"], "attributed");
+    assert_eq!(
+        added[0].1["edits"][0]["edit"],
+        edit_id("s-create", "toolu_create")
+    );
+}
+
+#[test]
+fn review_commit_target_without_reflog_is_unattributed() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let text = Session::new("s-create", &f.repo)
+        .prompt("Add a version.")
+        .create("toolu_create", &f.repo.join("src/new.rs"), NEW_RS)
+        .text();
+    f.transcript(&f.repo, "create.jsonl", &text);
+    write(&f.repo, "src/new.rs", NEW_RS);
+    let head = f.commit(&f.repo, "add new.rs");
+    f.git(&["reflog", "expire", "--expire=now", "--all"]);
+
+    let review = f.json(&f.repo, &["review", "--target", "HEAD", "--format", "json"]);
+
+    assert_eq!(review["origins"]["without_origin"], json!([head]));
+    assert!(review["records"].as_array().unwrap().is_empty());
+    let added = side_lines(file(&review, "src/new.rs"), "target");
+    assert_eq!(added[0].1["kind"], "unattributed");
+}
+
+#[test]
+fn review_commit_from_sibling_worktree() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let sib = f.root.join("sib");
+    let sib_arg = sib.to_string_lossy().into_owned();
+    f.git(&["worktree", "add", "-q", "-b", "feature", sib_arg.as_str()]);
+    let content = "pub fn feature() {}\n";
+    let text = Session::new("s-sib", &sib)
+        .prompt("Add the feature.")
+        .create("toolu_sib", &sib.join("src/feature.rs"), content)
+        .text();
+    f.transcript(&sib, "sib.jsonl", &text);
+    write(&sib, "src/feature.rs", content);
+    f.commit(&sib, "add feature");
+
+    let review = f.json(
+        &f.repo,
+        &[
+            "review", "--base", "main", "--target", "feature", "--format", "json",
+        ],
+    );
+
+    assert_eq!(
+        review["origins"]["commits"][0]["worktrees"],
+        json!([sib.display().to_string()])
+    );
+    // Reconcile created the sibling's record from its transcripts.
+    assert_eq!(review["records"].as_array().unwrap().len(), 1);
+    let added = side_lines(file(&review, "src/feature.rs"), "target");
+    assert_eq!(added[0].1["kind"], "attributed");
+    assert_eq!(
+        added[0].1["edits"][0]["edit"],
+        edit_id("s-sib", "toolu_sib")
+    );
+}
+
+#[test]
+fn review_session_editing_a_nested_worktree() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    f.git(&["worktree", "add", "-q", "-b", "x", ".claude/worktrees/x"]);
+    let nested = f.repo.join(".claude/worktrees/x");
+    // A session in the main checkout writes a file inside the nested worktree.
+    let content = "pub fn n() {}\n";
+    let text = Session::new("s-parent", &f.repo)
+        .prompt("Add n to the nested worktree.")
+        .create("toolu_parent", &nested.join("src/n.rs"), content)
+        .text();
+    f.transcript(&f.repo, "parent.jsonl", &text);
+    write(&nested, "src/n.rs", content);
+    // No record exists yet: reconcile finds the main checkout's project
+    // directory as an ancestor of the nested worktree (design section 1).
+    assert!(!f.records.exists());
+
+    let review = f.json(
+        &nested,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "src/n.rs",
+        ],
+    );
+
+    let added = side_lines(file(&review, "src/n.rs"), "target");
+    assert_eq!(added[0].1["kind"], "attributed");
+    assert_eq!(
+        added[0].1["edits"][0]["edit"],
+        edit_id("s-parent", "toolu_parent")
+    );
+}
+
+#[test]
+fn review_reports_locked_record() {
+    let f = Fixture::new();
+    slice(&f);
+    f.json(&f.repo, &["review", "--format", "json"]);
+    let record = std::fs::read_dir(&f.records)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.join("manifest.json").exists())
+        .unwrap();
+    // The stop hook, say, holding the record's writer lock.
+    let held = Store::open(&record).unwrap();
+    let tx = held.begin().unwrap();
+
+    let started = Instant::now();
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert_eq!(review["records"][0]["reconciled"], false);
+    assert_eq!(review["records"][0]["reason"], "locked by another writer");
+    // The pinned revision is still read.
+    let chains = &file(&review, "src/lib.rs")["attribution"]["chains"];
+    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    drop(tx);
+}
+
+#[test]
+fn review_reports_unreconciled_checkout() {
+    let f = Fixture::new();
+    slice(&f);
+    std::fs::create_dir_all(&f.records).unwrap();
+    let guard = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(f.records.join(".lock"))
+        .unwrap();
+    guard.lock().unwrap();
+
+    let started = Instant::now();
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert!(review["records"].as_array().unwrap().is_empty());
+    let unreconciled = &review["evidence"]["unreconciled_checkouts"][0];
+    assert_eq!(unreconciled["checkout"], f.repo.display().to_string());
+    assert_eq!(unreconciled["transcripts"], 1);
+    assert_eq!(
+        unreconciled["reason"],
+        "records directory locked by another writer"
+    );
+    drop(guard);
+}
+
+#[test]
+fn review_keeps_capture_limitations_when_everything_is_attributed() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let text = Session::new("s-create", &f.repo)
+        .prompt("Add a version.")
+        .create("toolu_create", &f.repo.join("src/new.rs"), NEW_RS)
+        .text();
+    f.transcript(&f.repo, "create.jsonl", &text);
+    write(&f.repo, "src/new.rs", NEW_RS);
+    limits(&f);
+    let args = ["review", "--include-untracked", "src/new.rs", "--format"];
+    let mut json_args = args.to_vec();
+    json_args.push("json");
+    let mut terminal_args = args.to_vec();
+    terminal_args.push("terminal");
+
+    let review = f.json(&f.repo, &json_args);
+
+    let added = side_lines(file(&review, "src/new.rs"), "target");
+    assert_eq!(added.len(), 1);
+    for (text, outcome) in added {
+        assert_eq!(outcome["kind"], "attributed", "{text}");
+    }
+    let transcripts = review["evidence"]["candidate_transcripts"]
+        .as_array()
+        .unwrap();
+    let limited = transcripts
+        .iter()
+        .find(|t| t["transcript"].as_str().unwrap().ends_with("limits.jsonl"))
+        .unwrap();
+    assert!(
+        !limited["capture_limitations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(limited["localized"], false);
+    f.supersigil(&f.repo, &terminal_args)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("limits.jsonl"))
+        .stdout(predicate::str::contains("not localized to a path"));
+}
+
+#[test]
+fn why_on_a_changed_line() {
+    let f = Fixture::new();
+    slice(&f);
+    let why = f.json(&f.repo, &["why", "src/lib.rs:7", "--format", "json"]);
+
+    assert_eq!(why["on_disk"]["state"], "captured");
+    let line = &why["line"];
+    assert!(line["text"].as_str().unwrap().contains("Hello, {name}!"));
+    assert_eq!(line["differs_from_head"], "yes");
+    assert_eq!(line["outcome"]["kind"], "attributed");
+    assert_eq!(
+        line["outcome"]["edits"][0]["edit"],
+        edit_id(SLICE_SESSION, "toolu_05")
+    );
+}
+
+#[test]
+fn why_on_an_unchanged_line_explains_back_to_creation() {
+    let f = Fixture::new();
+    let text = Session::new("s-create", &f.repo)
+        .prompt("Add a version.")
+        .create("toolu_create", &f.repo.join("src/new.rs"), NEW_RS)
+        .text();
+    f.transcript(&f.repo, "create.jsonl", &text);
+    write(&f.repo, "src/new.rs", NEW_RS);
+    f.commit(&f.repo, "add new.rs");
+
+    let why = f.json(&f.repo, &["why", "src/new.rs:1", "--format", "json"]);
+
+    let line = &why["line"];
+    assert_eq!(line["differs_from_head"], "no");
+    assert_eq!(line["chains"][0]["class"], "exact_from_base");
+    assert_eq!(line["outcome"]["kind"], "attributed");
+    assert_eq!(
+        line["outcome"]["edits"][0]["edit"],
+        edit_id("s-create", "toolu_create")
+    );
+}
+
+#[test]
+fn why_on_assume_unchanged_file_is_not_captured() {
+    let f = Fixture::new();
+    slice(&f);
+    limits(&f);
+    write(&f.repo, "notes.txt", "edited on disk\n");
+    f.git(&["update-index", "--assume-unchanged", "notes.txt"]);
+
+    let why = f.json(&f.repo, &["why", "notes.txt:1", "--format", "json"]);
+
+    assert_eq!(why["on_disk"]["state"], "not_captured");
+    assert!(why["line"].is_null());
+    // The evidence context survives the early return.
+    assert_eq!(why["records"].as_array().unwrap().len(), 1);
+    let transcripts = why["evidence"]["candidate_transcripts"].as_array().unwrap();
+    assert!(transcripts.iter().any(|t| {
+        t["transcript"].as_str().unwrap().ends_with("limits.jsonl")
+            && !t["capture_limitations"].as_array().unwrap().is_empty()
+    }));
+    f.supersigil(&f.repo, &["why", "notes.txt:1", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not captured"))
+        .stdout(predicate::str::contains("limits.jsonl"));
+}
+
+#[test]
+fn why_beyond_the_end_of_the_file_fails() {
+    let f = Fixture::new();
+    slice(&f);
+    f.supersigil(&f.repo, &["why", "src/lib.rs:99", "--format", "json"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("beyond the end"));
+}
+
+#[test]
+fn review_format_auto_prints_json_when_piped() {
+    let f = Fixture::new();
+    slice(&f);
+    let review = f.json(&f.repo, &["review"]);
+    assert_eq!(review["schema"], "supersigil.review/1");
+}
+
+#[test]
+fn why_inside_a_coarse_hunk_does_not_claim_a_difference() {
+    let f = Fixture::new();
+    let middle: String = (2..=6001).map(|i| i.to_string() + "\n").collect();
+    write(&f.repo, "big.txt", &format!("first\n{middle}last\n"));
+    f.commit(&f.repo, "base");
+    // Only the first and last lines change: nothing is common at either end,
+    // so the 6,002 remaining lines exceed the cutoff and the diff is coarse.
+    write(&f.repo, "big.txt", &format!("FIRST\n{middle}LAST\n"));
+
+    let why = f.json(&f.repo, &["why", "big.txt:3000", "--format", "json"]);
+
+    assert_eq!(why["line"]["differs_from_head"], "unknown");
+    assert_eq!(why["line"]["differs_from_head_reason"], "coarse diff");
+}
+
+#[cfg(unix)]
+#[test]
+fn why_compares_the_disk_with_converted_bytes_that_do_not_map_line_for_line() {
+    let f = Fixture::new();
+    // A reversible filter: checkout doubles every line, staging keeps the
+    // odd ones. The worktree form therefore has twice the blob's lines.
+    f.git(&["config", "filter.dup.smudge", "sed p"]);
+    f.git(&["config", "filter.dup.clean", "awk 'NR%2==1'"]);
+    write(&f.repo, ".gitattributes", "*.dup filter=dup\n");
+    write(&f.repo, "f.dup", "a\na\nb\nb\n");
+    f.commit(&f.repo, "base");
+
+    let why = f.json(&f.repo, &["why", "f.dup:1", "--format", "json"]);
+
+    assert_eq!(why["on_disk"]["state"], "captured");
+    assert_eq!(why["target"]["attribution_bytes"], "converted");
+    let outcome = &why["line"]["outcome"];
+    assert_eq!(outcome["kind"], "unattributed");
+    assert_eq!(outcome["reason"]["kind"], "attribution_unavailable");
+    assert_eq!(
+        outcome["reason"]["reason"],
+        "conversion changed line structure"
+    );
+}
+
+#[test]
+fn a_root_path_selector_reviews_everything() {
+    let f = Fixture::new();
+    write(&f.repo, "src/lib.rs", "a\n");
+    write(&f.repo, "README.md", "r\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "src/lib.rs", "b\n");
+    write(&f.repo, "README.md", "s\n");
+
+    let review = f.json(&f.repo, &["review", "--format", "json", "--", "src", "."]);
+
+    let paths: Vec<&str> = review["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, ["README.md", "src/lib.rs"]);
+    assert!(review["scope"]["paths"].as_array().unwrap().is_empty());
+    assert!(
+        review["scope"]["path_note"]
+            .as_str()
+            .unwrap()
+            .contains("whole worktree")
+    );
+    // `--include-untracked` never treats the root as a selector.
+    f.supersigil(
+        &f.repo,
+        &["review", "--format", "json", "--include-untracked", "."],
+    )
+    .assert()
+    .failure()
+    .code(1)
+    .stderr(predicate::str::contains("names the worktree"));
+}
+
+/// Records session `s-dup`'s tool use `toolu_dup` creating `checkout/name`
+/// in a record of its own for `checkout`, and writes the file: one sighting
+/// of an edit id whose other sightings name other files.
+fn record_dup_sighting(f: &Fixture, checkout: &Path, name: &str) {
+    let transcripts = f.root.join("transcripts");
+    std::fs::create_dir_all(&transcripts).unwrap();
+    std::fs::create_dir_all(checkout).unwrap();
+    let text = Session::new("s-dup", checkout)
+        .prompt("Write it.")
+        .create("toolu_dup", &checkout.join(name), "pub fn f() {}\n")
+        .text();
+    let transcript = transcripts.join(format!("{}.jsonl", name.replace('.', "-")));
+    std::fs::write(&transcript, text).unwrap();
+    let checkout_arg = checkout.to_string_lossy().into_owned();
+    let transcript_arg = transcript.to_string_lossy().into_owned();
+    let args = [
+        "session",
+        "--checkout",
+        checkout_arg.as_str(),
+        "sync",
+        "--transcript",
+        transcript_arg.as_str(),
+    ];
+    f.plain(&f.repo, &args).assert().success();
+    write(checkout, name, "pub fn f() {}\n");
+}
+
+#[test]
+fn a_conflicting_edit_id_attributes_neither_path() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // One session and tool-use id recorded with different files in two
+    // records: the same edit id with conflicting payloads.
+    record_dup_sighting(&f, &f.repo.join("x"), "a.rs");
+    record_dup_sighting(&f, &f.repo.join("y"), "b.rs");
+
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "x/a.rs",
+        "--include-untracked",
+        "y/b.rs",
+    ];
+    let review = f.json(&f.repo, &args);
+
+    let id = edit_id("s-dup", "toolu_dup");
+    for path in ["x/a.rs", "y/b.rs"] {
+        let file = file(&review, path);
+        let added = side_lines(file, "target");
+        assert_eq!(added.len(), 1, "{path}");
+        assert!(
+            added.iter().all(|(_, o)| o["kind"] == "unattributed"),
+            "{path}: {added:?}"
+        );
+        assert_eq!(file["attribution"]["conflicting_edits"][0]["edit"], id);
+    }
+    assert_eq!(review["evidence"]["conflicting_edits"][0]["edit"], id);
+    assert!(review["edits"].get(&id).is_none());
+}
+
+#[test]
+fn a_conflict_with_a_non_candidate_worktree_attributes_neither() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // The second sighting lies in a registered nested worktree, which a
+    // working-tree review of the main checkout does not make a candidate:
+    // the edit id still conflicts, so the candidate sighting is excluded.
+    f.git(&["worktree", "add", "-q", "-b", "y", "y"]);
+    record_dup_sighting(&f, &f.repo.join("x"), "a.rs");
+    record_dup_sighting(&f, &f.repo.join("y"), "b.rs");
+    // A file at the nested sighting's worktree-relative path, in the
+    // reviewed worktree: a different file, which the conflict never touched.
+    write(&f.repo, "b.rs", "pub fn f() {}\n");
+
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "x/a.rs",
+        "--include-untracked",
+        "b.rs",
+    ];
+    let review = f.json(&f.repo, &args);
+
+    let id = edit_id("s-dup", "toolu_dup");
+    let a = file(&review, "x/a.rs");
+    let added = side_lines(a, "target");
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].1["kind"], "unattributed", "{added:?}");
+    assert_eq!(a["attribution"]["conflicting_edits"][0]["edit"], id);
+    let b = file(&review, "b.rs");
+    assert_eq!(b["attribution"]["conflicting_edits"], json!([]));
+    assert_eq!(review["evidence"]["conflicting_edits"][0]["edit"], id);
+    assert_eq!(
+        review["evidence"]["conflicting_edits"][0]["records"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(review["edits"].get(&id).is_none());
+}
+
+#[test]
+fn include_untracked_is_refused_for_a_commit_target() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "new.rs", "pub fn n() {}\n");
+    // A commit has no untracked files: accepting the flag would list a path
+    // in the scope as included when nothing was.
+    f.supersigil(
+        &f.repo,
+        &[
+            "review",
+            "--target",
+            "HEAD",
+            "--include-untracked",
+            "new.rs",
+            "--format",
+            "json",
+        ],
+    )
+    .assert()
+    .failure()
+    .code(2)
+    .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[cfg(unix)]
+#[test]
+fn why_on_a_symlink_fails() {
+    let f = Fixture::new();
+    write(&f.repo, "target.txt", "a\n");
+    std::os::unix::fs::symlink("target.txt", f.repo.join("link")).unwrap();
+    f.commit(&f.repo, "base");
+
+    // The link's blob holds its target path, not lines of the file:
+    // symbolic links are never attributed.
+    f.supersigil(&f.repo, &["why", "link:1", "--format", "json"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("symbolic link"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_conflict_is_listed_on_a_file_whose_attribution_is_unavailable() {
+    let f = Fixture::new();
+    // Checkout doubles every line, so the converted bytes cannot be mapped
+    // onto the blob lines and the file's attribution is unavailable.
+    f.git(&["config", "filter.dup.smudge", "sed p"]);
+    f.git(&["config", "filter.dup.clean", "awk 'NR%2==1'"]);
+    write(&f.repo, ".gitattributes", "*.dup filter=dup\n");
+    f.commit(&f.repo, "base");
+    record_dup_sighting(&f, &f.repo.join("x"), "a.dup");
+    record_dup_sighting(&f, &f.repo.join("y"), "b.rs");
+
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "x/a.dup",
+    ];
+    let review = f.json(&f.repo, &args);
+
+    let a = file(&review, "x/a.dup");
+    assert_eq!(
+        a["attribution"]["unavailable"],
+        "conversion changed line structure"
+    );
+    assert_eq!(
+        a["attribution"]["conflicting_edits"][0]["edit"],
+        edit_id("s-dup", "toolu_dup")
+    );
+}
