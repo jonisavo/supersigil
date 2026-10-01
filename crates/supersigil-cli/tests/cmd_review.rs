@@ -1282,3 +1282,25 @@ fn a_conflict_is_listed_on_a_file_that_is_not_diffed() {
         edit_id("s-dup", "toolu_dup")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_failed_conversion_keeps_its_exit_status() {
+    let f = Fixture::new();
+    // Staging works; converting a blob to worktree form fails.
+    f.git(&["config", "filter.bad.clean", "cat"]);
+    f.git(&["config", "filter.bad.smudge", "false"]);
+    f.git(&["config", "filter.bad.required", "true"]);
+    write(&f.repo, ".gitattributes", "*.bad filter=bad\n");
+    write(&f.repo, "a.bad", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "a.bad", "b\n");
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let a = file(&review, "a.bad");
+    let status = a["attribution_bytes"]["target"].as_str().unwrap();
+    assert!(status.starts_with("failed (exit "), "{status}");
+    let reason = a["attribution"]["unavailable"].as_str().unwrap();
+    assert!(reason.starts_with("conversion failed (exit "), "{reason}");
+}

@@ -295,10 +295,10 @@ fn registered_worktrees(repo: &Repo) -> Result<Vec<Worktree>, CliError> {
     Ok(worktrees)
 }
 
-/// The checkouts of `records` whose origin evidence is unavailable.
-/// [`find_origins`] sees only git, so a record checkout that no longer
-/// exists or lies in no registered worktree (a worktree already pruned) is
-/// listed here.
+/// The checkouts of `records` whose origin evidence is unavailable, each
+/// with what was observed. [`find_origins`] sees only git, so a record
+/// checkout that is missing (a nested worktree already pruned, or a deleted
+/// directory) or lies in no registered worktree is listed here.
 ///
 /// # Errors
 ///
@@ -314,12 +314,18 @@ fn unavailable_associations(
             placement(association, &w.path) != Placement::Outside
                 || placement(&w.path, association) != Placement::Outside
         });
-        if !exists(association)? || !registered {
-            unavailable.push(UnavailableOrigin {
-                worktree: association.clone(),
-                reason: "origin evidence unavailable: worktree no longer registered".to_owned(),
-            });
-        }
+        // What was observed, never more: a missing directory does not show
+        // that a worktree registration was lost.
+        let reason = match (exists(association)?, registered) {
+            (true, true) => continue,
+            (true, false) => "not in any registered worktree",
+            (false, true) => "directory is missing",
+            (false, false) => "directory is missing and not in any registered worktree",
+        };
+        unavailable.push(UnavailableOrigin {
+            worktree: association.clone(),
+            reason: format!("origin evidence unavailable: {reason}"),
+        });
     }
     Ok(unavailable)
 }
@@ -723,12 +729,32 @@ fn side_bytes(
             state: Err("conversion changed line structure".to_owned()),
             unmapped: Some(converted),
         },
-        Conversion::Failed { stderr_tail, .. } => Side {
-            status: format!("failed: {stderr_tail}"),
-            state: Err(format!("conversion failed: {stderr_tail}")),
-            unmapped: None,
-        },
+        Conversion::Failed {
+            status,
+            stderr_tail,
+        } => {
+            let (status, reason) = conversion_failure(status, &stderr_tail);
+            Side {
+                status,
+                state: Err(reason),
+                unmapped: None,
+            }
+        }
     })
+}
+
+/// The attribution-bytes status and the unavailability reason for a
+/// conversion git refused: both keep the exit status, or that git was
+/// ended by a signal, with the end of its standard error.
+fn conversion_failure(status: Option<i32>, stderr_tail: &str) -> (String, String) {
+    let how = status.map_or_else(
+        || "killed by a signal".to_owned(),
+        |code| format!("exit {code}"),
+    );
+    (
+        format!("failed ({how}): {stderr_tail}"),
+        format!("conversion failed ({how}): {stderr_tail}"),
+    )
 }
 
 /// Runs anchor for `path` with the accepted edits mapped to it, each passed
@@ -976,8 +1002,8 @@ mod tests {
     use supersigil_session::checkout::canonical;
 
     use super::{
-        PinnedRecord, Sighting, deduplicate, display_from, mode_text, path_filters, repo_path,
-        same_path, unavailable_associations,
+        PinnedRecord, Sighting, conversion_failure, deduplicate, display_from, mode_text,
+        path_filters, repo_path, same_path, unavailable_associations,
     };
     use crate::mapping::MappedEdit;
 
@@ -1069,20 +1095,43 @@ mod tests {
         let pruned = repo.join(".claude/worktrees/pruned");
         std::fs::create_dir_all(repo.join("src")).unwrap();
         std::fs::create_dir_all(&elsewhere).unwrap();
+        let gone = root.join("gone");
         let records = [pinned(vec![
             repo.clone(),
             repo.join("src"),
             elsewhere.clone(),
             pruned.clone(),
+            gone.clone(),
         ])];
 
         let unavailable = unavailable_associations(&records, &[registered(&repo)]).unwrap();
 
         // The worktree and a directory in it keep their origin evidence; a
         // directory no registered worktree holds, and a missing one (a
-        // nested worktree already pruned), have none.
-        let paths: Vec<&Path> = unavailable.iter().map(|u| u.worktree.as_path()).collect();
-        assert_eq!(paths, [elsewhere.as_path(), pruned.as_path()]);
+        // nested worktree already pruned, or a deleted directory), have
+        // none. Each reason states what was observed: a missing directory
+        // does not show that a registration was lost.
+        let found: Vec<(&Path, &str)> = unavailable
+            .iter()
+            .map(|u| (u.worktree.as_path(), u.reason.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    elsewhere.as_path(),
+                    "origin evidence unavailable: not in any registered worktree"
+                ),
+                (
+                    pruned.as_path(),
+                    "origin evidence unavailable: directory is missing"
+                ),
+                (
+                    gone.as_path(),
+                    "origin evidence unavailable: directory is missing and not in any registered worktree"
+                ),
+            ]
+        );
     }
 
     #[cfg(unix)]
@@ -1165,6 +1214,24 @@ mod tests {
         assert_eq!(
             display_from(root, &root.join("docs"), &path),
             root.join("src/new.rs").display().to_string()
+        );
+    }
+
+    #[test]
+    fn conversion_failures_keep_their_exit_status() {
+        assert_eq!(
+            conversion_failure(Some(128), "fatal: smudge filter bad failed"),
+            (
+                "failed (exit 128): fatal: smudge filter bad failed".to_owned(),
+                "conversion failed (exit 128): fatal: smudge filter bad failed".to_owned()
+            )
+        );
+        assert_eq!(
+            conversion_failure(None, ""),
+            (
+                "failed (killed by a signal): ".to_owned(),
+                "conversion failed (killed by a signal): ".to_owned()
+            )
         );
     }
 

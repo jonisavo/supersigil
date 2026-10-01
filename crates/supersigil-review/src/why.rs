@@ -51,7 +51,8 @@ pub struct WhyTarget {
     pub tree: String,
     /// The path's blob in that tree.
     pub blob: Option<String>,
-    /// Attribution-bytes status: `identical`, `converted`, or `failed: ...`.
+    /// Attribution-bytes status: `identical`, `converted`, or
+    /// `failed (exit <code>): ...` (or `failed (killed by a signal): ...`).
     pub attribution_bytes: String,
 }
 

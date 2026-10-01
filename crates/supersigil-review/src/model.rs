@@ -474,8 +474,9 @@ const fn stop_edit(reason: &StopReason) -> Option<&EventId> {
 /// Attribution-bytes status per side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BytesStatus {
-    /// `identical`, `converted`, `failed: <stderr tail>`, `absent`, or `not read`
-    /// (the file's bytes are not read).
+    /// `identical`, `converted`, `failed (exit <code>): <stderr tail>` (or
+    /// `failed (killed by a signal): ...`), `absent`, or `not read` (the
+    /// file's bytes are not read).
     pub base: String,
     /// Same values as `base`.
     pub target: String,
