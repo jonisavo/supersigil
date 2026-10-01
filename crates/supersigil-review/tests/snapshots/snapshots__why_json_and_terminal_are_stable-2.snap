@@ -5,7 +5,7 @@ expression: "render_why(&why, escape)"
 src/lib.rs:1: fn greet() {}
   introduced by edit e1 (exact from the base)
   differs from HEAD: yes
-  edit e1 at 2026-09-28T10:00:01.000Z, session s1: after "Add a greeting function and clean up."
+  edit e1 (introduced) at 2026-09-28T10:00:01.000Z, session s1: after "Add a greeting function and clean up."
   record rec-2 not reconciled: locked by another writer
   checkout /work/repo/.claude/worktrees/x not reconciled (2 transcripts): records directory locked
   capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path

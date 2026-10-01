@@ -910,6 +910,42 @@ fn why_on_an_unchanged_line_explains_back_to_creation() {
 }
 
 #[test]
+fn why_prints_the_creation_a_later_edit_replaced() {
+    let f = Fixture::new();
+    let file = f.repo.join("src/a.rs");
+    let text = Session::new("s-ef", &f.repo)
+        .prompt("Create a, then change it.")
+        .create("toolu_create", &file, "a\n")
+        .edit("toolu_edit", &file, "a\n", "a\n", "b\n")
+        .text();
+    f.transcript(&f.repo, "ef.jsonl", &text);
+    write(&f.repo, "src/a.rs", "b\n");
+    f.commit(&f.repo, "add a.rs");
+    let (create, edit) = (
+        edit_id("s-ef", "toolu_create"),
+        edit_id("s-ef", "toolu_edit"),
+    );
+
+    let why = f.json(&f.repo, &["why", "src/a.rs:1", "--format", "json"]);
+    assert_eq!(why["line"]["outcome"]["kind"], "attributed");
+    assert_eq!(
+        why["line"]["provenance"]["provenance"]["earlier"],
+        json!([create])
+    );
+
+    // The terminal shows the replacing edit and the creation it replaced.
+    f.supersigil(&f.repo, &["why", "src/a.rs:1", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "  edit {edit} (introduced) at "
+        )))
+        .stdout(predicate::str::contains(format!(
+            "  edit {create} (earlier) at "
+        )));
+}
+
+#[test]
 fn why_on_assume_unchanged_file_is_not_captured() {
     let f = Fixture::new();
     slice(&f);
@@ -1326,7 +1362,9 @@ fn edit_maps_hold_only_the_edits_the_analysis_refers_to() {
     f.supersigil(&f.repo, &["why", "big.txt:200", "--format", "terminal"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(format!("  edit {used} at ")))
+        .stdout(predicate::str::contains(format!(
+            "  edit {used} (introduced) at "
+        )))
         .stdout(predicate::str::contains(unused.as_str()).not());
 
     // Line 1 predates every recorded edit: no contributor is printed.

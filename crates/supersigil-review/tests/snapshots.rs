@@ -8,7 +8,10 @@ use common::{
     attribution, base_line, chain, eid, escape, introduced, kept, no_fate, replaced, unexplained,
 };
 use supersigil_anchor::lines::split_lines;
-use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathAttribution, PathStatus, StopReason};
+use supersigil_anchor::{
+    ChainClass, ChainEnd, Conflict, LineOutcome, Origin, PathAttribution, PathStatus, Provenance,
+    Reading, StopReason,
+};
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, EditOperation, Material, Role,
 };
@@ -395,7 +398,7 @@ fn why_prints_only_the_lines_contributors() {
     why.edits
         .insert("e2".to_owned(), other_edit("2026-09-28T10:00:02.000Z"));
     let text = render_why(&why, escape);
-    assert!(text.contains("\n  edit e1 at "), "{text}");
+    assert!(text.contains("\n  edit e1 (introduced) at "), "{text}");
     assert!(!text.contains("edit e2"), "{text}");
 }
 
@@ -417,6 +420,187 @@ fn why_prints_no_contributors_for_an_unattributed_line() {
     ));
     let text = render_why(&why, escape);
     assert!(text.contains("not attributed"), "{text}");
+    assert!(!text.contains("  edit "), "{text}");
+}
+
+/// A target line every chain agrees on, with its contributors.
+fn agreed_with(
+    origins: &[Origin],
+    whitespace_only: &[&str],
+    earlier: &[&str],
+    class: Option<ChainClass>,
+) -> LineOutcome {
+    LineOutcome::Agreed {
+        provenance: Provenance {
+            origins: origins.iter().cloned().collect(),
+            whitespace_only: whitespace_only.iter().map(|e| eid(e)).collect(),
+            earlier: earlier.iter().map(|e| eid(e)).collect(),
+        },
+        class,
+    }
+}
+
+/// `why` on line 1 of `fn greet() {}\n` under `attr`, with details for
+/// every edit in `ids`, a second apart in the order given.
+fn why_on_first_line(attr: &PathAttribution, ids: &[&str]) -> String {
+    let mut why = sample_why(OnDiskCheck::Captured);
+    why.line = Some(why_line(
+        &AttributionState::Available(attr),
+        0,
+        &split_lines(b"fn greet() {}\n"),
+        &[],
+        Tristate::Yes,
+        None,
+    ));
+    why.edits = ids
+        .iter()
+        .enumerate()
+        .map(|(k, id)| {
+            let time = format!("2026-09-28T10:00:{:02}.000Z", k + 1);
+            ((*id).to_owned(), other_edit(&time))
+        })
+        .collect();
+    render_why(&why, escape)
+}
+
+#[test]
+fn why_prints_the_earlier_contributors_of_an_attributed_line() {
+    // Creation e1, an unrelated edit x elsewhere in the file, then e2
+    // replacing the line e1 wrote.
+    let attr = attribution(
+        vec![chain(
+            0,
+            ChainClass::ExactFromBase,
+            &["e1", "x", "e2"],
+            ChainEnd::Base,
+        )],
+        vec![agreed_with(
+            &[Origin::Introduced(eid("e2"))],
+            &[],
+            &["e1"],
+            Some(ChainClass::ExactFromBase),
+        )],
+        vec![],
+    );
+    let text = why_on_first_line(&attr, &["e1", "x", "e2"]);
+    assert!(text.contains("\n  edit e1 (earlier) at "), "{text}");
+    assert!(text.contains("\n  edit e2 (introduced) at "), "{text}");
+    // An edit of the chain the line's provenance does not name.
+    assert!(!text.contains("edit x"), "{text}");
+}
+
+#[test]
+fn why_prints_the_whitespace_only_contributors_of_an_attributed_line() {
+    // e1 introduced the line; w later changed only its whitespace, which
+    // can still change behavior.
+    let attr = attribution(
+        vec![chain(
+            0,
+            ChainClass::ExactFromBase,
+            &["e1", "w"],
+            ChainEnd::Base,
+        )],
+        vec![agreed_with(
+            &[Origin::Introduced(eid("e1"))],
+            &["w"],
+            &[],
+            Some(ChainClass::ExactFromBase),
+        )],
+        vec![],
+    );
+    let text = why_on_first_line(&attr, &["e1", "w"]);
+    assert!(text.contains("\n  edit e1 (introduced) at "), "{text}");
+    assert!(text.contains("\n  edit w (whitespace only) at "), "{text}");
+}
+
+#[test]
+fn why_prints_every_contributor_of_a_whitespace_only_line() {
+    let attr = attribution(
+        vec![chain(
+            0,
+            ChainClass::ExactFromBase,
+            &["e1", "w", "v"],
+            ChainEnd::Base,
+        )],
+        vec![agreed_with(
+            &[Origin::WhitespaceAdded(eid("v"))],
+            &["w"],
+            &["e1"],
+            Some(ChainClass::ExactFromBase),
+        )],
+        vec![],
+    );
+    let text = why_on_first_line(&attr, &["e1", "w", "v"]);
+    assert!(text.contains("only whitespace changed"), "{text}");
+    assert!(text.contains("\n  edit e1 (earlier) at "), "{text}");
+    assert!(text.contains("\n  edit w (whitespace only) at "), "{text}");
+    assert!(text.contains("\n  edit v (whitespace only) at "), "{text}");
+}
+
+#[test]
+fn why_prints_no_contributors_for_an_unresolved_ambiguous_or_matched_line() {
+    let named = agreed_with(
+        &[Origin::Introduced(eid("e2"))],
+        &["w"],
+        &["e1"],
+        Some(ChainClass::ExactFromBase),
+    );
+    let chains = || {
+        vec![chain(
+            0,
+            ChainClass::ExactFromBase,
+            &["e1", "w", "e2"],
+            ChainEnd::Base,
+        )]
+    };
+    let ids = ["e1", "w", "e2"];
+
+    let mut unresolved = attribution(chains(), vec![named.clone()], vec![]);
+    unresolved.status = PathStatus::SearchIncomplete;
+    let text = why_on_first_line(&unresolved, &ids);
+    assert!(text.contains("unresolved"), "{text}");
+    assert!(!text.contains("  edit "), "{text}");
+
+    let LineOutcome::Agreed { provenance, .. } = named else {
+        unreachable!()
+    };
+    let ambiguous = attribution(
+        chains(),
+        vec![LineOutcome::Ambiguous {
+            readings: vec![
+                Reading {
+                    chain: 0,
+                    class: ChainClass::ExactFromBase,
+                    value: provenance.clone(),
+                },
+                Reading {
+                    chain: 1,
+                    class: ChainClass::ExactFromBase,
+                    value: Provenance::default(),
+                },
+            ],
+        }],
+        vec![],
+    );
+    let text = why_on_first_line(&ambiguous, &ids);
+    assert!(text.contains("ambiguous"), "{text}");
+    assert!(!text.contains("  edit "), "{text}");
+
+    // Unexplained origins with contributors: the content match decides the
+    // sentence, and the provenance is not an explanation.
+    let mut matched = attribution(
+        chains(),
+        vec![agreed_with(
+            &[Origin::Unexplained],
+            &["w"],
+            &["e1"],
+            Some(ChainClass::ExactFromBase),
+        )],
+        vec![],
+    );
+    matched.content.target[0] = std::collections::BTreeSet::from([eid("e2")]);
+    let text = why_on_first_line(&matched, &ids);
+    assert!(text.contains("matches the text of edit e2"), "{text}");
     assert!(!text.contains("  edit "), "{text}");
 }
 
