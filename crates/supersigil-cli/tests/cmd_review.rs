@@ -676,6 +676,61 @@ fn review_commit_from_sibling_worktree() {
 }
 
 #[test]
+fn a_sibling_whose_reflog_cannot_be_read_is_unavailable_not_absent() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let sib = f.root.join("sib");
+    let sib_arg = sib.to_string_lossy().into_owned();
+    f.git(&["worktree", "add", "-q", "-b", "feature", sib_arg.as_str()]);
+    let content = "pub fn feature() {}\n";
+    let text = Session::new("s-sib", &sib)
+        .prompt("Add the feature.")
+        .create("toolu_sib", &sib.join("src/feature.rs"), content)
+        .text();
+    f.transcript(&sib, "sib.jsonl", &text);
+    write(&sib, "src/feature.rs", content);
+    let feature = f.commit(&sib, "add feature");
+    // A date format git rejects, for the sibling only: its reflog exists,
+    // but `log -g` exits 128 there.
+    f.git(&["config", "extensions.worktreeConfig", "true"]);
+    f.git_in(&sib, &["config", "--worktree", "log.date", "not-a-date"]);
+    let args = [
+        "review", "--base", "main", "--target", "feature", "--format",
+    ];
+
+    let review = f.json(&f.repo, &[&args[..], &["json"]].concat());
+
+    assert_eq!(review["origins"]["without_origin"], json!([feature]));
+    let unavailable = review["origins"]["unavailable"].as_array().unwrap();
+    assert_eq!(unavailable.len(), 1, "{unavailable:?}");
+    assert_eq!(unavailable[0]["worktree"], sib.display().to_string());
+    let reason = unavailable[0]["reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with("HEAD reflog could not be read (exit 128): "),
+        "{reason}"
+    );
+    let added = side_lines(file(&review, "src/feature.rs"), "target");
+    assert_eq!(added[0].1["kind"], "unattributed");
+
+    let output = f
+        .supersigil(&f.repo, &[&args[..], &["terminal"]].concat())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let summary = String::from_utf8(output.stdout).unwrap();
+    let line = summary
+        .lines()
+        .find(|l| l.contains("HEAD reflog could not be read"))
+        .unwrap_or_else(|| panic!("{summary}"));
+    assert_eq!(
+        line.matches("origin evidence unavailable").count(),
+        1,
+        "{line}"
+    );
+}
+
+#[test]
 fn review_session_editing_a_nested_worktree() {
     let f = Fixture::new();
     write(&f.repo, "README.md", "readme\n");

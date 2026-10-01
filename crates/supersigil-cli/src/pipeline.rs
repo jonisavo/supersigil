@@ -322,9 +322,10 @@ fn unavailable_associations(
             (false, true) => "directory is missing",
             (false, false) => "directory is missing and not in any registered worktree",
         };
+        // The observation alone: the renderer supplies the label.
         unavailable.push(UnavailableOrigin {
             worktree: association.clone(),
-            reason: format!("origin evidence unavailable: {reason}"),
+            reason: reason.to_owned(),
         });
     }
     Ok(unavailable)
@@ -1115,20 +1116,16 @@ mod tests {
             .iter()
             .map(|u| (u.worktree.as_path(), u.reason.as_str()))
             .collect();
+        // The reason is the observation alone: the renderer supplies the
+        // "origin evidence unavailable" label.
         assert_eq!(
             found,
             [
-                (
-                    elsewhere.as_path(),
-                    "origin evidence unavailable: not in any registered worktree"
-                ),
-                (
-                    pruned.as_path(),
-                    "origin evidence unavailable: directory is missing"
-                ),
+                (elsewhere.as_path(), "not in any registered worktree"),
+                (pruned.as_path(), "directory is missing"),
                 (
                     gone.as_path(),
-                    "origin evidence unavailable: directory is missing and not in any registered worktree"
+                    "directory is missing and not in any registered worktree"
                 ),
             ]
         );
