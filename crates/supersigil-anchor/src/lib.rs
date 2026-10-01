@@ -14,6 +14,7 @@ pub mod input;
 pub mod lines;
 pub mod result;
 pub mod step;
+pub mod walk;
 
 pub use input::{CandidateEdit, DEFAULT_BUDGET_BYTES, Request, State, TargetKind};
-pub use result::StopReason;
+pub use result::{Chain, ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
