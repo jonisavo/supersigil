@@ -1719,3 +1719,100 @@ fn a_bracketed_name_stays_literal_whatever_pathspec_mode_it_inherits() {
     );
     assert_eq!(listed, under_each_pathspec_mode(|_| expected.clone()));
 }
+
+/// The id `rev` names, read before any replacement ref exists.
+fn rev_parse(f: &Fixture, rev: &str) -> String {
+    f.git(&["rev-parse", rev]).trim().to_owned()
+}
+
+#[test]
+fn a_replaced_blob_is_reviewed_with_its_own_bytes() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "before\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "f.txt", "after\n");
+    f.commit(&f.repo, "change");
+    let (before, after) = (rev_parse(&f, "HEAD~1:f.txt"), rev_parse(&f, "HEAD:f.txt"));
+    // A replacement ref makes git serve `before\n` for the target blob's id.
+    f.git(&["replace", &after, &before]);
+
+    let review = f.json(&f.repo, &["review", "--target", "HEAD", "--format", "json"]);
+    let why = f.json(&f.repo, &["why", "f.txt:1", "--format", "json"]);
+
+    let changed = file(&review, "f.txt");
+    assert_eq!(changed["new_blob"], after);
+    let lines = |side| -> Vec<String> {
+        side_lines(changed, side)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
+    };
+    assert_eq!(
+        (lines("base"), lines("target")),
+        (vec!["before\n".to_owned()], vec!["after\n".to_owned()])
+    );
+    assert_eq!(why["target"]["blob"], after);
+    assert_eq!(why["on_disk"]["state"], "captured");
+    assert_eq!(why["line"]["text"], "after\n");
+}
+
+#[test]
+fn a_replaced_tree_still_shows_its_change() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "before\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "f.txt", "after\n");
+    f.commit(&f.repo, "change");
+    let tree = rev_parse(&f, "HEAD^{tree}");
+    // A replacement ref makes git serve the base tree for the target's.
+    f.git(&["replace", "HEAD^{tree}", "HEAD~1^{tree}"]);
+
+    let review = f.json(
+        &f.repo,
+        &[
+            "review", "--base", "HEAD~1", "--target", "HEAD", "--format", "json",
+        ],
+    );
+
+    assert_eq!(review["target"]["tree"], tree);
+    assert_eq!(paths(&review), ["f.txt"]);
+    let added = side_lines(file(&review, "f.txt"), "target");
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].0, "after\n");
+}
+
+#[test]
+fn a_replaced_commit_resolves_to_its_own_tree_and_parent() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "a\n");
+    f.commit(&f.repo, "first");
+    write(&f.repo, "f.txt", "b\n");
+    let second = f.commit(&f.repo, "second");
+    write(&f.repo, "f.txt", "c\n");
+    let third = f.commit(&f.repo, "third");
+    let tree = rev_parse(&f, "HEAD^{tree}");
+    // A replacement ref makes git serve the second commit, with its tree
+    // and its parent, for the third.
+    f.git(&["replace", &third, &second]);
+    let implicit = ["review", "--target", "HEAD", "--format", "json"];
+    let explicit = [
+        "review", "--base", "HEAD~1", "--target", "HEAD", "--format", "json",
+    ];
+
+    for args in [&implicit[..], &explicit[..]] {
+        let review = f.json(&f.repo, args);
+        let resolved = (
+            &review["base"]["commit"],
+            &review["target"]["commit"],
+            &review["target"]["tree"],
+        );
+        assert_eq!(
+            resolved,
+            (&json!(second), &json!(third), &json!(tree)),
+            "{args:?}"
+        );
+        let added = side_lines(file(&review, "f.txt"), "target");
+        assert_eq!(added.len(), 1, "{args:?}");
+        assert_eq!(added[0].0, "c\n", "{args:?}");
+    }
+}

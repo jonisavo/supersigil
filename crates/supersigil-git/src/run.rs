@@ -3,10 +3,13 @@
 //! Every child process loses the variables that would point git at another
 //! repository, index, or object store, or change how it reads every
 //! pathspec: git locates the repository from its working directory, and the
-//! pathspecs this crate builds say how they are read.
-//! Every child also gets `GIT_OPTIONAL_LOCKS=0`, so read commands never
-//! refresh and rewrite the real index. The user's configuration is otherwise
-//! honored; only tests add isolation through [`Git::with_env`].
+//! pathspecs this crate builds say how they are read. Every child also gets
+//! `GIT_OPTIONAL_LOCKS=0`, so read commands never refresh and rewrite the
+//! real index, and `GIT_NO_REPLACE_OBJECTS=1`, so every object id names the
+//! object stored under it: replacement refs would let git serve other bytes,
+//! trees, or commits under the ids a review reports. The user's
+//! configuration is otherwise honored; only tests add isolation through
+//! [`Git::with_env`].
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -156,8 +159,9 @@ impl Git {
         &self.cwd
     }
 
-    /// Returns a `git` command with the scrubbed environment, the extra
-    /// variables, and the working directory set.
+    /// Returns a `git` command with the scrubbed environment, optional locks
+    /// and replacement refs disabled, the extra variables, and the working
+    /// directory set.
     #[must_use]
     pub fn command(&self) -> Command {
         let mut command = Command::new("git");
@@ -165,6 +169,9 @@ impl Git {
             command.env_remove(key);
         }
         command.env("GIT_OPTIONAL_LOCKS", "0");
+        // Range resolution, diffs, blob reads, conversions, and reflogs all
+        // read the objects their ids name, never a replacement.
+        command.env("GIT_NO_REPLACE_OBJECTS", "1");
         for (key, value) in &self.env {
             command.env(key, value);
         }
@@ -608,6 +615,7 @@ mod tests {
             assert!(envs.contains(&(key.to_owned(), None)), "{key} not removed");
         }
         assert!(envs.contains(&("GIT_OPTIONAL_LOCKS".to_owned(), Some("0".to_owned()))));
+        assert!(envs.contains(&("GIT_NO_REPLACE_OBJECTS".to_owned(), Some("1".to_owned()))));
         assert!(envs.contains(&("EXTRA".to_owned(), Some("1".to_owned()))));
     }
 

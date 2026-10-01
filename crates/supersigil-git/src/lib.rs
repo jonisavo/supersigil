@@ -10,7 +10,8 @@
 //!
 //! Git runs only through [`Git`], which scrubs the variables that could point
 //! it at another repository, index, or object store or change how it reads
-//! pathspecs, and honors the user's configuration.
+//! pathspecs, disables replacement refs so every id names its own object,
+//! and honors the user's configuration.
 
 pub mod bytes;
 pub mod changes;
