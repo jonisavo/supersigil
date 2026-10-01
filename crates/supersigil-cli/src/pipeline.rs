@@ -32,6 +32,7 @@ use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommitOriginInfo, EvidenceInfo, FileKindInfo, FileStatus,
     OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo, UnreconciledInfo,
 };
+use supersigil_review::outcome::AttributionState;
 use supersigil_session::checkout::{canonical, overlaps};
 use supersigil_session::found;
 
@@ -880,6 +881,18 @@ pub fn attribute_path(
     });
     attribution.conflicts = conflicts.to_vec();
     Ok(attribution)
+}
+
+/// The rules' view of the result of [`attribute_path`]: anchor's result, or
+/// why attribution is unavailable.
+#[must_use]
+pub fn attribution_state(attribution: &Result<PathAttribution, String>) -> AttributionState<'_> {
+    match attribution {
+        Ok(found) => AttributionState::Available(found),
+        Err(reason) => AttributionState::Unavailable {
+            reason: reason.clone(),
+        },
+    }
 }
 
 /// The conflicts any of whose sightings touched `path`.

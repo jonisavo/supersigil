@@ -224,9 +224,26 @@ impl Evidence {
     }
 }
 
+/// Adds to `edits`, keyed by edit id, the entry of each of `accepted` that
+/// `referenced` names: an edit offered to anchor that no chain, stop reason,
+/// or outcome names stays out. An id already in `edits` keeps its entry.
+pub fn add_referenced_edits(
+    edits: &mut BTreeMap<String, EditInfo>,
+    accepted: &[AcceptedEdit],
+    referenced: &BTreeSet<EventId>,
+    evidence: &Evidence,
+) {
+    for accepted in accepted {
+        if referenced.contains(&accepted.edit.id) {
+            edits
+                .entry(accepted.edit.id.as_str().to_owned())
+                .or_insert_with(|| edit_info(accepted, evidence));
+        }
+    }
+}
+
 /// The review's `edits` map entry for `accepted`.
-#[must_use]
-pub fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
+fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
     let edit = &accepted.edit;
     EditInfo {
         session: edit.session.as_str().to_owned(),

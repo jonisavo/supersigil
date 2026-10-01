@@ -15,19 +15,17 @@ use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::WHY_SCHEMA;
 use supersigil_review::diff::diff_lines;
 use supersigil_review::mapping::lines_correspond;
-use supersigil_review::model::EditInfo;
-use supersigil_review::outcome::AttributionState;
 use supersigil_review::why::{
     OnDiskCheck, Tristate, Why, WhyLine, WhyTarget, render_why, why_line,
 };
 
 use crate::commands::WhyArgs;
 use crate::error::CliError;
-use crate::evidence::edit_info;
+use crate::evidence::add_referenced_edits;
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::pipeline::{
-    BaseChoice, Gathered, PipelineArgs, attribute_path, claude_home, conflicts_for, evidence_info,
-    gather, not_captured_reason, path_bytes, records_info, repo_path,
+    BaseChoice, Gathered, PipelineArgs, attribute_path, attribution_state, claude_home,
+    conflicts_for, evidence_info, gather, not_captured_reason, path_bytes, records_info, repo_path,
 };
 use crate::record_dir;
 
@@ -85,12 +83,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         let head = head_blob(&g, &path)?;
         let (differs, reason) =
             differs_from_head(head.as_deref().map_err(String::as_str), &bytes, index);
-        let state = match &attribution {
-            Ok(found) => AttributionState::Available(found),
-            Err(reason) => AttributionState::Unavailable {
-                reason: reason.clone(),
-            },
-        };
+        let state = attribution_state(&attribution);
         Some(why_line(&state, index, &target_lines, differs, reason))
     } else {
         None
@@ -101,15 +94,10 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         .as_ref()
         .map(WhyLine::referenced_edits)
         .unwrap_or_default();
-    let edits: BTreeMap<String, EditInfo> = match &attribution {
-        Ok(found) => found
-            .accepted
-            .iter()
-            .filter(|e| referenced.contains(&e.edit.id))
-            .map(|e| (e.edit.id.as_str().to_owned(), edit_info(e, &g.evidence)))
-            .collect(),
-        Err(_) => BTreeMap::new(),
-    };
+    let mut edits = BTreeMap::new();
+    if let Ok(found) = &attribution {
+        add_referenced_edits(&mut edits, &found.accepted, &referenced, &g.evidence);
+    }
     let why = Why {
         schema: WHY_SCHEMA,
         path: path.display(),

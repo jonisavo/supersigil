@@ -16,18 +16,19 @@ use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, EditInfo, FileInput, FileReview, FileStatus, NotCapturedInfo,
     RepoPathInfo, ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
 };
-use supersigil_review::outcome::{AttributionState, Outcome};
+use supersigil_review::outcome::Outcome;
 use supersigil_review::summary::render_summary;
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::commands::ReviewArgs;
 use crate::error::CliError;
-use crate::evidence::edit_info;
+use crate::evidence::add_referenced_edits;
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::pipeline::{
-    BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, base_info, cause_word,
-    claude_home, conflicts_for, display_from, evidence_info, file_kind, file_status, gather,
-    mode_text, on_disk_word, origins_info, path_bytes, records_info, same_path, target_info,
+    BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, attribution_state,
+    base_info, cause_word, claude_home, conflicts_for, display_from, evidence_info, file_kind,
+    file_status, gather, mode_text, on_disk_word, origins_info, path_bytes, records_info,
+    same_path, target_info,
 };
 use crate::record_dir;
 
@@ -86,17 +87,14 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
             &g.candidate_transcripts,
             &mention_worktrees,
         )?;
-        // Only the edits the file's analysis names; an edit offered to
-        // anchor that no chain, stop reason, or outcome names stays out.
+        // Only the edits the file's analysis names.
         if let Some(attribution) = attribution {
-            let referenced = file.referenced_edits();
-            for accepted in &attribution.accepted {
-                if referenced.contains(&accepted.edit.id) {
-                    edits
-                        .entry(accepted.edit.id.as_str().to_owned())
-                        .or_insert_with(|| edit_info(accepted, &g.evidence));
-                }
-            }
+            add_referenced_edits(
+                &mut edits,
+                &attribution.accepted,
+                &file.referenced_edits(),
+                &g.evidence,
+            );
         }
         files.push(file);
     }
@@ -185,12 +183,6 @@ fn review_file(
             Err(format!("not diffed: {}", file_kind(kind).as_str())),
         )
     };
-    let state = match &attribution {
-        Ok(found) => AttributionState::Available(found),
-        Err(reason) => AttributionState::Unavailable {
-            reason: reason.clone(),
-        },
-    };
     let path = RepoPathInfo {
         display: change.path.display(),
         escaped: change
@@ -215,7 +207,7 @@ fn review_file(
         bytes_status,
         base_blob: old.filter(|_| text).map(|(_, b)| b),
         target_blob: new.filter(|_| text).map(|(_, b)| b),
-        attribution: state,
+        attribution: attribution_state(&attribution),
         mentions,
         conflicting_edits: conflicts,
     });
