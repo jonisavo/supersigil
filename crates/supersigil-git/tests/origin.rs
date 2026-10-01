@@ -39,6 +39,16 @@ fn head(repo: &TestRepo, dir: &Path) -> String {
     repo.run_in(dir, &["rev-parse", "HEAD"]).trim().to_owned()
 }
 
+/// Asserts that the reflog entry for `commit` has a subject starting `prefix`.
+fn assert_subject(entries: &[supersigil_git::origin::ReflogEntry], commit: &str, prefix: &str) {
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.commit.as_str() == commit && e.subject.starts_with(prefix)),
+        "{prefix} {entries:?}"
+    );
+}
+
 #[test]
 fn commit_and_amend_are_origins() {
     let repo = TestRepo::new();
@@ -107,10 +117,18 @@ fn cherry_pick_and_revert_are_origins() {
     repo.write("s.txt", b"s\n");
     let side = repo.commit_all("side");
     repo.run(&["switch", "-q", "main"]);
+    // Main moves on, so the replay lands on a different parent.
+    repo.write("m.txt", b"m\n");
+    repo.commit_all("main moves on");
     repo.run(&["cherry-pick", side.as_str()]);
     let picked = head(&repo, &repo.root);
+    assert_ne!(picked, side);
     repo.run(&["revert", "--no-edit", "HEAD"]);
     let reverted = head(&repo, &repo.root);
+    assert_ne!(reverted, picked);
+    let entries = head_reflog(&repo.repo(), &repo.root).unwrap();
+    assert_subject(&entries, &picked, "cherry-pick: ");
+    assert_subject(&entries, &reverted, "revert: ");
     let origins = origins_of(&repo, &[&picked, &reverted]);
     assert_eq!(origin_dirs(&origins, &picked), [canonical(&repo.root)]);
     assert_eq!(origin_dirs(&origins, &reverted), [canonical(&repo.root)]);
@@ -123,7 +141,7 @@ fn an_applied_patch_is_an_origin() {
     repo.commit_all("base");
     repo.run(&["switch", "-q", "-c", "side"]);
     repo.write("s.txt", b"s\n");
-    repo.commit_all("side");
+    let side_commit = repo.commit_all("side");
     let patches = repo.dir.path().join("patches");
     repo.run(&[
         "format-patch",
@@ -134,6 +152,9 @@ fn an_applied_patch_is_an_origin() {
         patches.to_str().unwrap(),
     ]);
     repo.run(&["switch", "-q", "main"]);
+    // Main moves on, so the applied patch lands on a different parent.
+    repo.write("m.txt", b"m\n");
+    repo.commit_all("main moves on");
     let patch = std::fs::read_dir(&patches)
         .unwrap()
         .next()
@@ -142,6 +163,9 @@ fn an_applied_patch_is_an_origin() {
         .path();
     repo.run(&["am", "-q", patch.to_str().unwrap()]);
     let applied = head(&repo, &repo.root);
+    assert_ne!(applied, side_commit);
+    let entries = head_reflog(&repo.repo(), &repo.root).unwrap();
+    assert_subject(&entries, &applied, "am: ");
     let origins = origins_of(&repo, &[&applied]);
     assert_eq!(origin_dirs(&origins, &applied), [canonical(&repo.root)]);
 }
