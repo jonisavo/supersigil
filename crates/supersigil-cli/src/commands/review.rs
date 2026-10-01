@@ -173,7 +173,7 @@ fn review_file(
     let conflicts = conflicts_for(g, &change.path);
     let (bytes_status, attribution) = if text {
         let bytes = path_bytes(&g.repo, &change.path, old, new)?;
-        let attribution = attribute_path(g, &change.path, &bytes, &conflicts);
+        let attribution = attribute_path(g, &change.path, bytes.base, bytes.target, &conflicts);
         (bytes.status, attribution)
     } else {
         let not_read = BytesStatus {

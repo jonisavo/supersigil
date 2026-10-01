@@ -69,8 +69,8 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     // Conflicts touching this path, whether or not attribution ran.
     let conflicts = conflicts_for(&g, &path);
     let side = path_bytes(&g.repo, &path, None, Some((&blob, &bytes)))?;
-    let attribution = attribute_path(&g, &path, &side, &conflicts);
     let on_disk = on_disk_check(&g, &path, side.target_worktree_form(), &bytes);
+    let attribution = attribute_path(&g, &path, side.base, side.target, &conflicts);
     let target_lines = split_lines(&bytes);
     let analysis = if on_disk == OnDiskCheck::Captured {
         let index = line
@@ -117,7 +117,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
             worktree: g.worktree.display().to_string(),
             tree: tree.to_string(),
             blob: Some(blob.to_string()),
-            attribution_bytes: side.status.target.clone(),
+            attribution_bytes: side.status.target,
         },
         records: records_info(&g),
         evidence: evidence_info(&g, conflicts.clone()),

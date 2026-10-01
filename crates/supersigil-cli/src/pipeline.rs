@@ -837,21 +837,24 @@ fn conversion_failure(status: Option<i32>, stderr_tail: &str) -> (String, String
     )
 }
 
-/// Runs anchor for `path` with the accepted edits mapped to it, each passed
-/// as one candidate carrying its first record, and attaches `conflicts`,
-/// those whose sightings touched the path ([`conflicts_for`]).
+/// Runs anchor for `path` between the `base` and `target` states of
+/// [`PathBytes`], with the accepted edits mapped to it, each passed as one
+/// candidate carrying its first record, and attaches `conflicts`, those
+/// whose sightings touched the path ([`conflicts_for`]).
 ///
 /// # Errors
 ///
-/// Returns why attribution is unavailable when either side's bytes are.
+/// Returns why attribution is unavailable when either side's bytes are,
+/// the base side's reason first.
 pub fn attribute_path(
     g: &Gathered,
     path: &RepoPath,
-    bytes: &PathBytes,
+    base: Result<State, String>,
+    target: Result<State, String>,
     conflicts: &[Conflict],
 ) -> Result<PathAttribution, String> {
-    let base = bytes.base.clone()?;
-    let target = bytes.target.clone()?;
+    let base = base?;
+    let target = target?;
     let edits = g
         .accepted
         .touching(path)
