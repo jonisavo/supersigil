@@ -58,8 +58,15 @@ fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     stripped.map_or(path, PathBuf::from)
 }
 
-/// Compares normalized path components without accessing the file system.
-fn placement_as_written(path: &Path, root: &Path) -> Placement {
+/// Checks whether `path` equals `root`, is inside it, or is outside it, as
+/// written: normalized components are compared without accessing the file
+/// system, so no symlink is resolved on either side.
+///
+/// Normalization is [`placement`]'s fallback: `\` is a separator in Windows
+/// paths, empty and `.` components are dropped, drive letters are compared
+/// uppercased, and any `..` after the root makes the path outside.
+#[must_use]
+pub fn placement_as_written(path: &Path, root: &Path) -> Placement {
     let (path, root) = (comparable(path), comparable(root));
     match path.strip_prefix(root.as_slice()) {
         Some([]) => Placement::Same,

@@ -5,12 +5,13 @@
 //! unattributed summary, then scope, origins, records, evidence, files, and
 //! the edits every other section refers to by id.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
-use supersigil_anchor::{Chain, Conflict, PathStatus};
+use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
+use supersigil_record::EventId;
 use supersigil_record::observations::{CaptureLimitation, EditOperation, Material, Role};
 
 use crate::diff::{DiffHunk, diff_lines};
@@ -387,6 +388,82 @@ pub struct FileReview {
     /// Commands whose text mentions the path (textual evidence, never
     /// attribution).
     pub mentions: Vec<Mention>,
+}
+
+impl FileReview {
+    /// Every edit id this file's analysis names, outside its conflict
+    /// references: the edits of its chains and set-aside chains, the edits
+    /// its status and chain ends stopped at, and the edits its line outcomes
+    /// name (a content match can name an edit no chain holds). A line's
+    /// provenance names only chain edits, so it adds none. The review's
+    /// `edits` map holds exactly these.
+    #[must_use]
+    pub fn referenced_edits(&self) -> BTreeSet<EventId> {
+        let mut ids = BTreeSet::new();
+        if let Some(info) = &self.attribution {
+            analysis_edits(
+                info.status.as_ref(),
+                &info.chains,
+                &info.set_aside,
+                &mut ids,
+            );
+        }
+        for span in self.hunks.iter().flat_map(|hunk| &hunk.spans) {
+            ids.extend(outcome_edits(&span.outcome).into_iter().cloned());
+        }
+        ids
+    }
+}
+
+/// Adds the edits a path's status, chains, and set-aside chains name.
+pub(crate) fn analysis_edits(
+    status: Option<&PathStatus>,
+    chains: &[Chain],
+    set_aside: &[Chain],
+    ids: &mut BTreeSet<EventId>,
+) {
+    if let Some(PathStatus::NotComposed { reasons }) = status {
+        ids.extend(reasons.iter().filter_map(stop_edit).cloned());
+    }
+    for chain in chains.iter().chain(set_aside) {
+        ids.insert(chain.head.clone());
+        ids.extend(chain.edits.iter().cloned());
+        if let ChainEnd::Stopped { reasons } = &chain.end {
+            ids.extend(reasons.iter().filter_map(stop_edit).cloned());
+        }
+    }
+}
+
+/// The edits an outcome names: introducing or replacing, whitespace-only,
+/// or covering by content match. Ambiguous and unresolved readings are
+/// chain provenance, which names only chain edits.
+pub(crate) fn outcome_edits(outcome: &Outcome) -> Vec<&EventId> {
+    match outcome {
+        Outcome::Attributed { edits } => edits.iter().map(|e| &e.edit).collect(),
+        Outcome::ContentMatch { edits, .. } | Outcome::WhitespaceOnly { edits } => {
+            edits.iter().collect()
+        }
+        Outcome::Unresolved { .. }
+        | Outcome::Ambiguous { .. }
+        | Outcome::Unattributed { .. }
+        | Outcome::LineEndingChanged
+        | Outcome::Realigned { .. } => Vec::new(),
+    }
+}
+
+/// The edit a stop reason names, if any.
+const fn stop_edit(reason: &StopReason) -> Option<&EventId> {
+    match reason {
+        StopReason::OperationUnknown { edit }
+        | StopReason::TextUnavailable { edit }
+        | StopReason::NotLocatable { edit }
+        | StopReason::WholeFileWrite { edit }
+        | StopReason::ReplaceAllUnverified { edit }
+        | StopReason::AfterHashMismatch { edit }
+        | StopReason::AfterPatchMismatch { edit }
+        | StopReason::NoAcceptedCandidate { edit } => Some(edit),
+        StopReason::NoPredecessor => None,
+    }
 }
 
 /// Attribution-bytes status per side.

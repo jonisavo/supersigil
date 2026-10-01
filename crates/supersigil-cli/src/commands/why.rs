@@ -14,8 +14,11 @@ use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::WHY_SCHEMA;
 use supersigil_review::diff::diff_lines;
 use supersigil_review::mapping::lines_correspond;
+use supersigil_review::model::EditInfo;
 use supersigil_review::outcome::AttributionState;
-use supersigil_review::why::{OnDiskCheck, Tristate, Why, WhyTarget, render_why, why_line};
+use supersigil_review::why::{
+    OnDiskCheck, Tristate, Why, WhyLine, WhyTarget, render_why, why_line,
+};
 
 use crate::commands::WhyArgs;
 use crate::error::CliError;
@@ -86,10 +89,17 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     } else {
         None
     };
-    let edits = match &attribution {
+    // Only the edits the line's analysis names: none when no line was
+    // analyzed.
+    let referenced = analysis
+        .as_ref()
+        .map(WhyLine::referenced_edits)
+        .unwrap_or_default();
+    let edits: BTreeMap<String, EditInfo> = match &attribution {
         Ok(found) => found
             .accepted
             .iter()
+            .filter(|e| referenced.contains(&e.edit.id))
             .map(|e| (e.edit.id.as_str().to_owned(), edit_info(e, &g.evidence)))
             .collect(),
         Err(_) => BTreeMap::new(),

@@ -5,7 +5,9 @@ mod common;
 use common::{
     attribution, base_line, chain, eid, introduced, kept, no_fate, replaced, unexplained,
 };
-use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathStatus};
+use std::collections::BTreeSet;
+
+use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
 use supersigil_record::RecordId;
 use supersigil_review::model::{
     BytesStatus, FileInput, FileKindInfo, FileStatus, Mention, NotCapturedInfo, RepoPathInfo,
@@ -393,4 +395,59 @@ fn search_incomplete_keeps_every_line_unresolved_and_counted() {
     let summary = unattributed_summary(&[reviewed], &ScopeInfo::default());
     assert_eq!(summary.files[0].unresolved, 3);
     assert_eq!(summary.files[0].unattributed, 0);
+}
+
+#[test]
+fn referenced_edits_are_every_edit_the_file_names() {
+    let stopped = |edit: &str| ChainEnd::Stopped {
+        reasons: vec![StopReason::AfterHashMismatch { edit: eid(edit) }],
+    };
+    let mut attr = attribution(
+        vec![chain(
+            0,
+            ChainClass::ExactFromStart,
+            &["e1", "e2"],
+            stopped("e4"),
+        )],
+        vec![introduced("e1"), unexplained(), introduced("e2")],
+        vec![replaced("e1")],
+    );
+    attr.set_aside = vec![chain(1, ChainClass::Consistent, &["e3"], ChainEnd::Base)];
+    attr.content.target[1] = BTreeSet::from([eid("e5")]);
+    let lib = path("src/lib.rs");
+    let review = file_review(input(
+        &lib,
+        FileStatus::Modified,
+        Some(b"x\n"),
+        Some(b"a\nb\nc\n"),
+        AttributionState::Available(&attr),
+    ));
+    // Chains and set-aside chains, the edit a chain stopped at, and the edit
+    // a content match names; never an edit nothing names.
+    let expected: BTreeSet<_> = ["e1", "e2", "e3", "e4", "e5"].map(eid).into();
+    assert_eq!(review.referenced_edits(), expected);
+
+    let mut rejected = attribution(vec![], vec![unexplained()], vec![no_fate()]);
+    rejected.status = PathStatus::NotComposed {
+        reasons: vec![StopReason::NotLocatable { edit: eid("e7") }],
+    };
+    let review = file_review(input(
+        &lib,
+        FileStatus::Modified,
+        Some(b"x\n"),
+        Some(b"a\n"),
+        AttributionState::Available(&rejected),
+    ));
+    assert_eq!(review.referenced_edits(), BTreeSet::from([eid("e7")]));
+
+    let unavailable = file_review(input(
+        &lib,
+        FileStatus::Modified,
+        Some(b"x\n"),
+        Some(b"a\n"),
+        AttributionState::Unavailable {
+            reason: "conversion changed line structure".to_owned(),
+        },
+    ));
+    assert!(unavailable.referenced_edits().is_empty());
 }

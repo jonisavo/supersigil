@@ -3,6 +3,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -348,6 +349,32 @@ fn side_lines(file: &Value, side: &str) -> Vec<(String, Value)> {
     lines
 }
 
+/// Every edit id `value` names, outside conflict references and mentions.
+fn edit_ids(value: &Value, ids: &mut BTreeSet<String>) {
+    match value {
+        Value::String(text) if text.starts_with("edit:") => {
+            ids.insert(text.clone());
+        }
+        Value::Array(items) => items.iter().for_each(|item| edit_ids(item, ids)),
+        Value::Object(map) => {
+            for (key, item) in map {
+                if key != "conflicting_edits" && key != "mentions" {
+                    edit_ids(item, ids);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Asserts that `edits` holds exactly the edits `analysis` names.
+fn assert_edits_are_the_referenced_ones(analysis: &Value, edits: &Value) {
+    let mut referenced = BTreeSet::new();
+    edit_ids(analysis, &mut referenced);
+    let keys: BTreeSet<String> = edits.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(keys, referenced);
+}
+
 /// 400 lines, about 23 KB: over the size above which Claude Code records no
 /// `originalFile`, so the edits to it carry no hashes.
 fn big_file() -> String {
@@ -397,6 +424,7 @@ fn review_slice_fixture() {
     let prompt = &review["edits"][edit_id(SLICE_SESSION, "toolu_05")]["prompt"];
     assert_eq!(prompt["turn"], "u1");
     assert_eq!(prompt["role"], "human");
+    assert_edits_are_the_referenced_ones(&review["files"], &review["edits"]);
 
     let old = file(&review, "old.txt");
     assert_eq!(old["status"], "deleted");
@@ -845,11 +873,14 @@ fn why_on_assume_unchanged_file_is_not_captured() {
         t["transcript"].as_str().unwrap().ends_with("limits.jsonl")
             && !t["capture_limitations"].as_array().unwrap().is_empty()
     }));
+    // No line was explained, so nothing refers to an edit.
+    assert_eq!(why["edits"], json!({}));
     f.supersigil(&f.repo, &["why", "notes.txt:1", "--format", "terminal"])
         .assert()
         .success()
         .stdout(predicate::str::contains("not captured"))
-        .stdout(predicate::str::contains("limits.jsonl"));
+        .stdout(predicate::str::contains("limits.jsonl"))
+        .stdout(predicate::str::contains("  edit ").not());
 }
 
 #[test]
@@ -1130,4 +1161,96 @@ fn a_conflict_is_listed_on_a_file_whose_attribution_is_unavailable() {
         a["attribution"]["conflicting_edits"][0]["edit"],
         edit_id("s-dup", "toolu_dup")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_edit_through_a_symlinked_directory_attributes_no_unrelated_file() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    std::fs::create_dir_all(f.repo.join("src")).unwrap();
+    std::fs::create_dir_all(f.repo.join("one")).unwrap();
+    std::os::unix::fs::symlink(f.repo.join("src"), f.repo.join("one/link")).unwrap();
+    f.commit(&f.repo, "base");
+    // The session wrote `one/link/a.rs`, which is `src/a.rs` on disk.
+    let content = "pub fn a() {}\n";
+    let text = Session::new("s-link", &f.repo)
+        .prompt("Add a.")
+        .create("toolu_link", &f.repo.join("one/link/a.rs"), content)
+        .text();
+    f.transcript(&f.repo, "link.jsonl", &text);
+    write(&f.repo, "src/a.rs", content);
+    // An unrelated file with the same bytes at `link/a.rs`.
+    write(&f.repo, "link/a.rs", content);
+
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "link/a.rs",
+    ];
+    let review = f.json(&f.repo, &args);
+
+    let added = side_lines(file(&review, "link/a.rs"), "target");
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].1["kind"], "unattributed", "{added:?}");
+}
+
+#[test]
+fn edit_maps_hold_only_the_edits_the_analysis_refers_to() {
+    let f = Fixture::new();
+    write(&f.repo, "big.txt", &big_file());
+    f.commit(&f.repo, "base");
+    let (old, new) = (big_line(200), "line 200: a changed line\n".to_owned());
+    write(&f.repo, "big.txt", &big_file().replacen(&old, &new, 1));
+    let big = f.repo.join("big.txt");
+    let used = Session::new("s-big", &f.repo)
+        .prompt("Change line 200.")
+        .edit("toolu_big", &big, &big_file(), &old, &new)
+        .text();
+    // An edit to line 300 that the file no longer shows: offered to anchor
+    // for the path, rejected as a head, and named by nothing.
+    let unused = Session::new("s-unused", &f.repo)
+        .prompt("Change line 300.")
+        .edit(
+            "toolu_unused",
+            &big,
+            &big_file(),
+            &big_line(300),
+            "line 300: never kept\n",
+        )
+        .text();
+    f.transcript(&f.repo, "big.jsonl", &used);
+    f.transcript(&f.repo, "unused.jsonl", &unused);
+    let (used, unused) = (
+        edit_id("s-big", "toolu_big"),
+        edit_id("s-unused", "toolu_unused"),
+    );
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    assert!(review["edits"].get(&used).is_some());
+    assert!(
+        review["edits"].get(&unused).is_none(),
+        "{:#}",
+        review["edits"]
+    );
+    assert_edits_are_the_referenced_ones(&review["files"], &review["edits"]);
+
+    let why = f.json(&f.repo, &["why", "big.txt:200", "--format", "json"]);
+    assert_eq!(why["line"]["outcome"]["kind"], "attributed");
+    assert!(why["edits"].get(&unused).is_none(), "{:#}", why["edits"]);
+    assert_edits_are_the_referenced_ones(&why["line"], &why["edits"]);
+    f.supersigil(&f.repo, &["why", "big.txt:200", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("  edit {used} at ")))
+        .stdout(predicate::str::contains(unused.as_str()).not());
+
+    // Line 1 predates every recorded edit: no contributor is printed.
+    f.supersigil(&f.repo, &["why", "big.txt:1", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not attributed"))
+        .stdout(predicate::str::contains("  edit ").not());
 }

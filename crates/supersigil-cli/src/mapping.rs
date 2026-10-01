@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::Edit;
-use supersigil_session::checkout::{Placement, canonical, placement};
+use supersigil_session::checkout::{Placement, canonical, placement_as_written};
 
 /// The worktree an edit changed a file in, and the file's path inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,21 +27,23 @@ pub struct MappedEdit {
 ///
 /// The edit's checkout directory is canonicalized when it exists and taken
 /// as written otherwise, and its already-validated relative path is
-/// appended lexically. Only directories are resolved, never the edited file:
-/// a symlinked file keeps the path the agent wrote, and a deleted file still
-/// maps. Containment uses [`placement`]'s normalization (separators,
-/// drive-letter case); with `ignore_case` (the repository sets
-/// `core.ignorecase`), a root that does not contain the file as spelled is
-/// tried again with both sides ASCII-lowercased. Returns `None` when no root
-/// contains the file or its path is not UTF-8.
+/// appended lexically. Nothing below the checkout is resolved: containment
+/// and the remainder are both read from that one spelling
+/// ([`placement_as_written`]), so a symlinked file keeps the path the agent
+/// wrote, a symlinked directory in the relative path is never followed into
+/// another file's name, and a deleted file still maps. Roots are compared as
+/// given (callers pass them canonical); with `ignore_case` (the repository
+/// sets `core.ignorecase`), a root that does not contain the file as
+/// spelled is tried again with both sides ASCII-lowercased. Returns `None`
+/// when no root contains the file or its path is not UTF-8.
 #[must_use]
 pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> Option<MappedEdit> {
     let checkout = canonical(&edit.checkout).unwrap_or_else(|_| edit.checkout.clone());
     let file = checkout.join(&edit.path);
-    let dir = file.parent()?;
     let mut best: Option<(usize, &PathBuf)> = None;
     for root in worktree_roots {
-        let Some(depth) = depth_below(dir, root, ignore_case) else {
+        // A file lies at least one component below the root that holds it.
+        let Some(depth) = depth_below(&file, root, ignore_case).filter(|depth| *depth > 0) else {
             continue;
         };
         if best.is_none_or(|(shallowest, _)| depth < shallowest) {
@@ -49,11 +51,10 @@ pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> O
         }
     }
     let (depth, root) = best?;
-    // The directory lies `depth` components below the root; the file name is one more.
     let mut parts = file
         .components()
         .rev()
-        .take(depth + 1)
+        .take(depth)
         .map(|c| c.as_os_str().to_str())
         .collect::<Option<Vec<_>>>()?;
     parts.reverse();
@@ -63,16 +64,17 @@ pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> O
     })
 }
 
-/// How many components `dir` lies below `root`, or `None` when it is outside.
-fn depth_below(dir: &Path, root: &Path, ignore_case: bool) -> Option<usize> {
+/// How many components `path` lies below `root`, as written, or `None` when
+/// it is outside.
+fn depth_below(path: &Path, root: &Path, ignore_case: bool) -> Option<usize> {
     let depth = |place| match place {
         Placement::Same => Some(0),
         Placement::Nested(depth) => Some(depth),
         Placement::Outside => None,
     };
-    depth(placement(dir, root)).or_else(|| {
+    depth(placement_as_written(path, root)).or_else(|| {
         ignore_case
-            .then(|| depth(placement(&lowercase(dir), &lowercase(root))))
+            .then(|| depth(placement_as_written(&lowercase(path), &lowercase(root))))
             .flatten()
     })
 }
@@ -179,6 +181,22 @@ mod tests {
         std::os::unix::fs::symlink(repo.join("src/real.rs"), repo.join("link.rs")).unwrap();
         let mapped = map_edit(&edit(&repo, "link.rs"), std::slice::from_ref(&repo), false);
         assert_eq!(mapped.map(|m| m.path), Some("link.rs".to_owned()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_directory_in_the_edit_path_is_not_resolved() {
+        let (_dir, repo, _nested) = dirs();
+        std::fs::create_dir_all(repo.join("one")).unwrap();
+        std::os::unix::fs::symlink(repo.join("src"), repo.join("one/link")).unwrap();
+        let mapped = map_edit(
+            &edit(&repo, "one/link/a.rs"),
+            std::slice::from_ref(&repo),
+            false,
+        );
+        // Resolving the link and cutting the resolved depth from the written
+        // path would name `link/a.rs`, an unrelated file.
+        assert_eq!(mapped.map(|m| m.path), Some("one/link/a.rs".to_owned()));
     }
 
     #[test]

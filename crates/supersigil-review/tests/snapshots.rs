@@ -364,6 +364,78 @@ fn why_not_captured_keeps_the_evidence_context() {
     assert!(text.starts_with("src/lib.rs: not captured: assume-unchanged"));
     assert!(text.contains("record rec-2 not reconciled: locked by another writer"));
     assert!(text.contains("capture limitations in"));
+    // No line was explained, so no edit is shown as contributing to one.
+    assert!(!text.contains("edit e1"), "{text}");
+}
+
+/// `e1`'s details under another id and time.
+fn other_edit(time: &str) -> EditInfo {
+    EditInfo {
+        time: time.to_owned(),
+        ..edits()["e1"].clone()
+    }
+}
+
+#[test]
+fn why_prints_only_the_lines_contributors() {
+    let mut why = sample_why(OnDiskCheck::Captured);
+    why.edits
+        .insert("e2".to_owned(), other_edit("2026-09-28T10:00:02.000Z"));
+    let text = render_why(&why, escape);
+    assert!(text.contains("\n  edit e1 at "), "{text}");
+    assert!(!text.contains("edit e2"), "{text}");
+}
+
+#[test]
+fn why_prints_no_contributors_for_an_unattributed_line() {
+    let attr = attribution(
+        vec![chain(0, ChainClass::ExactFromBase, &["e1"], ChainEnd::Base)],
+        vec![introduced("e1"), unexplained()],
+        vec![],
+    );
+    let mut why = sample_why(OnDiskCheck::Captured);
+    why.line = Some(why_line(
+        &AttributionState::Available(&attr),
+        1,
+        &split_lines(b"fn greet() {}\nfn other() {}\n"),
+        &[],
+        Tristate::Yes,
+        None,
+    ));
+    let text = render_why(&why, escape);
+    assert!(text.contains("not attributed"), "{text}");
+    assert!(!text.contains("  edit "), "{text}");
+}
+
+#[test]
+fn why_line_refers_to_its_chains_and_its_outcome() {
+    let mut attr = attribution(
+        vec![chain(
+            0,
+            ChainClass::ExactFromStart,
+            &["e1"],
+            ChainEnd::Stopped {
+                reasons: vec![StopReason::AfterHashMismatch { edit: eid("e4") }],
+            },
+        )],
+        vec![introduced("e1"), unexplained()],
+        vec![],
+    );
+    attr.content.target[1] = std::collections::BTreeSet::from([eid("e5")]);
+    let lines = split_lines(b"fn greet() {}\nfn other() {}\n");
+    let line = |index| {
+        why_line(
+            &AttributionState::Available(&attr),
+            index,
+            &lines,
+            &[],
+            Tristate::Yes,
+            None,
+        )
+    };
+    let ids = |names: &[&str]| names.iter().map(|n| eid(n)).collect();
+    assert_eq!(line(0).referenced_edits(), ids(&["e1", "e4"]));
+    assert_eq!(line(1).referenced_edits(), ids(&["e1", "e4", "e5"]));
 }
 
 #[test]

@@ -6,15 +6,16 @@
 //! the content-match fallback). The records and candidate transcripts are
 //! always present, whatever the on-disk check found.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::{Chain, Conflict, PathStatus};
+use supersigil_record::EventId;
 use supersigil_record::observations::Material;
 
-use crate::model::{EditInfo, EvidenceInfo, RecordInfo, text};
+use crate::model::{EditInfo, EvidenceInfo, RecordInfo, analysis_edits, outcome_edits, text};
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
 use crate::summary::{class_words, context_lines, reason_words, relation_words};
 
@@ -104,6 +105,24 @@ pub struct WhyLine {
     pub provenance: Value,
 }
 
+impl WhyLine {
+    /// Every edit id this line's analysis names: the path's chains,
+    /// set-aside chains, and stop reasons, and the edits the line's outcome
+    /// names. The `why` result's `edits` map holds exactly these.
+    #[must_use]
+    pub fn referenced_edits(&self) -> BTreeSet<EventId> {
+        let mut ids = BTreeSet::new();
+        analysis_edits(
+            self.status.as_ref(),
+            &self.chains,
+            &self.set_aside,
+            &mut ids,
+        );
+        ids.extend(outcome_edits(&self.outcome).into_iter().cloned());
+        ids
+    }
+}
+
 /// Analyzes 0-based target line `line` by the same ordered rules as an added
 /// diff line.
 #[must_use]
@@ -181,9 +200,26 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
             }
         }
     }
-    let mut edits: Vec<(&String, &EditInfo)> = why.edits.iter().collect();
-    edits.sort_by(|a, b| (&a.1.time, a.0).cmp(&(&b.1.time, b.0)));
+    // Only the edits the line's provenance names as contributing: an
+    // unexplained, ambiguous, unresolved, or unanalyzed line has none, and
+    // the other edits the analysis refers to stay in the JSON map.
+    let contributors = why.line.as_ref().map(contributors).unwrap_or_default();
+    let mut edits: Vec<(&EventId, Option<&EditInfo>)> = contributors
+        .into_iter()
+        .map(|id| (id, why.edits.get(id.as_str())))
+        .collect();
+    edits.sort_by(|a, b| {
+        let time = |edit: Option<&EditInfo>| edit.map(|e| e.time.clone());
+        (time(a.1), a.0).cmp(&(time(b.1), b.0))
+    });
     for (id, edit) in edits {
+        let Some(edit) = edit else {
+            push(
+                &mut out,
+                &format!("  edit {}: no details recorded", escape(id.as_str())),
+            );
+            continue;
+        };
         let prompt = edit.prompt.as_ref().map_or_else(
             || "no preceding message recorded".to_owned(),
             |prompt| match &prompt.excerpt {
@@ -204,7 +240,7 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
             &mut out,
             &format!(
                 "  edit {} at {}, session {}: {prompt}",
-                escape(id),
+                escape(id.as_str()),
                 escape(&edit.time),
                 escape(&edit.session)
             ),
@@ -214,6 +250,24 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
         push(&mut out, &format!("  {line}"));
     }
     out
+}
+
+/// The edits `line`'s provenance names as contributing: the introducing or
+/// replacing edits of an attributed line, or the whitespace-only edits of a
+/// whitespace-only change. A content match is not provenance (its sentence
+/// names the edits), and no other outcome has contributors.
+fn contributors(line: &WhyLine) -> BTreeSet<&EventId> {
+    match &line.outcome {
+        Outcome::Attributed { .. } | Outcome::WhitespaceOnly { .. } => {
+            outcome_edits(&line.outcome).into_iter().collect()
+        }
+        Outcome::ContentMatch { .. }
+        | Outcome::Unresolved { .. }
+        | Outcome::Ambiguous { .. }
+        | Outcome::Unattributed { .. }
+        | Outcome::LineEndingChanged
+        | Outcome::Realigned { .. } => BTreeSet::new(),
+    }
 }
 
 fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {

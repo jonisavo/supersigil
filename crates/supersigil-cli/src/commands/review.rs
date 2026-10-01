@@ -82,11 +82,16 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
     let mut edits: BTreeMap<String, EditInfo> = BTreeMap::new();
     for change in &changes {
         let (file, attribution) = review_file(g, change, &blobs, &transcripts, &mention_worktrees)?;
+        // Only the edits the file's analysis names; an edit offered to
+        // anchor that no chain, stop reason, or outcome names stays out.
         if let Some(attribution) = attribution {
+            let referenced = file.referenced_edits();
             for accepted in &attribution.accepted {
-                edits
-                    .entry(accepted.edit.id.as_str().to_owned())
-                    .or_insert_with(|| edit_info(accepted, &g.evidence));
+                if referenced.contains(&accepted.edit.id) {
+                    edits
+                        .entry(accepted.edit.id.as_str().to_owned())
+                        .or_insert_with(|| edit_info(accepted, &g.evidence));
+                }
             }
         }
         files.push(file);
