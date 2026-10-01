@@ -1,7 +1,10 @@
 //! Runs the git CLI with a controlled environment.
 //!
 //! Every child process loses the variables that would point git at another
-//! repository or index, and gets `GIT_OPTIONAL_LOCKS=0` so read commands never
+//! repository, index, or object store, or change how it reads every
+//! pathspec: git locates the repository from its working directory, and the
+//! pathspecs this crate builds say how they are read.
+//! Every child also gets `GIT_OPTIONAL_LOCKS=0`, so read commands never
 //! refresh and rewrite the real index. The user's configuration is otherwise
 //! honored; only tests add isolation through [`Git::with_env`].
 
@@ -13,15 +16,31 @@ use std::process::{Child, Command, Output, Stdio};
 
 use crate::error::GitError;
 
-/// Variables removed from every git child process: each could make git read
-/// or write a different repository or index than the one in the working
-/// directory. Git sets them for hooks, so a review started from a hook would
-/// otherwise inherit them.
-const SCRUBBED: [&str; 4] = [
+/// Variables removed from every git child process.
+///
+/// The first six could make git read or write a different repository,
+/// index, or object store than the one its working directory locates. Git
+/// sets the first four for hooks, so a review started from a hook would
+/// otherwise inherit them; with an inherited object directory, a snapshot
+/// would write its objects there and leave none in the repository.
+///
+/// The last four set how git reads every pathspec of a command. This crate
+/// spells each pathspec's meaning itself (`:(literal)` for a path, `./` for
+/// `check-ignore`), and an inherited mode would change it: literal mode reads
+/// `:(literal)f.txt` as a file of that name, so a scoped review finds
+/// nothing, case-insensitive mode widens a scope to other spellings, and
+/// `check-ignore` refuses every mode.
+const SCRUBBED: [&str; 10] = [
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
 ];
 
 /// Oldest git this crate supports: `worktree list -z` arrived in 2.36.
@@ -573,7 +592,19 @@ mod tests {
                 )
             })
             .collect();
-        for key in SCRUBBED {
+        let policy = [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_LITERAL_PATHSPECS",
+            "GIT_GLOB_PATHSPECS",
+            "GIT_NOGLOB_PATHSPECS",
+            "GIT_ICASE_PATHSPECS",
+        ];
+        for key in policy.into_iter().chain(SCRUBBED) {
             assert!(envs.contains(&(key.to_owned(), None)), "{key} not removed");
         }
         assert!(envs.contains(&("GIT_OPTIONAL_LOCKS".to_owned(), Some("0".to_owned()))));

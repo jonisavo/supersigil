@@ -140,6 +140,56 @@ impl Fixture {
         );
         serde_json::from_slice(&output.stdout).unwrap()
     }
+
+    /// Runs a command with `<key>=1` in supersigil's own environment, which
+    /// every git it starts inherits unless supersigil removes it. Returns
+    /// the parsed JSON output, or standard error when the command fails.
+    fn json_inheriting(&self, key: &str, dir: &Path, args: &[&str]) -> Result<Value, String> {
+        let output = self.supersigil(dir, args).env(key, "1").output().unwrap();
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        Ok(serde_json::from_slice(&output.stdout).unwrap())
+    }
+}
+
+/// The variables that set how git reads every pathspec of a command. A
+/// parent environment can hold any of them; supersigil builds its own
+/// literal pathspecs.
+const PATHSPEC_MODES: [&str; 4] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
+/// `check(mode)` for each of [`PATHSPEC_MODES`], paired with the mode, so
+/// an assertion over the whole list shows every mode that differs.
+fn under_each_pathspec_mode<T>(check: impl Fn(&str) -> T) -> Vec<(&'static str, T)> {
+    PATHSPEC_MODES
+        .iter()
+        .map(|&mode| (mode, check(mode)))
+        .collect()
+}
+
+/// The paths a review lists, in order.
+fn paths(review: &Value) -> Vec<String> {
+    review["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The untracked paths a review's scope excluded, in order.
+fn excluded(review: &Value) -> Vec<String> {
+    review["scope"]["untracked_excluded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["path"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// Writes `content` to `path` under `dir`, creating directories.
@@ -1503,4 +1553,169 @@ fn why_on_a_file_that_replaced_a_submodule_has_no_head_baseline() {
         why["line"]["differs_from_head_reason"],
         "the path is not a regular file in HEAD"
     );
+}
+
+#[test]
+fn a_scoped_review_keeps_its_file_whatever_pathspec_mode_it_inherits() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "a\n");
+    write(&f.repo, "g.txt", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "f.txt", "b\n");
+    write(&f.repo, "g.txt", "b\n");
+    let args = ["review", "--format", "json", "--", "f.txt"];
+
+    let listed = under_each_pathspec_mode(|mode| {
+        f.json_inheriting(mode, &f.repo, &args)
+            .map(|review| paths(&review))
+    });
+
+    assert_eq!(
+        listed,
+        under_each_pathspec_mode(|_| Ok(vec!["f.txt".to_owned()]))
+    );
+}
+
+#[test]
+fn why_finds_its_file_whatever_pathspec_mode_it_inherits() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "f.txt", "b\n");
+    let args = ["why", "f.txt:1", "--format", "json"];
+
+    let found = under_each_pathspec_mode(|mode| {
+        f.json_inheriting(mode, &f.repo, &args).map(|why| {
+            (
+                why["on_disk"]["state"].clone(),
+                why["line"]["text"].clone(),
+                why["line"]["differs_from_head"].clone(),
+            )
+        })
+    });
+
+    // The file is found in the captured tree and in HEAD.
+    assert_eq!(
+        found,
+        under_each_pathspec_mode(|_| Ok((json!("captured"), json!("b\n"), json!("yes"))))
+    );
+}
+
+#[test]
+fn an_untracked_file_is_included_whatever_pathspec_mode_it_inherits() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "new.txt", "n\n");
+    write(&f.repo, "other.txt", "o\n");
+    let review_args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "new.txt",
+    ];
+    let why_args = ["why", "new.txt:1", "--format", "json"];
+
+    let included = under_each_pathspec_mode(|mode| {
+        let review = f
+            .json_inheriting(mode, &f.repo, &review_args)
+            .map(|review| (paths(&review), excluded(&review)));
+        let why = f
+            .json_inheriting(mode, &f.repo, &why_args)
+            .map(|why| why["line"]["text"].clone());
+        (review, why)
+    });
+
+    let expected = (
+        Ok((vec!["new.txt".to_owned()], vec!["other.txt".to_owned()])),
+        Ok(json!("n\n")),
+    );
+    assert_eq!(included, under_each_pathspec_mode(|_| expected.clone()));
+}
+
+/// Needs a filesystem where `f.txt` and `F.txt` are two files.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_inherited_pathspec_mode_does_not_widen_a_scope_to_another_case() {
+    let f = Fixture::new();
+    write(&f.repo, "f.txt", "a\n");
+    write(&f.repo, "F.txt", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "f.txt", "b\n");
+    write(&f.repo, "F.txt", "b\n");
+    write(&f.repo, "n.txt", "n\n");
+    write(&f.repo, "N.txt", "n\n");
+    let scoped = ["review", "--format", "json", "--", "f.txt"];
+    let included = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "n.txt",
+        "--",
+        "f.txt",
+        "n.txt",
+    ];
+
+    let listed = under_each_pathspec_mode(|mode| {
+        let scoped = f
+            .json_inheriting(mode, &f.repo, &scoped)
+            .map(|review| paths(&review));
+        let included = f
+            .json_inheriting(mode, &f.repo, &included)
+            .map(|review| (paths(&review), excluded(&review)));
+        (scoped, included)
+    });
+
+    // `N.txt` is outside the scope, so it is not even listed as excluded.
+    let expected = (
+        Ok(vec!["f.txt".to_owned()]),
+        Ok((vec!["f.txt".to_owned(), "n.txt".to_owned()], Vec::new())),
+    );
+    assert_eq!(listed, under_each_pathspec_mode(|_| expected.clone()));
+}
+
+#[test]
+fn a_bracketed_name_stays_literal_whatever_pathspec_mode_it_inherits() {
+    let f = Fixture::new();
+    // As a glob, `[ab].txt` would match `a.txt`, and `[n].txt` `n.txt`.
+    write(&f.repo, "[ab].txt", "a\n");
+    write(&f.repo, "a.txt", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "[ab].txt", "b\n");
+    write(&f.repo, "a.txt", "b\n");
+    write(&f.repo, "[n].txt", "n\n");
+    write(&f.repo, "n.txt", "n\n");
+    let scoped = ["review", "--format", "json", "--", "[ab].txt"];
+    let included = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "[n].txt",
+    ];
+
+    let listed = under_each_pathspec_mode(|mode| {
+        let scoped = f
+            .json_inheriting(mode, &f.repo, &scoped)
+            .map(|review| paths(&review));
+        let included = f
+            .json_inheriting(mode, &f.repo, &included)
+            .map(|review| (paths(&review), excluded(&review)));
+        (scoped, included)
+    });
+
+    let expected = (
+        Ok(vec!["[ab].txt".to_owned()]),
+        Ok((
+            vec![
+                "[ab].txt".to_owned(),
+                "[n].txt".to_owned(),
+                "a.txt".to_owned(),
+            ],
+            vec!["n.txt".to_owned()],
+        )),
+    );
+    assert_eq!(listed, under_each_pathspec_mode(|_| expected.clone()));
 }

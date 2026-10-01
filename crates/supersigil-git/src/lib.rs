@@ -9,7 +9,8 @@
 //! worktrees, and [`origin`] reads which worktree created a commit.
 //!
 //! Git runs only through [`Git`], which scrubs the variables that could point
-//! it at another repository or index and honors the user's configuration.
+//! it at another repository, index, or object store or change how it reads
+//! pathspecs, and honors the user's configuration.
 
 pub mod bytes;
 pub mod changes;

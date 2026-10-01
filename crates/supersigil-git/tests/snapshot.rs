@@ -3,12 +3,14 @@
 mod common;
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use common::TestRepo;
+use common::{TestRepo, isolated};
 use supersigil_git::snapshot::{
     NotCaptured, NotCapturedCause, OnDisk, SnapshotOptions, snapshot_working_tree,
 };
-use supersigil_git::{GitError, RepoPath};
+use supersigil_git::{Git, GitError, Repo, RepoPath};
 
 fn files(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
     entries
@@ -488,4 +490,70 @@ fn a_fatal_ignore_check_is_an_error_not_a_clean_path() {
         "{:?}",
         result.map(|s| s.tree)
     );
+}
+
+/// Set only in the child run of
+/// [`an_inherited_object_directory_receives_no_snapshot_objects`]: the
+/// temporary directory of the repository the child snapshots.
+const SNAPSHOT_CHILD: &str = "SUPERSIGIL_TEST_SNAPSHOT_CHILD";
+
+/// Every file below `dir`, recursively.
+fn files_below(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(files_below(&path));
+        } else {
+            files.push(path);
+        }
+    }
+    files
+}
+
+/// The snapshot's objects (the changed file's blob and the tree) go to the
+/// repository's own object store even when the process running the runner
+/// inherits variables naming another one. The variables are set only in
+/// the environment of a child run of this test, which every git the runner
+/// starts there would inherit; this process's environment never changes.
+#[test]
+fn an_inherited_object_directory_receives_no_snapshot_objects() {
+    if let Some(dir) = std::env::var_os(SNAPSHOT_CHILD) {
+        let dir = PathBuf::from(dir);
+        let git = isolated(Git::new(dir.join("repo")), &dir.join("home"));
+        let repo = Repo::open(git).unwrap();
+        let snapshot = snapshot_working_tree(&repo, &SnapshotOptions::default()).unwrap();
+        println!("snapshot tree {}", snapshot.tree);
+        return;
+    }
+    let repo = committed();
+    repo.write("a.txt", b"a changed\n");
+    let elsewhere = repo.dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let own = repo.root.join(".git").join("objects");
+
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "an_inherited_object_directory_receives_no_snapshot_objects",
+            "--nocapture",
+        ])
+        .env(SNAPSHOT_CHILD, repo.dir.path())
+        .env("GIT_OBJECT_DIRECTORY", &elsewhere)
+        .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &own)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&child.stdout);
+    assert!(
+        child.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&child.stderr)
+    );
+    let tree = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("snapshot tree "))
+        .unwrap_or_else(|| panic!("no tree in {stdout}"));
+    assert_eq!(files_below(&elsewhere), Vec::<PathBuf>::new());
+    assert_eq!(repo.tree_files(tree)["a.txt"], "a changed\n");
 }
