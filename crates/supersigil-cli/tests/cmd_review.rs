@@ -2108,23 +2108,24 @@ fn why_on_an_untracked_file_captures_it_with_the_tracked_changes() {
     );
 }
 
-#[test]
-fn why_on_an_assume_unchanged_line_explains_nothing() {
+/// Checks `why` on a committed file whose line on disk was edited after
+/// `flag` (an `update-index` option) was set on it: the capture keeps the
+/// index's version, which the recorded creation explains, and the line on
+/// disk is not that version, so nothing is explained.
+fn a_flagged_line_explains_nothing(flag: &str, cause: &str) {
     let f = Fixture::new();
     write(&f.repo, "README.md", "readme\n");
     let (transcript, _) = record_creation(&f, "t.txt", "one\n");
     write(&f.repo, "t.txt", "one\n");
     f.commit(&f.repo, "base");
     write(&f.repo, "t.txt", "edited\n");
-    f.git(&["update-index", "--assume-unchanged", "t.txt"]);
+    f.git(&["update-index", flag, "t.txt"]);
 
     let (why, terminal) = why_outputs(&f, "t.txt:1");
 
-    // The capture keeps the index's version, which the recorded creation
-    // explains; the line on disk is not that version, so nothing is.
     let tree = captured_tree(&f, &[]);
     assert_eq!(tree, rev_parse(&f, "HEAD^{tree}"));
-    let reason = "present on disk; contents not captured (assume_unchanged)";
+    let reason = format!("present on disk; contents not captured ({cause})");
     let analysis = (
         json!({"state": "not_captured", "reason": reason}),
         Value::Null,
@@ -2136,6 +2137,18 @@ fn why_on_an_assume_unchanged_line_explains_nothing() {
         terminal,
         format!("t.txt: not captured: {reason}; no line explained\n")
     );
+}
+
+#[test]
+fn why_on_an_assume_unchanged_line_explains_nothing() {
+    a_flagged_line_explains_nothing("--assume-unchanged", "assume_unchanged");
+}
+
+#[test]
+fn why_on_a_skip_worktree_line_explains_nothing() {
+    // The path is tracked, so the capture must not add it as an untracked
+    // file: git refuses to add a skip-worktree path.
+    a_flagged_line_explains_nothing("--skip-worktree", "skip_worktree");
 }
 
 #[test]
