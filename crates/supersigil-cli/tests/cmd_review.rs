@@ -102,11 +102,12 @@ impl Fixture {
 
     /// Writes `text` as transcript `name` in the Claude Code project
     /// directory of `cwd`, with the fixtures' `/work/repo` replaced by `cwd`
-    /// (escaped for a JSON string: a Windows path has backslashes).
-    fn transcript(&self, cwd: &Path, name: &str, text: &str) {
+    /// (escaped for a JSON string: a Windows path has backslashes), and
+    /// returns its path.
+    fn transcript(&self, cwd: &Path, name: &str, text: &str) -> PathBuf {
         let quoted = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
         let text = text.replace("/work/repo", &quoted[1..quoted.len() - 1]);
-        common::project_transcript(&self.claude, cwd, name, &text);
+        common::project_transcript(&self.claude, cwd, name, &text)
     }
 
     /// `supersigil <args>` in `dir`, isolated, as typed.
@@ -1876,4 +1877,291 @@ fn a_capture_limitation_two_records_hold_is_counted_once() {
     );
     assert_eq!((reports.len(), header), (1, expected.as_str()));
     assert_eq!(reports[0]["unsupported_tool_uses"], 1);
+}
+
+/// `why <location>` in both formats, each expected to succeed: the parsed
+/// JSON and the terminal text.
+fn why_outputs(f: &Fixture, location: &str) -> (Value, String) {
+    let json = f.json(&f.repo, &["why", location, "--format", "json"]);
+    let output = f
+        .supersigil(&f.repo, &["why", location, "--format", "terminal"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (json, String::from_utf8(output.stdout).unwrap())
+}
+
+/// The tree a capture of the working tree holds, found without supersigil:
+/// what `git add -u`, then `git add` of each of `untracked`, stages in a
+/// copy of the index with the original's modification time, written with
+/// `write-tree`. The real index is untouched.
+fn captured_tree(f: &Fixture, untracked: &[&str]) -> String {
+    let source = f.repo.join(".git").join("index");
+    let index = f.root.join("expected-index");
+    std::fs::copy(&source, &index).unwrap();
+    let modified = std::fs::metadata(&source).unwrap().modified().unwrap();
+    OpenOptions::new()
+        .write(true)
+        .open(&index)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let git = |args: &[&str]| -> String {
+        let mut command = Command::new("git");
+        f.isolate(&mut command);
+        let output = command
+            .env("GIT_INDEX_FILE", &index)
+            .current_dir(&f.repo)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    git(&["add", "-u"]);
+    for path in untracked {
+        git(&["add", "--", path]);
+    }
+    let tree = git(&["write-tree"]).trim().to_owned();
+    std::fs::remove_file(&index).unwrap();
+    tree
+}
+
+/// A session `s-create` that writes `content` to `path` after the prompt
+/// "Write the file.", recorded as `create.jsonl`. Returns the transcript's
+/// path and the edit's id.
+fn record_creation(f: &Fixture, path: &str, content: &str) -> (PathBuf, String) {
+    let text = Session::new("s-create", &f.repo)
+        .prompt("Write the file.")
+        .create("toolu_create", &f.repo.join(path), content)
+        .text();
+    let transcript = f.transcript(&f.repo, "create.jsonl", &text);
+    (transcript, edit_id("s-create", "toolu_create"))
+}
+
+/// The JSON `why` prints for `path` when the captured `tree` holds it and
+/// the one record holds the one transcript of [`record_creation`]. The
+/// record's id is random, so it is taken from `why`; everything else is
+/// what the case expects.
+fn expected_why(
+    f: &Fixture,
+    why: &Value,
+    (path, tree): (&str, &str),
+    transcript: &Path,
+    (on_disk, line, edits): (Value, Value, Value),
+) -> Value {
+    json!({
+        "schema": "supersigil.why/1",
+        "path": path,
+        "target": {
+            "worktree": f.repo.to_string_lossy(),
+            "tree": tree,
+            "blob": rev_parse(f, &format!("{tree}:{path}")),
+            "attribution_bytes": "identical",
+        },
+        "records": [{
+            "id": why["records"][0]["id"].as_str().unwrap(),
+            "revision": 1,
+            "reconciled": true,
+            "reason": null,
+        }],
+        "evidence": {
+            "candidate_transcripts": [{
+                "transcript": transcript.to_string_lossy(),
+                "session": "s-create",
+                "capture_limitations": [],
+                "localized": false,
+            }],
+            "unplaced_edits": 0,
+            "unreconciled_checkouts": [],
+            "conflicting_edits": [],
+        },
+        "on_disk": on_disk,
+        "line": line,
+        "edits": edits,
+        "conflicting_edits": [],
+    })
+}
+
+/// The analysis of line `number`, `text`, which the creation `id`
+/// introduced, exactly from the base.
+fn created_line(number: u64, text: &str, (differs, reason): (&str, Value), id: &str) -> Value {
+    json!({
+        "number": number,
+        "text": text,
+        "differs_from_head": differs,
+        "differs_from_head_reason": reason,
+        "status": {"kind": "composed"},
+        "chains": [{
+            "id": 0,
+            "class": "exact_from_base",
+            "head": id,
+            "edits": [id],
+            "end": {"kind": "base"},
+        }],
+        "set_aside": [],
+        "outcome": {
+            "kind": "attributed",
+            "edits": [{"edit": id, "relation": "introduced", "classes": ["exact_from_base"]}],
+        },
+        "provenance": {
+            "class": "exact_from_base",
+            "kind": "agreed",
+            "provenance": {
+                "earlier": [],
+                "origins": [{"kind": "introduced", "value": id}],
+                "whitespace_only": [],
+            },
+        },
+    })
+}
+
+/// The edits map holding only the creation `id` of [`record_creation`].
+fn creation_edits(f: &Fixture, transcript: &Path, id: &str) -> Value {
+    json!({
+        id: {
+            "session": "s-create",
+            "transcript": transcript.to_string_lossy(),
+            "turn": "s-create-1",
+            "time": "2026-09-29T10:00:02.000Z",
+            "worktree": f.repo.to_string_lossy(),
+            "operation": "write",
+            "prompt": {
+                "turn": "s-create-0",
+                "role": "human",
+                "excerpt": {"state": "retained", "value": "Write the file."},
+            },
+        },
+    })
+}
+
+/// The terminal text for line `number`, `text`, which the creation `id`
+/// introduced.
+fn created_line_text(path: &str, number: u64, text: &str, differs: &str, id: &str) -> String {
+    format!(
+        "{path}:{number}: {text}\n  introduced by edit {id} (exact from the base)\n  differs from HEAD: {differs}\n  edit {id} (introduced) at 2026-09-29T10:00:02.000Z, session s-create: after \"Write the file.\"\n"
+    )
+}
+
+#[test]
+fn why_on_a_tracked_file_reads_the_capture_of_tracked_changes() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    write(&f.repo, "t.txt", "one\n");
+    f.commit(&f.repo, "base");
+    let (transcript, id) = record_creation(&f, "t.txt", "one\ntwo\n");
+    write(&f.repo, "t.txt", "one\ntwo\n");
+    write(&f.repo, "other.txt", "o\n");
+
+    let (why, terminal) = why_outputs(&f, "t.txt:2");
+
+    // The capture holds the tracked change and no untracked file.
+    let tree = captured_tree(&f, &[]);
+    assert_ne!(tree, rev_parse(&f, "HEAD^{tree}"));
+    let line = created_line(2, "two\n", ("yes", Value::Null), &id);
+    let analysis = (
+        json!({"state": "captured"}),
+        line,
+        creation_edits(&f, &transcript, &id),
+    );
+    let expected = expected_why(&f, &why, ("t.txt", &tree), &transcript, analysis);
+    assert_eq!(why, expected);
+    assert_eq!(terminal, created_line_text("t.txt", 2, "two", "yes", &id));
+}
+
+#[test]
+fn why_on_an_untracked_file_captures_it_with_the_tracked_changes() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let (transcript, id) = record_creation(&f, "new.txt", "n1\nn2\n");
+    write(&f.repo, "new.txt", "n1\nn2\n");
+    write(&f.repo, "README.md", "changed\n");
+    write(&f.repo, "other.txt", "o\n");
+
+    let (why, terminal) = why_outputs(&f, "new.txt:2");
+
+    // The capture holds the tracked change and the requested untracked
+    // file, and no other untracked file.
+    let tree = captured_tree(&f, &["new.txt"]);
+    assert_ne!(tree, captured_tree(&f, &[]));
+    let not_in_head = json!("the file is not in HEAD");
+    let line = created_line(2, "n2\n", ("unknown", not_in_head), &id);
+    let analysis = (
+        json!({"state": "captured"}),
+        line,
+        creation_edits(&f, &transcript, &id),
+    );
+    let expected = expected_why(&f, &why, ("new.txt", &tree), &transcript, analysis);
+    assert_eq!(why, expected);
+    assert_eq!(
+        terminal,
+        created_line_text("new.txt", 2, "n2", "unknown (the file is not in HEAD)", &id)
+    );
+}
+
+#[test]
+fn why_on_an_assume_unchanged_line_explains_nothing() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    let (transcript, _) = record_creation(&f, "t.txt", "one\n");
+    write(&f.repo, "t.txt", "one\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "t.txt", "edited\n");
+    f.git(&["update-index", "--assume-unchanged", "t.txt"]);
+
+    let (why, terminal) = why_outputs(&f, "t.txt:1");
+
+    // The capture keeps the index's version, which the recorded creation
+    // explains; the line on disk is not that version, so nothing is.
+    let tree = captured_tree(&f, &[]);
+    assert_eq!(tree, rev_parse(&f, "HEAD^{tree}"));
+    let reason = "present on disk; contents not captured (assume_unchanged)";
+    let analysis = (
+        json!({"state": "not_captured", "reason": reason}),
+        Value::Null,
+        json!({}),
+    );
+    let expected = expected_why(&f, &why, ("t.txt", &tree), &transcript, analysis);
+    assert_eq!(why, expected);
+    assert_eq!(
+        terminal,
+        format!("t.txt: not captured: {reason}; no line explained\n")
+    );
+}
+
+#[test]
+fn why_on_a_line_whose_disk_state_differs_from_the_capture_explains_nothing() {
+    let f = Fixture::new();
+    // A clean filter stages `x` as `y`, and nothing converts it back: the
+    // captured blob holds `y\n` while the file on disk holds `x\n`.
+    f.git(&["config", "filter.swap.clean", "sed s/x/y/"]);
+    write(&f.repo, ".gitattributes", "*.swap filter=swap\n");
+    let (transcript, _) = record_creation(&f, "f.swap", "x\n");
+    write(&f.repo, "f.swap", "x\n");
+    f.commit(&f.repo, "base");
+
+    let (why, terminal) = why_outputs(&f, "f.swap:1");
+
+    let tree = captured_tree(&f, &[]);
+    let reason = "the file on disk differs from the captured target: its on-disk state was not captured, or it changed during the command";
+    let analysis = (
+        json!({"state": "not_captured", "reason": reason}),
+        Value::Null,
+        json!({}),
+    );
+    let expected = expected_why(&f, &why, ("f.swap", &tree), &transcript, analysis);
+    assert_eq!(why, expected);
+    assert_eq!(
+        terminal,
+        format!("f.swap: not captured: {reason}; no line explained\n")
+    );
 }
