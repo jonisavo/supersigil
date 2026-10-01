@@ -181,10 +181,12 @@ pub struct Walk {
 ///
 /// Subsets and orders of a bucket are generated one at a time, never
 /// materialized. Every generated branch is charged 1 KiB, and the bucket
-/// indices read to generate it, before it is explored; every reversal
-/// candidate its bytes (see [`reverse`]); and every alignment the step's
-/// bytes. Chains found on one path share it while it is explored: each
-/// copy of a step into a chain after the first is charged what it holds.
+/// indices read to generate it, before it is explored; every entry of a
+/// state's list of links the group index read to check it, entered or not;
+/// every reversal candidate its bytes (see [`reverse`]); and every
+/// alignment the step's bytes. Chains found on one path share it while it
+/// is explored: each copy of a step into a chain after the first is
+/// charged what it holds.
 /// Setting chains aside compares their groups and edits, each distinct
 /// pair once, and each comparison is charged the indices it reads.
 /// Enumeration stops the moment the budget is exhausted. The status is then
@@ -266,29 +268,45 @@ fn group_of(groups: &[Group], count: usize) -> Vec<usize> {
     of
 }
 
-/// The verified links into each group: for every recorded after-hash, the
-/// edits that recorded it, as (group, (bucket, edit) in walk order) entries
-/// in group order. A state's links are looked up by its hash, never found
-/// by reading every edit.
-type Links = BTreeMap<ContentId, Vec<(usize, Vec<(usize, usize)>)>>;
+/// The verified links into each group, found by a state's hash, never by
+/// reading every edit: for every recorded after-hash, a list of the edits
+/// that recorded it, as (group, (bucket, edit) in walk order) entries in
+/// group order.
+#[derive(Default)]
+struct Links {
+    lists: Vec<Vec<LinkEntry>>,
+    /// The position in `lists` of each after-hash's list.
+    by_hash: BTreeMap<ContentId, usize>,
+}
 
-fn links(accepted: &[AcceptedEdit], groups: &[Group]) -> Links {
-    let mut links = Links::new();
-    for (g, grp) in groups.iter().enumerate() {
-        for (b, bucket) in grp.buckets.iter().enumerate() {
-            for &idx in bucket {
-                let Some(hash) = accepted[idx].edit.after.content_id() else {
-                    continue;
-                };
-                let entries = links.entry(hash.clone()).or_default();
-                match entries.last_mut() {
-                    Some((last, edits)) if *last == g => edits.push((b, idx)),
-                    _ => entries.push((g, vec![(b, idx)])),
+/// A group whose edits recorded one after-hash, with those edits as
+/// (bucket, edit) in walk order.
+type LinkEntry = (usize, Vec<(usize, usize)>);
+
+impl Links {
+    fn new(accepted: &[AcceptedEdit], groups: &[Group]) -> Self {
+        let mut links = Self::default();
+        for (g, grp) in groups.iter().enumerate() {
+            for (b, bucket) in grp.buckets.iter().enumerate() {
+                for &idx in bucket {
+                    let Some(hash) = accepted[idx].edit.after.content_id() else {
+                        continue;
+                    };
+                    let next = links.lists.len();
+                    let slot = *links.by_hash.entry(hash.clone()).or_insert(next);
+                    if slot == next {
+                        links.lists.push(Vec::new());
+                    }
+                    let entries = &mut links.lists[slot];
+                    match entries.last_mut() {
+                        Some((last, edits)) if *last == g => edits.push((b, idx)),
+                        _ => entries.push((g, vec![(b, idx)])),
+                    }
                 }
             }
         }
+        links
     }
-    links
 }
 
 fn without(bucket: &[usize], idx: usize) -> Vec<usize> {
@@ -425,10 +443,10 @@ enum Cursor {
     Heads { group: usize, bucket: usize },
     /// The rest of the current bucket, or else the previous bucket.
     Local,
-    /// Verified links to `hash`: from this entry of its [`Links`] on, and
-    /// this position in the entry's edits.
+    /// Verified links to the state's hash: from this entry of that hash's
+    /// list in [`Links`] on, and this position in the entry's edits.
     Links {
-        hash: ContentId,
+        list: usize,
         entry: usize,
         position: usize,
     },
@@ -560,6 +578,7 @@ struct Search<'a> {
     groups: &'a [Group],
     /// The group of each accepted edit.
     group_of: Vec<usize>,
+    /// The verified links, by after-hash.
     links: Links,
     budget: Budget,
     /// The chain under construction, newest step first.
@@ -578,7 +597,7 @@ impl<'a> Search<'a> {
             accepted,
             groups,
             group_of: group_of(groups, accepted.len()),
-            links: links(accepted, groups),
+            links: Links::new(accepted, groups),
             budget: Budget::new(request.budget_bytes),
             path: Vec::new(),
             entered: vec![0; groups.len()],
@@ -690,7 +709,7 @@ impl<'a> Search<'a> {
     }
 
     /// The next predecessor of `frame`'s state to try, or `None`.
-    fn next_choice(&self, frame: &mut Frame) -> Option<Choice> {
+    fn next_choice(&mut self, frame: &mut Frame) -> Option<Choice> {
         loop {
             if let Some(choice) = frame.tries.as_mut().and_then(Iterator::next) {
                 return Some(choice);
@@ -701,8 +720,9 @@ impl<'a> Search<'a> {
 
     /// The next bucket of predecessors, advancing `cursor`: the heads at
     /// the target; elsewhere the rest of the current bucket or the previous
-    /// one, then every verified link. `None` when there is none left.
-    fn open(&self, at: Option<&At>, cursor: &mut Cursor) -> Option<Tries> {
+    /// one, then every verified link. `None` when there is none left or the
+    /// budget ran out.
+    fn open(&mut self, at: Option<&At>, cursor: &mut Cursor) -> Option<Tries> {
         loop {
             match cursor {
                 Cursor::Heads { group, bucket } => {
@@ -733,20 +753,19 @@ impl<'a> Search<'a> {
                 }
                 Cursor::Local => {
                     let at = at.expect("a state after a step has a place");
-                    // Hashing the state is part of the step's charged bytes.
-                    let hash = if self.links.is_empty() {
+                    // Hashing the state, and finding its list of links, is
+                    // part of the step's charged bytes.
+                    let list = if self.links.lists.is_empty() {
                         None
                     } else {
-                        self.state().content_id()
+                        let hash = self.state().content_id();
+                        hash.and_then(|hash| self.links.by_hash.get(&hash).copied())
                     };
-                    *cursor = match hash {
-                        Some(hash) => Cursor::Links {
-                            hash,
-                            entry: 0,
-                            position: 0,
-                        },
-                        None => Cursor::Done,
-                    };
+                    *cursor = list.map_or(Cursor::Done, |list| Cursor::Links {
+                        list,
+                        entry: 0,
+                        position: 0,
+                    });
                     if !at.remaining.is_empty() {
                         let edits = at.remaining.clone();
                         return Some(Tries::new(
@@ -769,18 +788,29 @@ impl<'a> Search<'a> {
                     }
                 }
                 Cursor::Links {
-                    hash,
+                    list,
                     entry,
                     position,
                 } => {
-                    let Some((g, edits)) = self.links.get(hash).and_then(|all| all.get(*entry))
-                    else {
+                    let Some((g, edits)) = self.links.lists[*list].get(*entry) else {
                         *cursor = Cursor::Done;
                         continue;
                     };
-                    // A group entered once is never entered again.
-                    let next = edits.get(*position).filter(|_| self.entered[*g] == 0);
-                    let Some(&(b, idx)) = next else {
+                    if *position == 0 {
+                        // Each entry reached is charged the group index read
+                        // to check it, before an entered group is passed
+                        // over: a chain through many groups that recorded
+                        // one state passes over every one it entered.
+                        if !self.budget.charge(size_of::<usize>()) {
+                            return None;
+                        }
+                        // A group entered once is never entered again.
+                        if self.entered[*g] > 0 {
+                            *entry += 1;
+                            continue;
+                        }
+                    }
+                    let Some(&(b, idx)) = edits.get(*position) else {
                         (*entry, *position) = (*entry + 1, 0);
                         continue;
                     };

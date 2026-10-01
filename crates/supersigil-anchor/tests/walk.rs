@@ -740,6 +740,27 @@ fn links_are_looked_up_without_reading_every_recorded_edit() {
 }
 
 #[test]
+fn links_into_entered_transcripts_are_charged_as_they_are_passed_over() {
+    // 40,000 transcripts each record a verified edit that leaves `x` as it
+    // was, so every state of a chain links into every transcript it has not
+    // entered yet. At depth k, finding the next link passes over the k
+    // transcripts already entered. Each one passed over is charged, so the
+    // budget ends the search instead of 800 million uncharged skips.
+    let edits = (0..40_000)
+        .map(|i| {
+            candidate(with_hashes(
+                replace(&format!("e{i}"), &format!("t{i}"), 1, "x\n", "x\n"),
+                "x\n",
+                "x\n",
+            ))
+        })
+        .collect();
+    let req = request(Some("q\n"), Some("x\n"), TargetKind::WorkingTree, edits);
+    let out = finishes_within(Duration::from_secs(10), move || walk(&req));
+    assert_eq!(out.status, PathStatus::SearchIncomplete);
+}
+
+#[test]
 fn chains_are_settled_without_comparing_every_pair() {
     // A replace-all with 15 independent alignment choices, after a hashless
     // edit with two locations. Under each alignment, one location reaches
