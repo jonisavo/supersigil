@@ -166,9 +166,16 @@ mod tests {
             canonical_or_written(dir.path()).unwrap(),
             canonical(dir.path()).unwrap()
         );
+    }
+
+    // Unix reports a path beneath a regular file as "not a directory", an
+    // error; Windows reports it as not found, so there the written path is kept.
+    #[cfg(unix)]
+    #[test]
+    fn canonical_or_written_reports_a_path_beneath_a_file() {
+        let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("file");
         std::fs::write(&file, b"").unwrap();
-        // A file is not a directory, so looking beneath it is not "not found".
         let err = canonical_or_written(&file.join("child")).unwrap_err();
         assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
     }
