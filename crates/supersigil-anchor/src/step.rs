@@ -26,6 +26,8 @@
 //! recognize it could reject the true candidate of a hashless edit: less
 //! attribution, and a competing reading that survives alone.
 
+use std::collections::BTreeSet;
+use std::iter::Peekable;
 use std::ops::Range;
 
 use supersigil_record::observations::{Content, Edit, EditOperation, FileState, Hunk, Material};
@@ -69,21 +71,11 @@ pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
             let old = retained(&edit.old_text)?;
             let new = retained(&edit.new_text)?;
             let bytes = before.bytes()?;
-            if old.is_empty() {
-                return None;
-            }
-            let positions = if edit.replace_all {
-                non_overlapping(bytes, old)
-            } else {
-                find(bytes, old).into_iter().collect()
-            };
-            if positions.is_empty() {
-                return None;
-            }
+            let limit = if edit.replace_all { usize::MAX } else { 1 };
             let mut after = Vec::with_capacity(bytes.len() + new.len());
-            let mut replacements = Vec::with_capacity(positions.len());
+            let mut replacements = Vec::new();
             let mut last = 0;
-            for position in positions {
+            for position in Matches::new(bytes, old, Reading::Leftmost).take(limit) {
                 after.extend_from_slice(&bytes[last..position]);
                 let start = after.len();
                 after.extend_from_slice(new);
@@ -92,6 +84,9 @@ pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
                     after: start..after.len(),
                 });
                 last = position + old.len();
+            }
+            if replacements.is_empty() {
+                return None;
             }
             after.extend_from_slice(&bytes[last..]);
             Some(Forward {
@@ -198,10 +193,13 @@ impl Budget {
 /// splice before it is built, so a rejected one costs only those lines and
 /// the hunk text.
 ///
-/// Reading `current` (its hash, its lines, the search for the edit's text)
-/// is charged to `budget` first, then each candidate; when a charge is
-/// refused, the candidates accepted so far are returned and
-/// [`Budget::exhausted`] is set.
+/// Work is charged to `budget` before it is done: reading `current` (its
+/// hash, its lines, the search for the edit's text), the retained hunks
+/// where they are consulted, the table each search prepares, and each
+/// candidate (the lines a patch check splices, then the before-state built
+/// and the after-state forward execution makes from it). Candidates are
+/// generated one at a time. When a charge is refused, the candidates
+/// accepted so far are returned and [`Budget::exhausted`] is set.
 #[must_use]
 pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) -> Reversed {
     if edit.operation == EditOperation::Unknown {
@@ -219,7 +217,25 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
             edit: edit.id.clone(),
         });
     }
-    let patch = Patch::new(edit, current);
+    // The retained patch is read only where it is consulted: for the new
+    // side while the after-hash is unknown, and for an ordinary Edit's
+    // candidates. Its text is charged before it is read.
+    let consulted =
+        !is_known(&edit.after) || (edit.operation == EditOperation::Replace && !edit.replace_all);
+    let patch = match edit.patch.retained() {
+        Some(hunks) if consulted => {
+            let bytes = hunks
+                .iter()
+                .flat_map(|hunk| &hunk.lines)
+                .map(String::len)
+                .sum();
+            if !budget.charge(bytes) {
+                return Reversed::Candidates(Vec::new());
+            }
+            Patch::new(hunks, bytes, current)
+        }
+        _ => None,
+    };
     if let Some(patch) = &patch
         && !is_known(&edit.after)
         && !patch.shown_after(&patch.current)
@@ -258,19 +274,21 @@ struct Patch<'a> {
 }
 
 impl<'a> Patch<'a> {
-    /// The edit's retained patch, checked against `current`. `None` when no
-    /// patch was retained, or when a hunk holds a literal tab: Claude Code
-    /// shows every tab as two spaces, so such a hunk is in another display
-    /// and the whole patch is ignored.
-    fn new(edit: &'a Edit, current: &'a State) -> Option<Self> {
-        let hunks = edit.patch.retained()?;
-        let text = || hunks.iter().flat_map(|hunk| &hunk.lines);
-        if text().any(|line| line.contains('\t')) {
+    /// A retained patch of `bytes` bytes of hunk text, checked against
+    /// `current`. `None` when a hunk holds a literal tab: Claude Code shows
+    /// every tab as two spaces, so such a hunk is in another display and the
+    /// whole patch is ignored.
+    fn new(hunks: &'a [Hunk], bytes: usize, current: &'a State) -> Option<Self> {
+        if hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .any(|line| line.contains('\t'))
+        {
             return None;
         }
         Some(Self {
             hunks: sides(hunks),
-            bytes: text().map(String::len).sum(),
+            bytes,
             hint: hint_line(hunks),
             current: Whole::new(current.bytes().unwrap_or_default()),
         })
@@ -420,13 +438,33 @@ struct Spliced<'a> {
 }
 
 impl<'a> Spliced<'a> {
-    fn new(outer: &'a Whole<'a>, at: &Range<usize>, with: &[u8]) -> Self {
+    /// Builds the splice after charging `budget` for the touched lines it
+    /// copies; `None`, with nothing built, when the charge is refused.
+    fn charged(
+        outer: &'a Whole<'a>,
+        at: &Range<usize>,
+        with: &[u8],
+        budget: &mut Budget,
+    ) -> Option<Self> {
+        let (_, from, _, to) = Self::bounds(outer, at);
+        let len = (to - from - at.len()).saturating_add(with.len());
+        budget.charge(len).then(|| Self::new(outer, at, with))
+    }
+
+    /// The touched lines of `outer` around `at`: the first one's index and
+    /// start, and the index and start of the first line after them.
+    fn bounds(outer: &Whole, at: &Range<usize>) -> (usize, usize, usize, usize) {
         let head = line_of(&outer.starts, at.start);
         let from = outer.starts.get(head).copied().unwrap_or(0);
         // The first line starting after the replaced range: the line holding
         // its end is touched even when the range ends at that line's start.
         let tail = outer.starts.partition_point(|&start| start <= at.end);
         let to = outer.starts.get(tail).copied().unwrap_or(outer.bytes.len());
+        (head, from, tail, to)
+    }
+
+    fn new(outer: &'a Whole<'a>, at: &Range<usize>, with: &[u8]) -> Self {
+        let (head, from, tail, to) = Self::bounds(outer, at);
         let mut touched = Vec::with_capacity(to - from - at.len() + with.len());
         touched.extend_from_slice(&outer.bytes[from..at.start]);
         touched.extend_from_slice(with);
@@ -476,60 +514,74 @@ fn retained(material: &Material<String>) -> Option<&[u8]> {
     material.retained().map(String::as_bytes)
 }
 
-/// Returns the first position where `needle` occurs.
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    Matches::new(haystack, needle, false).next()
+/// How [`Matches`] reads its haystack.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// Non-overlapping occurrences, left to right, as `str::replace` finds
+    /// them.
+    Leftmost,
+    /// Every occurrence, overlapping ones included, left to right.
+    Every,
+    /// Every occurrence, overlapping ones included, right to left.
+    EveryBackward,
 }
 
-/// Returns the non-overlapping occurrences of `needle`, left to right, as
-/// `str::replace` finds them.
-fn non_overlapping(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
-    Matches::new(haystack, needle, false).collect()
-}
-
-/// Returns every position where `needle` occurs, overlapping ones included.
-fn occurrences(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
-    Matches::new(haystack, needle, true).collect()
-}
-
-/// The positions where a needle occurs in a haystack, left to right, found
-/// in time linear in both lengths (Knuth-Morris-Pratt): every haystack byte
-/// is read once, so repetitive text costs no more than any other. An empty
-/// needle occurs nowhere.
+/// The positions where a needle occurs in a haystack, given one at a time
+/// and found in time linear in both lengths (Knuth-Morris-Pratt): every
+/// haystack byte is read once, so repetitive text costs no more than any
+/// other. Preparing the search costs the needle's length, except that a
+/// needle that is empty or longer than the haystack occurs nowhere and
+/// prepares nothing.
 struct Matches<'a> {
     haystack: &'a [u8],
     needle: &'a [u8],
-    /// For each `i`, the length of the longest proper prefix of
-    /// `needle[..=i]` that is also its suffix.
+    reading: Reading,
+    /// For each `i`, the length of the longest proper prefix of the first
+    /// `i + 1` needle bytes in reading order that is also their suffix.
     border: Vec<usize>,
-    /// Whether a match may start inside the previous one.
-    overlapping: bool,
-    /// The next haystack byte to read.
-    at: usize,
-    /// How many leading needle bytes the bytes before `at` end with.
+    /// How many haystack bytes have been read.
+    read: usize,
+    /// How many leading needle bytes, in reading order, the bytes read end
+    /// with.
     matched: usize,
 }
 
 impl<'a> Matches<'a> {
-    fn new(haystack: &'a [u8], needle: &'a [u8], overlapping: bool) -> Self {
+    fn new(haystack: &'a [u8], needle: &'a [u8], reading: Reading) -> Self {
+        let mut matches = Self {
+            haystack,
+            needle,
+            reading,
+            border: Vec::new(),
+            read: 0,
+            matched: 0,
+        };
+        if needle.is_empty() || needle.len() > haystack.len() {
+            matches.read = haystack.len();
+            return matches;
+        }
         let mut border = vec![0; needle.len()];
         let mut k = 0;
         for i in 1..needle.len() {
-            while k > 0 && needle[i] != needle[k] {
+            let byte = matches.needle_at(i);
+            while k > 0 && byte != matches.needle_at(k) {
                 k = border[k - 1];
             }
-            if needle[i] == needle[k] {
+            if byte == matches.needle_at(k) {
                 k += 1;
             }
             border[i] = k;
         }
-        Self {
-            haystack,
-            needle,
-            border,
-            overlapping,
-            at: 0,
-            matched: 0,
+        matches.border = border;
+        matches
+    }
+
+    /// The `i`-th needle byte in reading order.
+    fn needle_at(&self, i: usize) -> u8 {
+        if self.reading == Reading::EveryBackward {
+            self.needle[self.needle.len() - 1 - i]
+        } else {
+            self.needle[i]
         }
     }
 }
@@ -538,38 +590,122 @@ impl Iterator for Matches<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
-        if self.needle.is_empty() {
-            return None;
-        }
-        while let Some(&byte) = self.haystack.get(self.at) {
-            self.at += 1;
-            while self.matched > 0 && self.needle[self.matched] != byte {
+        let (len, width) = (self.haystack.len(), self.needle.len());
+        let backward = self.reading == Reading::EveryBackward;
+        while self.read < len {
+            let byte = if backward {
+                self.haystack[len - 1 - self.read]
+            } else {
+                self.haystack[self.read]
+            };
+            self.read += 1;
+            while self.matched > 0 && self.needle_at(self.matched) != byte {
                 self.matched = self.border[self.matched - 1];
             }
-            if self.needle[self.matched] == byte {
+            if self.needle_at(self.matched) == byte {
                 self.matched += 1;
             }
-            if self.matched == self.needle.len() {
-                self.matched = if self.overlapping {
-                    self.border[self.matched - 1]
-                } else {
+            if self.matched == width {
+                self.matched = if self.reading == Reading::Leftmost {
                     0
+                } else {
+                    self.border[width - 1]
                 };
-                return Some(self.at - self.needle.len());
+                return Some(if backward {
+                    len - self.read
+                } else {
+                    self.read - width
+                });
             }
         }
         None
     }
 }
 
-/// Where a deleted block could have been: every line start, plus the end
-/// when the bytes are empty or end with a newline.
-fn deletion_positions(bytes: &[u8]) -> Vec<usize> {
-    let mut positions = line_starts(bytes);
-    if bytes.is_empty() || bytes.ends_with(b"\n") {
-        positions.push(bytes.len());
+/// The candidate positions of an Edit's `new_text` in the current bytes,
+/// generated one at a time: every occurrence of a non-empty `new_text`, or
+/// for a deletion (an empty one) every line start and the end when that is
+/// a line boundary. With a hint (the current bytes' line starts and a
+/// 0-based line), positions on lines nearer the hint come first; without
+/// one, positions come in byte order.
+fn candidate_positions<'a>(
+    bytes: &'a [u8],
+    new: &'a [u8],
+    hint: Option<(&'a [usize], usize)>,
+) -> Box<dyn Iterator<Item = usize> + 'a> {
+    let Some((starts, line)) = hint else {
+        return positions_from(bytes, new, 0);
+    };
+    let from = starts.get(line).copied().unwrap_or(bytes.len());
+    Box::new(Outward {
+        starts,
+        line,
+        before: positions_before(bytes, new, from).peekable(),
+        after: positions_from(bytes, new, from).peekable(),
+    })
+}
+
+/// Whether a deleted block could have been at `position`: a line start, or
+/// the end when the bytes are empty or end with a line terminator.
+fn deletable_at(bytes: &[u8], position: usize) -> bool {
+    position == 0 || bytes[position - 1] == b'\n'
+}
+
+/// Candidate positions at or after `from`, in increasing order.
+fn positions_from<'a>(
+    bytes: &'a [u8],
+    new: &'a [u8],
+    from: usize,
+) -> Box<dyn Iterator<Item = usize> + 'a> {
+    if new.is_empty() {
+        Box::new((from..=bytes.len()).filter(move |&p| deletable_at(bytes, p)))
+    } else {
+        Box::new(Matches::new(&bytes[from..], new, Reading::Every).map(move |p| p + from))
     }
-    positions
+}
+
+/// Candidate positions before `to`, in decreasing order. An occurrence
+/// starting before `to` may end after it, so the search reads up to the
+/// end of the last one that could.
+fn positions_before<'a>(
+    bytes: &'a [u8],
+    new: &'a [u8],
+    to: usize,
+) -> Box<dyn Iterator<Item = usize> + 'a> {
+    if new.is_empty() {
+        Box::new((0..to).rev().filter(move |&p| deletable_at(bytes, p)))
+    } else {
+        let end = to
+            .checked_sub(1)
+            .map_or(0, |last| (last + new.len()).min(bytes.len()));
+        Box::new(Matches::new(&bytes[..end], new, Reading::EveryBackward))
+    }
+}
+
+/// Positions before a hint line, nearest first, and from it on, nearest
+/// first, merged by their lines' distance from the hint line; a tie goes
+/// to the earlier line.
+struct Outward<'a> {
+    starts: &'a [usize],
+    line: usize,
+    before: Peekable<Box<dyn Iterator<Item = usize> + 'a>>,
+    after: Peekable<Box<dyn Iterator<Item = usize> + 'a>>,
+}
+
+impl Iterator for Outward<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let (starts, line) = (self.starts, self.line);
+        let distance = |position: usize| line_of(starts, position).abs_diff(line);
+        match (self.before.peek(), self.after.peek()) {
+            (Some(&before), Some(&after)) if distance(after) < distance(before) => {
+                self.after.next()
+            }
+            (Some(_), _) => self.before.next(),
+            (None, _) => self.after.next(),
+        }
+    }
 }
 
 /// The 0-based line where the first hunk shows its first change, used only
@@ -585,12 +721,12 @@ fn hint_line(hunks: &[Hunk]) -> Option<usize> {
     Some(one_based.saturating_sub(1))
 }
 
-/// Orders positions by line distance from the hint, then by position.
-fn order_by_hint(mut positions: Vec<usize>, starts: &[usize], hint: Option<usize>) -> Vec<usize> {
-    if let Some(hint) = hint {
-        positions.sort_by_key(|&p| (line_of(starts, p).abs_diff(hint), p));
-    }
-    positions
+/// What a candidate before-state of `len` bytes costs before it is built:
+/// building it, and executing the edit forward on it into an after-state
+/// of `current` bytes that is compared with the current ones. Saturates, so
+/// that a cost too large to represent is refused.
+fn candidate_cost(len: usize, current: usize) -> usize {
+    len.saturating_add(current)
 }
 
 /// Checks a candidate before-state against the recorded before-hash and by
@@ -634,45 +770,55 @@ fn reverse_replace(
     if edit.replace_all {
         return reverse_replace_all(edit, current, bytes, old, new, budget);
     }
-    let positions = if new.is_empty() {
-        if !old.ends_with(b"\n") {
-            return stop(StopReason::NotLocatable { edit: id() });
-        }
-        deletion_positions(bytes)
-    } else {
-        occurrences(bytes, new)
-    };
-    if positions.is_empty() {
+    if (new.is_empty() && !old.ends_with(b"\n")) || new.len() > bytes.len() {
         return stop(StopReason::NotLocatable { edit: id() });
     }
-    let positions = match patch {
-        Some(patch) => order_by_hint(positions, &patch.current.starts, patch.hint),
-        None => positions,
-    };
+    let hint = patch.and_then(|patch| Some((patch.current.starts.as_slice(), patch.hint?)));
+    // Each search for `new_text` (one each way from a hint) prepares a table
+    // as long as it.
+    let searches = if hint.is_some() { 2 } else { 1 };
+    if !budget.charge(new.len().saturating_mul(searches)) {
+        return Reversed::Candidates(Vec::new());
+    }
     // A known before-hash decides alone; the old side is consulted only
     // without one.
     let check = patch.filter(|_| !is_known(&edit.before));
+    let mut proposed = false;
     let mut accepted: Vec<Reversal> = Vec::new();
-    for position in positions {
+    // Forward execution's replacement start for each accepted candidate. An
+    // accepted before-state is the current bytes with `new_text` at that
+    // start put back to `old_text`, so equal starts mean equal states.
+    let mut starts = BTreeSet::new();
+    for position in candidate_positions(bytes, new, hint) {
+        proposed = true;
+        let at = position..position + new.len();
         if let Some(patch) = check {
-            let spliced = Spliced::new(&patch.current, &(position..position + new.len()), old);
-            if !budget.charge(spliced.touched.len() + patch.bytes) {
+            if !budget.charge(patch.bytes) {
                 break;
             }
+            let Some(spliced) = Spliced::charged(&patch.current, &at, old, budget) else {
+                break;
+            };
             if !patch.shown_before(&spliced) {
                 continue;
             }
         }
-        if !budget.charge(bytes.len() + old.len()) {
+        let len = (bytes.len() - new.len()).saturating_add(old.len());
+        if !budget.charge(candidate_cost(len, bytes.len())) {
             break;
         }
-        let before = State::Present(splice(bytes, position..position + new.len(), old));
-        if accepted.iter().any(|r| r.before == before) {
-            continue;
-        }
-        if let Some(reversal) = validate(edit, before, current) {
+        let before = State::Present(splice(bytes, at, old));
+        if let Some(reversal) = validate(edit, before, current)
+            && reversal
+                .replacements
+                .first()
+                .is_some_and(|replaced| starts.insert(replaced.before.start))
+        {
             accepted.push(reversal);
         }
+    }
+    if !proposed {
+        return stop(StopReason::NotLocatable { edit: id() });
     }
     if accepted.is_empty() && !budget.exhausted() {
         return stop(StopReason::NoAcceptedCandidate { edit: id() });
@@ -706,18 +852,38 @@ fn reverse_replace_all(
     if !known_before || new.is_empty() {
         return unverified();
     }
-    let positions = non_overlapping(bytes, new);
-    if positions.is_empty() {
-        return stop(StopReason::NotLocatable {
+    let not_locatable = || {
+        stop(StopReason::NotLocatable {
             edit: edit.id.clone(),
-        });
+        })
+    };
+    if new.len() > bytes.len() {
+        return not_locatable();
     }
-    if !budget.charge(2 * bytes.len()) {
+    if !budget.charge(new.len()) {
         return Reversed::Candidates(Vec::new());
     }
-    let mut before = Vec::with_capacity(bytes.len());
+    let count = Matches::new(bytes, new, Reading::Leftmost).count();
+    if count == 0 {
+        return not_locatable();
+    }
+    // The joint inverse puts every occurrence back to `old_text`. Its
+    // length is charged, with its validation and the second search that
+    // builds it, before anything is built. The occurrences do not overlap,
+    // so they fit in the bytes.
+    let len = count
+        .checked_mul(old.len())
+        .and_then(|restored| (bytes.len() - count * new.len()).checked_add(restored))
+        .unwrap_or(usize::MAX);
+    let cost = candidate_cost(len, bytes.len())
+        .saturating_add(bytes.len())
+        .saturating_add(new.len());
+    if !budget.charge(cost) {
+        return Reversed::Candidates(Vec::new());
+    }
+    let mut before = Vec::with_capacity(len);
     let mut last = 0;
-    for position in positions {
+    for position in Matches::new(bytes, new, Reading::Leftmost) {
         before.extend_from_slice(&bytes[last..position]);
         before.extend_from_slice(old);
         last = position + new.len();
@@ -734,7 +900,7 @@ fn reverse_write(edit: &Edit, current: &State, base: &State, budget: &mut Budget
     let Some(content) = retained(&edit.new_text) else {
         return stop(StopReason::TextUnavailable { edit: id() });
     };
-    if !budget.charge(current.byte_len() + base.byte_len()) {
+    if !budget.charge(candidate_cost(base.byte_len(), current.byte_len())) {
         return Reversed::Candidates(Vec::new());
     }
     if current.bytes() != Some(content) {
@@ -777,6 +943,18 @@ mod tests {
                             all(&Whole::new(&built)),
                             "{outer:?} {start}..{end} {with:?}"
                         );
+                        // The charge made before building is what is built.
+                        let cost = u64::try_from(spliced.touched.len()).unwrap();
+                        if let Some(less) = cost.checked_sub(1) {
+                            let mut short = Budget::new(less);
+                            assert!(
+                                Spliced::charged(&whole, &(start..end), with, &mut short).is_none()
+                            );
+                        }
+                        let mut exact = Budget::new(cost);
+                        let charged = Spliced::charged(&whole, &(start..end), with, &mut exact);
+                        assert_eq!(charged.map(|s| s.touched), Some(spliced.touched));
+                        assert!(!exact.charge(1));
                     }
                 }
             }
@@ -798,19 +976,33 @@ mod tests {
 
     #[test]
     fn matches_are_the_occurrences_str_finds() {
+        let found = |h: &str, n: &str, reading| -> Vec<usize> {
+            Matches::new(h.as_bytes(), n.as_bytes(), reading).collect()
+        };
         for haystack in words(0..=9) {
             for needle in words(1..=4) {
-                let (h, n) = (haystack.as_bytes(), needle.as_bytes());
                 let every: Vec<usize> = (0..haystack.len())
                     .filter(|&i| haystack[i..].starts_with(&needle))
                     .collect();
-                let greedy: Vec<usize> = haystack.match_indices(&needle).map(|(i, _)| i).collect();
-                assert_eq!(occurrences(h, n), every, "{haystack} {needle}");
-                assert_eq!(non_overlapping(h, n), greedy, "{haystack} {needle}");
-                assert_eq!(find(h, n), haystack.find(&needle), "{haystack} {needle}");
+                let leftmost: Vec<usize> =
+                    haystack.match_indices(&needle).map(|(i, _)| i).collect();
+                let backward: Vec<usize> = every.iter().rev().copied().collect();
+                assert_eq!(found(&haystack, &needle, Reading::Every), every);
+                assert_eq!(found(&haystack, &needle, Reading::Leftmost), leftmost);
+                assert_eq!(found(&haystack, &needle, Reading::EveryBackward), backward);
             }
-            assert_eq!(occurrences(haystack.as_bytes(), b""), Vec::<usize>::new());
+            for reading in [Reading::Leftmost, Reading::Every, Reading::EveryBackward] {
+                assert_eq!(found(&haystack, "", reading), Vec::<usize>::new());
+            }
         }
+    }
+
+    #[test]
+    fn a_search_that_cannot_match_prepares_nothing() {
+        let needle = vec![b'a'; 64];
+        let matches = Matches::new(b"aaa", &needle, Reading::Every);
+        assert!(matches.border.is_empty());
+        assert_eq!(matches.count(), 0);
     }
 
     #[test]

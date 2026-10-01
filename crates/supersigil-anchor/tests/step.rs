@@ -508,17 +508,155 @@ fn reading_the_current_bytes_is_charged_before_any_candidate() {
         Reversed::Candidates(Vec::new())
     );
     assert!(budget.exhausted());
-    let mut budget = Budget::new(4);
+    // Reading 4 bytes, and the search for "q" prepares a 1-byte table.
+    let mut budget = Budget::new(4 + 1);
     assert_eq!(
         reverse(&e, &current, &State::Absent, &mut budget),
         Reversed::Stop(StopReason::NotLocatable { edit: id("e1") })
     );
     assert!(!budget.exhausted());
-    // Each candidate is charged after the reading (4 bytes, then 6 per
-    // candidate here); those accepted before the budget ran out are kept.
+    // Each candidate is charged after the reading: here 4 bytes, then 10
+    // per candidate (the 6-byte candidate and the 4 bytes it executes
+    // forward into). Those accepted before the budget ran out are kept.
     let d = replace("d", "t", 1, "c\n", "");
-    let mut budget = Budget::new(10);
+    let mut budget = Budget::new(4 + 10);
     let out = reverse(&d, &state(Some("a\nb\n")), &State::Absent, &mut budget);
     assert_eq!(befores(&out), vec!["c\na\nb\n"]);
     assert!(budget.exhausted());
+}
+
+#[test]
+fn a_growing_joint_inverse_is_charged_before_it_is_built() {
+    // Replacing 5,000 "a" with one "b" in a file that already holds 5,000
+    // "b" leaves 5,001 bytes, whose joint inverse holds 25,005,000. It is
+    // charged in full before it is built, so a 1 MiB budget runs out; with
+    // room, it is built and the before-hash rejects it.
+    let run_of_a = "a".repeat(5_000);
+    let before = format!("{run_of_a}{}", "b".repeat(5_000));
+    let after = "b".repeat(5_001);
+    let e = with_hashes(replace_all("e1", "t", 1, &run_of_a, "b"), &before, &after);
+    let mut budget = Budget::new(1 << 20);
+    assert_eq!(
+        reverse(&e, &state(Some(&after)), &State::Absent, &mut budget),
+        Reversed::Candidates(Vec::new())
+    );
+    assert!(budget.exhausted());
+    let mut budget = Budget::new(DEFAULT_BUDGET_BYTES);
+    assert_eq!(
+        reverse(&e, &state(Some(&after)), &State::Absent, &mut budget),
+        Reversed::Stop(StopReason::ReplaceAllUnverified { edit: id("e1") })
+    );
+    assert!(!budget.exhausted());
+}
+
+#[test]
+fn preparing_a_search_is_charged_unless_no_match_fits() {
+    // Searching for a text first prepares a table as long as the text,
+    // charged after the reading: 1,000 bytes cover the reading, not the
+    // table for a 601-byte text.
+    let current = "a".repeat(1_000);
+    let text = format!("{}b", "a".repeat(600));
+    let e = replace("e1", "t", 1, "x", &text);
+    let mut budget = Budget::new(1_000 + 600);
+    assert_eq!(
+        reverse(&e, &state(Some(&current)), &State::Absent, &mut budget),
+        Reversed::Candidates(Vec::new())
+    );
+    assert!(budget.exhausted());
+    // A text longer than the current bytes cannot occur in them: nothing is
+    // prepared or charged, however far it exceeds the budget.
+    let huge = "b".repeat(10 << 20);
+    let e = replace("e2", "t", 1, "x", &huge);
+    let mut budget = Budget::new(1_000);
+    assert_eq!(
+        reverse(&e, &state(Some(&current)), &State::Absent, &mut budget),
+        Reversed::Stop(StopReason::NotLocatable { edit: id("e2") })
+    );
+    assert!(!budget.exhausted());
+    let e = with_hashes(replace_all("e3", "t", 1, "x", &huge), "x", &current);
+    let mut budget = Budget::new(1_000);
+    assert_eq!(
+        reverse(&e, &state(Some(&current)), &State::Absent, &mut budget),
+        Reversed::Stop(StopReason::NotLocatable { edit: id("e3") })
+    );
+    assert!(!budget.exhausted());
+}
+
+#[test]
+fn a_retained_patch_is_charged_before_it_is_read() {
+    // The hunk holds 10 MiB of text; the budget covers reading the current
+    // bytes but not the hunk.
+    let mut e = replace("e1", "t", 1, "x\n", "a\n");
+    e.patch = Material::Retained(vec![Hunk {
+        old_start: 1,
+        old_lines: 2,
+        new_start: 1,
+        new_lines: 2,
+        lines: vec![" ".repeat(10 << 20), "-x".to_owned(), "+a".to_owned()],
+    }]);
+    let mut budget = Budget::new(1 << 10);
+    assert_eq!(
+        reverse(&e, &state(Some("a\n")), &State::Absent, &mut budget),
+        Reversed::Candidates(Vec::new())
+    );
+    assert!(budget.exhausted());
+}
+
+#[test]
+fn candidate_positions_are_generated_under_the_budget() {
+    // 8 Mi lines of "a": every line is a position for "a\n", and the patch
+    // puts the edit at line 4 Mi. The budget covers reading the bytes and a
+    // few cheap checks, nearest the patch's line first, then runs out:
+    // finding, collecting, and ordering every position first would take
+    // far longer.
+    let lines = 1 << 23;
+    let current = "a\n".repeat(lines);
+    let mut e = replace("e1", "t", 1, "x\n", "a\n");
+    e.patch = Material::Retained(vec![Hunk {
+        old_start: 1 << 22,
+        old_lines: 1,
+        new_start: 1 << 22,
+        new_lines: 1,
+        lines: vec!["-x".to_owned(), "+a".to_owned()],
+    }]);
+    let (out, exhausted) = finishes_within(Duration::from_secs(2), move || {
+        let mut budget = Budget::new(2 * lines as u64 + 1024);
+        let out = reverse(&e, &state(Some(&current)), &State::Absent, &mut budget);
+        (out, budget.exhausted())
+    });
+    assert_eq!(out, Reversed::Candidates(Vec::new()));
+    assert!(exhausted);
+}
+
+#[test]
+fn many_accepted_positions_are_told_apart_without_comparing_states() {
+    // Putting the "x" back at any of 12,000 "a" bytes gives a distinct
+    // before-state that executes forward to the current bytes, so every
+    // position is accepted. Comparing each with every accepted state would
+    // take far longer than validating them.
+    let current = "a".repeat(12_000);
+    let e = replace("e1", "t", 1, "x", "a");
+    let out = finishes_within(Duration::from_secs(5), move || {
+        let mut budget = Budget::new(u64::MAX);
+        reverse(&e, &state(Some(&current)), &State::Absent, &mut budget)
+    });
+    let Reversed::Candidates(all) = out else {
+        panic!("every position is accepted")
+    };
+    assert_eq!(all.len(), 12_000);
+    assert!(all.iter().all(|r| r.location_choice));
+}
+
+#[test]
+fn positions_giving_one_before_state_are_one_candidate() {
+    // "x" -> "xx" leaves "xxx" from "xx": putting "x" back at either
+    // occurrence of "xx" gives "xx", whose first "x" forward execution
+    // replaces both times.
+    let out = run(&replace("e1", "t", 1, "x", "xx"), "xxx", None);
+    assert_eq!(befores(&out), vec!["xx"]);
+    assert_eq!(location_choices(&out), vec![false]);
+    // Every line start of "a\na\n" gives "a\na\na\n" back.
+    let out = run(&replace("d", "t", 1, "a\n", ""), "a\na\n", None);
+    assert_eq!(befores(&out), vec!["a\na\na\n"]);
+    assert_eq!(location_choices(&out), vec![false]);
 }
