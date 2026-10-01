@@ -17,10 +17,10 @@ use supersigil_record::store::{RecordSnapshot, Store, StoreError};
 use supersigil_session::checkout::{Placement, canonical, placement};
 use supersigil_session::claude_code::parse_transcript;
 use supersigil_session::discover::{discover_transcripts, encode_project_dir, transcripts_in};
-use supersigil_session::sync::{SyncError, sync};
+use supersigil_session::sync::{SyncError, SyncReport, sync};
 
 use crate::error::CliError;
-use crate::record_dir::{Acquired, RETRY, open_or_create_record_within};
+use crate::record_dir::{Acquired, Contention, RETRY, open_or_create_record_within};
 
 /// How long reconcile waits for each lock before reporting it held.
 pub const LOCK_WAIT: Duration = Duration::from_secs(2);
@@ -185,6 +185,12 @@ pub fn transcripts_below(claude_home: &Path, worktree: &Path) -> std::io::Result
 /// Returns [`CliError::Io`] if a directory or transcript cannot be read, a
 /// store error if a record cannot be read or written for a reason other
 /// than a held lock, or a sync error if a transcript cannot be synced.
+///
+/// # Panics
+///
+/// Panics if `wait` is so large that a deadline overflows [`Instant`], or
+/// if a record needing a commit is at revision [`u64::MAX`] (as
+/// [`sync`] documents).
 pub fn reconcile(
     records_dir: &Path,
     claude_home: Option<&Path>,
@@ -193,27 +199,32 @@ pub fn reconcile(
     wait: Duration,
 ) -> Result<Reconciliation, CliError> {
     let mut reasons: BTreeMap<PathBuf, String> = BTreeMap::new();
-    let mut fed: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut admitted: BTreeSet<PathBuf> = BTreeSet::new();
     for store in involved_records(records_dir, worktrees)? {
-        if let Some(reason) = sync_record(&store, claude_home, wait, &mut fed)? {
+        if let Some(reason) = sync_record(&store, claude_home, wait, &mut admitted)? {
             reasons.insert(store.root().to_path_buf(), reason);
         }
     }
 
     let mut unreconciled = Vec::new();
     if let Some(home) = claude_home {
-        for (checkout, transcripts) in unowned_transcripts(home, worktrees, main_worktree, &fed)? {
+        for (checkout, transcripts) in
+            unowned_transcripts(home, worktrees, main_worktree, &admitted)?
+        {
             match open_or_create_record_within(records_dir, &checkout, wait)? {
                 Acquired::Ready(store) => {
-                    if let Some(reason) = sync_within(&store, &checkout, &transcripts, wait)? {
-                        reasons.insert(store.root().to_path_buf(), reason);
+                    if sync_within(&store, &checkout, &transcripts, wait)?.is_none() {
+                        reasons.insert(store.root().to_path_buf(), WRITER_LOCKED.to_owned());
                     }
                 }
-                Acquired::Busy => unreconciled.push(UnreconciledCheckout {
+                Acquired::Busy(Contention::Directory) => unreconciled.push(UnreconciledCheckout {
                     checkout,
                     transcripts: transcripts.len(),
                     reason: DIRECTORY_LOCKED.to_owned(),
                 }),
+                Acquired::Busy(Contention::Record(root)) => {
+                    reasons.insert(root, WRITER_LOCKED.to_owned());
+                }
             }
         }
     }
@@ -234,8 +245,8 @@ pub fn reconcile(
     })
 }
 
-/// Syncs one record per association, adding every transcript it reads to
-/// `fed`. Returns the reason it stopped early, if a lock stayed held.
+/// Syncs one record per association, adding every transcript sync admits (not one it skips) to
+/// `admitted`. Returns the reason it stopped early, if a lock stayed held.
 ///
 /// # Errors
 ///
@@ -244,7 +255,7 @@ fn sync_record(
     store: &Store,
     claude_home: Option<&Path>,
     wait: Duration,
-    fed: &mut BTreeSet<PathBuf>,
+    admitted: &mut BTreeSet<PathBuf>,
 ) -> Result<Option<String>, CliError> {
     let snapshot = store.snapshot()?;
     let recorded = recorded_checkouts(&snapshot)?;
@@ -266,11 +277,11 @@ fn sync_record(
         if transcripts.is_empty() {
             continue;
         }
-        for transcript in &transcripts {
-            fed.insert(identity(transcript)?);
-        }
-        if let Some(reason) = sync_within(store, &association.checkout, &transcripts, wait)? {
-            return Ok(Some(reason));
+        let Some(report) = sync_within(store, &association.checkout, &transcripts, wait)? else {
+            return Ok(Some(WRITER_LOCKED.to_owned()));
+        };
+        for transcript in report.transcripts.iter().filter(|t| t.skipped.is_none()) {
+            admitted.insert(identity(&transcript.path)?);
         }
     }
     Ok(None)
@@ -309,7 +320,7 @@ fn unowned_transcripts(
     claude_home: &Path,
     worktrees: &[PathBuf],
     main_worktree: &Path,
-    fed: &BTreeSet<PathBuf>,
+    admitted: &BTreeSet<PathBuf>,
 ) -> Result<BTreeMap<PathBuf, Vec<PathBuf>>, CliError> {
     let mut groups: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     for worktree in worktrees {
@@ -326,7 +337,7 @@ fn unowned_transcripts(
             }
         }
         for (transcript, admit_under) in sources {
-            if fed.contains(&identity(&transcript)?) {
+            if admitted.contains(&identity(&transcript)?) {
                 continue;
             }
             let bytes = std::fs::read(&transcript)?;
@@ -360,7 +371,7 @@ fn ancestors_within(worktree: &Path, main_worktree: &Path) -> Vec<PathBuf> {
 
 /// Syncs `transcripts` into `store` for `checkout`, retrying every 50 ms
 /// while the record is locked or another writer commits first, for up to
-/// `wait`. Returns the reason when the wait runs out.
+/// `wait`. Returns the sync report, or `None` when the wait runs out.
 ///
 /// # Errors
 ///
@@ -370,14 +381,14 @@ fn sync_within(
     checkout: &Path,
     transcripts: &[PathBuf],
     wait: Duration,
-) -> Result<Option<String>, CliError> {
+) -> Result<Option<SyncReport>, CliError> {
     let deadline = Instant::now() + wait;
     loop {
         match sync(store, checkout, transcripts) {
-            Ok(_) => return Ok(None),
+            Ok(report) => return Ok(Some(report)),
             Err(SyncError::Store(StoreError::Locked(_) | StoreError::Conflict { .. })) => {
                 if Instant::now() >= deadline {
-                    return Ok(Some(WRITER_LOCKED.to_owned()));
+                    return Ok(None);
                 }
                 std::thread::sleep(RETRY);
             }

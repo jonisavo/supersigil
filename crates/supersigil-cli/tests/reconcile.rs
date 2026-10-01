@@ -437,3 +437,64 @@ fn unreadable_cursor_transcript_is_an_error_not_an_absence() {
         eprintln!("skipped: this process ignores file permissions");
     }
 }
+
+#[test]
+fn skipped_transcript_stays_available_to_unowned_discovery() {
+    let f = fixture();
+    // `/repo/a-b` and `/repo/a/b` encode to the same project directory.
+    let hyphen = f.repo.join("a-b");
+    let nested = f.repo.join("a").join("b");
+    std::fs::create_dir_all(&hyphen).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+    open_or_create_record(&f.records, &hyphen).unwrap();
+    assert_eq!(encode_project_dir(&hyphen), encode_project_dir(&nested));
+    project_transcript(&f.home, &nested, "n.jsonl", &transcript("s-ab", &nested));
+
+    let result = reconcile(
+        &f.records,
+        Some(&f.home),
+        std::slice::from_ref(&f.repo),
+        &f.repo,
+        LOCK_WAIT,
+    )
+    .unwrap();
+
+    assert_eq!(result.records.len(), 2);
+    let owner = result
+        .records
+        .iter()
+        .find(|r| sessions(&r.store) == vec!["s-ab"])
+        .expect("the skipped transcript was never admitted anywhere");
+    let associations = owner.store.manifest().unwrap().associations;
+    assert_eq!(associations.len(), 1);
+    assert_eq!(associations[0].checkout, nested);
+}
+
+#[test]
+fn writer_lock_only_contention_names_the_owning_record() {
+    let f = fixture();
+    let src = f.repo.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let store = open_or_create_record(&f.records, &f.repo).unwrap();
+    // No cursor and no main-project transcript: only the new `src`
+    // transcript needs the held writer lock, to add its association.
+    project_transcript(&f.home, &src, "s.jsonl", &transcript("s-src", &src));
+    let held = store.begin().unwrap();
+
+    let result = reconcile(
+        &f.records,
+        Some(&f.home),
+        std::slice::from_ref(&f.repo),
+        &f.repo,
+        Duration::from_millis(200),
+    )
+    .unwrap();
+
+    assert_eq!(result.records.len(), 1);
+    assert_eq!(
+        result.records[0].not_reconciled.as_deref(),
+        Some("locked by another writer")
+    );
+    assert!(result.unreconciled.is_empty());
+    drop(held);
+}

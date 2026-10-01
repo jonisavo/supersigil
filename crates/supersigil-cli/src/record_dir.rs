@@ -167,7 +167,17 @@ pub enum Acquired<T> {
     /// The locks were taken and the value produced.
     Ready(T),
     /// A lock was still held by another writer when the wait ran out.
-    Busy,
+    Busy(Contention),
+}
+
+/// Which lock stayed held when a bounded wait ran out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Contention {
+    /// The records-directory lock.
+    Directory,
+    /// The writer lock of the record rooted at this directory, which owns the
+    /// checkout and needed a new association.
+    Record(PathBuf),
 }
 
 /// [`open_or_create_record`] with every lock wait bounded by `wait`.
@@ -175,7 +185,7 @@ pub enum Acquired<T> {
 /// Tries the records-directory lock, and the found record's writer lock
 /// when `checkout` must be added as an association, every 50 ms until
 /// `wait` has passed since the call began. Returns [`Acquired::Busy`]
-/// instead of blocking when either stays held, so a review never waits on a
+/// naming the lock that stayed held instead of blocking, so a review never waits on a
 /// stop hook indefinitely.
 ///
 /// # Errors
@@ -183,6 +193,10 @@ pub enum Acquired<T> {
 /// Returns a store error if the record cannot be created, read, or written
 /// for a reason other than a held lock, or an I/O error if the records
 /// directory or its lock cannot be created or locked.
+///
+/// # Panics
+///
+/// Panics if `wait` is so large that the deadline overflows [`Instant`].
 pub fn open_or_create_record_within(
     records_dir: &Path,
     checkout: &Path,
@@ -196,7 +210,7 @@ pub fn open_or_create_record_within(
             Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
                 std::thread::sleep(RETRY);
             }
-            Err(TryLockError::WouldBlock) => return Ok(Acquired::Busy),
+            Err(TryLockError::WouldBlock) => return Ok(Acquired::Busy(Contention::Directory)),
             Err(TryLockError::Error(e)) => return Err(e.into()),
         }
     }
@@ -214,7 +228,9 @@ pub fn open_or_create_record_within(
                 Err(StoreError::Locked(_)) if Instant::now() < deadline => {
                     std::thread::sleep(RETRY);
                 }
-                Err(StoreError::Locked(_)) => break Acquired::Busy,
+                Err(StoreError::Locked(_)) => {
+                    break Acquired::Busy(Contention::Record(store.root().to_path_buf()));
+                }
                 Err(e) => return Err(e.into()),
             }
         },
