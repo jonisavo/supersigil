@@ -452,15 +452,15 @@ mod tests {
             OnDiskCheck::Captured
         );
         let longer = compare_with_disk(&b"a\r\nb\r\nc"[..], b"a\nb\n");
-        assert!(
-            matches!(&longer, OnDiskCheck::NotCaptured { reason } if reason.contains("larger than the 6 bytes")),
-            "{longer:?}"
-        );
+        let OnDiskCheck::NotCaptured { reason } = &longer else {
+            panic!("{longer:?}");
+        };
+        assert!(reason.contains("larger than the 6 bytes"), "{reason}");
         let differs = compare_with_disk(&b"a\nc\n"[..], b"a\nb\n");
-        assert!(
-            matches!(&differs, OnDiskCheck::NotCaptured { reason } if reason.starts_with("the file on disk differs")),
-            "{differs:?}"
-        );
+        let OnDiskCheck::NotCaptured { reason } = &differs else {
+            panic!("{differs:?}");
+        };
+        assert!(reason.starts_with("the file on disk differs"), "{reason}");
     }
 
     #[test]
