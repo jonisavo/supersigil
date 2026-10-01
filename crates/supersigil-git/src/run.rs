@@ -351,9 +351,20 @@ pub(crate) fn io_error(context: &str, source: std::io::Error) -> GitError {
 mod tests {
     use super::*;
 
-    /// A runner in an empty directory that is not inside any repository.
+    /// A runner in an empty directory that is not inside any repository,
+    /// isolated from the machine's git configuration as
+    /// `tests/common/mod.rs`'s `isolated` does it: no system configuration,
+    /// and `HOME` and `XDG_CONFIG_HOME` inside the test's directory.
     fn outside_a_repository(dir: &tempfile::TempDir) -> Git {
-        Git::new(dir.path()).with_env("GIT_CEILING_DIRECTORIES", dir.path().parent().unwrap())
+        Git::new(dir.path())
+            .with_env("GIT_CEILING_DIRECTORIES", dir.path().parent().unwrap())
+            .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("HOME", dir.path())
+            .with_env("XDG_CONFIG_HOME", dir.path())
+            .with_env("GIT_AUTHOR_NAME", "Test")
+            .with_env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .with_env("GIT_COMMITTER_NAME", "Test")
+            .with_env("GIT_COMMITTER_EMAIL", "test@example.com")
     }
 
     #[test]
