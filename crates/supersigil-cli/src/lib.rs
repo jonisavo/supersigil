@@ -9,6 +9,8 @@ pub mod commands;
 pub mod error;
 /// Terminal formatting, color configuration, and output helpers.
 pub mod format;
+/// Syncing every record a review involves, with bounded lock waits.
+pub mod reconcile;
 /// Records directory resolution and record lookup.
 pub mod record_dir;
 
