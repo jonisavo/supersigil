@@ -32,6 +32,27 @@ pub fn placement(path: &Path, root: &Path) -> Placement {
     }
 }
 
+/// Checks whether `path` equals `root` or is inside it, by [`placement`].
+#[must_use]
+pub fn within(path: &Path, root: &Path) -> bool {
+    placement(path, root) != Placement::Outside
+}
+
+/// Checks whether either path equals or is inside the other, by [`placement`].
+#[must_use]
+pub fn overlaps(a: &Path, b: &Path) -> bool {
+    within(a, b) || within(b, a)
+}
+
+/// Returns [`canonical`], or `path` as written when it does not exist.
+///
+/// # Errors
+///
+/// Returns any I/O error other than [`std::io::ErrorKind::NotFound`].
+pub fn canonical_or_written(path: &Path) -> std::io::Result<PathBuf> {
+    Ok(crate::found(canonical(path))?.unwrap_or_else(|| path.to_path_buf()))
+}
+
 /// Returns an absolute path with symlinks resolved and no Windows verbatim prefix.
 ///
 /// Calls [`std::fs::canonicalize`], then converts `\\?\C:\x` to `C:\x` and
@@ -119,6 +140,37 @@ mod tests {
 
     fn relation(path: &str, root: &str) -> Placement {
         placement_as_written(Path::new(path), Path::new(root))
+    }
+
+    #[test]
+    fn within_and_overlaps_follow_placement() {
+        let (root, inner, other) = (
+            Path::new("/work/repo"),
+            Path::new("/work/repo/sub"),
+            Path::new("/work/other"),
+        );
+        assert!(within(root, root));
+        assert!(within(inner, root));
+        assert!(!within(root, inner));
+        assert!(!within(other, root));
+        assert!(overlaps(root, inner) && overlaps(inner, root));
+        assert!(!overlaps(root, other));
+    }
+
+    #[test]
+    fn canonical_or_written_falls_back_only_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing");
+        assert_eq!(canonical_or_written(&missing).unwrap(), missing);
+        assert_eq!(
+            canonical_or_written(dir.path()).unwrap(),
+            canonical(dir.path()).unwrap()
+        );
+        let file = dir.path().join("file");
+        std::fs::write(&file, b"").unwrap();
+        // A file is not a directory, so looking beneath it is not "not found".
+        let err = canonical_or_written(&file.join("child")).unwrap_err();
+        assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]

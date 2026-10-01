@@ -6,6 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::found;
+
 /// Converts a checkout path to a Claude Code project directory name.
 ///
 /// Replaces every character outside ASCII letters and digits with `-`.
@@ -98,11 +100,7 @@ fn subagent_transcripts(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 ///
 /// Returns any error other than [`std::io::ErrorKind::NotFound`].
 fn read_dir_if_present(dir: &Path) -> std::io::Result<Option<std::fs::ReadDir>> {
-    match std::fs::read_dir(dir) {
-        Ok(entries) => Ok(Some(entries)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
+    found(std::fs::read_dir(dir))
 }
 
 fn is_jsonl(path: &Path) -> bool {
