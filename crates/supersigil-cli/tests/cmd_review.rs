@@ -999,6 +999,33 @@ fn why_compares_the_disk_with_converted_bytes_that_do_not_map_line_for_line() {
 }
 
 #[test]
+fn why_reads_no_more_of_the_disk_than_could_match_the_capture() {
+    let f = Fixture::new();
+    // A clean filter that keeps only the first line: a large file on disk
+    // is captured as a five-byte blob, and its worktree form is the same.
+    f.git(&["config", "filter.first.clean", "sed -n 1p"]);
+    write(&f.repo, ".gitattributes", "*.first filter=first\n");
+    write(
+        &f.repo,
+        "f.first",
+        &format!("keep\n{}", "x\n".repeat(32_768)),
+    );
+    f.commit(&f.repo, "base");
+
+    let why = f.json(&f.repo, &["why", "f.first:1", "--format", "json"]);
+
+    // A file matching `keep\n` up to line endings holds at most six bytes,
+    // so the read stops at the seventh.
+    assert_eq!(why["on_disk"]["state"], "not_captured");
+    let reason = why["on_disk"]["reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with("the file on disk is larger than the 6 bytes "),
+        "{reason}"
+    );
+    assert!(why["line"].is_null());
+}
+
+#[test]
 fn a_root_path_selector_reviews_everything() {
     let f = Fixture::new();
     write(&f.repo, "src/lib.rs", "a\n");

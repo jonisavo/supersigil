@@ -2,7 +2,8 @@
 //! explained back to the file's creation when the evidence reaches that far.
 
 use std::collections::BTreeMap;
-use std::io::{self, Write as _};
+use std::fs::File;
+use std::io::{self, Read, Write as _};
 
 use supersigil_anchor::lines::split_lines;
 use supersigil_git::bytes::{blob_sizes, read_blobs};
@@ -311,8 +312,9 @@ fn differs_from_head(
 /// Checks that the captured line is what is on disk: a path the snapshot
 /// listed as not captured never is; otherwise the file on disk must equal
 /// the target in worktree form (`worktree_form`, or the blob when conversion
-/// failed) up to line endings. Whether those bytes map onto the blob lines
-/// is attribution's concern, not this check's.
+/// failed) up to line endings ([`compare_with_disk`], which bounds the
+/// read). Whether those bytes map onto the blob lines is attribution's
+/// concern, not this check's.
 fn on_disk_check(
     g: &Gathered,
     path: &RepoPath,
@@ -334,20 +336,132 @@ fn on_disk_check(
             reason: "the path cannot be represented on this platform".to_owned(),
         };
     };
-    match std::fs::read(&file) {
-        Ok(disk) if lines_correspond(&disk, expected) => OnDiskCheck::Captured,
+    match File::open(&file) {
+        Ok(disk) => compare_with_disk(disk, expected),
+        Err(e) => cannot_read(&e),
+    }
+}
+
+/// Compares what `disk` holds with `expected` up to line endings. A file
+/// that corresponds holds at most `expected` with a `\r` added to each line
+/// and a `\r\n` ending an unterminated last line ([`max_corresponding_len`]),
+/// so the read stops one byte past that: a file that grew after capture, or
+/// that a clean filter shrank into a small blob, is never read whole, and
+/// one over the limit is not captured, with the limit as the reason.
+fn compare_with_disk(disk: impl Read, expected: &[u8]) -> OnDiskCheck {
+    let limit = max_corresponding_len(expected);
+    let cap = u64::try_from(limit).map_or(u64::MAX, |limit| limit.saturating_add(1));
+    let mut bytes = Vec::new();
+    match disk.take(cap).read_to_end(&mut bytes) {
+        Ok(_) if bytes.len() > limit => OnDiskCheck::NotCaptured {
+            reason: format!(
+                "the file on disk is larger than the {limit} bytes a file matching the captured target can hold: its on-disk state was not captured, or it changed during the command"
+            ),
+        },
+        Ok(_) if lines_correspond(&bytes, expected) => OnDiskCheck::Captured,
         Ok(_) => OnDiskCheck::NotCaptured {
             reason: "the file on disk differs from the captured target: its on-disk state was not captured, or it changed during the command".to_owned(),
         },
-        Err(e) => OnDiskCheck::NotCaptured {
-            reason: format!("the file cannot be read from disk: {e}"),
-        },
+        Err(e) => cannot_read(&e),
+    }
+}
+
+/// The length of the longest file whose lines correspond to `expected`'s
+/// ([`lines_correspond`]): each line may gain a `\r` before its `\n`, and
+/// an unterminated last line may gain a whole `\r\n`.
+fn max_corresponding_len(expected: &[u8]) -> usize {
+    let unterminated = !expected.is_empty() && !expected.ends_with(b"\n");
+    expected
+        .len()
+        .saturating_add(split_lines(expected).len())
+        .saturating_add(usize::from(unterminated))
+}
+
+/// The on-disk check of a file that cannot be read.
+fn cannot_read(error: &io::Error) -> OnDiskCheck {
+    OnDiskCheck::NotCaptured {
+        reason: format!("the file cannot be read from disk: {error}"),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_location;
+    use std::io::Read;
+
+    use supersigil_review::why::OnDiskCheck;
+
+    use super::{compare_with_disk, parse_location};
+
+    /// A file that never ends, as one that keeps growing or that a clean
+    /// filter shrank on capture looks to a reader. It fails the test when
+    /// more than `cap` bytes are read from it.
+    struct Endless {
+        served: usize,
+        cap: usize,
+    }
+
+    impl Read for Endless {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.served += buf.len();
+            assert!(
+                self.served <= self.cap,
+                "read {} bytes of a file whose capture is a few bytes",
+                self.served
+            );
+            buf.fill(b'a');
+            Ok(buf.len())
+        }
+    }
+
+    #[test]
+    fn the_disk_read_stops_one_byte_past_what_could_match() {
+        let disk = Endless {
+            served: 0,
+            cap: 1 << 20,
+        };
+        // `a\n` corresponds to at most `a\r\n`: three bytes.
+        let check = compare_with_disk(disk, b"a\n");
+        let OnDiskCheck::NotCaptured { reason } = check else {
+            panic!("{check:?}");
+        };
+        assert!(
+            reason.starts_with("the file on disk is larger than the 3 bytes "),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn a_file_with_every_line_ending_converted_still_corresponds() {
+        // Each line may gain a `\r`: six bytes is the limit for `a\nb\n`.
+        assert_eq!(
+            compare_with_disk(&b"a\r\nb\r\n"[..], b"a\nb\n"),
+            OnDiskCheck::Captured
+        );
+        assert_eq!(
+            compare_with_disk(&b"a\nb\n"[..], b"a\r\nb\r\n"),
+            OnDiskCheck::Captured
+        );
+        assert_eq!(compare_with_disk(&b""[..], b""), OnDiskCheck::Captured);
+        // An unterminated last line may also gain its whole terminator.
+        assert_eq!(
+            compare_with_disk(&b"a\r\nb\r\n"[..], b"a\nb"),
+            OnDiskCheck::Captured
+        );
+        assert_eq!(
+            compare_with_disk(&b"b\r\n"[..], b"b"),
+            OnDiskCheck::Captured
+        );
+        let longer = compare_with_disk(&b"a\r\nb\r\nc"[..], b"a\nb\n");
+        assert!(
+            matches!(&longer, OnDiskCheck::NotCaptured { reason } if reason.contains("larger than the 6 bytes")),
+            "{longer:?}"
+        );
+        let differs = compare_with_disk(&b"a\nc\n"[..], b"a\nb\n");
+        assert!(
+            matches!(&differs, OnDiskCheck::NotCaptured { reason } if reason.starts_with("the file on disk differs")),
+            "{differs:?}"
+        );
+    }
 
     #[test]
     fn locations_split_at_the_last_colon() {
