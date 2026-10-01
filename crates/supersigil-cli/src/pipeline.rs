@@ -461,39 +461,48 @@ fn in_candidate_worktrees(
 /// Applies the record's event-identity rule ([`dedup`]) once over every
 /// sighting, wherever it maps, and only then filters to candidate
 /// worktrees: each accepted edit whose file lies in one gets its path, and
-/// each conflict with a sighting in one gets the paths those sightings
-/// touched. A conflict whose other sighting lies outside the candidate
+/// each conflict with a sighting in one gets the paths all its sightings
+/// there touched, including sightings `dedup` skipped as a record's later
+/// ones. A conflict whose other sighting lies outside the candidate
 /// worktrees therefore still excludes the edit.
 fn deduplicate(
     sightings: &[Sighting],
     candidate_worktrees: &[PathBuf],
 ) -> (Vec<MappedAccepted>, Vec<PathConflict>) {
-    // As in `dedup`, only a record's first sighting of an edit id counts.
+    // An accepted edit's path follows `dedup`: only a record's first
+    // sighting of an edit id counts. A conflict lists every path any of its
+    // sightings touched, later sightings within a record included.
     let mut first_in_record: BTreeSet<(&RecordId, &EventId)> = BTreeSet::new();
-    let mut paths: BTreeMap<&EventId, BTreeSet<String>> = BTreeMap::new();
+    let mut first_paths: BTreeMap<&EventId, BTreeSet<String>> = BTreeMap::new();
+    let mut touched: BTreeMap<&EventId, BTreeSet<String>> = BTreeMap::new();
     for sighting in sightings {
         let id = &sighting.candidate.edit.id;
-        if !first_in_record.insert((&sighting.candidate.record, id)) {
-            continue;
-        }
+        let first = first_in_record.insert((&sighting.candidate.record, id));
         if let Some(mapped) = candidate_mapping(sighting, candidate_worktrees) {
-            paths.entry(id).or_default().insert(mapped.path.clone());
+            touched.entry(id).or_default().insert(mapped.path.clone());
+            if first {
+                first_paths
+                    .entry(id)
+                    .or_default()
+                    .insert(mapped.path.clone());
+            }
         }
     }
     let (accepted, conflicts) = dedup(sightings.iter().map(|s| s.candidate.clone()).collect());
     let accepted = accepted
         .into_iter()
         .filter_map(|accepted| {
-            // Accepted sightings agree on their payload, so on where they
-            // map: one path when that is a candidate worktree, none otherwise.
-            let path = paths.get(&accepted.edit.id)?.first()?.clone();
+            // The sightings `dedup` compared agree on their payload, so on
+            // where they map: one path when that is a candidate worktree,
+            // none otherwise.
+            let path = first_paths.get(&accepted.edit.id)?.first()?.clone();
             Some(MappedAccepted { accepted, path })
         })
         .collect();
     let conflicts = conflicts
         .into_iter()
         .filter_map(|conflict| {
-            let paths = paths.get(&conflict.edit)?.clone();
+            let paths = touched.get(&conflict.edit)?.clone();
             Some(PathConflict { conflict, paths })
         })
         .collect();
@@ -956,16 +965,81 @@ pub fn not_captured_reason(entry: &NotCaptured) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use std::collections::BTreeSet;
+
+    use supersigil_anchor::CandidateEdit;
     use supersigil_git::RepoPath;
     use supersigil_git::changes::Mode;
     use supersigil_git::worktree::Worktree;
-    use supersigil_record::{RecordId, Revision};
+    use supersigil_record::observations::{Edit, EditOperation, FileState, Material};
+    use supersigil_record::{EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
     use super::{
-        PinnedRecord, display_from, mode_text, path_filters, repo_path, same_path,
-        unavailable_associations,
+        PinnedRecord, Sighting, deduplicate, display_from, mode_text, path_filters, repo_path,
+        same_path, unavailable_associations,
     };
+    use crate::mapping::MappedEdit;
+
+    /// Record `record`'s sighting of edit `id` writing `path` in the
+    /// worktree `/work/repo`.
+    fn sighting(record: &str, id: &str, path: &str) -> Sighting {
+        let root = PathBuf::from("/work/repo");
+        let edit = Edit {
+            id: EventId::new(id),
+            turn: TurnId::new("a1"),
+            session: SessionId::new("s1"),
+            path: PathBuf::from(path),
+            before: FileState::unknown(),
+            after: FileState::unknown(),
+            patch: Material::unavailable("test"),
+            old_text: Material::unavailable("test"),
+            new_text: Material::unavailable("test"),
+            replace_all: false,
+            operation: EditOperation::Replace,
+            checkout: root.clone(),
+            time: Timestamp::new("2026-09-29T10:00:00.000Z"),
+            source_ordinal: 0,
+            agent_id: None,
+            transcript: None,
+        };
+        Sighting {
+            candidate: CandidateEdit {
+                record: RecordId::new(record),
+                worktree: root.clone(),
+                edit,
+            },
+            mapped: Some(MappedEdit {
+                worktree: root,
+                path: path.to_owned(),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_conflict_lists_every_path_its_sightings_touched() {
+        let sightings = [
+            // Record r1 sights e1 twice: deduplication keeps the first, but
+            // the second still names a file the conflicting edit touched.
+            sighting("r1", "e1", "a.rs"),
+            sighting("r1", "e1", "b.rs"),
+            sighting("r2", "e1", "c.rs"),
+            // Only r1 sights e2; its first sighting decides its path.
+            sighting("r1", "e2", "x.rs"),
+            sighting("r1", "e2", "y.rs"),
+        ];
+        let candidates = [PathBuf::from("/work/repo")];
+
+        let (accepted, conflicts) = deduplicate(&sightings, &candidates);
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].conflict.edit, EventId::new("e1"));
+        let paths: BTreeSet<&str> = conflicts[0].paths.iter().map(String::as_str).collect();
+        assert_eq!(paths, BTreeSet::from(["a.rs", "b.rs", "c.rs"]));
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].accepted.edit.id, EventId::new("e2"));
+        assert_eq!(accepted[0].path, "x.rs");
+    }
 
     fn pinned(associations: Vec<PathBuf>) -> PinnedRecord {
         PinnedRecord {
