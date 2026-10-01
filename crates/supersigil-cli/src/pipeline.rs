@@ -319,7 +319,11 @@ pub fn gather(args: &PipelineArgs) -> Result<Gathered, CliError> {
         conflicts.into_iter().map(|c| (c.conflict, c.paths)),
         ignore_case,
     );
-    let evidence = Evidence::index(records.iter().flat_map(|r| &r.observations));
+    let evidence = Evidence::index(
+        records
+            .iter()
+            .map(|r| (&r.record_id, r.observations.as_slice())),
+    );
     let candidate_transcripts = evidence.candidate_transcripts(
         candidates.iter().map(|m| &m.candidate.edit),
         &candidate_worktrees,

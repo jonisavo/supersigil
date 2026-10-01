@@ -1816,3 +1816,64 @@ fn a_replaced_commit_resolves_to_its_own_tree_and_parent() {
         assert_eq!(added[0].0, "c\n", "{args:?}");
     }
 }
+
+#[test]
+fn a_capture_limitation_two_records_hold_is_counted_once() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // One transcript from a directory inside the worktree, synced into the
+    // record of that directory and into the record of the worktree: both
+    // hold its one capture limitation, an unsupported tool use. The nested
+    // record comes first: once the worktree has a record, a sync for the
+    // directory inside it would use that one.
+    let nested = f.repo.join("x");
+    std::fs::create_dir_all(&nested).unwrap();
+    let text = Session::new("s-limits", &nested)
+        .prompt("Edit the notebook.")
+        .notebook_edit("toolu_nb")
+        .text();
+    let transcript = f.root.join("transcripts").join("limits.jsonl");
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(&transcript, text).unwrap();
+    let transcript_arg = transcript.to_string_lossy().into_owned();
+    for checkout in [&nested, &f.repo] {
+        let checkout_arg = checkout.to_string_lossy().into_owned();
+        let args = [
+            "session",
+            "--checkout",
+            checkout_arg.as_str(),
+            "sync",
+            "--transcript",
+            transcript_arg.as_str(),
+        ];
+        f.plain(&f.repo, &args).assert().success();
+    }
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert_eq!(review["records"].as_array().unwrap().len(), 2);
+    let transcripts = review["evidence"]["candidate_transcripts"]
+        .as_array()
+        .unwrap();
+    let limited = transcripts
+        .iter()
+        .find(|t| t["transcript"] == transcript_arg.as_str())
+        .unwrap_or_else(|| panic!("{transcripts:#?}"));
+    let reports = limited["capture_limitations"].as_array().unwrap();
+    let output = f
+        .supersigil(&f.repo, &["review", "--format", "terminal"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let summary = String::from_utf8(output.stdout).unwrap();
+    let header = summary
+        .lines()
+        .find(|line| line.contains("capture limitations in"))
+        .unwrap_or_else(|| panic!("{summary}"));
+    let expected = format!(
+        "  capture limitations in {transcript_arg} (session s-limits): 1 unsupported tool uses; not localized to a path"
+    );
+    assert_eq!((reports.len(), header), (1, expected.as_str()));
+    assert_eq!(reports[0]["unsupported_tool_uses"], 1);
+}

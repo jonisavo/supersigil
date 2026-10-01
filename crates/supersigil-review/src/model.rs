@@ -346,7 +346,10 @@ pub struct TranscriptInfo {
     pub transcript: String,
     /// Session id.
     pub session: String,
-    /// Every capture limitation the record holds for it.
+    /// The capture limitations of the involved record whose reports reach
+    /// furthest into the transcript. One record's reports cover disjoint
+    /// line ranges, so their counts add up; another record's copies of the
+    /// same lines are left out rather than counted again.
     pub capture_limitations: Vec<CaptureLimitation>,
     /// Always false: a limitation names a transcript range, not a path.
     pub localized: bool,

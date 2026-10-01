@@ -6,6 +6,7 @@
 //! that contains a path, and a prompt is the nearest earlier Human or
 //! Delegation message in the conversation, not a cause.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -13,7 +14,7 @@ use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
     CaptureLimitation, Command, Edit, Observation, Outcome, Role, Turn,
 };
-use supersigil_record::{EventId, SessionId, TurnId};
+use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{EditInfo, Mention, MentionResult, PromptInfo, TranscriptInfo};
 use supersigil_session::checkout::{canonical, within};
 
@@ -25,8 +26,8 @@ pub struct Evidence {
     turns: BTreeMap<(SessionId, TurnId), Turn>,
     /// Every command by id; the first occurrence wins.
     commands: BTreeMap<EventId, Command>,
-    /// Capture limitations by transcript.
-    limitations: BTreeMap<String, Vec<CaptureLimitation>>,
+    /// Capture limitations by transcript, then by the record holding them.
+    limitations: BTreeMap<String, BTreeMap<RecordId, Vec<CaptureLimitation>>>,
     /// The session each transcript belongs to.
     sessions: BTreeMap<String, SessionId>,
     /// Working directories each transcript's observations name.
@@ -34,53 +35,59 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    /// Indexes `observations`, keeping the first occurrence of each turn and
-    /// command.
+    /// Indexes the observations of each record, keeping the first
+    /// occurrence of each turn and command, and which record each capture
+    /// limitation came from.
     #[must_use]
-    pub fn index<'a>(observations: impl IntoIterator<Item = &'a Observation>) -> Self {
+    pub fn index<'a>(records: impl IntoIterator<Item = (&'a RecordId, &'a [Observation])>) -> Self {
         let mut evidence = Self::default();
-        for observation in observations {
-            match observation {
-                Observation::SessionStart(start) => {
-                    if let Some(path) = start.source_ids.get("path") {
-                        evidence.locate(path, &start.session, &start.checkout);
-                    }
-                }
-                Observation::Turn(turn) => {
-                    evidence
-                        .turns
-                        .entry((turn.session.clone(), turn.id.clone()))
-                        .or_insert_with(|| turn.clone());
-                }
-                Observation::Edit(edit) => {
-                    if let Some(transcript) = &edit.transcript {
-                        evidence.locate(transcript, &edit.session, &edit.checkout);
-                    }
-                }
-                Observation::Command(command) => {
-                    if let Some(transcript) = &command.transcript {
-                        evidence.locate(transcript, &command.session, &command.checkout);
-                    }
-                    evidence
-                        .commands
-                        .entry(command.id.clone())
-                        .or_insert_with(|| command.clone());
-                }
-                Observation::CaptureLimitation(limitation) => {
-                    evidence
-                        .sessions
-                        .entry(limitation.transcript.clone())
-                        .or_insert_with(|| limitation.session.clone());
-                    evidence
-                        .limitations
-                        .entry(limitation.transcript.clone())
-                        .or_default()
-                        .push(limitation.clone());
-                }
-                Observation::SessionEnd(_) => {}
+        for (record, observations) in records {
+            for observation in observations {
+                evidence.add(record, observation);
             }
         }
         evidence
+    }
+
+    /// Indexes one observation of `record`.
+    fn add(&mut self, record: &RecordId, observation: &Observation) {
+        match observation {
+            Observation::SessionStart(start) => {
+                if let Some(path) = start.source_ids.get("path") {
+                    self.locate(path, &start.session, &start.checkout);
+                }
+            }
+            Observation::Turn(turn) => {
+                self.turns
+                    .entry((turn.session.clone(), turn.id.clone()))
+                    .or_insert_with(|| turn.clone());
+            }
+            Observation::Edit(edit) => {
+                if let Some(transcript) = &edit.transcript {
+                    self.locate(transcript, &edit.session, &edit.checkout);
+                }
+            }
+            Observation::Command(command) => {
+                if let Some(transcript) = &command.transcript {
+                    self.locate(transcript, &command.session, &command.checkout);
+                }
+                self.commands
+                    .entry(command.id.clone())
+                    .or_insert_with(|| command.clone());
+            }
+            Observation::CaptureLimitation(limitation) => {
+                self.sessions
+                    .entry(limitation.transcript.clone())
+                    .or_insert_with(|| limitation.session.clone());
+                self.limitations
+                    .entry(limitation.transcript.clone())
+                    .or_default()
+                    .entry(record.clone())
+                    .or_default()
+                    .push(limitation.clone());
+            }
+            Observation::SessionEnd(_) => {}
+        }
     }
 
     /// Records that `transcript` belongs to `session` and names `checkout`.
@@ -119,8 +126,16 @@ impl Evidence {
         transcripts
     }
 
-    /// One entry per transcript in `transcripts`, with its session and every
-    /// capture limitation recorded for it, never localized to a path.
+    /// One entry per transcript in `transcripts`, with its session and the
+    /// capture limitations of the record whose reports reach furthest into
+    /// it, never localized to a path.
+    ///
+    /// A record reports a transcript's capture limitations once per sync
+    /// that had any, over the lines that sync read, so one record's reports
+    /// tile what it read and add up exactly. Another record holding the same
+    /// transcript reports the same lines again, as identical copies or in
+    /// other chunks; adding its reports would count one problem twice. On a
+    /// tie, the first record by id gives them.
     #[must_use]
     pub fn transcripts(&self, transcripts: &BTreeSet<String>) -> Vec<TranscriptInfo> {
         transcripts
@@ -135,6 +150,11 @@ impl Evidence {
                 capture_limitations: self
                     .limitations
                     .get(transcript)
+                    .and_then(|by_record| {
+                        by_record.values().min_by_key(|reports| {
+                            Reverse(reports.iter().map(|report| report.to_ordinal).max())
+                        })
+                    })
                     .cloned()
                     .unwrap_or_default(),
                 localized: false,
@@ -343,11 +363,112 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use supersigil_record::observations::{
-        Command, CommandCategory, Edit, EditOperation, FileState, Material, Observation, Role, Turn,
+        CaptureCounts, CaptureLimitation, Command, CommandCategory, Edit, EditOperation, FileState,
+        Material, Observation, Role, Turn,
     };
-    use supersigil_record::{EventId, SessionId, Timestamp, TurnId};
+    use supersigil_record::{EventId, RecordId, SessionId, Timestamp, TurnId};
 
     use super::Evidence;
+
+    /// Indexes the observations of each record, named by its id.
+    fn index_records(records: &[(&str, Vec<Observation>)]) -> Evidence {
+        let ids: Vec<RecordId> = records.iter().map(|(id, _)| RecordId::new(*id)).collect();
+        Evidence::index(
+            ids.iter()
+                .zip(records)
+                .map(|(id, (_, observations))| (id, observations.as_slice())),
+        )
+    }
+
+    /// Indexes `observations` as the one record `r1` holds.
+    fn index(observations: &[Observation]) -> Evidence {
+        index_records(&[("r1", observations.to_vec())])
+    }
+
+    /// A capture limitation of `t.jsonl` over ordinals `from..to`.
+    fn limitation(from: u64, to: u64, counts: CaptureCounts) -> CaptureLimitation {
+        CaptureLimitation {
+            session: SessionId::new("s1"),
+            transcript: "t.jsonl".to_owned(),
+            from_ordinal: from,
+            to_ordinal: to,
+            counts,
+        }
+    }
+
+    /// Counts of `malformed` malformed lines and `unsupported` unsupported
+    /// tool uses.
+    fn counts(malformed: u64, unsupported: u64) -> CaptureCounts {
+        CaptureCounts {
+            malformed_lines: malformed,
+            unsupported_tool_uses: unsupported,
+            ..CaptureCounts::default()
+        }
+    }
+
+    /// The capture limitations `evidence` lists for `t.jsonl`, and their
+    /// total as the terminal header sums it.
+    fn listed(evidence: &Evidence) -> (Vec<CaptureLimitation>, CaptureCounts) {
+        let info = evidence.transcripts(&BTreeSet::from(["t.jsonl".to_owned()]));
+        let reports = info[0].capture_limitations.clone();
+        let total = reports.iter().map(|report| &report.counts).sum();
+        (reports, total)
+    }
+
+    #[test]
+    fn a_capture_limitation_two_records_hold_counts_once() {
+        let report = limitation(0, 10, counts(1, 0));
+        let copy = || vec![Observation::CaptureLimitation(report.clone())];
+        let evidence = index_records(&[("r1", copy()), ("r2", copy())]);
+        assert_eq!(listed(&evidence), (vec![report.clone()], counts(1, 0)));
+    }
+
+    #[test]
+    fn one_records_disjoint_capture_limitations_are_all_kept() {
+        let reports = [
+            limitation(0, 10, counts(1, 0)),
+            limitation(10, 20, counts(0, 1)),
+        ];
+        let evidence = index_records(&[(
+            "r1",
+            reports
+                .iter()
+                .cloned()
+                .map(Observation::CaptureLimitation)
+                .collect(),
+        )]);
+        assert_eq!(listed(&evidence), (reports.to_vec(), counts(1, 1)));
+    }
+
+    #[test]
+    fn the_record_reaching_furthest_into_a_transcript_gives_its_limitations() {
+        // Malformed lines at ordinals 5 and 12, an unsupported tool use at
+        // 25. Record r1 read the transcript to ordinal 15 in one sync; r2
+        // read it to 30 in two. Each record's reports tile what it read, so
+        // r2's add up to the exact totals of the longer prefix, while adding
+        // both records' reports would count the malformed lines twice.
+        let shorter = vec![Observation::CaptureLimitation(limitation(
+            0,
+            15,
+            counts(2, 0),
+        ))];
+        let longer = [
+            limitation(0, 10, counts(1, 0)),
+            limitation(10, 30, counts(1, 1)),
+        ];
+        let evidence = index_records(&[
+            ("r1", shorter),
+            (
+                "r2",
+                longer
+                    .iter()
+                    .cloned()
+                    .map(Observation::CaptureLimitation)
+                    .collect(),
+            ),
+        ]);
+        assert_eq!(listed(&evidence), (longer.to_vec(), counts(2, 1)));
+    }
 
     fn turn(id: &str, parent: Option<&str>, role: Role) -> Observation {
         Observation::Turn(Turn {
@@ -414,7 +535,7 @@ mod tests {
             turn("u2", Some("a1"), Role::Tool),
             turn("a2", Some("u2"), Role::Agent),
         ];
-        let evidence = Evidence::index(&observations);
+        let evidence = index(&observations);
         let prompt = evidence.prompt(&edit_in_turn("a2")).unwrap();
         assert_eq!(prompt.turn, "u1");
         assert_eq!(prompt.role, Role::Human);
@@ -424,7 +545,7 @@ mod tests {
     #[test]
     fn a_broken_parent_chain_has_no_prompt() {
         let observations = [turn("a2", Some("missing"), Role::Agent)];
-        let evidence = Evidence::index(&observations);
+        let evidence = index(&observations);
         assert_eq!(evidence.prompt(&edit_in_turn("a2")), None);
         assert_eq!(evidence.prompt(&edit_in_turn("unknown")), None);
     }
@@ -443,7 +564,7 @@ mod tests {
             ),
             command("c4", "rm old.txt", &repo, "other.jsonl"),
         ];
-        let evidence = Evidence::index(&observations);
+        let evidence = index(&observations);
         let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
         let worktrees = [repo];
         let ids = |path: &str| -> Vec<String> {
@@ -475,7 +596,7 @@ mod tests {
             // A file beside the checkout, through their common parent.
             command("c5", "cat ../lib.rs", &src.join("deep"), "t.jsonl"),
         ];
-        let evidence = Evidence::index(&observations);
+        let evidence = index(&observations);
         let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
         let worktrees = [repo];
         let ids = |path: &str| -> Vec<String> {
@@ -496,7 +617,7 @@ mod tests {
         let repo = PathBuf::from("/work/repo");
         let nested = repo.join(".claude/worktrees/x");
         let observations = [command("c1", "rm old.txt", &nested, "t.jsonl")];
-        let evidence = Evidence::index(&observations);
+        let evidence = index(&observations);
         let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
         // Both worktrees originated reviewed commits; sorted, the outer one
         // comes first and also contains the command's checkout.
