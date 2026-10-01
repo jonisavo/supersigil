@@ -11,6 +11,9 @@ use supersigil_git::changes::{
 };
 use supersigil_git::{GitError, ObjectFormat, ObjectId, RepoPath};
 
+/// A conversion limit no test output reaches.
+const NO_LIMIT: u64 = u64::MAX;
+
 fn id(text: &str) -> ObjectId {
     ObjectId::parse(text.trim(), ObjectFormat::Sha1).unwrap()
 }
@@ -311,7 +314,14 @@ fn the_worktree_form_is_identical_without_conversion() {
         .remove(&blob)
         .unwrap();
     assert_eq!(
-        worktree_form(&opened, &RepoPath::from_utf8("a.txt"), &blob, &bytes).unwrap(),
+        worktree_form(
+            &opened,
+            &RepoPath::from_utf8("a.txt"),
+            &blob,
+            &bytes,
+            NO_LIMIT
+        )
+        .unwrap(),
         Conversion::Identical
     );
 }
@@ -330,7 +340,14 @@ fn the_worktree_form_converts_line_endings_under_autocrlf() {
         .unwrap();
     assert_eq!(bytes, b"a\nb\n");
     assert_eq!(
-        worktree_form(&opened, &RepoPath::from_utf8("a.txt"), &blob, &bytes).unwrap(),
+        worktree_form(
+            &opened,
+            &RepoPath::from_utf8("a.txt"),
+            &blob,
+            &bytes,
+            NO_LIMIT
+        )
+        .unwrap(),
         Conversion::Converted(b"a\r\nb\r\n".to_vec())
     );
 }
@@ -344,7 +361,14 @@ fn the_worktree_form_follows_an_eol_attribute() {
     let blob = id(&repo.run(&["rev-parse", "HEAD:a.txt"]));
     let opened = repo.repo();
     assert_eq!(
-        worktree_form(&opened, &RepoPath::from_utf8("a.txt"), &blob, b"a\nb\n").unwrap(),
+        worktree_form(
+            &opened,
+            &RepoPath::from_utf8("a.txt"),
+            &blob,
+            b"a\nb\n",
+            NO_LIMIT
+        )
+        .unwrap(),
         Conversion::Converted(b"a\r\nb\r\n".to_vec())
     );
 }
@@ -358,10 +382,42 @@ fn a_failed_required_filter_is_reported_not_raised() {
     repo.run(&["config", "filter.boom.smudge", "false"]);
     repo.run(&["config", "filter.boom.required", "true"]);
     let blob = id(&repo.run_input(&["hash-object", "-w", "--stdin"], b"x\n"));
-    let result = worktree_form(&repo.repo(), &RepoPath::from_utf8("x.bad"), &blob, b"x\n").unwrap();
+    let result = worktree_form(
+        &repo.repo(),
+        &RepoPath::from_utf8("x.bad"),
+        &blob,
+        b"x\n",
+        NO_LIMIT,
+    )
+    .unwrap();
     assert!(
         matches!(&result, Conversion::Failed { status: Some(code), stderr_tail } if *code != 0 && !stderr_tail.is_empty()),
         "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_conversion_past_the_limit_is_too_large() {
+    let repo = TestRepo::new();
+    repo.write(".gitattributes", b"*.grow filter=grow\n");
+    // Repeats its input a thousand times: `x\n` becomes 2,000 bytes.
+    repo.run(&[
+        "config",
+        "filter.grow.smudge",
+        "x=$(cat); yes \"$x\" | head -n 1000",
+    ]);
+    let blob = id(&repo.run_input(&["hash-object", "-w", "--stdin"], b"x\n"));
+    let opened = repo.repo();
+    let path = RepoPath::from_utf8("x.grow");
+    // The limit is inclusive: a worktree form of exactly `max` bytes is read.
+    assert_eq!(
+        worktree_form(&opened, &path, &blob, b"x\n", 2_000).unwrap(),
+        Conversion::Converted(b"x\n".repeat(1_000))
+    );
+    assert_eq!(
+        worktree_form(&opened, &path, &blob, b"x\n", 1_999).unwrap(),
+        Conversion::TooLarge
     );
 }
 
@@ -385,6 +441,7 @@ fn a_missing_blob_is_an_error_not_a_failed_conversion() {
         &RepoPath::from_utf8("a.txt"),
         &missing,
         b"a\n",
+        NO_LIMIT,
     );
     assert!(matches!(result, Err(GitError::Parse(_))), "{result:?}");
 }

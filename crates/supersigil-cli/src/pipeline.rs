@@ -14,7 +14,7 @@ use supersigil_anchor::{
     attribute,
 };
 use supersigil_git::bytes::{Conversion, worktree_form};
-use supersigil_git::changes::{ChangeStatus, FileKind, Mode};
+use supersigil_git::changes::{ChangeStatus, FileKind, MAX_DIFF_BYTES, Mode};
 use supersigil_git::origin::{Origins, UnavailableOrigin, find_origins};
 use supersigil_git::snapshot::{
     NotCaptured, NotCapturedCause, OnDisk, SnapshotOptions, WorkingTreeSnapshot,
@@ -746,7 +746,8 @@ impl PathBytes {
 }
 
 /// Reads both sides' attribution bytes for `path`: each blob converted to
-/// worktree form, kept only when it maps line for line onto the blob.
+/// worktree form, read only up to [`MAX_DIFF_BYTES`] and kept only when it
+/// maps line for line onto the blob.
 ///
 /// # Errors
 ///
@@ -794,7 +795,8 @@ fn side_bytes(
             unmapped: None,
         });
     };
-    Ok(match worktree_form(repo, path, id, bytes)? {
+    let conversion = worktree_form(repo, path, id, bytes, MAX_DIFF_BYTES)?;
+    Ok(match conversion {
         Conversion::Identical => Side {
             status: "identical".to_owned(),
             state: Ok(State::Present(bytes.to_vec())),
@@ -809,6 +811,13 @@ fn side_bytes(
             status: "converted".to_owned(),
             state: Err("conversion changed line structure".to_owned()),
             unmapped: Some(converted),
+        },
+        Conversion::TooLarge => Side {
+            status: "too large".to_owned(),
+            state: Err(format!(
+                "conversion output is larger than {MAX_DIFF_BYTES} bytes"
+            )),
+            unmapped: None,
         },
         Conversion::Failed {
             status,

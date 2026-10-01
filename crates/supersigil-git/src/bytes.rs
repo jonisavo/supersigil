@@ -13,7 +13,7 @@ use crate::error::GitError;
 use crate::oid::ObjectId;
 use crate::path::RepoPath;
 use crate::repo::Repo;
-use crate::run::stderr_tail;
+use crate::run::{Bounded, stderr_tail};
 
 /// Returns the size of each blob with `cat-file --batch-check`.
 ///
@@ -151,6 +151,9 @@ pub enum Conversion {
     Identical,
     /// The worktree form differs, for example in line endings.
     Converted(Vec<u8>),
+    /// The worktree form is larger than the limit: reading stopped one byte
+    /// past it, and git was stopped.
+    TooLarge,
     /// Git could not convert it, for example because a required filter
     /// failed.
     Failed {
@@ -167,17 +170,23 @@ pub enum Conversion {
 /// size in its header, so batch framing breaks. Attributes are read from the
 /// worktree as it is now.
 ///
+/// At most `max` bytes of the worktree form are read: a filter can expand a
+/// small blob without limit, so one more byte ends the read and stops git,
+/// and the result is [`Conversion::TooLarge`].
+///
 /// # Errors
 ///
 /// Returns [`GitError::Parse`] if `path` cannot be passed to git on this
-/// platform, [`GitError::Parse`] if `blob` is missing, or the errors of
-/// [`crate::Git::raw`]. A conversion git refuses is
+/// platform, [`GitError::Parse`] if `blob` is missing, or
+/// [`GitError::NotFound`] or [`GitError::Io`] if git cannot be started,
+/// read from, or waited for. A conversion git refuses is
 /// [`Conversion::Failed`], not an error.
 pub fn worktree_form(
     repo: &Repo,
     path: &RepoPath,
     blob: &ObjectId,
     blob_bytes: &[u8],
+    max: u64,
 ) -> Result<Conversion, GitError> {
     let Some(os_path) = path.to_os_string() else {
         return Err(GitError::Parse(format!(
@@ -187,12 +196,16 @@ pub fn worktree_form(
     };
     let mut path_arg = OsString::from("--path=");
     path_arg.push(os_path);
-    let output = repo.git().raw([
+    let args = [
         OsString::from("cat-file"),
         OsString::from("--filters"),
         path_arg,
         OsString::from(blob.as_str()),
-    ])?;
+    ];
+    let output = match repo.git().output_within(args, max)? {
+        Bounded::Finished(output) => output,
+        Bounded::TooLarge => return Ok(Conversion::TooLarge),
+    };
     if !output.status.success() {
         // Only a conversion git refuses is a result. If the blob itself cannot
         // be read, this is an error, not a failed conversion.

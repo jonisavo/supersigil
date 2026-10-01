@@ -1420,6 +1420,34 @@ fn a_failed_conversion_keeps_its_exit_status() {
     assert!(reason.starts_with("conversion failed (exit "), "{reason}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_conversion_over_the_size_limit_is_unavailable_with_the_reason() {
+    let f = Fixture::new();
+    // Repeats its input five million times: each two-byte blob becomes ten
+    // million bytes in worktree form, over the size limit.
+    f.git(&[
+        "config",
+        "filter.grow.smudge",
+        "x=$(cat); yes \"$x\" | head -n 5000000",
+    ]);
+    write(&f.repo, ".gitattributes", "*.grow filter=grow\n");
+    write(&f.repo, "a.grow", "a\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "a.grow", "b\n");
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let a = file(&review, "a.grow");
+    assert_eq!(a["attribution_bytes"]["base"], "too large");
+    assert_eq!(a["attribution_bytes"]["target"], "too large");
+    let limit = supersigil_git::changes::MAX_DIFF_BYTES;
+    assert_eq!(
+        a["attribution"]["unavailable"],
+        format!("conversion output is larger than {limit} bytes")
+    );
+}
+
 /// One line of text one byte longer than the largest blob the review reads.
 fn oversized() -> String {
     let limit = usize::try_from(supersigil_git::changes::MAX_DIFF_BYTES).unwrap();

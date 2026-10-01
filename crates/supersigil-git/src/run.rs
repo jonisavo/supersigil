@@ -7,9 +7,9 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::Write as _;
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 
 use crate::error::GitError;
 
@@ -73,6 +73,21 @@ fn leading_number(part: &str) -> Option<u32> {
         .unwrap_or(part.len());
     part[..end].parse().ok()
 }
+
+/// What [`Git::output_within`] read.
+#[derive(Debug)]
+pub(crate) enum Bounded {
+    /// Git exited with at most the limit on standard output. Standard error
+    /// keeps only its end ([`STDERR_KEPT_BYTES`]).
+    Finished(Output),
+    /// Standard output passed the limit: reading stopped one byte past it,
+    /// and git was killed and reaped.
+    TooLarge,
+}
+
+/// Bytes of standard error [`Git::output_within`] keeps: its end, far more
+/// than [`stderr_tail`] shows.
+const STDERR_KEPT_BYTES: usize = 64 * 1024;
 
 /// Runs git in one directory with the scrubbed environment plus any extra
 /// variables added with [`Git::with_env`].
@@ -229,6 +244,55 @@ impl Git {
         succeeded(&args, output)
     }
 
+    /// Runs git with `args` and reads at most `max` bytes of its standard
+    /// output: one more byte ends the read, and git is killed and reaped, so
+    /// output of any size costs at most `max + 1` bytes. Standard error is
+    /// read on another thread and only its end is kept, so a child that
+    /// writes there without end costs a bounded amount too.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GitError::NotFound`] if git cannot be started, or
+    /// [`GitError::Io`] if reading from or waiting for it fails.
+    pub(crate) fn output_within<I, S>(&self, args: I, max: u64) -> Result<Bounded, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = self.command();
+        command
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = spawn(&mut command)?;
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        // Not scoped, so nothing waits for it after a kill: a filter git
+        // started may hold standard error open for longer than git.
+        let stderr = std::thread::spawn(move || read_tail(stderr, STDERR_KEPT_BYTES));
+        let mut out = Vec::new();
+        let read = stdout.take(max.saturating_add(1)).read_to_end(&mut out);
+        if read.is_err() || u64::try_from(out.len()).map_or(true, |len| len > max) {
+            // Git may have exited already, so the kill may fail; waiting
+            // reaps it either way.
+            let _ = child.kill();
+            child.wait().map_err(|e| io_error("waiting for git", e))?;
+            read.map_err(|e| io_error("reading from git", e))?;
+            return Ok(Bounded::TooLarge);
+        }
+        let status = child.wait().map_err(|e| io_error("waiting for git", e))?;
+        let stderr = stderr
+            .join()
+            .expect("the stderr reader does not panic")
+            .map_err(|e| io_error("reading from git", e))?;
+        Ok(Bounded::Finished(Output {
+            status,
+            stdout: out,
+            stderr,
+        }))
+    }
+
     /// Runs `git version` and parses the result.
     ///
     /// # Errors
@@ -257,13 +321,7 @@ impl Git {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                GitError::NotFound(e)
-            } else {
-                io_error("cannot start git", e)
-            }
-        })?;
+        let mut child = spawn(&mut command)?;
         let Some(input) = input else {
             return child
                 .wait_with_output()
@@ -284,6 +342,38 @@ impl Git {
             }
         })
     }
+}
+
+/// Starts `command`; git missing from `PATH` is [`GitError::NotFound`].
+fn spawn(command: &mut Command) -> Result<Child, GitError> {
+    command.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            GitError::NotFound(e)
+        } else {
+            io_error("cannot start git", e)
+        }
+    })
+}
+
+/// Reads `source` to its end and returns its last `keep` bytes, holding at
+/// most about twice that while reading.
+fn read_tail(mut source: impl Read, keep: usize) -> std::io::Result<Vec<u8>> {
+    let mut tail = Vec::new();
+    let mut chunk = [0; 8192];
+    loop {
+        let read = match source.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        tail.extend_from_slice(&chunk[..read]);
+        if tail.len() > keep.saturating_mul(2) {
+            tail.drain(..tail.len() - keep);
+        }
+    }
+    tail.drain(..tail.len().saturating_sub(keep));
+    Ok(tail)
 }
 
 /// Collects arguments so they can be both passed to git and quoted in errors.
@@ -398,6 +488,19 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn a_tail_keeps_only_the_last_bytes_of_any_length() {
+        let text: Vec<u8> = (0..100_000u32)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        assert_eq!(
+            read_tail(text.as_slice(), 10).unwrap(),
+            text[text.len() - 10..]
+        );
+        assert_eq!(read_tail(&text[..20], 100).unwrap(), text[..20]);
+        assert!(read_tail(&b""[..], 10).unwrap().is_empty());
     }
 
     #[test]
