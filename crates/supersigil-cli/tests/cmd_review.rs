@@ -1304,3 +1304,60 @@ fn a_failed_conversion_keeps_its_exit_status() {
     let reason = a["attribution"]["unavailable"].as_str().unwrap();
     assert!(reason.starts_with("conversion failed (exit "), "{reason}");
 }
+
+/// One line of text one byte longer than the largest blob the review reads.
+fn oversized() -> String {
+    let limit = usize::try_from(supersigil_git::changes::MAX_DIFF_BYTES).unwrap();
+    "x".repeat(limit) + "\n"
+}
+
+#[test]
+fn why_refuses_a_file_over_the_size_limit_before_reading_it() {
+    let f = Fixture::new();
+    write(&f.repo, "big.txt", &oversized());
+    f.commit(&f.repo, "base");
+
+    f.supersigil(&f.repo, &["why", "big.txt:1", "--format", "json"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("larger than"));
+}
+
+#[test]
+fn why_does_not_compare_with_a_head_version_over_the_size_limit() {
+    let f = Fixture::new();
+    write(&f.repo, "big.txt", &oversized());
+    f.commit(&f.repo, "base");
+    write(&f.repo, "big.txt", "small\n");
+
+    let why = f.json(&f.repo, &["why", "big.txt:1", "--format", "json"]);
+
+    assert_eq!(why["line"]["differs_from_head"], "unknown");
+    let reason = why["line"]["differs_from_head_reason"].as_str().unwrap();
+    assert!(reason.contains("larger than"), "{reason}");
+}
+
+#[test]
+fn why_on_a_file_that_replaced_a_submodule_has_no_head_baseline() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    let base = f.commit(&f.repo, "base");
+    // HEAD records `sub` as a submodule commit; the index and the disk now
+    // hold a regular text file there.
+    let cacheinfo = format!("160000,{base},sub");
+    f.git(&["update-index", "--add", "--cacheinfo", cacheinfo.as_str()]);
+    f.git(&["commit", "-q", "-m", "add a submodule"]);
+    f.git(&["rm", "-q", "--cached", "sub"]);
+    write(&f.repo, "sub", "text\n");
+    f.git(&["add", "sub"]);
+
+    let why = f.json(&f.repo, &["why", "sub:1", "--format", "json"]);
+
+    assert_eq!(why["on_disk"]["state"], "captured");
+    assert_eq!(why["line"]["differs_from_head"], "unknown");
+    assert_eq!(
+        why["line"]["differs_from_head_reason"],
+        "the path is not a regular file in HEAD"
+    );
+}

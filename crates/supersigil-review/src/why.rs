@@ -77,8 +77,9 @@ pub enum Tristate {
     Yes,
     /// It is the same.
     No,
-    /// Unknown: the file is not in HEAD, HEAD is unborn, or the line lies
-    /// in a coarse hunk.
+    /// Unknown: the file is not in HEAD, HEAD is unborn, HEAD's version is
+    /// no comparable text (not a regular file, or too large), or the line
+    /// lies in a coarse hunk.
     Unknown,
 }
 
