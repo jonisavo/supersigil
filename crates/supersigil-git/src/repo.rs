@@ -347,7 +347,7 @@ impl ResolvedRange {
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`Repo::commits_in_range`].
+    /// Returns the errors of the range walk this lists commits with.
     pub fn commits(&self, repo: &Repo) -> Result<Vec<ObjectId>, GitError> {
         match self.target_commit() {
             Some(target) => repo.commits_in_range(self.base.commit.as_ref(), target),

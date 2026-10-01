@@ -936,7 +936,7 @@ pub fn target_info(g: &Gathered) -> TargetInfo {
 }
 
 /// The origins block, with every worktree whose origin evidence is
-/// unavailable, record associations included ([`unavailable_associations`]).
+/// unavailable, record associations included.
 #[must_use]
 pub fn origins_info(g: &Gathered) -> OriginsInfo {
     let mut unavailable: Vec<UnavailableInfo> = g

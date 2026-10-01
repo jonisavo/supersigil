@@ -47,8 +47,8 @@ impl ObjectId {
     ///
     /// # Errors
     ///
-    /// Returns [`GitError::Parse`] unless `text` is exactly
-    /// [`ObjectFormat::hex_len`] lowercase hex digits.
+    /// Returns [`GitError::Parse`] unless `text` is exactly as many lowercase
+    /// hex digits as `format`'s object ids have.
     pub fn parse(text: &str, format: ObjectFormat) -> Result<Self, GitError> {
         let valid = text.len() == format.hex_len()
             && text

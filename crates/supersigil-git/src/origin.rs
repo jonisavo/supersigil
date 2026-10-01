@@ -189,7 +189,7 @@ fn directory_exists(path: &Path) -> Result<bool, GitError> {
 }
 
 /// Finds, for each of `commits`, the worktrees whose own HEAD reflog has a
-/// commit-family entry for it ([`is_origin_subject`]). Bare entries are
+/// commit-family entry for it (`is_origin_subject`). Bare entries are
 /// skipped; a prunable worktree or one whose directory is missing is listed
 /// as unavailable, and so is one whose reflog git cannot read
 /// ([`head_reflog`]'s [`GitError::Failed`]), with the exit status or signal
