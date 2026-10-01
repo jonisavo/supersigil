@@ -11,18 +11,16 @@ use crate::result::{Chain, ContentMatches, PathAttribution, PathStatus};
 use crate::step::Budget;
 use crate::walk::walk;
 
-/// Walks the path's recorded edits, replays and combines the chains that
+/// Walks the path's accepted edits, replays and combines the chains that
 /// were not set aside, and adds the content-match fallback.
 ///
-/// Replaying the chains has its own budget of `budget_bytes`, shared by
-/// every chain (see [`replay`]). When it runs out, the status is
-/// [`PathStatus::SearchIncomplete`], and the line outcomes combine only the
-/// chains replayed in full; every chain found is still listed.
+/// Replay shares one `budget_bytes` budget across all surviving chains.
+/// Exhaustion sets [`PathStatus::SearchIncomplete`]. All discovered chains
+/// remain listed; only fully replayed chains contribute line outcomes.
 ///
-/// Content matching runs only when the search completed (after an
-/// incomplete search every line is unresolved, so the fallback is never
-/// consulted, and its matches stay empty) and only for the lines whose
-/// combined outcome needs it, with its own budget of `budget_bytes`.
+/// Content matching runs only after a complete search, for lines that
+/// need fallback evidence. It has a separate `budget_bytes` budget.
+/// An incomplete search produces no content matches.
 ///
 /// No outcome claims capture completeness: a chain exact from the base
 /// says only that the recorded replacements transform the base into the

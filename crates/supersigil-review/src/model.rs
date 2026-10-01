@@ -1,7 +1,6 @@
 //! The JSON review model and the per-file assembly of hunks and spans.
 //!
-//! Field order in every struct is the order section 4 of the plan 2 design
-//! lists, so the JSON reads top down: identity, then the prominent
+//! JSON field order puts identity first, followed by the prominent
 //! unattributed summary, then scope, origins, records, evidence, files, and
 //! the edits every other section refers to by id.
 

@@ -5,7 +5,7 @@
 //! computes the reviewed diff over blob bytes. [`mapping::lines_correspond`]
 //! decides whether anchor's provenance, computed over worktree-form bytes,
 //! maps line for line onto that diff. [`outcome`] turns each diff line's
-//! provenance into one outer outcome by the design's ordered rules, and
+//! provenance into one outer outcome by its ordered rules, and
 //! [`model::file_review`] assembles hunks and spans. [`summary`] and [`why`]
 //! render the terminal forms.
 

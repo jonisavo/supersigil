@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use supersigil_record::observations::{Content, Edit, FileState};
 use supersigil_record::{ContentId, RecordId};
 
+use crate::result::Conflict;
+use crate::walk::AcceptedEdit;
+
 /// Contents of a file at one point in its history, or its absence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
@@ -90,7 +93,7 @@ pub enum TargetKind {
 /// Default work budget for one path: 64 MiB of bytes processed.
 pub const DEFAULT_BUDGET_BYTES: u64 = 64 * 1024 * 1024;
 
-/// One path to attribute.
+/// One path to attribute, after global edit deduplication.
 #[derive(Debug, Clone)]
 pub struct Request {
     /// The base state of the path.
@@ -101,8 +104,11 @@ pub struct Request {
     pub target_kind: TargetKind,
     /// Root of the worktree under review.
     pub reviewed_worktree: PathBuf,
-    /// Candidate edits of this path, in record append order.
-    pub edits: Vec<CandidateEdit>,
+    /// Accepted edits for this path, ordered by their first sighting.
+    /// Deduplicate all sightings before filtering or partitioning by path.
+    pub edits: Vec<AcceptedEdit>,
+    /// Globally excluded edits with a sighting on this path.
+    pub conflicts: Vec<Conflict>,
     /// Bytes the search may process before it is marked incomplete.
     pub budget_bytes: u64,
 }

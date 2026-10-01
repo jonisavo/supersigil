@@ -48,7 +48,12 @@ pub struct FileDiff {
 pub fn diff_lines(base: &[u8], target: &[u8]) -> FileDiff {
     let old = split_lines(base);
     let new = split_lines(target);
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    diff_blob_lines(&old, &new)
+}
+
+/// Diffs split blob lines with terminators, using the same cutoff as [`diff_lines`].
+pub(crate) fn diff_blob_lines(old: &[&[u8]], new: &[&[u8]]) -> FileDiff {
+    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
     let suffix = old[prefix..]
         .iter()
         .rev()

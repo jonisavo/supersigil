@@ -68,7 +68,7 @@ pub struct Change {
 /// `diff-tree -r -z --raw --no-renames --no-abbrev --ignore-submodules=dirty`.
 ///
 /// Renames appear as a deletion plus an addition: rename detection is
-/// derived lineage, which plan 2 does not produce. `--ignore-submodules=dirty`
+/// derived lineage, which attribution does not yet track. `--ignore-submodules=dirty`
 /// keeps a gitlink change visible for a submodule configured `ignore = all`,
 /// while submodule contents stay outside the review. `pathspecs` are literal
 /// path prefixes; empty means everything.

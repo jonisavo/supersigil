@@ -94,7 +94,7 @@ impl Evidence {
         }
     }
 
-    /// The candidate transcripts (design section 1, step 7): the union of
+    /// The candidate transcripts: the union of
     /// the transcripts containing one of `edits` and the transcripts with an
     /// observation whose working directory lies in one of `worktrees`,
     /// whether or not any of their edits end up attributed.

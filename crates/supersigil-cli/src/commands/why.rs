@@ -13,11 +13,8 @@ use supersigil_git::changes::{
 use supersigil_git::snapshot::{SnapshotOptions, snapshot_working_tree};
 use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::WHY_SCHEMA;
-use supersigil_review::diff::diff_lines;
 use supersigil_review::mapping::lines_correspond;
-use supersigil_review::why::{
-    OnDiskCheck, Tristate, Why, WhyLine, WhyTarget, render_why, why_line,
-};
+use supersigil_review::why::{OnDiskCheck, Why, WhyLine, WhyTarget, render_why, why_line};
 
 use crate::commands::WhyArgs;
 use crate::error::CliError;
@@ -81,10 +78,13 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
                 ))
             })?;
         let head = head_blob(&g, &path)?;
-        let (differs, reason) =
-            differs_from_head(head.as_deref().map_err(String::as_str), &bytes, index);
         let state = attribution_state(&attribution);
-        Some(why_line(&state, index, &target_lines, differs, reason))
+        Some(why_line(
+            &state,
+            index,
+            &target_lines,
+            head.as_deref().map_err(String::as_str),
+        ))
     } else {
         None
     };
@@ -256,30 +256,6 @@ fn head_blob(g: &Gathered, path: &RepoPath) -> Result<Result<Vec<u8>, String>, C
             "the file in HEAD is larger than {MAX_DIFF_BYTES} bytes"
         )),
     })
-}
-
-/// Whether target line `index` lies in a changed hunk against HEAD, with the
-/// reason when that is unknown. A coarse hunk is not aligned, so a line
-/// inside it may equal a HEAD line: unknown, never yes.
-fn differs_from_head(
-    head: Result<&[u8], &str>,
-    target: &[u8],
-    index: usize,
-) -> (Tristate, Option<String>) {
-    let head = match head {
-        Ok(head) => head,
-        Err(reason) => return (Tristate::Unknown, Some(reason.to_owned())),
-    };
-    let diff = diff_lines(head, target);
-    let changed = diff
-        .hunks
-        .iter()
-        .any(|h| (h.target_start..h.target_start + h.target_count).contains(&index));
-    match (changed, diff.coarse) {
-        (true, true) => (Tristate::Unknown, Some("coarse diff".to_owned())),
-        (true, false) => (Tristate::Yes, None),
-        (false, _) => (Tristate::No, None),
-    }
 }
 
 /// Checks that the captured line is what is on disk: a path the snapshot

@@ -51,7 +51,7 @@ impl Fixture {
         fixture
     }
 
-    /// Git isolation (design section 5) and the records directory. The
+    /// Git isolation and the records directory. The
     /// variables git sets for hooks are removed, as `supersigil_git::Git`
     /// removes them: a test run from a pre-commit hook would otherwise
     /// point git at the outer repository's index.
@@ -278,7 +278,7 @@ fn slice_text() -> String {
     .unwrap()
 }
 
-/// The design's section 8 slice: the files the session found, committed,
+/// The slice fixture: the files the session found, committed,
 /// then the working tree after the session plus the manual line it never
 /// recorded. `old.txt` appears only in a command, so it is seeded here.
 fn slice(f: &Fixture) {
@@ -560,7 +560,7 @@ fn review_large_file_two_sessions() {
     let review = f.json(&f.repo, &["review", "--format", "json"]);
 
     // No recorded hash joins the two transcripts, so each yields one
-    // consistent chain and they do not compose (design section 3).
+    // consistent chain, but their unknown hashes cannot join them.
     let big = file(&review, "big.txt");
     let chains = big["attribution"]["chains"].as_array().unwrap();
     assert_eq!(chains.len(), 2);
@@ -741,7 +741,7 @@ fn review_session_editing_a_nested_worktree() {
     f.transcript(&f.repo, "parent.jsonl", &text);
     write(&nested, "src/n.rs", content);
     // No record exists yet: reconcile finds the main checkout's project
-    // directory as an ancestor of the nested worktree (design section 1).
+    // directory as an ancestor of the nested worktree.
     assert!(!f.records.exists());
 
     let review = f.json(

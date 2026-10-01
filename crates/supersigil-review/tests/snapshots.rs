@@ -302,8 +302,7 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
             &AttributionState::Available(&attr),
             0,
             &split_lines(target),
-            Tristate::Yes,
-            None,
+            Ok(b""),
         )),
         OnDiskCheck::NotCaptured { .. } => None,
     };
@@ -351,12 +350,13 @@ fn why_says_why_differs_from_head_is_unknown() {
         vec![introduced("e1")],
         vec![],
     );
+    let head = "old\n".repeat(supersigil_review::diff::COARSE_LINES + 1);
+    let target = "fn greet() {}\n".repeat(supersigil_review::diff::COARSE_LINES + 1);
     let line = why_line(
         &AttributionState::Available(&attr),
         0,
-        &split_lines(b"fn greet() {}\n"),
-        Tristate::Unknown,
-        Some("coarse diff".to_owned()),
+        &split_lines(target.as_bytes()),
+        Ok(head.as_bytes()),
     );
     assert_eq!(line.differs_from_head, Tristate::Unknown);
     assert_eq!(
@@ -412,8 +412,7 @@ fn why_prints_no_contributors_for_an_unattributed_line() {
         &AttributionState::Available(&attr),
         1,
         &split_lines(b"fn greet() {}\nfn other() {}\n"),
-        Tristate::Yes,
-        None,
+        Ok(b""),
     ));
     let text = render_why(&why, escape);
     assert!(text.contains("not attributed"), "{text}");
@@ -445,8 +444,7 @@ fn why_on_first_line(attr: &PathAttribution, ids: &[&str]) -> String {
         &AttributionState::Available(attr),
         0,
         &split_lines(b"fn greet() {}\n"),
-        Tristate::Yes,
-        None,
+        Ok(b""),
     ));
     why.edits = ids
         .iter()
@@ -616,15 +614,7 @@ fn why_line_refers_to_its_chains_and_its_outcome() {
     );
     attr.content.target[1] = std::collections::BTreeSet::from([eid("e5")]);
     let lines = split_lines(b"fn greet() {}\nfn other() {}\n");
-    let line = |index| {
-        why_line(
-            &AttributionState::Available(&attr),
-            index,
-            &lines,
-            Tristate::Yes,
-            None,
-        )
-    };
+    let line = |index| why_line(&AttributionState::Available(&attr), index, &lines, Ok(b""));
     let ids = |names: &[&str]| names.iter().map(|n| eid(n)).collect();
     assert_eq!(line(0).referenced_edits(), ids(&["e1", "e4"]));
     assert_eq!(line(1).referenced_edits(), ids(&["e1", "e4", "e5"]));

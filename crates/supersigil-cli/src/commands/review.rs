@@ -207,7 +207,7 @@ fn review_file(
         mentions,
         conflicting_edits: conflicts,
     });
-    // Mentions matter where nothing else explains the file (design section 4).
+    // Keep mentions for deletions and files with unattributed spans.
     if file.status != FileStatus::Deleted && !has_unattributed(&file) {
         file.mentions.clear();
     }

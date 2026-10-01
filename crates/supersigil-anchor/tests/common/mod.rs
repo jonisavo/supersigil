@@ -233,12 +233,14 @@ pub fn request(
     kind: TargetKind,
     edits: Vec<CandidateEdit>,
 ) -> Request {
+    let (edits, conflicts) = supersigil_anchor::walk::dedup(edits);
     Request {
         base: state(base),
         target: state(target),
         target_kind: kind,
         reviewed_worktree: PathBuf::from(WT),
         edits,
+        conflicts,
         budget_bytes: DEFAULT_BUDGET_BYTES,
     }
 }

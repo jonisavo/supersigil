@@ -1,4 +1,4 @@
-//! One outer outcome per diff line, decided by the design's ordered rules.
+//! One outer outcome per diff line, decided by the ordered rules below.
 //!
 //! Anchor gives every target line a combined provenance (a set of origins
 //! plus contributors) and every base line a set of fates, or marks the line

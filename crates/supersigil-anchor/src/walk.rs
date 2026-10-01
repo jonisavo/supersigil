@@ -154,49 +154,45 @@ pub struct Walk {
     pub conflicts: Vec<Conflict>,
 }
 
-/// Walks backward from `request.target` and returns every chain found.
+/// Walks accepted edits backward from `request.target`, preserving their
+/// record sightings and the supplied conflicts.
 ///
-/// Heads are the edits whose reversal from the target is accepted: for a
-/// working-tree target, the edits of the last bucket of each group in the
-/// reviewed worktree (every pinned observation predates the target, so a
-/// group's later edits supersede its earlier states) and any edit of a
-/// group in another worktree; for a commit target, any edit. Every order of
-/// a bucket's edits is tried. At every state both the local predecessors
-/// (the rest of the current bucket, or else the previous bucket of the
-/// group) and every verified link into a group not yet entered are
-/// explored; leaving through a link mid-bucket abandons the bucket's other
-/// edits. Chains are classed by what verifies them.
+/// | Target | Candidate heads in each group |
+/// |---|---|
+/// | Working tree, reviewed worktree | Last bucket only: pinned observations predate the target. |
+/// | Working tree, another worktree | Any edit: a commit can capture an earlier state. |
+/// | Commit | Any edit. |
 ///
-/// A chain that does not end at the base is set aside when a chain that
-/// does end there entered, in the same order, every group the first one
-/// entered, possibly followed by more, and used, in each, every edit the
-/// first one used: the two differ only in unrecorded choices (replacement
-/// locations, bucket orders, alignments) and in how far back the recorded
-/// evidence reaches, and the first holds no recorded edit the second
-/// lacks. It may use fewer, when a recorded check (an after-hash, a
-/// creation's content) stopped it early, or when the base-reaching chain
-/// went on through a verified link into a group the first never reached.
-/// A chain holding an edit that no base-reaching chain holds is never set
-/// aside, so no recorded evidence is dropped.
+/// Try every bucket ordering and both predecessor kinds: remaining edits
+/// in the current bucket (then the previous bucket), and verified links
+/// into groups not yet entered. Following a link abandons the remaining
+/// edits of the current bucket. A head must reverse successfully from the
+/// target; each resulting chain is classed by what verifies it.
 ///
-/// Subsets and orders of a bucket are generated one at a time, never
-/// materialized. Every generated branch is charged 1 KiB, and the bucket
-/// indices read to generate it, before it is explored; every entry of a
-/// state's list of links the group index read to check it, entered or not;
-/// every reversal candidate its bytes (see [`reverse`]); and every
-/// alignment the step's bytes. Chains found on one path share it while it
-/// is explored: each copy of a step into a chain after the first is
-/// charged what it holds.
-/// Setting chains aside compares their groups and edits, each distinct
-/// pair once, and each comparison is charged the indices it reads.
-/// Enumeration stops the moment the budget is exhausted. The status is then
-/// [`PathStatus::SearchIncomplete`]: the chains found so far are returned,
-/// and a chain whose comparison was refused is not set aside.
+/// Set aside a chain that does not reach the base only when one
+/// base-reaching chain enters all its groups in the same order, possibly
+/// followed by more groups, and uses every one of its edits in each group.
+/// The alternative remains listed as assuming an unrecorded change.
+/// A reading with independent recorded evidence is never set aside.
+///
+/// Generate bucket subsets and orders one at a time. Charge work before
+/// performing it:
+///
+/// | Work | Budget charge |
+/// |---|---|
+/// | Generate a branch | 1 KiB plus bucket indices read. |
+/// | Look up links | Every index entry read, including groups already entered. |
+/// | Reverse a candidate | Candidate bytes; see [`reverse`]. |
+/// | Align a step | Step bytes. |
+/// | Copy a shared step into another chain | Bytes retained by each copy after the first. |
+/// | Compare chains for setting aside | Indices read; compare each distinct pair once. |
+///
+/// On exhaustion, return the chains found with [`PathStatus::SearchIncomplete`].
+/// A chain whose comparison was refused is not set aside.
 #[must_use]
 pub fn walk(request: &Request) -> Walk {
-    let (accepted, conflicts) = dedup(request.edits.clone());
-    let groups = group(&accepted);
-    let mut search = Search::new(request, &accepted, &groups);
+    let groups = group(&request.edits);
+    let mut search = Search::new(request, &request.edits, &groups);
     search.run();
     let Search {
         mut budget,
@@ -222,8 +218,8 @@ pub fn walk(request: &Request) -> Walk {
         status,
         chains,
         set_aside,
-        accepted,
-        conflicts,
+        accepted: request.edits.clone(),
+        conflicts: request.conflicts.clone(),
     }
 }
 

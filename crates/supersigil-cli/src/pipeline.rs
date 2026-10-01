@@ -1,4 +1,4 @@
-//! The steps `review` and `why` share (design section 1, steps 1 to 7):
+//! The steps `review` and `why` share:
 //! resolve the change, find the originating worktrees, reconcile and pin
 //! every involved record, capture the working tree after the pin, and map
 //! the recorded edits onto worktrees. Also the conversions from git and
@@ -217,14 +217,11 @@ pub struct Gathered {
     pub unreconciled: Vec<UnreconciledCheckout>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
-    /// The candidate transcripts (design section 1, step 7): those holding
-    /// one of `candidates`, and those with an observation whose working
-    /// directory lies in a candidate worktree.
+    /// Transcripts holding a candidate edit or an observation made in a
+    /// candidate worktree, regardless of attribution success.
     pub candidate_transcripts: BTreeSet<String>,
-    /// The edits whose file lies in a candidate worktree, after
-    /// deduplicating every sighting in every involved record, wherever it
-    /// maps: the only edits attribution sees. Each is found by the path its
-    /// file has in its worktree.
+    /// Globally accepted edits in candidate worktrees, indexed by path.
+    /// These are the only edits attribution sees.
     pub accepted: ByPath<AcceptedEdit>,
     /// Edit ids excluded because their sightings disagree, each with a
     /// sighting in a candidate worktree. Each is found by every path its
@@ -548,13 +545,12 @@ fn in_candidate_worktrees(
         .collect()
 }
 
-/// Applies the record's event-identity rule ([`dedup`]) once over every
-/// sighting, wherever it maps, and only then filters to candidate
-/// worktrees: each accepted edit whose file lies in one gets its path, and
-/// each conflict with a sighting in one gets the paths all its sightings
-/// there touched, including sightings `dedup` skipped as a record's later
-/// ones. A conflict whose other sighting lies outside the candidate
-/// worktrees therefore still excludes the edit.
+/// Deduplicates all sightings before filtering to candidate worktrees.
+/// Returns accepted edits with their mapped paths.
+///
+/// Conflicts list every candidate path touched by any sighting, including
+/// later sightings within one record. A conflicting sighting outside the
+/// candidate worktrees still excludes the edit.
 fn deduplicate(
     sightings: &[Sighting],
     candidate_worktrees: &[PathBuf],
@@ -847,10 +843,8 @@ fn conversion_failure(status: Option<i32>, stderr_tail: &str) -> (String, String
     )
 }
 
-/// Runs anchor for `path` between the `base` and `target` states of
-/// [`PathBytes`], with the accepted edits mapped to it, each passed as one
-/// candidate carrying its first record, and attaches `conflicts`, those
-/// whose sightings touched the path ([`conflicts_for`]).
+/// Attributes `path` using its globally accepted edits and conflicts.
+/// Deduplication happens before edits are filtered or partitioned by path.
 ///
 /// # Errors
 ///
@@ -865,31 +859,20 @@ pub fn attribute_path(
 ) -> Result<PathAttribution, String> {
     let base = base?;
     let target = target?;
-    let edits = g
-        .accepted
-        .touching(path)
-        .filter_map(|accepted| {
-            Some(CandidateEdit {
-                record: accepted.records.first()?.clone(),
-                worktree: accepted.worktree.clone(),
-                edit: accepted.edit.clone(),
-            })
-        })
-        .collect();
+    let edits = g.accepted.touching(path).cloned().collect();
     let target_kind = match g.range.target {
         ResolvedTarget::WorkingTree { .. } => TargetKind::WorkingTree,
         ResolvedTarget::Commit { .. } => TargetKind::Commit,
     };
-    let mut attribution = attribute(Request {
+    Ok(attribute(Request {
         base,
         target,
         target_kind,
         reviewed_worktree: g.worktree.clone(),
         edits,
+        conflicts: conflicts.to_vec(),
         budget_bytes: DEFAULT_BUDGET_BYTES,
-    });
-    attribution.conflicts = conflicts.to_vec();
-    Ok(attribution)
+    }))
 }
 
 /// The rules' view of the result of [`attribute_path`]: anchor's result, or
@@ -1157,6 +1140,70 @@ mod tests {
         assert_eq!(accepted.len(), 1);
         assert_eq!(accepted[0].accepted.edit.id, EventId::new("e2"));
         assert_eq!(accepted[0].path, "x.rs");
+    }
+
+    #[test]
+    fn path_attribution_preserves_every_record_sighting() {
+        use supersigil_anchor::{PathStatus, State};
+        use supersigil_git::{Git, Repo, TargetSpec, resolve_range};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let git = Git::new(&root)
+            .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("HOME", &root)
+            .with_env("XDG_CONFIG_HOME", root.join("xdg"));
+        git.output(["init", "-q", "-b", "main"]).unwrap();
+        let repo = Repo::open(git).unwrap();
+        let range = resolve_range(&repo, None, &TargetSpec::WorkingTree).unwrap();
+        let mut first = sighting("r1", "e1", "a.rs").candidate;
+        first.worktree = root.clone();
+        first.edit.checkout = root.clone();
+        first.edit.operation = EditOperation::Write;
+        first.edit.before = FileState::Absent;
+        first.edit.after = FileState::known(supersigil_record::ContentId::of(b"new\n"));
+        first.edit.new_text = Material::Retained("new\n".to_owned());
+        let mut second = first.clone();
+        second.record = RecordId::new("r2");
+        let (accepted, conflicts) = supersigil_anchor::walk::dedup(vec![first, second]);
+        let g = super::Gathered {
+            target_tree: range.base.tree.clone(),
+            repo,
+            range,
+            worktree: root.clone(),
+            cwd: root,
+            snapshot: None,
+            origins: supersigil_git::origin::Origins::default(),
+            candidate_worktrees: Vec::new(),
+            records: Vec::new(),
+            unreconciled: Vec::new(),
+            candidates: Vec::new(),
+            candidate_transcripts: BTreeSet::new(),
+            accepted: ByPath::new(accepted.into_iter().map(|edit| (edit, ["a.rs"])), false),
+            conflicts: ByPath::new(conflicts.into_iter().map(|edit| (edit, ["a.rs"])), false),
+            unplaced_edits: 0,
+            ignore_case: false,
+            include_untracked: Vec::new(),
+            paths: Vec::new(),
+            whole_worktree: false,
+            evidence: crate::evidence::Evidence::default(),
+        };
+
+        let found = super::attribute_path(
+            &g,
+            &RepoPath::new(b"a.rs".to_vec()),
+            Ok(State::Absent),
+            Ok(State::Present(b"new\n".to_vec())),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(found.status, PathStatus::Composed);
+        assert_eq!(found.accepted.len(), 1);
+        assert_eq!(
+            found.accepted[0].records,
+            vec![RecordId::new("r1"), RecordId::new("r2")]
+        );
     }
 
     fn pinned(associations: Vec<PathBuf>) -> PinnedRecord {

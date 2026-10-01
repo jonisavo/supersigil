@@ -1,4 +1,4 @@
-//! The terminal summary of a review, until plan 4's TUI replaces it.
+//! The plain terminal summary of a review.
 //!
 //! Plain, deterministic text in four parts: a header (worktree, base,
 //! target, anything not reconciled, and every candidate transcript's capture

@@ -279,7 +279,7 @@ fn restricted() -> impl Strategy<Value = (bool, usize, Vec<Op>)> {
 proptest! {
     #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::default() })]
 
-    /// (a) Over histories section 3 guarantees to invert unambiguously, a
+    /// (a) Over histories with an unambiguous inverse, a
     /// chain exact from the base exists and every line matches the oracle.
     #[test]
     fn completeness((base_present, size, ops) in restricted()) {

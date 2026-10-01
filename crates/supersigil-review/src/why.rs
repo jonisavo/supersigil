@@ -10,10 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use serde_json::Value;
+use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, Conflict, LineOutcome, Origin, PathStatus, Provenance};
 use supersigil_record::EventId;
 use supersigil_record::observations::Material;
 
+use crate::diff::diff_blob_lines;
 use crate::model::{EditInfo, EvidenceInfo, RecordInfo, analysis_edits, outcome_edits, text};
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
 use crate::summary::{class_words, context_lines, push, reason_words, relation_words};
@@ -160,16 +162,18 @@ impl WhyLine {
     }
 }
 
-/// Analyzes 0-based target line `line` by the same ordered rules as an added
-/// diff line.
+/// Explains 0-based target blob line `line` and compares it with HEAD.
+/// A line inside a coarse changed hunk has an unknown difference; a line
+/// outside the hunk is unchanged. An unavailable HEAD preserves its reason.
 #[must_use]
 pub fn why_line(
     attribution: &AttributionState<'_>,
     line: usize,
     target_blob_lines: &[&[u8]],
-    differs_from_head: Tristate,
-    differs_from_head_reason: Option<String>,
+    head_blob: Result<&[u8], &str>,
 ) -> WhyLine {
+    let (differs_from_head, differs_from_head_reason) =
+        head_difference(head_blob, target_blob_lines, line);
     let (outcome, provenance) = target_line_outcome(attribution, line, &[], target_blob_lines);
     let contributors = match attribution {
         AttributionState::Available(attr) => contributors(&outcome, attr.target.get(line)),
@@ -197,6 +201,28 @@ pub fn why_line(
         outcome,
         provenance,
         contributors,
+    }
+}
+
+/// Compares a blob line with HEAD; coarse changed hunks cannot prove a difference.
+fn head_difference(
+    head: Result<&[u8], &str>,
+    target: &[&[u8]],
+    index: usize,
+) -> (Tristate, Option<String>) {
+    let head = match head {
+        Ok(head) => head,
+        Err(reason) => return (Tristate::Unknown, Some(reason.to_owned())),
+    };
+    let diff = diff_blob_lines(&split_lines(head), target);
+    let changed = diff
+        .hunks
+        .iter()
+        .any(|h| (h.target_start..h.target_start + h.target_count).contains(&index));
+    match (changed, diff.coarse) {
+        (true, true) => (Tristate::Unknown, Some("coarse diff".to_owned())),
+        (true, false) => (Tristate::Yes, None),
+        (false, _) => (Tristate::No, None),
     }
 }
 
