@@ -911,7 +911,6 @@ mod tests {
             flags: BTreeSet::from(["shared".to_owned()]),
         });
         let evidence = index(&[Observation::Command(recorded)]);
-        let shown = repo.display().to_string();
         let roots = [repo];
         let found = evidence.command_changes(
             &BTreeSet::from(["t.jsonl".to_owned()]),
@@ -919,6 +918,13 @@ mod tests {
             &roots,
             false,
         );
+        let [(change, _)] = found.as_slice() else {
+            panic!("one change expected, found {found:?}");
+        };
+        // `checkout` and `worktree` are display strings: compared as paths.
+        assert_eq!(Path::new(&change.checkout), roots[0]);
+        assert_eq!(Path::new(&change.worktree), roots[0]);
+        let (checkout, worktree) = (change.checkout.clone(), change.worktree.clone());
         assert_eq!(
             found,
             vec![(
@@ -928,8 +934,8 @@ mod tests {
                     turn: "a1".to_owned(),
                     transcript: Some("t.jsonl".to_owned()),
                     time: "2026-09-29T10:00:01.000Z".to_owned(),
-                    checkout: shown.clone(),
-                    worktree: shown,
+                    checkout,
+                    worktree,
                     text: "make".to_owned(),
                     kind: ChangeKind::Created,
                     patch: Material::Retained(vec![hunk]),
