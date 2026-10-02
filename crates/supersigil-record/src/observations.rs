@@ -280,7 +280,8 @@ pub struct Hunk {
 /// Editing operation recorded for an edit.
 ///
 /// Reconstructing an earlier file state depends on it: an Edit replaced
-/// `old_text` with `new_text`, a Write replaced the whole file.
+/// `old_text` with `new_text`, a Write replaced the whole file, an append
+/// added `new_text` after the file's last byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EditOperation {
@@ -288,6 +289,9 @@ pub enum EditOperation {
     Replace,
     /// Claude Code's Write tool: the whole file becomes `new_text`.
     Write,
+    /// `new_text` was added at the end of the file, which is created when
+    /// absent, as a shell's `>>` redirection does.
+    Append,
     /// Not recorded (logs written before this field existed) or a tool
     /// anchor cannot reverse, such as `MultiEdit`.
     #[default]

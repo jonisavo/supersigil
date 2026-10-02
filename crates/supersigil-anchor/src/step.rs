@@ -62,8 +62,11 @@ pub struct Forward {
 /// does. It needs both texts retained, a non-empty `old_text`, a present
 /// before-state, and at least one occurrence. A Write's result is its
 /// retained content whatever the before-state was, and its one replacement
-/// spans both whole files. Returns `None` when the edit cannot execute,
-/// which includes every `Unknown` operation.
+/// spans both whole files. An Append's result is the before-state's bytes
+/// (none when it is absent) followed by its retained, non-empty text, and
+/// its one replacement is the empty range at the end of the before-state.
+/// Returns `None` when the edit cannot execute, which includes every
+/// `Unknown` operation.
 #[must_use]
 pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
     match edit.operation {
@@ -102,6 +105,20 @@ pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
                     before: 0..before.byte_len(),
                     after: 0..content.len(),
                 }],
+            })
+        }
+        EditOperation::Append => {
+            let text = retained(&edit.new_text).filter(|text| !text.is_empty())?;
+            let bytes = before.bytes().unwrap_or_default();
+            let mut after = Vec::with_capacity(bytes.len() + text.len());
+            after.extend_from_slice(bytes);
+            after.extend_from_slice(text);
+            Some(Forward {
+                replacements: vec![Replacement {
+                    before: bytes.len()..bytes.len(),
+                    after: bytes.len()..after.len(),
+                }],
+                after: State::Present(after),
             })
         }
         EditOperation::Unknown => None,
@@ -185,6 +202,10 @@ impl Budget {
 ///   is absent.
 /// - Write overwriting a file: the before-state is `base`, only when the
 ///   recorded before-hash equals `base`'s hash.
+/// - Append: `current` without the text it must end with. When the recorded
+///   before-state is absent, that prefix must be empty and the before-state
+///   is absent. While the before-hash is unknown, a retained patch must show
+///   its old side in the prefix, as for an Edit's candidate.
 ///
 /// With a retained patch, the step stops when the after-hash is unknown and
 /// `current` does not show every hunk's new side, and a candidate is
@@ -221,10 +242,14 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
         });
     }
     // The retained patch is read only where it is consulted: for the new
-    // side while the after-hash is unknown, and for an ordinary Edit's
-    // candidates. Its text is charged before it is read.
-    let consulted =
-        !is_known(&edit.after) || (edit.operation == EditOperation::Replace && !edit.replace_all);
+    // side while the after-hash is unknown, and for the candidates of an
+    // ordinary Edit or an Append. Its text is charged before it is read.
+    let consulted = !is_known(&edit.after)
+        || match edit.operation {
+            EditOperation::Replace => !edit.replace_all,
+            EditOperation::Append => true,
+            EditOperation::Write | EditOperation::Unknown => false,
+        };
     let patch = match edit.patch.retained() {
         Some(hunks) if consulted => {
             let bytes = hunks
@@ -247,10 +272,12 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
             edit: edit.id.clone(),
         });
     }
-    if edit.operation == EditOperation::Write {
-        reverse_write(edit, current, base, budget)
-    } else {
-        reverse_replace(edit, current, patch.as_ref(), budget)
+    match edit.operation {
+        EditOperation::Write => reverse_write(edit, current, base, budget),
+        EditOperation::Append => reverse_append(edit, current, patch.as_ref(), budget),
+        EditOperation::Replace | EditOperation::Unknown => {
+            reverse_replace(edit, current, patch.as_ref(), budget)
+        }
     }
 }
 
@@ -929,6 +956,54 @@ fn reverse_write(edit: &Edit, current: &State, base: &State, budget: &mut Budget
         FileState::Present { .. } => {
             return Reversed::Stop(StopReason::WholeFileWrite { edit: id() });
         }
+    };
+    match validate(edit, before, current) {
+        Some(reversal) => Reversed::Candidates(vec![reversal]),
+        None => Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() }),
+    }
+}
+
+/// Reverses an append: `current` must end with the edit's text, and the
+/// one candidate before-state is the bytes before it. While the before-hash
+/// is unknown, a retained patch must show its old side in that candidate.
+fn reverse_append(
+    edit: &Edit,
+    current: &State,
+    patch: Option<&Patch>,
+    budget: &mut Budget,
+) -> Reversed {
+    let id = || edit.id.clone();
+    let Some(text) = retained(&edit.new_text) else {
+        return Reversed::Stop(StopReason::TextUnavailable { edit: id() });
+    };
+    let prefix = current
+        .bytes()
+        .filter(|_| !text.is_empty())
+        .and_then(|bytes| bytes.strip_suffix(text));
+    let Some(prefix) = prefix else {
+        return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+    };
+    if let Some(patch) = patch.filter(|_| !is_known(&edit.before)) {
+        // Reading the candidate's lines and the hunk text.
+        if !budget.charge(patch.bytes.saturating_add(prefix.len())) {
+            return out_of_budget();
+        }
+        if !patch.shown_before(&Whole::new(prefix)) {
+            return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+        }
+    }
+    if !budget.charge(candidate_cost(prefix.len(), current.byte_len())) {
+        return out_of_budget();
+    }
+    // A file the append created held nothing before it; one that existed
+    // may have been empty.
+    let before = if edit.before == FileState::Absent {
+        if !prefix.is_empty() {
+            return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+        }
+        State::Absent
+    } else {
+        State::Present(prefix.to_vec())
     };
     match validate(edit, before, current) {
         Some(reversal) => Reversed::Candidates(vec![reversal]),

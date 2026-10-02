@@ -120,6 +120,28 @@ pub fn overwrite(id: &str, transcript: &str, ordinal: u64, content: &str) -> Edi
     )
 }
 
+/// An append to an existing file, with unknown before- and after-states.
+pub fn append(id: &str, transcript: &str, ordinal: u64, text_added: &str) -> Edit {
+    edit(
+        id,
+        transcript,
+        ordinal,
+        EditOperation::Append,
+        Material::unavailable("append"),
+        text(text_added),
+        false,
+        FileState::unknown(),
+        FileState::unknown(),
+    )
+}
+
+/// An append that created the file: before absent, after unknown.
+pub fn append_creating(id: &str, transcript: &str, ordinal: u64, text_added: &str) -> Edit {
+    let mut e = append(id, transcript, ordinal, text_added);
+    e.before = FileState::Absent;
+    e
+}
+
 /// A replacement whose operation was not recorded.
 pub fn unknown_op(id: &str, transcript: &str, ordinal: u64, old: &str, new: &str) -> Edit {
     let mut e = replace(id, transcript, ordinal, old, new);

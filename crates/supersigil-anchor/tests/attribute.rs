@@ -8,8 +8,8 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    candidate, finishes_within, id, overwrite, replace, replace_all, request, unknown_op,
-    with_hashes, with_patch,
+    append, append_creating, candidate, finishes_within, id, overwrite, replace, replace_all,
+    request, unknown_op, with_hashes, with_patch,
 };
 use supersigil_anchor::walk::walk;
 use supersigil_anchor::{
@@ -1033,4 +1033,113 @@ fn indexing_is_charged_for_each_lines_bookkeeping() {
     let out = attribute(req);
     assert!(matches!(out.status, PathStatus::NotComposed { .. }));
     assert!(out.content.incomplete);
+}
+
+#[test]
+fn appended_lines_are_introduced_and_the_rest_is_base() {
+    let out = wt(
+        "a\n",
+        "a\nb\nc\n",
+        vec![candidate(append("e1", "t", 1, "b\nc\n"))],
+    );
+    assert_eq!(out.status, PathStatus::Composed);
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([base(0)]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    assert_eq!(origins(&out, 2), set([introduced("e1")]));
+}
+
+#[test]
+fn appends_sharing_an_ordinal_are_ordered_by_the_bytes() {
+    // Two heredocs of one command: the record holds no order between them.
+    let out = wt(
+        "a\n",
+        "a\nb\nc\n",
+        vec![
+            candidate(append("second", "t", 1, "c\n")),
+            candidate(append("first", "t", 1, "b\n")),
+        ],
+    );
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(out.chains[0].edits, vec![id("first"), id("second")]);
+    assert_eq!(origins(&out, 1), set([introduced("first")]));
+    assert_eq!(origins(&out, 2), set([introduced("second")]));
+}
+
+#[test]
+fn an_append_onto_a_line_without_a_terminator_shares_that_line() {
+    let out = wt(
+        "a",
+        "ab\nc\n",
+        vec![candidate(append("e1", "t", 1, "b\nc\n"))],
+    );
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    // The first target line holds base bytes and appended bytes.
+    assert_eq!(origins(&out, 0), set([introduced("e1")]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    assert_eq!(
+        base_fates(&out, 0),
+        set([Fate::Replaced { edit: id("e1") }])
+    );
+}
+
+#[test]
+fn a_file_created_and_extended_without_hashes_is_exact_from_an_absent_base() {
+    // What a shell records: no hash on either side of either edit.
+    let mut created = common::create("w", "t", 1, "a\n");
+    created.after = supersigil_record::observations::FileState::unknown();
+    let out = attribute(request(
+        None,
+        Some("a\nb\n"),
+        TargetKind::WorkingTree,
+        vec![candidate(created), candidate(append("e1", "t", 2, "b\n"))],
+    ));
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([introduced("w")]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    // The same history started by an append that created the file.
+    let out = attribute(request(
+        None,
+        Some("a\nb\n"),
+        TargetKind::WorkingTree,
+        vec![
+            candidate(append_creating("e0", "t", 1, "a\n")),
+            candidate(append("e1", "t", 2, "b\n")),
+        ],
+    ));
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([introduced("e0")]));
+}
+
+#[test]
+fn an_append_over_an_unrecorded_change_is_consistent_not_exact() {
+    let out = wt(
+        "a\n",
+        "a\nmanual\nb\n",
+        vec![candidate(append("e1", "t", 1, "b\n"))],
+    );
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::Consistent);
+    assert_eq!(origins(&out, 1), set([Origin::Unexplained]));
+    assert_eq!(origins(&out, 2), set([introduced("e1")]));
+}
+
+#[test]
+fn a_change_after_an_append_leaves_the_path_uncomposed() {
+    let out = wt(
+        "a\n",
+        "a\nb\nmanual\n",
+        vec![candidate(append("e1", "t", 1, "b\n"))],
+    );
+    assert_eq!(
+        out.status,
+        PathStatus::NotComposed {
+            reasons: vec![StopReason::NoAcceptedCandidate { edit: id("e1") }]
+        }
+    );
+    // The fallback still names the edit whose text covers the line.
+    assert_eq!(out.content.target[1], set([id("e1")]));
 }
