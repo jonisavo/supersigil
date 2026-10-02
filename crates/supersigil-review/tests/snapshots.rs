@@ -777,3 +777,23 @@ fn why_keeps_whether_a_content_match_search_completed() {
         "{partial}"
     );
 }
+
+#[test]
+fn the_header_counts_unconfirmed_shell_writes() {
+    let mut review = sample_review();
+    review.evidence.candidate_transcripts[0].capture_limitations = vec![CaptureLimitation {
+        session: SessionId::new("s1"),
+        transcript: TRANSCRIPT.to_owned(),
+        from_ordinal: 0,
+        to_ordinal: 9,
+        counts: CaptureCounts {
+            unconfirmed_shell_writes: 2,
+            ..CaptureCounts::default()
+        },
+    }];
+    let text = render_summary(&review, escape);
+    assert!(
+        text.contains("(session s1): 2 unconfirmed shell writes; not localized to a path"),
+        "{text}"
+    );
+}

@@ -446,6 +446,7 @@ fn count_words(counts: &CaptureCounts) -> Vec<String> {
         (counts.session_mismatch, "records of another session"),
         (counts.unnamed_tool_uses, "tool uses without an id"),
         (counts.unsupported_tool_uses, "unsupported tool uses"),
+        (counts.unconfirmed_shell_writes, "unconfirmed shell writes"),
     ])
 }
 

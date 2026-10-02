@@ -1173,7 +1173,7 @@ mod tests {
     use supersigil_git::RepoPath;
     use supersigil_git::changes::Mode;
     use supersigil_git::worktree::Worktree;
-    use supersigil_record::observations::{Edit, EditOperation, FileState, Material};
+    use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Material};
     use supersigil_record::{EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
@@ -1199,6 +1199,7 @@ mod tests {
             new_text: Material::unavailable("test"),
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: root.clone(),
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             source_ordinal: 0,

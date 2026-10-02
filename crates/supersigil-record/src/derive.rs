@@ -127,7 +127,7 @@ mod tests {
 
     use super::*;
     use crate::ids::{Timestamp, TurnId};
-    use crate::observations::{EditOperation, Material};
+    use crate::observations::{EditOperation, EditOrigin, Material};
 
     fn session() -> SessionId {
         SessionId::new("s1")
@@ -152,6 +152,7 @@ mod tests {
             new_text: Material::unavailable("test"),
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: PathBuf::from("/work/repo"),
             time: Timestamp::new(format!("2026-09-28T10:00:{ordinal:02}.000Z")),
             source_ordinal: ordinal,

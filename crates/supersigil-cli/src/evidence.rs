@@ -363,8 +363,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use supersigil_record::observations::{
-        CaptureCounts, CaptureLimitation, Command, CommandCategory, Edit, EditOperation, FileState,
-        Material, Observation, Role, Turn,
+        CaptureCounts, CaptureLimitation, Command, CommandCategory, Edit, EditOperation,
+        EditOrigin, FileState, Material, Observation, Role, Turn,
     };
     use supersigil_record::{EventId, RecordId, SessionId, Timestamp, TurnId};
 
@@ -498,6 +498,7 @@ mod tests {
             new_text: Material::unavailable("test"),
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: PathBuf::from("/work/repo"),
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             source_ordinal: 0,

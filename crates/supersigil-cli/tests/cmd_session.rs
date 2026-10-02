@@ -678,6 +678,44 @@ fn sync_reports_other_sessions_unnamed_and_unsupported_tool_uses() {
 }
 
 #[test]
+fn sync_reports_heredoc_writes_no_change_report_confirms() {
+    let e = env();
+    let lines = [
+        serde_json::json!({
+            "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+            "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+            "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash",
+                 "input": {"command": "cat > a.rs <<'EOF'\nx\nEOF\n"}}
+            ]}
+        }),
+        serde_json::json!({
+            "type": "user", "uuid": "u1", "parentUuid": "a1", "sessionId": "s",
+            "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:01.000Z", "isSidechain": false,
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": ""}
+            ]},
+            "toolUseResult": {"stdout": "", "stderr": "", "interrupted": false}
+        }),
+    ];
+    let mut text = String::new();
+    for line in &lines {
+        text.push_str(&line.to_string());
+        text.push('\n');
+    }
+    let transcript = e.checkout.join("t.jsonl");
+    std::fs::write(&transcript, in_checkout(&e, &text)).unwrap();
+    session_cmd(&e)
+        .args(["sync", "--transcript"])
+        .arg(&transcript)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "heredoc writes without a confirming change report, not recorded: 1",
+        ));
+}
+
+#[test]
 fn error_messages_escape_control_bytes_in_arguments() {
     let e = env();
     session_cmd(&e)

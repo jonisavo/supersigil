@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use supersigil_anchor::{CandidateEdit, DEFAULT_BUDGET_BYTES, Request, State, TargetKind};
-use supersigil_record::observations::{Edit, EditOperation, FileState, Hunk, Material};
+use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Hunk, Material};
 use supersigil_record::{ContentId, EventId, RecordId, SessionId, Timestamp, TurnId};
 
 /// The reviewed worktree in tests.
@@ -52,6 +52,7 @@ fn edit(
         new_text: new,
         replace_all,
         operation,
+        origin: EditOrigin::Tool,
         checkout: PathBuf::from(WT),
         time: Timestamp::new("2026-09-29T10:00:00.000Z"),
         source_ordinal: ordinal,

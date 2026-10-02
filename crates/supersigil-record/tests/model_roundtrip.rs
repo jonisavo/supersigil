@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, ChangeReport, Command, CommandCategory, Content,
-    Edit, EditOperation, EndReason, FileChange, FileState, Hunk, Material, Observation, Outcome,
-    Role, SessionEnd, SessionStart, Source, Turn,
+    Edit, EditOperation, EditOrigin, EndReason, FileChange, FileState, Hunk, Material, Observation,
+    Outcome, Role, SessionEnd, SessionStart, Source, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -84,6 +84,7 @@ fn sample() -> Vec<Observation> {
             },
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: checkout.clone(),
             time: Timestamp::new("2026-09-28T10:00:06.000Z"),
             source_ordinal: 2,
@@ -127,6 +128,7 @@ fn sample() -> Vec<Observation> {
                 session_mismatch: 0,
                 unnamed_tool_uses: 0,
                 unsupported_tool_uses: 0,
+                unconfirmed_shell_writes: 0,
             },
         }),
         Observation::SessionEnd(SessionEnd {

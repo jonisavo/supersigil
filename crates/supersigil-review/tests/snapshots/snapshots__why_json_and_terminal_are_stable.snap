@@ -37,6 +37,7 @@ evidence:
           session_mismatch: 0
           unnamed_tool_uses: 0
           unsupported_tool_uses: 0
+          unconfirmed_shell_writes: 0
       localized: false
   unplaced_edits: 0
   unreconciled_checkouts:

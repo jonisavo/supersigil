@@ -186,6 +186,10 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
                 "tool uses the capture cannot read, not recorded",
                 counts.unsupported_tool_uses,
             ),
+            (
+                "heredoc writes without a confirming change report, not recorded",
+                counts.unconfirmed_shell_writes,
+            ),
         ];
         for (label, count) in lines {
             if count > 0 {

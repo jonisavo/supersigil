@@ -298,7 +298,25 @@ pub enum EditOperation {
     Unknown,
 }
 
-/// A file edit made through the agent's editing tools.
+/// How an edit reached the record.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EditOrigin {
+    /// A call to an editing tool, whose result states the edit.
+    #[default]
+    Tool,
+    /// A quoted heredoc a shell command redirected into the file. The text
+    /// is read from the command, and the harness's change report for that
+    /// command confirms that the file changed; nothing states the
+    /// resulting bytes.
+    Shell {
+        /// The command that held the heredoc.
+        command: EventId,
+    },
+}
+
+/// A file edit made through the agent's editing tools, or by a shell
+/// heredoc the harness confirmed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     /// Event ID derived from the session ID and the source's tool-use ID.
@@ -324,6 +342,8 @@ pub struct Edit {
     /// Editing operation, `Unknown` for observations recorded before it was kept.
     #[serde(default)]
     pub operation: EditOperation,
+    /// How the edit reached the record.
+    pub origin: EditOrigin,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
     /// Timestamp of the tool result, falling back to the issuing record's
@@ -523,6 +543,11 @@ pub struct CaptureCounts {
     /// and `Bash` calls without a command.
     #[serde(default)]
     pub unsupported_tool_uses: u64,
+    /// Heredoc file writes in shell commands that the harness's change
+    /// report did not confirm, so no edit was recorded for them: the call
+    /// failed, was cut off, ran in the background, or had no result, or its
+    /// report did not describe the file.
+    pub unconfirmed_shell_writes: u64,
 }
 
 impl CaptureCounts {
@@ -539,6 +564,7 @@ impl CaptureCounts {
             && self.session_mismatch == 0
             && self.unnamed_tool_uses == 0
             && self.unsupported_tool_uses == 0
+            && self.unconfirmed_shell_writes == 0
     }
 }
 
@@ -557,6 +583,7 @@ impl std::ops::AddAssign<&Self> for CaptureCounts {
         self.session_mismatch += rhs.session_mismatch;
         self.unnamed_tool_uses += rhs.unnamed_tool_uses;
         self.unsupported_tool_uses += rhs.unsupported_tool_uses;
+        self.unconfirmed_shell_writes += rhs.unconfirmed_shell_writes;
     }
 }
 
@@ -587,6 +614,7 @@ mod tests {
             session_mismatch: 7,
             unnamed_tool_uses: 8,
             unsupported_tool_uses: 9,
+            unconfirmed_shell_writes: 10,
         };
         let b = CaptureCounts {
             unknown_records: BTreeMap::from([("y".to_owned(), 10), ("z".to_owned(), 1)]),
@@ -599,6 +627,7 @@ mod tests {
             session_mismatch: 70,
             unnamed_tool_uses: 80,
             unsupported_tool_uses: 90,
+            unconfirmed_shell_writes: 100,
         };
         let total: CaptureCounts = [&a, &b].into_iter().sum();
         assert_eq!(
@@ -618,6 +647,7 @@ mod tests {
                 session_mismatch: 77,
                 unnamed_tool_uses: 88,
                 unsupported_tool_uses: 99,
+                unconfirmed_shell_writes: 110,
             }
         );
         assert!(
@@ -652,6 +682,10 @@ mod tests {
             },
             CaptureCounts {
                 unsupported_tool_uses: 1,
+                ..CaptureCounts::default()
+            },
+            CaptureCounts {
+                unconfirmed_shell_writes: 1,
                 ..CaptureCounts::default()
             },
         ];

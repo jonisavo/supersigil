@@ -36,14 +36,6 @@
 //! means; the shell has more ways than a reader of text can list. The
 //! caller's checks against the harness's report are what stand behind both.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the transcript parser calls this module once shell edits are recorded"
-    )
-)]
-
 use std::path::{Component, Path, PathBuf};
 
 /// A heredoc file write found in a command's text.
