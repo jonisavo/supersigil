@@ -88,19 +88,23 @@ pub(super) enum Written {
 ///   last hunk does if it has less context after its last change than
 ///   before its first: both sides get equal context, so the file ended
 ///   first. In measured hunks, those starting after line 1 lead with three
-///   context lines; those followed by another trail with three. If every
-///   hunk is counted as above, its final lines must match the written
-///   suffix. Appended lines may appear as context aligned with equal old
-///   lines. The total file length, counting lines before and within the
-///   hunk, must accommodate all written lines. The first written line need
-///   only match its line's suffix: appending `y` to unterminated `x` leaves
-///   `xy`. A hunk that may end before the file does, or whose header counts
-///   unseen lines, contradicts nothing.
+///   context lines; those followed by another trail with three. A hunk
+///   with no old-side line reaches the end too: with that context, an old
+///   side without a single line is an empty file, so the new side is the
+///   whole file. If every hunk is counted as above, its final lines must
+///   match the written suffix. Appended lines may appear as context aligned
+///   with equal old lines. The total file length, counting lines before and
+///   within the hunk, must accommodate all written lines. The first written
+///   line need only match its line's suffix: appending `y` to unterminated
+///   `x` leaves `xy`. A hunk that may end before the file does, or whose
+///   header counts unseen lines, contradicts nothing.
 /// - Either: written text ends with a newline. A new-side line marked `\ No
 ///   newline at end of file` contradicts any written text. On a removed
 ///   line, the marker describes the file before the command; no other line
 ///   is that marker. A marker after a known line counts regardless of the
-///   rest of the hunk.
+///   rest of the hunk. Likewise, a hunk that removes lines and shows no
+///   new-side line, with every line known and both counts exact, shows the
+///   file ended empty, which contradicts any written text.
 ///
 /// An entry without hunks contradicts nothing.
 pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
@@ -110,7 +114,7 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
         .iter()
         .all(|side| !matches!(side.reach, Reach::Unknown));
     let (Written::Whole { text, .. } | Written::Tail(text)) = written;
-    if !text.is_empty() && sides.iter().any(|side| side.unterminated) {
+    if !text.is_empty() && sides.iter().any(|side| side.unterminated || side.emptied) {
         return true;
     }
     let expected = lines_of(text);
@@ -197,6 +201,10 @@ struct NewSide<'a> {
     lines: Vec<&'a str>,
     /// Whether the hunk marks one of `lines` as having no newline after it.
     unterminated: bool,
+    /// Whether the hunk shows the file ended empty: it removes lines, shows
+    /// no new-side line, knows every line, and its header counts both sides
+    /// exactly.
+    emptied: bool,
     /// Whether the hunk's header counts exactly `lines`.
     counted: bool,
     /// Where in the file `lines` can be placed.
@@ -211,8 +219,9 @@ enum Reach {
     /// From the hunk's new start; the file may go on after them.
     Lines,
     /// From the new start to the file's end: less context follows the last
-    /// change than precedes the first, which occurs only at the end. The
-    /// header also counts the shown old-side lines.
+    /// change than precedes the first, which occurs only at the end, or the
+    /// hunk has no old-side line, so the file was empty. The header also
+    /// counts the shown old-side lines.
     End,
 }
 
@@ -259,11 +268,13 @@ impl<'a> NewSide<'a> {
                 }
             }
         }
+        let counted = usize::try_from(hunk.new_lines) == Ok(lines.len());
+        let old_counted = usize::try_from(hunk.old_lines) == Ok(old);
+        // With the harness's context, a side without a single line is a
+        // whole empty file: any line beside a change would be shown.
         let reach = if !known {
             Reach::Unknown
-        } else if usize::try_from(hunk.old_lines) == Ok(old)
-            && leading.is_some_and(|leading| trailing < leading)
-        {
+        } else if old_counted && (old == 0 || leading.is_some_and(|leading| trailing < leading)) {
             Reach::End
         } else {
             Reach::Lines
@@ -272,7 +283,8 @@ impl<'a> NewSide<'a> {
             start: usize::try_from(hunk.new_start)
                 .ok()
                 .and_then(|start| start.checked_sub(1)),
-            counted: usize::try_from(hunk.new_lines) == Ok(lines.len()),
+            emptied: known && old_counted && counted && old > 0 && lines.is_empty(),
+            counted,
             lines,
             unterminated,
             reach,

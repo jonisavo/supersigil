@@ -2275,7 +2275,6 @@ fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_app
     for lines in [
         &[" x", "+y", "+z", " kept"][..],
         &["+top", " x"],
-        &["-x"],
         &["-w", "+later"],
         &[" a", " b", " c", "+w", " d", " e", " f"],
     ] {
@@ -2305,6 +2304,58 @@ fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_app
         &["+y", "+y", "+y", "+y", " x", " x", " x"],
     );
     assert_eq!(confirmed_with(command, &aligned), (1, 0));
+}
+
+#[test]
+fn a_diff_showing_the_file_ended_empty_contradicts_a_heredoc() {
+    // Removed lines and no new-side line: with the context the harness
+    // gives, any line left in the file would show, so the file ended empty.
+    // A skipped heredoc whose text it lacks is no edit.
+    let overwrite = "false && cat > a.rs <<'E'\nx\nE\n: > a.rs\n";
+    let append = "false && cat >> a.rs <<'E'\nx\nE\n: > a.rs\n";
+    let emptied = entry("/work/repo/a.rs", false, 1, &["-old"]);
+    for command in [overwrite, append] {
+        assert_eq!(confirmed_with(command, &emptied), (0, 1), "{command}");
+    }
+    // The harness may number the empty side from 0 as well as from 1.
+    let mut from_zero = emptied.clone();
+    from_zero["hunks"][0]["newStart"] = json!(0);
+    assert_eq!(confirmed_with(overwrite, &from_zero), (0, 1));
+    // An empty heredoc leaves the file empty, which agrees.
+    assert_eq!(confirmed_with("cat > a.rs <<'E'\nE\n", &emptied), (1, 0));
+    // A header counting a new-side line the hunk does not show, or a line
+    // this reader does not know, leaves the file's length unknown.
+    let mut cut = emptied.clone();
+    cut["hunks"][0]["newLines"] = json!(1);
+    let mut unknown = emptied.clone();
+    unknown["hunks"][0]["lines"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("? omitted"));
+    for silent in [cut, unknown] {
+        assert_eq!(confirmed_with(overwrite, &silent), (1, 0), "{silent}");
+    }
+}
+
+#[test]
+fn a_diff_of_a_file_that_was_empty_shows_the_whole_file() {
+    // No old-side line: the file was empty, so the hunk's new side is the
+    // whole file and reaches its end. A skipped append is checked against it.
+    let skipped = "false && cat >> a.rs <<'E'\nx\nE\necho y > a.rs\n";
+    let other = entry("/work/repo/a.rs", false, 1, &["+y"]);
+    assert_eq!(confirmed_with(skipped, &other), (0, 1));
+    let mut from_zero = other.clone();
+    from_zero["hunks"][0]["oldStart"] = json!(0);
+    assert_eq!(confirmed_with(skipped, &from_zero), (0, 1));
+    // A file that ends with the appended lines agrees, whatever precedes
+    // them; one shorter than they are does not.
+    let append = "cat >> a.rs <<'E'\na\nb\nE\n";
+    for lines in [&["+a", "+b"][..], &["+top", "+a", "+b"]] {
+        let agreeing = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(append, &agreeing), (1, 0), "{lines:?}");
+    }
+    let short = entry("/work/repo/a.rs", false, 1, &["+b"]);
+    assert_eq!(confirmed_with(append, &short), (0, 1));
 }
 
 #[test]
