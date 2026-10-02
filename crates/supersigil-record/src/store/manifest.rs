@@ -11,7 +11,7 @@ use super::{MANIFEST_FILE, StoreError, io_error};
 use crate::ids::{ContentId, RecordId, Revision, SessionId};
 
 /// Manifest schema version supported for reading and writing.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A checkout path used to find this record.
 ///
@@ -80,10 +80,18 @@ impl Manifest {
     }
 }
 
+/// The one manifest field every layout shares, read before the rest.
+#[derive(Deserialize)]
+struct Versioned {
+    schema_version: u32,
+}
+
 /// Reads the manifest and checks that its version equals [`SCHEMA_VERSION`].
 ///
-/// Rejecting other versions prevents a writer from dropping fields it does
-/// not understand when it serializes the manifest again.
+/// The version is read alone first, so a record in another layout fails on
+/// its version and not on whichever field that layout lacks. Rejecting
+/// other versions also prevents a writer from dropping fields it does not
+/// understand when it serializes the manifest again.
 ///
 /// # Errors
 ///
@@ -99,15 +107,19 @@ pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
             io_error(&path, e)
         }
     })?;
-    let manifest: Manifest =
-        serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })?;
-    if manifest.schema_version != SCHEMA_VERSION {
+    let json = |source| StoreError::Json {
+        path: path.clone(),
+        source,
+    };
+    let versioned: Versioned = serde_json::from_slice(&bytes).map_err(json)?;
+    if versioned.schema_version != SCHEMA_VERSION {
         return Err(StoreError::UnsupportedSchema {
-            found: manifest.schema_version,
+            root: root.to_path_buf(),
+            found: versioned.schema_version,
             supported: SCHEMA_VERSION,
         });
     }
-    Ok(manifest)
+    serde_json::from_slice(&bytes).map_err(json)
 }
 
 /// Publishes a complete initial manifest without replacing an existing one.

@@ -90,9 +90,18 @@ pub enum StoreError {
     /// than its committed byte length.
     #[error("record is corrupt: {0}")]
     Corrupt(String),
-    /// The manifest's schema version is not supported by this version of the crate.
-    #[error("record schema version {found} is not supported (this binary supports {supported})")]
+    /// The manifest's schema version is not the one this version of the
+    /// crate reads and writes. No migration exists: the record is rebuilt
+    /// by deleting it and syncing again.
+    #[error(
+        "record at {} uses record format {found}; this build reads format {supported}. \
+         Delete that directory to discard its observations; the next sync reads the \
+         transcripts that still exist.",
+        root.display()
+    )]
     UnsupportedSchema {
+        /// Record directory holding the manifest.
+        root: PathBuf,
         /// Schema version found in the manifest.
         found: u32,
         /// Schema version this crate reads and writes.

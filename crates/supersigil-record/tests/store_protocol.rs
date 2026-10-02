@@ -525,7 +525,7 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     Store::create(dir.path(), assoc()).unwrap();
     let manifest_path = dir.path().join("manifest.json");
     let text = fs::read_to_string(&manifest_path).unwrap();
-    let newer = text.replace("\"schema_version\": 1", "\"schema_version\": 2");
+    let newer = text.replace("\"schema_version\": 2", "\"schema_version\": 3");
     assert_ne!(newer, text);
     fs::write(&manifest_path, &newer).unwrap();
 
@@ -533,15 +533,17 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     assert!(matches!(
         store.manifest(),
         Err(StoreError::UnsupportedSchema {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2,
+            ..
         })
     ));
     assert!(matches!(
         store.snapshot(),
         Err(StoreError::UnsupportedSchema {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2,
+            ..
         })
     ));
     assert!(matches!(
@@ -550,4 +552,55 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     ));
     // Nothing rewrote the newer record.
     assert_eq!(fs::read_to_string(&manifest_path).unwrap(), newer);
+}
+
+/// A manifest in the layout plan 1 wrote: version 1, logs keyed by session
+/// id, and no `sessions` map.
+const PLAN_1_MANIFEST: &str = r#"{
+  "record_id": "d435b3f4-5a03-4c70-a4c8-009547bee6a1",
+  "schema_version": 1,
+  "revision": 1,
+  "associations": [{"checkout": "/work/repo"}],
+  "logs": {"observations/s1/events.jsonl": 10},
+  "documents": {},
+  "cursors": {}
+}"#;
+
+#[test]
+fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("manifest.json"), PLAN_1_MANIFEST).unwrap();
+
+    let store = Store::open(dir.path()).unwrap();
+    let error = store.manifest().unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains(&dir.path().display().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains("uses record format 1; this build reads format 2"),
+        "{message}"
+    );
+    assert!(message.contains("Delete that directory"), "{message}");
+    // The manifest is left as it was.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("manifest.json")).unwrap(),
+        PLAN_1_MANIFEST
+    );
+}
+
+#[test]
+fn a_manifest_without_a_version_is_invalid_json() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("manifest.json"), "{}").unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.manifest(), Err(StoreError::Json { .. })));
 }

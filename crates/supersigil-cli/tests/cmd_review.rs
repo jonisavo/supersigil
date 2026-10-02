@@ -2178,3 +2178,26 @@ fn why_on_a_line_whose_disk_state_differs_from_the_capture_explains_nothing() {
         format!("f.swap: not captured: {reason}; no line explained\n")
     );
 }
+
+#[test]
+fn a_record_in_an_older_format_fails_with_what_to_do() {
+    let f = Fixture::new();
+    slice(&f);
+    let stale = f.records.join("stale");
+    std::fs::create_dir_all(&stale).unwrap();
+    std::fs::write(
+        stale.join("manifest.json"),
+        r#"{"record_id": "d435b3f4-5a03-4c70-a4c8-009547bee6a1", "schema_version": 1,
+            "revision": 1, "associations": [{"checkout": "/elsewhere"}],
+            "logs": {}, "documents": {}, "cursors": {}}"#,
+    )
+    .unwrap();
+    f.supersigil(&f.repo, &["review", "--format", "json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(stale.display().to_string()))
+        .stderr(predicate::str::contains(
+            "uses record format 1; this build reads format 2",
+        ))
+        .stderr(predicate::str::contains("Delete that directory"));
+}
