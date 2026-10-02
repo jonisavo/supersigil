@@ -2665,3 +2665,142 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
     );
     assert!(!terminal.contains("its reported diff"), "{terminal}");
 }
+
+const FORMATTED_SESSION: &str = "s-fmt";
+const UNFORMATTED_CREATE: &str = "mkdir -p src && cat > src/gen.rs <<'EOF'\npub fn a(){}\nEOF\n";
+const RUSTFMT: &str = "rustfmt src/gen.rs";
+
+/// A session in which a heredoc creates `src/gen.rs` with an unformatted
+/// line, another appends to it, and `rustfmt` then rewrites the heredoc's
+/// line. The working tree holds the formatted file.
+fn formatted_session(f: &Fixture) {
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let gen_rs = f.repo.join("src/gen.rs");
+    let text = Session::new(FORMATTED_SESSION, &f.repo)
+        .prompt("Generate the module and format it.")
+        .bash(
+            "t_new",
+            UNFORMATTED_CREATE,
+            Some(change_report(&gen_rs, true, &["+pub fn a(){}"])),
+        )
+        .bash(
+            "t_app",
+            HEREDOC_APPEND,
+            Some(change_report(
+                &gen_rs,
+                false,
+                &[" pub fn a(){}", "+pub fn b() {}"],
+            )),
+        )
+        .bash(
+            "t_fmt",
+            RUSTFMT,
+            Some(change_report(
+                &gen_rs,
+                false,
+                &["-pub fn a(){}", "+pub fn a() {}", " pub fn b() {}"],
+            )),
+        )
+        .text();
+    f.transcript(&f.repo, "fmt.jsonl", &text);
+    write(&f.repo, "src/gen.rs", "pub fn a() {}\npub fn b() {}\n");
+}
+
+#[test]
+fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
+    let f = Fixture::new();
+    formatted_session(&f);
+    let created = edit_id(FORMATTED_SESSION, "t_new#0");
+    let new = command_id(FORMATTED_SESSION, "t_new");
+    let app = command_id(FORMATTED_SESSION, "t_app");
+    let fmt = command_id(FORMATTED_SESSION, "t_fmt");
+
+    // The heredoc's create is a recorded edit, but the line it wrote is not
+    // the line on disk: the rewritten line stays unattributed.
+    let review = f.json(&f.repo, &SHELL_REVIEW);
+    assert_eq!(review["edits"][&created]["operation"], "write");
+    let gen_rs = file(&review, "src/gen.rs");
+    let (text, outcome) = &side_lines(gen_rs, "target")[0];
+    assert!(text.starts_with("pub fn a() {}"), "{text}");
+    assert_eq!(outcome["kind"], "unattributed", "{outcome:#}");
+    // Every command the harness saw changing the file is listed, the
+    // formatter first.
+    let listed: Vec<(&str, &str)> = gen_rs["command_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["command"].as_str().unwrap(), c["kind"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            (fmt.as_str(), "modified"),
+            (app.as_str(), "modified"),
+            (new.as_str(), "created"),
+        ]
+    );
+
+    let output = f
+        .supersigil(
+            &f.repo,
+            &[
+                "review",
+                "--include-untracked",
+                "src/gen.rs",
+                "--format",
+                "terminal",
+            ],
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary = String::from_utf8(output.stdout).unwrap();
+    let gen_line = summary
+        .lines()
+        .find(|line| line.contains("src/gen.rs  +2"))
+        .unwrap_or_else(|| panic!("{summary}"));
+    assert!(
+        gen_line.ends_with(", changed by 3 recorded commands"),
+        "{summary}"
+    );
+
+    // `why` on the rewritten line points at the formatter's diff, and only
+    // at it.
+    let (why, terminal) = why_outputs(&f, "src/gen.rs:1");
+    assert_eq!(why["line"]["outcome"]["kind"], "unattributed");
+    let marked: Vec<(&str, bool)> = why["command_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["command"].as_str().unwrap(),
+                c["adds_line_text"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        marked,
+        vec![
+            (fmt.as_str(), true),
+            (app.as_str(), false),
+            (new.as_str(), false)
+        ]
+    );
+    let expected = format!(
+        "  changed by 3 recorded commands (observed by the harness, not attribution):\n    2026-09-29T10:00:05.000Z  {fmt}  session {FORMATTED_SESSION}  modified\n      {RUSTFMT}\n      its reported diff adds a line with this text (display match)\n"
+    );
+    assert!(terminal.contains(&expected), "{terminal}");
+    assert_eq!(
+        terminal
+            .matches("its reported diff adds a line with this text")
+            .count(),
+        1,
+        "{terminal}"
+    );
+}
