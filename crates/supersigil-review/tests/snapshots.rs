@@ -14,14 +14,14 @@ use supersigil_anchor::{
     Reading, StopReason,
 };
 use supersigil_record::observations::{
-    CaptureCounts, CaptureLimitation, EditOperation, Material, Role,
+    CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::{RecordId, SessionId};
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, EditInfo, EvidenceInfo, FileInput, FileKindInfo,
-    FileReview, FileStatus, Mention, MentionResult, NotCapturedInfo, OriginsInfo, PromptInfo,
-    RecordInfo, RepoPathInfo, ScopeInfo, TargetInfo, TargetKindInfo, TranscriptInfo,
-    UnreconciledInfo, UntrackedInfo, file_review, unattributed_summary,
+    AncestryInfo, BaseInfo, BytesStatus, CommandChange, EditInfo, EditOriginInfo, EvidenceInfo,
+    FileInput, FileKindInfo, FileReview, FileStatus, Mention, MentionResult, NotCapturedInfo,
+    OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, ScopeInfo, TargetInfo, TargetKindInfo,
+    TranscriptInfo, UnreconciledInfo, UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::outcome::AttributionState;
 use supersigil_review::summary::render_summary;
@@ -99,6 +99,7 @@ fn edits() -> BTreeMap<String, EditInfo> {
             time: "2026-09-28T10:00:01.000Z".to_owned(),
             worktree: "/work/repo".to_owned(),
             operation: EditOperation::Replace,
+            origin: EditOriginInfo::Tool,
             prompt: Some(PromptInfo {
                 turn: "u1".to_owned(),
                 role: Role::Human,
@@ -106,6 +107,47 @@ fn edits() -> BTreeMap<String, EditInfo> {
             }),
         },
     )])
+}
+
+/// A command the harness reported as changing a file, issued at `time`,
+/// with the hunks it reported or why there are none.
+fn command_change(id: &str, time: &str, text: &str, patch: Material<Vec<Hunk>>) -> CommandChange {
+    CommandChange {
+        command: id.to_owned(),
+        session: "s1".to_owned(),
+        turn: "a9".to_owned(),
+        transcript: Some(TRANSCRIPT.to_owned()),
+        time: time.to_owned(),
+        checkout: "/work/repo".to_owned(),
+        worktree: "/work/repo".to_owned(),
+        text: text.to_owned(),
+        kind: ChangeKind::Modified,
+        patch,
+        unlisted: 0,
+        outside: 0,
+        flags: BTreeSet::new(),
+    }
+}
+
+/// One hunk at line 1 holding `lines`, as the harness reports them.
+fn hunks(lines: &[&str]) -> Material<Vec<Hunk>> {
+    Material::Retained(vec![Hunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        lines: lines.iter().map(|line| (*line).to_owned()).collect(),
+    }])
+}
+
+/// A formatter run that rewrote the first line of `notes.txt`.
+fn formatter_run() -> CommandChange {
+    command_change(
+        "command:2",
+        "2026-09-28T10:00:09.000Z",
+        "cargo fmt --all",
+        hunks(&["-draft", "+final"]),
+    )
 }
 
 /// One text file's review; modes and blob ids follow from which sides exist.
@@ -116,6 +158,7 @@ fn text_file(
     target: Option<&[u8]>,
     attr: &PathAttribution,
     mentions: Vec<Mention>,
+    command_changes: Vec<CommandChange>,
 ) -> FileReview {
     let info = RepoPathInfo {
         display: path.to_owned(),
@@ -142,6 +185,7 @@ fn text_file(
         target_blob: target,
         attribution: AttributionState::Available(attr),
         mentions,
+        command_changes,
         conflicting_edits: Vec::new(),
     })
 }
@@ -168,6 +212,7 @@ fn sample_files() -> Vec<FileReview> {
             reason: "binary".to_owned(),
         },
         mentions: Vec::new(),
+        command_changes: Vec::new(),
         conflicting_edits: vec![conflict()],
     });
     let mut notes = attribution(vec![], vec![unexplained()], vec![no_fate()]);
@@ -200,6 +245,7 @@ fn sample_files() -> Vec<FileReview> {
             Some(b"final\n"),
             &notes,
             Vec::new(),
+            vec![formatter_run()],
         ),
         text_file(
             "old.txt",
@@ -208,6 +254,7 @@ fn sample_files() -> Vec<FileReview> {
             None,
             &old,
             vec![rm],
+            Vec::new(),
         ),
         text_file(
             "src/lib.rs",
@@ -215,6 +262,7 @@ fn sample_files() -> Vec<FileReview> {
             Some(b"fn a() {}\nfn old() {}\n"),
             Some(b"fn a() {}\nfn new() {}\n"),
             &lib,
+            Vec::new(),
             Vec::new(),
         ),
     ]
@@ -637,6 +685,7 @@ fn terminal_summary_keeps_search_incomplete_lines_unattributed() {
         Some(b"fn a() {}\nfn new() {}\n"),
         &attr,
         Vec::new(),
+        Vec::new(),
     )];
     review.unattributed = unattributed_summary(&review.files, &review.scope);
     let text = render_summary(&review, escape);
@@ -680,6 +729,7 @@ fn content_matched_review(incomplete: bool) -> Review {
         Some(b"fn old() {}\n"),
         Some(b"fn new() {}\n"),
         &attr,
+        Vec::new(),
         Vec::new(),
     )];
     review.unattributed = unattributed_summary(&review.files, &review.scope);
@@ -776,6 +826,41 @@ fn why_keeps_whether_a_content_match_search_completed() {
         ),
         "{partial}"
     );
+}
+
+#[test]
+fn a_file_line_counts_the_commands_that_changed_an_unattributed_file() {
+    let text = render_summary(&sample_review(), escape);
+    assert!(
+        line_of(&text, "notes.txt").ends_with("changed by 1 recorded command"),
+        "{text}"
+    );
+    // Two commands, and only on a file that has unattributed lines.
+    let mut review = sample_review();
+    let other = command_change("command:5", "2026-09-28T10:00:10.000Z", "make", hunks(&[]));
+    review.files[1].command_changes.push(other.clone());
+    review.files[3].command_changes.push(other);
+    let text = render_summary(&review, escape);
+    assert!(text.contains("changed by 2 recorded commands"), "{text}");
+    assert_eq!(text.matches("changed by").count(), 1, "{text}");
+    // One command listed for the path in two worktrees is one command.
+    let mut elsewhere = formatter_run();
+    elsewhere.worktree = "/work/repo/.claude/worktrees/x".to_owned();
+    let mut review = sample_review();
+    review.files[1].command_changes.push(elsewhere);
+    let text = render_summary(&review, escape);
+    assert!(
+        line_of(&text, "notes.txt").ends_with("changed by 1 recorded command"),
+        "{text}"
+    );
+}
+
+/// The file line of `path` in a terminal summary.
+fn line_of(text: &str, path: &str) -> String {
+    text.lines()
+        .find(|line| line.contains(path) && line.contains("  +"))
+        .unwrap_or_else(|| panic!("no file line for {path} in {text}"))
+        .to_owned()
 }
 
 #[test]

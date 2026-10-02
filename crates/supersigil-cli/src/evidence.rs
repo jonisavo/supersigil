@@ -1,8 +1,10 @@
 //! The recorded evidence around attribution: which transcripts a review
-//! draws on and what their capture missed, commands whose text mentions a
-//! file, and the message that preceded each edit.
+//! draws on and what their capture missed, commands the harness reported as
+//! changing a file, commands whose text mentions a file, and the message
+//! that preceded each edit.
 //!
-//! Everything here is an observation, never attribution: a mention is text
+//! Everything here is an observation, never attribution: a command change
+//! says the file differed once the command had finished, a mention is text
 //! that contains a path, and a prompt is the nearest earlier Human or
 //! Delegation message in the conversation, not a cause.
 
@@ -12,11 +14,15 @@ use std::path::{Component, Path, PathBuf};
 
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
-    CaptureLimitation, Command, Edit, Observation, Outcome, Role, Turn,
+    CaptureLimitation, Command, Edit, EditOrigin, Observation, Outcome, Role, Turn,
 };
 use supersigil_record::{EventId, RecordId, SessionId, TurnId};
-use supersigil_review::model::{EditInfo, Mention, MentionResult, PromptInfo, TranscriptInfo};
+use supersigil_review::model::{
+    CommandChange, EditInfo, EditOriginInfo, Mention, MentionResult, PromptInfo, TranscriptInfo,
+};
 use supersigil_session::checkout::{canonical, within};
+
+use crate::mapping::map_file;
 
 /// Turns, commands, capture limitations, and transcript locations of every
 /// pinned record, indexed for the lookups a review makes.
@@ -202,6 +208,66 @@ impl Evidence {
         CandidateCommands { commands }
     }
 
+    /// The files that commands of `transcripts` changed in `worktrees`,
+    /// as the harness reported them: each change with the file's path
+    /// relative to its worktree, newest command first and by command id
+    /// among equal times. Time orders the listing only.
+    ///
+    /// A reported file is placed as an edit's file is ([`map_file`]): in the
+    /// innermost of `roots`, the registered worktrees, containing it. A
+    /// command without a retained report contributes nothing, which says
+    /// nothing about what it changed.
+    #[must_use]
+    pub fn command_changes(
+        &self,
+        transcripts: &BTreeSet<String>,
+        roots: &[PathBuf],
+        worktrees: &[PathBuf],
+        ignore_case: bool,
+    ) -> Vec<(CommandChange, String)> {
+        let mut changes = Vec::new();
+        for command in self.commands.values() {
+            let from_candidate = command
+                .transcript
+                .as_ref()
+                .is_some_and(|t| transcripts.contains(t));
+            let Some(report) = command.changes.retained().filter(|_| from_candidate) else {
+                continue;
+            };
+            for file in &report.files {
+                let Some(mapped) = map_file(&command.checkout, &file.path, roots, ignore_case)
+                else {
+                    continue;
+                };
+                if !worktrees.contains(&mapped.worktree) {
+                    continue;
+                }
+                changes.push((
+                    CommandChange {
+                        command: command.id.as_str().to_owned(),
+                        session: command.session.as_str().to_owned(),
+                        turn: command.turn.as_str().to_owned(),
+                        transcript: command.transcript.clone(),
+                        time: command.started.as_str().to_owned(),
+                        checkout: command.checkout.display().to_string(),
+                        worktree: mapped.worktree.display().to_string(),
+                        text: command.cmd.clone(),
+                        kind: file.kind,
+                        patch: file.patch.clone(),
+                        unlisted: report.unlisted,
+                        outside: report.outside,
+                        flags: report.flags.clone(),
+                    },
+                    mapped.path,
+                ));
+            }
+        }
+        changes.sort_by(|(a, _), (b, _)| {
+            (Reverse(&a.time), &a.command).cmp(&(Reverse(&b.time), &b.command))
+        });
+        changes
+    }
+
     /// The nearest recorded ancestor of `edit`'s turn, following parent
     /// pointers within its session, whose role is Human or Delegation;
     /// `None` when the chain breaks first. It is the message that preceded
@@ -319,6 +385,13 @@ fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
         time: edit.time.as_str().to_owned(),
         worktree: accepted.worktree.display().to_string(),
         operation: edit.operation,
+        origin: match &edit.origin {
+            EditOrigin::Tool => EditOriginInfo::Tool,
+            EditOrigin::Shell { command } => EditOriginInfo::Shell {
+                command: command.as_str().to_owned(),
+                text: evidence.commands.get(command).map(|c| c.cmd.clone()),
+            },
+        },
         prompt: evidence.prompt(edit),
     }
 }
@@ -362,13 +435,15 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
+    use supersigil_anchor::walk::AcceptedEdit;
     use supersigil_record::observations::{
-        CaptureCounts, CaptureLimitation, Command, CommandCategory, Edit, EditOperation,
-        EditOrigin, FileState, Material, Observation, Role, Turn,
+        CaptureCounts, CaptureLimitation, ChangeKind, ChangeReport, Command, CommandCategory, Edit,
+        EditOperation, EditOrigin, FileChange, FileState, Hunk, Material, Observation, Role, Turn,
     };
     use supersigil_record::{EventId, RecordId, SessionId, Timestamp, TurnId};
+    use supersigil_review::model::{CommandChange, EditOriginInfo};
 
-    use super::Evidence;
+    use super::{Evidence, edit_info};
 
     /// Indexes the observations of each record, named by its id.
     fn index_records(records: &[(&str, Vec<Observation>)]) -> Evidence {
@@ -631,5 +706,227 @@ mod tests {
             .map(|m| m.command)
             .collect();
         assert_eq!(ids, vec!["c1"]);
+    }
+
+    /// A command issued at second `second` whose change report names
+    /// `files`, each as modified with no hunks retained.
+    fn changing(
+        id: &str,
+        second: u32,
+        checkout: &Path,
+        transcript: &str,
+        files: &[&str],
+    ) -> Observation {
+        let Observation::Command(mut command) = command(id, "make", checkout, transcript) else {
+            unreachable!("`command` builds a command");
+        };
+        command.started = Timestamp::new(format!("2026-09-29T10:00:{second:02}.000Z"));
+        command.changes = Material::Retained(ChangeReport {
+            files: files
+                .iter()
+                .map(|path| FileChange {
+                    path: PathBuf::from(path),
+                    kind: ChangeKind::Modified,
+                    patch: Material::unavailable("test"),
+                })
+                .collect(),
+            ..ChangeReport::default()
+        });
+        Observation::Command(command)
+    }
+
+    /// `(command, path)` of every change `evidence` lists for `t.jsonl` in
+    /// `worktrees`, with `roots` as the registered worktrees.
+    fn changes(
+        evidence: &Evidence,
+        roots: &[PathBuf],
+        worktrees: &[PathBuf],
+    ) -> Vec<(String, String)> {
+        evidence
+            .command_changes(
+                &BTreeSet::from(["t.jsonl".to_owned()]),
+                roots,
+                worktrees,
+                false,
+            )
+            .into_iter()
+            .map(|(change, path)| (change.command, path))
+            .collect()
+    }
+
+    fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
+        expected
+            .iter()
+            .map(|(command, path)| ((*command).to_owned(), (*path).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn command_changes_are_listed_newest_first_by_worktree_path() {
+        let repo = PathBuf::from("/work/repo");
+        let observations = [
+            changing("c1", 1, &repo, "t.jsonl", &["src/lib.rs", "notes.txt"]),
+            // From a subdirectory, the path is relative to it.
+            changing("c2", 3, &repo.join("src"), "t.jsonl", &["lib.rs"]),
+            // Equal times fall back to the command id.
+            changing("c4", 2, &repo, "t.jsonl", &["src/lib.rs"]),
+            changing("c3", 2, &repo, "t.jsonl", &["src/lib.rs"]),
+            // Not a candidate transcript, and a command without a report.
+            changing("c5", 9, &repo, "other.jsonl", &["src/lib.rs"]),
+            command("c6", "rm src/lib.rs", &repo, "t.jsonl"),
+        ];
+        let evidence = index(&observations);
+        let roots = [repo];
+        assert_eq!(
+            changes(&evidence, &roots, &roots),
+            pairs(&[
+                ("c2", "src/lib.rs"),
+                ("c3", "src/lib.rs"),
+                ("c4", "src/lib.rs"),
+                ("c1", "src/lib.rs"),
+                ("c1", "notes.txt"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_command_change_belongs_to_the_innermost_worktree_holding_the_file() {
+        let repo = PathBuf::from("/work/repo");
+        let nested = repo.join(".claude/worktrees/x");
+        let observations = [
+            // Run from the main checkout, changing a file of the nested one.
+            changing(
+                "c1",
+                1,
+                &repo,
+                "t.jsonl",
+                &[".claude/worktrees/x/a.rs", "a.rs"],
+            ),
+            changing("c2", 2, &nested, "t.jsonl", &["a.rs"]),
+            // Outside every registered worktree.
+            changing("c3", 3, Path::new("/elsewhere"), "t.jsonl", &["a.rs"]),
+        ];
+        let evidence = index(&observations);
+        let roots = [repo.clone(), nested.clone()];
+        assert_eq!(
+            changes(&evidence, &roots, std::slice::from_ref(&repo)),
+            pairs(&[("c1", "a.rs")])
+        );
+        assert_eq!(
+            changes(&evidence, &roots, std::slice::from_ref(&nested)),
+            pairs(&[("c2", "a.rs"), ("c1", "a.rs")])
+        );
+        // With both observed, one command is listed once per worktree it
+        // changed the path in, each entry naming its worktree.
+        let both = evidence.command_changes(
+            &BTreeSet::from(["t.jsonl".to_owned()]),
+            &roots,
+            &roots,
+            false,
+        );
+        let listed: Vec<(&str, PathBuf)> = both
+            .iter()
+            .map(|(change, _)| (change.command.as_str(), PathBuf::from(&change.worktree)))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![("c2", nested.clone()), ("c1", nested), ("c1", repo)]
+        );
+    }
+
+    #[test]
+    fn a_command_two_records_hold_changes_its_files_once() {
+        let repo = PathBuf::from("/work/repo");
+        let copy = || vec![changing("c1", 1, &repo, "t.jsonl", &["a.rs"])];
+        let evidence = index_records(&[("r1", copy()), ("r2", copy())]);
+        let roots = [repo];
+        assert_eq!(changes(&evidence, &roots, &roots), pairs(&[("c1", "a.rs")]));
+    }
+
+    #[test]
+    fn a_command_change_carries_the_command_and_what_the_harness_reported() {
+        let repo = PathBuf::from("/work/repo");
+        let Observation::Command(mut recorded) = changing("c1", 1, &repo, "t.jsonl", &[]) else {
+            unreachable!("`changing` builds a command");
+        };
+        let hunk = Hunk {
+            old_start: 1,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec!["+x".to_owned()],
+        };
+        recorded.changes = Material::Retained(ChangeReport {
+            files: vec![FileChange {
+                path: PathBuf::from("a.rs"),
+                kind: ChangeKind::Created,
+                patch: Material::Retained(vec![hunk.clone()]),
+            }],
+            outside: 1,
+            unlisted: 3,
+            flags: BTreeSet::from(["shared".to_owned()]),
+        });
+        let evidence = index(&[Observation::Command(recorded)]);
+        let roots = [repo];
+        let found = evidence.command_changes(
+            &BTreeSet::from(["t.jsonl".to_owned()]),
+            &roots,
+            &roots,
+            false,
+        );
+        assert_eq!(
+            found,
+            vec![(
+                CommandChange {
+                    command: "c1".to_owned(),
+                    session: "s1".to_owned(),
+                    turn: "a1".to_owned(),
+                    transcript: Some("t.jsonl".to_owned()),
+                    time: "2026-09-29T10:00:01.000Z".to_owned(),
+                    checkout: "/work/repo".to_owned(),
+                    worktree: "/work/repo".to_owned(),
+                    text: "make".to_owned(),
+                    kind: ChangeKind::Created,
+                    patch: Material::Retained(vec![hunk]),
+                    unlisted: 3,
+                    outside: 1,
+                    flags: BTreeSet::from(["shared".to_owned()]),
+                },
+                "a.rs".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn a_shell_edit_names_its_command_and_the_text_when_recorded() {
+        let repo = PathBuf::from("/work/repo");
+        let evidence = index(&[command("c1", "cat > a.rs <<'EOF'", &repo, "t.jsonl")]);
+        let info = |command: &str| {
+            let mut edit = edit_in_turn("a1");
+            edit.origin = EditOrigin::Shell {
+                command: EventId::new(command),
+            };
+            let accepted = AcceptedEdit {
+                edit,
+                worktree: repo.clone(),
+                records: vec![RecordId::new("r1")],
+            };
+            edit_info(&accepted, &evidence).origin
+        };
+        assert_eq!(
+            info("c1"),
+            EditOriginInfo::Shell {
+                command: "c1".to_owned(),
+                text: Some("cat > a.rs <<'EOF'".to_owned()),
+            }
+        );
+        // The command may be in a record the review did not read.
+        assert_eq!(
+            info("c9"),
+            EditOriginInfo::Shell {
+                command: "c9".to_owned(),
+                text: None,
+            }
+        );
     }
 }

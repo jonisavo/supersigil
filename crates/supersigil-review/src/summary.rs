@@ -242,6 +242,10 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
         ));
     }
     parts.extend(other.words(escape));
+    if other.unattributed > 0 && !file.command_changes.is_empty() {
+        let commands = file.command_changes.iter().map(|c| c.command.as_str());
+        parts.push(format!("changed by {}", recorded_commands(commands)));
+    }
     if let Some(info) = file
         .attribution
         .as_ref()
@@ -258,6 +262,18 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
         parts.join(", ")
     };
     format!("{letter} {path}  +{added} -{removed}  {words}")
+}
+
+/// `"1 recorded command"` or `"{count} recorded commands"`, counting each
+/// of `commands` (command ids) once: one command can be listed for a path
+/// in several worktrees.
+pub(crate) fn recorded_commands<'a>(commands: impl IntoIterator<Item = &'a str>) -> String {
+    let count = commands.into_iter().collect::<BTreeSet<_>>().len();
+    if count == 1 {
+        "1 recorded command".to_owned()
+    } else {
+        format!("{count} recorded commands")
+    }
 }
 
 /// Counts of non-attributed outcomes on one file, and the first

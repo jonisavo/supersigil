@@ -11,7 +11,9 @@ use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
 use supersigil_record::EventId;
-use supersigil_record::observations::{CaptureLimitation, EditOperation, Material, Role};
+use supersigil_record::observations::{
+    CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
+};
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::outcome::{
@@ -399,8 +401,12 @@ pub struct FileReview {
     /// Changed regions with their spans.
     pub hunks: Vec<HunkReview>,
     /// Commands whose text mentions the path (textual evidence, never
-    /// attribution).
+    /// attribution), without those listed in `command_changes`.
     pub mentions: Vec<Mention>,
+    /// Recorded commands the harness reported as changing the file, newest
+    /// first: observations that the file changed while each ran, never
+    /// attribution of any line.
+    pub command_changes: Vec<CommandChange>,
 }
 
 impl FileReview {
@@ -566,6 +572,63 @@ pub struct Mention {
     pub result: Option<MentionResult>,
 }
 
+/// A recorded command the harness reported as changing a file.
+///
+/// The harness states that the file differed once the command had finished.
+/// It does not state which part of the command changed it or which bytes
+/// the command wrote, so this is never attribution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CommandChange {
+    /// Command event id.
+    pub command: String,
+    /// Session id.
+    pub session: String,
+    /// Turn that issued the command.
+    pub turn: String,
+    /// Canonical transcript path.
+    pub transcript: Option<String>,
+    /// Time the command was issued.
+    pub time: String,
+    /// Checkout the command ran in.
+    pub checkout: String,
+    /// Worktree the reported file lies in. In a commit review one command
+    /// can be listed for a path once per candidate worktree it changed
+    /// that path in.
+    pub worktree: String,
+    /// The command text.
+    pub text: String,
+    /// What the harness stated about the change.
+    pub kind: ChangeKind,
+    /// The harness's hunks for the whole command's change to the file, or
+    /// why there are none. Display text, capped by the harness.
+    pub patch: Material<Vec<Hunk>>,
+    /// Changed files the command's report counted without naming. Any of
+    /// them may be a reviewed file this list does not show the command for.
+    pub unlisted: u64,
+    /// Files the command's report named outside the command's checkout,
+    /// which the record does not keep.
+    pub outside: u64,
+    /// Flags the harness set on the command's report, kept by name because
+    /// their meaning is not established.
+    pub flags: BTreeSet<String>,
+}
+
+/// How an edit reached the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EditOriginInfo {
+    /// A call to an editing tool.
+    Tool,
+    /// A quoted heredoc in a shell command, confirmed by the harness's
+    /// change report for that command.
+    Shell {
+        /// The command's event id.
+        command: String,
+        /// The command's text, when the review's records hold the command.
+        text: Option<String>,
+    },
+}
+
 /// A mentioned command's recorded result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MentionResult {
@@ -590,6 +653,8 @@ pub struct EditInfo {
     pub worktree: String,
     /// Recorded editing operation.
     pub operation: EditOperation,
+    /// How the edit reached the record.
+    pub origin: EditOriginInfo,
     /// The nearest recorded ancestor message that is Human or Delegation.
     pub prompt: Option<PromptInfo>,
 }
@@ -642,6 +707,8 @@ pub struct FileInput<'a> {
     pub attribution: AttributionState<'a>,
     /// Commands mentioning the path.
     pub mentions: Vec<Mention>,
+    /// Commands the harness reported as changing the path, newest first.
+    pub command_changes: Vec<CommandChange>,
     /// Edits excluded from the path as conflicting evidence.
     pub conflicting_edits: Vec<Conflict>,
 }
@@ -687,6 +754,7 @@ pub fn file_review(input: FileInput<'_>) -> FileReview {
         coarse,
         hunks,
         mentions: input.mentions,
+        command_changes: input.command_changes,
     }
 }
 

@@ -31,8 +31,9 @@ use supersigil_record::observations::Observation;
 use supersigil_record::{EventId, RecordId, Revision};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, CommitOriginInfo, EvidenceInfo, FileKindInfo, FileStatus,
-    OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo, UnreconciledInfo,
+    AncestryInfo, BaseInfo, BytesStatus, CommandChange, CommitOriginInfo, EvidenceInfo,
+    FileKindInfo, FileStatus, OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo,
+    UnreconciledInfo,
 };
 use supersigil_review::outcome::AttributionState;
 use supersigil_session::checkout::{canonical, overlaps};
@@ -245,6 +246,33 @@ pub struct Gathered {
     pub whole_worktree: bool,
     /// The pinned records' evidence, indexed.
     pub evidence: Evidence,
+    /// What commands of the candidate transcripts changed in the observed
+    /// worktrees ([`Self::observed_worktrees`]), as the harness reported it,
+    /// indexed by path and newest first.
+    pub command_changes: ByPath<CommandChange>,
+}
+
+impl Gathered {
+    /// The worktrees whose commands a review reads as evidence: the
+    /// reviewed one for a working-tree target, every candidate worktree for
+    /// a commit, which any of them may have originated.
+    #[must_use]
+    pub fn observed_worktrees(&self) -> Vec<PathBuf> {
+        observed_worktrees(&self.range, &self.worktree, &self.candidate_worktrees)
+    }
+}
+
+/// [`Gathered::observed_worktrees`], from the parts known before the rest
+/// is gathered.
+fn observed_worktrees(
+    range: &ResolvedRange,
+    worktree: &Path,
+    candidate_worktrees: &[PathBuf],
+) -> Vec<PathBuf> {
+    match range.target {
+        ResolvedTarget::WorkingTree { .. } => vec![worktree.to_path_buf()],
+        ResolvedTarget::Commit { .. } => candidate_worktrees.to_vec(),
+    }
 }
 
 /// What the first shared step found: the reviewed worktree, the typed paths
@@ -424,6 +452,19 @@ impl Prepared {
             candidates.iter().map(|m| &m.candidate.edit),
             &candidate_worktrees,
         );
+        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
+        let command_changes = ByPath::new(
+            evidence
+                .command_changes(
+                    &candidate_transcripts,
+                    &roots,
+                    &observed_worktrees(&range, &worktree, &candidate_worktrees),
+                    ignore_case,
+                )
+                .into_iter()
+                .map(|(change, path)| (change, [path])),
+            ignore_case,
+        );
         Ok(Gathered {
             repo,
             worktree,
@@ -445,6 +486,7 @@ impl Prepared {
             paths,
             whole_worktree,
             evidence,
+            command_changes,
         })
     }
 }
@@ -1292,6 +1334,7 @@ mod tests {
             paths: Vec::new(),
             whole_worktree: false,
             evidence: crate::evidence::Evidence::default(),
+            command_changes: ByPath::new(Vec::<(super::CommandChange, [&str; 0])>::new(), false),
         };
 
         let found = super::attribute_path(

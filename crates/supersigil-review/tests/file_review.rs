@@ -51,6 +51,7 @@ fn input<'a>(
         target_blob: target,
         attribution,
         mentions: Vec::new(),
+        command_changes: Vec::new(),
         conflicting_edits: Vec::new(),
     }
 }

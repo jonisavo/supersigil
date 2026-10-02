@@ -18,7 +18,7 @@ unattributed:
 
 files:
   M logo.png  not diffed: binary
-  M notes.txt  +1 -1  2 unattributed: no surviving chain
+  M notes.txt  +1 -1  2 unattributed: no surviving chain, changed by 1 recorded command
   D old.txt  +0 -1  1 unattributed: no surviving chain
   M src/lib.rs  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session
 

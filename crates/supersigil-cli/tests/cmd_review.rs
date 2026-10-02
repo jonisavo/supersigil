@@ -274,6 +274,21 @@ impl<'a> Session<'a> {
             .push("user", &done, Some(result))
     }
 
+    /// A Bash call running `command` and its result, as Claude Code records
+    /// it: with `report` as the result's `bashEditDiff` when there is one.
+    fn bash(&mut self, tool: &str, command: &str, report: Option<Value>) -> &mut Self {
+        let call = json!([{"type": "tool_use", "id": tool, "name": "Bash",
+            "input": {"command": command}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool, "content": ""}]);
+        let mut result = json!({"stdout": "", "stderr": "", "interrupted": false,
+            "isImage": false, "noOutputExpected": false});
+        if let Some(report) = report {
+            result["bashEditDiff"] = report;
+        }
+        self.push("assistant", &call, None)
+            .push("user", &done, Some(result))
+    }
+
     /// A `NotebookEdit` call, which the capture cannot read, and its result.
     fn notebook_edit(&mut self, tool: &str) -> &mut Self {
         let notebook = self.cwd.join("nb.ipynb");
@@ -2039,6 +2054,7 @@ fn creation_edits(f: &Fixture, transcript: &Path, id: &str) -> Value {
             "time": "2026-09-29T10:00:02.000Z",
             "worktree": f.repo.to_string_lossy(),
             "operation": "write",
+            "origin": {"kind": "tool"},
             "prompt": {
                 "turn": "s-create-0",
                 "role": "human",
@@ -2226,4 +2242,302 @@ fn isolation_drops_configuration_passed_through_the_environment() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+}
+
+/// A change report naming `file` with one entry: `created` or modified,
+/// and one hunk at line 1 holding `lines`, with the header counts the
+/// harness gives it.
+fn change_report(file: &Path, created: bool, lines: &[&str]) -> Value {
+    let file = file.to_string_lossy();
+    let count = |markers: &[char]| lines.iter().filter(|l| l.starts_with(markers)).count();
+    let mut entry = json!({"filePath": file, "hunks": [{"oldStart": 1,
+        "oldLines": count(&[' ', '-']), "newStart": 1, "newLines": count(&[' ', '+']),
+        "lines": lines}]});
+    if created {
+        entry["created"] = json!(true);
+    }
+    json!({"changedFiles": [file], "files": [entry], "moreFiles": 0})
+}
+
+const SHELL_SESSION: &str = "s-shell";
+const HEREDOC_CREATE: &str = "mkdir -p src && cat > src/gen.rs <<'EOF'\npub fn a() {}\nEOF\n";
+const HEREDOC_APPEND: &str = "cat >> src/gen.rs <<'EOF'\npub fn b() {}\nEOF\n";
+const SED: &str = "sed -i 's/draft/final/' notes.txt";
+
+/// A session that works through the shell only: a heredoc creates
+/// `src/gen.rs`, another appends to it, `sed` rewrites `notes.txt`, and a
+/// last heredoc has no change report. The working tree holds the result.
+fn shell_session(f: &Fixture) {
+    write(&f.repo, "notes.txt", "draft\n");
+    f.commit(&f.repo, "base");
+    let gen_rs = f.repo.join("src/gen.rs");
+    let notes = f.repo.join("notes.txt");
+    let text = Session::new(SHELL_SESSION, &f.repo)
+        .prompt("Generate the module.")
+        .bash(
+            "t_new",
+            HEREDOC_CREATE,
+            Some(change_report(&gen_rs, true, &["+pub fn a() {}"])),
+        )
+        .bash(
+            "t_app",
+            HEREDOC_APPEND,
+            Some(change_report(
+                &gen_rs,
+                false,
+                &[" pub fn a() {}", "+pub fn b() {}"],
+            )),
+        )
+        .bash(
+            "t_sed",
+            SED,
+            Some(change_report(&notes, false, &["-draft", "+final"])),
+        )
+        .bash("t_unc", "cat > scratch.txt <<'EOF'\nx\nEOF\n", None)
+        .text();
+    f.transcript(&f.repo, "shell.jsonl", &text);
+    write(&f.repo, "src/gen.rs", "pub fn a() {}\npub fn b() {}\n");
+    write(&f.repo, "notes.txt", "final\n");
+}
+
+fn command_id(session: &str, tool: &str) -> String {
+    EventId::derive("command", &SessionId::new(session), tool)
+        .as_str()
+        .to_owned()
+}
+
+const SHELL_REVIEW: [&str; 5] = [
+    "review",
+    "--include-untracked",
+    "src/gen.rs",
+    "--format",
+    "json",
+];
+
+#[test]
+fn heredoc_writes_attribute_like_edits_and_name_their_command() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let review = f.json(&f.repo, &SHELL_REVIEW);
+
+    let created = edit_id(SHELL_SESSION, "t_new#0");
+    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    let gen_rs = file(&review, "src/gen.rs");
+    assert_eq!(gen_rs["attribution"]["status"]["kind"], "composed");
+    assert_eq!(
+        gen_rs["attribution"]["chains"][0]["class"],
+        "exact_from_base"
+    );
+    let lines = side_lines(gen_rs, "target");
+    assert_eq!(lines.len(), 2);
+    for ((text, outcome), id) in lines.iter().zip([&created, &appended]) {
+        assert_eq!(outcome["kind"], "attributed", "{text}");
+        assert_eq!(outcome["edits"][0]["edit"], id.as_str(), "{text}");
+        assert_eq!(outcome["edits"][0]["relation"], "introduced", "{text}");
+    }
+    assert_eq!(review["edits"][&created]["operation"], "write");
+    assert_eq!(
+        review["edits"][&created]["origin"],
+        json!({"kind": "shell", "command": command_id(SHELL_SESSION, "t_new"),
+            "text": HEREDOC_CREATE})
+    );
+    assert_eq!(review["edits"][&appended]["operation"], "append");
+    assert_eq!(
+        review["edits"][&appended]["origin"]["command"],
+        command_id(SHELL_SESSION, "t_app")
+    );
+    assert_edits_are_the_referenced_ones(&review["files"], &review["edits"]);
+}
+
+#[test]
+fn a_review_lists_the_commands_that_changed_each_file() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let review = f.json(&f.repo, &SHELL_REVIEW);
+
+    // Newest first; the heredoc commands are listed although their writes
+    // are also edits.
+    let gen_rs = file(&review, "src/gen.rs");
+    let listed: Vec<(&str, &str)> = gen_rs["command_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["command"].as_str().unwrap(), c["kind"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            (command_id(SHELL_SESSION, "t_app").as_str(), "modified"),
+            (command_id(SHELL_SESSION, "t_new").as_str(), "created"),
+        ]
+    );
+
+    // `sed` wrote no recorded edit: the line stays unattributed, and the
+    // command is listed with what the harness reported.
+    let notes = file(&review, "notes.txt");
+    let (_, outcome) = &side_lines(notes, "target")[0];
+    assert_eq!(outcome["kind"], "unattributed");
+    let changes = notes["command_changes"].as_array().unwrap();
+    assert_eq!(changes.len(), 1);
+    let transcript = f
+        .claude
+        .join("projects")
+        .join(supersigil_session::discover::encode_project_dir(&f.repo))
+        .join("shell.jsonl");
+    assert_eq!(
+        changes[0],
+        json!({
+            "command": command_id(SHELL_SESSION, "t_sed"),
+            "session": SHELL_SESSION,
+            "turn": format!("{SHELL_SESSION}-5"),
+            "transcript": transcript.to_string_lossy(),
+            "time": "2026-09-29T10:00:05.000Z",
+            "checkout": f.repo.to_string_lossy(),
+            "worktree": f.repo.to_string_lossy(),
+            "text": SED,
+            "kind": "modified",
+            "patch": {"state": "retained", "value": [{"old_start": 1, "old_lines": 1,
+                "new_start": 1, "new_lines": 1, "lines": ["-draft", "+final"]}]},
+            "unlisted": 0,
+            "outside": 0,
+            "flags": [],
+        })
+    );
+    // Its text names the path, but it is not listed twice.
+    assert_eq!(notes["mentions"], json!([]));
+
+    // The unconfirmed heredoc is a capture limitation, not an edit.
+    let limitations = &review["evidence"]["candidate_transcripts"][0]["capture_limitations"];
+    assert_eq!(limitations[0]["unconfirmed_shell_writes"], 1);
+    let unconfirmed = edit_id(SHELL_SESSION, "t_unc#0");
+    assert!(review["edits"].get(&unconfirmed).is_none());
+}
+
+#[test]
+fn a_commit_review_attributes_shell_edits_and_lists_command_changes() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let head = f.commit(&f.repo, "generate");
+
+    let review = f.json(&f.repo, &["review", "--target", "HEAD", "--format", "json"]);
+
+    assert_eq!(review["origins"]["commits"][0]["commit"], head);
+    let gen_rs = file(&review, "src/gen.rs");
+    let lines = side_lines(gen_rs, "target");
+    assert_eq!(lines[0].1["kind"], "attributed");
+    assert_eq!(
+        lines[0].1["edits"][0]["edit"],
+        edit_id(SHELL_SESSION, "t_new#0")
+    );
+    assert_eq!(lines[1].1["kind"], "attributed");
+    assert_eq!(gen_rs["command_changes"].as_array().unwrap().len(), 2);
+    let notes = file(&review, "notes.txt");
+    assert_eq!(
+        notes["command_changes"][0]["command"],
+        command_id(SHELL_SESSION, "t_sed")
+    );
+}
+
+/// A session whose one command skips its heredoc (`false &&`) and creates
+/// the file with `echo`; the harness reports the file created, with
+/// `report_lines` as its hunk when there are any.
+fn skipped_heredoc(f: &Fixture, report_lines: Option<&[&str]>) -> Value {
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let made = f.repo.join("made.txt");
+    let command = "false && cat > made.txt <<'EOF'\nfrom the heredoc\nEOF\necho other > made.txt\n";
+    let mut report = change_report(&made, true, report_lines.unwrap_or_default());
+    if report_lines.is_none() {
+        report["files"][0]["hunks"] = json!([]);
+    }
+    let text = Session::new("s-skip", &f.repo)
+        .prompt("Make the file.")
+        .bash("t_skip", command, Some(report))
+        .text();
+    f.transcript(&f.repo, "skip.jsonl", &text);
+    write(&f.repo, "made.txt", "other\n");
+    f.json(
+        &f.repo,
+        &[
+            "review",
+            "--include-untracked",
+            "made.txt",
+            "--format",
+            "json",
+        ],
+    )
+}
+
+#[test]
+fn a_heredoc_the_reported_diff_contradicts_is_not_an_edit() {
+    let f = Fixture::new();
+    let review = skipped_heredoc(&f, Some(&["+other"]));
+    let made = file(&review, "made.txt");
+    let (_, outcome) = &side_lines(made, "target")[0];
+    assert_eq!(outcome["kind"], "unattributed");
+    assert_eq!(review["edits"], json!({}));
+    let limitations = &review["evidence"]["candidate_transcripts"][0]["capture_limitations"];
+    assert_eq!(limitations[0]["unconfirmed_shell_writes"], 1);
+    // The command is still what the reviewer is pointed at.
+    assert_eq!(
+        made["command_changes"][0]["command"],
+        command_id("s-skip", "t_skip")
+    );
+}
+
+#[test]
+fn a_heredoc_edit_whose_statement_did_not_run_attributes_nothing() {
+    // Without hunks nothing speaks against the write, so the record holds
+    // an edit that did not happen: the limit of a confirmation per command.
+    // Its text is not the file's bytes, so it attributes nothing.
+    let f = Fixture::new();
+    let review = skipped_heredoc(&f, None);
+    let made = file(&review, "made.txt");
+    let (_, outcome) = &side_lines(made, "target")[0];
+    assert_eq!(outcome["kind"], "unattributed");
+    assert_eq!(made["attribution"]["status"]["kind"], "not_composed");
+    assert_eq!(
+        made["attribution"]["status"]["reasons"][0]["edit"],
+        edit_id("s-skip", "t_skip#0")
+    );
+    assert_eq!(
+        made["command_changes"][0]["command"],
+        command_id("s-skip", "t_skip")
+    );
+}
+
+#[test]
+fn the_terminal_summary_counts_commands_and_unconfirmed_shell_writes() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let output = f
+        .supersigil(
+            &f.repo,
+            &[
+                "review",
+                "--include-untracked",
+                "src/gen.rs",
+                "--format",
+                "terminal",
+            ],
+        )
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("1 unconfirmed shell writes; not localized to a path"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "M notes.txt  +1 -1  2 unattributed: no surviving chain, changed by 1 recorded command\n"
+        ),
+        "{text}"
+    );
+    // A fully attributed file names no command on its line.
+    let gen_line = text
+        .lines()
+        .find(|line| line.contains("src/gen.rs  +2"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(!gen_line.contains("changed by"), "{text}");
 }

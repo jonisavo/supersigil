@@ -87,6 +87,8 @@ edits:
     time: "2026-09-28T10:00:01.000Z"
     worktree: /work/repo
     operation: replace
+    origin:
+      kind: tool
     prompt:
       turn: u1
       role: human
