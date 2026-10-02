@@ -948,7 +948,7 @@ fn a_heredoc_write_synced_in_pieces_is_recorded_and_counted_once() {
             "cut at {cut}"
         );
         // The edit names a command the same record holds.
-        let EditOrigin::Shell { command } = &edit.origin else {
+        let EditOrigin::Shell { command, .. } = &edit.origin else {
             panic!("cut at {cut}: {:?}", edit.origin);
         };
         let holds_command = observations

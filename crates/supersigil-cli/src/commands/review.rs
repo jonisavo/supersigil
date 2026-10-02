@@ -221,7 +221,7 @@ fn has_unattributed(file: &FileReview) -> bool {
         .any(|s| matches!(s.outcome, Outcome::Unattributed { .. }))
 }
 
-/// The scope block: options, untracked files (those a recorded edit wrote
+/// The scope block: options, untracked files (those a recorded edit names
 /// first, each with the flag that includes it), paths whose on-disk state
 /// was not captured, unmerged paths, and the ancestry note.
 fn scope_info(g: &Gathered) -> ScopeInfo {

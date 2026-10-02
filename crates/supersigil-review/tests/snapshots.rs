@@ -1017,6 +1017,36 @@ fn a_line_of_only_whitespace_matches_no_reported_diff() {
 }
 
 #[test]
+fn why_says_what_a_listed_commands_report_leaves_open() {
+    // A report the harness flagged, or one that counted files it did not
+    // name, covers less than it seems to: the listing says so.
+    let mut why = sample_why(OnDiskCheck::Captured);
+    assert!(!render_why(&why, escape).contains("its report"));
+    let change = &mut why.command_changes[0].change;
+    change.flags = BTreeSet::from(["shared".to_owned(), "un\u{1b}available".to_owned()]);
+    change.unlisted = 3;
+    change.outside = 1;
+    let text = render_why(&why, escape);
+    assert!(
+        text.contains(
+            "\n      its report: flagged shared, un\\x1bavailable; 3 changed files it does not \
+             name; 1 file outside the checkout\n"
+        ),
+        "{text}"
+    );
+    // Each part appears only when it applies.
+    let change = &mut why.command_changes[0].change;
+    change.flags.clear();
+    change.unlisted = 1;
+    change.outside = 0;
+    let text = render_why(&why, escape);
+    assert!(
+        text.contains("\n      its report: 1 changed file it does not name\n"),
+        "{text}"
+    );
+}
+
+#[test]
 fn why_shows_the_command_behind_a_shell_edit() {
     let mut why = sample_why(OnDiskCheck::Captured);
     why.command_changes.clear();
@@ -1027,7 +1057,8 @@ fn why_shows_the_command_behind_a_shell_edit() {
     let text = render_why(&why, escape);
     assert!(
         text.contains(
-            "\n    written by a heredoc in command command:7: cat > src/lib.rs <<'EOF' … (2 more lines)\n"
+            "\n    read from a heredoc in command command:7: cat > src/lib.rs <<'EOF' … (2 more lines)\n    \
+             the harness reported that the command changed the file, not that this statement ran\n"
         ),
         "{text}"
     );
@@ -1038,7 +1069,7 @@ fn why_shows_the_command_behind_a_shell_edit() {
     };
     let text = render_why(&why, escape);
     assert!(
-        text.contains("written by a heredoc in command command:7: command text not recorded"),
+        text.contains("read from a heredoc in command command:7: command text not recorded"),
         "{text}"
     );
 }

@@ -1025,8 +1025,9 @@ fn build_command(
 /// `None` without a result, for a result the harness marked as an error,
 /// for one that does not state `interrupted: false` (a missing or
 /// non-boolean value states nothing), for a background call (whose result
-/// arrives before the command ends), and when the result carried no
-/// readable report.
+/// arrives before the command ends), when the result carried no readable
+/// report, and for a report the harness flagged: what its flags mean is not
+/// established, so such a report stays an observation and confirms nothing.
 fn confirming_report<'a>(
     command: &'a Command,
     resolution: Option<&Resolution>,
@@ -1037,7 +1038,10 @@ fn confirming_report<'a>(
     if resolution.is_error || !ran_to_its_end || result.get("backgroundTaskId").is_some() {
         return None;
     }
-    command.changes.retained()
+    command
+        .changes
+        .retained()
+        .filter(|report| report.flags.is_empty())
 }
 
 /// Builds an edit for each quoted-heredoc file write in `command`'s text
@@ -1132,6 +1136,7 @@ fn shell_edits(
             operation,
             origin: EditOrigin::Shell {
                 command: command.id.clone(),
+                index: index as u64,
             },
             checkout: cwd.clone(),
             time: time.clone(),

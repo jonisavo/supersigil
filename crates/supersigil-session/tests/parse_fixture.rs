@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use common::{SESSION, fixture, line_starts};
@@ -1806,6 +1807,7 @@ fn a_confirmed_heredoc_write_is_an_edit_beside_its_command() {
             operation: EditOperation::Write,
             origin: EditOrigin::Shell {
                 command: recorded.id.clone(),
+                index: 0,
             },
             checkout: PathBuf::from("/work/repo"),
             time: Timestamp::new("2026-09-28T10:00:01.000Z"),
@@ -1827,6 +1829,38 @@ fn a_confirmed_heredoc_write_is_an_edit_beside_its_command() {
     assert_eq!(kinds, vec!["command", "edit"]);
     assert_eq!(recorded.source_ordinal, 0);
     assert!(outcome.counts.is_empty(), "{:?}", outcome.counts);
+}
+
+#[test]
+fn the_writes_of_one_command_keep_their_place_in_it() {
+    // Three writes to two files, and one the report does not confirm: each
+    // edit holds its write's place among all the command's writes, so the
+    // two writes to `a.rs` stay in order whatever lies between them.
+    let command = "cat >> a.rs <<'E'\nx\nE\ncat > b.rs <<'E'\ny\nE\n\
+        cat >> gone.rs <<'E'\nz\nE\ncat >> a.rs <<'E'\nx\nE\n";
+    let outcome = shell(
+        command,
+        &json!([modified("/work/repo/a.rs"), created("/work/repo/b.rs")]),
+    );
+    let placed: Vec<(PathBuf, u64, u64)> = edits(&outcome)
+        .iter()
+        .map(|edit| {
+            let EditOrigin::Shell { index, .. } = edit.origin else {
+                panic!("{:?}", edit.origin);
+            };
+            (edit.path.clone(), index, edit.source_ordinal)
+        })
+        .collect();
+    assert_eq!(
+        placed,
+        vec![
+            (PathBuf::from("a.rs"), 0, 0),
+            (PathBuf::from("b.rs"), 1, 0),
+            (PathBuf::from("a.rs"), 3, 0),
+        ]
+    );
+    assert_eq!(edits(&outcome)[2].id, shell_edit_id(3));
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
 }
 
 #[test]
@@ -2050,6 +2084,29 @@ fn a_heredoc_write_without_confirmation_is_counted_not_recorded() {
     let outcome = shell_with(command, ok_block(), Some(confirmed));
     assert_eq!(edits(&outcome).len(), 1);
     assert_eq!(outcome.counts.unconfirmed_shell_writes, 0);
+}
+
+#[test]
+fn a_flagged_report_is_kept_and_confirms_no_heredoc_write() {
+    // What a flag on a report means is not established (`shared`,
+    // `unavailable`, or one this reader has not seen), so a flagged report
+    // stays an observation of the command and confirms nothing.
+    let command = "cat > a.rs <<'EOF'\nx\nEOF\n";
+    for flag in ["shared", "unavailable", "partial"] {
+        let mut report = json!({"changedFiles": ["/work/repo/a.rs"],
+            "files": [created("/work/repo/a.rs")]});
+        report[flag] = json!(true);
+        let outcome = shell_with(command, ok_block(), Some(with_report(&report)));
+        assert!(edits(&outcome).is_empty(), "{flag}");
+        assert_eq!(outcome.counts.unconfirmed_shell_writes, 1, "{flag}");
+        let recorded = commands(&outcome)[0].changes.retained().unwrap();
+        assert_eq!(recorded.flags, BTreeSet::from([flag.to_owned()]), "{flag}");
+        assert_eq!(recorded.files.len(), 1, "{flag}");
+        // The same report with the flag unset confirms the write.
+        report[flag] = json!(false);
+        let outcome = shell_with(command, ok_block(), Some(with_report(&report)));
+        assert_eq!(edits(&outcome).len(), 1, "{flag}");
+    }
 }
 
 #[test]

@@ -435,7 +435,7 @@ fn edit_info(accepted: &AcceptedEdit, evidence: &Evidence) -> EditInfo {
         operation: edit.operation,
         origin: match &edit.origin {
             EditOrigin::Tool => EditOriginInfo::Tool,
-            EditOrigin::Shell { command } => EditOriginInfo::Shell {
+            EditOrigin::Shell { command, .. } => EditOriginInfo::Shell {
                 command: command.as_str().to_owned(),
                 text: evidence.commands.get(command).map(|c| c.cmd.clone()),
             },
@@ -1025,6 +1025,7 @@ mod tests {
             let mut edit = edit_in_turn("a1");
             edit.origin = EditOrigin::Shell {
                 command: EventId::new(command),
+                index: 0,
             };
             let accepted = AcceptedEdit {
                 edit,

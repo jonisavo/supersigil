@@ -40,7 +40,12 @@ An edit comes from an editing tool's result, or from a shell command under
 one narrow rule. A command yields an edit only for a top-level `cat`
 statement that redirects a wholly quoted heredoc to a literal path, and only
 when the harness's change report for that call lists the same file as changed
-and describes it as created or modified. Reading the command resolves every
+and describes it as created or modified. A report the harness flagged
+confirms nothing: what its flags mean is not established. Such an edit is
+inferred, not observed. The report says that the command changed the file,
+not that this statement ran, so the edit is marked as read from a shell
+command, and `why` says it was read from a heredoc, never that the heredoc
+wrote the line. Reading the command resolves every
 doubt by not recognizing: a missed write costs attribution, a wrong one would
 be a false record. A `cd` counts only for the statements chained to it with
 `&&`, which run only when it succeeded. The heredoc body is the edit's text,
@@ -122,12 +127,15 @@ that returns to the same bytes can remain undetectable.
 An append executes forward as the previous bytes followed by its text, and
 reverses only when the current bytes end with that text. A shell edit has no
 hashes, so a chain holding one is exact from the base when replay from the
-base reproduces the target, and consistent otherwise. A heredoc that
-overwrote a file whose previous content is unrecorded stops its chain, as a
-Write does.
+base reproduces the target, and consistent otherwise. Exact describes the
+bytes: it does not add evidence that the heredoc's statement ran. A heredoc
+that overwrote a file whose previous content is unrecorded stops its chain,
+as a Write does.
 
 Time orders presentation, not lineage. Source ordinals order edits within a
-transcript; equal ordinals remain unordered. When surviving chains disagree,
+transcript; equal ordinals remain unordered, except the heredoc writes of one
+command, which the shell runs in the order the command's text holds them and
+which are walked in that order. When surviving chains disagree,
 report ambiguity. Agreement must include full provenance, including earlier
 and whitespace-only contributors.
 

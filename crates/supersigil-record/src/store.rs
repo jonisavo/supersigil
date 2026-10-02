@@ -91,13 +91,14 @@ pub enum StoreError {
     #[error("record is corrupt: {0}")]
     Corrupt(String),
     /// The manifest's schema version is not the one this version of the
-    /// crate reads and writes. No migration exists: the record is rebuilt
-    /// by deleting it and syncing again.
+    /// crate reads and writes. No migration exists, and the record is left
+    /// as it is: a newer one needs a newer reader, and an older one can be
+    /// moved away or deleted before the next sync rebuilds what the
+    /// remaining transcripts hold.
     #[error(
-        "record at {} uses record format {found}; this build reads format {supported}. \
-         Delete that directory to discard its observations; the next sync reads the \
-         transcripts that still exist.",
-        root.display()
+        "record at {} uses record format {found}; this build reads format {supported}. {}",
+        root.display(),
+        unsupported_advice(*found, *supported)
     )]
     UnsupportedSchema {
         /// Record directory holding the manifest.
@@ -107,6 +108,18 @@ pub enum StoreError {
         /// Schema version this crate reads and writes.
         supported: u32,
     },
+}
+
+/// What to do about a record of format `found` that this build, reading
+/// `supported`, refuses. Keeping the record's observations comes first: a
+/// transcript they came from may no longer exist.
+fn unsupported_advice(found: u32, supported: u32) -> &'static str {
+    if found > supported {
+        "A newer supersigil wrote it; use that version to read it. This build left it unchanged."
+    } else {
+        "To keep its observations, move that directory out of the records directory; to \
+         discard them, delete it. The next sync then reads the transcripts that still exist."
+    }
 }
 
 /// Adds the affected path to an I/O error.

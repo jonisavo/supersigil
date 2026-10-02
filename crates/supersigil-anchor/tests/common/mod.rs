@@ -143,6 +143,15 @@ pub fn append_creating(id: &str, transcript: &str, ordinal: u64, text_added: &st
     e
 }
 
+/// `edit` as the heredoc write at `index` in the shell command `command`.
+pub fn written_by(mut edit: Edit, command: &str, index: u64) -> Edit {
+    edit.origin = EditOrigin::Shell {
+        command: id(command),
+        index,
+    };
+    edit
+}
+
 /// A replacement whose operation was not recorded.
 pub fn unknown_op(id: &str, transcript: &str, ordinal: u64, old: &str, new: &str) -> Edit {
     let mut e = replace(id, transcript, ordinal, old, new);

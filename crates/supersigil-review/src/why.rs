@@ -448,20 +448,50 @@ fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
                 || "command text not recorded".to_owned(),
                 |text| command_line(text, escape),
             );
+            // The edit is inferred: its text is the command's, and the
+            // harness confirmed the command, not the statement.
             push(
                 out,
                 &format!(
-                    "    written by a heredoc in command {}: {shown}",
+                    "    read from a heredoc in command {}: {shown}",
                     escape(command)
                 ),
+            );
+            push(
+                out,
+                "    the harness reported that the command changed the file, not that this \
+                 statement ran",
             );
         }
     }
 }
 
-/// Lists the commands the harness reported as changing the file. Under a
-/// line no chain explains, each command is marked when its reported diff
-/// adds the line's text, or says why it has no diff to compare.
+/// What the report behind `change` leaves open, or `None` when nothing:
+/// the flags the harness set on it (their meaning is not established), the
+/// changed files it counted without naming, and the files it named outside
+/// the command's checkout.
+fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<String> {
+    let files = |count: u64| if count == 1 { "file" } else { "files" };
+    let mut limits = Vec::new();
+    if !change.flags.is_empty() {
+        let flags: Vec<String> = change.flags.iter().map(|flag| escape(flag)).collect();
+        limits.push(format!("flagged {}", flags.join(", ")));
+    }
+    if change.unlisted > 0 {
+        let count = change.unlisted;
+        limits.push(format!("{count} changed {} it does not name", files(count)));
+    }
+    if change.outside > 0 {
+        let count = change.outside;
+        limits.push(format!("{count} {} outside the checkout", files(count)));
+    }
+    (!limits.is_empty()).then(|| limits.join("; "))
+}
+
+/// Lists the commands the harness reported as changing the file, each with
+/// what its report leaves open. Under a line no chain explains, each
+/// command is marked when its reported diff adds the line's text, or says
+/// why it has no diff to compare.
 fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     if why.command_changes.is_empty() {
         return;
@@ -502,6 +532,9 @@ fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String)
             out,
             &format!("      {}", command_line(&change.text, escape)),
         );
+        if let Some(limits) = report_limits(change, escape) {
+            push(out, &format!("      its report: {limits}"));
+        }
         if !unexplained {
             continue;
         }

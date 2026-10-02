@@ -124,7 +124,7 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
         .filter(|untracked| untracked.recorded_edit)
     {
         lines.push(format!(
-            "{}: untracked, a recorded edit wrote this file; not included ({})",
+            "{}: untracked, a recorded edit names this file; not included ({})",
             escape(&untracked.path),
             escape(&untracked.include_flag)
         ));

@@ -551,9 +551,25 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
         store.begin(),
         Err(StoreError::UnsupportedSchema { .. })
     ));
+    // A newer record needs a newer reader: nothing suggests removing it.
+    let message = store.manifest().unwrap_err().to_string();
+    assert!(
+        message.contains("uses record format 3; this build reads format 2"),
+        "{message}"
+    );
+    assert!(
+        message.contains("A newer supersigil wrote it; use that version to read it."),
+        "{message}"
+    );
+    assert!(!message.contains("delete"), "{message}");
     // Nothing rewrote the newer record.
     assert_eq!(fs::read_to_string(&manifest_path).unwrap(), newer);
 }
+
+/// What the message for an older record advises: keeping it comes first.
+const OLDER_RECORD_ADVICE: &str = "To keep its observations, move that directory out of the \
+    records directory; to discard them, delete it. The next sync then reads the transcripts \
+    that still exist.";
 
 /// A manifest in the layout plan 1 wrote: version 1, logs keyed by session
 /// id, and no `sessions` map.
@@ -590,7 +606,7 @@ fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
         message.contains("uses record format 1; this build reads format 2"),
         "{message}"
     );
-    assert!(message.contains("Delete that directory"), "{message}");
+    assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
     // The manifest is left as it was.
     assert_eq!(
         fs::read_to_string(dir.path().join("manifest.json")).unwrap(),
@@ -631,7 +647,7 @@ fn the_current_layout_at_version_1_is_refused_by_its_version() {
         message.contains("uses record format 1; this build reads format 2"),
         "{message}"
     );
-    assert!(message.contains("Delete that directory"), "{message}");
+    assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
     // The manifest is left as it was.
     assert_eq!(fs::read_to_string(&manifest_path).unwrap(), older);
 }

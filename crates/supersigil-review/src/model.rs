@@ -177,7 +177,7 @@ pub struct UnattributedSummary {
     pub attribution_unavailable: Vec<String>,
     /// Files listed but not diffed.
     pub not_diffed: Vec<NotDiffed>,
-    /// Untracked files a recorded edit wrote but the scope excluded.
+    /// Untracked files a recorded edit names but the scope excluded.
     pub untracked_with_recorded_edits: Vec<String>,
     /// Paths whose on-disk state the snapshot did not capture.
     pub not_captured: Vec<String>,
@@ -269,7 +269,9 @@ pub struct ScopeInfo {
 pub struct UntrackedInfo {
     /// The file.
     pub path: String,
-    /// Whether a candidate edit in the reviewed worktree wrote this path.
+    /// Whether a candidate edit in the reviewed worktree names this path.
+    /// The edit may be one read from a shell command, which nothing shows
+    /// to have run.
     pub recorded_edit: bool,
     /// The flag that includes it, for example `--include-untracked src/new.rs`.
     pub include_flag: String,
@@ -622,8 +624,9 @@ pub struct CommandChange {
 pub enum EditOriginInfo {
     /// A call to an editing tool.
     Tool,
-    /// A quoted heredoc in a shell command, confirmed by the harness's
-    /// change report for that command.
+    /// A quoted heredoc in a shell command. The edit is inferred: its text
+    /// is read from the command, and the harness's change report confirms
+    /// that the command changed the file, not that this statement ran.
     Shell {
         /// The command's event id.
         command: String,

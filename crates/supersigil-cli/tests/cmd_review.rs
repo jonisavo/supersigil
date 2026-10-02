@@ -2221,7 +2221,9 @@ fn a_record_in_an_older_format_fails_with_what_to_do() {
         .stderr(predicate::str::contains(
             "uses record format 1; this build reads format 2",
         ))
-        .stderr(predicate::str::contains("Delete that directory"));
+        .stderr(predicate::str::contains(
+            "To keep its observations, move that directory out of the records directory",
+        ));
 }
 
 #[test]
@@ -2654,7 +2656,8 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
     let appended = edit_id(SHELL_SESSION, "t_app#0");
     assert_eq!(why["edits"][&appended]["origin"]["kind"], "shell");
     let expected = format!(
-        "    written by a heredoc in command {}: cat >> src/gen.rs <<'EOF' … (2 more lines)\n",
+        "    read from a heredoc in command {}: cat >> src/gen.rs <<'EOF' … (2 more lines)\n    \
+         the harness reported that the command changed the file, not that this statement ran\n",
         command_id(SHELL_SESSION, "t_app")
     );
     assert!(terminal.contains(&expected), "{terminal}");
@@ -2664,6 +2667,115 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
         "{terminal}"
     );
     assert!(!terminal.contains("its reported diff"), "{terminal}");
+}
+
+#[test]
+fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
+    // `false &&` skips the heredoc and `printf` leaves the same text, so
+    // every byte and every hunk line agrees with the heredoc: the record
+    // holds its edit, and the edit reproduces the file from nothing.
+    // Nothing recorded says the statement ran, and no output may say so.
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let made = f.repo.join("made.txt");
+    let command = "false && cat > made.txt <<'EOF'\nsame\nEOF\nprintf 'same\\n' > made.txt\n";
+    let text = Session::new("s-same", &f.repo)
+        .prompt("Make the file.")
+        .bash(
+            "t_same",
+            command,
+            Some(change_report(&made, true, &["+same"])),
+        )
+        .text();
+    f.transcript(&f.repo, "same.jsonl", &text);
+    write(&f.repo, "made.txt", "same\n");
+
+    let (why, terminal) = why_outputs(&f, "made.txt:1");
+    let edit = edit_id("s-same", "t_same#0");
+    let command = command_id("s-same", "t_same");
+    // JSON: the edit is marked as read from a shell command, and the
+    // command is listed as an observation of the file.
+    assert_eq!(why["line"]["outcome"]["kind"], "attributed");
+    assert_eq!(why["edits"][&edit]["origin"]["kind"], "shell");
+    assert_eq!(why["edits"][&edit]["origin"]["command"], command);
+    assert_eq!(why["command_changes"][0]["command"], command);
+    // Terminal: the same, in words that claim no more.
+    assert!(
+        terminal.contains(&format!("    read from a heredoc in command {command}: ")),
+        "{terminal}"
+    );
+    assert!(
+        terminal.contains(
+            "the harness reported that the command changed the file, not that this statement ran"
+        ),
+        "{terminal}"
+    );
+    assert!(!terminal.contains("written by"), "{terminal}");
+    assert!(
+        terminal.contains("  changed by 1 recorded command"),
+        "{terminal}"
+    );
+    // Nor does the review of the untracked file: an edit names it, which
+    // is all the record holds.
+    let output = f
+        .supersigil(&f.repo, &["review", "--format", "terminal"])
+        .output()
+        .unwrap();
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(
+            "made.txt: untracked, a recorded edit names this file; not included \
+             (--include-untracked made.txt)"
+        ),
+        "{summary}"
+    );
+    assert!(!summary.contains("wrote"), "{summary}");
+}
+
+#[test]
+fn identical_appends_of_one_command_are_attributed_in_its_order() {
+    // One command appends the same line twice. The bytes fit either order;
+    // the command's text holds one, and the review follows it.
+    let f = Fixture::new();
+    write(&f.repo, "log.txt", "seed\n");
+    f.commit(&f.repo, "base");
+    let log = f.repo.join("log.txt");
+    let command = "cat >> log.txt <<'E'\nx\nE\ncat >> log.txt <<'E'\nx\nE\n";
+    let text = Session::new("s-twice", &f.repo)
+        .prompt("Log it twice.")
+        .bash(
+            "t_twice",
+            command,
+            Some(change_report(&log, false, &[" seed", "+x", "+x"])),
+        )
+        .text();
+    f.transcript(&f.repo, "twice.jsonl", &text);
+    write(&f.repo, "log.txt", "seed\nx\nx\n");
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let reviewed = file(&review, "log.txt");
+    assert_eq!(
+        reviewed["attribution"]["chains"].as_array().unwrap().len(),
+        1
+    );
+    let lines = side_lines(reviewed, "target");
+    let attributed: Vec<(&str, &Value)> = lines
+        .iter()
+        .map(|(_, outcome)| {
+            (
+                outcome["kind"].as_str().unwrap(),
+                &outcome["edits"][0]["edit"],
+            )
+        })
+        .collect();
+    assert_eq!(
+        attributed,
+        vec![
+            ("attributed", &json!(edit_id("s-twice", "t_twice#0"))),
+            ("attributed", &json!(edit_id("s-twice", "t_twice#1"))),
+        ]
+    );
 }
 
 const FORMATTED_SESSION: &str = "s-fmt";

@@ -306,11 +306,16 @@ pub enum EditOrigin {
     Tool,
     /// A quoted heredoc a shell command redirected into the file. The text
     /// is read from the command, and the harness's change report for that
-    /// command confirms that the file changed; nothing states the
-    /// resulting bytes.
+    /// command confirms that the command changed the file. Nothing states
+    /// that this statement ran, or the resulting bytes: the edit is
+    /// inferred, not observed.
     Shell {
         /// The command that held the heredoc.
         command: EventId,
+        /// The write's place among the heredoc writes the command's text
+        /// holds, from 0. The shell runs them in this order, so it orders
+        /// the edits of one command, which share a source ordinal.
+        index: u64,
     },
 }
 
