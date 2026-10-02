@@ -97,13 +97,14 @@ pub struct SyncReport {
 /// choose the session's display metadata.
 ///
 /// Cursor keys and observation transcript paths use the canonical file path,
-/// falling back to the supplied path if resolution fails. Line positions can
-/// be compared only within a single transcript.
+/// or the supplied path when the file is gone by the time it is resolved.
+/// Line positions can be compared only within a single transcript.
 ///
 /// # Errors
 ///
-/// Returns [`SyncError::Io`] if a transcript cannot be read or
-/// [`SyncError::Store`] if locking, reading, writing, or committing the record fails.
+/// Returns [`SyncError::Io`] if a transcript cannot be read or its path
+/// cannot be resolved, or [`SyncError::Store`] if locking, reading, writing,
+/// or committing the record fails.
 ///
 /// # Panics
 ///
@@ -165,8 +166,8 @@ pub fn sync(
 ///
 /// # Errors
 ///
-/// Returns [`SyncError::Io`] if reading the transcript fails or
-/// [`SyncError::Store`] if appending observations fails.
+/// Returns [`SyncError::Io`] if reading the transcript or resolving its path
+/// fails, or [`SyncError::Store`] if appending observations fails.
 fn sync_transcript(
     tx: &mut WriteTx<'_>,
     checkout: &Path,
@@ -179,10 +180,7 @@ fn sync_transcript(
     })?;
     // One identity per file, whatever spelling named it: the cursor key and
     // the stamp on every observation.
-    let key = canonical(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .display()
-        .to_string();
+    let key = transcript_key(path, canonical(path))?;
     let mut cursor = resume_cursor(tx.manifest().cursors.get(&key), &bytes);
     let start = cursor.offset;
     let from_ordinal = cursor.next_ordinal;
@@ -256,6 +254,25 @@ fn sync_transcript(
         skipped: None,
         nested_checkout,
     })
+}
+
+/// The identity of the transcript at `path`: `resolved`, its canonical path,
+/// or `path` as written when the file was not found, which happens only when
+/// it vanished after being read.
+///
+/// # Errors
+///
+/// Returns [`SyncError::Io`] for any other resolution failure. Falling back
+/// to the written path there would file the transcript under a second
+/// identity and read it again from the start.
+fn transcript_key(path: &Path, resolved: std::io::Result<PathBuf>) -> Result<String, SyncError> {
+    let key = crate::found(resolved)
+        .map_err(|source| SyncError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+        .unwrap_or_else(|| path.to_path_buf());
+    Ok(key.display().to_string())
 }
 
 /// Reason a transcript was not accepted for sync.
@@ -374,4 +391,44 @@ fn capture_limitation(
             counts: outcome.counts.clone(),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Error, ErrorKind};
+
+    use super::*;
+
+    #[test]
+    fn a_resolved_transcript_is_keyed_by_its_canonical_path() {
+        let key = transcript_key(Path::new("link.jsonl"), Ok(PathBuf::from("/real/t.jsonl")));
+        assert_eq!(key.unwrap(), "/real/t.jsonl");
+    }
+
+    #[test]
+    fn a_vanished_transcript_is_keyed_as_written() {
+        let key = transcript_key(
+            Path::new("gone.jsonl"),
+            Err(Error::from(ErrorKind::NotFound)),
+        );
+        assert_eq!(key.unwrap(), "gone.jsonl");
+    }
+
+    #[test]
+    fn any_other_resolution_failure_is_an_error_naming_the_transcript() {
+        let error = transcript_key(
+            Path::new("denied.jsonl"),
+            Err(Error::from(ErrorKind::PermissionDenied)),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                SyncError::Io { path, source }
+                    if path == Path::new("denied.jsonl")
+                        && source.kind() == ErrorKind::PermissionDenied
+            ),
+            "{error:?}"
+        );
+    }
 }
