@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn a_resolved_transcript_is_keyed_by_its_canonical_path() {
         let key = transcript_key(Path::new("link.jsonl"), Ok(PathBuf::from("/real/t.jsonl")));
-        assert_eq!(key.unwrap(), "/real/t.jsonl");
+        assert_eq!(Path::new(&key.unwrap()), Path::new("/real/t.jsonl"));
     }
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
             Path::new("gone.jsonl"),
             Err(Error::from(ErrorKind::NotFound)),
         );
-        assert_eq!(key.unwrap(), "gone.jsonl");
+        assert_eq!(Path::new(&key.unwrap()), Path::new("gone.jsonl"));
     }
 
     #[test]
