@@ -81,6 +81,32 @@ expression: sample()
   started: "2026-09-28T10:01:00.000Z"
   ended: "2026-09-28T10:01:02.000Z"
   checkout: /work/repo
+  changes:
+    state: retained
+    value:
+      files:
+        - path: src/lib.rs
+          kind: modified
+          patch:
+            state: retained
+            value:
+              - old_start: 1
+                old_lines: 1
+                new_start: 1
+                new_lines: 1
+                lines:
+                  - "-old"
+                  - +new
+        - path: Cargo.lock
+          kind: not_stated
+          patch:
+            state: unavailable
+            value:
+              reason: no entry in the harness report
+      outside: 1
+      unlisted: 2
+      flags:
+        - shared
   source_ordinal: 14
   agent_id: ~
   transcript: ~

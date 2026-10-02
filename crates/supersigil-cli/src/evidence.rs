@@ -521,6 +521,7 @@ mod tests {
             started: Timestamp::new("2026-09-29T10:00:00.000Z"),
             ended: Some(Timestamp::new("2026-09-29T10:00:01.000Z")),
             checkout: checkout.to_path_buf(),
+            changes: Material::unavailable("test"),
             source_ordinal: 0,
             agent_id: None,
             transcript: Some(transcript.to_owned()),

@@ -9,6 +9,7 @@
 //! still awaiting results at the end of the input are left for the next parse.
 //! Unknown record types and malformed lines are counted without stopping the parse.
 
+mod changes;
 pub mod content;
 
 use std::collections::BTreeMap;
@@ -676,22 +677,29 @@ fn contained(checkout: &Path, path: &str) -> Option<PathBuf> {
 
 fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
     match result.and_then(|r| r.get("structuredPatch")) {
-        Some(value) => match Vec::<RawHunk>::deserialize(value) {
-            Ok(raw) => Material::Retained(
-                raw.into_iter()
-                    .map(|h| Hunk {
-                        old_start: h.old_start,
-                        old_lines: h.old_lines,
-                        new_start: h.new_start,
-                        new_lines: h.new_lines,
-                        lines: h.lines,
-                    })
-                    .collect(),
-            ),
-            Err(_) => Material::unavailable("unreadable structured patch"),
-        },
+        Some(value) => hunks(value).map_or_else(
+            || Material::unavailable("unreadable structured patch"),
+            Material::Retained,
+        ),
         None => Material::unavailable("no structured patch"),
     }
+}
+
+/// Reads an array of hunks as Claude Code writes them, or returns `None`
+/// when `value` has another shape.
+fn hunks(value: &Value) -> Option<Vec<Hunk>> {
+    let raw = Vec::<RawHunk>::deserialize(value).ok()?;
+    Some(
+        raw.into_iter()
+            .map(|h| Hunk {
+                old_start: h.old_start,
+                old_lines: h.old_lines,
+                new_start: h.new_start,
+                new_lines: h.new_lines,
+                lines: h.lines,
+            })
+            .collect(),
+    )
 }
 
 fn state_of(text: Option<&str>) -> FileState {
@@ -919,7 +927,8 @@ fn stream_tail(text: Option<&str>) -> Material<String> {
 }
 
 /// Builds a command from its tool call, before any result is known.
-/// Output is unavailable, `reported_error` is false, and outcome and end time are absent.
+/// Output and the change report are unavailable, `reported_error` is false,
+/// and outcome and end time are absent.
 /// Returns `None` when the call carries no command text, which is never
 /// replaced by an empty command.
 fn command_base(tool: &PendingTool, session: &SessionId) -> Option<Command> {
@@ -938,6 +947,7 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Option<Command> {
         started: tool.time.clone(),
         ended: None,
         checkout: tool.cwd.clone(),
+        changes: Material::unavailable(NO_RESULT),
         source_ordinal: tool.record_index as u64,
         agent_id: tool.agent_id.clone(),
         transcript: None,
@@ -981,6 +991,7 @@ fn build_command(
         reported_error: resolution.is_error,
         outcome,
         ended: resolution.ended.cloned(),
+        changes: changes::change_report(result, &tool.cwd),
         ..base
     }))
 }

@@ -4,7 +4,7 @@
 //! entries. A session ending adds a [`SessionEnd`] event. Edits and commands
 //! refer to the [`Turn`] that issued them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -378,6 +378,52 @@ pub enum Outcome {
     Failed,
 }
 
+/// What the harness stated about one file a command changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    /// The file did not exist before the command.
+    Created,
+    /// The file no longer exists after the command.
+    Deleted,
+    /// The file existed before and after the command.
+    Modified,
+    /// The harness named the path without describing the change.
+    NotStated,
+}
+
+/// One file the harness reported a command changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChange {
+    /// Path relative to the command's checkout.
+    pub path: PathBuf,
+    /// What the harness stated about the change.
+    pub kind: ChangeKind,
+    /// The harness's hunks for the whole command's change to this file, or
+    /// the reason there are none. They are display text, capped by the
+    /// harness, and never file bytes.
+    pub patch: Material<Vec<Hunk>>,
+}
+
+/// The harness's report of the files a command changed.
+///
+/// Claude Code attaches one to a Bash result as `bashEditDiff`. It describes
+/// the command as a whole: which files differ once it has finished, whatever
+/// part of it changed them. It is an observation that the files changed
+/// while the command ran, never a statement of the bytes the command wrote.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ChangeReport {
+    /// The changed files inside the command's checkout, in the harness's order.
+    pub files: Vec<FileChange>,
+    /// Reported paths outside the command's checkout, which are not kept.
+    pub outside: u64,
+    /// Changed files the harness counted without naming.
+    pub unlisted: u64,
+    /// Names of the flags the harness set on the report, kept as given
+    /// because their meaning is not established.
+    pub flags: BTreeSet<String>,
+}
+
 /// A shell command the agent ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
@@ -408,6 +454,9 @@ pub struct Command {
     pub ended: Option<Timestamp>,
     /// Checkout the command ran in.
     pub checkout: PathBuf,
+    /// The harness's report of the files the command changed, or the reason
+    /// there is none. A missing report does not mean nothing changed.
+    pub changes: Material<ChangeReport>,
     /// Zero-based line position of the record that issued the command.
     pub source_ordinal: u64,
     /// ID of the subagent that issued the command, if available.

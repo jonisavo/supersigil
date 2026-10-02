@@ -8,7 +8,8 @@ use common::{SESSION, fixture, line_starts};
 
 use serde_json::{Value, json};
 use supersigil_record::observations::{
-    CommandCategory, Content, EditOperation, FileState, Material, Observation, Outcome, Role,
+    ChangeKind, ChangeReport, CommandCategory, Content, EditOperation, FileState, Hunk, Material,
+    Observation, Outcome, Role,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
@@ -1438,4 +1439,320 @@ fn records_without_cwd_inherit_the_first_cwd() {
     let outcome = parse_transcript(exchange.as_bytes(), 0);
     assert!(edits(&outcome).is_empty());
     assert_eq!(outcome.counts.outside_checkout, 1);
+}
+
+/// Parses a Bash call running `command` whose structured result is `result`,
+/// and returns the one command it produced.
+fn bash(command: &str, result: Value) -> supersigil_record::observations::Command {
+    let lines = tool_exchange(
+        "Bash",
+        json!({"command": command}),
+        ok_block(),
+        Some(result),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1, "expected one command from {lines}");
+    commands[0].clone()
+}
+
+/// A structured Bash result carrying `report` as its `bashEditDiff`.
+fn with_report(report: &Value) -> Value {
+    json!({"stdout": "", "stderr": "", "interrupted": false, "isImage": false,
+        "noOutputExpected": false, "bashEditDiff": report})
+}
+
+/// The change report of a Bash call whose result carries `report`.
+fn report_of(report: &Value) -> ChangeReport {
+    match bash("make", with_report(report)).changes {
+        Material::Retained(report) => report,
+        other => panic!("no report: {other:?}"),
+    }
+}
+
+fn hunk_json() -> Value {
+    json!({"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 2,
+        "lines": [" a", "+\tb"]})
+}
+
+fn hunk() -> Hunk {
+    Hunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 2,
+        lines: vec![" a".to_owned(), "+\tb".to_owned()],
+    }
+}
+
+#[test]
+fn a_change_report_lists_every_changed_file_with_what_the_harness_stated() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/src/new.rs", "/work/repo/src/lib.rs",
+            "/work/repo/old.txt", "/work/repo/Cargo.lock"],
+        "files": [
+            {"filePath": "/work/repo/src/new.rs", "created": true, "hunks": [hunk_json()]},
+            {"filePath": "/work/repo/src/lib.rs", "hunks": [hunk_json()]},
+            {"filePath": "/work/repo/old.txt", "deleted": true, "hunks": []},
+        ],
+        "moreFiles": 1,
+    }));
+    let listed: Vec<(&str, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.to_str().unwrap(), f.kind))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("src/new.rs", ChangeKind::Created),
+            ("src/lib.rs", ChangeKind::Modified),
+            ("old.txt", ChangeKind::Deleted),
+            ("Cargo.lock", ChangeKind::NotStated),
+        ]
+    );
+    // Hunks are kept as given: display text, with the harness's literal tab.
+    assert_eq!(report.files[0].patch, Material::Retained(vec![hunk()]));
+    assert_eq!(report.files[2].patch, Material::Retained(Vec::new()));
+    assert_eq!(
+        report.files[3].patch,
+        Material::unavailable("no entry in the harness report")
+    );
+    // `moreFiles` counted the one listed path without an entry.
+    assert_eq!(report.unlisted, 0);
+    assert_eq!(report.outside, 0);
+    assert!(report.flags.is_empty());
+}
+
+#[test]
+fn a_result_without_a_change_report_says_nothing_about_changes() {
+    let plain = json!({"stdout": "", "stderr": "", "interrupted": false});
+    assert_eq!(
+        bash("ls", plain).changes,
+        Material::unavailable("no change report")
+    );
+    // A failed call's structured result is a string.
+    let failed = only_command(
+        json!({"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "boom"}),
+        Some(json!("Error: boom")),
+    );
+    assert_eq!(failed.changes, Material::unavailable("no change report"));
+    assert_eq!(
+        only_command(ok_block(), None).changes,
+        Material::unavailable("no change report")
+    );
+}
+
+#[test]
+fn an_abandoned_command_has_no_change_report() {
+    let issue = json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+        "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "make"}}
+        ]}
+    });
+    let typed = human("u1", "s");
+    let lines = format!("{issue}\n{typed}\n");
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(
+        commands(&outcome)[0].changes,
+        Material::unavailable("no result recorded")
+    );
+}
+
+#[test]
+fn reported_paths_outside_the_working_directory_are_counted_not_kept() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/other/a.rs", "/work/repo/../secret", "/work/repo",
+            "relative.rs", "/work/repo/kept.rs"],
+        "files": [{"filePath": "/work/other/a.rs", "hunks": []}],
+        "moreFiles": 4,
+    }));
+    assert_eq!(report.outside, 4);
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.files[0].path, PathBuf::from("kept.rs"));
+}
+
+#[test]
+fn changed_files_the_harness_did_not_name_are_counted() {
+    // 200 listed paths, five entries, and 726 files without an entry: 531
+    // changed files have no name in the report.
+    let listed: Vec<String> = (0..200).map(|i| format!("/work/repo/f{i}.rs")).collect();
+    let entries: Vec<Value> = listed[..5]
+        .iter()
+        .map(|path| json!({"filePath": path, "hunks": []}))
+        .collect();
+    let report = report_of(&json!({"changedFiles": listed, "files": entries, "moreFiles": 726}));
+    assert_eq!(report.files.len(), 200);
+    assert_eq!(report.unlisted, 531);
+    // A count below the listed paths never goes negative.
+    let short =
+        report_of(&json!({"changedFiles": ["/work/repo/a.rs"], "files": [], "moreFiles": 0}));
+    assert_eq!(short.unlisted, 0);
+}
+
+#[test]
+fn an_entry_the_harness_did_not_list_is_still_a_changed_file() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs"],
+        "files": [{"filePath": "/work/repo/b.rs", "hunks": []},
+            {"filePath": "/work/repo/a.rs", "hunks": []}],
+        "moreFiles": 0,
+    }));
+    let paths: Vec<&str> = report
+        .files
+        .iter()
+        .map(|f| f.path.to_str().unwrap())
+        .collect();
+    assert_eq!(paths, vec!["a.rs", "b.rs"]);
+    // Without `changedFiles`, the entries are the list.
+    let entries_only = report_of(&json!({"files": [{"filePath": "/work/repo/b.rs", "hunks": []}]}));
+    assert_eq!(entries_only.files.len(), 1);
+    // A report with `files` and nothing in it names no file.
+    assert_eq!(report_of(&json!({"files": []})), ChangeReport::default());
+}
+
+#[test]
+fn a_path_reported_twice_is_one_changed_file() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs", "/work/repo/a.rs", "/work/repo/b.rs"],
+        "files": [{"filePath": "/work/repo/b.rs", "created": true, "hunks": []},
+            {"filePath": "/work/repo/b.rs", "deleted": true, "hunks": []}],
+        "moreFiles": 3,
+    }));
+    let listed: Vec<(&str, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.to_str().unwrap(), f.kind))
+        .collect();
+    // The first entry of a path is the one kept.
+    assert_eq!(
+        listed,
+        vec![
+            ("a.rs", ChangeKind::NotStated),
+            ("b.rs", ChangeKind::Created)
+        ]
+    );
+    // One distinct listed path has no entry.
+    assert_eq!(report.unlisted, 2);
+}
+
+#[test]
+fn two_spellings_of_one_path_are_one_changed_file() {
+    // The first entry speaks for the file: a later entry under another
+    // spelling cannot turn a deleted file into a created one.
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/src/a.rs", "/work/repo/src//a.rs", "/work/repo/./src/a.rs"],
+        "files": [{"filePath": "/work/repo/src/a.rs", "deleted": true, "hunks": []},
+            {"filePath": "/work/repo/src//a.rs", "created": true, "hunks": []}],
+        "moreFiles": 0,
+    }));
+    let listed: Vec<(PathBuf, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.kind))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![(PathBuf::from("src/a.rs"), ChangeKind::Deleted)]
+    );
+    // Outside paths are told apart as written.
+    let outside = report_of(&json!({
+        "changedFiles": ["/other/a.rs", "/other/a.rs", "/other/b.rs"],
+        "files": [{"filePath": "/other/b.rs", "hunks": []}],
+        "moreFiles": 1,
+    }));
+    assert_eq!(outside.outside, 2);
+    assert_eq!(outside.unlisted, 0);
+}
+
+#[test]
+fn a_huge_change_report_is_read_in_time_proportional_to_its_size() {
+    let count = 100_000;
+    let listed: Vec<String> = (0..count).map(|i| format!("/work/repo/f{i}.rs")).collect();
+    let entries: Vec<Value> = listed
+        .iter()
+        .map(|path| json!({"filePath": path, "hunks": []}))
+        .collect();
+    let result = with_report(&json!({"changedFiles": listed, "files": entries, "moreFiles": 0}));
+    let started = std::time::Instant::now();
+    let Material::Retained(report) = bash("make", result).changes else {
+        panic!("no report");
+    };
+    assert_eq!(report.files.len(), count);
+    assert!(report.files.iter().all(|f| f.kind == ChangeKind::Modified));
+    // A scan of the entries per listed path would take minutes here.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn flags_the_harness_set_are_kept_by_name() {
+    let report = report_of(&json!({"files": [], "moreFiles": 0, "shared": true,
+        "unavailable": true, "later": false}));
+    assert_eq!(
+        report.flags.iter().map(String::as_str).collect::<Vec<_>>(),
+        vec!["shared", "unavailable"]
+    );
+    assert!(report.files.is_empty());
+}
+
+#[test]
+fn an_entry_states_no_kind_when_marked_both_created_and_deleted() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs", "/work/repo/b.rs", "/work/repo/c.rs"],
+        "files": [
+            {"filePath": "/work/repo/a.rs", "created": true, "deleted": true, "hunks": []},
+            {"filePath": "/work/repo/b.rs", "hunks": [{"oldStart": "one"}]},
+            {"filePath": "/work/repo/c.rs"},
+        ],
+        "moreFiles": 0,
+    }));
+    assert_eq!(report.files[0].kind, ChangeKind::NotStated);
+    assert_eq!(
+        report.files[1].patch,
+        Material::unavailable("unreadable hunks")
+    );
+    assert_eq!(
+        report.files[2].patch,
+        Material::unavailable("no hunks in the entry")
+    );
+}
+
+#[test]
+fn a_change_report_of_another_shape_is_unreadable() {
+    for report in [
+        json!("changed"),
+        json!(["/work/repo/a.rs"]),
+        // An object without `files` is another layout, not an empty report.
+        json!({}),
+        json!({"unexpected": "another layout"}),
+        json!({"changedFiles": ["/work/repo/a.rs"], "moreFiles": 1}),
+        json!({"changedFiles": null, "files": []}),
+        // The report's own flags are booleans.
+        json!({"files": [], "shared": "true"}),
+        json!({"files": [], "unavailable": {}}),
+        // A flag of another type states nothing about the file.
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": true, "deleted": "true",
+            "hunks": []}]}),
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": 1, "hunks": []}]}),
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": null, "hunks": []}]}),
+        json!({"changedFiles": "/work/repo/a.rs"}),
+        json!({"changedFiles": [1]}),
+        json!({"files": {"filePath": "/work/repo/a.rs"}}),
+        json!({"files": [{"hunks": []}]}),
+        json!({"files": [{"filePath": 7, "hunks": []}]}),
+        json!({"files": [], "moreFiles": "many"}),
+        json!({"files": [], "moreFiles": -1}),
+    ] {
+        assert_eq!(
+            bash("make", with_report(&report)).changes,
+            Material::unavailable("unreadable change report"),
+            "{report}"
+        );
+    }
 }
