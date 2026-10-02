@@ -464,9 +464,12 @@ impl Scan<'_> {
         let name = program.text.as_str();
         // `printf -v name` sets a variable, and so does a `%n` conversion
         // in its format. Either may also reach it through an expansion.
+        // A first argument starting with `-` is an option, which may be
+        // `-v name` (sets a variable) or `--` (the format is then the next
+        // argument, which is not read here).
         let sets_variable = name == "printf"
             && arguments.first().is_some_and(|first| {
-                !first.literal() || first.text.starts_with("-v") || stores_count(&first.text)
+                !first.literal() || first.text.starts_with('-') || stores_count(&first.text)
             });
         if sets_variable {
             return Err(Stop);
@@ -1251,6 +1254,8 @@ mod tests {
             "getopts a PATH",
             "let PATH=0",
             "printf '%n' PATH",
+            "printf -- '%n' PATH",
+            "printf -- \"$FORMAT\" PATH",
             "printf 'a%5n b' PATH",
             "printf '%s%-3.2n' x PATH",
             "printf '%ln' PATH",
