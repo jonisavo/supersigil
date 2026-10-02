@@ -217,6 +217,11 @@ impl Evidence {
     /// innermost of `roots`, the registered worktrees, containing it. A
     /// command without a retained report contributes nothing, which says
     /// nothing about what it changed.
+    ///
+    /// A command is listed once per file the harness reported, per
+    /// worktree. When `ignore_case` is set, two reported spellings of one
+    /// file are two entries for the reviewed path, each with its own kind
+    /// and diff.
     #[must_use]
     pub fn command_changes(
         &self,
@@ -844,6 +849,45 @@ mod tests {
     }
 
     #[test]
+    fn two_reported_spellings_of_one_file_are_two_entries() {
+        let repo = PathBuf::from("/work/repo");
+        let Observation::Command(mut recorded) = changing("c1", 1, &repo, "t.jsonl", &[]) else {
+            unreachable!("`changing` builds a command");
+        };
+        let reported = |path: &str, kind| FileChange {
+            path: PathBuf::from(path),
+            kind,
+            patch: Material::unavailable("test"),
+        };
+        recorded.changes = Material::Retained(ChangeReport {
+            files: vec![
+                reported("src/Foo.rs", ChangeKind::Deleted),
+                reported("src/foo.rs", ChangeKind::Created),
+            ],
+            ..ChangeReport::default()
+        });
+        let evidence = index(&[Observation::Command(recorded)]);
+        let roots = [repo];
+        let found = evidence.command_changes(
+            &BTreeSet::from(["t.jsonl".to_owned()]),
+            &roots,
+            &roots,
+            true,
+        );
+        let listed: Vec<(&str, ChangeKind, PathBuf)> = found
+            .iter()
+            .map(|(change, path)| (change.command.as_str(), change.kind, PathBuf::from(path)))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("c1", ChangeKind::Deleted, PathBuf::from("src/Foo.rs")),
+                ("c1", ChangeKind::Created, PathBuf::from("src/foo.rs")),
+            ]
+        );
+    }
+
+    #[test]
     fn a_command_change_carries_the_command_and_what_the_harness_reported() {
         let repo = PathBuf::from("/work/repo");
         let Observation::Command(mut recorded) = changing("c1", 1, &repo, "t.jsonl", &[]) else {
@@ -867,6 +911,7 @@ mod tests {
             flags: BTreeSet::from(["shared".to_owned()]),
         });
         let evidence = index(&[Observation::Command(recorded)]);
+        let shown = repo.display().to_string();
         let roots = [repo];
         let found = evidence.command_changes(
             &BTreeSet::from(["t.jsonl".to_owned()]),
@@ -883,8 +928,8 @@ mod tests {
                     turn: "a1".to_owned(),
                     transcript: Some("t.jsonl".to_owned()),
                     time: "2026-09-29T10:00:01.000Z".to_owned(),
-                    checkout: "/work/repo".to_owned(),
-                    worktree: "/work/repo".to_owned(),
+                    checkout: shown.clone(),
+                    worktree: shown,
                     text: "make".to_owned(),
                     kind: ChangeKind::Created,
                     patch: Material::Retained(vec![hunk]),

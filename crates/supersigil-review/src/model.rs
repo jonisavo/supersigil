@@ -591,9 +591,12 @@ pub struct CommandChange {
     pub time: String,
     /// Checkout the command ran in.
     pub checkout: String,
-    /// Worktree the reported file lies in. In a commit review one command
-    /// can be listed for a path once per candidate worktree it changed
-    /// that path in.
+    /// Worktree the reported file lies in. A command is listed for a path
+    /// once per file the harness reported, per candidate worktree (in a
+    /// commit review, one entry for each worktree it changed that path in).
+    /// When the repository ignores case, two reported spellings of one
+    /// file are two entries for the reviewed path, each with its own kind
+    /// and diff.
     pub worktree: String,
     /// The command text.
     pub text: String,

@@ -266,7 +266,7 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
 
 /// `"1 recorded command"` or `"{count} recorded commands"`, counting each
 /// of `commands` (command ids) once: one command can be listed for a path
-/// in several worktrees.
+/// once per reported file, per worktree.
 pub(crate) fn recorded_commands<'a>(commands: impl IntoIterator<Item = &'a str>) -> String {
     let count = commands.into_iter().collect::<BTreeSet<_>>().len();
     if count == 1 {
