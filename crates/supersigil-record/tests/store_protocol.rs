@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use serde_json::Value;
 use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
 use supersigil_record::observations::{EndReason, Observation, SessionEnd};
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError};
@@ -595,6 +596,44 @@ fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
         fs::read_to_string(dir.path().join("manifest.json")).unwrap(),
         PLAN_1_MANIFEST
     );
+}
+
+#[test]
+fn the_current_layout_at_version_1_is_refused_by_its_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 0)]).unwrap();
+    tx.commit().unwrap();
+    let manifest_path = dir.path().join("manifest.json");
+    let text = fs::read_to_string(&manifest_path).unwrap();
+    let parsed: Value = serde_json::from_str(&text).unwrap();
+    assert!(parsed["sessions"]["s1"].is_u64(), "{text}");
+    let older = text.replace("\"schema_version\": 2", "\"schema_version\": 1");
+    assert_ne!(older, text);
+    fs::write(&manifest_path, &older).unwrap();
+
+    let store = Store::open(dir.path()).unwrap();
+    let error = store.manifest().unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains(&dir.path().display().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains("uses record format 1; this build reads format 2"),
+        "{message}"
+    );
+    assert!(message.contains("Delete that directory"), "{message}");
+    // The manifest is left as it was.
+    assert_eq!(fs::read_to_string(&manifest_path).unwrap(), older);
 }
 
 #[test]

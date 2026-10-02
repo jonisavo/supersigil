@@ -2242,7 +2242,16 @@ fn isolation_drops_configuration_passed_through_the_environment() {
         .args(["config", "--get-all", "core.leak"])
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    // Exit 1 is git's "key not found"; a fatal configuration error also
+    // prints nothing on standard output.
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ),
+        (Some(1), "".into(), "".into())
+    );
 }
 
 /// A change report naming `file` with one entry: `created` or modified,

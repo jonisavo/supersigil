@@ -28,5 +28,14 @@ fn isolation_overrides_configuration_passed_through_the_environment() {
 
     let git = isolated(inherited, &repo.home());
     let output = git.raw(["config", "--get-all", "core.leak"]).unwrap();
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    // Exit 1 is git's "key not found"; a fatal configuration error also
+    // prints nothing on standard output.
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ),
+        (Some(1), "".into(), "".into())
+    );
 }
