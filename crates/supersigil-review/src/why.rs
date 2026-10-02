@@ -76,8 +76,6 @@ pub fn line_command_changes(
     changes: Vec<CommandChange>,
     line: Option<&WhyLine>,
 ) -> Vec<LineCommandChange> {
-    // The line without its terminator: one `\n`, and one `\r` before it. A
-    // line of only whitespace is not compared: its text identifies nothing.
     let text = line
         .map(|line| match line.text.strip_suffix('\n') {
             Some(text) => text.strip_suffix('\r').unwrap_or(text),
@@ -287,6 +285,22 @@ fn head_difference(
     }
 }
 
+/// Whether `outcome` is one the ordered rules decided: attributed, a
+/// whitespace-only or line-ending change, or realigned. An unresolved,
+/// ambiguous, content-matched, or unattributed line is left unexplained.
+fn explained(outcome: &Outcome) -> bool {
+    match outcome {
+        Outcome::Attributed { .. }
+        | Outcome::WhitespaceOnly { .. }
+        | Outcome::LineEndingChanged
+        | Outcome::Realigned { .. } => true,
+        Outcome::Unattributed { .. }
+        | Outcome::Unresolved { .. }
+        | Outcome::Ambiguous { .. }
+        | Outcome::ContentMatch { .. } => false,
+    }
+}
+
 /// The edits `combined`, a target line's combined outcome, names as
 /// contributing, each with how. Only an outcome the ordered rules decided
 /// from an agreed provenance whose origins are all explained has
@@ -296,14 +310,8 @@ fn contributors(
     outcome: &Outcome,
     combined: Option<&LineOutcome>,
 ) -> BTreeMap<EventId, BTreeSet<Contribution>> {
-    let explained = matches!(
-        outcome,
-        Outcome::Attributed { .. }
-            | Outcome::WhitespaceOnly { .. }
-            | Outcome::LineEndingChanged
-            | Outcome::Realigned { .. }
-    );
-    let Some(LineOutcome::Agreed { provenance, .. }) = combined.filter(|_| explained) else {
+    let Some(LineOutcome::Agreed { provenance, .. }) = combined.filter(|_| explained(outcome))
+    else {
         return BTreeMap::new();
     };
     let Provenance {
@@ -469,15 +477,10 @@ fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String)
             )
         ),
     );
-    let unexplained = why.line.as_ref().is_some_and(|line| {
-        matches!(
-            line.outcome,
-            Outcome::Unattributed { .. }
-                | Outcome::Unresolved { .. }
-                | Outcome::Ambiguous { .. }
-                | Outcome::ContentMatch { .. }
-        )
-    });
+    let unexplained = why
+        .line
+        .as_ref()
+        .is_some_and(|line| !explained(&line.outcome));
     for entry in &why.command_changes {
         let change = &entry.change;
         let kind = match change.kind {

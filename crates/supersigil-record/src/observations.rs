@@ -299,11 +299,10 @@ pub enum EditOperation {
 }
 
 /// How an edit reached the record.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EditOrigin {
     /// A call to an editing tool, whose result states the edit.
-    #[default]
     Tool,
     /// A quoted heredoc a shell command redirected into the file. The text
     /// is read from the command, and the harness's change report for that

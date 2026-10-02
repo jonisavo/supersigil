@@ -14,7 +14,8 @@ use std::path::{Component, Path, PathBuf};
 
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
-    CaptureLimitation, Command, Edit, EditOrigin, Observation, Outcome, Role, Turn,
+    CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Observation, Outcome,
+    Role, Turn,
 };
 use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
@@ -22,7 +23,7 @@ use supersigil_review::model::{
 };
 use supersigil_session::checkout::{canonical, within};
 
-use crate::mapping::map_file;
+use crate::mapping::{MappedEdit, map_resolved, resolve};
 
 /// Turns, commands, capture limitations, and transcript locations of every
 /// pinned record, indexed for the lookups a review makes.
@@ -141,17 +142,13 @@ impl Evidence {
             let Some(transcript) = &command.transcript else {
                 continue;
             };
-            let Some(report) = command.changes.retained() else {
-                continue;
-            };
             if transcripts.contains(transcript) {
                 continue;
             }
-            let changed_inside = report.files.iter().any(|file| {
-                map_file(&command.checkout, &file.path, roots, ignore_case)
-                    .is_some_and(|mapped| worktrees.contains(&mapped.worktree))
-            });
-            if changed_inside {
+            if reported_in(command, roots, worktrees, ignore_case)
+                .next()
+                .is_some()
+            {
                 transcripts.insert(transcript.clone());
             }
         }
@@ -239,10 +236,10 @@ impl Evidence {
     /// relative to its worktree, newest command first and by command id
     /// among equal times. Time orders the listing only.
     ///
-    /// A reported file is placed as an edit's file is ([`map_file`]): in the
-    /// innermost of `roots`, the registered worktrees, containing it. A
-    /// command without a retained report contributes nothing, which says
-    /// nothing about what it changed.
+    /// A reported file is placed as an edit's file is
+    /// ([`crate::mapping::map_file`]): in the innermost of `roots`, the
+    /// registered worktrees, containing it. A command without a retained
+    /// report contributes nothing, which says nothing about what it changed.
     ///
     /// A command is listed once per file the harness reported, per
     /// worktree. When `ignore_case` is set, two reported spellings of one
@@ -258,21 +255,14 @@ impl Evidence {
     ) -> Vec<(CommandChange, String)> {
         let mut changes = Vec::new();
         for command in self.commands.values() {
-            let from_candidate = command
+            if !command
                 .transcript
                 .as_ref()
-                .is_some_and(|t| transcripts.contains(t));
-            let Some(report) = command.changes.retained().filter(|_| from_candidate) else {
+                .is_some_and(|t| transcripts.contains(t))
+            {
                 continue;
-            };
-            for file in &report.files {
-                let Some(mapped) = map_file(&command.checkout, &file.path, roots, ignore_case)
-                else {
-                    continue;
-                };
-                if !worktrees.contains(&mapped.worktree) {
-                    continue;
-                }
+            }
+            for (report, file, mapped) in reported_in(command, roots, worktrees, ignore_case) {
                 changes.push((
                     CommandChange {
                         command: command.id.as_str().to_owned(),
@@ -371,6 +361,33 @@ impl CandidateCommands<'_> {
             .map(|candidate| mention(candidate.command))
             .collect()
     }
+}
+
+/// The files of `command`'s retained change report that lie in one of
+/// `worktrees`, each with its report and where it maps: in the innermost of
+/// `roots`, the registered worktrees, containing it, as an edit's file does
+/// ([`crate::mapping::map_file`]). Nothing for a command without a retained
+/// report.
+fn reported_in<'c>(
+    command: &'c Command,
+    roots: &'c [PathBuf],
+    worktrees: &'c [PathBuf],
+    ignore_case: bool,
+) -> impl Iterator<Item = (&'c ChangeReport, &'c FileChange, MappedEdit)> {
+    command
+        .changes
+        .retained()
+        .into_iter()
+        .flat_map(move |report| {
+            // Resolved once for every file of the command.
+            let checkout = resolve(&command.checkout);
+            report.files.iter().filter_map(move |file| {
+                let mapped = map_resolved(&checkout, &file.path, roots, ignore_case)?;
+                worktrees
+                    .contains(&mapped.worktree)
+                    .then_some((report, file, mapped))
+            })
+        })
 }
 
 /// The mention entry for `command`.

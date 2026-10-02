@@ -708,7 +708,8 @@ pub struct FileInput<'a> {
     pub target_blob: Option<&'a [u8]>,
     /// Anchor's result, or why there is none.
     pub attribution: AttributionState<'a>,
-    /// Commands mentioning the path.
+    /// Commands mentioning the path. Those also in `command_changes` are
+    /// left out of the review.
     pub mentions: Vec<Mention>,
     /// Commands the harness reported as changing the path, newest first.
     pub command_changes: Vec<CommandChange>,
@@ -720,9 +721,18 @@ pub struct FileInput<'a> {
 /// grouped into spans, and anchor's status and chains.
 ///
 /// Only `Text` files are diffed; any other kind gets no hunks and no
-/// attribution.
+/// attribution. A command the harness reported as changing the file is
+/// listed under `command_changes`, not again as a mention of its path.
 #[must_use]
-pub fn file_review(input: FileInput<'_>) -> FileReview {
+pub fn file_review(mut input: FileInput<'_>) -> FileReview {
+    let changing: BTreeSet<&str> = input
+        .command_changes
+        .iter()
+        .map(|change| change.command.as_str())
+        .collect();
+    input
+        .mentions
+        .retain(|mention| !changing.contains(mention.command.as_str()));
     let (attribution, coarse, hunks) = if input.kind == FileKindInfo::Text {
         let base = input.base_blob.unwrap_or_default();
         let target = input.target_blob.unwrap_or_default();

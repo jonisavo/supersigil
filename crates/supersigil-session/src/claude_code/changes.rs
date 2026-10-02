@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use supersigil_record::observations::{ChangeKind, ChangeReport, FileChange, Hunk, Material};
 
-use super::{contained, hunks};
+use super::{contained, hunks_material};
 
 /// Reason recorded when a result carries no report.
 const NO_REPORT: &str = "no change report";
@@ -52,10 +52,10 @@ pub(super) fn change_report(result: Option<&Value>, cwd: &Path) -> Material<Chan
 /// harness listed the file as changed.
 pub(super) fn listed_files(result: Option<&Value>, cwd: &Path) -> BTreeSet<PathBuf> {
     result
-        .and_then(|r| r.get("bashEditDiff")?.get("changedFiles")?.as_array())
+        .and_then(|r| strings(r.get("bashEditDiff")?.get("changedFiles")?))
         .into_iter()
         .flatten()
-        .filter_map(|path| contained(cwd, path.as_str()?))
+        .filter_map(|path| contained(cwd, path))
         .collect()
 }
 
@@ -133,45 +133,37 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
                 && known
                 && sides.iter().map(|side| side.lines.len()).sum::<usize>() != expected.len();
             shorter
-                || hunks.iter().zip(&sides).any(|(hunk, side)| {
+                || sides.iter().any(|side| {
                     if side.lines.is_empty() || matches!(side.reach, Reach::Unknown) {
                         return false;
                     }
-                    // A non-empty new side starts at a 1-based line.
-                    let from = usize::try_from(hunk.new_start)
-                        .ok()
-                        .and_then(|start| start.checked_sub(1));
-                    from.and_then(|from| expected.get(from..from.checked_add(side.lines.len())?))
+                    side.start
+                        .and_then(|from| expected.get(from..from.checked_add(side.lines.len())?))
                         != Some(side.lines.as_slice())
                 })
         }
         Written::Tail(_) => {
             // The hunk that reaches furthest into the file after the command.
-            let last = hunks
-                .iter()
-                .zip(&sides)
-                .max_by_key(|(hunk, _)| hunk.new_start);
+            let last = sides.iter().max_by_key(|side| side.start);
             counted
-                && last.is_some_and(|(hunk, side)| {
+                && last.is_some_and(|side| {
                     matches!(side.reach, Reach::End)
-                        && (shorter_than(hunk, side, expected.len())
+                        && (shorter_than(side, expected.len())
                             || !ends_with_appended(&side.lines, &expected))
                 })
         }
     }
 }
 
-/// Whether `hunk`, which reaches the end of the file, shows the file to
-/// hold fewer than `appended` lines: the file is as long as the lines
-/// before the hunk and the lines it shows. A hunk that shows no line of
-/// the file, or does not start at a 1-based line, places nothing.
-fn shorter_than(hunk: &Hunk, side: &NewSide, appended: usize) -> bool {
+/// Whether `side`, of a hunk that reaches the end of the file, shows the
+/// file to hold fewer than `appended` lines: the file is as long as the
+/// lines before the hunk and the lines it shows. A hunk that shows no line
+/// of the file, or does not start at a 1-based line, places nothing.
+fn shorter_than(side: &NewSide, appended: usize) -> bool {
     if side.lines.is_empty() {
         return false;
     }
-    usize::try_from(hunk.new_start)
-        .ok()
-        .and_then(|start| start.checked_sub(1))
+    side.start
         .and_then(|before| before.checked_add(side.lines.len()))
         .is_some_and(|length| length < appended)
 }
@@ -211,6 +203,9 @@ const NO_NEWLINE: &str = "\\ No newline at end of file";
 
 /// What one hunk shows of the file after the command.
 struct NewSide<'a> {
+    /// How many lines of the file lie before its new side, which starts at
+    /// a 1-based line; `None` when the header gives no such line.
+    start: Option<usize>,
     /// Its context and added lines, without their markers.
     lines: Vec<&'a str>,
     /// Whether the hunk marks one of `lines` as having no newline after it.
@@ -238,12 +233,8 @@ enum Reach {
 
 impl<'a> NewSide<'a> {
     fn of(hunk: &'a Hunk) -> Self {
-        let mut side = Self {
-            lines: Vec::new(),
-            unterminated: false,
-            counted: false,
-            reach: Reach::Unknown,
-        };
+        let mut lines = Vec::new();
+        let mut unterminated = false;
         // The context lines before the first change, and since the last.
         let mut leading = None;
         let mut trailing = 0_usize;
@@ -256,19 +247,19 @@ impl<'a> NewSide<'a> {
             if line == NO_NEWLINE {
                 // After a removed line it describes the file before the
                 // command.
-                side.unterminated |= previous.is_some_and(|line| !line.starts_with('-'));
+                unterminated |= previous.is_some_and(|line| !line.starts_with('-'));
                 continue;
             }
             previous = Some(line.as_str());
             match line.as_bytes().first() {
                 Some(b' ') => {
-                    side.lines.push(&line[1..]);
+                    lines.push(&line[1..]);
                     old += 1;
                     trailing += 1;
                 }
                 Some(kind @ (b'+' | b'-')) => {
                     if *kind == b'+' {
-                        side.lines.push(&line[1..]);
+                        lines.push(&line[1..]);
                     } else {
                         old += 1;
                     }
@@ -283,8 +274,7 @@ impl<'a> NewSide<'a> {
                 }
             }
         }
-        side.counted = usize::try_from(hunk.new_lines) == Ok(side.lines.len());
-        side.reach = if !known {
+        let reach = if !known {
             Reach::Unknown
         } else if usize::try_from(hunk.old_lines) == Ok(old)
             && leading.is_some_and(|leading| trailing < leading)
@@ -293,7 +283,15 @@ impl<'a> NewSide<'a> {
         } else {
             Reach::Lines
         };
-        side
+        Self {
+            start: usize::try_from(hunk.new_start)
+                .ok()
+                .and_then(|start| start.checked_sub(1)),
+            counted: usize::try_from(hunk.new_lines) == Ok(lines.len()),
+            lines,
+            unterminated,
+            reach,
+        }
     }
 }
 
@@ -326,29 +324,23 @@ fn read(report: &Value, cwd: &Path) -> Option<ChangeReport> {
     }
     // Listed files in the harness's order, then entries it did not list,
     // each file once.
+    let reported = listed
+        .into_iter()
+        .chain(entries.iter().map(|entry| entry.path));
     let mut seen = BTreeSet::new();
-    let mut order = Vec::new();
     let mut without_entry: u64 = 0;
-    for file in listed.into_iter().map(place) {
-        if seen.insert(file.clone()) {
-            if !by_file.contains_key(&file) {
-                without_entry += 1;
-            }
-            order.push(file);
-        }
-    }
-    for file in entries.iter().map(|entry| place(entry.path)) {
-        if seen.insert(file.clone()) {
-            order.push(file);
-        }
-    }
-
     let mut files = Vec::new();
     let mut outside = 0;
-    for file in order {
-        let (kind, patch) = match by_file.get(&file) {
-            Some(entry) => (entry.kind, entry.patch.clone()),
-            None => (ChangeKind::NotStated, Material::unavailable(NO_ENTRY)),
+    for file in reported.map(place) {
+        if !seen.insert(file.clone()) {
+            continue;
+        }
+        let (kind, patch) = if let Some(entry) = by_file.get(&file) {
+            (entry.kind, entry.patch.clone())
+        } else {
+            // Only a listed file can be without an entry.
+            without_entry += 1;
+            (ChangeKind::NotStated, Material::unavailable(NO_ENTRY))
         };
         match file {
             Ok(inside) => files.push(FileChange {
@@ -411,13 +403,11 @@ fn entries(value: &Value) -> Option<Vec<Entry<'_>>> {
                     // Both at once describe no single change.
                     (true, true) => ChangeKind::NotStated,
                 },
-                patch: match entry.get("hunks") {
-                    Some(value) => hunks(value).map_or_else(
-                        || Material::unavailable("unreadable hunks"),
-                        Material::Retained,
-                    ),
-                    None => Material::unavailable("no hunks in the entry"),
-                },
+                patch: hunks_material(
+                    entry.get("hunks"),
+                    "no hunks in the entry",
+                    "unreadable hunks",
+                ),
             })
         })
         .collect()

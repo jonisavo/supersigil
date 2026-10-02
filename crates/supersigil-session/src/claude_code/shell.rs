@@ -182,12 +182,7 @@ impl Word {
     fn assigned(&self) -> Option<&str> {
         let (name, _) = self.text.split_once('=')?;
         let name = name.strip_suffix('+').unwrap_or(name);
-        let valid = !name.is_empty()
-            && name
-                .chars()
-                .enumerate()
-                .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
-        valid.then_some(name)
+        super::is_name(name).then_some(name)
     }
 }
 
@@ -718,7 +713,6 @@ impl Lexer<'_> {
         let mut text = String::new();
         // Runs of unquoted characters and quoted strings the word is made of.
         let mut segments = 0;
-        let mut quoted = 0;
         let mut in_plain = false;
         let mut expands = false;
         let mut bare = true;
@@ -735,7 +729,6 @@ impl Lexer<'_> {
                     text.push_str(&rest[..end]);
                     self.pos += end + 1;
                     segments += 1;
-                    quoted += 1;
                     in_plain = false;
                     bare = false;
                     continue;
@@ -743,7 +736,6 @@ impl Lexer<'_> {
                 '"' => {
                     expands |= self.double_quoted(&mut text)?;
                     segments += 1;
-                    quoted += 1;
                     in_plain = false;
                     bare = false;
                     continue;
@@ -778,12 +770,14 @@ impl Lexer<'_> {
                 in_plain = true;
             }
         }
+        // One segment that expands nothing: unquoted when the word is bare
+        // (an escape would have counted as expanding), else one quoted string.
         let kind = if expands || segments != 1 {
             WordKind::Other
-        } else if quoted == 1 {
-            WordKind::Quoted
-        } else {
+        } else if bare {
             WordKind::Plain
+        } else {
+            WordKind::Quoted
         };
         Ok(Word { text, kind, bare })
     }
@@ -851,10 +845,11 @@ impl Lexer<'_> {
             if compared == delimiter {
                 return Some(body);
             }
-            let processed = line.ends_with('\\')
-                || line.contains('`')
-                || ["$(", "${", "$["].iter().any(|open| line.contains(open));
-            if expands && processed {
+            if expands
+                && (line.ends_with('\\')
+                    || line.contains('`')
+                    || ["$(", "${", "$["].iter().any(|open| line.contains(open)))
+            {
                 return None;
             }
             body.push_str(line);

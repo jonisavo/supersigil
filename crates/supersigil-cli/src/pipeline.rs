@@ -432,7 +432,8 @@ impl Prepared {
         //    id whose sightings disagree is excluded from every path, even
         //    when only one of its sightings lies in a candidate worktree.
         let ignore_case = repo.config_bool("core.ignorecase")?.unwrap_or(false);
-        let sightings = map_sightings(&records, &worktrees, ignore_case);
+        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
+        let sightings = map_sightings(&records, &roots, ignore_case);
         let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
         let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
         let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
@@ -449,7 +450,6 @@ impl Prepared {
                 .iter()
                 .map(|r| (&r.record_id, r.observations.as_slice())),
         );
-        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
         let candidate_transcripts = evidence.candidate_transcripts(
             candidates.iter().map(|m| &m.candidate.edit),
             &roots,
@@ -630,22 +630,17 @@ struct Sighting {
     mapped: Option<MappedEdit>,
 }
 
-/// Maps every edit of every pinned record onto the registered worktrees,
-/// keeping every sighting whether its worktree is a candidate, another
-/// registered worktree, or none.
-fn map_sightings(
-    records: &[PinnedRecord],
-    worktrees: &[Worktree],
-    ignore_case: bool,
-) -> Vec<Sighting> {
-    let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
+/// Maps every edit of every pinned record onto `roots`, the registered
+/// worktrees, keeping every sighting whether its worktree is a candidate,
+/// another registered worktree, or none.
+fn map_sightings(records: &[PinnedRecord], roots: &[PathBuf], ignore_case: bool) -> Vec<Sighting> {
     let mut sightings = Vec::new();
     for record in records {
         for observation in &record.observations {
             let Observation::Edit(edit) = observation else {
                 continue;
             };
-            let mapped = map_edit(edit, &roots, ignore_case);
+            let mapped = map_edit(edit, roots, ignore_case);
             let worktree = mapped
                 .as_ref()
                 .map_or_else(|| edit.checkout.clone(), |m| m.worktree.clone());

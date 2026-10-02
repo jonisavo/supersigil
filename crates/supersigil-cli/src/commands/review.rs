@@ -185,15 +185,11 @@ fn review_file(
     };
     let command_changes: Vec<CommandChange> =
         g.command_changes.touching(&change.path).cloned().collect();
-    // A command the harness reported as changing the file is listed there,
-    // not again as a mention of its path.
-    let mut mentions = change
+    let mentions = change
         .path
         .to_str()
         .map(|p| commands.mentions(p))
         .unwrap_or_default();
-    let changing: BTreeSet<&str> = command_changes.iter().map(|c| c.command.as_str()).collect();
-    mentions.retain(|m| !changing.contains(m.command.as_str()));
     let mut file = file_review(FileInput {
         path: &path,
         status: file_status(change.status),

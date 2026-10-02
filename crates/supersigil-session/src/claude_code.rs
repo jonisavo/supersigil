@@ -689,12 +689,21 @@ fn contained(checkout: &Path, path: &str) -> Option<PathBuf> {
 }
 
 fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
-    match result.and_then(|r| r.get("structuredPatch")) {
-        Some(value) => hunks(value).map_or_else(
-            || Material::unavailable("unreadable structured patch"),
-            Material::Retained,
-        ),
-        None => Material::unavailable("no structured patch"),
+    hunks_material(
+        result.and_then(|r| r.get("structuredPatch")),
+        "no structured patch",
+        "unreadable structured patch",
+    )
+}
+
+/// The hunks of `value` as material: unavailable for the reason `missing`
+/// without a value, and for `unreadable` when it has another shape.
+fn hunks_material(value: Option<&Value>, missing: &str, unreadable: &str) -> Material<Vec<Hunk>> {
+    match value {
+        Some(value) => {
+            hunks(value).map_or_else(|| Material::unavailable(unreadable), Material::Retained)
+        }
+        None => Material::unavailable(missing),
     }
 }
 
@@ -1055,29 +1064,30 @@ fn confirming_report<'a>(
 /// report's hunks contradict what the command's writes leave in the file.
 fn shell_edits(
     tool: &PendingTool,
-    session: &SessionId,
     command: &Command,
     resolution: Option<&Resolution>,
 ) -> Vec<Result<Observation, Count>> {
+    let cwd = &command.checkout;
+    // Each write with its file inside the working directory, if it is.
+    let writes: Vec<(Option<PathBuf>, shell::ShellWrite)> = shell::shell_writes(&command.cmd, cwd)
+        .into_iter()
+        .map(|write| (contained(cwd, &write.path.to_string_lossy()), write))
+        .collect();
+    // Most commands write no heredoc: nothing of the report is read then.
+    if writes.is_empty() {
+        return Vec::new();
+    }
     let report = confirming_report(command, resolution);
-    let time = resolution
-        .and_then(|r| r.ended.cloned())
-        .unwrap_or_else(|| tool.time.clone());
+    let time = command.ended.as_ref().unwrap_or(&command.started);
     // What the report states of each file it lists as changed. A file it
     // only describes in an entry is not confirmed.
-    let listed = changes::listed_files(resolution.and_then(|r| r.structured), &tool.cwd);
+    let listed = changes::listed_files(resolution.and_then(|r| r.structured), cwd);
     let files: BTreeMap<&Path, &FileChange> = report
         .into_iter()
         .flat_map(|report| &report.files)
         .filter(|file| listed.contains(&file.path))
         .map(|file| (file.path.as_path(), file))
         .collect();
-    // Each write with its file inside the working directory, if it is.
-    let writes: Vec<(Option<PathBuf>, shell::ShellWrite)> =
-        shell::shell_writes(&command.cmd, &tool.cwd)
-            .into_iter()
-            .map(|write| (contained(&tool.cwd, &write.path.to_string_lossy()), write))
-            .collect();
     let contradicted = contradicted_files(&writes, &files);
     let mut written: BTreeSet<PathBuf> = BTreeSet::new();
     let mut built = Vec::new();
@@ -1109,9 +1119,9 @@ fn shell_edits(
             (EditOperation::Write, "write replaces the whole file")
         };
         built.push(Ok(Observation::Edit(Edit {
-            id: EventId::derive("edit", session, &format!("{}#{index}", tool.id)),
-            turn: tool.turn.clone(),
-            session: session.clone(),
+            id: EventId::derive("edit", &command.session, &format!("{}#{index}", tool.id)),
+            turn: command.turn.clone(),
+            session: command.session.clone(),
             path,
             before,
             after: FileState::unknown(),
@@ -1123,10 +1133,10 @@ fn shell_edits(
             origin: EditOrigin::Shell {
                 command: command.id.clone(),
             },
-            checkout: tool.cwd.clone(),
+            checkout: cwd.clone(),
             time: time.clone(),
-            source_ordinal: tool.record_index as u64,
-            agent_id: tool.agent_id.clone(),
+            source_ordinal: command.source_ordinal,
+            agent_id: command.agent_id.clone(),
             transcript: None,
         })));
     }
@@ -1154,39 +1164,36 @@ fn contradicted_files(
     writes: &[(Option<PathBuf>, shell::ShellWrite)],
     files: &BTreeMap<&Path, &FileChange>,
 ) -> BTreeSet<PathBuf> {
-    let mut left: BTreeMap<&Path, changes::Written> = BTreeMap::new();
+    // What the writes leave in each file that has hunks to check it against.
+    let mut left: BTreeMap<&Path, (&[Hunk], changes::Written)> = BTreeMap::new();
     for (path, write) in writes {
         let Some((path, file)) = path.as_deref().and_then(|path| files.get_key_value(path)) else {
             continue;
         };
-        let created = file.kind == ChangeKind::Created;
-        let next = match (left.remove(path), write.append) {
-            (_, false) => changes::Written::Whole {
-                text: write.body.clone(),
-                created,
-            },
-            (None, true) if created => changes::Written::Whole {
-                text: write.body.clone(),
-                created,
-            },
-            (None, true) => changes::Written::Tail(write.body.clone()),
-            (Some(changes::Written::Whole { text, created }), true) => changes::Written::Whole {
-                text: text + &write.body,
-                created,
-            },
-            (Some(changes::Written::Tail(text)), true) => {
-                changes::Written::Tail(text + &write.body)
-            }
+        let Some(hunks) = file.patch.retained() else {
+            continue;
         };
-        left.insert(path, next);
+        let created = file.kind == ChangeKind::Created;
+        let body = &write.body;
+        let next = match (left.remove(path), write.append) {
+            (Some((_, changes::Written::Whole { text, created })), true) => {
+                changes::Written::Whole {
+                    text: text + body,
+                    created,
+                }
+            }
+            (Some((_, changes::Written::Tail(text))), true) => changes::Written::Tail(text + body),
+            (None, true) if !created => changes::Written::Tail(body.clone()),
+            // A `>`, or the first `>>` to a file the command created.
+            _ => changes::Written::Whole {
+                text: body.clone(),
+                created,
+            },
+        };
+        left.insert(path, (hunks, next));
     }
     left.into_iter()
-        .filter(|(path, written)| {
-            files[path]
-                .patch
-                .retained()
-                .is_some_and(|hunks| changes::contradicts(hunks, written))
-        })
+        .filter(|(_, (hunks, written))| changes::contradicts(hunks, written))
         .map(|(path, _)| path.to_path_buf())
         .collect()
 }
@@ -1209,7 +1216,7 @@ fn build_resolved(
     match tool.name.as_str() {
         "Edit" | "Write" | "MultiEdit" => vec![build_edit(tool, session, resolution)],
         "Bash" => match build_command(tool, session, resolution) {
-            Some(command) => with_shell_edits(tool, session, command, Some(resolution)),
+            Some(command) => with_shell_edits(tool, command, Some(resolution)),
             None => vec![Err(Count::Unsupported)],
         },
         "NotebookEdit" => vec![Err(Count::Unsupported)],
@@ -1224,19 +1231,17 @@ fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Vec<Result<Observ
     if tool.name != "Bash" {
         return Vec::new();
     }
-    command_base(tool, session).map_or_else(Vec::new, |command| {
-        with_shell_edits(tool, session, command, None)
-    })
+    command_base(tool, session)
+        .map_or_else(Vec::new, |command| with_shell_edits(tool, command, None))
 }
 
 /// `command`, then what [`shell_edits`] builds for it.
 fn with_shell_edits(
     tool: &PendingTool,
-    session: &SessionId,
     command: Command,
     resolution: Option<&Resolution>,
 ) -> Vec<Result<Observation, Count>> {
-    let mut built = shell_edits(tool, session, &command, resolution);
+    let mut built = shell_edits(tool, &command, resolution);
     built.insert(0, Ok(Observation::Command(command)));
     built
 }
@@ -1311,12 +1316,17 @@ fn program_words(words: &[String]) -> &[String] {
 
 /// Checks for a shell variable assignment such as `RUST_LOG=debug`.
 fn is_assignment(word: &str) -> bool {
-    word.split_once('=').is_some_and(|(name, _)| {
-        name.chars()
+    word.split_once('=').is_some_and(|(name, _)| is_name(name))
+}
+
+/// Whether `name` can name a shell variable: letters, digits, and `_`, not
+/// starting with a digit.
+fn is_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
             .enumerate()
             .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
-            && !name.is_empty()
-    })
 }
 
 /// Splits a command line into word lists, removing quotes and backslash escapes.

@@ -50,7 +50,25 @@ pub fn map_file(
     worktree_roots: &[PathBuf],
     ignore_case: bool,
 ) -> Option<MappedEdit> {
-    let checkout = canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf());
+    map_resolved(&resolve(checkout), path, worktree_roots, ignore_case)
+}
+
+/// `checkout` canonicalized when it exists, and as written otherwise: the
+/// spelling [`map_file`] places files under.
+#[must_use]
+pub fn resolve(checkout: &Path) -> PathBuf {
+    canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
+}
+
+/// [`map_file`] for a checkout that is already resolved ([`resolve`]), for
+/// a caller that places several files of one checkout.
+#[must_use]
+pub fn map_resolved(
+    checkout: &Path,
+    path: &Path,
+    worktree_roots: &[PathBuf],
+    ignore_case: bool,
+) -> Option<MappedEdit> {
     let file = checkout.join(path);
     let mut best: Option<(usize, &PathBuf)> = None;
     for root in worktree_roots {

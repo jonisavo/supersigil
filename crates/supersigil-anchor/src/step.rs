@@ -110,13 +110,12 @@ pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
         EditOperation::Append => {
             let text = retained(&edit.new_text).filter(|text| !text.is_empty())?;
             let bytes = before.bytes().unwrap_or_default();
-            let mut after = Vec::with_capacity(bytes.len() + text.len());
-            after.extend_from_slice(bytes);
-            after.extend_from_slice(text);
+            let end = bytes.len();
+            let after = splice(bytes, end..end, text);
             Some(Forward {
                 replacements: vec![Replacement {
-                    before: bytes.len()..bytes.len(),
-                    after: bytes.len()..after.len(),
+                    before: end..end,
+                    after: end..after.len(),
                 }],
                 after: State::Present(after),
             })
@@ -972,16 +971,22 @@ fn reverse_append(
     patch: Option<&Patch>,
     budget: &mut Budget,
 ) -> Reversed {
-    let id = || edit.id.clone();
+    let rejected = || {
+        Reversed::Stop(StopReason::NoAcceptedCandidate {
+            edit: edit.id.clone(),
+        })
+    };
     let Some(text) = retained(&edit.new_text) else {
-        return Reversed::Stop(StopReason::TextUnavailable { edit: id() });
+        return Reversed::Stop(StopReason::TextUnavailable {
+            edit: edit.id.clone(),
+        });
     };
     let prefix = current
         .bytes()
         .filter(|_| !text.is_empty())
         .and_then(|bytes| bytes.strip_suffix(text));
     let Some(prefix) = prefix else {
-        return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+        return rejected();
     };
     if let Some(patch) = patch.filter(|_| !is_known(&edit.before)) {
         // Reading the candidate's lines and the hunk text.
@@ -989,7 +994,7 @@ fn reverse_append(
             return out_of_budget();
         }
         if !patch.shown_before(&Whole::new(prefix)) {
-            return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+            return rejected();
         }
     }
     if !budget.charge(candidate_cost(prefix.len(), current.byte_len())) {
@@ -999,16 +1004,14 @@ fn reverse_append(
     // may have been empty.
     let before = if edit.before == FileState::Absent {
         if !prefix.is_empty() {
-            return Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() });
+            return rejected();
         }
         State::Absent
     } else {
         State::Present(prefix.to_vec())
     };
-    match validate(edit, before, current) {
-        Some(reversal) => Reversed::Candidates(vec![reversal]),
-        None => Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() }),
-    }
+    validate(edit, before, current)
+        .map_or_else(rejected, |reversal| Reversed::Candidates(vec![reversal]))
 }
 
 #[cfg(test)]
