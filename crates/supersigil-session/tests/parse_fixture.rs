@@ -1497,18 +1497,18 @@ fn a_change_report_lists_every_changed_file_with_what_the_harness_stated() {
         ],
         "moreFiles": 1,
     }));
-    let listed: Vec<(&str, ChangeKind)> = report
+    let listed: Vec<(PathBuf, ChangeKind)> = report
         .files
         .iter()
-        .map(|f| (f.path.to_str().unwrap(), f.kind))
+        .map(|f| (f.path.clone(), f.kind))
         .collect();
     assert_eq!(
         listed,
         vec![
-            ("src/new.rs", ChangeKind::Created),
-            ("src/lib.rs", ChangeKind::Modified),
-            ("old.txt", ChangeKind::Deleted),
-            ("Cargo.lock", ChangeKind::NotStated),
+            (PathBuf::from("src").join("new.rs"), ChangeKind::Created),
+            (PathBuf::from("src").join("lib.rs"), ChangeKind::Modified),
+            (PathBuf::from("old.txt"), ChangeKind::Deleted),
+            (PathBuf::from("Cargo.lock"), ChangeKind::NotStated),
         ]
     );
     // Hunks are kept as given: display text, with the harness's literal tab.
@@ -1600,12 +1600,8 @@ fn an_entry_the_harness_did_not_list_is_still_a_changed_file() {
             {"filePath": "/work/repo/a.rs", "hunks": []}],
         "moreFiles": 0,
     }));
-    let paths: Vec<&str> = report
-        .files
-        .iter()
-        .map(|f| f.path.to_str().unwrap())
-        .collect();
-    assert_eq!(paths, vec!["a.rs", "b.rs"]);
+    let paths: Vec<PathBuf> = report.files.iter().map(|f| f.path.clone()).collect();
+    assert_eq!(paths, vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")]);
     // Without `changedFiles`, the entries are the list.
     let entries_only = report_of(&json!({"files": [{"filePath": "/work/repo/b.rs", "hunks": []}]}));
     assert_eq!(entries_only.files.len(), 1);
@@ -1621,17 +1617,17 @@ fn a_path_reported_twice_is_one_changed_file() {
             {"filePath": "/work/repo/b.rs", "deleted": true, "hunks": []}],
         "moreFiles": 3,
     }));
-    let listed: Vec<(&str, ChangeKind)> = report
+    let listed: Vec<(PathBuf, ChangeKind)> = report
         .files
         .iter()
-        .map(|f| (f.path.to_str().unwrap(), f.kind))
+        .map(|f| (f.path.clone(), f.kind))
         .collect();
     // The first entry of a path is the one kept.
     assert_eq!(
         listed,
         vec![
-            ("a.rs", ChangeKind::NotStated),
-            ("b.rs", ChangeKind::Created)
+            (PathBuf::from("a.rs"), ChangeKind::NotStated),
+            (PathBuf::from("b.rs"), ChangeKind::Created)
         ]
     );
     // One distinct listed path has no entry.
