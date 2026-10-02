@@ -25,7 +25,9 @@ use supersigil_review::model::{
 };
 use supersigil_review::outcome::AttributionState;
 use supersigil_review::summary::render_summary;
-use supersigil_review::why::{OnDiskCheck, Tristate, Why, WhyTarget, render_why, why_line};
+use supersigil_review::why::{
+    OnDiskCheck, Tristate, Why, WhyTarget, line_command_changes, render_why, why_line,
+};
 use supersigil_review::{REVIEW_SCHEMA, Review, WHY_SCHEMA};
 
 const TRANSCRIPT: &str = "/home/u/.claude/projects/-work-repo/s1.jsonl";
@@ -367,10 +369,31 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
         records: records(),
         evidence: evidence(),
         on_disk,
+        command_changes: line_command_changes(why_command_changes(), line.as_ref()),
         line,
         edits: edits(),
         conflicting_edits: Vec::new(),
     }
+}
+
+/// Two commands that changed the explained file, newest first: one whose
+/// reported diff adds both sample lines, and one whose diff the harness
+/// left out.
+fn why_command_changes() -> Vec<CommandChange> {
+    vec![
+        command_change(
+            "command:3",
+            "2026-09-28T10:00:08.000Z",
+            "python3 - <<'EOF'\nimport re\nEOF",
+            hunks(&[" // top", "+fn greet() {}", "+fn other() {}"]),
+        ),
+        command_change(
+            "command:2",
+            "2026-09-28T10:00:07.000Z",
+            "cargo fmt --all",
+            Material::unavailable("no entry in the harness report"),
+        ),
+    ]
 }
 
 #[test]
@@ -861,6 +884,181 @@ fn line_of(text: &str, path: &str) -> String {
         .find(|line| line.contains(path) && line.contains("  +"))
         .unwrap_or_else(|| panic!("no file line for {path} in {text}"))
         .to_owned()
+}
+
+/// `why` on the unattributed second line of the sample file.
+fn why_on_the_unattributed_line() -> Why {
+    let attr = attribution(
+        vec![chain(0, ChainClass::ExactFromBase, &["e1"], ChainEnd::Base)],
+        vec![introduced("e1"), unexplained()],
+        vec![],
+    );
+    let mut why = sample_why(OnDiskCheck::Captured);
+    why.line = Some(why_line(
+        &AttributionState::Available(&attr),
+        1,
+        &split_lines(b"fn greet() {}\nfn other() {}\n"),
+        Ok(b""),
+    ));
+    why.command_changes = line_command_changes(why_command_changes(), why.line.as_ref());
+    why
+}
+
+#[test]
+fn why_marks_the_commands_whose_reported_diff_adds_an_unexplained_line() {
+    let why = why_on_the_unattributed_line();
+    let flags: Vec<bool> = why
+        .command_changes
+        .iter()
+        .map(|c| c.adds_line_text)
+        .collect();
+    assert_eq!(flags, vec![true, false]);
+    let text = render_why(&why, escape);
+    let expected = "\
+  changed by 2 recorded commands (observed by the harness, not attribution):
+    2026-09-28T10:00:08.000Z  command:3  session s1  modified
+      python3 - <<'EOF' … (2 more lines)
+      its reported diff adds a line with this text (display match)
+    2026-09-28T10:00:07.000Z  command:2  session s1  modified
+      cargo fmt --all
+      reported diff not retained: no entry in the harness report
+";
+    assert!(text.contains(expected), "{text}");
+}
+
+#[test]
+fn why_lists_commands_without_markers_under_an_attributed_line() {
+    let why = sample_why(OnDiskCheck::Captured);
+    // The flag is computed for every line; the terminal shows it only
+    // where no chain explains the line.
+    assert!(why.command_changes[0].adds_line_text);
+    let text = render_why(&why, escape);
+    assert!(text.contains("  changed by 2 recorded commands"), "{text}");
+    assert!(!text.contains("its reported diff"), "{text}");
+    assert!(!text.contains("reported diff not retained"), "{text}");
+}
+
+#[test]
+fn a_reported_diff_adds_a_line_only_by_an_exact_added_line() {
+    let why = why_on_the_unattributed_line();
+    let line = why.line.as_ref();
+    let adds = |lines: &[&str]| {
+        let change = command_change("c", "t", "x", hunks(lines));
+        line_command_changes(vec![change], line)[0].adds_line_text
+    };
+    assert!(adds(&["+fn other() {}"]));
+    // Context and removed lines, other text, and other spacing do not count.
+    assert!(!adds(&[" fn other() {}", "-fn other() {}"]));
+    assert!(!adds(&["+fn other() {} "]));
+    assert!(!adds(&["+  fn other() {}"]));
+    assert!(!adds(&["++fn other() {}"]));
+    assert!(!adds(&[]));
+    // No line analyzed: nothing to compare.
+    let change = command_change("c", "t", "x", hunks(&["+fn other() {}"]));
+    assert!(!line_command_changes(vec![change], None)[0].adds_line_text);
+}
+
+#[test]
+fn the_marker_compares_the_line_without_its_one_terminator() {
+    let attr = attribution(vec![], vec![unexplained()], vec![]);
+    let adds = |target: &[u8], hunk_line: &str| {
+        let line = why_line(
+            &AttributionState::Available(&attr),
+            0,
+            &split_lines(target),
+            Ok(b""),
+        );
+        let change = command_change("c", "t", "x", hunks(&[hunk_line]));
+        line_command_changes(vec![change], Some(&line))[0].adds_line_text
+    };
+    assert!(adds(b"x\n", "+x"));
+    assert!(adds(b"x\r\n", "+x"));
+    assert!(adds(b"x", "+x"));
+    // Without a newline there is no terminator: the return is text.
+    assert!(!adds(b"x\r", "+x"));
+    assert!(adds(b"x\r", "+x\r"));
+    // A return that is part of the line's text is not its terminator.
+    assert!(!adds(b"x\r\r\n", "+x"));
+    assert!(adds(b"x\r\r\n", "+x\r"));
+    assert!(!adds(b"x\n", "+x\r"));
+}
+
+#[test]
+fn one_command_listed_in_two_worktrees_is_counted_once_by_why() {
+    let mut why = why_on_the_unattributed_line();
+    let mut elsewhere = why.command_changes[0].clone();
+    elsewhere.change.worktree = "/work/repo/.claude/worktrees/x".to_owned();
+    why.command_changes.push(elsewhere);
+    let text = render_why(&why, escape);
+    // Three entries, two commands.
+    assert!(
+        text.contains("  changed by 2 recorded commands (observed"),
+        "{text}"
+    );
+    assert_eq!(text.matches("  session s1  ").count(), 3, "{text}");
+}
+
+#[test]
+fn a_line_of_only_whitespace_matches_no_reported_diff() {
+    let attr = attribution(vec![], vec![unexplained(), unexplained()], vec![]);
+    for target in [&b"\n  \n"[..], &b"  \r\n\t\n"[..]] {
+        for index in 0..2 {
+            let line = why_line(
+                &AttributionState::Available(&attr),
+                index,
+                &split_lines(target),
+                Ok(b""),
+            );
+            let change = command_change("c", "t", "x", hunks(&["+", "+  ", "+\t"]));
+            let found = line_command_changes(vec![change], Some(&line));
+            assert!(!found[0].adds_line_text, "{target:?} line {index}");
+        }
+    }
+}
+
+#[test]
+fn why_shows_the_command_behind_a_shell_edit() {
+    let mut why = sample_why(OnDiskCheck::Captured);
+    why.command_changes.clear();
+    why.edits.get_mut("e1").unwrap().origin = EditOriginInfo::Shell {
+        command: "command:7".to_owned(),
+        text: Some("cat > src/lib.rs <<'EOF'\nfn greet() {}\nEOF\n".to_owned()),
+    };
+    let text = render_why(&why, escape);
+    assert!(
+        text.contains(
+            "\n    written by a heredoc in command command:7: cat > src/lib.rs <<'EOF' … (2 more lines)\n"
+        ),
+        "{text}"
+    );
+    // The command may be missing from the records the review read.
+    why.edits.get_mut("e1").unwrap().origin = EditOriginInfo::Shell {
+        command: "command:7".to_owned(),
+        text: None,
+    };
+    let text = render_why(&why, escape);
+    assert!(
+        text.contains("written by a heredoc in command command:7: command text not recorded"),
+        "{text}"
+    );
+}
+
+#[test]
+fn why_escapes_and_shortens_command_text() {
+    let mut why = why_on_the_unattributed_line();
+    let long = format!("echo \u{1b}[2K{}\nsecond", "x".repeat(200));
+    why.command_changes[1].change.text = long;
+    why.command_changes[1].change.patch = Material::Withheld {
+        policy: "capture.\u{1b}diff".to_owned(),
+    };
+    let text = render_why(&why, escape);
+    assert!(!text.contains('\u{1b}'), "{text}");
+    let shown = format!("      echo \\x1b[2K{}… … (1 more line)\n", "x".repeat(91));
+    assert!(text.contains(&shown), "{text}");
+    assert!(
+        text.contains("      reported diff withheld: capture.\\x1bdiff\n"),
+        "{text}"
+    );
 }
 
 #[test]

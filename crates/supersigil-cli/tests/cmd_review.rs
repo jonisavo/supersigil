@@ -2008,6 +2008,7 @@ fn expected_why(
         "line": line,
         "edits": edits,
         "conflicting_edits": [],
+        "command_changes": [],
     })
 }
 
@@ -2540,4 +2541,44 @@ fn the_terminal_summary_counts_commands_and_unconfirmed_shell_writes() {
         .find(|line| line.contains("src/gen.rs  +2"))
         .unwrap_or_else(|| panic!("{text}"));
     assert!(!gen_line.contains("changed by"), "{text}");
+}
+
+#[test]
+fn why_points_an_unexplained_line_at_the_command_that_reported_it() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let (why, terminal) = why_outputs(&f, "notes.txt:1");
+    assert_eq!(why["line"]["outcome"]["kind"], "unattributed");
+    assert_eq!(why["command_changes"].as_array().unwrap().len(), 1);
+    assert_eq!(why["command_changes"][0]["adds_line_text"], true);
+    assert_eq!(
+        why["command_changes"][0]["command"],
+        command_id(SHELL_SESSION, "t_sed")
+    );
+    let expected = format!(
+        "  changed by 1 recorded command (observed by the harness, not attribution):\n    2026-09-29T10:00:05.000Z  {}  session {SHELL_SESSION}  modified\n      {SED}\n      its reported diff adds a line with this text (display match)\n",
+        command_id(SHELL_SESSION, "t_sed")
+    );
+    assert!(terminal.contains(&expected), "{terminal}");
+}
+
+#[test]
+fn why_names_the_heredoc_command_behind_an_attributed_line() {
+    let f = Fixture::new();
+    shell_session(&f);
+    let (why, terminal) = why_outputs(&f, "src/gen.rs:2");
+    assert_eq!(why["line"]["outcome"]["kind"], "attributed");
+    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    assert_eq!(why["edits"][&appended]["origin"]["kind"], "shell");
+    let expected = format!(
+        "    written by a heredoc in command {}: cat >> src/gen.rs <<'EOF' … (2 more lines)\n",
+        command_id(SHELL_SESSION, "t_app")
+    );
+    assert!(terminal.contains(&expected), "{terminal}");
+    // The commands are listed, without markers under an explained line.
+    assert!(
+        terminal.contains("  changed by 2 recorded commands"),
+        "{terminal}"
+    );
+    assert!(!terminal.contains("its reported diff"), "{terminal}");
 }

@@ -14,7 +14,9 @@ use supersigil_git::snapshot::is_tracked;
 use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_review::WHY_SCHEMA;
 use supersigil_review::mapping::lines_correspond;
-use supersigil_review::why::{OnDiskCheck, Why, WhyTarget, render_why, why_line};
+use supersigil_review::why::{
+    OnDiskCheck, Why, WhyTarget, line_command_changes, render_why, why_line,
+};
 
 use crate::commands::WhyArgs;
 use crate::error::CliError;
@@ -105,6 +107,10 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     } else {
         None
     };
+    let command_changes = line_command_changes(
+        g.command_changes.touching(&path).cloned().collect(),
+        analysis.as_ref(),
+    );
     let why = Why {
         schema: WHY_SCHEMA,
         path: path.display(),
@@ -120,6 +126,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         line: analysis,
         edits,
         conflicting_edits: conflicts,
+        command_changes,
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&why)?,

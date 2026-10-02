@@ -276,6 +276,26 @@ pub(crate) fn recorded_commands<'a>(commands: impl IntoIterator<Item = &'a str>)
     }
 }
 
+/// The first line of a command's text, cut to 100 characters, with how many
+/// lines follow it.
+pub(crate) fn command_line(text: &str, escape: fn(&str) -> String) -> String {
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or_default();
+    let mut shown: String = first.chars().take(100).collect();
+    if shown.len() < first.len() {
+        shown.push('…');
+    }
+    let mut line = escape(&shown);
+    match lines.count() {
+        0 => {}
+        1 => line.push_str(" … (1 more line)"),
+        more => {
+            let _ = write!(line, " … ({more} more lines)");
+        }
+    }
+    line
+}
+
 /// Counts of non-attributed outcomes on one file, and the first
 /// unattributed reason.
 #[derive(Default)]
