@@ -87,6 +87,7 @@ evidence:
           session_mismatch: 0
           unnamed_tool_uses: 0
           unsupported_tool_uses: 0
+          unconfirmed_shell_writes: 0
       localized: false
   unplaced_edits: 0
   unreconciled_checkouts:
@@ -119,6 +120,7 @@ files:
     coarse: false
     hunks: []
     mentions: []
+    command_changes: []
   - path: notes.txt
     path_escaped: ~
     status: modified
@@ -188,6 +190,29 @@ files:
                     - kind: unexplained
                   whitespace_only: []
     mentions: []
+    command_changes:
+      - command: "command:2"
+        session: s1
+        turn: a9
+        transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+        time: "2026-09-28T10:00:09.000Z"
+        checkout: /work/repo
+        worktree: /work/repo
+        text: cargo fmt --all
+        kind: modified
+        patch:
+          state: retained
+          value:
+            - old_start: 1
+              old_lines: 1
+              new_start: 1
+              new_lines: 1
+              lines:
+                - "-draft"
+                - +final
+        unlisted: 0
+        outside: 0
+        flags: []
   - path: old.txt
     path_escaped: ~
     status: deleted
@@ -242,6 +267,7 @@ files:
         result:
           exit: 0
           outcome: ~
+    command_changes: []
   - path: src/lib.rs
     path_escaped: ~
     status: modified
@@ -314,6 +340,7 @@ files:
                       value: e1
                   whitespace_only: []
     mentions: []
+    command_changes: []
 edits:
   e1:
     session: s1
@@ -322,6 +349,8 @@ edits:
     time: "2026-09-28T10:00:01.000Z"
     worktree: /work/repo
     operation: replace
+    origin:
+      kind: tool
     prompt:
       turn: u1
       role: human

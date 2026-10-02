@@ -124,7 +124,7 @@ fn unattributed_lines(review: &Review, escape: fn(&str) -> String) -> Vec<String
         .filter(|untracked| untracked.recorded_edit)
     {
         lines.push(format!(
-            "{}: untracked, a recorded edit wrote this file; not included ({})",
+            "{}: untracked, a recorded edit names this file; not included ({})",
             escape(&untracked.path),
             escape(&untracked.include_flag)
         ));
@@ -242,6 +242,10 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
         ));
     }
     parts.extend(other.words(escape));
+    if other.unattributed > 0 && !file.command_changes.is_empty() {
+        let commands = file.command_changes.iter().map(|c| c.command.as_str());
+        parts.push(format!("changed by {}", recorded_commands(commands)));
+    }
     if let Some(info) = file
         .attribution
         .as_ref()
@@ -258,6 +262,38 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
         parts.join(", ")
     };
     format!("{letter} {path}  +{added} -{removed}  {words}")
+}
+
+/// `"1 recorded command"` or `"{count} recorded commands"`. Counts each
+/// id in `commands` once: a command can appear once per reported file,
+/// per worktree, for a path.
+pub(crate) fn recorded_commands<'a>(commands: impl IntoIterator<Item = &'a str>) -> String {
+    let count = commands.into_iter().collect::<BTreeSet<_>>().len();
+    if count == 1 {
+        "1 recorded command".to_owned()
+    } else {
+        format!("{count} recorded commands")
+    }
+}
+
+/// The first line of a command's text, cut to 100 characters, with how many
+/// lines follow it.
+pub(crate) fn command_line(text: &str, escape: fn(&str) -> String) -> String {
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or_default();
+    let mut shown: String = first.chars().take(100).collect();
+    if shown.len() < first.len() {
+        shown.push('…');
+    }
+    let mut line = escape(&shown);
+    match lines.count() {
+        0 => {}
+        1 => line.push_str(" … (1 more line)"),
+        more => {
+            let _ = write!(line, " … ({more} more lines)");
+        }
+    }
+    line
 }
 
 /// Counts of non-attributed outcomes on one file, and the first
@@ -446,6 +482,7 @@ fn count_words(counts: &CaptureCounts) -> Vec<String> {
         (counts.session_mismatch, "records of another session"),
         (counts.unnamed_tool_uses, "tool uses without an id"),
         (counts.unsupported_tool_uses, "unsupported tool uses"),
+        (counts.unconfirmed_shell_writes, "unconfirmed shell writes"),
     ])
 }
 

@@ -5,20 +5,26 @@
 //! assistant records may be blocks of the same message, so they do not end
 //! pending tool calls.
 //!
+//! A `Bash` call records a command and may yield one edit per
+//! quoted-heredoc write confirmed by the call's harness report. Command
+//! text is read, never run.
+//!
 //! A new human or delegation turn marks pending calls as abandoned. Calls
 //! still awaiting results at the end of the input are left for the next parse.
 //! Unknown record types and malformed lines are counted without stopping the parse.
 
+mod changes;
 pub mod content;
+mod shell;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value;
 use supersigil_record::observations::{
-    CaptureCounts, Command, CommandCategory, Edit, EditOperation, FileState, Hunk, Material,
-    Observation, Outcome, Role, Turn,
+    CaptureCounts, ChangeKind, ChangeReport, Command, CommandCategory, Edit, EditOperation,
+    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, Role, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -102,6 +108,7 @@ impl ParseOutcome {
             Count::SessionMismatch => self.counts.session_mismatch += 1,
             Count::Unnamed => self.counts.unnamed_tool_uses += 1,
             Count::Unsupported => self.counts.unsupported_tool_uses += 1,
+            Count::Unconfirmed => self.counts.unconfirmed_shell_writes += 1,
         }
     }
 }
@@ -183,6 +190,8 @@ enum Count {
     /// A completed call the capture cannot read: an unsupported editing
     /// tool, or a `Bash` call without a command.
     Unsupported,
+    /// A heredoc file write in a `Bash` call that no change report confirms.
+    Unconfirmed,
 }
 
 /// Observation or count produced by one transcript line.
@@ -369,12 +378,21 @@ impl Walk {
     }
 
     /// Marks pending tool calls as abandoned when a human or delegation turn arrives.
-    /// Records pending shell commands with unavailable results, then clears the queue.
+    /// Records pending shell commands with unavailable results, counts
+    /// their heredoc writes as unconfirmed, then clears the queue.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in std::mem::take(&mut self.pending) {
             self.count(tool.record_index, Count::Abandoned);
-            if let Some(observation) = build_abandoned(&tool, session) {
-                self.observe(tool.record_index, observation);
+            self.built(tool.record_index, build_abandoned(&tool, session));
+        }
+    }
+
+    /// Stages what one tool call produced at line `index`.
+    fn built(&mut self, index: usize, built: Vec<Result<Observation, Count>>) {
+        for item in built {
+            match item {
+                Ok(observation) => self.observe(index, observation),
+                Err(count) => self.count(index, count),
             }
         }
     }
@@ -459,11 +477,7 @@ impl Walk {
                 is_error,
                 ended: ended.as_ref(),
             };
-            match build_resolved(&tool, session, &resolution) {
-                Some(Ok(observation)) => self.observe(index, observation),
-                Some(Err(count)) => self.count(index, count),
-                None => {}
-            }
+            self.built(index, build_resolved(&tool, session, &resolution));
         }
     }
 }
@@ -675,23 +689,39 @@ fn contained(checkout: &Path, path: &str) -> Option<PathBuf> {
 }
 
 fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
-    match result.and_then(|r| r.get("structuredPatch")) {
-        Some(value) => match Vec::<RawHunk>::deserialize(value) {
-            Ok(raw) => Material::Retained(
-                raw.into_iter()
-                    .map(|h| Hunk {
-                        old_start: h.old_start,
-                        old_lines: h.old_lines,
-                        new_start: h.new_start,
-                        new_lines: h.new_lines,
-                        lines: h.lines,
-                    })
-                    .collect(),
-            ),
-            Err(_) => Material::unavailable("unreadable structured patch"),
-        },
-        None => Material::unavailable("no structured patch"),
+    hunks_material(
+        result.and_then(|r| r.get("structuredPatch")),
+        "no structured patch",
+        "unreadable structured patch",
+    )
+}
+
+/// Hunks in `value` as material. Unavailable for `missing` if absent, or
+/// `unreadable` if the shape differs.
+fn hunks_material(value: Option<&Value>, missing: &str, unreadable: &str) -> Material<Vec<Hunk>> {
+    match value {
+        Some(value) => {
+            hunks(value).map_or_else(|| Material::unavailable(unreadable), Material::Retained)
+        }
+        None => Material::unavailable(missing),
     }
+}
+
+/// Reads Claude Code's hunk array, or returns `None` if `value` has
+/// another shape.
+fn hunks(value: &Value) -> Option<Vec<Hunk>> {
+    let raw = Vec::<RawHunk>::deserialize(value).ok()?;
+    Some(
+        raw.into_iter()
+            .map(|h| Hunk {
+                old_start: h.old_start,
+                old_lines: h.old_lines,
+                new_start: h.new_start,
+                new_lines: h.new_lines,
+                lines: h.lines,
+            })
+            .collect(),
+    )
 }
 
 fn state_of(text: Option<&str>) -> FileState {
@@ -900,6 +930,7 @@ fn build_edit(
         new_text: parts.new_text,
         replace_all: parts.replace_all,
         operation,
+        origin: EditOrigin::Tool,
         checkout: tool.cwd.clone(),
         time: resolution
             .ended
@@ -919,7 +950,8 @@ fn stream_tail(text: Option<&str>) -> Material<String> {
 }
 
 /// Builds a command from its tool call, before any result is known.
-/// Output is unavailable, `reported_error` is false, and outcome and end time are absent.
+/// Output and the change report are unavailable, `reported_error` is false,
+/// and outcome and end time are absent.
 /// Returns `None` when the call carries no command text, which is never
 /// replaced by an empty command.
 fn command_base(tool: &PendingTool, session: &SessionId) -> Option<Command> {
@@ -938,6 +970,7 @@ fn command_base(tool: &PendingTool, session: &SessionId) -> Option<Command> {
         started: tool.time.clone(),
         ended: None,
         checkout: tool.cwd.clone(),
+        changes: Material::unavailable(NO_RESULT),
         source_ordinal: tool.record_index as u64,
         agent_id: tool.agent_id.clone(),
         transcript: None,
@@ -950,7 +983,7 @@ fn build_command(
     tool: &PendingTool,
     session: &SessionId,
     resolution: &Resolution,
-) -> Option<Observation> {
+) -> Option<Command> {
     let base = command_base(tool, session)?;
     let result = resolution.structured;
     // Without structured streams, the tool result's own content is the
@@ -975,43 +1008,239 @@ fn build_command(
             stderr.unwrap_or_default(),
         )
     };
-    Some(Observation::Command(Command {
+    Some(Command {
         stdout_tail: stream_tail(stdout.as_deref()),
         stderr_tail: stream_tail(stderr),
         reported_error: resolution.is_error,
         outcome,
         ended: resolution.ended.cloned(),
+        changes: changes::change_report(result, &tool.cwd),
         ..base
-    }))
+    })
 }
 
-/// Builds an observation for `Edit`, `Write`, `MultiEdit`, or `Bash`.
-/// Returns `None` for other tools except `NotebookEdit`, which is counted as unsupported.
+/// The report eligible to confirm `command`'s heredoc writes: the call
+/// completed in the foreground without error.
+///
+/// Returns `None` for absent or error-marked results, results without
+/// `interrupted: false` (missing or non-boolean values state nothing),
+/// background calls (results arrive before completion), unreadable or
+/// missing reports, and flagged reports. Flag meanings are unestablished:
+/// those reports remain observations and confirm nothing.
+fn confirming_report<'a>(
+    command: &'a Command,
+    resolution: Option<&Resolution>,
+) -> Option<&'a ChangeReport> {
+    let resolution = resolution?;
+    let result = resolution.structured?;
+    let ran_to_its_end = result.get("interrupted").and_then(Value::as_bool) == Some(false);
+    if resolution.is_error || !ran_to_its_end || result.get("backgroundTaskId").is_some() {
+        return None;
+    }
+    command
+        .changes
+        .retained()
+        .filter(|report| report.flags.is_empty())
+}
+
+/// Builds edits for quoted-heredoc writes in `command` confirmed by the
+/// harness.
+///
+/// [`shell::shell_writes`] reads command text. A write becomes an edit
+/// only if [`confirming_report`] lists its file as changed and describes
+/// it as created or modified. The harness states the command changed the
+/// file, as a Write result states a Write. Any supplied hunks must not
+/// contradict the writes ([`contradicted_files`]). The edit retains the
+/// heredoc body. Its before-state is absent for the first write to a file
+/// marked created; otherwise it is present with unknown content. Its
+/// after-state has no hash: the report covers the whole command, not this
+/// write's bytes. An empty `>>` yields nothing because it changes nothing.
 ///
 /// # Errors
 ///
-/// Returns `Some(Err(...))` for a `NotebookEdit` call, a `Bash` call without
-/// a command, or an editing call rejected by [`build_edit`].
+/// Each write is [`Count::Outside`] if its file lies outside the call's
+/// working directory. It is [`Count::Unconfirmed`] if no report confirms
+/// it, the report marks it deleted or undescribed, or hunks contradict
+/// the command's writes.
+fn shell_edits(
+    tool: &PendingTool,
+    command: &Command,
+    resolution: Option<&Resolution>,
+) -> Vec<Result<Observation, Count>> {
+    let cwd = &command.checkout;
+    // Each write paired with its file, if inside the working directory.
+    let writes: Vec<(Option<PathBuf>, shell::ShellWrite)> = shell::shell_writes(&command.cmd, cwd)
+        .into_iter()
+        .map(|write| (contained(cwd, &write.path.to_string_lossy()), write))
+        .collect();
+    // Most commands have no heredoc writes, so their reports need no
+    // reading.
+    if writes.is_empty() {
+        return Vec::new();
+    }
+    let report = confirming_report(command, resolution);
+    let time = command.ended.as_ref().unwrap_or(&command.started);
+    // Descriptions for files listed as changed. An entry alone does not
+    // confirm a file.
+    let listed = changes::listed_files(resolution.and_then(|r| r.structured), cwd);
+    let files: BTreeMap<&Path, &FileChange> = report
+        .into_iter()
+        .flat_map(|report| &report.files)
+        .filter(|file| listed.contains(&file.path))
+        .map(|file| (file.path.as_path(), file))
+        .collect();
+    let contradicted = contradicted_files(&writes, &files);
+    let mut written: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut built = Vec::new();
+    for (index, (path, write)) in writes.into_iter().enumerate() {
+        let Some(path) = path else {
+            built.push(Err(Count::Outside));
+            continue;
+        };
+        // Even an empty append creates the file, so a later write finds it.
+        let first = written.insert(path.clone());
+        if write.append && write.body.is_empty() {
+            continue;
+        }
+        let kind = files
+            .get(path.as_path())
+            .filter(|_| !contradicted.contains(&path))
+            .map(|file| file.kind);
+        let before = match kind {
+            Some(ChangeKind::Created) if first => FileState::Absent,
+            Some(ChangeKind::Created | ChangeKind::Modified) => FileState::unknown(),
+            Some(ChangeKind::Deleted | ChangeKind::NotStated) | None => {
+                built.push(Err(Count::Unconfirmed));
+                continue;
+            }
+        };
+        let (operation, old_text) = if write.append {
+            (EditOperation::Append, "append adds to the end of the file")
+        } else {
+            (EditOperation::Write, "write replaces the whole file")
+        };
+        built.push(Ok(Observation::Edit(Edit {
+            id: EventId::derive("edit", &command.session, &format!("{}#{index}", tool.id)),
+            turn: command.turn.clone(),
+            session: command.session.clone(),
+            path,
+            before,
+            after: FileState::unknown(),
+            patch: Material::unavailable("the change report describes the whole command"),
+            old_text: Material::unavailable(old_text),
+            new_text: Material::Retained(write.body),
+            replace_all: false,
+            operation,
+            origin: EditOrigin::Shell {
+                command: command.id.clone(),
+                index: index as u64,
+            },
+            checkout: cwd.clone(),
+            time: time.clone(),
+            source_ordinal: command.source_ordinal,
+            agent_id: command.agent_id.clone(),
+            transcript: None,
+        })));
+    }
+    built
+}
+
+/// Files whose hunks contradict the command's heredoc writes
+/// ([`changes::contradicts`]).
+///
+/// The report covers the whole command, so combine writes per file in
+/// command order. A `>` supplies the whole file, as does the first `>>` to
+/// a file marked created; later appends add their bodies. Skipped writes
+/// or later changes produce unexplained hunk lines unless the final text
+/// matches what the heredocs would leave. A contradiction leaves every
+/// write to that file unconfirmed. Without retained hunks, nothing is
+/// contradicted: hunks only reject, using shown lines.
+/// A later `>` in the same command erases an earlier write's trace, so
+/// hunks cannot check it. Such edits attribute only where file bytes
+/// reproduce their text.
+fn contradicted_files(
+    writes: &[(Option<PathBuf>, shell::ShellWrite)],
+    files: &BTreeMap<&Path, &FileChange>,
+) -> BTreeSet<PathBuf> {
+    // Final heredoc bytes per file with hunks to check.
+    let mut left: BTreeMap<&Path, (&[Hunk], changes::Written)> = BTreeMap::new();
+    for (path, write) in writes {
+        let Some((path, file)) = path.as_deref().and_then(|path| files.get_key_value(path)) else {
+            continue;
+        };
+        let Some(hunks) = file.patch.retained() else {
+            continue;
+        };
+        let created = file.kind == ChangeKind::Created;
+        let body = &write.body;
+        let next = match (left.remove(path), write.append) {
+            (Some((_, changes::Written::Whole { text, created })), true) => {
+                changes::Written::Whole {
+                    text: text + body,
+                    created,
+                }
+            }
+            (Some((_, changes::Written::Tail(text))), true) => changes::Written::Tail(text + body),
+            (None, true) if !created => changes::Written::Tail(body.clone()),
+            // A `>`, or the first `>>` to a file the command created.
+            _ => changes::Written::Whole {
+                text: body.clone(),
+                created,
+            },
+        };
+        left.insert(path, (hunks, next));
+    }
+    left.into_iter()
+        .filter(|(_, (hunks, written))| changes::contradicts(hunks, written))
+        .map(|(path, _)| path.to_path_buf())
+        .collect()
+}
+
+/// Builds observations from a completed `Edit`, `Write`, `MultiEdit`, or
+/// `Bash` call: one edit, or a command followed by confirmed heredoc
+/// edits. Other tools yield nothing; `NotebookEdit` counts as unsupported.
+///
+/// # Errors
+///
+/// An item is `Err` for `NotebookEdit`, `Bash` without command text, an
+/// editing call rejected by [`build_edit`], or a heredoc rejected by
+/// [`shell_edits`].
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
     resolution: &Resolution,
-) -> Option<Result<Observation, Count>> {
+) -> Vec<Result<Observation, Count>> {
     match tool.name.as_str() {
-        "Edit" | "Write" | "MultiEdit" => Some(build_edit(tool, session, resolution)),
-        "Bash" => Some(build_command(tool, session, resolution).ok_or(Count::Unsupported)),
-        "NotebookEdit" => Some(Err(Count::Unsupported)),
-        _ => None,
+        "Edit" | "Write" | "MultiEdit" => vec![build_edit(tool, session, resolution)],
+        "Bash" => match build_command(tool, session, resolution) {
+            Some(command) => with_shell_edits(tool, command, Some(resolution)),
+            None => vec![Err(Count::Unsupported)],
+        },
+        "NotebookEdit" => vec![Err(Count::Unsupported)],
+        _ => Vec::new(),
     }
 }
 
-/// Records an abandoned `Bash` call with no result. Returns `None` for other
-/// tools and for a call without command text.
-fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Option<Observation> {
+/// Records an abandoned `Bash` call without a result and counts its
+/// unconfirmed heredoc writes. Other tools and calls without command text
+/// yield nothing.
+fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Vec<Result<Observation, Count>> {
     if tool.name != "Bash" {
-        return None;
+        return Vec::new();
     }
-    command_base(tool, session).map(Observation::Command)
+    command_base(tool, session)
+        .map_or_else(Vec::new, |command| with_shell_edits(tool, command, None))
+}
+
+/// `command`, then what [`shell_edits`] builds for it.
+fn with_shell_edits(
+    tool: &PendingTool,
+    command: Command,
+    resolution: Option<&Resolution>,
+) -> Vec<Result<Observation, Count>> {
+    let mut built = shell_edits(tool, &command, resolution);
+    built.insert(0, Ok(Observation::Command(command)));
+    built
 }
 
 /// Classifies a shell command line by recognized program names and subcommands.
@@ -1084,12 +1313,17 @@ fn program_words(words: &[String]) -> &[String] {
 
 /// Checks for a shell variable assignment such as `RUST_LOG=debug`.
 fn is_assignment(word: &str) -> bool {
-    word.split_once('=').is_some_and(|(name, _)| {
-        name.chars()
+    word.split_once('=').is_some_and(|(name, _)| is_name(name))
+}
+
+/// Whether `name` is a shell variable name: letters, digits, and `_`, with
+/// no leading digit.
+fn is_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
             .enumerate()
             .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
-            && !name.is_empty()
-    })
 }
 
 /// Splits a command line into word lists, removing quotes and backslash escapes.

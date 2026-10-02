@@ -2,13 +2,15 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use common::{SESSION, fixture, line_starts};
 
 use serde_json::{Value, json};
 use supersigil_record::observations::{
-    CommandCategory, Content, EditOperation, FileState, Material, Observation, Outcome, Role,
+    ChangeKind, ChangeReport, CommandCategory, Content, Edit, EditOperation, EditOrigin, FileState,
+    Hunk, Material, Observation, Outcome, Role,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
@@ -1438,4 +1440,1168 @@ fn records_without_cwd_inherit_the_first_cwd() {
     let outcome = parse_transcript(exchange.as_bytes(), 0);
     assert!(edits(&outcome).is_empty());
     assert_eq!(outcome.counts.outside_checkout, 1);
+}
+
+/// Parses a Bash call with `command` and structured `result`, returning its
+/// one command.
+fn bash(command: &str, result: Value) -> supersigil_record::observations::Command {
+    let lines = tool_exchange(
+        "Bash",
+        json!({"command": command}),
+        ok_block(),
+        Some(result),
+    );
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let commands = commands(&outcome);
+    assert_eq!(commands.len(), 1, "expected one command from {lines}");
+    commands[0].clone()
+}
+
+/// A structured Bash result carrying `report` as its `bashEditDiff`.
+fn with_report(report: &Value) -> Value {
+    json!({"stdout": "", "stderr": "", "interrupted": false, "isImage": false,
+        "noOutputExpected": false, "bashEditDiff": report})
+}
+
+/// The change report of a Bash call whose result carries `report`.
+fn report_of(report: &Value) -> ChangeReport {
+    match bash("make", with_report(report)).changes {
+        Material::Retained(report) => report,
+        other => panic!("no report: {other:?}"),
+    }
+}
+
+fn hunk_json() -> Value {
+    json!({"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 2,
+        "lines": [" a", "+\tb"]})
+}
+
+fn hunk() -> Hunk {
+    Hunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 2,
+        lines: vec![" a".to_owned(), "+\tb".to_owned()],
+    }
+}
+
+#[test]
+fn a_change_report_lists_every_changed_file_with_what_the_harness_stated() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/src/new.rs", "/work/repo/src/lib.rs",
+            "/work/repo/old.txt", "/work/repo/Cargo.lock"],
+        "files": [
+            {"filePath": "/work/repo/src/new.rs", "created": true, "hunks": [hunk_json()]},
+            {"filePath": "/work/repo/src/lib.rs", "hunks": [hunk_json()]},
+            {"filePath": "/work/repo/old.txt", "deleted": true, "hunks": []},
+        ],
+        "moreFiles": 1,
+    }));
+    let listed: Vec<(PathBuf, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.kind))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            (PathBuf::from("src").join("new.rs"), ChangeKind::Created),
+            (PathBuf::from("src").join("lib.rs"), ChangeKind::Modified),
+            (PathBuf::from("old.txt"), ChangeKind::Deleted),
+            (PathBuf::from("Cargo.lock"), ChangeKind::NotStated),
+        ]
+    );
+    // Hunks are kept as given: display text, with the harness's literal tab.
+    assert_eq!(report.files[0].patch, Material::Retained(vec![hunk()]));
+    assert_eq!(report.files[2].patch, Material::Retained(Vec::new()));
+    assert_eq!(
+        report.files[3].patch,
+        Material::unavailable("no entry in the harness report")
+    );
+    // `moreFiles` counted the one listed path without an entry.
+    assert_eq!(report.unlisted, 0);
+    assert_eq!(report.outside, 0);
+    assert!(report.flags.is_empty());
+}
+
+#[test]
+fn a_result_without_a_change_report_says_nothing_about_changes() {
+    let plain = json!({"stdout": "", "stderr": "", "interrupted": false});
+    assert_eq!(
+        bash("ls", plain).changes,
+        Material::unavailable("no change report")
+    );
+    // A failed call's structured result is a string.
+    let failed = only_command(
+        json!({"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "boom"}),
+        Some(json!("Error: boom")),
+    );
+    assert_eq!(failed.changes, Material::unavailable("no change report"));
+    assert_eq!(
+        only_command(ok_block(), None).changes,
+        Material::unavailable("no change report")
+    );
+}
+
+#[test]
+fn an_abandoned_command_has_no_change_report() {
+    let issue = json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+        "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "make"}}
+        ]}
+    });
+    let typed = human("u1", "s");
+    let lines = format!("{issue}\n{typed}\n");
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert_eq!(
+        commands(&outcome)[0].changes,
+        Material::unavailable("no result recorded")
+    );
+}
+
+#[test]
+fn reported_paths_outside_the_working_directory_are_counted_not_kept() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/other/a.rs", "/work/repo/../secret", "/work/repo",
+            "relative.rs", "/work/repo/kept.rs"],
+        "files": [{"filePath": "/work/other/a.rs", "hunks": []}],
+        "moreFiles": 4,
+    }));
+    assert_eq!(report.outside, 4);
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.files[0].path, PathBuf::from("kept.rs"));
+}
+
+#[test]
+fn changed_files_the_harness_did_not_name_are_counted() {
+    // 200 listed paths, five entries, and 726 files without an entry: 531
+    // changed files have no name in the report.
+    let listed: Vec<String> = (0..200).map(|i| format!("/work/repo/f{i}.rs")).collect();
+    let entries: Vec<Value> = listed[..5]
+        .iter()
+        .map(|path| json!({"filePath": path, "hunks": []}))
+        .collect();
+    let report = report_of(&json!({"changedFiles": listed, "files": entries, "moreFiles": 726}));
+    assert_eq!(report.files.len(), 200);
+    assert_eq!(report.unlisted, 531);
+    // A count below the listed paths never goes negative.
+    let short =
+        report_of(&json!({"changedFiles": ["/work/repo/a.rs"], "files": [], "moreFiles": 0}));
+    assert_eq!(short.unlisted, 0);
+}
+
+#[test]
+fn an_entry_the_harness_did_not_list_is_still_a_changed_file() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs"],
+        "files": [{"filePath": "/work/repo/b.rs", "hunks": []},
+            {"filePath": "/work/repo/a.rs", "hunks": []}],
+        "moreFiles": 0,
+    }));
+    let paths: Vec<PathBuf> = report.files.iter().map(|f| f.path.clone()).collect();
+    assert_eq!(paths, vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")]);
+    // Without `changedFiles`, the entries are the list.
+    let entries_only = report_of(&json!({"files": [{"filePath": "/work/repo/b.rs", "hunks": []}]}));
+    assert_eq!(entries_only.files.len(), 1);
+    // An empty `files` array names no file.
+    assert_eq!(report_of(&json!({"files": []})), ChangeReport::default());
+}
+
+#[test]
+fn a_path_reported_twice_is_one_changed_file() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs", "/work/repo/a.rs", "/work/repo/b.rs"],
+        "files": [{"filePath": "/work/repo/b.rs", "created": true, "hunks": []},
+            {"filePath": "/work/repo/b.rs", "deleted": true, "hunks": []}],
+        "moreFiles": 3,
+    }));
+    let listed: Vec<(PathBuf, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.kind))
+        .collect();
+    // The first entry for a path is kept.
+    assert_eq!(
+        listed,
+        vec![
+            (PathBuf::from("a.rs"), ChangeKind::NotStated),
+            (PathBuf::from("b.rs"), ChangeKind::Created)
+        ]
+    );
+    // One distinct listed path has no entry.
+    assert_eq!(report.unlisted, 2);
+}
+
+#[test]
+fn two_spellings_of_one_path_are_one_changed_file() {
+    // The first entry determines the change. Another spelling cannot
+    // change deleted to created.
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/src/a.rs", "/work/repo/src//a.rs", "/work/repo/./src/a.rs"],
+        "files": [{"filePath": "/work/repo/src/a.rs", "deleted": true, "hunks": []},
+            {"filePath": "/work/repo/src//a.rs", "created": true, "hunks": []}],
+        "moreFiles": 0,
+    }));
+    let listed: Vec<(PathBuf, ChangeKind)> = report
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.kind))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![(PathBuf::from("src/a.rs"), ChangeKind::Deleted)]
+    );
+    // Outside paths are told apart as written.
+    let outside = report_of(&json!({
+        "changedFiles": ["/other/a.rs", "/other/a.rs", "/other/b.rs"],
+        "files": [{"filePath": "/other/b.rs", "hunks": []}],
+        "moreFiles": 1,
+    }));
+    assert_eq!(outside.outside, 2);
+    assert_eq!(outside.unlisted, 0);
+}
+
+#[test]
+fn a_huge_change_report_is_read_in_time_proportional_to_its_size() {
+    let count = 100_000;
+    let listed: Vec<String> = (0..count).map(|i| format!("/work/repo/f{i}.rs")).collect();
+    let entries: Vec<Value> = listed
+        .iter()
+        .map(|path| json!({"filePath": path, "hunks": []}))
+        .collect();
+    let result = with_report(&json!({"changedFiles": listed, "files": entries, "moreFiles": 0}));
+    let started = std::time::Instant::now();
+    let Material::Retained(report) = bash("make", result).changes else {
+        panic!("no report");
+    };
+    assert_eq!(report.files.len(), count);
+    assert!(report.files.iter().all(|f| f.kind == ChangeKind::Modified));
+    // Scanning entries per listed path would take minutes here.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn flags_the_harness_set_are_kept_by_name() {
+    let report = report_of(&json!({"files": [], "moreFiles": 0, "shared": true,
+        "unavailable": true, "later": false}));
+    assert_eq!(
+        report.flags.iter().map(String::as_str).collect::<Vec<_>>(),
+        vec!["shared", "unavailable"]
+    );
+    assert!(report.files.is_empty());
+}
+
+#[test]
+fn an_entry_states_no_kind_when_marked_both_created_and_deleted() {
+    let report = report_of(&json!({
+        "changedFiles": ["/work/repo/a.rs", "/work/repo/b.rs", "/work/repo/c.rs"],
+        "files": [
+            {"filePath": "/work/repo/a.rs", "created": true, "deleted": true, "hunks": []},
+            {"filePath": "/work/repo/b.rs", "hunks": [{"oldStart": "one"}]},
+            {"filePath": "/work/repo/c.rs"},
+        ],
+        "moreFiles": 0,
+    }));
+    assert_eq!(report.files[0].kind, ChangeKind::NotStated);
+    assert_eq!(
+        report.files[1].patch,
+        Material::unavailable("unreadable hunks")
+    );
+    assert_eq!(
+        report.files[2].patch,
+        Material::unavailable("no hunks in the entry")
+    );
+}
+
+#[test]
+fn a_change_report_of_another_shape_is_unreadable() {
+    for report in [
+        json!("changed"),
+        json!(["/work/repo/a.rs"]),
+        // An object without `files` is another layout, not an empty report.
+        json!({}),
+        json!({"unexpected": "another layout"}),
+        json!({"changedFiles": ["/work/repo/a.rs"], "moreFiles": 1}),
+        json!({"changedFiles": null, "files": []}),
+        // The report's own flags are booleans.
+        json!({"files": [], "shared": "true"}),
+        json!({"files": [], "unavailable": {}}),
+        // A flag of another type states nothing about the file.
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": true, "deleted": "true",
+            "hunks": []}]}),
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": 1, "hunks": []}]}),
+        json!({"files": [{"filePath": "/work/repo/a.rs", "created": null, "hunks": []}]}),
+        json!({"changedFiles": "/work/repo/a.rs"}),
+        json!({"changedFiles": [1]}),
+        json!({"files": {"filePath": "/work/repo/a.rs"}}),
+        json!({"files": [{"hunks": []}]}),
+        json!({"files": [{"filePath": 7, "hunks": []}]}),
+        json!({"files": [], "moreFiles": "many"}),
+        json!({"files": [], "moreFiles": -1}),
+    ] {
+        assert_eq!(
+            bash("make", with_report(&report)).changes,
+            Material::unavailable("unreadable change report"),
+            "{report}"
+        );
+    }
+}
+
+/// Parses a Bash `command` whose result reports `entries` as `files`,
+/// each also listed as changed.
+fn shell(command: &str, entries: &Value) -> ParseOutcome {
+    let listed: Vec<Value> = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["filePath"].clone())
+        .collect();
+    let report = json!({"changedFiles": listed, "files": entries, "moreFiles": 0});
+    shell_with(command, ok_block(), Some(with_report(&report)))
+}
+
+/// Parses a Bash call running `command` with the given result.
+fn shell_with(command: &str, result_block: Value, result: Option<Value>) -> ParseOutcome {
+    let lines = tool_exchange("Bash", json!({"command": command}), result_block, result);
+    parse_transcript(lines.as_bytes(), 0)
+}
+
+fn created(path: &str) -> Value {
+    json!({"filePath": path, "created": true, "hunks": []})
+}
+
+fn modified(path: &str) -> Value {
+    json!({"filePath": path, "hunks": []})
+}
+
+fn shell_edit_id(index: usize) -> EventId {
+    EventId::derive("edit", &SessionId::new("s"), &format!("t1#{index}"))
+}
+
+#[test]
+fn a_confirmed_heredoc_write_is_an_edit_beside_its_command() {
+    let command = "mkdir -p src && cat > src/new.rs <<'EOF'\nfn a() {}\n\t$x\nEOF\ncargo fmt\n";
+    let outcome = shell(command, &json!([created("/work/repo/src/new.rs")]));
+    let recorded = commands(&outcome)[0].clone();
+    assert_eq!(recorded.cmd, command);
+    assert_eq!(
+        edits(&outcome),
+        vec![&Edit {
+            id: shell_edit_id(0),
+            turn: TurnId::new("a1"),
+            session: SessionId::new("s"),
+            path: PathBuf::from("src/new.rs"),
+            before: FileState::Absent,
+            after: FileState::unknown(),
+            patch: Material::unavailable("the change report describes the whole command"),
+            old_text: unavailable("write replaces the whole file"),
+            new_text: Material::Retained("fn a() {}\n\t$x\n".to_owned()),
+            replace_all: false,
+            operation: EditOperation::Write,
+            origin: EditOrigin::Shell {
+                command: recorded.id.clone(),
+                index: 0,
+            },
+            checkout: PathBuf::from("/work/repo"),
+            time: Timestamp::new("2026-09-28T10:00:01.000Z"),
+            source_ordinal: 0,
+            agent_id: None,
+            transcript: None,
+        }]
+    );
+    // The command comes first, at the same transcript position.
+    let kinds: Vec<&str> = outcome
+        .observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::Command(_) => Some("command"),
+            Observation::Edit(_) => Some("edit"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, vec!["command", "edit"]);
+    assert_eq!(recorded.source_ordinal, 0);
+    assert!(outcome.counts.is_empty(), "{:?}", outcome.counts);
+}
+
+#[test]
+fn the_writes_of_one_command_keep_their_place_in_it() {
+    // Three writes to two files, plus one the report does not confirm.
+    // Each edit keeps its position among all writes, so `a.rs`'s writes
+    // stay ordered despite the writes between them.
+    let command = "cat >> a.rs <<'E'\nx\nE\ncat > b.rs <<'E'\ny\nE\n\
+        cat >> gone.rs <<'E'\nz\nE\ncat >> a.rs <<'E'\nx\nE\n";
+    let outcome = shell(
+        command,
+        &json!([modified("/work/repo/a.rs"), created("/work/repo/b.rs")]),
+    );
+    let placed: Vec<(PathBuf, u64, u64)> = edits(&outcome)
+        .iter()
+        .map(|edit| {
+            let EditOrigin::Shell { index, .. } = edit.origin else {
+                panic!("{:?}", edit.origin);
+            };
+            (edit.path.clone(), index, edit.source_ordinal)
+        })
+        .collect();
+    assert_eq!(
+        placed,
+        vec![
+            (PathBuf::from("a.rs"), 0, 0),
+            (PathBuf::from("b.rs"), 1, 0),
+            (PathBuf::from("a.rs"), 3, 0),
+        ]
+    );
+    assert_eq!(edits(&outcome)[2].id, shell_edit_id(3));
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
+}
+
+#[test]
+fn a_heredoc_over_an_existing_file_has_an_unknown_before_state() {
+    let outcome = shell(
+        "cat > src/lib.rs <<'EOF'\nnew\nEOF\n",
+        &json!([modified("/work/repo/src/lib.rs")]),
+    );
+    let edit = edits(&outcome)[0];
+    assert_eq!(edit.operation, EditOperation::Write);
+    assert_eq!(edit.before, FileState::unknown());
+    assert_eq!(edit.after, FileState::unknown());
+}
+
+#[test]
+fn a_heredoc_append_is_an_append_edit() {
+    let outcome = shell(
+        "cat >> notes.txt <<'EOF'\nmore\nEOF\n",
+        &json!([modified("/work/repo/notes.txt")]),
+    );
+    let edit = edits(&outcome)[0];
+    assert_eq!(edit.operation, EditOperation::Append);
+    assert_eq!(edit.before, FileState::unknown());
+    assert_eq!(edit.new_text, Material::Retained("more\n".to_owned()));
+    assert_eq!(
+        edit.old_text,
+        unavailable("append adds to the end of the file")
+    );
+    // An append that created the file starts from nothing.
+    let outcome = shell(
+        "cat >> notes.txt <<'EOF'\nmore\nEOF\n",
+        &json!([created("/work/repo/notes.txt")]),
+    );
+    assert_eq!(edits(&outcome)[0].before, FileState::Absent);
+}
+
+#[test]
+fn only_the_first_write_of_a_command_finds_a_created_file_absent() {
+    let command = "cat > a.rs <<'A'\n1\nA\ncat >> a.rs <<'B'\n2\nB\ncat > b.rs <<'C'\n3\nC\n";
+    let outcome = shell(
+        command,
+        &json!([created("/work/repo/a.rs"), created("/work/repo/b.rs")]),
+    );
+    let found: Vec<(&EventId, &str, EditOperation, &FileState)> = edits(&outcome)
+        .into_iter()
+        .map(|e| (&e.id, e.path.to_str().unwrap(), e.operation, &e.before))
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (
+                &shell_edit_id(0),
+                "a.rs",
+                EditOperation::Write,
+                &FileState::Absent
+            ),
+            (
+                &shell_edit_id(1),
+                "a.rs",
+                EditOperation::Append,
+                &FileState::unknown()
+            ),
+            (
+                &shell_edit_id(2),
+                "b.rs",
+                EditOperation::Write,
+                &FileState::Absent
+            ),
+        ]
+    );
+}
+
+#[test]
+fn an_empty_append_is_no_edit_but_still_creates_the_file() {
+    let command = "cat >> a.rs <<'A'\nA\ncat >> a.rs <<'B'\n2\nB\n";
+    let outcome = shell(command, &json!([created("/work/repo/a.rs")]));
+    let recorded = edits(&outcome);
+    assert_eq!(recorded.len(), 1);
+    // The id counts all command writes, recorded or not.
+    assert_eq!(recorded[0].id, shell_edit_id(1));
+    assert_eq!(recorded[0].before, FileState::unknown());
+    assert!(outcome.counts.is_empty());
+    // An empty `>` is an edit: it truncates.
+    let outcome = shell(
+        "cat > a.rs <<'A'\nA\n",
+        &json!([modified("/work/repo/a.rs")]),
+    );
+    assert_eq!(
+        edits(&outcome)[0].new_text,
+        Material::Retained(String::new())
+    );
+}
+
+#[test]
+fn a_heredoc_write_resolves_against_the_working_directory_and_earlier_cds() {
+    let outcome = shell(
+        "cd ./crates/a && cat > src/x.rs <<'EOF'\nx\nEOF\n",
+        &json!([created("/work/repo/crates/a/src/x.rs")]),
+    );
+    assert_eq!(edits(&outcome)[0].path, PathBuf::from("crates/a/src/x.rs"));
+    // The same text is unconfirmed when the harness reports another file.
+    let outcome = shell(
+        "cd ./crates/a && cat > src/x.rs <<'EOF'\nx\nEOF\n",
+        &json!([created("/work/repo/src/x.rs")]),
+    );
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
+}
+
+#[test]
+fn a_heredoc_write_outside_the_working_directory_is_counted_as_outside() {
+    let command = "cat > /elsewhere/x <<'A'\n1\nA\ncd .. && cat > y <<'B'\n2\nB\n";
+    let outcome = shell(
+        command,
+        &json!([created("/elsewhere/x"), created("/work/y")]),
+    );
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(outcome.counts.outside_checkout, 2);
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 0);
+}
+
+#[test]
+fn a_heredoc_write_without_confirmation_is_counted_not_recorded() {
+    let command = "cat > a.rs <<'EOF'\nx\nEOF\n";
+    let entry = json!([created("/work/repo/a.rs")]);
+    let report = |entries: &Value, listed: Value| json!({"changedFiles": listed, "files": entries, "moreFiles": 0});
+    let confirmed = with_report(&report(&entry, json!(["/work/repo/a.rs"])));
+    let mut interrupted = confirmed.clone();
+    interrupted["interrupted"] = json!(true);
+    let mut background = confirmed.clone();
+    background["backgroundTaskId"] = json!("b1");
+    let mut unstated = confirmed.clone();
+    unstated.as_object_mut().unwrap().remove("interrupted");
+    let mut misstated = confirmed.clone();
+    misstated["interrupted"] = json!("false");
+    let error_block =
+        json!({"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "x"});
+    let cases: Vec<(&str, Value, Option<Value>)> = vec![
+        ("no structured result", ok_block(), None),
+        (
+            "no report",
+            ok_block(),
+            Some(json!({"stdout": "", "stderr": "", "interrupted": false})),
+        ),
+        (
+            "a failed call",
+            error_block.clone(),
+            Some(json!("Error: x")),
+        ),
+        (
+            "a failed call that still has a report",
+            error_block,
+            Some(confirmed.clone()),
+        ),
+        ("an interrupted call", ok_block(), Some(interrupted)),
+        ("a background call", ok_block(), Some(background)),
+        (
+            "a result that does not say whether it was interrupted",
+            ok_block(),
+            Some(unstated),
+        ),
+        (
+            "a result whose interrupted field is not a boolean",
+            ok_block(),
+            Some(misstated),
+        ),
+        (
+            "a report with an entry for the file but no listing of it",
+            ok_block(),
+            Some(with_report(&report(&entry, json!([])))),
+        ),
+        (
+            "a report listing another spelling's file as deleted first",
+            ok_block(),
+            Some(with_report(&report(
+                &json!([{"filePath": "/work/repo/a.rs", "deleted": true, "hunks": []},
+                    created("/work/repo//a.rs")]),
+                json!(["/work/repo/a.rs"]),
+            ))),
+        ),
+        (
+            "a report naming another file",
+            ok_block(),
+            Some(with_report(&report(
+                &json!([created("/work/repo/b.rs")]),
+                json!(["/work/repo/b.rs"]),
+            ))),
+        ),
+        (
+            "a report naming the file without an entry",
+            ok_block(),
+            Some(with_report(&report(&json!([]), json!(["/work/repo/a.rs"])))),
+        ),
+        (
+            "a report marking the file deleted",
+            ok_block(),
+            Some(with_report(&report(
+                &json!([{"filePath": "/work/repo/a.rs", "deleted": true, "hunks": []}]),
+                json!(["/work/repo/a.rs"]),
+            ))),
+        ),
+        (
+            "an unreadable report",
+            ok_block(),
+            Some(with_report(&json!({"changedFiles": "/work/repo/a.rs"}))),
+        ),
+        (
+            "a report whose own flag is not a boolean",
+            ok_block(),
+            Some(with_report(&json!({"changedFiles": ["/work/repo/a.rs"],
+                "files": [created("/work/repo/a.rs")], "shared": "true"}))),
+        ),
+    ];
+    for (case, block, result) in cases {
+        let outcome = shell_with(command, block, result);
+        assert!(edits(&outcome).is_empty(), "{case}");
+        assert_eq!(outcome.counts.unconfirmed_shell_writes, 1, "{case}");
+        assert_eq!(commands(&outcome).len(), 1, "{case}");
+    }
+    // Control: a confirming report turns the same call into an edit.
+    let outcome = shell_with(command, ok_block(), Some(confirmed));
+    assert_eq!(edits(&outcome).len(), 1);
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 0);
+}
+
+#[test]
+fn a_flagged_report_is_kept_and_confirms_no_heredoc_write() {
+    // Report flags (`shared`, `unavailable`, or unknown) have
+    // unestablished meanings. Flagged reports remain command observations
+    // and confirm nothing.
+    let command = "cat > a.rs <<'EOF'\nx\nEOF\n";
+    for flag in ["shared", "unavailable", "partial"] {
+        let mut report = json!({"changedFiles": ["/work/repo/a.rs"],
+            "files": [created("/work/repo/a.rs")]});
+        report[flag] = json!(true);
+        let outcome = shell_with(command, ok_block(), Some(with_report(&report)));
+        assert!(edits(&outcome).is_empty(), "{flag}");
+        assert_eq!(outcome.counts.unconfirmed_shell_writes, 1, "{flag}");
+        let recorded = commands(&outcome)[0].changes.retained().unwrap();
+        assert_eq!(recorded.flags, BTreeSet::from([flag.to_owned()]), "{flag}");
+        assert_eq!(recorded.files.len(), 1, "{flag}");
+        // The same report with the flag unset confirms the write.
+        report[flag] = json!(false);
+        let outcome = shell_with(command, ok_block(), Some(with_report(&report)));
+        assert_eq!(edits(&outcome).len(), 1, "{flag}");
+    }
+}
+
+#[test]
+fn a_command_of_many_heredoc_writes_is_read_in_time_proportional_to_its_size() {
+    use std::fmt::Write as _;
+
+    let count = 20_000;
+    let mut command = String::new();
+    let mut entries = Vec::new();
+    for i in 0..count {
+        write!(command, "cat >> f{}.rs <<'E'\n{i}\nE\n", i % 1000).unwrap();
+    }
+    for i in 0..1000 {
+        entries.push(created(&format!("/work/repo/f{i}.rs")));
+    }
+    let started = std::time::Instant::now();
+    let outcome = shell(&command, &Value::Array(entries));
+    let recorded = edits(&outcome);
+    assert_eq!(recorded.len(), count);
+    // Each file's first append finds it absent; the nineteen after it do not.
+    let absent = recorded
+        .iter()
+        .filter(|e| e.before == FileState::Absent)
+        .count();
+    assert_eq!(absent, 1000);
+    // Scanning the report or prior writes per write would take minutes
+    // here.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+/// A file entry with one hunk at `start` on both sides, holding
+/// `lines`.
+fn entry(path: &str, is_created: bool, start: u32, lines: &[&str]) -> Value {
+    let count = |markers: &[char]| {
+        lines
+            .iter()
+            .filter(|line| line.starts_with(markers))
+            .count()
+    };
+    let mut entry = json!({"filePath": path, "hunks": [{"oldStart": start,
+        "oldLines": count(&[' ', '-']), "newStart": start, "newLines": count(&[' ', '+']),
+        "lines": lines}]});
+    if is_created {
+        entry["created"] = json!(true);
+    }
+    entry
+}
+
+/// The edits and the unconfirmed count of `command` with one file entry.
+fn confirmed_with(command: &str, entry: &Value) -> (usize, u64) {
+    let outcome = shell(command, &json!([entry]));
+    (
+        edits(&outcome).len(),
+        outcome.counts.unconfirmed_shell_writes,
+    )
+}
+
+#[test]
+fn a_reported_diff_that_contradicts_a_heredoc_write_leaves_it_unconfirmed() {
+    // `false &&` skips the heredoc; `echo` creates the file. The harness
+    // reports it created with `echo`'s line.
+    let skipped = "false && cat > a.rs <<'EOF'\nx\nEOF\necho y > a.rs\n";
+    let reported = entry("/work/repo/a.rs", true, 1, &["+y"]);
+    assert_eq!(confirmed_with(skipped, &reported), (0, 1));
+    // A statement after the heredoc changed what it wrote.
+    let reformatted = "cat > a.rs <<'EOF'\nfn  a(){}\nEOF\nrustfmt a.rs\n";
+    let reported = entry("/work/repo/a.rs", true, 1, &["+fn a() {}"]);
+    assert_eq!(confirmed_with(reformatted, &reported), (0, 1));
+    // The diff shows more of the file than the heredoc wrote.
+    let write = "cat > a.rs <<'EOF'\nx\nEOF\n";
+    let longer = entry("/work/repo/a.rs", true, 1, &["+x", "+z"]);
+    assert_eq!(confirmed_with(write, &longer), (0, 1));
+    // An agreeing diff alone neither confirms nor rejects a write.
+    let agreeing = entry("/work/repo/a.rs", true, 1, &["+x"]);
+    assert_eq!(confirmed_with(write, &agreeing), (1, 0));
+}
+
+#[test]
+fn an_overwrite_is_checked_at_the_lines_the_diff_shows() {
+    let command = "cat > a.rs <<'EOF'\none\ntwo\nthree\nEOF\n";
+    // Context and added lines are the file after the command; removed
+    // lines are not, nor is a marker that follows one.
+    let agreeing = entry(
+        "/work/repo/a.rs",
+        false,
+        2,
+        &["-old", "\\ No newline at end of file", "+two", " three"],
+    );
+    assert_eq!(confirmed_with(command, &agreeing), (1, 0));
+    // A new-side no-newline marker contradicts heredoc text, which ends
+    // with a newline.
+    for lines in [
+        &["+two", "+three", "\\ No newline at end of file"][..],
+        &["+two", " three", "\\ No newline at end of file"],
+    ] {
+        let unterminated = entry("/work/repo/a.rs", false, 2, lines);
+        assert_eq!(confirmed_with(command, &unterminated), (0, 1), "{lines:?}");
+    }
+    for lines in [
+        &["+two", " four"][..],
+        &["+three"],
+        &[" two", " three", "+four"],
+    ] {
+        let contradicting = entry("/work/repo/a.rs", false, 2, lines);
+        assert_eq!(confirmed_with(command, &contradicting), (0, 1), "{lines:?}");
+    }
+    // A hunk with an impossible start also contradicts the write.
+    let misplaced = entry("/work/repo/a.rs", false, 0, &["+one"]);
+    assert_eq!(confirmed_with(command, &misplaced), (0, 1));
+}
+
+#[test]
+fn an_append_must_end_the_file_the_diff_shows_the_end_of() {
+    let command = "cat >> a.rs <<'EOF'\ny\nz\nEOF\n";
+    // Less context after the last change than before the first marks the
+    // file's end: the file ended before the context did.
+    for lines in [
+        &[" x", "+y", "+z"][..],
+        // An appended line may appear as context aligned with an equal
+        // old line.
+        &[" a", "+w", " y", "+z"],
+    ] {
+        let agreeing = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(command, &agreeing), (1, 0), "{lines:?}");
+    }
+    for lines in [
+        // Something follows the appended text, or it is not there.
+        &[" x", "+y", "+z", "+later"][..],
+        &[" w", " x", "+y", "+z", " kept"],
+        &[" x", "+y"],
+        &[" w", "-x"],
+    ] {
+        let contradicting = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(command, &contradicting), (0, 1), "{lines:?}");
+    }
+    // If fewer lines are shown than appended, compare only those shown.
+    let command = "cat >> a.rs <<'EOF'\na\nb\nc\nd\nEOF\n";
+    let shorter = entry("/work/repo/a.rs", false, 7, &[" b", " c", "-x", "+d"]);
+    assert_eq!(confirmed_with(command, &shorter), (1, 0));
+    let other = entry("/work/repo/a.rs", false, 7, &[" b", " q", "-x", "+d"]);
+    assert_eq!(confirmed_with(command, &other), (0, 1));
+}
+
+#[test]
+fn an_append_longer_than_the_file_the_diff_shows_contradicts() {
+    // Another statement left a two-line file: the hunk starts at line 1
+    // and reaches the end, so the file cannot hold four appended lines.
+    let command = "cat >> a.rs <<'EOF'\none\ntwo\nthree\nfour\nEOF\n";
+    let lines = &[" three", "-old", "+four"];
+    let short = entry("/work/repo/a.rs", false, 1, lines);
+    assert_eq!(confirmed_with(command, &short), (0, 1));
+    // The same hunk farther down leaves room for unseen lines.
+    let room = entry("/work/repo/a.rs", false, 3, lines);
+    assert_eq!(confirmed_with(command, &room), (1, 0));
+}
+
+#[test]
+fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_append() {
+    let command = "cat >> a.rs <<'EOF'\ny\nz\nEOF\n";
+    // Equal context before and after leaves the end unknown. Appended
+    // lines may follow beyond the shown lines.
+    for lines in [
+        &[" x", "+y", "+z", " kept"][..],
+        &["+top", " x"],
+        &["-w", "+later"],
+        &[" a", " b", " c", "+w", " d", " e", " f"],
+    ] {
+        let silent = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(command, &silent), (1, 0), "{lines:?}");
+    }
+    // Unknown lines or fewer old lines than the header counts also
+    // leave the file's end unknown.
+    let mut unknown = entry("/work/repo/a.rs", false, 1, &[" x", "+w"]);
+    assert_eq!(confirmed_with(command, &unknown), (0, 1));
+    unknown["hunks"][0]["lines"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("? unknown"));
+    assert_eq!(confirmed_with(command, &unknown), (1, 0));
+    let mut cut = entry("/work/repo/a.rs", false, 1, &[" x", "+w"]);
+    cut["hunks"][0]["oldLines"] = json!(4);
+    assert_eq!(confirmed_with(command, &cut), (1, 0));
+    // `sed` replaces the first of four `x` lines with four `y` lines;
+    // the heredoc appends four `x` lines. The diff aligns three appended
+    // lines with old ones and stops one line before the end.
+    let command = "sed -i '1s/x/y\\ny\\ny\\ny/' a.rs\ncat >> a.rs <<'E'\nx\nx\nx\nx\nE\n";
+    let aligned = entry(
+        "/work/repo/a.rs",
+        false,
+        1,
+        &["+y", "+y", "+y", "+y", " x", " x", " x"],
+    );
+    assert_eq!(confirmed_with(command, &aligned), (1, 0));
+}
+
+#[test]
+fn a_diff_showing_the_file_ended_empty_contradicts_a_heredoc() {
+    // Removed lines and no new-side line: with the context the harness
+    // gives, any line left in the file would show, so the file ended empty.
+    // A skipped heredoc whose text it lacks is no edit.
+    let overwrite = "false && cat > a.rs <<'E'\nx\nE\n: > a.rs\n";
+    let append = "false && cat >> a.rs <<'E'\nx\nE\n: > a.rs\n";
+    let emptied = entry("/work/repo/a.rs", false, 1, &["-old"]);
+    for command in [overwrite, append] {
+        assert_eq!(confirmed_with(command, &emptied), (0, 1), "{command}");
+    }
+    // The harness may number the empty side from 0 as well as from 1.
+    let mut from_zero = emptied.clone();
+    from_zero["hunks"][0]["newStart"] = json!(0);
+    assert_eq!(confirmed_with(overwrite, &from_zero), (0, 1));
+    // An empty heredoc leaves the file empty, which agrees.
+    assert_eq!(confirmed_with("cat > a.rs <<'E'\nE\n", &emptied), (1, 0));
+    // A header counting a new-side line the hunk does not show, or a line
+    // this reader does not know, leaves the file's length unknown.
+    let mut cut = emptied.clone();
+    cut["hunks"][0]["newLines"] = json!(1);
+    let mut unknown = emptied.clone();
+    unknown["hunks"][0]["lines"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("? omitted"));
+    for silent in [cut, unknown] {
+        assert_eq!(confirmed_with(overwrite, &silent), (1, 0), "{silent}");
+    }
+}
+
+#[test]
+fn a_diff_of_a_file_that_was_empty_shows_the_whole_file() {
+    // No old-side line: the file was empty, so the hunk's new side is the
+    // whole file and reaches its end. A skipped append is checked against it.
+    let skipped = "false && cat >> a.rs <<'E'\nx\nE\necho y > a.rs\n";
+    let other = entry("/work/repo/a.rs", false, 1, &["+y"]);
+    assert_eq!(confirmed_with(skipped, &other), (0, 1));
+    let mut from_zero = other.clone();
+    from_zero["hunks"][0]["oldStart"] = json!(0);
+    assert_eq!(confirmed_with(skipped, &from_zero), (0, 1));
+    // A file that ends with the appended lines agrees, whatever precedes
+    // them; one shorter than they are does not.
+    let append = "cat >> a.rs <<'E'\na\nb\nE\n";
+    for lines in [&["+a", "+b"][..], &["+top", "+a", "+b"]] {
+        let agreeing = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(append, &agreeing), (1, 0), "{lines:?}");
+    }
+    let short = entry("/work/repo/a.rs", false, 1, &["+b"]);
+    assert_eq!(confirmed_with(append, &short), (0, 1));
+}
+
+#[test]
+fn a_file_the_diff_shows_without_a_final_newline_contradicts_a_heredoc() {
+    // `printf x` created the file; the skipped heredoc would have written
+    // `x` and a newline.
+    let skipped = "false && cat > a.rs <<'E'\nx\nE\nprintf x > a.rs\n";
+    let reported = entry(
+        "/work/repo/a.rs",
+        true,
+        1,
+        &["+x", "\\ No newline at end of file"],
+    );
+    assert_eq!(confirmed_with(skipped, &reported), (0, 1));
+    let appended = "cat >> a.rs <<'E'\ny\nE\n";
+    let reported = entry(
+        "/work/repo/a.rs",
+        false,
+        1,
+        &[" x", "+y", "\\ No newline at end of file"],
+    );
+    assert_eq!(confirmed_with(appended, &reported), (0, 1));
+    // An empty file has no line to lack a newline, and no hunk lines.
+    let emptied = "cat > a.rs <<'E'\nE\n";
+    let reported = entry("/work/repo/a.rs", false, 1, &["-old"]);
+    assert_eq!(confirmed_with(emptied, &reported), (1, 0));
+}
+
+#[test]
+fn an_append_onto_a_line_without_a_newline_completes_that_line() {
+    // Appending to unterminated `x` leaves `xy`; the diff removes the
+    // old line and adds the new one.
+    let command = "cat >> a.rs <<'E'\ny\nz\nE\n";
+    let completing = entry(
+        "/work/repo/a.rs",
+        false,
+        1,
+        &[" a", "-x", "\\ No newline at end of file", "+xy", "+z"],
+    );
+    assert_eq!(confirmed_with(command, &completing), (1, 0));
+    // An earlier statement may leave the unterminated line: the hunk shows
+    // the pre-command file, not the pre-heredoc file.
+    let command = "printf w > a.rs\ncat >> a.rs <<'E'\ny\nz\nE\n";
+    let rewritten = entry("/work/repo/a.rs", false, 1, &[" a", "-x", "+wy", "+z"]);
+    assert_eq!(confirmed_with(command, &rewritten), (1, 0));
+    let whole = entry(
+        "/work/repo/a.rs",
+        false,
+        1,
+        &["-x", "\\ No newline at end of file", "+wy", "+z"],
+    );
+    assert_eq!(confirmed_with(command, &whole), (1, 0));
+    // The line must end with the first appended line; later lines must
+    // match the remaining appended lines.
+    for lines in [&[" a", "-x", "+yw", "+z"][..], &[" a", "-x", "+wy", "+wz"]] {
+        let other = entry("/work/repo/a.rs", false, 1, lines);
+        assert_eq!(confirmed_with(command, &other), (0, 1), "{lines:?}");
+    }
+}
+
+#[test]
+fn an_appended_line_the_diff_shows_as_context_is_still_at_the_end() {
+    // `sed` turned the file's `x` into `y`, then the heredoc appended `x`:
+    // the diff aligns the appended line with the old one.
+    let command = "sed -i 's/x/y/' a.rs\ncat >> a.rs <<'E'\nx\nE\n";
+    let aligned = entry("/work/repo/a.rs", false, 1, &["+y", " x"]);
+    assert_eq!(confirmed_with(command, &aligned), (1, 0));
+    // Only the last hunk can reach the file's end, regardless of report
+    // order. Real diffs never end earlier hunks short of context; this
+    // case tests which hunk is read.
+    let mut two = entry("/work/repo/a.rs", false, 9, &[" w", "+x"]);
+    let first = entry("/work/repo/a.rs", false, 1, &[" c", "-a", "+b"]);
+    let hunks = two["hunks"].as_array_mut().unwrap();
+    hunks.push(first["hunks"][0].clone());
+    assert_eq!(confirmed_with("cat >> a.rs <<'E'\nx\nE\n", &two), (1, 0));
+    // A last hunk that reaches the end with another line contradicts.
+    let other = entry("/work/repo/a.rs", false, 1, &[" v", " w", "+x", " y"]);
+    assert_eq!(confirmed_with("cat >> a.rs <<'E'\nx\nE\n", &other), (0, 1));
+}
+
+#[test]
+fn a_skipped_heredoc_whose_text_another_statement_wrote_is_recorded() {
+    // The file ends with the heredoc's expected text. This is the
+    // check's limit: no hunk contradicts it.
+    let command = "false && cat > a.rs <<'E'\nx\nE\nprintf 'x\\n' > a.rs\n";
+    let reported = entry("/work/repo/a.rs", true, 1, &["+x"]);
+    assert_eq!(confirmed_with(command, &reported), (1, 0));
+}
+
+#[test]
+fn only_the_diff_marker_says_a_line_has_no_newline() {
+    let command = "cat > a.rs <<'E'\nx\nE\n";
+    for other in ["\\ truncated", "\\", "\\ No newline", "? unknown"] {
+        let mut reported = entry("/work/repo/a.rs", true, 1, &["+x"]);
+        reported["hunks"][0]["lines"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(other));
+        assert_eq!(confirmed_with(command, &reported), (1, 0), "{other}");
+    }
+}
+
+#[test]
+fn a_hunk_with_a_line_the_reader_does_not_know_shows_nothing_by_position() {
+    let command = "cat > a.rs <<'E'\na\nb\nc\nE\n";
+    for created in [true, false] {
+        // The unknown line accounts for the header's second new-side
+        // line. Nothing places `c` on line 2.
+        let mut unknown = entry("/work/repo/a.rs", created, 1, &["+a", "? omitted", "+c"]);
+        unknown["hunks"][0]["newLines"] = json!(3);
+        assert_eq!(confirmed_with(command, &unknown), (1, 0), "{created}");
+        // A known line in its place establishes the position.
+        let wrong = entry("/work/repo/a.rs", created, 1, &["+a", "+x", "+c"]);
+        assert_eq!(confirmed_with(command, &wrong), (0, 1), "{created}");
+    }
+    // Unknown lines also leave a created file's length unknown, even when
+    // the header counts all shown lines.
+    let longer = "cat > a.rs <<'E'\na\nb\nc\nd\nE\n";
+    let unknown = entry("/work/repo/a.rs", true, 1, &["+a", "+b", "? omitted", "+c"]);
+    assert_eq!(confirmed_with(longer, &unknown), (1, 0));
+}
+
+#[test]
+fn a_hunk_cut_short_does_not_speak_against_an_append() {
+    let command = "cat >> a.rs <<'E'\ny\nE\n";
+    // The header counts three new-side lines; the hunk shows two.
+    let mut cut = entry("/work/repo/a.rs", false, 1, &[" w", "+x"]);
+    cut["hunks"][0]["newLines"] = json!(3);
+    assert_eq!(confirmed_with(command, &cut), (1, 0));
+    // With full counts, these lines show the file ending with other
+    // text.
+    let whole = entry("/work/repo/a.rs", false, 1, &[" w", "+x"]);
+    assert_eq!(confirmed_with(command, &whole), (0, 1));
+}
+
+#[test]
+fn a_write_replaced_within_its_command_cannot_be_contradicted() {
+    // The first heredoc did not run; the final file cannot reveal this.
+    // That is a whole-command diff's limit.
+    let command = "false && cat > a.rs <<'A'\nbad\nA\ncat > a.rs <<'B'\ngood\nB\n";
+    let reported = entry("/work/repo/a.rs", true, 1, &["+good"]);
+    assert_eq!(confirmed_with(command, &reported), (2, 0));
+}
+
+#[test]
+fn the_writes_of_one_command_to_one_file_are_checked_together() {
+    let command = "cat > a.rs <<'A'\n1\nA\ncat >> a.rs <<'B'\n2\nB\ncat >> b.rs <<'C'\n3\nC\n";
+    let b = entry("/work/repo/b.rs", false, 1, &["+3"]);
+    let agreeing = json!([entry("/work/repo/a.rs", true, 1, &["+1", "+2"]), b]);
+    let outcome = shell(command, &agreeing);
+    assert_eq!(edits(&outcome).len(), 3);
+    // A contradiction leaves all writes to that file unconfirmed and the
+    // other file's write unchanged.
+    let contradicting = json!([entry("/work/repo/a.rs", true, 1, &["+1"]), b]);
+    let outcome = shell(command, &contradicting);
+    let recorded: Vec<&str> = edits(&outcome)
+        .iter()
+        .map(|e| e.path.to_str().unwrap())
+        .collect();
+    assert_eq!(recorded, vec!["b.rs"]);
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 2);
+    // An append that created the file is the whole file.
+    let created_by_append = entry("/work/repo/b.rs", true, 2, &["+3"]);
+    assert_eq!(
+        confirmed_with("cat >> b.rs <<'C'\n3\nC\n", &created_by_append),
+        (0, 1)
+    );
+}
+
+#[test]
+fn a_created_file_shorter_than_its_writes_contradicts_them() {
+    // The second heredoc did not run: the harness shows a one-line file.
+    let command = "cat > a.rs <<'A'\n1\nA\nfalse && cat >> a.rs <<'B'\n2\nB\ntrue\n";
+    let one_line = entry("/work/repo/a.rs", true, 1, &["+1"]);
+    assert_eq!(confirmed_with(command, &one_line), (0, 2));
+    // A header counting unseen lines means the hunk is cut short and
+    // leaves the file's length unknown.
+    let mut cut = entry("/work/repo/a.rs", true, 1, &["+1"]);
+    cut["hunks"][0]["newLines"] = json!(2);
+    assert_eq!(confirmed_with(command, &cut), (2, 0));
+    // An overwritten file's diff shows only what changed.
+    let overwrite = "cat > a.rs <<'A'\n1\n2\nA\n";
+    let partial = entry("/work/repo/a.rs", false, 2, &["+2"]);
+    assert_eq!(confirmed_with(overwrite, &partial), (1, 0));
+}
+
+#[test]
+fn a_heredoc_statement_that_did_not_run_is_recorded_when_the_harness_shows_no_diff() {
+    // The harness confirms commands, not statements. Without hunks,
+    // nothing contradicts the write. The edit attributes only where file
+    // bytes reproduce its text.
+    let command = "false && cat > a.rs <<'EOF'\nx\nEOF\necho y > a.rs\n";
+    let outcome = shell(command, &json!([created("/work/repo/a.rs")]));
+    let recorded = edits(&outcome);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].new_text, Material::Retained("x\n".to_owned()));
+    assert_eq!(recorded[0].after, FileState::unknown());
+    // The same holds when the entry's hunks cannot be read.
+    let unreadable = json!([{"filePath": "/work/repo/a.rs", "created": true,
+        "hunks": [{"oldStart": "one"}]}]);
+    assert_eq!(edits(&shell(command, &unreadable)).len(), 1);
+}
+
+#[test]
+fn an_abandoned_command_counts_its_heredoc_writes_as_unconfirmed() {
+    let issue = json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": "s",
+        "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash",
+             "input": {"command": "cat > a.rs <<'EOF'\nx\nEOF\n"}}
+        ]}
+    });
+    let typed = human("u1", "s");
+    let lines = format!("{issue}\n{typed}\n");
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    assert!(edits(&outcome).is_empty());
+    assert_eq!(commands(&outcome).len(), 1);
+    assert_eq!(outcome.counts.abandoned_tool_uses, 1);
+    assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
+}
+
+#[test]
+fn a_command_without_a_heredoc_write_yields_no_edit_whatever_it_changed() {
+    for command in [
+        "cargo fmt --all",
+        "python3 - <<'EOF'\nopen('a.rs', 'w').write('x')\nEOF\n",
+        "sed -i 's/a/b/' a.rs",
+        "echo x > a.rs",
+        "cat > a.rs <<EOF\nx\nEOF\n",
+        "tee a.rs <<'EOF'\nx\nEOF\n",
+    ] {
+        let outcome = shell(command, &json!([modified("/work/repo/a.rs")]));
+        assert!(edits(&outcome).is_empty(), "{command}");
+        assert!(outcome.counts.is_empty(), "{command}");
+        assert!(
+            matches!(commands(&outcome)[0].changes, Material::Retained(_)),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn editing_tool_calls_are_edits_of_tool_origin() {
+    let outcome = parse_transcript(&fixture(), 0);
+    let recorded = edits(&outcome);
+    assert!(!recorded.is_empty());
+    assert!(recorded.iter().all(|e| e.origin == EditOrigin::Tool));
 }

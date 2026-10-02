@@ -62,8 +62,10 @@ pub struct Forward {
 /// does. It needs both texts retained, a non-empty `old_text`, a present
 /// before-state, and at least one occurrence. A Write's result is its
 /// retained content whatever the before-state was, and its one replacement
-/// spans both whole files. Returns `None` when the edit cannot execute,
-/// which includes every `Unknown` operation.
+/// spans both whole files. An Append adds its retained, non-empty text to
+/// the before-state's bytes (none if absent). Its replacement is the
+/// empty range at the end. Returns `None` if the edit cannot execute,
+/// including every `Unknown` operation.
 #[must_use]
 pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
     match edit.operation {
@@ -102,6 +104,19 @@ pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
                     before: 0..before.byte_len(),
                     after: 0..content.len(),
                 }],
+            })
+        }
+        EditOperation::Append => {
+            let text = retained(&edit.new_text).filter(|text| !text.is_empty())?;
+            let bytes = before.bytes().unwrap_or_default();
+            let end = bytes.len();
+            let after = splice(bytes, end..end, text);
+            Some(Forward {
+                replacements: vec![Replacement {
+                    before: end..end,
+                    after: end..after.len(),
+                }],
+                after: State::Present(after),
             })
         }
         EditOperation::Unknown => None,
@@ -185,6 +200,10 @@ impl Budget {
 ///   is absent.
 /// - Write overwriting a file: the before-state is `base`, only when the
 ///   recorded before-hash equals `base`'s hash.
+/// - Append: `current` without its required suffix. If the recorded
+///   before-state is absent, this prefix must be empty and the before-state
+///   is absent. With an unknown before-hash, a retained patch must show its
+///   old side in the prefix, as for an Edit.
 ///
 /// With a retained patch, the step stops when the after-hash is unknown and
 /// `current` does not show every hunk's new side, and a candidate is
@@ -221,10 +240,14 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
         });
     }
     // The retained patch is read only where it is consulted: for the new
-    // side while the after-hash is unknown, and for an ordinary Edit's
-    // candidates. Its text is charged before it is read.
-    let consulted =
-        !is_known(&edit.after) || (edit.operation == EditOperation::Replace && !edit.replace_all);
+    // side while the after-hash is unknown, and for the candidates of an
+    // ordinary Edit or an Append. Its text is charged before it is read.
+    let consulted = !is_known(&edit.after)
+        || match edit.operation {
+            EditOperation::Replace => !edit.replace_all,
+            EditOperation::Append => true,
+            EditOperation::Write | EditOperation::Unknown => false,
+        };
     let patch = match edit.patch.retained() {
         Some(hunks) if consulted => {
             let bytes = hunks
@@ -247,10 +270,12 @@ pub fn reverse(edit: &Edit, current: &State, base: &State, budget: &mut Budget) 
             edit: edit.id.clone(),
         });
     }
-    if edit.operation == EditOperation::Write {
-        reverse_write(edit, current, base, budget)
-    } else {
-        reverse_replace(edit, current, patch.as_ref(), budget)
+    match edit.operation {
+        EditOperation::Write => reverse_write(edit, current, base, budget),
+        EditOperation::Append => reverse_append(edit, current, patch.as_ref(), budget),
+        EditOperation::Replace | EditOperation::Unknown => {
+            reverse_replace(edit, current, patch.as_ref(), budget)
+        }
     }
 }
 
@@ -934,6 +959,58 @@ fn reverse_write(edit: &Edit, current: &State, base: &State, budget: &mut Budget
         Some(reversal) => Reversed::Candidates(vec![reversal]),
         None => Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id() }),
     }
+}
+
+/// Reverses an append only if `current` ends with the edit's text. The
+/// prefix is the only candidate. With an unknown before-hash, a retained
+/// patch must show its old side in that candidate.
+fn reverse_append(
+    edit: &Edit,
+    current: &State,
+    patch: Option<&Patch>,
+    budget: &mut Budget,
+) -> Reversed {
+    let rejected = || {
+        Reversed::Stop(StopReason::NoAcceptedCandidate {
+            edit: edit.id.clone(),
+        })
+    };
+    let Some(text) = retained(&edit.new_text) else {
+        return Reversed::Stop(StopReason::TextUnavailable {
+            edit: edit.id.clone(),
+        });
+    };
+    let prefix = current
+        .bytes()
+        .filter(|_| !text.is_empty())
+        .and_then(|bytes| bytes.strip_suffix(text));
+    let Some(prefix) = prefix else {
+        return rejected();
+    };
+    if let Some(patch) = patch.filter(|_| !is_known(&edit.before)) {
+        // Reading the candidate's lines and the hunk text.
+        if !budget.charge(patch.bytes.saturating_add(prefix.len())) {
+            return out_of_budget();
+        }
+        if !patch.shown_before(&Whole::new(prefix)) {
+            return rejected();
+        }
+    }
+    if !budget.charge(candidate_cost(prefix.len(), current.byte_len())) {
+        return out_of_budget();
+    }
+    // A created file was absent before the append; an existing file may
+    // have been empty.
+    let before = if edit.before == FileState::Absent {
+        if !prefix.is_empty() {
+            return rejected();
+        }
+        State::Absent
+    } else {
+        State::Present(prefix.to_vec())
+    };
+    validate(edit, before, current)
+        .map_or_else(rejected, |reversal| Reversed::Candidates(vec![reversal]))
 }
 
 #[cfg(test)]

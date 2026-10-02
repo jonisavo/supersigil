@@ -1,18 +1,18 @@
-//! Maps a recorded edit onto the git worktree whose file it changed.
+//! Maps a recorded file onto the git worktree it lies in.
 //!
-//! An edit stores the transcript's working directory (`checkout`: not
-//! canonical, possibly a subdirectory) and a path relative to it. The file it
-//! changed belongs to the innermost worktree containing `checkout/path`,
-//! which is how a session in `/repo` editing
-//! `.claude/worktrees/feature/src/lib.rs` lands in the `feature` worktree as
-//! `src/lib.rs`.
+//! Edits and files in command change reports store the transcript's working
+//! directory (`checkout`, noncanonical and possibly a subdirectory) and a
+//! relative path. The file belongs to the innermost worktree containing
+//! `checkout/path`. A session in `/repo` editing
+//! `.claude/worktrees/feature/src/lib.rs` thus maps to `src/lib.rs` in
+//! `feature`.
 
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::Edit;
 use supersigil_session::checkout::{Placement, canonical, placement_as_written};
 
-/// The worktree an edit changed a file in, and the file's path inside it.
+/// The worktree a recorded file lies in, and the file's path inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedEdit {
     /// Root of the innermost worktree containing the edited file, as given in
@@ -23,10 +23,17 @@ pub struct MappedEdit {
 }
 
 /// Maps `edit` to the innermost of `worktree_roots` that contains the file
-/// it edited.
+/// it edited ([`map_file`]).
+#[must_use]
+pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> Option<MappedEdit> {
+    map_file(&edit.checkout, &edit.path, worktree_roots, ignore_case)
+}
+
+/// Maps the file `path`, recorded relative to `checkout`, to the innermost
+/// of `worktree_roots` that contains it.
 ///
-/// The edit's checkout directory is canonicalized when it exists and taken
-/// as written otherwise, and its already-validated relative path is
+/// The checkout directory is canonicalized when it exists and taken
+/// as written otherwise, and the already-validated relative path is
 /// appended lexically. Nothing below the checkout is resolved: containment
 /// and the remainder are both read from that one spelling
 /// ([`placement_as_written`]), so a symlinked file keeps the path the agent
@@ -37,9 +44,32 @@ pub struct MappedEdit {
 /// spelled is tried again with both sides ASCII-lowercased. Returns `None`
 /// when no root contains the file or its path is not UTF-8.
 #[must_use]
-pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> Option<MappedEdit> {
-    let checkout = canonical(&edit.checkout).unwrap_or_else(|_| edit.checkout.clone());
-    let file = checkout.join(&edit.path);
+pub fn map_file(
+    checkout: &Path,
+    path: &Path,
+    worktree_roots: &[PathBuf],
+    ignore_case: bool,
+) -> Option<MappedEdit> {
+    map_resolved(&resolve(checkout), path, worktree_roots, ignore_case)
+}
+
+/// Canonicalizes `checkout` if it exists; otherwise keeps its spelling.
+/// [`map_file`] places files under this path.
+#[must_use]
+pub fn resolve(checkout: &Path) -> PathBuf {
+    canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
+}
+
+/// [`map_file`] with an already resolved checkout ([`resolve`]), for
+/// callers placing several files from one checkout.
+#[must_use]
+pub fn map_resolved(
+    checkout: &Path,
+    path: &Path,
+    worktree_roots: &[PathBuf],
+    ignore_case: bool,
+) -> Option<MappedEdit> {
+    let file = checkout.join(path);
     let mut best: Option<(usize, &PathBuf)> = None;
     for root in worktree_roots {
         // A file lies at least one component below the root that holds it.
@@ -88,7 +118,7 @@ fn lowercase(path: &Path) -> PathBuf {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use supersigil_record::observations::{Edit, EditOperation, FileState, Material};
+    use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Material};
     use supersigil_record::{EventId, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
@@ -107,6 +137,7 @@ mod tests {
             new_text: Material::unavailable("test"),
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: checkout.to_path_buf(),
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             source_ordinal: 0,

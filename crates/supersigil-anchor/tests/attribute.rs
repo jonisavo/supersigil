@@ -8,8 +8,8 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    candidate, finishes_within, id, overwrite, replace, replace_all, request, unknown_op,
-    with_hashes, with_patch,
+    append, append_creating, candidate, finishes_within, id, overwrite, replace, replace_all,
+    request, unknown_op, with_hashes, with_patch, written_by,
 };
 use supersigil_anchor::walk::walk;
 use supersigil_anchor::{
@@ -1033,4 +1033,183 @@ fn indexing_is_charged_for_each_lines_bookkeeping() {
     let out = attribute(req);
     assert!(matches!(out.status, PathStatus::NotComposed { .. }));
     assert!(out.content.incomplete);
+}
+
+#[test]
+fn appended_lines_are_introduced_and_the_rest_is_base() {
+    let out = wt(
+        "a\n",
+        "a\nb\nc\n",
+        vec![candidate(append("e1", "t", 1, "b\nc\n"))],
+    );
+    assert_eq!(out.status, PathStatus::Composed);
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([base(0)]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    assert_eq!(origins(&out, 2), set([introduced("e1")]));
+}
+
+#[test]
+fn appends_sharing_an_ordinal_are_ordered_by_the_bytes() {
+    // One transcript record gives these two edits no order.
+    let out = wt(
+        "a\n",
+        "a\nb\nc\n",
+        vec![
+            candidate(append("second", "t", 1, "c\n")),
+            candidate(append("first", "t", 1, "b\n")),
+        ],
+    );
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(out.chains[0].edits, vec![id("first"), id("second")]);
+    assert_eq!(origins(&out, 1), set([introduced("first")]));
+    assert_eq!(origins(&out, 2), set([introduced("second")]));
+}
+
+#[test]
+fn the_writes_of_one_command_are_walked_in_the_order_it_holds_them() {
+    // Two heredocs append the same text. The bytes give no order; the
+    // command does.
+    let out = wt(
+        "seed\n",
+        "seed\nx\nx\n",
+        vec![
+            candidate(written_by(append("second", "t", 1, "x\n"), "c1", 1)),
+            candidate(written_by(append("first", "t", 1, "x\n"), "c1", 0)),
+        ],
+    );
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(out.chains[0].edits, vec![id("first"), id("second")]);
+    assert_eq!(origins(&out, 0), set([base(0)]));
+    assert_eq!(origins(&out, 1), set([introduced("first")]));
+    assert_eq!(origins(&out, 2), set([introduced("second")]));
+}
+
+#[test]
+fn edits_sharing_an_ordinal_without_a_common_command_stay_unordered() {
+    // Only a shared command orders two edits of one record. Both orders
+    // remain readings, so the lines are ambiguous.
+    let pairs = [
+        (append("e1", "t", 1, "x\n"), append("e2", "t", 1, "x\n")),
+        (
+            written_by(append("e1", "t", 1, "x\n"), "c1", 0),
+            written_by(append("e2", "t", 1, "x\n"), "c2", 1),
+        ),
+        (
+            written_by(append("e1", "t", 1, "x\n"), "c1", 0),
+            append("e2", "t", 1, "x\n"),
+        ),
+    ];
+    for (first, second) in pairs {
+        let out = wt(
+            "seed\n",
+            "seed\nx\nx\n",
+            vec![candidate(first), candidate(second)],
+        );
+        assert_eq!(out.chains.len(), 2);
+        assert!(matches!(out.target[1], LineOutcome::Ambiguous { .. }));
+        assert!(matches!(out.target[2], LineOutcome::Ambiguous { .. }));
+    }
+}
+
+#[test]
+fn many_identical_writes_of_one_command_are_one_reading() {
+    // Without their order, twelve identical appends are 12! readings.
+    let edits = (0..12)
+        .map(|i| {
+            candidate(written_by(
+                append(&format!("e{i:02}"), "t", 1, "x\n"),
+                "c1",
+                i,
+            ))
+        })
+        .rev()
+        .collect();
+    let out = wt("seed\n", &format!("seed\n{}", "x\n".repeat(12)), edits);
+    assert_eq!(out.status, PathStatus::Composed);
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    for line in 0..12 {
+        let name = format!("e{line:02}");
+        assert_eq!(origins(&out, line + 1), set([introduced(&name)]));
+    }
+}
+
+#[test]
+fn an_append_onto_a_line_without_a_terminator_shares_that_line() {
+    let out = wt(
+        "a",
+        "ab\nc\n",
+        vec![candidate(append("e1", "t", 1, "b\nc\n"))],
+    );
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    // The first target line holds base bytes and appended bytes.
+    assert_eq!(origins(&out, 0), set([introduced("e1")]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    assert_eq!(
+        base_fates(&out, 0),
+        set([Fate::Replaced { edit: id("e1") }])
+    );
+}
+
+#[test]
+fn a_file_created_and_extended_without_hashes_is_exact_from_an_absent_base() {
+    // Shell edits have no hashes on either side.
+    let mut created = common::create("w", "t", 1, "a\n");
+    created.after = supersigil_record::observations::FileState::unknown();
+    let out = attribute(request(
+        None,
+        Some("a\nb\n"),
+        TargetKind::WorkingTree,
+        vec![candidate(created), candidate(append("e1", "t", 2, "b\n"))],
+    ));
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([introduced("w")]));
+    assert_eq!(origins(&out, 1), set([introduced("e1")]));
+    // The same history started by an append that created the file.
+    let out = attribute(request(
+        None,
+        Some("a\nb\n"),
+        TargetKind::WorkingTree,
+        vec![
+            candidate(append_creating("e0", "t", 1, "a\n")),
+            candidate(append("e1", "t", 2, "b\n")),
+        ],
+    ));
+    assert_eq!(out.chains[0].class, ChainClass::ExactFromBase);
+    assert_eq!(origins(&out, 0), set([introduced("e0")]));
+}
+
+#[test]
+fn an_append_over_an_unrecorded_change_is_consistent_not_exact() {
+    let out = wt(
+        "a\n",
+        "a\nmanual\nb\n",
+        vec![candidate(append("e1", "t", 1, "b\n"))],
+    );
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].class, ChainClass::Consistent);
+    assert_eq!(origins(&out, 1), set([Origin::Unexplained]));
+    assert_eq!(origins(&out, 2), set([introduced("e1")]));
+}
+
+#[test]
+fn a_change_after_an_append_leaves_the_path_uncomposed() {
+    let out = wt(
+        "a\n",
+        "a\nb\nmanual\n",
+        vec![candidate(append("e1", "t", 1, "b\n"))],
+    );
+    assert_eq!(
+        out.status,
+        PathStatus::NotComposed {
+            reasons: vec![StopReason::NoAcceptedCandidate { edit: id("e1") }]
+        }
+    );
+    // The fallback still names the edit whose text covers the line.
+    assert_eq!(out.content.target[1], set([id("e1")]));
 }

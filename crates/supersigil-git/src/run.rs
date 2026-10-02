@@ -470,11 +470,15 @@ mod tests {
     /// A runner in an empty directory that is not inside any repository,
     /// isolated from the machine's git configuration as
     /// `tests/common/mod.rs`'s `isolated` does it: no system configuration,
-    /// and `HOME` and `XDG_CONFIG_HOME` inside the test's directory.
+    /// none passed through the environment, and `HOME` and `XDG_CONFIG_HOME`
+    /// inside the test's directory.
     fn outside_a_repository(dir: &tempfile::TempDir) -> Git {
         Git::new(dir.path())
             .with_env("GIT_CEILING_DIRECTORIES", dir.path().parent().unwrap())
             .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("GIT_CONFIG_GLOBAL", dir.path().join(".gitconfig"))
+            .with_env("GIT_CONFIG_COUNT", "0")
+            .with_env("GIT_CONFIG_PARAMETERS", "")
             .with_env("HOME", dir.path())
             .with_env("XDG_CONFIG_HOME", dir.path())
             .with_env("GIT_AUTHOR_NAME", "Test")

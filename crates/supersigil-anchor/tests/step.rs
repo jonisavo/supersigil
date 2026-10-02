@@ -6,8 +6,8 @@ mod common;
 use std::time::Duration;
 
 use common::{
-    create, finishes_within, id, overwrite, replace, replace_all, state, unknown_op, with_hashes,
-    with_patch,
+    append, append_creating, create, finishes_within, id, overwrite, replace, replace_all, state,
+    unknown_op, with_hashes, with_patch,
 };
 use supersigil_anchor::result::StopReason;
 use supersigil_anchor::step::{Budget, Replacement, Reversed, execute_forward, reverse};
@@ -703,4 +703,187 @@ fn positions_giving_one_before_state_are_one_candidate() {
     let out = run(&replace("d", "t", 1, "a\n", ""), "a\na\n", None);
     assert_eq!(befores(&out), vec!["a\na\na\n"]);
     assert_eq!(location_choices(&out), vec![false]);
+}
+
+#[test]
+fn forward_append_adds_its_text_after_the_last_byte() {
+    let e = append("a", "t", 1, "c\n");
+    // No terminator is added: the text follows the last byte unchanged.
+    let forward = execute_forward(&e, &state(Some("a\nb"))).unwrap();
+    assert_eq!(forward.after, state(Some("a\nbc\n")));
+    assert_eq!(
+        forward.replacements,
+        vec![Replacement {
+            before: 3..3,
+            after: 3..5,
+        }]
+    );
+    // On an absent file the result is the text alone, as `>>` creates it.
+    let created = execute_forward(&e, &State::Absent).unwrap();
+    assert_eq!(created.after, state(Some("c\n")));
+    assert_eq!(
+        created.replacements,
+        vec![Replacement {
+            before: 0..0,
+            after: 0..2,
+        }]
+    );
+}
+
+#[test]
+fn forward_does_not_execute_an_append_of_nothing_or_of_missing_text() {
+    assert!(execute_forward(&append("a", "t", 1, ""), &state(Some("a\n"))).is_none());
+    let mut missing = append("a", "t", 1, "c\n");
+    missing.new_text = Material::unavailable("test");
+    assert!(execute_forward(&missing, &state(Some("a\n"))).is_none());
+}
+
+#[test]
+fn an_append_reverses_to_the_bytes_before_its_text() {
+    let e = append("a", "t", 1, "b\n");
+    assert_eq!(befores(&run(&e, "a\nb\n", None)), vec!["a\n"]);
+    assert_eq!(location_choices(&run(&e, "a\nb\n", None)), vec![false]);
+    // The text also occurs earlier; an append writes only at the end.
+    assert_eq!(befores(&run(&e, "b\nb\n", None)), vec!["b\n"]);
+}
+
+#[test]
+fn an_append_whose_text_does_not_end_the_file_is_rejected() {
+    let e = append("a", "t", 1, "b\n");
+    for current in ["b\na\n", "a\nb", "", "\n"] {
+        assert_eq!(
+            run(&e, current, None),
+            Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id("a") }),
+            "{current:?}"
+        );
+    }
+    // An absent file contradicts the present after-state an append records.
+    let absent = reverse(
+        &e,
+        &State::Absent,
+        &State::Absent,
+        &mut Budget::new(1 << 20),
+    );
+    assert_eq!(
+        absent,
+        Reversed::Stop(StopReason::AfterHashMismatch { edit: id("a") })
+    );
+}
+
+#[test]
+fn an_append_to_an_existing_file_may_reverse_to_an_empty_file() {
+    let e = append("a", "t", 1, "b\n");
+    let Reversed::Candidates(all) = run(&e, "b\n", None) else {
+        panic!("stopped");
+    };
+    assert_eq!(all.len(), 1);
+    // Recorded as present: the before-state is an empty file, not absence.
+    assert_eq!(all[0].before, state(Some("")));
+}
+
+#[test]
+fn an_append_that_created_the_file_reverses_to_absent_or_not_at_all() {
+    let e = append_creating("a", "t", 1, "b\n");
+    let Reversed::Candidates(all) = run(&e, "b\n", None) else {
+        panic!("stopped");
+    };
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].before, State::Absent);
+    // Bytes before the text contradict a file the append created.
+    assert_eq!(
+        run(&e, "a\nb\n", None),
+        Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id("a") })
+    );
+}
+
+#[test]
+fn an_append_respects_recorded_hashes() {
+    let e = with_hashes(append("a", "t", 1, "b\n"), "a\n", "a\nb\n");
+    assert_eq!(befores(&run(&e, "a\nb\n", None)), vec!["a\n"]);
+    // The after-hash contradicts other current bytes.
+    assert_eq!(
+        run(&e, "x\nb\n", None),
+        Reversed::Stop(StopReason::AfterHashMismatch { edit: id("a") })
+    );
+    // The before-hash contradicts the only candidate.
+    let other_before = with_hashes(append("a", "t", 1, "b\n"), "z\n", "a\nb\n");
+    assert_eq!(
+        run(&other_before, "a\nb\n", None),
+        Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id("a") })
+    );
+}
+
+#[test]
+fn an_append_without_its_text_or_of_nothing_stops() {
+    let mut missing = append("a", "t", 1, "b\n");
+    missing.new_text = Material::unavailable("test");
+    assert_eq!(
+        run(&missing, "a\nb\n", None),
+        Reversed::Stop(StopReason::TextUnavailable { edit: id("a") })
+    );
+    assert_eq!(
+        run(&append("a", "t", 1, ""), "a\n", None),
+        Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id("a") })
+    );
+}
+
+#[test]
+fn an_append_candidate_is_charged_before_it_is_built() {
+    let e = append("a", "t", 1, "b\n");
+    let current = state(Some("a\nb\n"));
+    // Reading the current bytes costs 4; the candidate costs its 2 bytes
+    // plus the 4 that forward execution rebuilds.
+    let mut short = Budget::new(9);
+    assert_eq!(
+        reverse(&e, &current, &State::Absent, &mut short),
+        Reversed::Candidates(Vec::new())
+    );
+    assert!(short.exhausted());
+    let mut exact = Budget::new(10);
+    assert_eq!(
+        befores(&reverse(&e, &current, &State::Absent, &mut exact)),
+        vec!["a\n"]
+    );
+    assert!(!exact.exhausted());
+}
+
+#[test]
+fn an_append_candidate_contradicting_its_retained_patch_is_rejected() {
+    // The patch shows `z` before the append; the actual prefix is `a`.
+    let contradicted = with_patch(append("a", "t", 1, "b\n"), "z\n", "a\nb\n");
+    assert_eq!(
+        run(&contradicted, "a\nb\n", Some("a\n")),
+        Reversed::Stop(StopReason::NoAcceptedCandidate { edit: id("a") })
+    );
+    // A patch that shows the candidate is no obstacle.
+    let shown = with_patch(append("a", "t", 1, "b\n"), "a\n", "a\nb\n");
+    assert_eq!(befores(&run(&shown, "a\nb\n", None)), vec!["a\n"]);
+    // A known before-hash decides alone: the patch is not consulted for it.
+    let hashed = with_hashes(contradicted, "a\n", "a\nb\n");
+    assert_eq!(befores(&run(&hashed, "a\nb\n", None)), vec!["a\n"]);
+}
+
+#[test]
+fn an_append_patch_check_is_charged_before_the_candidate() {
+    let e = with_patch(append("a", "t", 1, "b\n"), "a\n", "a\nb\n");
+    let Material::Retained(hunks) = &e.patch else {
+        panic!("with_patch retains a patch");
+    };
+    let patch_bytes: usize = hunks.iter().flat_map(|h| &h.lines).map(String::len).sum();
+    let current = state(Some("a\nb\n"));
+    // Reading the current bytes (4) and the patch, then the patch against
+    // the 2-byte candidate, then the candidate (2) and its forward output (4).
+    let exact = u64::try_from(4 + patch_bytes + patch_bytes + 2 + 2 + 4).unwrap();
+    let mut short = Budget::new(exact - 1);
+    assert_eq!(
+        reverse(&e, &current, &State::Absent, &mut short),
+        Reversed::Candidates(Vec::new())
+    );
+    assert!(short.exhausted());
+    let mut enough = Budget::new(exact);
+    assert_eq!(
+        befores(&reverse(&e, &current, &State::Absent, &mut enough)),
+        vec!["a\n"]
+    );
+    assert!(!enough.exhausted());
 }

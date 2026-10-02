@@ -10,7 +10,7 @@ review of /work/repo
   capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path
 
 unattributed:
-  src/new.rs: untracked, a recorded edit wrote this file; not included (--include-untracked src/new.rs)
+  src/new.rs: untracked, a recorded edit names this file; not included (--include-untracked src/new.rs)
   notes.txt: 2 unattributed
   old.txt: 1 unattributed
   logo.png: not diffed: binary
@@ -18,7 +18,7 @@ unattributed:
 
 files:
   M logo.png  not diffed: binary
-  M notes.txt  +1 -1  2 unattributed: no surviving chain
+  M notes.txt  +1 -1  2 unattributed: no surviving chain, changed by 1 recorded command
   D old.txt  +0 -1  1 unattributed: no surviving chain
   M src/lib.rs  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session
 

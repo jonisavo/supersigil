@@ -11,7 +11,9 @@ use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
 use supersigil_record::EventId;
-use supersigil_record::observations::{CaptureLimitation, EditOperation, Material, Role};
+use supersigil_record::observations::{
+    CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
+};
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::outcome::{
@@ -175,7 +177,7 @@ pub struct UnattributedSummary {
     pub attribution_unavailable: Vec<String>,
     /// Files listed but not diffed.
     pub not_diffed: Vec<NotDiffed>,
-    /// Untracked files a recorded edit wrote but the scope excluded.
+    /// Untracked files a recorded edit names but the scope excluded.
     pub untracked_with_recorded_edits: Vec<String>,
     /// Paths whose on-disk state the snapshot did not capture.
     pub not_captured: Vec<String>,
@@ -267,7 +269,8 @@ pub struct ScopeInfo {
 pub struct UntrackedInfo {
     /// The file.
     pub path: String,
-    /// Whether a candidate edit in the reviewed worktree wrote this path.
+    /// Whether a candidate edit in the reviewed worktree names this path.
+    /// A shell-inferred edit does not establish that its statement ran.
     pub recorded_edit: bool,
     /// The flag that includes it, for example `--include-untracked src/new.rs`.
     pub include_flag: String,
@@ -399,8 +402,11 @@ pub struct FileReview {
     /// Changed regions with their spans.
     pub hunks: Vec<HunkReview>,
     /// Commands whose text mentions the path (textual evidence, never
-    /// attribution).
+    /// attribution), without those listed in `command_changes`.
     pub mentions: Vec<Mention>,
+    /// Commands the harness reported as changing the file, newest first.
+    /// These observe file changes during commands, never attribute lines.
+    pub command_changes: Vec<CommandChange>,
 }
 
 impl FileReview {
@@ -566,6 +572,65 @@ pub struct Mention {
     pub result: Option<MentionResult>,
 }
 
+/// A command the harness reported as changing a file.
+///
+/// The harness reports a file difference after the command, identifying
+/// neither the responsible statement nor its bytes. This is never
+/// attribution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CommandChange {
+    /// Command event id.
+    pub command: String,
+    /// Session id.
+    pub session: String,
+    /// Turn that issued the command.
+    pub turn: String,
+    /// Canonical transcript path.
+    pub transcript: Option<String>,
+    /// Time the command was issued.
+    pub time: String,
+    /// Checkout the command ran in.
+    pub checkout: String,
+    /// Worktree containing the reported file. A command is listed once per
+    /// reported file, per candidate worktree: a commit review has an entry
+    /// for each worktree where it changed that path. With case ignored, two
+    /// spellings of one file give two entries for the reviewed path, each
+    /// with its own kind and diff.
+    pub worktree: String,
+    /// The command text.
+    pub text: String,
+    /// What the harness stated about the change.
+    pub kind: ChangeKind,
+    /// The harness's capped display hunks for this file over the whole
+    /// command, or why none exist.
+    pub patch: Material<Vec<Hunk>>,
+    /// Changed files counted but unnamed in the report. Any may be a
+    /// reviewed file missing from this command's listing.
+    pub unlisted: u64,
+    /// Files reported outside the command's checkout, which the record
+    /// omits.
+    pub outside: u64,
+    /// Reported flag names, kept because their meaning is not established.
+    pub flags: BTreeSet<String>,
+}
+
+/// How an edit reached the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EditOriginInfo {
+    /// A call to an editing tool.
+    Tool,
+    /// A quoted shell heredoc. The edit is inferred from command text. The
+    /// harness confirms the command changed the file, not that this
+    /// statement ran.
+    Shell {
+        /// The command's event id.
+        command: String,
+        /// The command's text, when the review's records hold the command.
+        text: Option<String>,
+    },
+}
+
 /// A mentioned command's recorded result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MentionResult {
@@ -590,6 +655,8 @@ pub struct EditInfo {
     pub worktree: String,
     /// Recorded editing operation.
     pub operation: EditOperation,
+    /// How the edit reached the record.
+    pub origin: EditOriginInfo,
     /// The nearest recorded ancestor message that is Human or Delegation.
     pub prompt: Option<PromptInfo>,
 }
@@ -640,8 +707,11 @@ pub struct FileInput<'a> {
     pub target_blob: Option<&'a [u8]>,
     /// Anchor's result, or why there is none.
     pub attribution: AttributionState<'a>,
-    /// Commands mentioning the path.
+    /// Commands mentioning the path. Those also in `command_changes` are
+    /// left out of the review.
     pub mentions: Vec<Mention>,
+    /// Commands the harness reported as changing the path, newest first.
+    pub command_changes: Vec<CommandChange>,
     /// Edits excluded from the path as conflicting evidence.
     pub conflicting_edits: Vec<Conflict>,
 }
@@ -650,9 +720,18 @@ pub struct FileInput<'a> {
 /// grouped into spans, and anchor's status and chains.
 ///
 /// Only `Text` files are diffed; any other kind gets no hunks and no
-/// attribution.
+/// attribution. A command the harness reported as changing the file is
+/// listed under `command_changes`, not again as a mention of its path.
 #[must_use]
-pub fn file_review(input: FileInput<'_>) -> FileReview {
+pub fn file_review(mut input: FileInput<'_>) -> FileReview {
+    let changing: BTreeSet<&str> = input
+        .command_changes
+        .iter()
+        .map(|change| change.command.as_str())
+        .collect();
+    input
+        .mentions
+        .retain(|mention| !changing.contains(mention.command.as_str()));
     let (attribution, coarse, hunks) = if input.kind == FileKindInfo::Text {
         let base = input.base_blob.unwrap_or_default();
         let target = input.target_blob.unwrap_or_default();
@@ -687,6 +766,7 @@ pub fn file_review(input: FileInput<'_>) -> FileReview {
         coarse,
         hunks,
         mentions: input.mentions,
+        command_changes: input.command_changes,
     }
 }
 

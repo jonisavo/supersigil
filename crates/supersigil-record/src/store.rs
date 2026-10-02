@@ -90,14 +90,35 @@ pub enum StoreError {
     /// than its committed byte length.
     #[error("record is corrupt: {0}")]
     Corrupt(String),
-    /// The manifest's schema version is not supported by this version of the crate.
-    #[error("record schema version {found} is not supported (this binary supports {supported})")]
+    /// The manifest version differs from this crate's format. No migration
+    /// exists; the record stays unchanged. A newer record needs a newer
+    /// reader. An older one can be moved away or deleted; the next sync
+    /// then rebuilds what the remaining transcripts hold.
+    #[error(
+        "record at {} uses record format {found}; this build reads format {supported}. {}",
+        root.display(),
+        unsupported_advice(*found, *supported)
+    )]
     UnsupportedSchema {
+        /// Record directory holding the manifest.
+        root: PathBuf,
         /// Schema version found in the manifest.
         found: u32,
         /// Schema version this crate reads and writes.
         supported: u32,
     },
+}
+
+/// Advice for a record of format `found` refused by a build reading
+/// `supported`. Preserve observations first: their transcripts may be
+/// gone.
+fn unsupported_advice(found: u32, supported: u32) -> &'static str {
+    if found > supported {
+        "A newer supersigil wrote it; use that version to read it. This build left it unchanged."
+    } else {
+        "To keep its observations, move that directory out of the records directory; to \
+         discard them, delete it. The next sync then reads the transcripts that still exist."
+    }
 }
 
 /// Adds the affected path to an I/O error.

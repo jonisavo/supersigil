@@ -4,7 +4,7 @@
 //! entries. A session ending adds a [`SessionEnd`] event. Edits and commands
 //! refer to the [`Turn`] that issued them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -280,7 +280,8 @@ pub struct Hunk {
 /// Editing operation recorded for an edit.
 ///
 /// Reconstructing an earlier file state depends on it: an Edit replaced
-/// `old_text` with `new_text`, a Write replaced the whole file.
+/// `old_text` with `new_text`, a Write replaced the whole file, an append
+/// added `new_text` after the file's last byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EditOperation {
@@ -288,13 +289,37 @@ pub enum EditOperation {
     Replace,
     /// Claude Code's Write tool: the whole file becomes `new_text`.
     Write,
+    /// `new_text` was appended to the file, creating it if absent, as
+    /// shell `>>` does.
+    Append,
     /// Not recorded (logs written before this field existed) or a tool
     /// anchor cannot reverse, such as `MultiEdit`.
     #[default]
     Unknown,
 }
 
-/// A file edit made through the agent's editing tools.
+/// How an edit reached the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EditOrigin {
+    /// A call to an editing tool, whose result states the edit.
+    Tool,
+    /// A quoted heredoc redirected to a file. Its text comes from the
+    /// command; the harness confirms the command changed the file. It
+    /// confirms neither this statement's execution nor its resulting
+    /// bytes. The edit is inferred, not observed.
+    Shell {
+        /// The command that held the heredoc.
+        command: EventId,
+        /// Zero-based position among the command's heredoc writes. The
+        /// shell runs them in this order, which orders one command's
+        /// edits sharing a source ordinal.
+        index: u64,
+    },
+}
+
+/// An edit from an agent editing tool or a harness-confirmed shell
+/// heredoc.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     /// Event ID derived from the session ID and the source's tool-use ID.
@@ -320,6 +345,8 @@ pub struct Edit {
     /// Editing operation, `Unknown` for observations recorded before it was kept.
     #[serde(default)]
     pub operation: EditOperation,
+    /// How the edit reached the record.
+    pub origin: EditOrigin,
     /// Checkout the edit happened in.
     pub checkout: PathBuf,
     /// Timestamp of the tool result, falling back to the issuing record's
@@ -374,6 +401,51 @@ pub enum Outcome {
     Failed,
 }
 
+/// What the harness stated about one file a command changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    /// The file did not exist before the command.
+    Created,
+    /// The file no longer exists after the command.
+    Deleted,
+    /// The file existed before and after the command.
+    Modified,
+    /// The harness named the path without describing the change.
+    NotStated,
+}
+
+/// One file the harness reported a command changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChange {
+    /// Path relative to the command's checkout.
+    pub path: PathBuf,
+    /// What the harness stated about the change.
+    pub kind: ChangeKind,
+    /// The harness's capped display hunks for this file over the whole
+    /// command, or why none exist. They are never file bytes.
+    pub patch: Material<Vec<Hunk>>,
+}
+
+/// The harness's report of files a command changed.
+///
+/// Claude Code attaches it to Bash results as `bashEditDiff`. It describes
+/// which files differ after the whole command, regardless of which part
+/// changed them. It observes changes while the command ran, never the bytes
+/// it wrote.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ChangeReport {
+    /// The changed files inside the command's checkout, in the harness's order.
+    pub files: Vec<FileChange>,
+    /// Reported paths outside the command's checkout, which are not kept.
+    pub outside: u64,
+    /// Changed files the harness counted without naming.
+    pub unlisted: u64,
+    /// Flag names kept as given because their meaning is not
+    /// established.
+    pub flags: BTreeSet<String>,
+}
+
 /// A shell command the agent ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
@@ -404,6 +476,9 @@ pub struct Command {
     pub ended: Option<Timestamp>,
     /// Checkout the command ran in.
     pub checkout: PathBuf,
+    /// The harness's file change report, or why none exists. A missing
+    /// report does not mean nothing changed.
+    pub changes: Material<ChangeReport>,
     /// Zero-based line position of the record that issued the command.
     pub source_ordinal: u64,
     /// ID of the subagent that issued the command, if available.
@@ -470,6 +545,10 @@ pub struct CaptureCounts {
     /// and `Bash` calls without a command.
     #[serde(default)]
     pub unsupported_tool_uses: u64,
+    /// Heredoc writes without harness confirmation, so no edit is recorded:
+    /// the call failed, was cut off, ran in the background, had no result,
+    /// or its report did not describe the file.
+    pub unconfirmed_shell_writes: u64,
 }
 
 impl CaptureCounts {
@@ -486,6 +565,7 @@ impl CaptureCounts {
             && self.session_mismatch == 0
             && self.unnamed_tool_uses == 0
             && self.unsupported_tool_uses == 0
+            && self.unconfirmed_shell_writes == 0
     }
 }
 
@@ -504,6 +584,7 @@ impl std::ops::AddAssign<&Self> for CaptureCounts {
         self.session_mismatch += rhs.session_mismatch;
         self.unnamed_tool_uses += rhs.unnamed_tool_uses;
         self.unsupported_tool_uses += rhs.unsupported_tool_uses;
+        self.unconfirmed_shell_writes += rhs.unconfirmed_shell_writes;
     }
 }
 
@@ -534,6 +615,7 @@ mod tests {
             session_mismatch: 7,
             unnamed_tool_uses: 8,
             unsupported_tool_uses: 9,
+            unconfirmed_shell_writes: 10,
         };
         let b = CaptureCounts {
             unknown_records: BTreeMap::from([("y".to_owned(), 10), ("z".to_owned(), 1)]),
@@ -546,6 +628,7 @@ mod tests {
             session_mismatch: 70,
             unnamed_tool_uses: 80,
             unsupported_tool_uses: 90,
+            unconfirmed_shell_writes: 100,
         };
         let total: CaptureCounts = [&a, &b].into_iter().sum();
         assert_eq!(
@@ -565,6 +648,7 @@ mod tests {
                 session_mismatch: 77,
                 unnamed_tool_uses: 88,
                 unsupported_tool_uses: 99,
+                unconfirmed_shell_writes: 110,
             }
         );
         assert!(
@@ -599,6 +683,10 @@ mod tests {
             },
             CaptureCounts {
                 unsupported_tool_uses: 1,
+                ..CaptureCounts::default()
+            },
+            CaptureCounts {
+                unconfirmed_shell_writes: 1,
                 ..CaptureCounts::default()
             },
         ];

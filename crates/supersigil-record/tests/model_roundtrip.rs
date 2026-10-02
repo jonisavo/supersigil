@@ -1,14 +1,41 @@
 //! Tests observation JSON formats and serialization round trips.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use supersigil_record::observations::{
-    CaptureCounts, CaptureLimitation, Command, CommandCategory, Content, Edit, EditOperation,
-    EndReason, FileState, Hunk, Material, Observation, Outcome, Role, SessionEnd, SessionStart,
-    Source, Turn,
+    CaptureCounts, CaptureLimitation, ChangeKind, ChangeReport, Command, CommandCategory, Content,
+    Edit, EditOperation, EditOrigin, EndReason, FileChange, FileState, Hunk, Material, Observation,
+    Outcome, Role, SessionEnd, SessionStart, Source, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
+
+/// A change report with an entry, a path without one, and every count set.
+fn change_report() -> ChangeReport {
+    ChangeReport {
+        files: vec![
+            FileChange {
+                path: PathBuf::from("src/lib.rs"),
+                kind: ChangeKind::Modified,
+                patch: Material::Retained(vec![Hunk {
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 1,
+                    lines: vec!["-old".to_owned(), "+new".to_owned()],
+                }]),
+            },
+            FileChange {
+                path: PathBuf::from("Cargo.lock"),
+                kind: ChangeKind::NotStated,
+                patch: Material::unavailable("no entry in the harness report"),
+            },
+        ],
+        outside: 1,
+        unlisted: 2,
+        flags: BTreeSet::from(["shared".to_owned()]),
+    }
+}
 
 fn sample() -> Vec<Observation> {
     let session = SessionId::new("11111111-1111-4111-8111-111111111111");
@@ -57,6 +84,7 @@ fn sample() -> Vec<Observation> {
             },
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: checkout.clone(),
             time: Timestamp::new("2026-09-28T10:00:06.000Z"),
             source_ordinal: 2,
@@ -79,6 +107,7 @@ fn sample() -> Vec<Observation> {
             started: Timestamp::new("2026-09-28T10:01:00.000Z"),
             ended: Some(Timestamp::new("2026-09-28T10:01:02.000Z")),
             checkout: checkout.clone(),
+            changes: Material::Retained(change_report()),
             source_ordinal: 14,
             agent_id: None,
             transcript: None,
@@ -99,6 +128,7 @@ fn sample() -> Vec<Observation> {
                 session_mismatch: 0,
                 unnamed_tool_uses: 0,
                 unsupported_tool_uses: 0,
+                unconfirmed_shell_writes: 0,
             },
         }),
         Observation::SessionEnd(SessionEnd {
@@ -185,6 +215,15 @@ fn every_material_and_content_shape_serializes() {
     let command_json = serde_json::to_value(&sample()[3]).unwrap();
     assert_eq!(command_json["kind"], "command");
     assert_eq!(command_json["category"], "test_run");
+    let changes = &command_json["changes"];
+    assert_eq!(changes["state"], "retained");
+    assert_eq!(changes["value"]["files"][0]["kind"], "modified");
+    assert_eq!(changes["value"]["files"][1]["kind"], "not_stated");
+    assert_eq!(
+        changes["value"]["files"][1]["patch"]["state"],
+        "unavailable"
+    );
+    assert_eq!(changes["value"]["flags"][0], "shared");
 }
 
 #[test]
@@ -209,4 +248,14 @@ fn file_state_helpers_distinguish_absent_unknown_and_known() {
         policy: "p".to_owned(),
     };
     assert_eq!(withheld.retained(), None);
+}
+
+#[test]
+fn a_command_without_a_change_report_field_is_not_an_observation() {
+    // Every command includes a report field. A record without it is
+    // unreadable by this build, not evidence that nothing changed.
+    let mut json = serde_json::to_value(&sample()[3]).unwrap();
+    json.as_object_mut().unwrap().remove("changes");
+    let error = serde_json::from_value::<Observation>(json).unwrap_err();
+    assert!(error.to_string().contains("changes"), "{error}");
 }

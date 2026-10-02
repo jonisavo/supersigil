@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use serde_json::Value;
 use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
 use supersigil_record::observations::{EndReason, Observation, SessionEnd};
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError};
@@ -525,7 +526,7 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     Store::create(dir.path(), assoc()).unwrap();
     let manifest_path = dir.path().join("manifest.json");
     let text = fs::read_to_string(&manifest_path).unwrap();
-    let newer = text.replace("\"schema_version\": 1", "\"schema_version\": 2");
+    let newer = text.replace("\"schema_version\": 2", "\"schema_version\": 3");
     assert_ne!(newer, text);
     fs::write(&manifest_path, &newer).unwrap();
 
@@ -533,21 +534,128 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     assert!(matches!(
         store.manifest(),
         Err(StoreError::UnsupportedSchema {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2,
+            ..
         })
     ));
     assert!(matches!(
         store.snapshot(),
         Err(StoreError::UnsupportedSchema {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2,
+            ..
         })
     ));
     assert!(matches!(
         store.begin(),
         Err(StoreError::UnsupportedSchema { .. })
     ));
+    // A newer record needs a newer reader: nothing suggests removing it.
+    let message = store.manifest().unwrap_err().to_string();
+    assert!(
+        message.contains("uses record format 3; this build reads format 2"),
+        "{message}"
+    );
+    assert!(
+        message.contains("A newer supersigil wrote it; use that version to read it."),
+        "{message}"
+    );
+    assert!(!message.contains("delete"), "{message}");
     // Nothing rewrote the newer record.
     assert_eq!(fs::read_to_string(&manifest_path).unwrap(), newer);
+}
+
+/// What the message for an older record advises: keeping it comes first.
+const OLDER_RECORD_ADVICE: &str = "To keep its observations, move that directory out of the \
+    records directory; to discard them, delete it. The next sync then reads the transcripts \
+    that still exist.";
+
+/// A manifest in the layout plan 1 wrote: version 1, logs keyed by session
+/// id, and no `sessions` map.
+const PLAN_1_MANIFEST: &str = r#"{
+  "record_id": "d435b3f4-5a03-4c70-a4c8-009547bee6a1",
+  "schema_version": 1,
+  "revision": 1,
+  "associations": [{"checkout": "/work/repo"}],
+  "logs": {"observations/s1/events.jsonl": 10},
+  "documents": {},
+  "cursors": {}
+}"#;
+
+#[test]
+fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("manifest.json"), PLAN_1_MANIFEST).unwrap();
+
+    let store = Store::open(dir.path()).unwrap();
+    let error = store.manifest().unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains(&dir.path().display().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains("uses record format 1; this build reads format 2"),
+        "{message}"
+    );
+    assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
+    // The manifest is left as it was.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("manifest.json")).unwrap(),
+        PLAN_1_MANIFEST
+    );
+}
+
+#[test]
+fn the_current_layout_at_version_1_is_refused_by_its_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 0)]).unwrap();
+    tx.commit().unwrap();
+    let manifest_path = dir.path().join("manifest.json");
+    let text = fs::read_to_string(&manifest_path).unwrap();
+    let parsed: Value = serde_json::from_str(&text).unwrap();
+    assert!(parsed["sessions"]["s1"].is_u64(), "{text}");
+    let older = text.replace("\"schema_version\": 2", "\"schema_version\": 1");
+    assert_ne!(older, text);
+    fs::write(&manifest_path, &older).unwrap();
+
+    let store = Store::open(dir.path()).unwrap();
+    let error = store.manifest().unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains(&dir.path().display().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains("uses record format 1; this build reads format 2"),
+        "{message}"
+    );
+    assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
+    // The manifest is left as it was.
+    assert_eq!(fs::read_to_string(&manifest_path).unwrap(), older);
+}
+
+#[test]
+fn a_manifest_without_a_version_is_invalid_json() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("manifest.json"), "{}").unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.manifest(), Err(StoreError::Json { .. })));
 }

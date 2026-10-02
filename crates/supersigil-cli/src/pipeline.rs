@@ -31,8 +31,9 @@ use supersigil_record::observations::Observation;
 use supersigil_record::{EventId, RecordId, Revision};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, CommitOriginInfo, EvidenceInfo, FileKindInfo, FileStatus,
-    OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo, UnreconciledInfo,
+    AncestryInfo, BaseInfo, BytesStatus, CommandChange, CommitOriginInfo, EvidenceInfo,
+    FileKindInfo, FileStatus, OriginsInfo, RecordInfo, TargetInfo, TargetKindInfo, UnavailableInfo,
+    UnreconciledInfo,
 };
 use supersigil_review::outcome::AttributionState;
 use supersigil_session::checkout::{canonical, overlaps};
@@ -219,8 +220,9 @@ pub struct Gathered {
     pub unreconciled: Vec<UnreconciledCheckout>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
-    /// Transcripts holding a candidate edit or an observation made in a
-    /// candidate worktree, regardless of attribution success.
+    /// Transcripts holding a candidate edit, an observation made in a
+    /// candidate worktree, or a command the harness reported as changing a
+    /// file in one, regardless of attribution success.
     pub candidate_transcripts: BTreeSet<String>,
     /// Globally accepted edits in candidate worktrees, indexed by path.
     /// These are the only edits attribution sees.
@@ -245,6 +247,32 @@ pub struct Gathered {
     pub whole_worktree: bool,
     /// The pinned records' evidence, indexed.
     pub evidence: Evidence,
+    /// Changes in [`Self::observed_worktrees`] reported by the harness for
+    /// commands in candidate transcripts, indexed by path, newest first.
+    pub command_changes: ByPath<CommandChange>,
+}
+
+impl Gathered {
+    /// Worktrees whose commands supply review evidence: the reviewed
+    /// worktree for a working-tree target; all candidate worktrees for a
+    /// commit, since any may have originated it.
+    #[must_use]
+    pub fn observed_worktrees(&self) -> Vec<PathBuf> {
+        observed_worktrees(&self.range, &self.worktree, &self.candidate_worktrees)
+    }
+}
+
+/// [`Gathered::observed_worktrees`], from the parts known before the rest
+/// is gathered.
+fn observed_worktrees(
+    range: &ResolvedRange,
+    worktree: &Path,
+    candidate_worktrees: &[PathBuf],
+) -> Vec<PathBuf> {
+    match range.target {
+        ResolvedTarget::WorkingTree { .. } => vec![worktree.to_path_buf()],
+        ResolvedTarget::Commit { .. } => candidate_worktrees.to_vec(),
+    }
 }
 
 /// What the first shared step found: the reviewed worktree, the typed paths
@@ -403,7 +431,8 @@ impl Prepared {
         //    id whose sightings disagree is excluded from every path, even
         //    when only one of its sightings lies in a candidate worktree.
         let ignore_case = repo.config_bool("core.ignorecase")?.unwrap_or(false);
-        let sightings = map_sightings(&records, &worktrees, ignore_case);
+        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
+        let sightings = map_sightings(&records, &roots, ignore_case);
         let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
         let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
         let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
@@ -422,7 +451,21 @@ impl Prepared {
         );
         let candidate_transcripts = evidence.candidate_transcripts(
             candidates.iter().map(|m| &m.candidate.edit),
+            &roots,
             &candidate_worktrees,
+            ignore_case,
+        );
+        let command_changes = ByPath::new(
+            evidence
+                .command_changes(
+                    &candidate_transcripts,
+                    &roots,
+                    &observed_worktrees(&range, &worktree, &candidate_worktrees),
+                    ignore_case,
+                )
+                .into_iter()
+                .map(|(change, path)| (change, [path])),
+            ignore_case,
         );
         Ok(Gathered {
             repo,
@@ -445,6 +488,7 @@ impl Prepared {
             paths,
             whole_worktree,
             evidence,
+            command_changes,
         })
     }
 }
@@ -585,22 +629,17 @@ struct Sighting {
     mapped: Option<MappedEdit>,
 }
 
-/// Maps every edit of every pinned record onto the registered worktrees,
-/// keeping every sighting whether its worktree is a candidate, another
-/// registered worktree, or none.
-fn map_sightings(
-    records: &[PinnedRecord],
-    worktrees: &[Worktree],
-    ignore_case: bool,
-) -> Vec<Sighting> {
-    let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
+/// Maps every pinned record's edits to registered worktrees in `roots`.
+/// Keeps every sighting, including those in noncandidate worktrees or no
+/// worktree.
+fn map_sightings(records: &[PinnedRecord], roots: &[PathBuf], ignore_case: bool) -> Vec<Sighting> {
     let mut sightings = Vec::new();
     for record in records {
         for observation in &record.observations {
             let Observation::Edit(edit) = observation else {
                 continue;
             };
-            let mapped = map_edit(edit, &roots, ignore_case);
+            let mapped = map_edit(edit, roots, ignore_case);
             let worktree = mapped
                 .as_ref()
                 .map_or_else(|| edit.checkout.clone(), |m| m.worktree.clone());
@@ -1173,7 +1212,7 @@ mod tests {
     use supersigil_git::RepoPath;
     use supersigil_git::changes::Mode;
     use supersigil_git::worktree::Worktree;
-    use supersigil_record::observations::{Edit, EditOperation, FileState, Material};
+    use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Material};
     use supersigil_record::{EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
@@ -1199,6 +1238,7 @@ mod tests {
             new_text: Material::unavailable("test"),
             replace_all: false,
             operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
             checkout: root.clone(),
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             source_ordinal: 0,
@@ -1252,6 +1292,9 @@ mod tests {
         let root = canonical(dir.path()).unwrap();
         let git = Git::new(&root)
             .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("GIT_CONFIG_GLOBAL", root.join(".gitconfig"))
+            .with_env("GIT_CONFIG_COUNT", "0")
+            .with_env("GIT_CONFIG_PARAMETERS", "")
             .with_env("HOME", &root)
             .with_env("XDG_CONFIG_HOME", root.join("xdg"));
         git.output(["init", "-q", "-b", "main"]).unwrap();
@@ -1288,6 +1331,7 @@ mod tests {
             paths: Vec::new(),
             whole_worktree: false,
             evidence: crate::evidence::Evidence::default(),
+            command_changes: ByPath::new(Vec::<(super::CommandChange, [&str; 0])>::new(), false),
         };
 
         let found = super::attribute_path(

@@ -3,7 +3,8 @@
 //!
 //! Edits are grouped by (worktree, transcript); within a group, edits with
 //! equal ordinals form an unordered bucket and buckets are ordered by
-//! ordinal. A chain starts at a head, continues backward through its group
+//! ordinal. One command's heredoc writes share an ordinal but are walked in
+//! command order. A chain starts at a head and walks backward through its group
 //! without skipping an edit, and may enter another group only through a
 //! verified link: an edit whose recorded after-hash equals the hash of the
 //! current bytes. It ends at the first state equal to the base, or where no
@@ -12,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use supersigil_record::observations::{Edit, EditOperation};
+use supersigil_record::observations::{Edit, EditOperation, EditOrigin};
 use supersigil_record::{ContentId, EventId, RecordId};
 
 use crate::align::{Alignment, Alignments, advance, align};
@@ -226,7 +227,9 @@ pub fn walk(request: &Request) -> Walk {
 /// The edits of one file from one transcript.
 struct Group {
     worktree: PathBuf,
-    /// Indices into the accepted edits, one bucket per ordinal, oldest first.
+    /// Indices into accepted edits, oldest first: one bucket per ordinal,
+    /// or per write if one shell command made all edits of that ordinal
+    /// ([`in_command_order`]).
     buckets: Vec<Vec<usize>>,
 }
 
@@ -246,10 +249,36 @@ fn group(accepted: &[AcceptedEdit]) -> Vec<Group> {
                 .chunk_by(|&a, &b| {
                     accepted[a].edit.source_ordinal == accepted[b].edit.source_ordinal
                 })
-                .map(<[usize]>::to_vec)
+                .flat_map(|bucket| in_command_order(accepted, bucket))
                 .collect();
             Group { worktree, buckets }
         })
+        .collect()
+}
+
+/// Buckets for one ordinal. If all edits are heredoc writes of one shell
+/// command, each write gets a bucket in command order, the order the shell
+/// runs them. Otherwise they stay in one unordered bucket: sharing a
+/// transcript record gives no order.
+fn in_command_order(accepted: &[AcceptedEdit], bucket: &[usize]) -> Vec<Vec<usize>> {
+    let placed: Option<Vec<(&EventId, u64, usize)>> = bucket
+        .iter()
+        .map(|&i| match &accepted[i].edit.origin {
+            EditOrigin::Shell { command, index } => Some((command, *index, i)),
+            EditOrigin::Tool => None,
+        })
+        .collect();
+    let Some(mut placed) = placed.filter(|placed| {
+        placed
+            .iter()
+            .all(|(command, ..)| Some(*command) == placed.first().map(|first| first.0))
+    }) else {
+        return vec![bucket.to_vec()];
+    };
+    placed.sort_by_key(|&(_, index, _)| index);
+    placed
+        .chunk_by(|a, b| a.1 == b.1)
+        .map(|writes| writes.iter().map(|&(.., i)| i).collect())
         .collect()
 }
 

@@ -37,6 +37,7 @@ evidence:
           session_mismatch: 0
           unnamed_tool_uses: 0
           unsupported_tool_uses: 0
+          unconfirmed_shell_writes: 0
       localized: false
   unplaced_edits: 0
   unreconciled_checkouts:
@@ -86,6 +87,8 @@ edits:
     time: "2026-09-28T10:00:01.000Z"
     worktree: /work/repo
     operation: replace
+    origin:
+      kind: tool
     prompt:
       turn: u1
       role: human
@@ -93,3 +96,45 @@ edits:
         state: retained
         value: Add a greeting function and clean up.
 conflicting_edits: []
+command_changes:
+  - command: "command:3"
+    session: s1
+    turn: a9
+    transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+    time: "2026-09-28T10:00:08.000Z"
+    checkout: /work/repo
+    worktree: /work/repo
+    text: "python3 - <<'EOF'\nimport re\nEOF"
+    kind: modified
+    patch:
+      state: retained
+      value:
+        - old_start: 1
+          old_lines: 1
+          new_start: 1
+          new_lines: 1
+          lines:
+            - " // top"
+            - "+fn greet() {}"
+            - "+fn other() {}"
+    unlisted: 0
+    outside: 0
+    flags: []
+    adds_line_text: true
+  - command: "command:2"
+    session: s1
+    turn: a9
+    transcript: /home/u/.claude/projects/-work-repo/s1.jsonl
+    time: "2026-09-28T10:00:07.000Z"
+    checkout: /work/repo
+    worktree: /work/repo
+    text: cargo fmt --all
+    kind: modified
+    patch:
+      state: unavailable
+      value:
+        reason: no entry in the harness report
+    unlisted: 0
+    outside: 0
+    flags: []
+    adds_line_text: false

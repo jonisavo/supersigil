@@ -4,7 +4,10 @@
 //! gets `GIT_CONFIG_NOSYSTEM=1`, `HOME` and `XDG_CONFIG_HOME` pointing into the
 //! test's temporary directory, and a fixed identity, so a developer's or a
 //! CI runner's configuration (Git for Windows sets `core.autocrlf` system-wide)
-//! cannot change what a test sees.
+//! cannot change what a test sees. Environment-passed configuration is
+//! also neutralized: `GIT_CONFIG_GLOBAL` names the file implied by
+//! `HOME`, `GIT_CONFIG_COUNT` is zero, and `GIT_CONFIG_PARAMETERS` is
+//! empty.
 
 #![allow(dead_code, reason = "each test binary uses a different subset")]
 
@@ -16,6 +19,9 @@ use supersigil_git::{Git, Repo};
 /// Adds the isolation environment to `git`.
 pub fn isolated(git: Git, home: &Path) -> Git {
     git.with_env("GIT_CONFIG_NOSYSTEM", "1")
+        .with_env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
+        .with_env("GIT_CONFIG_COUNT", "0")
+        .with_env("GIT_CONFIG_PARAMETERS", "")
         .with_env("HOME", home)
         .with_env("XDG_CONFIG_HOME", home)
         .with_env("GIT_AUTHOR_NAME", "Test")

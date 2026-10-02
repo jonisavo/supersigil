@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use supersigil_anchor::{CandidateEdit, DEFAULT_BUDGET_BYTES, Request, State, TargetKind};
-use supersigil_record::observations::{Edit, EditOperation, FileState, Hunk, Material};
+use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Hunk, Material};
 use supersigil_record::{ContentId, EventId, RecordId, SessionId, Timestamp, TurnId};
 
 /// The reviewed worktree in tests.
@@ -52,6 +52,7 @@ fn edit(
         new_text: new,
         replace_all,
         operation,
+        origin: EditOrigin::Tool,
         checkout: PathBuf::from(WT),
         time: Timestamp::new("2026-09-29T10:00:00.000Z"),
         source_ordinal: ordinal,
@@ -118,6 +119,37 @@ pub fn overwrite(id: &str, transcript: &str, ordinal: u64, content: &str) -> Edi
         FileState::unknown(),
         known(content),
     )
+}
+
+/// An append to an existing file, with unknown before- and after-states.
+pub fn append(id: &str, transcript: &str, ordinal: u64, text_added: &str) -> Edit {
+    edit(
+        id,
+        transcript,
+        ordinal,
+        EditOperation::Append,
+        Material::unavailable("append"),
+        text(text_added),
+        false,
+        FileState::unknown(),
+        FileState::unknown(),
+    )
+}
+
+/// An append that created the file: before absent, after unknown.
+pub fn append_creating(id: &str, transcript: &str, ordinal: u64, text_added: &str) -> Edit {
+    let mut e = append(id, transcript, ordinal, text_added);
+    e.before = FileState::Absent;
+    e
+}
+
+/// `edit` as the heredoc write at `index` in the shell command `command`.
+pub fn written_by(mut edit: Edit, command: &str, index: u64) -> Edit {
+    edit.origin = EditOrigin::Shell {
+        command: id(command),
+        index,
+    };
+    edit
 }
 
 /// A replacement whose operation was not recorded.

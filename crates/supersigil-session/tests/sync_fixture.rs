@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use common::{SESSION, fixture, line_starts};
 
 use supersigil_record::observations::{
-    CaptureLimitation, Observation, Role, SessionStart, Source, session_start,
+    CaptureLimitation, EditOrigin, Observation, Role, SessionStart, Source, session_start,
 };
 use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
@@ -856,6 +856,109 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
 
+/// A prompt, a harness-confirmed and an unconfirmed heredoc write, and a
+/// closing prompt, as lines without newlines.
+fn heredoc_writes() -> Vec<String> {
+    let record = |kind: &str, uuid: &str, content: serde_json::Value| {
+        serde_json::json!({
+            "type": kind, "uuid": uuid, "parentUuid": null, "sessionId": "s",
+            "cwd": "/work/repo", "timestamp": "2026-09-28T10:00:00.000Z",
+            "isSidechain": false, "message": {"role": kind, "content": content}
+        })
+    };
+    let call = |uuid: &str, id: &str, command: &str| {
+        record(
+            "assistant",
+            uuid,
+            serde_json::json!([{"type": "tool_use", "id": id, "name": "Bash",
+                "input": {"command": command}}]),
+        )
+    };
+    let result = |uuid: &str, id: &str, report: Option<serde_json::Value>| {
+        let mut done = record(
+            "user",
+            uuid,
+            serde_json::json!([{"type": "tool_result", "tool_use_id": id, "content": ""}]),
+        );
+        let mut structured = serde_json::json!({"stdout": "", "stderr": "", "interrupted": false});
+        if let Some(report) = report {
+            structured["bashEditDiff"] = report;
+        }
+        done["toolUseResult"] = structured;
+        done
+    };
+    let report = serde_json::json!({
+        "changedFiles": ["/work/repo/a.rs"],
+        "files": [{"filePath": "/work/repo/a.rs", "created": true, "hunks": []}],
+        "moreFiles": 0,
+    });
+    [
+        record("user", "u0", serde_json::json!("write the files")),
+        call("a1", "t1", "cat > a.rs <<'EOF'\nfn a() {}\nEOF\n"),
+        result("u1", "t1", Some(report)),
+        call("a2", "t2", "cat > b.rs <<'EOF'\nfn b() {}\nEOF\n"),
+        result("u2", "t2", None),
+        record("user", "u3", serde_json::json!("thanks")),
+    ]
+    .iter()
+    .map(serde_json::Value::to_string)
+    .collect()
+}
+
+/// Unconfirmed shell writes counted by each capture limitation in `s`.
+fn unconfirmed_shell_writes(s: &Setup) -> u64 {
+    let snapshot = s.store.snapshot().unwrap();
+    snapshot
+        .sessions()
+        .iter()
+        .flat_map(|session| snapshot.observations(session).unwrap())
+        .filter_map(|o| match o {
+            Observation::CaptureLimitation(limitation) => {
+                Some(limitation.counts.unconfirmed_shell_writes)
+            }
+            _ => None,
+        })
+        .sum()
+}
+
+#[test]
+fn a_heredoc_write_synced_in_pieces_is_recorded_and_counted_once() {
+    let lines = heredoc_writes();
+    for cut in 0..=lines.len() {
+        let s = setup(joined(&lines[..cut]).as_bytes());
+        sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+        std::fs::write(&s.transcript, joined(&lines)).unwrap();
+        sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+
+        let snapshot = s.store.snapshot().unwrap();
+        let observations = snapshot.observations(&SessionId::new("s")).unwrap();
+        let shell_edits: Vec<_> = observations
+            .iter()
+            .filter_map(|o| match o {
+                Observation::Edit(edit) => Some(edit),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shell_edits.len(), 1, "cut at {cut}");
+        let edit = shell_edits[0];
+        assert_eq!(edit.path, PathBuf::from("a.rs"), "cut at {cut}");
+        assert_eq!(
+            edit.transcript.as_deref(),
+            Some(cursor_key(&s.transcript).as_str()),
+            "cut at {cut}"
+        );
+        // The edit names a command the same record holds.
+        let EditOrigin::Shell { command, .. } = &edit.origin else {
+            panic!("cut at {cut}: {:?}", edit.origin);
+        };
+        let holds_command = observations
+            .iter()
+            .any(|o| matches!(o, Observation::Command(c) if c.id == *command));
+        assert!(holds_command, "cut at {cut}");
+        assert_eq!(unconfirmed_shell_writes(&s), 1, "cut at {cut}");
+    }
+}
+
 /// Returns fixture lines without newline characters.
 fn fixture_lines() -> Vec<String> {
     String::from_utf8(fixture())
@@ -926,6 +1029,7 @@ fn syncing_at_every_line_boundary_matches_one_whole_sync() {
     let worktree = "/work/repo/.claude/worktrees/x";
     let transcripts = [
         ("fixture", fixture_lines()),
+        ("heredoc writes", heredoc_writes()),
         ("interleaved tool uses", interleaved_tool_uses()),
         ("late foreign checkout", late_foreign_checkout()),
         (

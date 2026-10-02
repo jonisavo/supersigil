@@ -13,13 +13,17 @@ use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, Conflict, LineOutcome, Origin, PathStatus, Provenance};
 use supersigil_record::EventId;
-use supersigil_record::observations::Material;
+use supersigil_record::observations::{ChangeKind, Material};
 
 use crate::diff::diff_blob_lines;
-use crate::model::{EditInfo, EvidenceInfo, RecordInfo, analysis_edits, outcome_edits, text};
+use crate::model::{
+    CommandChange, EditInfo, EditOriginInfo, EvidenceInfo, RecordInfo, analysis_edits,
+    outcome_edits, text,
+};
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
 use crate::summary::{
-    class_words, content_match_words, context_lines, push, reason_words, relation_words,
+    class_words, command_line, content_match_words, context_lines, push, reason_words,
+    recorded_commands, relation_words,
 };
 
 /// The `why` result.
@@ -43,6 +47,58 @@ pub struct Why {
     pub edits: BTreeMap<String, EditInfo>,
     /// Edits for this path excluded as conflicting evidence.
     pub conflicting_edits: Vec<Conflict>,
+    /// Commands the harness reported as changing the file, newest first,
+    /// with whether their diffs add the line's text. Observations, never
+    /// attribution.
+    pub command_changes: Vec<LineCommandChange>,
+}
+
+/// A command the harness reported as changing the explained file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LineCommandChange {
+    /// The command and what the harness reported.
+    #[serde(flatten)]
+    pub change: CommandChange,
+    /// Whether retained hunks add exactly the explained line's text without
+    /// its terminator (one `\n` and one preceding `\r`). This is a
+    /// display-text match: capped hunks cover the whole command, so `true`
+    /// is not attribution and `false` does not rule out a change to the
+    /// line. Always `false` for whitespace-only lines, whose text
+    /// identifies nothing, and when no line was analyzed.
+    pub adds_line_text: bool,
+}
+
+/// Pairs each of `changes` with whether its reported diff adds `line`'s
+/// text ([`LineCommandChange::adds_line_text`]).
+#[must_use]
+pub fn line_command_changes(
+    changes: Vec<CommandChange>,
+    line: Option<&WhyLine>,
+) -> Vec<LineCommandChange> {
+    let text = line
+        .map(|line| match line.text.strip_suffix('\n') {
+            Some(text) => text.strip_suffix('\r').unwrap_or(text),
+            // An unterminated last line: a `\r` at its end is its text.
+            None => line.text.as_str(),
+        })
+        .filter(|text| !text.trim().is_empty());
+    changes
+        .into_iter()
+        .map(|change| {
+            let adds_line_text = text.is_some_and(|text| {
+                change.patch.retained().is_some_and(|hunks| {
+                    hunks
+                        .iter()
+                        .flat_map(|hunk| &hunk.lines)
+                        .any(|line| line.strip_prefix('+') == Some(text))
+                })
+            });
+            LineCommandChange {
+                change,
+                adds_line_text,
+            }
+        })
+        .collect()
 }
 
 /// What `why` read.
@@ -228,6 +284,22 @@ fn head_difference(
     }
 }
 
+/// Whether `outcome` is one the ordered rules decided: attributed, a
+/// whitespace-only or line-ending change, or realigned. An unresolved,
+/// ambiguous, content-matched, or unattributed line is left unexplained.
+fn explained(outcome: &Outcome) -> bool {
+    match outcome {
+        Outcome::Attributed { .. }
+        | Outcome::WhitespaceOnly { .. }
+        | Outcome::LineEndingChanged
+        | Outcome::Realigned { .. } => true,
+        Outcome::Unattributed { .. }
+        | Outcome::Unresolved { .. }
+        | Outcome::Ambiguous { .. }
+        | Outcome::ContentMatch { .. } => false,
+    }
+}
+
 /// The edits `combined`, a target line's combined outcome, names as
 /// contributing, each with how. Only an outcome the ordered rules decided
 /// from an agreed provenance whose origins are all explained has
@@ -237,14 +309,8 @@ fn contributors(
     outcome: &Outcome,
     combined: Option<&LineOutcome>,
 ) -> BTreeMap<EventId, BTreeSet<Contribution>> {
-    let explained = matches!(
-        outcome,
-        Outcome::Attributed { .. }
-            | Outcome::WhitespaceOnly { .. }
-            | Outcome::LineEndingChanged
-            | Outcome::Realigned { .. }
-    );
-    let Some(LineOutcome::Agreed { provenance, .. }) = combined.filter(|_| explained) else {
+    let Some(LineOutcome::Agreed { provenance, .. }) = combined.filter(|_| explained(outcome))
+    else {
         return BTreeMap::new();
     };
     let Provenance {
@@ -315,9 +381,18 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
             }
         }
     }
-    // Only the edits the line's provenance names as contributing, each with
-    // how: an unexplained, ambiguous, unresolved, or unanalyzed line has
-    // none, and the other edits the analysis refers to stay in the JSON map.
+    push_contributors(&mut out, why, escape);
+    push_command_changes(&mut out, why, escape);
+    for line in context_lines(&why.records, &why.evidence, escape) {
+        push(&mut out, &format!("  {line}"));
+    }
+    out
+}
+
+/// Lists edits named by the line's provenance and their roles. Unexplained,
+/// ambiguous, unresolved, or unanalyzed lines have none. Other edits
+/// referenced by the analysis stay in the JSON map.
+fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     let mut edits: Vec<(&EventId, String, Option<&EditInfo>)> = why
         .line
         .iter()
@@ -334,7 +409,7 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
     for (id, how, edit) in edits {
         let Some(edit) = edit else {
             push(
-                &mut out,
+                out,
                 &format!(
                     "  edit {} ({how}): no details recorded",
                     escape(id.as_str())
@@ -359,7 +434,7 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
             },
         );
         push(
-            &mut out,
+            out,
             &format!(
                 "  edit {} ({how}) at {}, session {}: {prompt}",
                 escape(id.as_str()),
@@ -367,11 +442,118 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
                 escape(&edit.session)
             ),
         );
+        if let EditOriginInfo::Shell { command, text } = &edit.origin {
+            let shown = text.as_deref().map_or_else(
+                || "command text not recorded".to_owned(),
+                |text| command_line(text, escape),
+            );
+            // The edit is inferred: its text is the command's, and the
+            // harness confirmed the command, not the statement.
+            push(
+                out,
+                &format!(
+                    "    read from a heredoc in command {}: {shown}",
+                    escape(command)
+                ),
+            );
+            push(
+                out,
+                "    the harness reported that the command changed the file, not that this \
+                 statement ran",
+            );
+        }
     }
-    for line in context_lines(&why.records, &why.evidence, escape) {
-        push(&mut out, &format!("  {line}"));
+}
+
+/// Report uncertainty for `change`, or `None` if none: flags with
+/// unestablished meanings, counted but unnamed changed files, and files named
+/// outside the command's checkout.
+fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<String> {
+    let files = |count: u64| if count == 1 { "file" } else { "files" };
+    let mut limits = Vec::new();
+    if !change.flags.is_empty() {
+        let flags: Vec<String> = change.flags.iter().map(|flag| escape(flag)).collect();
+        limits.push(format!("flagged {}", flags.join(", ")));
     }
-    out
+    if change.unlisted > 0 {
+        let count = change.unlisted;
+        limits.push(format!("{count} changed {} it does not name", files(count)));
+    }
+    if change.outside > 0 {
+        let count = change.outside;
+        limits.push(format!("{count} {} outside the checkout", files(count)));
+    }
+    (!limits.is_empty()).then(|| limits.join("; "))
+}
+
+/// Lists the commands reported as changing the file, with what each report
+/// leaves open. Under an unexplained line, marks commands whose diffs add
+/// its text, or says why no diff can be compared.
+fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String) {
+    if why.command_changes.is_empty() {
+        return;
+    }
+    push(
+        out,
+        &format!(
+            "  changed by {} (observed by the harness, not attribution):",
+            recorded_commands(
+                why.command_changes
+                    .iter()
+                    .map(|entry| entry.change.command.as_str())
+            )
+        ),
+    );
+    let unexplained = why
+        .line
+        .as_ref()
+        .is_some_and(|line| !explained(&line.outcome));
+    for entry in &why.command_changes {
+        let change = &entry.change;
+        let kind = match change.kind {
+            ChangeKind::Created => "created",
+            ChangeKind::Deleted => "deleted",
+            ChangeKind::Modified => "modified",
+            ChangeKind::NotStated => "change not stated",
+        };
+        push(
+            out,
+            &format!(
+                "    {}  {}  session {}  {kind}",
+                escape(&change.time),
+                escape(&change.command),
+                escape(&change.session)
+            ),
+        );
+        push(
+            out,
+            &format!("      {}", command_line(&change.text, escape)),
+        );
+        if let Some(limits) = report_limits(change, escape) {
+            push(out, &format!("      its report: {limits}"));
+        }
+        if !unexplained {
+            continue;
+        }
+        if entry.adds_line_text {
+            push(
+                out,
+                "      its reported diff adds a line with this text (display match)",
+            );
+            continue;
+        }
+        match &change.patch {
+            Material::Retained(_) => {}
+            Material::Withheld { policy } => push(
+                out,
+                &format!("      reported diff withheld: {}", escape(policy)),
+            ),
+            Material::Unavailable { reason } => push(
+                out,
+                &format!("      reported diff not retained: {}", escape(reason)),
+            ),
+        }
+    }
 }
 
 fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {

@@ -10,8 +10,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::{
-    WT, create, in_worktree, overwrite, replace, replace_all, request, state, unknown_op,
-    with_hashes, with_patch,
+    WT, append, append_creating, create, in_worktree, overwrite, replace, replace_all, request,
+    state, unknown_op, with_hashes, with_patch,
 };
 use proptest::prelude::*;
 use supersigil_anchor::provenance::replay;
@@ -88,13 +88,20 @@ impl Doc {
 
 /// The recorder's semantics, written again: an Edit replaces the first
 /// occurrence (every non-overlapping one for replace-all); a Write's
-/// result is its content.
+/// result is its content; an append's is the bytes before it, if any,
+/// followed by its non-empty text.
 fn oracle_forward(edit: &Edit, before: Option<&[u8]>) -> Option<Vec<u8>> {
     let text = |m: &supersigil_record::observations::Material<String>| {
         m.retained().map(|s| s.as_bytes().to_vec())
     };
     match edit.operation {
         EditOperation::Write => text(&edit.new_text),
+        EditOperation::Append => {
+            let added = text(&edit.new_text).filter(|added| !added.is_empty())?;
+            let mut out = before.unwrap_or_default().to_vec();
+            out.extend_from_slice(&added);
+            Some(out)
+        }
         EditOperation::Unknown => None,
         EditOperation::Replace => {
             let (old, new, before) = (text(&edit.old_text)?, text(&edit.new_text)?, before?);
@@ -152,8 +159,12 @@ struct Built {
     expected: Vec<Origin>,
 }
 
-/// One generated operation: (delete?, pick, hash known?, patch retained?).
-type Op = (bool, u16, bool, bool);
+/// One generated operation: (kind, pick, hash known?, patch retained?).
+/// Kind 0 replaces the picked line with a fresh one, 1 deletes it, and 2
+/// appends a fresh line. Descendants of appended lines are replaced
+/// instead of deleted: append then delete returns to an earlier state,
+/// leaving two readings.
+type Op = (u8, u16, bool, bool);
 
 /// Builds a history from generated choices. With `interruption =
 /// Some((after, pick))`, a fresh line nothing records is inserted after
@@ -175,9 +186,11 @@ fn build(base_present: bool, size: usize, ops: &[Op], interruption: Option<(u16,
         edits.push(candidate(create("op0", "t", 1, &content)));
         (None, Doc::new(&content, |_| Tag::Op(0)), 1)
     };
+    // Operations whose line descends from an appended one.
+    let mut appended = BTreeSet::new();
     let mut pending =
         interruption.map(|(after, pick)| (usize::from(after) % (ops.len() + 1), pick));
-    for (step, &(delete, pick, known, patched)) in ops.iter().enumerate() {
+    for (step, &(kind, pick, known, patched)) in ops.iter().enumerate() {
         if let Some((_, at)) = pending.filter(|&(after, _)| after == step) {
             doc = interrupt(&doc, at, &mut fresh);
             pending = None;
@@ -190,12 +203,27 @@ fn build(base_present: bool, size: usize, ops: &[Op], interruption: Option<(u16,
         if lines.is_empty() {
             break;
         }
-        let (s, e) = lines[usize::from(pick) % lines.len()];
-        let old = String::from_utf8(doc.bytes[s..e].to_vec()).unwrap();
-        let new = if delete { String::new() } else { fresh() };
-        let next = doc.splice(s, e - s, &new, Tag::Op(k));
         let ordinal = u64::try_from(k).unwrap() + 1;
-        let mut edit = replace(&format!("op{k}"), "t", ordinal, &old, &new);
+        let (next, mut edit) = if kind == 2 {
+            let new = fresh();
+            let next = doc.splice(doc.bytes.len(), 0, &new, Tag::Op(k));
+            appended.insert(k);
+            (next, append(&format!("op{k}"), "t", ordinal, &new))
+        } else {
+            let (s, e) = lines[usize::from(pick) % lines.len()];
+            let old = String::from_utf8(doc.bytes[s..e].to_vec()).unwrap();
+            let from_append = matches!(doc.tags[s], Tag::Op(j) if appended.contains(&j));
+            let new = if kind == 1 && !from_append {
+                String::new()
+            } else {
+                fresh()
+            };
+            if from_append {
+                appended.insert(k);
+            }
+            let next = doc.splice(s, e - s, &new, Tag::Op(k));
+            (next, replace(&format!("op{k}"), "t", ordinal, &old, &new))
+        };
         if known {
             edit = with_hashes(edit, &doc.text(), &next.text());
         }
@@ -211,8 +239,20 @@ fn build(base_present: bool, size: usize, ops: &[Op], interruption: Option<(u16,
     if let Some((_, at)) = pending {
         doc = interrupt(&doc, at, &mut fresh);
     }
+    let (expected, unrecorded) = expected_origins(base.as_deref(), &doc);
+    Built {
+        base,
+        target: doc.text(),
+        edits,
+        unrecorded,
+        expected,
+    }
+}
+
+/// The oracle's outcome per line of `doc`, and the line index of the
+/// unrecorded line when there is one.
+fn expected_origins(base: Option<&str>, doc: &Doc) -> (Vec<Origin>, Option<usize>) {
     let base_starts = base
-        .as_deref()
         .map(|b| Doc::new(b, Tag::Base).lines())
         .unwrap_or_default();
     let base_line = |offset: usize| {
@@ -245,13 +285,7 @@ fn build(base_present: bool, size: usize, ops: &[Op], interruption: Option<(u16,
             }
         })
         .collect();
-    Built {
-        base,
-        target: doc.text(),
-        edits,
-        unrecorded,
-        expected,
-    }
+    (expected, unrecorded)
 }
 
 fn candidate(edit: Edit) -> CandidateEdit {
@@ -269,10 +303,7 @@ fn restricted() -> impl Strategy<Value = (bool, usize, Vec<Op>)> {
     (
         any::<bool>(),
         1usize..=5,
-        prop::collection::vec(
-            (any::<bool>(), any::<u16>(), any::<bool>(), any::<bool>()),
-            1..=4,
-        ),
+        prop::collection::vec((0u8..3, any::<u16>(), any::<bool>(), any::<bool>()), 1..=4),
     )
 }
 
@@ -332,7 +363,7 @@ proptest! {
 
 // ---------------------------------------------------------------------------
 // Unrestricted histories: duplicates, whitespace, replace-all, writes,
-// unknown operations, two transcripts and worktrees, equal ordinals
+// appends, unknown operations, two transcripts and worktrees, equal ordinals
 // ---------------------------------------------------------------------------
 
 // "\ta\n" and "  a\n" look the same in a patch.
@@ -356,7 +387,7 @@ struct OpChoice {
 
 fn op_choice() -> impl Strategy<Value = OpChoice> {
     (
-        0u8..5,
+        0u8..6,
         any::<u16>(),
         1u8..6,
         prop::collection::vec(0u8..7, 0..3),
@@ -403,6 +434,7 @@ fn build_unrestricted(
         let transcript = if op.transcript { "t2" } else { "t1" };
         let replacement = lines(&op.replacement);
         let edit = match (op.kind, current.as_deref()) {
+            (5, None) => append_creating(&id, transcript, 0, &replacement),
             (_, None) => create(&id, transcript, 0, &replacement),
             (0 | 1 | 4, Some(text)) if !text.is_empty() => {
                 let start = usize::from(op.start) % text.len();
@@ -417,6 +449,7 @@ fn build_unrestricted(
                 }
             }
             (2, Some(_)) => overwrite(&id, transcript, 0, &replacement),
+            (5, Some(_)) => append(&id, transcript, 0, &replacement),
             _ => continue,
         };
         let before = current.as_deref().map(str::as_bytes);
@@ -554,5 +587,9 @@ fn the_oracle_replaces_the_first_occurrence_like_the_recorder() {
     );
     let all = replace_all("e", "t", 1, "a", "aa");
     assert_eq!(oracle_forward(&all, Some(b"aba")), Some(b"aabaa".to_vec()));
+    let added = append("e", "t", 1, "c\n");
+    assert_eq!(oracle_forward(&added, Some(b"a")), Some(b"ac\n".to_vec()));
+    assert_eq!(oracle_forward(&added, None), Some(b"c\n".to_vec()));
+    assert_eq!(oracle_forward(&append("e", "t", 1, ""), Some(b"a")), None);
     assert_eq!(state(Some("a")), State::Present(b"a".to_vec()));
 }

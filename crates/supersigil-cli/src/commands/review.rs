@@ -4,17 +4,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write as _};
-use std::path::PathBuf;
 
 use supersigil_anchor::PathAttribution;
 use supersigil_git::bytes::{Blob, read_blobs_within};
 use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, changed_paths, classify_bytes, classify_change,
 };
-use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
+use supersigil_git::{Ancestry, ObjectId, RepoPath, TargetSpec};
 use supersigil_review::model::{
-    ANCESTRY_NOTE, BytesStatus, EditInfo, FileInput, FileReview, FileStatus, NotCapturedInfo,
-    RepoPathInfo, ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
+    ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
+    NotCapturedInfo, RepoPathInfo, ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::outcome::Outcome;
 use supersigil_review::summary::render_summary;
@@ -73,10 +72,7 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
     let mut changes = changed_paths(&g.repo, &g.range.base.tree, &g.target_tree, &g.paths)?;
     changes.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
     let blobs = diffable_blobs(g, &changes)?;
-    let mention_worktrees: Vec<PathBuf> = match g.range.target {
-        ResolvedTarget::WorkingTree { .. } => vec![g.worktree.clone()],
-        ResolvedTarget::Commit { .. } => g.candidate_worktrees.clone(),
-    };
+    let mention_worktrees = g.observed_worktrees();
     let commands = g
         .evidence
         .candidate_commands(&g.candidate_transcripts, &mention_worktrees);
@@ -187,6 +183,8 @@ fn review_file(
             .is_none()
             .then(|| change.path.escaped()),
     };
+    let command_changes: Vec<CommandChange> =
+        g.command_changes.touching(&change.path).cloned().collect();
     let mentions = change
         .path
         .to_str()
@@ -205,6 +203,7 @@ fn review_file(
         target_blob: new.filter(|_| text).map(|(_, b)| b),
         attribution: attribution_state(&attribution),
         mentions,
+        command_changes,
         conflicting_edits: conflicts,
     });
     // Keep mentions for deletions and files with unattributed spans.
@@ -222,7 +221,7 @@ fn has_unattributed(file: &FileReview) -> bool {
         .any(|s| matches!(s.outcome, Outcome::Unattributed { .. }))
 }
 
-/// The scope block: options, untracked files (those a recorded edit wrote
+/// The scope block: options, untracked files (those a recorded edit names
 /// first, each with the flag that includes it), paths whose on-disk state
 /// was not captured, unmerged paths, and the ancestry note.
 fn scope_info(g: &Gathered) -> ScopeInfo {
