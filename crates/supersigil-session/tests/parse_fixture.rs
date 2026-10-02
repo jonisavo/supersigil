@@ -2199,6 +2199,20 @@ fn an_append_must_end_the_file_the_diff_shows_the_end_of() {
 }
 
 #[test]
+fn an_append_longer_than_the_file_the_diff_shows_contradicts() {
+    // Another statement left a two-line file: the hunk starts at line 1
+    // and reaches the end, so the file cannot hold four appended lines.
+    let command = "cat >> a.rs <<'EOF'\none\ntwo\nthree\nfour\nEOF\n";
+    let lines = &[" three", "-old", "+four"];
+    let short = entry("/work/repo/a.rs", false, 1, lines);
+    assert_eq!(confirmed_with(command, &short), (0, 1));
+    // The same hunk further down leaves room for the lines it does not
+    // show.
+    let room = entry("/work/repo/a.rs", false, 3, lines);
+    assert_eq!(confirmed_with(command, &room), (1, 0));
+}
+
+#[test]
 fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_append() {
     let command = "cat >> a.rs <<'EOF'\ny\nz\nEOF\n";
     // As much context after the last change as before the first: the file

@@ -96,7 +96,9 @@ pub(super) enum Written {
 ///   (measured: every hunk that starts after line 1 leads with three
 ///   context lines, and every hunk followed by another trails with three).
 ///   When every hunk is counted as above, the lines that hunk shows last
-///   must then be the last written lines. They need not be shown as added:
+///   must then be the last written lines. And the file, as long as the
+///   lines before that hunk and the lines it shows, must hold at least as
+///   many lines as were written. They need not be shown as added:
 ///   a diff may align an appended line with an equal old one and show it
 ///   as context. The first written line need only end the line it is
 ///   compared with, since an append onto a line with no newline after it
@@ -141,14 +143,30 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
             let last = hunks
                 .iter()
                 .zip(&sides)
-                .max_by_key(|(hunk, _)| hunk.new_start)
-                .map(|(_, side)| side);
+                .max_by_key(|(hunk, _)| hunk.new_start);
             counted
-                && last.is_some_and(|side| {
-                    side.ends_file && !ends_with_appended(&side.lines, &expected)
+                && last.is_some_and(|(hunk, side)| {
+                    side.ends_file
+                        && (shorter_than(hunk, side, expected.len())
+                            || !ends_with_appended(&side.lines, &expected))
                 })
         }
     }
+}
+
+/// Whether `hunk`, which reaches the end of the file, shows the file to
+/// hold fewer than `appended` lines: the file is as long as the lines
+/// before the hunk and the lines it shows. A hunk that shows no line of
+/// the file, or does not start at a 1-based line, places nothing.
+fn shorter_than(hunk: &Hunk, side: &NewSide, appended: usize) -> bool {
+    if side.lines.is_empty() {
+        return false;
+    }
+    usize::try_from(hunk.new_start)
+        .ok()
+        .and_then(|start| start.checked_sub(1))
+        .and_then(|before| before.checked_add(side.lines.len()))
+        .is_some_and(|length| length < appended)
 }
 
 /// Whether a file whose last lines are `shown` ends with the bytes of the
