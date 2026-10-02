@@ -226,7 +226,14 @@ for its command as a whole: when its statement did not run, another
 statement changed the same file, and the harness's hunks show nothing that
 disagrees (it gave none, or the file ended with the same text), the record
 holds an edit that did not happen, which attributes only where the file's
-bytes reproduce it.
+bytes reproduce it. The report describes the file the command ends with, so
+a heredoc write that a later `>` of the same command replaced is recorded
+whether or not its statement ran. The harness's created flag describes the
+file before the command: when an earlier statement that the reader does not
+recognize created the file, the edit's absent before-state is wrong, and an
+append then fails its forward check. A `cat` that the user's shell profile
+redefines is read as the program; the hunks reject such a write only when
+they show other lines.
 Several hashless sessions can remain ambiguous. Claude Code file-history
 backups are not read. Captured trees have no retention ref and can disappear
 under git garbage collection. A transcript that vanishes between discovery
