@@ -83,12 +83,14 @@ pub(super) enum Written {
 /// something they show of the file after the command:
 ///
 /// - A whole file: every line on a hunk's new side (context and added
-///   lines) must be the written line at that position.
-/// - A created file, besides: its diff is the file. When every hunk's
-///   header counts exactly the new-side lines the hunk shows (measured:
-///   always, over 5,181 hunks; a diff of more than 400 lines has no entry
-///   instead of a shortened one), the lines shown must be as many as the
-///   lines written.
+///   lines) must be the written line at that position. A hunk with a line
+///   this reader does not know shows nothing by position: that line may
+///   stand for one of the new side.
+/// - A created file, besides: its diff is the file. When every hunk holds
+///   only lines this reader knows and its header counts exactly the
+///   new-side lines it shows (measured: always, over 5,181 hunks; a diff of
+///   more than 400 lines has no entry instead of a shortened one), the
+///   lines shown must be as many as the lines written.
 /// - The end of a file: the hunks must show where the file ends before
 ///   they can speak against its last bytes. The last hunk does when it has
 ///   fewer context lines after its last change than before its first: a
@@ -108,12 +110,16 @@ pub(super) enum Written {
 /// - Either: written text ends with a newline, so a hunk that marks a
 ///   line of its new side `\ No newline at end of file` contradicts any
 ///   text written. The same marker on a removed line describes the file
-///   before the command, and no other line is that marker.
+///   before the command, and no other line is that marker. A marker after
+///   a line this reader knows speaks whatever else its hunk holds.
 ///
 /// An entry without any hunk shows nothing and contradicts nothing.
 pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
     let sides: Vec<NewSide> = hunks.iter().map(NewSide::of).collect();
     let counted = sides.iter().all(|side| side.counted);
+    let known = sides
+        .iter()
+        .all(|side| !matches!(side.reach, Reach::Unknown));
     let (Written::Whole { text, .. } | Written::Tail(text)) = written;
     if !text.is_empty() && sides.iter().any(|side| side.unterminated) {
         return true;
@@ -124,10 +130,11 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
             let shorter = *created
                 && !hunks.is_empty()
                 && counted
+                && known
                 && sides.iter().map(|side| side.lines.len()).sum::<usize>() != expected.len();
             shorter
                 || hunks.iter().zip(&sides).any(|(hunk, side)| {
-                    if side.lines.is_empty() {
+                    if side.lines.is_empty() || matches!(side.reach, Reach::Unknown) {
                         return false;
                     }
                     // A non-empty new side starts at a 1-based line.
@@ -146,7 +153,7 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
                 .max_by_key(|(hunk, _)| hunk.new_start);
             counted
                 && last.is_some_and(|(hunk, side)| {
-                    side.ends_file
+                    matches!(side.reach, Reach::End)
                         && (shorter_than(hunk, side, expected.len())
                             || !ends_with_appended(&side.lines, &expected))
                 })
@@ -210,11 +217,23 @@ struct NewSide<'a> {
     unterminated: bool,
     /// Whether the hunk's header counts exactly `lines`.
     counted: bool,
-    /// Whether the hunk shows fewer context lines after its last change
-    /// than before its first, as only a hunk at the end of the file does.
-    /// Never set for a hunk with a line this reader does not know, or
-    /// whose header counts other old-side lines than it shows.
-    ends_file: bool,
+    /// Where in the file `lines` can be placed.
+    reach: Reach,
+}
+
+/// Where in the file a hunk's new-side lines can be placed.
+enum Reach {
+    /// Nowhere: the hunk holds a line this reader does not know, which may
+    /// stand for one of the new side, so its lines show nothing by
+    /// position.
+    Unknown,
+    /// From the hunk's new start; the file may go on after them.
+    Lines,
+    /// From the hunk's new start, to the end of the file: the hunk shows
+    /// fewer context lines after its last change than before its first, as
+    /// only a hunk at the end of the file does, and its header counts the
+    /// old-side lines it shows.
+    End,
 }
 
 impl<'a> NewSide<'a> {
@@ -223,7 +242,7 @@ impl<'a> NewSide<'a> {
             lines: Vec::new(),
             unterminated: false,
             counted: false,
-            ends_file: false,
+            reach: Reach::Unknown,
         };
         // The context lines before the first change, and since the last.
         let mut leading = None;
@@ -265,9 +284,15 @@ impl<'a> NewSide<'a> {
             }
         }
         side.counted = usize::try_from(hunk.new_lines) == Ok(side.lines.len());
-        side.ends_file = known
-            && usize::try_from(hunk.old_lines) == Ok(old)
-            && leading.is_some_and(|leading| trailing < leading);
+        side.reach = if !known {
+            Reach::Unknown
+        } else if usize::try_from(hunk.old_lines) == Ok(old)
+            && leading.is_some_and(|leading| trailing < leading)
+        {
+            Reach::End
+        } else {
+            Reach::Lines
+        };
         side
     }
 }

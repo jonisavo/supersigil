@@ -2354,6 +2354,26 @@ fn only_the_diff_marker_says_a_line_has_no_newline() {
 }
 
 #[test]
+fn a_hunk_with_a_line_the_reader_does_not_know_shows_nothing_by_position() {
+    let command = "cat > a.rs <<'E'\na\nb\nc\nE\n";
+    for created in [true, false] {
+        // The unknown line stands for the second new-side line, which the
+        // header counts: nothing shows that `c` is on line 2.
+        let mut unknown = entry("/work/repo/a.rs", created, 1, &["+a", "? omitted", "+c"]);
+        unknown["hunks"][0]["newLines"] = json!(3);
+        assert_eq!(confirmed_with(command, &unknown), (1, 0), "{created}");
+        // In its place, a line the reader knows speaks.
+        let wrong = entry("/work/repo/a.rs", created, 1, &["+a", "+x", "+c"]);
+        assert_eq!(confirmed_with(command, &wrong), (0, 1), "{created}");
+    }
+    // Nor does a created file's hunk with an unknown line say how long the
+    // file is, though its header counts the lines it shows.
+    let longer = "cat > a.rs <<'E'\na\nb\nc\nd\nE\n";
+    let unknown = entry("/work/repo/a.rs", true, 1, &["+a", "+b", "? omitted", "+c"]);
+    assert_eq!(confirmed_with(longer, &unknown), (1, 0));
+}
+
+#[test]
 fn a_hunk_cut_short_does_not_speak_against_an_append() {
     let command = "cat >> a.rs <<'E'\ny\nE\n";
     // The header counts three new-side lines; the hunk shows two.
