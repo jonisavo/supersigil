@@ -108,14 +108,22 @@ impl Evidence {
     }
 
     /// The candidate transcripts: the union of
-    /// the transcripts containing one of `edits` and the transcripts with an
-    /// observation whose working directory lies in one of `worktrees`,
-    /// whether or not any of their edits end up attributed.
+    /// the transcripts containing one of `edits`, the transcripts with an
+    /// observation whose working directory lies in one of `worktrees`, and
+    /// the transcripts with a command whose retained change report names a
+    /// file that lies in one of `worktrees`, whether or not any of their
+    /// edits end up attributed.
+    ///
+    /// A reported file is placed as [`Self::command_changes`] places it: in
+    /// the innermost of `roots`, the registered worktrees, containing it. A
+    /// command run outside a worktree can change a file in it.
     #[must_use]
     pub fn candidate_transcripts<'a>(
         &self,
         edits: impl IntoIterator<Item = &'a Edit>,
+        roots: &[PathBuf],
         worktrees: &[PathBuf],
+        ignore_case: bool,
     ) -> BTreeSet<String> {
         let mut transcripts: BTreeSet<String> = edits
             .into_iter()
@@ -126,6 +134,24 @@ impl Evidence {
                 .iter()
                 .any(|c| worktrees.iter().any(|w| within(c, w)));
             if inside {
+                transcripts.insert(transcript.clone());
+            }
+        }
+        for command in self.commands.values() {
+            let Some(transcript) = &command.transcript else {
+                continue;
+            };
+            let Some(report) = command.changes.retained() else {
+                continue;
+            };
+            if transcripts.contains(transcript) {
+                continue;
+            }
+            let changed_inside = report.files.iter().any(|file| {
+                map_file(&command.checkout, &file.path, roots, ignore_case)
+                    .is_some_and(|mapped| worktrees.contains(&mapped.worktree))
+            });
+            if changed_inside {
                 transcripts.insert(transcript.clone());
             }
         }
@@ -836,6 +862,32 @@ mod tests {
         assert_eq!(
             listed,
             vec![("c2", nested.clone()), ("c1", nested), ("c1", repo)]
+        );
+    }
+
+    #[test]
+    fn a_command_that_changed_a_worktree_from_outside_it_makes_a_candidate_transcript() {
+        let repo = PathBuf::from("/work/repo");
+        let nested = repo.join(".claude/worktrees/x");
+        let observations = [
+            // Run from the main checkout, changing a file of the nested one;
+            // nothing else of `t.jsonl` lies in it.
+            changing("c1", 1, &repo, "t.jsonl", &[".claude/worktrees/x/a.rs"]),
+            // A file of the main checkout only.
+            changing("c2", 2, &repo, "main.jsonl", &["a.rs"]),
+            // A command without a report.
+            command("c3", "./gen.sh", &repo, "none.jsonl"),
+        ];
+        let evidence = index(&observations);
+        let roots = [repo, nested.clone()];
+        assert_eq!(
+            evidence.candidate_transcripts(
+                std::iter::empty(),
+                &roots,
+                std::slice::from_ref(&nested),
+                false,
+            ),
+            BTreeSet::from(["t.jsonl".to_owned()])
         );
     }
 

@@ -2439,6 +2439,80 @@ fn a_commit_review_attributes_shell_edits_and_lists_command_changes() {
     );
 }
 
+#[test]
+fn a_command_that_changed_a_nested_worktree_from_outside_it_is_listed() {
+    let f = Fixture::new();
+    write(&f.repo, "a.rs", "old\n");
+    f.commit(&f.repo, "base");
+    f.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "feature",
+        ".claude/worktrees/feature",
+    ]);
+    let nested = f.repo.join(".claude/worktrees/feature");
+    // A session in the main checkout whose only activity is a script that
+    // changes a file of the nested worktree: no edit and no observation of
+    // the transcript lies in it.
+    let text = Session::new("s-outer", &f.repo)
+        .prompt("Regenerate the feature.")
+        .bash(
+            "t_gen",
+            "./regenerate.sh",
+            Some(change_report(
+                &nested.join("a.rs"),
+                false,
+                &["-old", "+new"],
+            )),
+        )
+        .text();
+    let transcript = f.transcript(&f.repo, "outer.jsonl", &text);
+    write(&nested, "a.rs", "new\n");
+
+    let review = f.json(&nested, &["review", "--format", "json"]);
+
+    let a_rs = file(&review, "a.rs");
+    let changes = a_rs["command_changes"].as_array().unwrap();
+    let listed: Vec<(&str, PathBuf)> = changes
+        .iter()
+        .map(|c| {
+            (
+                c["command"].as_str().unwrap(),
+                PathBuf::from(c["worktree"].as_str().unwrap()),
+            )
+        })
+        .collect();
+    let id = command_id("s-outer", "t_gen");
+    assert_eq!(listed, vec![(id.as_str(), nested.clone())]);
+    // The transcript is a candidate, so its capture limitations are listed.
+    let transcripts: Vec<PathBuf> = review["evidence"]["candidate_transcripts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| PathBuf::from(t["transcript"].as_str().unwrap()))
+        .collect();
+    assert_eq!(transcripts, vec![transcript]);
+
+    let output = f
+        .supersigil(&nested, &["review", "--format", "terminal"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains(
+            "M a.rs  +1 -1  2 unattributed: no surviving chain, changed by 1 recorded command\n"
+        ),
+        "{text}"
+    );
+}
+
 /// A session whose one command skips its heredoc (`false &&`) and creates
 /// the file with `echo`; the harness reports the file created, with
 /// `report_lines` as its hunk when there are any.

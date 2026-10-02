@@ -220,8 +220,9 @@ pub struct Gathered {
     pub unreconciled: Vec<UnreconciledCheckout>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
-    /// Transcripts holding a candidate edit or an observation made in a
-    /// candidate worktree, regardless of attribution success.
+    /// Transcripts holding a candidate edit, an observation made in a
+    /// candidate worktree, or a command the harness reported changing a
+    /// file in one, regardless of attribution success.
     pub candidate_transcripts: BTreeSet<String>,
     /// Globally accepted edits in candidate worktrees, indexed by path.
     /// These are the only edits attribution sees.
@@ -448,11 +449,13 @@ impl Prepared {
                 .iter()
                 .map(|r| (&r.record_id, r.observations.as_slice())),
         );
+        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
         let candidate_transcripts = evidence.candidate_transcripts(
             candidates.iter().map(|m| &m.candidate.edit),
+            &roots,
             &candidate_worktrees,
+            ignore_case,
         );
-        let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
         let command_changes = ByPath::new(
             evidence
                 .command_changes(
