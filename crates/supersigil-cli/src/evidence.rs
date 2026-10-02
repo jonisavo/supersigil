@@ -109,14 +109,13 @@ impl Evidence {
     }
 
     /// The candidate transcripts: the union of
-    /// the transcripts containing one of `edits`, the transcripts with an
-    /// observation whose working directory lies in one of `worktrees`, and
-    /// the transcripts with a command whose retained change report names a
-    /// file that lies in one of `worktrees`, whether or not any of their
-    /// edits end up attributed.
+    /// transcripts containing an edit in `edits`, an observation whose
+    /// working directory lies inside `worktrees`, or a command whose
+    /// retained report names a file in `worktrees`, regardless of
+    /// attribution success.
     ///
-    /// A reported file is placed as [`Self::command_changes`] places it: in
-    /// the innermost of `roots`, the registered worktrees, containing it. A
+    /// Reported files use [`Self::command_changes`]'s placement: the
+    /// innermost registered worktree in `roots` containing the file. A
     /// command run outside a worktree can change a file in it.
     #[must_use]
     pub fn candidate_transcripts<'a>(
@@ -231,20 +230,18 @@ impl Evidence {
         CandidateCommands { commands }
     }
 
-    /// The files that commands of `transcripts` changed in `worktrees`,
-    /// as the harness reported them: each change with the file's path
-    /// relative to its worktree, newest command first and by command id
-    /// among equal times. Time orders the listing only.
+    /// Changes reported by commands in `transcripts` for files in
+    /// `worktrees`, with paths relative to their worktrees. Listings sort
+    /// newest first, then by command id for equal times. Time orders only
+    /// presentation.
     ///
-    /// A reported file is placed as an edit's file is
-    /// ([`crate::mapping::map_file`]): in the innermost of `roots`, the
-    /// registered worktrees, containing it. A command without a retained
-    /// report contributes nothing, which says nothing about what it changed.
+    /// Files map to the innermost registered worktree in `roots`, as edits
+    /// do ([`crate::mapping::map_file`]). A command without a retained
+    /// report contributes nothing; this says nothing about what it changed.
     ///
-    /// A command is listed once per file the harness reported, per
-    /// worktree. When `ignore_case` is set, two reported spellings of one
-    /// file are two entries for the reviewed path, each with its own kind
-    /// and diff.
+    /// A command is listed once per reported file, per worktree. With
+    /// `ignore_case`, two spellings of one file give two entries for the
+    /// reviewed path, each with its own kind and diff.
     #[must_use]
     pub fn command_changes(
         &self,
@@ -363,11 +360,10 @@ impl CandidateCommands<'_> {
     }
 }
 
-/// The files of `command`'s retained change report that lie in one of
-/// `worktrees`, each with its report and where it maps: in the innermost of
-/// `roots`, the registered worktrees, containing it, as an edit's file does
-/// ([`crate::mapping::map_file`]). Nothing for a command without a retained
-/// report.
+/// Files in `command`'s retained report that lie in `worktrees`, each with
+/// its report and placement in the innermost registered worktree in
+/// `roots`, as for edits ([`crate::mapping::map_file`]). Returns nothing
+/// without a retained report.
 fn reported_in<'c>(
     command: &'c Command,
     roots: &'c [PathBuf],
@@ -756,8 +752,8 @@ mod tests {
         assert_eq!(ids, vec!["c1"]);
     }
 
-    /// A command issued at second `second` whose change report names
-    /// `files`, each as modified with no hunks retained.
+    /// A command issued at second `second` whose report names `files`
+    /// as modified, with no retained hunks.
     fn changing(
         id: &str,
         second: u32,
@@ -864,8 +860,9 @@ mod tests {
             changes(&evidence, &roots, std::slice::from_ref(&nested)),
             pairs(&[("c2", "a.rs"), ("c1", "a.rs")])
         );
-        // With both observed, one command is listed once per worktree it
-        // changed the path in, each entry naming its worktree.
+        // With both worktrees observed, the command is listed once per
+        // worktree where it changed the path. Each entry names its
+        // worktree.
         let both = evidence.command_changes(
             &BTreeSet::from(["t.jsonl".to_owned()]),
             &roots,
@@ -887,8 +884,8 @@ mod tests {
         let repo = PathBuf::from("/work/repo");
         let nested = repo.join(".claude/worktrees/x");
         let observations = [
-            // Run from the main checkout, changing a file of the nested one;
-            // nothing else of `t.jsonl` lies in it.
+            // Run from the main checkout, changing a nested worktree's file;
+            // `t.jsonl` has no other observation in that worktree.
             changing("c1", 1, &repo, "t.jsonl", &[".claude/worktrees/x/a.rs"]),
             // A file of the main checkout only.
             changing("c2", 2, &repo, "main.jsonl", &["a.rs"]),

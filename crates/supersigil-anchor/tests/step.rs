@@ -708,7 +708,7 @@ fn positions_giving_one_before_state_are_one_candidate() {
 #[test]
 fn forward_append_adds_its_text_after_the_last_byte() {
     let e = append("a", "t", 1, "c\n");
-    // No terminator is supplied: the text follows the last byte as it is.
+    // No terminator is added: the text follows the last byte unchanged.
     let forward = execute_forward(&e, &state(Some("a\nb"))).unwrap();
     assert_eq!(forward.after, state(Some("a\nbc\n")));
     assert_eq!(
@@ -743,7 +743,7 @@ fn an_append_reverses_to_the_bytes_before_its_text() {
     let e = append("a", "t", 1, "b\n");
     assert_eq!(befores(&run(&e, "a\nb\n", None)), vec!["a\n"]);
     assert_eq!(location_choices(&run(&e, "a\nb\n", None)), vec![false]);
-    // The text occurs earlier too; only the end is where an append wrote.
+    // The text also occurs earlier; an append writes only at the end.
     assert_eq!(befores(&run(&e, "b\nb\n", None)), vec!["b\n"]);
 }
 
@@ -777,7 +777,7 @@ fn an_append_to_an_existing_file_may_reverse_to_an_empty_file() {
         panic!("stopped");
     };
     assert_eq!(all.len(), 1);
-    // Recorded as present, so the before-state is an empty file, not absence.
+    // Recorded as present: the before-state is an empty file, not absence.
     assert_eq!(all[0].before, state(Some("")));
 }
 
@@ -849,8 +849,7 @@ fn an_append_candidate_is_charged_before_it_is_built() {
 
 #[test]
 fn an_append_candidate_contradicting_its_retained_patch_is_rejected() {
-    // The patch shows the file as `z` before the append; the bytes before
-    // the appended text are `a`.
+    // The patch shows `z` before the append; the actual prefix is `a`.
     let contradicted = with_patch(append("a", "t", 1, "b\n"), "z\n", "a\nb\n");
     assert_eq!(
         run(&contradicted, "a\nb\n", Some("a\n")),

@@ -161,9 +161,9 @@ struct Built {
 
 /// One generated operation: (kind, pick, hash known?, patch retained?).
 /// Kind 0 replaces the picked line with a fresh one, 1 deletes it, and 2
-/// appends a fresh line at the end. A line that descends from an appended
-/// one is replaced where it would be deleted: appending a line and then
-/// deleting it returns to an earlier state, which leaves two readings.
+/// appends a fresh line. Descendants of appended lines are replaced
+/// instead of deleted: append then delete returns to an earlier state,
+/// leaving two readings.
 type Op = (u8, u16, bool, bool);
 
 /// Builds a history from generated choices. With `interruption =

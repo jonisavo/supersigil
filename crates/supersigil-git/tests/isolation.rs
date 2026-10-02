@@ -1,5 +1,5 @@
-//! The test isolation itself: configuration a parent process passes through
-//! the environment must not reach a test's git.
+//! Test isolation prevents parent-environment configuration from reaching
+//! the test's git.
 
 mod common;
 
@@ -11,8 +11,8 @@ fn isolation_overrides_configuration_passed_through_the_environment() {
     let repo = TestRepo::new();
     let leak = repo.dir.path().join("leak.cfg");
     std::fs::write(&leak, "[core]\n\tleak = global\n").unwrap();
-    // What a parent environment could hold, set before the isolation as an
-    // inherited variable would be.
+    // Set before isolation, as a variable inherited from a parent would
+    // be.
     let inherited = Git::new(&repo.root)
         .with_env("GIT_CONFIG_GLOBAL", &leak)
         .with_env("GIT_CONFIG_COUNT", "1")

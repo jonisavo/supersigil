@@ -1,17 +1,15 @@
-//! Reads the report of changed files that Claude Code attaches to a Bash
-//! result as `bashEditDiff`.
+//! Reads `bashEditDiff`, Claude Code's Bash file change report.
 //!
-//! Measured over local transcripts (Claude Code 2.1.272 to 2.1.286), the
-//! report is an object with `changedFiles` (absolute paths, at most 200),
-//! `files` (at most five entries, each with `filePath`, `hunks`, and
-//! optionally `created` or `deleted`), `moreFiles` (the number of changed
-//! files without an entry), and sometimes a `shared` or `unavailable` flag.
-//! It covers unignored files of the project and describes the whole
-//! command's net change. A failed or background call carries none.
+//! Measured in local transcripts from Claude Code 2.1.272 to 2.1.286: an
+//! object with `changedFiles` (absolute paths, at most 200), `files` (at
+//! most five entries with `filePath`, `hunks`, and optional `created` or
+//! `deleted`), `moreFiles` (changed files without entries), and sometimes
+//! `shared` or `unavailable` flags. It describes the whole command's net
+//! change to unignored project files. Failed and background calls carry
+//! none.
 //!
-//! Paths are compared as paths, never as text: two spellings of one file
-//! are one file, and the first entry of a file is the one that speaks for
-//! it.
+//! Paths are compared as paths, not text. Spellings of one file are merged;
+//! its first entry determines its description.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -29,13 +27,12 @@ const UNREADABLE: &str = "unreadable change report";
 const NO_ENTRY: &str = "no entry in the harness report";
 
 /// The change report in a Bash call's structured `result`, with paths
-/// relative to `cwd`, the call's working directory.
+/// relative to its working directory `cwd`.
 ///
-/// Unavailable when `result` is absent or holds no `bashEditDiff`, which
-/// says nothing about whether files changed, and when the report is not an
-/// object of the measured shape: a report that cannot be read is never
-/// taken for one that names no file. Paths outside `cwd` are counted, not
-/// kept, as an editing tool's path outside its checkout is.
+/// Unavailable if `result` or `bashEditDiff` is absent, which says nothing
+/// about file changes, or if the report lacks the measured object shape.
+/// An unreadable report is never treated as an empty one. Paths outside
+/// `cwd` are counted and omitted, as editing tools' outside paths are.
 pub(super) fn change_report(result: Option<&Value>, cwd: &Path) -> Material<ChangeReport> {
     let Some(report) = result.and_then(|r| r.get("bashEditDiff")) else {
         return Material::unavailable(NO_REPORT);
@@ -43,13 +40,12 @@ pub(super) fn change_report(result: Option<&Value>, cwd: &Path) -> Material<Chan
     read(report, cwd).map_or_else(|| Material::unavailable(UNREADABLE), Material::Retained)
 }
 
-/// The files inside `cwd` that the report in `result` lists in
-/// `changedFiles`, relative to `cwd`; none when there is no report or its
-/// list has another shape.
+/// Files inside `cwd` listed in `result`'s `changedFiles`, relative to
+/// `cwd`. Returns none for missing reports or differently shaped lists.
 ///
-/// [`change_report`] also keeps a file the report only describes in an
-/// entry. This is the narrower statement a heredoc write needs: the
-/// harness listed the file as changed.
+/// [`change_report`] also keeps files described only in entries. Heredoc
+/// writes need the narrower claim here: the harness listed the file as
+/// changed.
 pub(super) fn listed_files(result: Option<&Value>, cwd: &Path) -> BTreeSet<PathBuf> {
     result
         .and_then(|r| strings(r.get("bashEditDiff")?.get("changedFiles")?))
@@ -59,61 +55,54 @@ pub(super) fn listed_files(result: Option<&Value>, cwd: &Path) -> BTreeSet<PathB
         .collect()
 }
 
-/// What a command's recognized heredoc writes leave in one file, when each
-/// of them ran and nothing else in the command touched the file.
+/// What recognized heredoc writes leave in a file if all ran and no other
+/// statement touched it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Written {
     /// The whole file: a `>` wrote it, or the first write created it.
     Whole {
         /// The file's content.
         text: String,
-        /// Whether the harness says the file did not exist before the
-        /// command, so that its diff is the whole file.
+        /// Whether the file was absent before the command according to
+        /// the harness, so its diff covers the whole file.
         created: bool,
     },
     /// The file's last bytes: only appends, to a file that existed before.
     Tail(String),
 }
 
-/// Whether `hunks`, the harness's diff of one file over a whole command,
-/// contradict `written`.
+/// Whether the harness's whole-command diff `hunks` contradicts `written`.
 ///
-/// The hunks are display text and may be cut short, so they never confirm
-/// a write and never supply bytes. They can only speak against one, by
-/// something they show of the file after the command:
+/// Hunks are capped display text: they never confirm a write or supply
+/// bytes. They can only contradict it through shown final-file lines:
 ///
-/// - A whole file: every line on a hunk's new side (context and added
-///   lines) must be the written line at that position. A hunk with a line
-///   this reader does not know shows nothing by position: that line may
-///   stand for one of the new side.
-/// - A created file, besides: its diff is the file. When every hunk holds
-///   only lines this reader knows and its header counts exactly the
-///   new-side lines it shows (measured: always, over 5,181 hunks; a diff of
-///   more than 400 lines has no entry instead of a shortened one), the
-///   lines shown must be as many as the lines written.
-/// - The end of a file: the hunks must show where the file ends before
-///   they can speak against its last bytes. The last hunk does when it has
-///   fewer context lines after its last change than before its first: a
-///   diff gives both sides the same context, so the file ended first
-///   (measured: every hunk that starts after line 1 leads with three
-///   context lines, and every hunk followed by another trails with three).
-///   When every hunk is counted as above, the lines that hunk shows last
-///   must then be the last written lines. They need not be shown as added:
-///   a diff may align an appended line with an equal old one and show it
-///   as context. The file, as long as the lines before that hunk and the
-///   lines it shows, must hold at least as many lines as were written.
-///   The first written line need only end the line it is
-///   compared with, since an append onto a line with no newline after it
-///   completes that line: appending `y` after an unterminated `x` leaves
-///   `xy`. A hunk that may stop before the end of the file, or whose
-///   header counts lines it does not show, speaks against nothing.
-/// - Either: written text ends with a newline, so a hunk that marks a
-///   line of its new side `\ No newline at end of file` contradicts any
-///   text written. The same marker on a removed line describes the file
-///   before the command, and no other line is that marker. A marker after
-///   a line this reader knows speaks whatever else its hunk holds.
+/// - Whole file: each new-side line (context or added) must match the
+///   written line at that position. Unknown lines may represent new-side
+///   lines, so a hunk with one cannot establish positions.
+/// - Created file: its diff covers the whole file. If all hunks contain
+///   only known lines and headers count exactly their shown new-side lines,
+///   shown and written line counts must match. All 5,181 measured hunks
+///   have exact new-side counts; diffs over 400 lines have no entry rather
+///   than a shortened one.
+/// - File end: hunks must establish the end to contradict a suffix. The
+///   last hunk does if it has less context after its last change than
+///   before its first: both sides get equal context, so the file ended
+///   first. In measured hunks, those starting after line 1 lead with three
+///   context lines; those followed by another trail with three. If every
+///   hunk is counted as above, its final lines must match the written
+///   suffix. Appended lines may appear as context aligned with equal old
+///   lines. The total file length, counting lines before and within the
+///   hunk, must accommodate all written lines. The first written line need
+///   only match its line's suffix: appending `y` to unterminated `x` leaves
+///   `xy`. A hunk that may end before the file does, or whose header counts
+///   unseen lines, contradicts nothing.
+/// - Either: written text ends with a newline. A new-side line marked `\ No
+///   newline at end of file` contradicts any written text. On a removed
+///   line, the marker describes the file before the command; no other line
+///   is that marker. A marker after a known line counts regardless of the
+///   rest of the hunk.
 ///
-/// An entry without any hunk shows nothing and contradicts nothing.
+/// An entry without hunks contradicts nothing.
 pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
     let sides: Vec<NewSide> = hunks.iter().map(NewSide::of).collect();
     let counted = sides.iter().all(|side| side.counted);
@@ -155,10 +144,9 @@ pub(super) fn contradicts(hunks: &[Hunk], written: &Written) -> bool {
     }
 }
 
-/// Whether `side`, of a hunk that reaches the end of the file, shows the
-/// file to hold fewer than `appended` lines: the file is as long as the
-/// lines before the hunk and the lines it shows. A hunk that shows no line
-/// of the file, or does not start at a 1-based line, places nothing.
+/// Whether an end-reaching hunk's `side` shows a file shorter than
+/// `appended` lines, counting lines before and within the hunk. A hunk
+/// with no new-side lines or no 1-based start establishes no position.
 fn shorter_than(side: &NewSide, appended: usize) -> bool {
     if side.lines.is_empty() {
         return false;
@@ -168,11 +156,10 @@ fn shorter_than(side: &NewSide, appended: usize) -> bool {
         .is_some_and(|length| length < appended)
 }
 
-/// Whether a file whose last lines are `shown` ends with the bytes of the
-/// `appended` lines. Where fewer lines are shown than were appended, the
-/// shown ones are compared with the last appended ones. The first appended
-/// line need only end its line: it may have completed one that had no
-/// newline after it.
+/// Whether final lines `shown` end with `appended`'s bytes. If fewer lines
+/// are shown, compare them with the last appended lines. The first
+/// appended line need only match its line's suffix: it may complete an
+/// unterminated line.
 fn ends_with_appended(shown: &[&str], appended: &[&str]) -> bool {
     let compared = shown.len().min(appended.len());
     let shown = &shown[shown.len() - compared..];
@@ -190,8 +177,8 @@ fn ends_with_appended(shown: &[&str], appended: &[&str]) -> bool {
     }
 }
 
-/// The lines of written text, each without its newline. Written text ends
-/// with a newline whenever it holds a line.
+/// Written lines without their newlines. Non-empty written text ends with
+/// a newline.
 fn lines_of(text: &str) -> Vec<&str> {
     text.strip_suffix('\n')
         .map(|text| text.split('\n').collect())
@@ -203,8 +190,8 @@ const NO_NEWLINE: &str = "\\ No newline at end of file";
 
 /// What one hunk shows of the file after the command.
 struct NewSide<'a> {
-    /// How many lines of the file lie before its new side, which starts at
-    /// a 1-based line; `None` when the header gives no such line.
+    /// Lines before the new side's 1-based start; `None` if the header
+    /// gives no such start.
     start: Option<usize>,
     /// Its context and added lines, without their markers.
     lines: Vec<&'a str>,
@@ -218,16 +205,14 @@ struct NewSide<'a> {
 
 /// Where in the file a hunk's new-side lines can be placed.
 enum Reach {
-    /// Nowhere: the hunk holds a line this reader does not know, which may
-    /// stand for one of the new side, so its lines show nothing by
-    /// position.
+    /// Nowhere: an unknown line may represent a new-side line, so
+    /// positions cannot be established.
     Unknown,
     /// From the hunk's new start; the file may go on after them.
     Lines,
-    /// From the hunk's new start, to the end of the file: the hunk shows
-    /// fewer context lines after its last change than before its first, as
-    /// only a hunk at the end of the file does, and its header counts the
-    /// old-side lines it shows.
+    /// From the new start to the file's end: less context follows the last
+    /// change than precedes the first, which occurs only at the end. The
+    /// header also counts the shown old-side lines.
     End,
 }
 
@@ -241,12 +226,12 @@ impl<'a> NewSide<'a> {
         // The removed and context lines, and whether every line is known.
         let mut old = 0_usize;
         let mut known = true;
-        // The line before the current one, which a marker speaks of.
+        // The preceding line, which a marker describes.
         let mut previous: Option<&str> = None;
         for line in &hunk.lines {
             if line == NO_NEWLINE {
-                // After a removed line it describes the file before the
-                // command.
+                // After a removed line, it describes the pre-command
+                // file.
                 unterminated |= previous.is_some_and(|line| !line.starts_with('-'));
                 continue;
             }
@@ -266,8 +251,8 @@ impl<'a> NewSide<'a> {
                     leading.get_or_insert(trailing);
                     trailing = 0;
                 }
-                // A line that is neither context, added, removed, nor that
-                // marker is not one this reader knows: it shows nothing.
+                // Unknown lines (neither context, added, removed, nor the
+                // marker) establish nothing.
                 _ => {
                     known = false;
                     previous = None;
@@ -295,9 +280,9 @@ impl<'a> NewSide<'a> {
     }
 }
 
-/// Reads `report`, or returns `None` when a part of it has another shape.
-/// `files` is the one field every measured report has, so an object
-/// without it is another layout, not an empty report.
+/// Reads `report`, or returns `None` for differently shaped parts. All
+/// measured reports have `files`; an object without it has another
+/// layout, rather than an empty report.
 fn read(report: &Value, cwd: &Path) -> Option<ChangeReport> {
     let fields = report.as_object()?;
     let listed = match fields.get("changedFiles") {
@@ -363,8 +348,8 @@ fn read(report: &Value, cwd: &Path) -> Option<ChangeReport> {
     })
 }
 
-/// Where a reported path lies: a file inside `cwd`, relative to it, or
-/// outside it, as written.
+/// A reported path inside `cwd`, relative to it, or outside it as
+/// written.
 fn place<'a>(cwd: &Path, path: &'a str) -> Result<PathBuf, &'a str> {
     contained(cwd, path).ok_or(path)
 }
@@ -381,10 +366,10 @@ fn strings(value: &Value) -> Option<Vec<&str>> {
     value.as_array()?.iter().map(Value::as_str).collect()
 }
 
-/// The entries of `files`, or `None` when it is not an array of objects
-/// that each name a path and whose `created` and `deleted`, where present,
-/// are booleans: a flag of another type states nothing, and reading it as
-/// `false` would turn a malformed entry into a statement about the file.
+/// Reads `files` as an array of objects naming paths, with boolean
+/// `created` and `deleted` if present; otherwise returns `None`. Other
+/// flag types state nothing. Treating them as `false` would turn malformed
+/// entries into claims about files.
 fn entries(value: &Value) -> Option<Vec<Entry<'_>>> {
     value
         .as_array()?

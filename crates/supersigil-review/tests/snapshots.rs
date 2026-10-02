@@ -376,9 +376,8 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
     }
 }
 
-/// Two commands that changed the explained file, newest first: one whose
-/// reported diff adds both sample lines, and one whose diff the harness
-/// left out.
+/// Two commands changing the explained file, newest first. One diff adds
+/// both sample lines; the harness omits the other's diff.
 fn why_command_changes() -> Vec<CommandChange> {
     vec![
         command_change(
@@ -929,8 +928,8 @@ fn why_marks_the_commands_whose_reported_diff_adds_an_unexplained_line() {
 #[test]
 fn why_lists_commands_without_markers_under_an_attributed_line() {
     let why = sample_why(OnDiskCheck::Captured);
-    // The flag is computed for every line; the terminal shows it only
-    // where no chain explains the line.
+    // The flag is computed for every line, but shown in the terminal
+    // only when no chain explains it.
     assert!(why.command_changes[0].adds_line_text);
     let text = render_why(&why, escape);
     assert!(text.contains("  changed by 2 recorded commands"), "{text}");
@@ -1018,8 +1017,8 @@ fn a_line_of_only_whitespace_matches_no_reported_diff() {
 
 #[test]
 fn why_says_what_a_listed_commands_report_leaves_open() {
-    // A report the harness flagged, or one that counted files it did not
-    // name, covers less than it seems to: the listing says so.
+    // Flagged reports and unnamed counted files limit what the report
+    // shows. The listing states this.
     let mut why = sample_why(OnDiskCheck::Captured);
     assert!(!render_why(&why, escape).contains("its report"));
     let change = &mut why.command_changes[0].change;

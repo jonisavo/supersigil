@@ -1442,8 +1442,8 @@ fn records_without_cwd_inherit_the_first_cwd() {
     assert_eq!(outcome.counts.outside_checkout, 1);
 }
 
-/// Parses a Bash call running `command` whose structured result is `result`,
-/// and returns the one command it produced.
+/// Parses a Bash call with `command` and structured `result`, returning its
+/// one command.
 fn bash(command: &str, result: Value) -> supersigil_record::observations::Command {
     let lines = tool_exchange(
         "Bash",
@@ -1606,7 +1606,7 @@ fn an_entry_the_harness_did_not_list_is_still_a_changed_file() {
     // Without `changedFiles`, the entries are the list.
     let entries_only = report_of(&json!({"files": [{"filePath": "/work/repo/b.rs", "hunks": []}]}));
     assert_eq!(entries_only.files.len(), 1);
-    // A report with `files` and nothing in it names no file.
+    // An empty `files` array names no file.
     assert_eq!(report_of(&json!({"files": []})), ChangeReport::default());
 }
 
@@ -1623,7 +1623,7 @@ fn a_path_reported_twice_is_one_changed_file() {
         .iter()
         .map(|f| (f.path.clone(), f.kind))
         .collect();
-    // The first entry of a path is the one kept.
+    // The first entry for a path is kept.
     assert_eq!(
         listed,
         vec![
@@ -1637,8 +1637,8 @@ fn a_path_reported_twice_is_one_changed_file() {
 
 #[test]
 fn two_spellings_of_one_path_are_one_changed_file() {
-    // The first entry speaks for the file: a later entry under another
-    // spelling cannot turn a deleted file into a created one.
+    // The first entry determines the change. Another spelling cannot
+    // change deleted to created.
     let report = report_of(&json!({
         "changedFiles": ["/work/repo/src/a.rs", "/work/repo/src//a.rs", "/work/repo/./src/a.rs"],
         "files": [{"filePath": "/work/repo/src/a.rs", "deleted": true, "hunks": []},
@@ -1679,7 +1679,7 @@ fn a_huge_change_report_is_read_in_time_proportional_to_its_size() {
     };
     assert_eq!(report.files.len(), count);
     assert!(report.files.iter().all(|f| f.kind == ChangeKind::Modified));
-    // A scan of the entries per listed path would take minutes here.
+    // Scanning entries per listed path would take minutes here.
     assert!(
         started.elapsed() < std::time::Duration::from_secs(20),
         "{:?}",
@@ -1754,8 +1754,8 @@ fn a_change_report_of_another_shape_is_unreadable() {
     }
 }
 
-/// Parses a Bash call running `command` whose result carries a change
-/// report with `entries` as its `files`, each also listed as changed.
+/// Parses a Bash `command` whose result reports `entries` as `files`,
+/// each also listed as changed.
 fn shell(command: &str, entries: &Value) -> ParseOutcome {
     let listed: Vec<Value> = entries
         .as_array()
@@ -1833,9 +1833,9 @@ fn a_confirmed_heredoc_write_is_an_edit_beside_its_command() {
 
 #[test]
 fn the_writes_of_one_command_keep_their_place_in_it() {
-    // Three writes to two files, and one the report does not confirm: each
-    // edit holds its write's place among all the command's writes, so the
-    // two writes to `a.rs` stay in order whatever lies between them.
+    // Three writes to two files, plus one the report does not confirm.
+    // Each edit keeps its position among all writes, so `a.rs`'s writes
+    // stay ordered despite the writes between them.
     let command = "cat >> a.rs <<'E'\nx\nE\ncat > b.rs <<'E'\ny\nE\n\
         cat >> gone.rs <<'E'\nz\nE\ncat >> a.rs <<'E'\nx\nE\n";
     let outcome = shell(
@@ -1939,7 +1939,7 @@ fn an_empty_append_is_no_edit_but_still_creates_the_file() {
     let outcome = shell(command, &json!([created("/work/repo/a.rs")]));
     let recorded = edits(&outcome);
     assert_eq!(recorded.len(), 1);
-    // The id counts every write the command holds, recorded or not.
+    // The id counts all command writes, recorded or not.
     assert_eq!(recorded[0].id, shell_edit_id(1));
     assert_eq!(recorded[0].before, FileState::unknown());
     assert!(outcome.counts.is_empty());
@@ -2080,7 +2080,7 @@ fn a_heredoc_write_without_confirmation_is_counted_not_recorded() {
         assert_eq!(outcome.counts.unconfirmed_shell_writes, 1, "{case}");
         assert_eq!(commands(&outcome).len(), 1, "{case}");
     }
-    // The control: the same call with the confirming report is an edit.
+    // Control: a confirming report turns the same call into an edit.
     let outcome = shell_with(command, ok_block(), Some(confirmed));
     assert_eq!(edits(&outcome).len(), 1);
     assert_eq!(outcome.counts.unconfirmed_shell_writes, 0);
@@ -2088,9 +2088,9 @@ fn a_heredoc_write_without_confirmation_is_counted_not_recorded() {
 
 #[test]
 fn a_flagged_report_is_kept_and_confirms_no_heredoc_write() {
-    // What a flag on a report means is not established (`shared`,
-    // `unavailable`, or one this reader has not seen), so a flagged report
-    // stays an observation of the command and confirms nothing.
+    // Report flags (`shared`, `unavailable`, or unknown) have
+    // unestablished meanings. Flagged reports remain command observations
+    // and confirm nothing.
     let command = "cat > a.rs <<'EOF'\nx\nEOF\n";
     for flag in ["shared", "unavailable", "partial"] {
         let mut report = json!({"changedFiles": ["/work/repo/a.rs"],
@@ -2132,8 +2132,8 @@ fn a_command_of_many_heredoc_writes_is_read_in_time_proportional_to_its_size() {
         .filter(|e| e.before == FileState::Absent)
         .count();
     assert_eq!(absent, 1000);
-    // A scan of the report or of the earlier writes per write would take
-    // minutes here.
+    // Scanning the report or prior writes per write would take minutes
+    // here.
     assert!(
         started.elapsed() < std::time::Duration::from_secs(20),
         "{:?}",
@@ -2141,8 +2141,8 @@ fn a_command_of_many_heredoc_writes_is_read_in_time_proportional_to_its_size() {
     );
 }
 
-/// A file entry whose one hunk starts at line `start` of both sides and
-/// holds `lines`.
+/// A file entry with one hunk at `start` on both sides, holding
+/// `lines`.
 fn entry(path: &str, is_created: bool, start: u32, lines: &[&str]) -> Value {
     let count = |markers: &[char]| {
         lines
@@ -2170,8 +2170,8 @@ fn confirmed_with(command: &str, entry: &Value) -> (usize, u64) {
 
 #[test]
 fn a_reported_diff_that_contradicts_a_heredoc_write_leaves_it_unconfirmed() {
-    // `false &&` skips the heredoc and `echo` creates the file: the harness
-    // reports it created, with the line `echo` wrote.
+    // `false &&` skips the heredoc; `echo` creates the file. The harness
+    // reports it created with `echo`'s line.
     let skipped = "false && cat > a.rs <<'EOF'\nx\nEOF\necho y > a.rs\n";
     let reported = entry("/work/repo/a.rs", true, 1, &["+y"]);
     assert_eq!(confirmed_with(skipped, &reported), (0, 1));
@@ -2183,7 +2183,7 @@ fn a_reported_diff_that_contradicts_a_heredoc_write_leaves_it_unconfirmed() {
     let write = "cat > a.rs <<'EOF'\nx\nEOF\n";
     let longer = entry("/work/repo/a.rs", true, 1, &["+x", "+z"]);
     assert_eq!(confirmed_with(write, &longer), (0, 1));
-    // The diff that agrees confirms nothing by itself, and rejects nothing.
+    // An agreeing diff alone neither confirms nor rejects a write.
     let agreeing = entry("/work/repo/a.rs", true, 1, &["+x"]);
     assert_eq!(confirmed_with(write, &agreeing), (1, 0));
 }
@@ -2200,8 +2200,8 @@ fn an_overwrite_is_checked_at_the_lines_the_diff_shows() {
         &["-old", "\\ No newline at end of file", "+two", " three"],
     );
     assert_eq!(confirmed_with(command, &agreeing), (1, 0));
-    // The same marker after a line of the file as the command left it
-    // says the file does not end with a newline; a heredoc's text does.
+    // A new-side no-newline marker contradicts heredoc text, which ends
+    // with a newline.
     for lines in [
         &["+two", "+three", "\\ No newline at end of file"][..],
         &["+two", " three", "\\ No newline at end of file"],
@@ -2217,7 +2217,7 @@ fn an_overwrite_is_checked_at_the_lines_the_diff_shows() {
         let contradicting = entry("/work/repo/a.rs", false, 2, lines);
         assert_eq!(confirmed_with(command, &contradicting), (0, 1), "{lines:?}");
     }
-    // A hunk that cannot start where it says speaks against the write too.
+    // A hunk with an impossible start also contradicts the write.
     let misplaced = entry("/work/repo/a.rs", false, 0, &["+one"]);
     assert_eq!(confirmed_with(command, &misplaced), (0, 1));
 }
@@ -2225,12 +2225,12 @@ fn an_overwrite_is_checked_at_the_lines_the_diff_shows() {
 #[test]
 fn an_append_must_end_the_file_the_diff_shows_the_end_of() {
     let command = "cat >> a.rs <<'EOF'\ny\nz\nEOF\n";
-    // A hunk with less context after its last change than before its first
-    // reaches the end of the file: the file ended before the context did.
+    // Less context after the last change than before the first marks the
+    // file's end: the file ended before the context did.
     for lines in [
         &[" x", "+y", "+z"][..],
-        // A diff may show an appended line as context, aligned with an
-        // equal line the file held before.
+        // An appended line may appear as context aligned with an equal
+        // old line.
         &[" a", "+w", " y", "+z"],
     ] {
         let agreeing = entry("/work/repo/a.rs", false, 1, lines);
@@ -2246,8 +2246,7 @@ fn an_append_must_end_the_file_the_diff_shows_the_end_of() {
         let contradicting = entry("/work/repo/a.rs", false, 1, lines);
         assert_eq!(confirmed_with(command, &contradicting), (0, 1), "{lines:?}");
     }
-    // A hunk that shows fewer lines than were appended is compared at the
-    // lines it shows.
+    // If fewer lines are shown than appended, compare only those shown.
     let command = "cat >> a.rs <<'EOF'\na\nb\nc\nd\nEOF\n";
     let shorter = entry("/work/repo/a.rs", false, 7, &[" b", " c", "-x", "+d"]);
     assert_eq!(confirmed_with(command, &shorter), (1, 0));
@@ -2263,8 +2262,7 @@ fn an_append_longer_than_the_file_the_diff_shows_contradicts() {
     let lines = &[" three", "-old", "+four"];
     let short = entry("/work/repo/a.rs", false, 1, lines);
     assert_eq!(confirmed_with(command, &short), (0, 1));
-    // The same hunk further down leaves room for the lines it does not
-    // show.
+    // The same hunk farther down leaves room for unseen lines.
     let room = entry("/work/repo/a.rs", false, 3, lines);
     assert_eq!(confirmed_with(command, &room), (1, 0));
 }
@@ -2272,8 +2270,8 @@ fn an_append_longer_than_the_file_the_diff_shows_contradicts() {
 #[test]
 fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_append() {
     let command = "cat >> a.rs <<'EOF'\ny\nz\nEOF\n";
-    // As much context after the last change as before the first: the file
-    // may go on, and end with the appended lines beyond what is shown.
+    // Equal context before and after leaves the end unknown. Appended
+    // lines may follow beyond the shown lines.
     for lines in [
         &[" x", "+y", "+z", " kept"][..],
         &["+top", " x"],
@@ -2284,8 +2282,8 @@ fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_app
         let silent = entry("/work/repo/a.rs", false, 1, lines);
         assert_eq!(confirmed_with(command, &silent), (1, 0), "{lines:?}");
     }
-    // Nor does a hunk say where the file ends when it holds a line this
-    // reader does not know, or fewer old lines than its header counts.
+    // Unknown lines or fewer old lines than the header counts also
+    // leave the file's end unknown.
     let mut unknown = entry("/work/repo/a.rs", false, 1, &[" x", "+w"]);
     assert_eq!(confirmed_with(command, &unknown), (0, 1));
     unknown["hunks"][0]["lines"]
@@ -2296,9 +2294,9 @@ fn a_hunk_that_may_stop_before_the_end_of_the_file_does_not_speak_against_an_app
     let mut cut = entry("/work/repo/a.rs", false, 1, &[" x", "+w"]);
     cut["hunks"][0]["oldLines"] = json!(4);
     assert_eq!(confirmed_with(command, &cut), (1, 0));
-    // `sed` turned the first of four `x` lines into four `y` lines, then
-    // the heredoc appended four more `x`: the diff aligns three appended
-    // lines with old ones and stops, one line short of the end.
+    // `sed` replaces the first of four `x` lines with four `y` lines;
+    // the heredoc appends four `x` lines. The diff aligns three appended
+    // lines with old ones and stops one line before the end.
     let command = "sed -i '1s/x/y\\ny\\ny\\ny/' a.rs\ncat >> a.rs <<'E'\nx\nx\nx\nx\nE\n";
     let aligned = entry(
         "/work/repo/a.rs",
@@ -2337,8 +2335,8 @@ fn a_file_the_diff_shows_without_a_final_newline_contradicts_a_heredoc() {
 
 #[test]
 fn an_append_onto_a_line_without_a_newline_completes_that_line() {
-    // The file held `x` with no newline: the append makes its last line
-    // `xy`, and the diff shows the old line removed and that one added.
+    // Appending to unterminated `x` leaves `xy`; the diff removes the
+    // old line and adds the new one.
     let command = "cat >> a.rs <<'E'\ny\nz\nE\n";
     let completing = entry(
         "/work/repo/a.rs",
@@ -2347,9 +2345,8 @@ fn an_append_onto_a_line_without_a_newline_completes_that_line() {
         &[" a", "-x", "\\ No newline at end of file", "+xy", "+z"],
     );
     assert_eq!(confirmed_with(command, &completing), (1, 0));
-    // The line it completes may be one an earlier statement of the command
-    // left without a newline: the hunk shows the file before the command,
-    // not before the heredoc.
+    // An earlier statement may leave the unterminated line: the hunk shows
+    // the pre-command file, not the pre-heredoc file.
     let command = "printf w > a.rs\ncat >> a.rs <<'E'\ny\nz\nE\n";
     let rewritten = entry("/work/repo/a.rs", false, 1, &[" a", "-x", "+wy", "+z"]);
     assert_eq!(confirmed_with(command, &rewritten), (1, 0));
@@ -2360,8 +2357,8 @@ fn an_append_onto_a_line_without_a_newline_completes_that_line() {
         &["-x", "\\ No newline at end of file", "+wy", "+z"],
     );
     assert_eq!(confirmed_with(command, &whole), (1, 0));
-    // The line must still end with the first appended line, and the lines
-    // after it be the rest.
+    // The line must end with the first appended line; later lines must
+    // match the remaining appended lines.
     for lines in [&[" a", "-x", "+yw", "+z"][..], &[" a", "-x", "+wy", "+wz"]] {
         let other = entry("/work/repo/a.rs", false, 1, lines);
         assert_eq!(confirmed_with(command, &other), (0, 1), "{lines:?}");
@@ -2375,9 +2372,9 @@ fn an_appended_line_the_diff_shows_as_context_is_still_at_the_end() {
     let command = "sed -i 's/x/y/' a.rs\ncat >> a.rs <<'E'\nx\nE\n";
     let aligned = entry("/work/repo/a.rs", false, 1, &["+y", " x"]);
     assert_eq!(confirmed_with(command, &aligned), (1, 0));
-    // Only the last hunk can reach the end of the file, whatever the order
-    // the harness lists them in. (No real diff ends an earlier hunk short
-    // of context as this one does; it is here to show which hunk is read.)
+    // Only the last hunk can reach the file's end, regardless of report
+    // order. Real diffs never end earlier hunks short of context; this
+    // case tests which hunk is read.
     let mut two = entry("/work/repo/a.rs", false, 9, &[" w", "+x"]);
     let first = entry("/work/repo/a.rs", false, 1, &[" c", "-a", "+b"]);
     let hunks = two["hunks"].as_array_mut().unwrap();
@@ -2390,8 +2387,8 @@ fn an_appended_line_the_diff_shows_as_context_is_still_at_the_end() {
 
 #[test]
 fn a_skipped_heredoc_whose_text_another_statement_wrote_is_recorded() {
-    // The limit of the check: the file ends with the very text the
-    // heredoc would have written, so nothing the hunks show disagrees.
+    // The file ends with the heredoc's expected text. This is the
+    // check's limit: no hunk contradicts it.
     let command = "false && cat > a.rs <<'E'\nx\nE\nprintf 'x\\n' > a.rs\n";
     let reported = entry("/work/repo/a.rs", true, 1, &["+x"]);
     assert_eq!(confirmed_with(command, &reported), (1, 0));
@@ -2414,17 +2411,17 @@ fn only_the_diff_marker_says_a_line_has_no_newline() {
 fn a_hunk_with_a_line_the_reader_does_not_know_shows_nothing_by_position() {
     let command = "cat > a.rs <<'E'\na\nb\nc\nE\n";
     for created in [true, false] {
-        // The unknown line stands for the second new-side line, which the
-        // header counts: nothing shows that `c` is on line 2.
+        // The unknown line accounts for the header's second new-side
+        // line. Nothing places `c` on line 2.
         let mut unknown = entry("/work/repo/a.rs", created, 1, &["+a", "? omitted", "+c"]);
         unknown["hunks"][0]["newLines"] = json!(3);
         assert_eq!(confirmed_with(command, &unknown), (1, 0), "{created}");
-        // In its place, a line the reader knows speaks.
+        // A known line in its place establishes the position.
         let wrong = entry("/work/repo/a.rs", created, 1, &["+a", "+x", "+c"]);
         assert_eq!(confirmed_with(command, &wrong), (0, 1), "{created}");
     }
-    // Nor does a created file's hunk with an unknown line say how long the
-    // file is, though its header counts the lines it shows.
+    // Unknown lines also leave a created file's length unknown, even when
+    // the header counts all shown lines.
     let longer = "cat > a.rs <<'E'\na\nb\nc\nd\nE\n";
     let unknown = entry("/work/repo/a.rs", true, 1, &["+a", "+b", "? omitted", "+c"]);
     assert_eq!(confirmed_with(longer, &unknown), (1, 0));
@@ -2437,15 +2434,16 @@ fn a_hunk_cut_short_does_not_speak_against_an_append() {
     let mut cut = entry("/work/repo/a.rs", false, 1, &[" w", "+x"]);
     cut["hunks"][0]["newLines"] = json!(3);
     assert_eq!(confirmed_with(command, &cut), (1, 0));
-    // Counted in full, the same lines end the file with other text.
+    // With full counts, these lines show the file ending with other
+    // text.
     let whole = entry("/work/repo/a.rs", false, 1, &[" w", "+x"]);
     assert_eq!(confirmed_with(command, &whole), (0, 1));
 }
 
 #[test]
 fn a_write_replaced_within_its_command_cannot_be_contradicted() {
-    // The limit of a diff over the whole command: the first heredoc did
-    // not run, and the file the command ends with cannot show it.
+    // The first heredoc did not run; the final file cannot reveal this.
+    // That is a whole-command diff's limit.
     let command = "false && cat > a.rs <<'A'\nbad\nA\ncat > a.rs <<'B'\ngood\nB\n";
     let reported = entry("/work/repo/a.rs", true, 1, &["+good"]);
     assert_eq!(confirmed_with(command, &reported), (2, 0));
@@ -2458,8 +2456,8 @@ fn the_writes_of_one_command_to_one_file_are_checked_together() {
     let agreeing = json!([entry("/work/repo/a.rs", true, 1, &["+1", "+2"]), b]);
     let outcome = shell(command, &agreeing);
     assert_eq!(edits(&outcome).len(), 3);
-    // A contradiction leaves every write to that file unconfirmed, and the
-    // other file's write alone.
+    // A contradiction leaves all writes to that file unconfirmed and the
+    // other file's write unchanged.
     let contradicting = json!([entry("/work/repo/a.rs", true, 1, &["+1"]), b]);
     let outcome = shell(command, &contradicting);
     let recorded: Vec<&str> = edits(&outcome)
@@ -2482,8 +2480,8 @@ fn a_created_file_shorter_than_its_writes_contradicts_them() {
     let command = "cat > a.rs <<'A'\n1\nA\nfalse && cat >> a.rs <<'B'\n2\nB\ntrue\n";
     let one_line = entry("/work/repo/a.rs", true, 1, &["+1"]);
     assert_eq!(confirmed_with(command, &one_line), (0, 2));
-    // A hunk whose header counts more lines than it shows is cut short and
-    // says nothing about the file's length.
+    // A header counting unseen lines means the hunk is cut short and
+    // leaves the file's length unknown.
     let mut cut = entry("/work/repo/a.rs", true, 1, &["+1"]);
     cut["hunks"][0]["newLines"] = json!(2);
     assert_eq!(confirmed_with(command, &cut), (2, 0));
@@ -2495,10 +2493,9 @@ fn a_created_file_shorter_than_its_writes_contradicts_them() {
 
 #[test]
 fn a_heredoc_statement_that_did_not_run_is_recorded_when_the_harness_shows_no_diff() {
-    // The limit that remains: the harness confirms a command, not a
-    // statement, and without hunks nothing speaks against the write. The
-    // edit's text still attributes nothing unless the file's bytes
-    // reproduce it.
+    // The harness confirms commands, not statements. Without hunks,
+    // nothing contradicts the write. The edit attributes only where file
+    // bytes reproduce its text.
     let command = "false && cat > a.rs <<'EOF'\nx\nEOF\necho y > a.rs\n";
     let outcome = shell(command, &json!([created("/work/repo/a.rs")]));
     let recorded = edits(&outcome);

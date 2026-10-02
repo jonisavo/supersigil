@@ -4,10 +4,10 @@
 //! gets `GIT_CONFIG_NOSYSTEM=1`, `HOME` and `XDG_CONFIG_HOME` pointing into the
 //! test's temporary directory, and a fixed identity, so a developer's or a
 //! CI runner's configuration (Git for Windows sets `core.autocrlf` system-wide)
-//! cannot change what a test sees. Configuration passed through the
-//! environment is neutralized as well: `GIT_CONFIG_GLOBAL` names the file
-//! `HOME` already implies, `GIT_CONFIG_COUNT` is zero, and
-//! `GIT_CONFIG_PARAMETERS` is empty.
+//! cannot change what a test sees. Environment-passed configuration is
+//! also neutralized: `GIT_CONFIG_GLOBAL` names the file implied by
+//! `HOME`, `GIT_CONFIG_COUNT` is zero, and `GIT_CONFIG_PARAMETERS` is
+//! empty.
 
 #![allow(dead_code, reason = "each test binary uses a different subset")]
 

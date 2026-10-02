@@ -252,8 +252,8 @@ fn file_state_helpers_distinguish_absent_unknown_and_known() {
 
 #[test]
 fn a_command_without_a_change_report_field_is_not_an_observation() {
-    // The report is part of every command: one stored without it is a
-    // record this build does not read, not a command that changed nothing.
+    // Every command includes a report field. A record without it is
+    // unreadable by this build, not evidence that nothing changed.
     let mut json = serde_json::to_value(&sample()[3]).unwrap();
     json.as_object_mut().unwrap().remove("changes");
     let error = serde_json::from_value::<Observation>(json).unwrap_err();

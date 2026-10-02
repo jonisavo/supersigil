@@ -221,7 +221,7 @@ pub struct Gathered {
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
     /// Transcripts holding a candidate edit, an observation made in a
-    /// candidate worktree, or a command the harness reported changing a
+    /// candidate worktree, or a command the harness reported as changing a
     /// file in one, regardless of attribution success.
     pub candidate_transcripts: BTreeSet<String>,
     /// Globally accepted edits in candidate worktrees, indexed by path.
@@ -247,16 +247,15 @@ pub struct Gathered {
     pub whole_worktree: bool,
     /// The pinned records' evidence, indexed.
     pub evidence: Evidence,
-    /// What commands of the candidate transcripts changed in the observed
-    /// worktrees ([`Self::observed_worktrees`]), as the harness reported it,
-    /// indexed by path and newest first.
+    /// Changes in [`Self::observed_worktrees`] reported by the harness for
+    /// commands in candidate transcripts, indexed by path, newest first.
     pub command_changes: ByPath<CommandChange>,
 }
 
 impl Gathered {
-    /// The worktrees whose commands a review reads as evidence: the
-    /// reviewed one for a working-tree target, every candidate worktree for
-    /// a commit, which any of them may have originated.
+    /// Worktrees whose commands supply review evidence: the reviewed
+    /// worktree for a working-tree target; all candidate worktrees for a
+    /// commit, since any may have originated it.
     #[must_use]
     pub fn observed_worktrees(&self) -> Vec<PathBuf> {
         observed_worktrees(&self.range, &self.worktree, &self.candidate_worktrees)
@@ -630,9 +629,9 @@ struct Sighting {
     mapped: Option<MappedEdit>,
 }
 
-/// Maps every edit of every pinned record onto `roots`, the registered
-/// worktrees, keeping every sighting whether its worktree is a candidate,
-/// another registered worktree, or none.
+/// Maps every pinned record's edits to registered worktrees in `roots`.
+/// Keeps every sighting, including those in noncandidate worktrees or no
+/// worktree.
 fn map_sightings(records: &[PinnedRecord], roots: &[PathBuf], ignore_case: bool) -> Vec<Sighting> {
     let mut sightings = Vec::new();
     for record in records {

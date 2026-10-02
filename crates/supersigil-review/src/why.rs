@@ -47,9 +47,9 @@ pub struct Why {
     pub edits: BTreeMap<String, EditInfo>,
     /// Edits for this path excluded as conflicting evidence.
     pub conflicting_edits: Vec<Conflict>,
-    /// Recorded commands the harness reported as changing the file, newest
-    /// first, each with whether its reported diff adds the line's text.
-    /// Observations, never attribution.
+    /// Commands the harness reported as changing the file, newest first,
+    /// with whether their diffs add the line's text. Observations, never
+    /// attribution.
     pub command_changes: Vec<LineCommandChange>,
 }
 
@@ -59,13 +59,12 @@ pub struct LineCommandChange {
     /// The command and what the harness reported.
     #[serde(flatten)]
     pub change: CommandChange,
-    /// Whether the retained hunks hold an added line whose text is exactly
-    /// the explained line's, without its terminator (one `\n`, and one `\r`
-    /// before it). A match of display text: the hunks describe the whole
-    /// command and are capped, so `true` is not attribution and `false`
-    /// does not say the command left the line alone. Always `false` for a
-    /// line of only whitespace, whose text identifies nothing, and when no
-    /// line was analyzed.
+    /// Whether retained hunks add exactly the explained line's text without
+    /// its terminator (one `\n` and one preceding `\r`). This is a
+    /// display-text match: capped hunks cover the whole command, so `true`
+    /// is not attribution and `false` does not rule out a change to the
+    /// line. Always `false` for whitespace-only lines, whose text
+    /// identifies nothing, and when no line was analyzed.
     pub adds_line_text: bool,
 }
 
@@ -390,9 +389,9 @@ pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
     out
 }
 
-/// Lists the edits the line's provenance names as contributing, each with
-/// how: an unexplained, ambiguous, unresolved, or unanalyzed line has none,
-/// and the other edits the analysis refers to stay in the JSON map.
+/// Lists edits named by the line's provenance and their roles. Unexplained,
+/// ambiguous, unresolved, or unanalyzed lines have none. Other edits
+/// referenced by the analysis stay in the JSON map.
 fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     let mut edits: Vec<(&EventId, String, Option<&EditInfo>)> = why
         .line
@@ -466,10 +465,9 @@ fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     }
 }
 
-/// What the report behind `change` leaves open, or `None` when nothing:
-/// the flags the harness set on it (their meaning is not established), the
-/// changed files it counted without naming, and the files it named outside
-/// the command's checkout.
+/// Report uncertainty for `change`, or `None` if none: flags with
+/// unestablished meanings, counted but unnamed changed files, and files named
+/// outside the command's checkout.
 fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<String> {
     let files = |count: u64| if count == 1 { "file" } else { "files" };
     let mut limits = Vec::new();
@@ -488,10 +486,9 @@ fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<S
     (!limits.is_empty()).then(|| limits.join("; "))
 }
 
-/// Lists the commands the harness reported as changing the file, each with
-/// what its report leaves open. Under a line no chain explains, each
-/// command is marked when its reported diff adds the line's text, or says
-/// why it has no diff to compare.
+/// Lists the commands reported as changing the file, with what each report
+/// leaves open. Under an unexplained line, marks commands whose diffs add
+/// its text, or says why no diff can be compared.
 fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     if why.command_changes.is_empty() {
         return;

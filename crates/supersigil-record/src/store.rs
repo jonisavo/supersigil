@@ -90,11 +90,10 @@ pub enum StoreError {
     /// than its committed byte length.
     #[error("record is corrupt: {0}")]
     Corrupt(String),
-    /// The manifest's schema version is not the one this version of the
-    /// crate reads and writes. No migration exists, and the record is left
-    /// as it is: a newer one needs a newer reader, and an older one can be
-    /// moved away or deleted before the next sync rebuilds what the
-    /// remaining transcripts hold.
+    /// The manifest version differs from this crate's format. No migration
+    /// exists; the record stays unchanged. A newer record needs a newer
+    /// reader. An older one can be moved away or deleted; the next sync
+    /// then rebuilds what the remaining transcripts hold.
     #[error(
         "record at {} uses record format {found}; this build reads format {supported}. {}",
         root.display(),
@@ -110,9 +109,9 @@ pub enum StoreError {
     },
 }
 
-/// What to do about a record of format `found` that this build, reading
-/// `supported`, refuses. Keeping the record's observations comes first: a
-/// transcript they came from may no longer exist.
+/// Advice for a record of format `found` refused by a build reading
+/// `supported`. Preserve observations first: their transcripts may be
+/// gone.
 fn unsupported_advice(found: u32, supported: u32) -> &'static str {
     if found > supported {
         "A newer supersigil wrote it; use that version to read it. This build left it unchanged."

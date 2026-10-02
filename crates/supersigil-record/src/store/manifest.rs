@@ -88,10 +88,9 @@ struct Versioned {
 
 /// Reads the manifest and checks that its version equals [`SCHEMA_VERSION`].
 ///
-/// The version is read alone first, so a record in another layout fails on
-/// its version and not on whichever field that layout lacks. Rejecting
-/// other versions also prevents a writer from dropping fields it does not
-/// understand when it serializes the manifest again.
+/// Reads the version first so other layouts fail on their version, not a
+/// missing field. Rejecting other versions also prevents writers from
+/// dropping unknown fields when they serialize the manifest again.
 ///
 /// # Errors
 ///

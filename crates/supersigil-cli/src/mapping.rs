@@ -1,11 +1,11 @@
 //! Maps a recorded file onto the git worktree it lies in.
 //!
-//! An edit, and each file of a command's change report, stores the
-//! transcript's working directory (`checkout`: not canonical, possibly a
-//! subdirectory) and a path relative to it. The file belongs to the
-//! innermost worktree containing `checkout/path`, which is how a session in
-//! `/repo` editing `.claude/worktrees/feature/src/lib.rs` lands in the
-//! `feature` worktree as `src/lib.rs`.
+//! Edits and files in command change reports store the transcript's working
+//! directory (`checkout`, noncanonical and possibly a subdirectory) and a
+//! relative path. The file belongs to the innermost worktree containing
+//! `checkout/path`. A session in `/repo` editing
+//! `.claude/worktrees/feature/src/lib.rs` thus maps to `src/lib.rs` in
+//! `feature`.
 
 use std::path::{Path, PathBuf};
 
@@ -53,15 +53,15 @@ pub fn map_file(
     map_resolved(&resolve(checkout), path, worktree_roots, ignore_case)
 }
 
-/// `checkout` canonicalized when it exists, and as written otherwise: the
-/// spelling [`map_file`] places files under.
+/// Canonicalizes `checkout` if it exists; otherwise keeps its spelling.
+/// [`map_file`] places files under this path.
 #[must_use]
 pub fn resolve(checkout: &Path) -> PathBuf {
     canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
 }
 
-/// [`map_file`] for a checkout that is already resolved ([`resolve`]), for
-/// a caller that places several files of one checkout.
+/// [`map_file`] with an already resolved checkout ([`resolve`]), for
+/// callers placing several files from one checkout.
 #[must_use]
 pub fn map_resolved(
     checkout: &Path,

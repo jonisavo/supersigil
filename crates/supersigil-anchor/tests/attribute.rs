@@ -1052,8 +1052,7 @@ fn appended_lines_are_introduced_and_the_rest_is_base() {
 
 #[test]
 fn appends_sharing_an_ordinal_are_ordered_by_the_bytes() {
-    // Two edits of one transcript record: the record holds no order
-    // between them.
+    // One transcript record gives these two edits no order.
     let out = wt(
         "a\n",
         "a\nb\nc\n",
@@ -1071,8 +1070,8 @@ fn appends_sharing_an_ordinal_are_ordered_by_the_bytes() {
 
 #[test]
 fn the_writes_of_one_command_are_walked_in_the_order_it_holds_them() {
-    // Two heredocs of one command append the same text: the bytes cannot
-    // say which came first, the command's text does.
+    // Two heredocs append the same text. The bytes give no order; the
+    // command does.
     let out = wt(
         "seed\n",
         "seed\nx\nx\n",
@@ -1091,8 +1090,8 @@ fn the_writes_of_one_command_are_walked_in_the_order_it_holds_them() {
 
 #[test]
 fn edits_sharing_an_ordinal_without_a_common_command_stay_unordered() {
-    // Nothing orders two edits of one record unless one command wrote
-    // both: each order is a reading, and the lines are ambiguous.
+    // Only a shared command orders two edits of one record. Both orders
+    // remain readings, so the lines are ambiguous.
     let pairs = [
         (append("e1", "t", 1, "x\n"), append("e2", "t", 1, "x\n")),
         (
@@ -1158,7 +1157,7 @@ fn an_append_onto_a_line_without_a_terminator_shares_that_line() {
 
 #[test]
 fn a_file_created_and_extended_without_hashes_is_exact_from_an_absent_base() {
-    // What a shell records: no hash on either side of either edit.
+    // Shell edits have no hashes on either side.
     let mut created = common::create("w", "t", 1, "a\n");
     created.after = supersigil_record::observations::FileState::unknown();
     let out = attribute(request(

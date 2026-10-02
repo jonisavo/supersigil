@@ -36,33 +36,27 @@ before and after states, retained replacement text, and display patch.
 Absent content, unknown content, withheld material, and unavailable material
 are different states. A missing transcript does not erase retained history.
 
-An edit comes from an editing tool's result, or from a shell command under
-one narrow rule. A command yields an edit only for a top-level `cat`
-statement that redirects a wholly quoted heredoc to a literal path, and only
-when the harness's change report for that call lists the same file as changed
-and describes it as created or modified. A report the harness flagged
-confirms nothing: what its flags mean is not established. Such an edit is
-inferred, not observed. The report says that the command changed the file,
-not that this statement ran, so the edit is marked as read from a shell
-command, and `why` says it was read from a heredoc, never that the heredoc
-wrote the line. Reading the command resolves every
-doubt by not recognizing: a missed write costs attribution, a wrong one would
-be a false record. A `cd` counts only for the statements chained to it with
-`&&`, which run only when it succeeded. The heredoc body is the edit's text,
-and the edit names its command. It carries no content hash and never borrows
-the report's hunks, because the report describes the whole command. Those
-hunks can only speak against a write: when they show the file, once the
-command had finished, holding lines the command's heredocs did not leave
-there, the writes to that file are not recorded. Command text is read to find
-these statements; it is never run. A write the report does not confirm is
-counted as a capture limitation.
+Edits come from editing-tool results or one narrow shell form: a top-level
+`cat` redirecting a wholly quoted heredoc to a literal path. The call's
+harness report must list that file as changed and describe it as created
+or modified. Flagged reports confirm nothing because flag meanings are
+unestablished. The edit is inferred, not observed: the report confirms the
+command changed the file, not that this statement ran. The edit is marked
+as read from a shell command; `why` says it was read from a heredoc, never
+that the heredoc wrote the line. Every doubt resolves to not recognizing: a
+missed write costs attribution, a wrong one creates a false record. A `cd`
+applies only within its `&&` chain, which runs only if it succeeds. The
+edit names its command and retains the heredoc body without a content hash.
+It never borrows report hunks, which cover the whole command. Hunks can only
+reject: final-file lines inconsistent with the command's heredocs leave
+all writes to that file unrecorded. Command text is read, never run.
+Unconfirmed writes count as capture limitations.
 
-A command keeps the harness's change report: the files that differed once
-the call had finished, with the harness's capped display hunks. It is an
-observation that a file changed while the command ran. It does not say which
-statement changed the file or which bytes it wrote, so it is never
-attribution, and its hunks are never read as file bytes. A missing report
-says nothing about whether files changed.
+Commands retain the harness's report of files differing after the call,
+with capped display hunks. This observes changes during the command,
+without identifying the statement or bytes responsible. It is never
+attribution; hunks are never treated as file bytes. A missing report says
+nothing about whether files changed.
 
 Observations are append-only. Derivations are rebuildable findings identified
 by their inputs and algorithm version. The record format reserves separate
@@ -70,8 +64,8 @@ layers for interpretations and human contributions; these are not a shipped
 annotation or judgment workflow.
 
 A manifest pins committed log lengths and immutable document names. A reader
-uses one manifest and reads only the data it pins. A record in another format
-version is refused with its directory named; there is no migration. Writers lock the store,
+uses one manifest and reads only pinned data. A record in another format is
+refused, naming its directory; there is no migration. Writers lock the store,
 write and synchronize data, then publish the manifest. Unpublished tails and
 unreferenced documents do not become part of a revision.
 
@@ -124,20 +118,18 @@ Every known before and after hash must agree.
 None of these classes claims capture completeness. An unrecorded excursion
 that returns to the same bytes can remain undetectable.
 
-An append executes forward as the previous bytes followed by its text, and
-reverses only when the current bytes end with that text. A shell edit has no
-hashes, so a chain holding one is exact from the base when replay from the
-base reproduces the target, and consistent otherwise. Exact describes the
-bytes: it does not add evidence that the heredoc's statement ran. A heredoc
-that overwrote a file whose previous content is unrecorded stops its chain,
-as a Write does.
+An append adds its text to the previous bytes and reverses only if current
+bytes end with that text. Shell edits have no hashes: chains containing
+them are exact from the base if base replay reproduces the target,
+otherwise consistent. Exact describes bytes, not evidence of statement
+execution. A heredoc overwrite with unrecorded previous content stops its
+chain, as a Write does.
 
 Time orders presentation, not lineage. Source ordinals order edits within a
-transcript; equal ordinals remain unordered, except the heredoc writes of one
-command, which the shell runs in the order the command's text holds them and
-which are walked in that order. When surviving chains disagree,
-report ambiguity. Agreement must include full provenance, including earlier
-and whitespace-only contributors.
+transcript. Equal ordinals remain unordered, except one command's heredoc
+writes, which are walked in the order the command runs them. When surviving
+chains disagree, report ambiguity. Agreement must include full provenance,
+including earlier and whitespace-only contributors.
 
 A non-base-reaching reading may be set aside only when a base-reaching chain
 contains its recorded evidence under the chain comparison rules. Keep it
@@ -155,17 +147,16 @@ budget never marks the chain search incomplete.
 Claude Code's `structuredPatch` is display text, not file bytes. Hunk checks
 can reject inconsistent hashless candidates under the supported display
 rule; they cannot supply replacement bytes. Exact reversal uses retained
-`old_text`, `new_text`, Write content, or a heredoc body. Display-format changes are a capture
-limitation, including the possibility of excluding a competing reading.
+`old_text`, `new_text`, Write content, or a heredoc body. Display-format
+changes are a capture limitation that may exclude a competing reading.
 
 Contributors distinguish introduced content, replaced base content,
 whitespace-only changes, and earlier participation. Whitespace can change
 program behavior, so these changes remain visible. Command change reports
-and textual command mentions are observations, not attribution. A review
-lists the commands reported as changing each file, and `why` marks those
-whose reported diff adds the explained line's text; that mark is a match of
-display text, and its absence denies nothing, since reports are capped.
-Commands recorded in transcripts are never replayed.
+and path mentions are observations, not attribution. Reviews list the
+commands reported as changing each file. `why` marks diffs adding the
+explained line's text: a display-text match. Reports are capped, so an
+absent mark rules nothing out. Recorded commands are never replayed.
 
 ## Trees, bytes, and scope
 
@@ -223,25 +214,22 @@ The [product design](research/multiverse-review-design.md) retains the intended
 review workflow and decisions for features not yet implemented.
 
 Current attribution is path-based. Renames appear as deletion plus addition.
-Scripts, `sed`, formatters, and every other command that changes files are
-visible only through change reports; the lines they wrote stay unattributed.
-Change reports exist from Claude Code 2.1.272 on, omit ignored files, and
-carry hunks for at most five files of a command. The statements at which the reading of a
-command stops are those known to change what a later statement means; that
-is a list, not a proof against everything a shell can do, and the harness
-checks stand behind it. A shell edit is confirmed
-for its command as a whole: when its statement did not run, another
-statement changed the same file, and the harness's hunks show nothing that
-disagrees (it gave none, or the file ended with the same text), the record
-holds an edit that did not happen, which attributes only where the file's
-bytes reproduce it. The report describes the file the command ends with, so
-a heredoc write that a later `>` of the same command replaced is recorded
-whether or not its statement ran. The harness's created flag describes the
-file before the command: when an earlier statement that the reader does not
-recognize created the file, the edit's absent before-state is wrong, and an
-append then fails its forward check. A `cat` that the user's shell profile
-redefines is read as the program; the hunks reject such a write only when
-they show other lines.
+Scripts, `sed`, formatters, and other file-changing commands appear only
+through change reports; their lines stay unattributed. Reports exist from
+Claude Code 2.1.272, omit ignored files, and include hunks for at most
+five files per command. Recognition stops at statements known to change
+what a later one means. That is a list, not a proof against every shell
+mechanism; the harness checks stand behind it. Confirmation covers
+commands, not statements. If another
+statement changes the same file while a heredoc is skipped, and hunks are
+absent or show matching final text, the record holds an edit that did not
+happen. It attributes only where file bytes reproduce it. Reports describe
+final files, so a heredoc overwritten by a later `>` is recorded whether
+or not it ran. The created flag describes the pre-command file: an
+unrecognized earlier creation makes the inferred absent before-state
+wrong, so an append fails its forward check. A `cat` that the user's shell
+profile redefines is still read as the program; the hunks reject such a
+write only if they show other lines.
 Several hashless sessions can remain ambiguous. Claude Code file-history
 backups are not read. Captured trees have no retention ref and can disappear
 under git garbage collection. A transcript that vanishes between discovery
@@ -276,7 +264,7 @@ host can read independently.
   [chain walk](../crates/supersigil-anchor/src/walk.rs) document algorithm details.
 - [Shell write recognition](../crates/supersigil-session/src/claude_code/shell.rs)
   and [change reports](../crates/supersigil-session/src/claude_code/changes.rs)
-  document what is read from a Bash call.
+  document Bash write recognition and reports.
 - [Review outcomes](../crates/supersigil-review/src/outcome.rs) define ordered line rules.
 - [CLI integration tests](../crates/supersigil-cli/tests/cmd_review.rs) and
   [reconciliation tests](../crates/supersigil-cli/tests/reconcile.rs) exercise

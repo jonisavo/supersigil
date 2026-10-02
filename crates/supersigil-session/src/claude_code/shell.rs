@@ -1,70 +1,62 @@
-//! Recognizes file writes a shell command makes from a quoted heredoc.
+//! Recognizes quoted-heredoc file writes in shell command text.
 //!
-//! `cat > path <<'EOF'` hands `cat` exactly the lines between the opening
-//! line and the terminator: with a quoted delimiter the shell expands
-//! nothing in them. Such a statement is the one shell form whose written
-//! bytes can be read off the command text. This module finds those
-//! statements and the directory each runs in. It reads text only: nothing
-//! is executed, and whether a write happened is for the caller to confirm
-//! against the harness's report.
+//! `cat > path <<'EOF'` passes the body lines unchanged: a quoted delimiter
+//! prevents expansion. This is the one shell form whose written bytes can
+//! be read from command text. The module finds these statements and their
+//! directories. It never executes text; the caller checks writes against the
+//! harness report.
 //!
-//! The reading is deliberately narrow. A statement counts only when it is a
-//! top-level statement of the command, is `cat` with no arguments, has one
-//! bare `>` or `>>` redirection to a literal path and one `<<` heredoc whose
-//! delimiter is one single-quoted string, or one double-quoted string
-//! holding no `$`, backtick, or backslash, and runs in the
-//! foreground, outside a pipeline, and not as the alternative after `||`.
-//! Recognition stops at the first construct that is not a simple command (a
-//! subshell or group, a reserved word, a command substitution, an unclosed
-//! quote, a heredoc without its terminator, an unquoted heredoc whose body
-//! joins lines or expands a command or arithmetic), at a statement that
-//! leaves the shell, and at one that may change what a later `cat` means
-//! (`alias`, `set`, `export`, `eval`, an assignment to `PATH`, and their
-//! like): what was recognized before it stands, nothing after it is. A write that is missed costs attribution; a
-//! write that is wrong would be a false record, so every doubt is resolved
-//! by not recognizing.
+//! Only top-level, argument-free `cat` statements count, with one bare `>` or
+//! `>>` to a literal path and one `<<`. Its delimiter must be one
+//! single-quoted string or one double-quoted string without `$`, backticks,
+//! or backslashes.
+//! The statement must run in the foreground, outside pipelines and
+//! alternatives after `||`. Recognition stops at nonsimple constructs
+//! (subshells, groups, reserved words, command substitutions, unclosed
+//! quotes, missing heredoc terminators, or unquoted bodies joining lines or
+//! expanding commands or arithmetic), statements leaving the shell, and
+//! statements that may redefine later `cat` calls (`alias`, `set`, `export`,
+//! `eval`, `PATH` assignments, and similar). Earlier recognized writes
+//! remain; nothing later is recognized. Every doubt resolves to not
+//! recognizing: a missed write costs attribution, a wrong one creates a
+//! false record.
 //!
-//! A backslash followed by a newline continues a line. The shell removes
-//! the pair wherever it reads a command, even inside an operator or a
-//! reserved word, and so does the reader here ([`Lexer::peek`]). It stays
-//! as written in single quotes, in comments, and in heredoc bodies.
+//! Backslash-newline pairs continue lines. The shell removes them when
+//! reading commands, even inside operators or reserved words; so does
+//! [`Lexer::peek`]. They stay literal in single quotes, comments, and heredoc
+//! bodies.
 //!
-//! One thing the text cannot show is the shell the command runs in: an
-//! alias or a function named `cat` from the user's profile, or another
-//! `cat` on its `PATH`. The reading assumes `cat` copies its input. The
-//! statements it stops at are those known to change what a later statement
-//! means; the shell has more ways than a reader of text can list. The
-//! caller's checks against the harness's report are what stand behind both.
+//! Text cannot reveal profile aliases or functions named `cat`, or another
+//! `cat` on `PATH`. Recognition assumes `cat` copies input. Its stop list
+//! covers known ways to change later statements, not every way a shell
+//! allows. The caller's harness checks support both assumptions.
 
 use std::path::{Component, Path, PathBuf};
 
 /// A heredoc file write found in a command's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ShellWrite {
-    /// The target joined onto the directory its statement runs in, with
-    /// `.` components dropped and nothing else resolved: `..` stays, and
-    /// the path is not checked against any checkout.
+    /// Target joined to the statement's directory, with `.` dropped.
+    /// Nothing else is resolved: `..` stays, and no checkout check
+    /// occurs.
     pub path: PathBuf,
-    /// Whether the redirection is `>>`, which appends, and not `>`.
+    /// Whether the redirection appends (`>>`) rather than overwrites
+    /// (`>`).
     pub append: bool,
-    /// The heredoc body: every line before the terminator, each with its
-    /// newline.
+    /// Heredoc lines before the terminator, each with its newline.
     pub body: String,
 }
 
-/// Finds the heredoc writes in `command`, run from the directory `cwd`.
+/// Finds heredoc writes in `command`, starting in `cwd`.
 ///
-/// A relative target is joined onto the directory its statement runs in.
-/// That is `cwd` until a statement may have moved the shell. A `cd` with one
-/// literal argument that is absolute or starts with `./` or `../` (the
-/// forms the shell does not look up in `CDPATH`) moves it for the
-/// statements chained after it with `&&`, which run only when the `cd`
-/// succeeded. Once the chain ends, whether the `cd` happened is no longer
-/// known, so the directory is unknown from there on, as it is after any
-/// other form of `cd` and after `pushd`, `popd`, `exec`, `builtin`, or
-/// `command`. While it is unknown, only writes to absolute targets are
-/// returned. A list run in the background (`a && b &`) writes and moves
-/// nothing here.
+/// Relative targets use the statement's directory, initially `cwd`. A `cd`
+/// with one literal argument that is absolute or starts with `./` or `../`
+/// (forms the shell never looks up in `CDPATH`) sets the directory for
+/// statements chained after it by `&&`, which run only if it succeeds.
+/// After that chain, its success is unknown, so the directory becomes
+/// unknown. Other `cd` forms and `pushd`, `popd`, `exec`, `builtin`, or
+/// `command` also make it unknown. Only absolute targets are then returned.
+/// Background lists (`a && b &`) yield no writes or directory changes here.
 pub(super) fn shell_writes(command: &str, cwd: &Path) -> Vec<ShellWrite> {
     let mut scan = Scan {
         lexer: Lexer {
@@ -82,13 +74,13 @@ pub(super) fn shell_writes(command: &str, cwd: &Path) -> Vec<ShellWrite> {
     scan.finish()
 }
 
-/// The reader met a construct it does not read as a simple command, or a
-/// statement after which the rest of the command does not run here.
+/// The reader reached a nonsimple construct or a statement that prevents
+/// the rest from running here.
 struct Stop;
 
-/// Reserved words that open or continue a compound command, a group, a
-/// negation, a conditional expression, or a timed pipeline when they start
-/// a statement.
+/// Reserved words starting statements that open or continue compound
+/// commands, groups, negation, conditional expressions, or timed
+/// pipelines.
 const RESERVED: [&str; 20] = [
     "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
     "function", "select", "coproc", "time", "{", "}", "!", "[[",
@@ -97,14 +89,13 @@ const RESERVED: [&str; 20] = [
 /// Programs after which the shell's working directory is no longer known.
 const MOVES: [&str; 4] = ["cd", "pushd", "popd", "exec"];
 
-/// Builtins that run the program they are given, which is the one that
-/// counts.
+/// Builtins that run their argument's program; that program determines
+/// recognition.
 const WRAPPERS: [&str; 2] = ["builtin", "command"];
 
-/// Builtins that can change what a later statement means: which program
-/// `cat` names, whether a statement runs at all, what a redirection does,
-/// or how much a program may write. Those that set a variable are here
-/// because the variable may be `PATH`.
+/// Builtins that can change later statements: `cat` resolution, whether
+/// statements run, redirection behavior, or write limits.
+/// Variable-setting builtins qualify because they may set `PATH`.
 const REDEFINES: [&str; 22] = [
     "alias",
     "unalias",
@@ -165,9 +156,9 @@ enum WordKind {
 struct Word {
     text: String,
     kind: WordKind,
-    /// Whether the word holds no quote and no escape. Only such a word can
-    /// be a reserved word, and only such a heredoc delimiter leaves its
-    /// body open to expansion.
+    /// Whether the word has no quotes or escapes. Only such words can be
+    /// reserved words, and only such heredoc delimiters allow body
+    /// expansion.
     bare: bool,
 }
 
@@ -191,9 +182,9 @@ impl Word {
 enum Redirect {
     /// A bare `>` or `>>` to a word.
     Output { append: bool, target: Word },
-    /// A heredoc; `heredoc` indexes it in [`Scan::heredocs`], and `quoted`
-    /// says the body reaches the program byte for byte: the operator is
-    /// `<<` and its delimiter is wholly quoted.
+    /// A heredoc indexed by `heredoc` in [`Scan::heredocs`]. `quoted`
+    /// means the body reaches the program unchanged: `<<` with a wholly
+    /// quoted delimiter.
     Heredoc { quoted: bool, heredoc: usize },
     /// Any other redirection.
     Other,
@@ -211,9 +202,9 @@ struct Statement {
 struct Heredoc {
     delimiter: String,
     strip_tabs: bool,
-    /// Whether the delimiter is bare, so that the shell processes the
-    /// body: it joins a line ending in a backslash with the next before
-    /// looking for the terminator, and it runs the expansions in it.
+    /// Whether the delimiter is bare, allowing body processing: joining
+    /// backslash-ended lines before finding the terminator, and running
+    /// expansions.
     expands: bool,
     /// The body, once its lines were read.
     body: Option<String>,
@@ -238,10 +229,9 @@ struct Scan<'a> {
     heredocs: Vec<Heredoc>,
     /// How many of `heredocs` have had their body read.
     read: usize,
-    /// The statements of the list being read (statements joined by `&&`,
-    /// `||`, or `|`), each with how it is joined to the one before it.
-    /// Nothing in a list takes effect before its end shows whether the
-    /// whole list runs in the background.
+    /// Current list's statements (joined by `&&`, `||`, or `|`) and
+    /// their joins to predecessors. Nothing takes effect until the list
+    /// ends and its background status is known.
     list: Vec<(Statement, Join)>,
 }
 
@@ -324,8 +314,8 @@ impl Scan<'_> {
                     self.push(std::mem::take(&mut statement), joined);
                     joined = ended;
                 }
-                // A newline after `&&`, `||`, or `|` continues the list: the
-                // operator still joins the statement on the next line.
+                // A newline after `&&`, `||`, or `|` continues the list; the
+                // operator still joins the next statement.
                 Join::Sequence if c == '\n' && empty && joined != Join::Sequence => {}
                 Join::Sequence | Join::Background => {
                     self.push(std::mem::take(&mut statement), joined);
@@ -339,16 +329,16 @@ impl Scan<'_> {
         }
     }
 
-    /// Adds a statement that has anything in it to the current list.
+    /// Adds a non-empty statement to the current list.
     fn push(&mut self, statement: Statement, joined: Join) {
         if !statement.words.is_empty() || !statement.redirects.is_empty() {
             self.list.push((statement, joined));
         }
     }
 
-    /// Acts on the statements of the list just ended, in order. A list run
-    /// in the background runs in a subshell, apart from this command: it
-    /// moves no directory here, and its writes are not recognized.
+    /// Processes the completed list in order. Background lists run in a
+    /// separate subshell, so they change no directory here and yield no
+    /// recognized writes.
     fn end_list(&mut self, background: bool) -> Result<(), Stop> {
         let list = std::mem::take(&mut self.list);
         if background {
@@ -358,8 +348,8 @@ impl Scan<'_> {
         let mut moved = false;
         let mut stopped = Ok(());
         for (i, (statement, joined)) in list.iter().enumerate() {
-            // After `||`, a statement runs whether or not an earlier `cd`
-            // of the list succeeded.
+            // After `||`, the statement runs regardless of an earlier
+            // `cd`'s success.
             if *joined == Join::Or && moved {
                 self.dir = None;
             }
@@ -376,8 +366,8 @@ impl Scan<'_> {
         stopped
     }
 
-    /// Reads one redirection at `<` or `>` into `statement`. `descriptor`
-    /// says a file descriptor number preceded the operator.
+    /// Reads a redirection at `<` or `>` into `statement`. `descriptor`
+    /// indicates a preceding file descriptor number.
     fn redirect(&mut self, statement: &mut Statement, descriptor: bool) -> Result<(), Stop> {
         let redirect = match self.lexer.operator() {
             Operator::Heredoc { strip_tabs } => {
@@ -407,13 +397,12 @@ impl Scan<'_> {
         Ok(())
     }
 
-    /// Acts on a statement of a foreground list: moves the directory for a
-    /// `cd`, loses it for a program that may move it (setting `moved` in
-    /// both cases), and drafts a heredoc write. Stops at a statement that
-    /// leaves the shell whenever the command reaches it, since nothing
-    /// after it runs, and at one after which `cat` may no longer mean what
-    /// it does now: a builtin of [`REDEFINES`], a program named through an
-    /// expansion (which could be one of them), or an assignment to `PATH`.
+    /// Processes a foreground statement: resolves `cd`, loses the
+    /// directory for programs that may move it (both set `moved`), and
+    /// drafts heredoc writes. Stops at statements that leave this shell
+    /// whenever reached, since nothing follows, or statements that may
+    /// change `cat`: a [`REDEFINES`] builtin, an expanded program name
+    /// that could name one, or a `PATH` assignment.
     fn complete(
         &mut self,
         statement: &Statement,
@@ -422,7 +411,7 @@ impl Scan<'_> {
         moved: &mut bool,
     ) -> Result<(), Stop> {
         let Some(at) = statement.words.iter().position(|w| w.assigned().is_none()) else {
-            // Assignments alone stay in the shell: a new `PATH` names
+            // Assignments alone affect this shell; a new `PATH` names
             // another `cat`.
             let path = statement.words.iter().any(|w| w.assigned() == Some("PATH"));
             return if path { Err(Stop) } else { Ok(()) };
@@ -431,8 +420,8 @@ impl Scan<'_> {
         let mut arguments = &statement.words[at + 1..];
         // Runs in this shell, and not only when what precedes it failed.
         let direct = joined != Join::Pipe && joined != Join::Or && ended != Join::Pipe;
-        // `builtin name …` and `command name …` run `name`. `command -v`
-        // and `-V` only ask where a name comes from.
+        // `builtin name …` and `command name …` run `name`; `command -v`
+        // and `-V` only query its source.
         let mut wrapped = false;
         while program.literal() && WRAPPERS.contains(&program.text.as_str()) {
             let options = arguments
@@ -457,11 +446,9 @@ impl Scan<'_> {
             return Err(Stop);
         }
         let name = program.text.as_str();
-        // `printf -v name` sets a variable, and so does a `%n` conversion
-        // in its format. Either may also reach it through an expansion.
-        // A first argument starting with `-` is an option, which may be
-        // `-v name` (sets a variable) or `--` (the format is then the next
-        // argument, which is not read here).
+        // `printf -v name` and format `%n` set variables; expansions may
+        // hide either. A leading `-` may be `-v name` or `--`, which puts
+        // the format in the next argument, not read here.
         let sets_variable = name == "printf"
             && arguments.first().is_some_and(|first| {
                 !first.literal() || first.text.starts_with('-') || stores_count(&first.text)
@@ -469,14 +456,15 @@ impl Scan<'_> {
         if sets_variable {
             return Err(Stop);
         }
-        // `exec` with a program replaces the shell; with redirections only
-        // it goes on.
+        // `exec` with a program replaces the shell; redirections alone let
+        // it continue.
         let leaves = LEAVES.contains(&name) || (name == "exec" && !arguments.is_empty());
         if leaves && direct && joined == Join::Sequence {
             return Err(Stop);
         }
         if wrapped {
-            // Whatever ran, it was not the plain `cd` or `cat` read below.
+            // The wrapper did not run the plain `cd` or `cat` recognized
+            // below.
             *moved = true;
             self.dir = None;
             return Ok(());
@@ -508,8 +496,8 @@ impl Scan<'_> {
         Ok(())
     }
 
-    /// Drafts the write of a `cat` statement whose redirections are one
-    /// bare output to a literal target and one quoted heredoc.
+    /// Drafts a `cat` write with one bare output redirection to a
+    /// literal target and one quoted heredoc.
     fn draft(&mut self, redirects: &[Redirect]) {
         let (append, target, heredoc) = match redirects {
             [
@@ -541,9 +529,9 @@ impl Scan<'_> {
         });
     }
 
-    /// `path` as the shell would resolve it from the current directory, or
-    /// `None` when it is relative and the directory is unknown. `.`
-    /// components name the directory they are in and are dropped.
+    /// Resolves `path` from the current directory. `.` names that
+    /// directory, so its components are dropped. Returns `None` for
+    /// relative paths when the directory is unknown.
     fn resolve(&self, path: &str) -> Option<PathBuf> {
         let joined = if path.starts_with('/') {
             PathBuf::from(path)
@@ -571,7 +559,7 @@ impl Scan<'_> {
         Ok(())
     }
 
-    /// The recognized writes, without those whose body was never read.
+    /// Recognized writes with fully read bodies.
     fn finish(self) -> Vec<ShellWrite> {
         let Self {
             drafts,
@@ -591,10 +579,9 @@ impl Scan<'_> {
     }
 }
 
-/// Whether a `printf` format holds a `%n` conversion, which stores a count
-/// in the variable its argument names. Flags, a width, a precision, and a
-/// length modifier may stand between the `%` and the `n`; `%%` is a
-/// percent sign.
+/// Whether a `printf` format has `%n`, which stores a count in the named
+/// variable. Flags, width, precision, and a length modifier may occur
+/// between `%` and `n`; `%%` is a percent sign.
 fn stores_count(format: &str) -> bool {
     let mut rest = format;
     while let Some(at) = rest.find('%') {
@@ -628,9 +615,8 @@ struct Lexer<'a> {
 }
 
 impl Lexer<'_> {
-    /// The next character of the command as the shell reads it: after any
-    /// backslash-newline pairs, which continue a line and leave nothing.
-    /// The cursor is left at that character.
+    /// The next shell character after removing backslash-newline
+    /// continuations. Leaves the cursor at that character.
     fn peek(&mut self) -> Option<char> {
         while self.text[self.pos..].starts_with("\\\n") {
             self.pos += 2;
@@ -711,7 +697,7 @@ impl Lexer<'_> {
     /// Reads one word, removing its quotes and escapes as the shell does.
     fn word(&mut self) -> Result<Word, Stop> {
         let mut text = String::new();
-        // Runs of unquoted characters and quoted strings the word is made of.
+        // The word's unquoted runs and quoted strings.
         let mut segments = 0;
         let mut in_plain = false;
         let mut expands = false;
@@ -746,8 +732,8 @@ impl Lexer<'_> {
                     expands = true;
                     bare = false;
                 }
-                // `$(…)`, `${…}`, `$[…]`, `$'…'`, and `$"…"` each have rules
-                // of their own for what follows.
+                // `$(…)`, `${…}`, `$[…]`, `$'…'`, and `$"…"` each parse what
+                // follows differently.
                 '$' => {
                     if matches!(self.peek(), Some('(' | '{' | '[' | '\'' | '"')) {
                         return Err(Stop);
@@ -770,8 +756,8 @@ impl Lexer<'_> {
                 in_plain = true;
             }
         }
-        // One segment that expands nothing: unquoted when the word is bare
-        // (an escape would have counted as expanding), else one quoted string.
+        // One nonexpanding segment: bare and unquoted (escapes count as
+        // expanding), or one quoted string.
         let kind = if expands || segments != 1 {
             WordKind::Other
         } else if bare {
@@ -782,10 +768,10 @@ impl Lexer<'_> {
         Ok(Word { text, kind, bare })
     }
 
-    /// Reads a double-quoted string after its opening quote into `text`.
-    /// Returns whether it holds a `$` or a backslash, either of which the
-    /// shell may rewrite. Inside double quotes a backslash escapes only
-    /// `$`, a backtick, `"`, and `\`; before any other character it stays.
+    /// Reads a double-quoted string into `text` after its opening quote.
+    /// Returns whether it contains `$` or backslashes, which the shell may
+    /// rewrite. Backslashes escape only `$`, backticks, `"`, and `\`;
+    /// before other characters they stay.
     fn double_quoted(&mut self, text: &mut String) -> Result<bool, Stop> {
         let mut expands = false;
         loop {
@@ -815,16 +801,15 @@ impl Lexer<'_> {
         }
     }
 
-    /// Reads a heredoc body from the start of a line up to and including its
-    /// terminator line.
+    /// Reads a heredoc body through its terminator, starting at a line
+    /// boundary.
     ///
-    /// Returns `None` when the terminator is missing. With `expands` (a
-    /// bare delimiter), the shell processes the body. It joins a line
-    /// ending in a backslash with the next one before it looks for the
-    /// terminator, so the physical lines no longer say where the body ends;
-    /// and it runs command substitutions and arithmetic in it, which can
-    /// change the shell (`$((PATH=0))`). A body with either is not read:
-    /// `None` is returned at that line.
+    /// Returns `None` if the terminator is missing. With `expands` (a bare
+    /// delimiter), the shell joins backslash-ended lines before finding the
+    /// terminator, so physical lines cannot locate the end. It also runs
+    /// command substitutions and arithmetic, which may change the shell
+    /// (`$((PATH=0))`). Either construct stops reading with `None` at that
+    /// line.
     fn body(&mut self, delimiter: &str, strip_tabs: bool, expands: bool) -> Option<String> {
         let mut body = String::new();
         loop {
@@ -941,9 +926,9 @@ mod tests {
             "cat > a <<\\EOF\nx\nEOF\n",
             "cat > a <<'E'OF\nx\nEOF\n",
             "cat > a <<E\"O\"F\nx\nEOF\n",
-            // A double-quoted delimiter holding `$`: the shell takes it
-            // literally, but this reader keeps to delimiters with nothing
-            // in them that could be an expansion.
+            // The shell treats `$` literally in a double-quoted
+            // delimiter, but this reader rejects potential expansion
+            // syntax there.
             "cat > a <<\"$EOF\"\nx\n$EOF\n",
             // `<<-` strips leading tabs.
             "cat > a <<-'EOF'\n\tx\n\tEOF\n",
@@ -1143,8 +1128,8 @@ mod tests {
 
     #[test]
     fn a_cd_counts_only_for_statements_that_run_when_it_succeeded() {
-        // On the next line or after `;`, the statement also runs when the
-        // `cd` failed, in the directory the shell was in.
+        // After a newline or `;`, the statement also runs if `cd` failed,
+        // in the previous directory.
         for command in [
             "cd ./sub\ncat > x <<'EOF'\nx\nEOF\n",
             "cd ./sub; cat > x <<'EOF'\nx\nEOF\n",
@@ -1155,7 +1140,7 @@ mod tests {
         ] {
             assert_eq!(writes(command), vec![], "{command}");
         }
-        // An `||` before the `cd` does not come between it and the write.
+        // An `||` before `cd` does not separate it from the write.
         assert_eq!(
             writes("false || true && cd ./sub && cat > x <<'EOF'\nx\nEOF\n"),
             vec![write("/work/repo/sub/x", "x\n")]
@@ -1295,8 +1280,8 @@ mod tests {
 
     #[test]
     fn a_locale_quoted_delimiter_stops_recognition() {
-        // The shell reads `$"EOF"` as the delimiter `EOF`: the line `$EOF`
-        // is data, and so is the `cat > f` after it.
+        // The shell reads `$"EOF"` as delimiter `EOF`; `$EOF` and the
+        // following `cat > f` are body data.
         let command = "cat >/dev/null <<$\"EOF\"\n$EOF\ncat > f <<'E'\nx\nE\nEOF\necho y > f\n";
         assert_eq!(writes(command), vec![]);
     }
@@ -1346,12 +1331,12 @@ mod tests {
 
     #[test]
     fn an_unquoted_heredoc_whose_body_joins_lines_stops_recognition() {
-        // The shell joins `prefix\` with the next line, so the first `EOF`
-        // is data and the `cat > f` after it is too.
+        // The shell joins `prefix\` to the next line; the first `EOF` and
+        // following `cat > f` are data.
         let joined = "cat >/dev/null <<EOF\nprefix\\\nEOF\ncat > f <<'E'\nx\nE\nEOF\necho y > f\n";
         assert_eq!(writes(joined), vec![]);
-        // A terminator split over two lines ends the body for the shell;
-        // the physical lines do not show it, so nothing after is read.
+        // A split terminator ends the shell's body, but physical lines
+        // cannot show it. Nothing after it is read.
         let split = "cat >/dev/null <<EOF\nEO\\\nF\ncat > a <<'A'\n1\nA\n";
         assert_eq!(writes(split), vec![]);
         // What was read in full before such a body stands.
@@ -1368,8 +1353,8 @@ mod tests {
 
     #[test]
     fn a_double_quoted_delimiter_keeps_a_backslash_the_shell_keeps() {
-        // The delimiter is `E\q`: the line `Eq` is data, and so is the
-        // `cat > f` after it.
+        // The delimiter is `E\q`; `Eq` and the following `cat > f` are
+        // data.
         let command =
             "cat >/dev/null <<\"E\\q\"\nEq\ncat > f <<'Z'\nx\nZ\nE\\q\ncat > a <<'A'\n1\nA\n";
         assert_eq!(writes(command), vec![write("/work/repo/a", "1\n")]);
@@ -1399,8 +1384,8 @@ mod tests {
     fn a_reserved_word_written_over_a_continuation_stops_recognition() {
         let command = "i\\\nf false; th\\\nen\ncat > f <<'E'\nx\nE\nfi\necho y > f\n";
         assert_eq!(writes(command), vec![]);
-        // Quoted, the same letters are an ordinary word, as they are when
-        // they do not start the statement.
+        // Quoted or outside the start of a statement, these letters form
+        // an ordinary word.
         for ordinary in ["'if' x", "\"then\"", "echo time"] {
             let command = format!("{ordinary}\ncat > a <<'A'\n1\nA\n");
             assert_eq!(
@@ -1409,8 +1394,8 @@ mod tests {
                 "{command}"
             );
         }
-        // Escaped, they name a program through a word that is not literal,
-        // which stops recognition for another reason.
+        // Escapes make the program name nonliteral, stopping recognition
+        // for another reason.
         assert_eq!(writes("\\if x\ncat > /abs/a <<'A'\n1\nA\n"), vec![]);
     }
 
@@ -1454,8 +1439,8 @@ mod tests {
                 "{command}"
             );
         }
-        // Reached only on a condition, or in a subshell, it leaves nothing:
-        // a later statement that runs shows it did not happen.
+        // These leave the shell only on a condition or in a subshell, or
+        // not at all: if a later statement runs, the shell stayed.
         for staying in [
             "test -d src || exit 1",
             "true && exit",
@@ -1511,8 +1496,8 @@ mod tests {
         let locale = "cat >/dev/null <<$\\\n\"EOF\"\n$EOF\ncat > f <<'E'\nx\nE\nEOF\necho y > f\n";
         assert_eq!(writes(locale), vec![]);
         assert_eq!(writes("echo $\\\n(date)\ncat > a <<'A'\n1\nA\n"), vec![]);
-        // An escaped backslash before a newline is a backslash, then the
-        // end of the statement.
+        // An escaped backslash before a newline leaves a backslash, then
+        // ends the statement.
         assert_eq!(
             writes("echo a\\\\\ncat > a <<'A'\n1\nA\n"),
             vec![write("/work/repo/a", "1\n")]
@@ -1526,8 +1511,7 @@ mod tests {
 
     #[test]
     fn a_wrapped_program_is_read_as_the_program_it_runs() {
-        // A wrapped `cat` is not the bare form, and a wrapped `cd` is not
-        // resolved.
+        // Wrapped `cat` is not bare; wrapped `cd` is not resolved.
         assert_eq!(writes("command cat > a <<'A'\n1\nA\n"), vec![]);
         assert_eq!(writes("builtin cd ./sub && cat > x <<'A'\n1\nA\n"), vec![]);
         // After any wrapped program only absolute targets resolve.

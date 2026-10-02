@@ -97,8 +97,8 @@ pub struct SyncReport {
 /// choose the session's display metadata.
 ///
 /// Cursor keys and observation transcript paths use the canonical file path,
-/// or the supplied path when the file is gone by the time it is resolved.
-/// Line positions can be compared only within a single transcript.
+/// or the supplied path if the file vanishes before resolution. Line
+/// positions are comparable only within one transcript.
 ///
 /// # Errors
 ///
@@ -256,15 +256,14 @@ fn sync_transcript(
     })
 }
 
-/// The identity of the transcript at `path`: `resolved`, its canonical path,
-/// or `path` as written when the file was not found, which happens only when
-/// it vanished after being read.
+/// Identity of the transcript at `path`: canonical `resolved`, or the
+/// written `path` if it vanished after reading.
 ///
 /// # Errors
 ///
-/// Returns [`SyncError::Io`] for any other resolution failure. Falling back
-/// to the written path there would file the transcript under a second
-/// identity and read it again from the start.
+/// Returns [`SyncError::Io`] for other resolution failures. Falling back
+/// then would give the transcript a second identity and reread it from the
+/// start.
 fn transcript_key(path: &Path, resolved: std::io::Result<PathBuf>) -> Result<String, SyncError> {
     let key = crate::found(resolved)
         .map_err(|source| SyncError::Io {

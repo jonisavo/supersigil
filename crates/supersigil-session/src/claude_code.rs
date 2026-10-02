@@ -5,9 +5,9 @@
 //! assistant records may be blocks of the same message, so they do not end
 //! pending tool calls.
 //!
-//! A `Bash` call is a command, and may also yield edits: one for each
-//! quoted-heredoc file write in its text that the harness's change report
-//! for the call confirms. The command text is read, never run.
+//! A `Bash` call records a command and may yield one edit per
+//! quoted-heredoc write confirmed by the call's harness report. Command
+//! text is read, never run.
 //!
 //! A new human or delegation turn marks pending calls as abandoned. Calls
 //! still awaiting results at the end of the input are left for the next parse.
@@ -378,7 +378,7 @@ impl Walk {
     }
 
     /// Marks pending tool calls as abandoned when a human or delegation turn arrives.
-    /// Records pending shell commands with unavailable results, counting
+    /// Records pending shell commands with unavailable results, counts
     /// their heredoc writes as unconfirmed, then clears the queue.
     fn abandon_pending(&mut self, session: &SessionId) {
         for tool in std::mem::take(&mut self.pending) {
@@ -696,8 +696,8 @@ fn hunks_of(result: Option<&Value>) -> Material<Vec<Hunk>> {
     )
 }
 
-/// The hunks of `value` as material: unavailable for the reason `missing`
-/// without a value, and for `unreadable` when it has another shape.
+/// Hunks in `value` as material. Unavailable for `missing` if absent, or
+/// `unreadable` if the shape differs.
 fn hunks_material(value: Option<&Value>, missing: &str, unreadable: &str) -> Material<Vec<Hunk>> {
     match value {
         Some(value) => {
@@ -707,8 +707,8 @@ fn hunks_material(value: Option<&Value>, missing: &str, unreadable: &str) -> Mat
     }
 }
 
-/// Reads an array of hunks as Claude Code writes them, or returns `None`
-/// when `value` has another shape.
+/// Reads Claude Code's hunk array, or returns `None` if `value` has
+/// another shape.
 fn hunks(value: &Value) -> Option<Vec<Hunk>> {
     let raw = Vec::<RawHunk>::deserialize(value).ok()?;
     Some(
@@ -1019,15 +1019,14 @@ fn build_command(
     })
 }
 
-/// The change report that can confirm `command`'s heredoc writes: the one
-/// of a call that ran to its end in the foreground without an error.
+/// The report eligible to confirm `command`'s heredoc writes: the call
+/// completed in the foreground without error.
 ///
-/// `None` without a result, for a result the harness marked as an error,
-/// for one that does not state `interrupted: false` (a missing or
-/// non-boolean value states nothing), for a background call (whose result
-/// arrives before the command ends), when the result carried no readable
-/// report, and for a report the harness flagged: what its flags mean is not
-/// established, so such a report stays an observation and confirms nothing.
+/// Returns `None` for absent or error-marked results, results without
+/// `interrupted: false` (missing or non-boolean values state nothing),
+/// background calls (results arrive before completion), unreadable or
+/// missing reports, and flagged reports. Flag meanings are unestablished:
+/// those reports remain observations and confirm nothing.
 fn confirming_report<'a>(
     command: &'a Command,
     resolution: Option<&Resolution>,
@@ -1044,47 +1043,45 @@ fn confirming_report<'a>(
         .filter(|report| report.flags.is_empty())
 }
 
-/// Builds an edit for each quoted-heredoc file write in `command`'s text
-/// that the harness confirms.
+/// Builds edits for quoted-heredoc writes in `command` confirmed by the
+/// harness.
 ///
-/// [`shell::shell_writes`] reads the writes off the command text. One
-/// becomes an edit only when the call's change report
-/// ([`confirming_report`]) lists the same file as changed and holds an
-/// entry saying it was created or modified: the harness then states that
-/// the command changed that file, as a Write result states a Write. The
-/// entry's hunks, where the harness gave any, must not speak against the
-/// writes ([`contradicted_files`]). The edit's text is the heredoc body.
-/// Its before-state is absent for the command's first write to a file the
-/// harness marked created, and otherwise present with unknown content. Its
-/// after-state has no hash, since the report describes the whole command
-/// and not the bytes this write left. A `>>` with an empty body changes
-/// nothing and yields nothing.
+/// [`shell::shell_writes`] reads command text. A write becomes an edit
+/// only if [`confirming_report`] lists its file as changed and describes
+/// it as created or modified. The harness states the command changed the
+/// file, as a Write result states a Write. Any supplied hunks must not
+/// contradict the writes ([`contradicted_files`]). The edit retains the
+/// heredoc body. Its before-state is absent for the first write to a file
+/// marked created; otherwise it is present with unknown content. Its
+/// after-state has no hash: the report covers the whole command, not this
+/// write's bytes. An empty `>>` yields nothing because it changes nothing.
 ///
 /// # Errors
 ///
-/// Each write is [`Count::Outside`] when its file is outside the call's
-/// working directory, and [`Count::Unconfirmed`] when no report confirms
-/// it, the report marks the file deleted or does not describe it, or the
-/// report's hunks contradict what the command's writes leave in the file.
+/// Each write is [`Count::Outside`] if its file lies outside the call's
+/// working directory. It is [`Count::Unconfirmed`] if no report confirms
+/// it, the report marks it deleted or undescribed, or hunks contradict
+/// the command's writes.
 fn shell_edits(
     tool: &PendingTool,
     command: &Command,
     resolution: Option<&Resolution>,
 ) -> Vec<Result<Observation, Count>> {
     let cwd = &command.checkout;
-    // Each write with its file inside the working directory, if it is.
+    // Each write paired with its file, if inside the working directory.
     let writes: Vec<(Option<PathBuf>, shell::ShellWrite)> = shell::shell_writes(&command.cmd, cwd)
         .into_iter()
         .map(|write| (contained(cwd, &write.path.to_string_lossy()), write))
         .collect();
-    // Most commands write no heredoc: nothing of the report is read then.
+    // Most commands have no heredoc writes, so their reports need no
+    // reading.
     if writes.is_empty() {
         return Vec::new();
     }
     let report = confirming_report(command, resolution);
     let time = command.ended.as_ref().unwrap_or(&command.started);
-    // What the report states of each file it lists as changed. A file it
-    // only describes in an entry is not confirmed.
+    // Descriptions for files listed as changed. An entry alone does not
+    // confirm a file.
     let listed = changes::listed_files(resolution.and_then(|r| r.structured), cwd);
     let files: BTreeMap<&Path, &FileChange> = report
         .into_iter()
@@ -1148,28 +1145,24 @@ fn shell_edits(
     built
 }
 
-/// The files whose reported hunks contradict what the command's heredoc
-/// writes leave in them ([`changes::contradicts`]).
+/// Files whose hunks contradict the command's heredoc writes
+/// ([`changes::contradicts`]).
 ///
-/// The report describes a file once the whole command has finished, so the
-/// writes to one file are taken together, in command order: a `>` leaves
-/// its body as the whole file, as does a first `>>` to a file the harness
-/// marked created, and each later `>>` adds its body at the end. A
-/// statement that did not run, or another statement that changed the file
-/// afterwards, shows up as a hunk line the writes do not account for,
-/// unless what the file ended with is the very text the writes would have
-/// left; every write of the command to a contradicted file is unconfirmed.
-/// A file without retained hunks is never contradicted: hunks can only
-/// reject, and only by lines they show.
-/// Nor can they speak about a write that a later `>` of the same command
-/// replaced: it leaves no trace in the file the command ends with. Such
-/// an edit, like any other, attributes only where the file's bytes
-/// reproduce its text.
+/// The report covers the whole command, so combine writes per file in
+/// command order. A `>` supplies the whole file, as does the first `>>` to
+/// a file marked created; later appends add their bodies. Skipped writes
+/// or later changes produce unexplained hunk lines unless the final text
+/// matches what the heredocs would leave. A contradiction leaves every
+/// write to that file unconfirmed. Without retained hunks, nothing is
+/// contradicted: hunks only reject, using shown lines.
+/// A later `>` in the same command erases an earlier write's trace, so
+/// hunks cannot check it. Such edits attribute only where file bytes
+/// reproduce their text.
 fn contradicted_files(
     writes: &[(Option<PathBuf>, shell::ShellWrite)],
     files: &BTreeMap<&Path, &FileChange>,
 ) -> BTreeSet<PathBuf> {
-    // What the writes leave in each file that has hunks to check it against.
+    // Final heredoc bytes per file with hunks to check.
     let mut left: BTreeMap<&Path, (&[Hunk], changes::Written)> = BTreeMap::new();
     for (path, write) in writes {
         let Some((path, file)) = path.as_deref().and_then(|path| files.get_key_value(path)) else {
@@ -1203,16 +1196,15 @@ fn contradicted_files(
         .collect()
 }
 
-/// Builds what a completed `Edit`, `Write`, `MultiEdit`, or `Bash` call
-/// recorded: one edit, or a command followed by the edits of its confirmed
-/// heredoc writes. Other tools yield nothing, except `NotebookEdit`, which
-/// is counted as unsupported.
+/// Builds observations from a completed `Edit`, `Write`, `MultiEdit`, or
+/// `Bash` call: one edit, or a command followed by confirmed heredoc
+/// edits. Other tools yield nothing; `NotebookEdit` counts as unsupported.
 ///
 /// # Errors
 ///
-/// An item is `Err` for a `NotebookEdit` call, a `Bash` call without a
-/// command, an editing call rejected by [`build_edit`], or a heredoc write
-/// rejected by [`shell_edits`].
+/// An item is `Err` for `NotebookEdit`, `Bash` without command text, an
+/// editing call rejected by [`build_edit`], or a heredoc rejected by
+/// [`shell_edits`].
 fn build_resolved(
     tool: &PendingTool,
     session: &SessionId,
@@ -1229,9 +1221,9 @@ fn build_resolved(
     }
 }
 
-/// Records an abandoned `Bash` call with no result, counting its heredoc
-/// writes, which nothing confirms. Yields nothing for other tools and for
-/// a call without command text.
+/// Records an abandoned `Bash` call without a result and counts its
+/// unconfirmed heredoc writes. Other tools and calls without command text
+/// yield nothing.
 fn build_abandoned(tool: &PendingTool, session: &SessionId) -> Vec<Result<Observation, Count>> {
     if tool.name != "Bash" {
         return Vec::new();
@@ -1324,8 +1316,8 @@ fn is_assignment(word: &str) -> bool {
     word.split_once('=').is_some_and(|(name, _)| is_name(name))
 }
 
-/// Whether `name` can name a shell variable: letters, digits, and `_`, not
-/// starting with a digit.
+/// Whether `name` is a shell variable name: letters, digits, and `_`, with
+/// no leading digit.
 fn is_name(name: &str) -> bool {
     !name.is_empty()
         && name

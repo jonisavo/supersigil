@@ -289,8 +289,8 @@ pub enum EditOperation {
     Replace,
     /// Claude Code's Write tool: the whole file becomes `new_text`.
     Write,
-    /// `new_text` was added at the end of the file, which is created when
-    /// absent, as a shell's `>>` redirection does.
+    /// `new_text` was appended to the file, creating it if absent, as
+    /// shell `>>` does.
     Append,
     /// Not recorded (logs written before this field existed) or a tool
     /// anchor cannot reverse, such as `MultiEdit`.
@@ -304,23 +304,22 @@ pub enum EditOperation {
 pub enum EditOrigin {
     /// A call to an editing tool, whose result states the edit.
     Tool,
-    /// A quoted heredoc a shell command redirected into the file. The text
-    /// is read from the command, and the harness's change report for that
-    /// command confirms that the command changed the file. Nothing states
-    /// that this statement ran, or the resulting bytes: the edit is
-    /// inferred, not observed.
+    /// A quoted heredoc redirected to a file. Its text comes from the
+    /// command; the harness confirms the command changed the file. It
+    /// confirms neither this statement's execution nor its resulting
+    /// bytes. The edit is inferred, not observed.
     Shell {
         /// The command that held the heredoc.
         command: EventId,
-        /// The write's place among the heredoc writes the command's text
-        /// holds, from 0. The shell runs them in this order, so it orders
-        /// the edits of one command, which share a source ordinal.
+        /// Zero-based position among the command's heredoc writes. The
+        /// shell runs them in this order, which orders one command's
+        /// edits sharing a source ordinal.
         index: u64,
     },
 }
 
-/// A file edit made through the agent's editing tools, or by a shell
-/// heredoc the harness confirmed.
+/// An edit from an agent editing tool or a harness-confirmed shell
+/// heredoc.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     /// Event ID derived from the session ID and the source's tool-use ID.
@@ -423,18 +422,17 @@ pub struct FileChange {
     pub path: PathBuf,
     /// What the harness stated about the change.
     pub kind: ChangeKind,
-    /// The harness's hunks for the whole command's change to this file, or
-    /// the reason there are none. They are display text, capped by the
-    /// harness, and never file bytes.
+    /// The harness's capped display hunks for this file over the whole
+    /// command, or why none exist. They are never file bytes.
     pub patch: Material<Vec<Hunk>>,
 }
 
-/// The harness's report of the files a command changed.
+/// The harness's report of files a command changed.
 ///
-/// Claude Code attaches one to a Bash result as `bashEditDiff`. It describes
-/// the command as a whole: which files differ once it has finished, whatever
-/// part of it changed them. It is an observation that the files changed
-/// while the command ran, never a statement of the bytes the command wrote.
+/// Claude Code attaches it to Bash results as `bashEditDiff`. It describes
+/// which files differ after the whole command, regardless of which part
+/// changed them. It observes changes while the command ran, never the bytes
+/// it wrote.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ChangeReport {
     /// The changed files inside the command's checkout, in the harness's order.
@@ -443,8 +441,8 @@ pub struct ChangeReport {
     pub outside: u64,
     /// Changed files the harness counted without naming.
     pub unlisted: u64,
-    /// Names of the flags the harness set on the report, kept as given
-    /// because their meaning is not established.
+    /// Flag names kept as given because their meaning is not
+    /// established.
     pub flags: BTreeSet<String>,
 }
 
@@ -478,8 +476,8 @@ pub struct Command {
     pub ended: Option<Timestamp>,
     /// Checkout the command ran in.
     pub checkout: PathBuf,
-    /// The harness's report of the files the command changed, or the reason
-    /// there is none. A missing report does not mean nothing changed.
+    /// The harness's file change report, or why none exists. A missing
+    /// report does not mean nothing changed.
     pub changes: Material<ChangeReport>,
     /// Zero-based line position of the record that issued the command.
     pub source_ordinal: u64,
@@ -547,10 +545,9 @@ pub struct CaptureCounts {
     /// and `Bash` calls without a command.
     #[serde(default)]
     pub unsupported_tool_uses: u64,
-    /// Heredoc file writes in shell commands that the harness's change
-    /// report did not confirm, so no edit was recorded for them: the call
-    /// failed, was cut off, ran in the background, or had no result, or its
-    /// report did not describe the file.
+    /// Heredoc writes without harness confirmation, so no edit is recorded:
+    /// the call failed, was cut off, ran in the background, had no result,
+    /// or its report did not describe the file.
     pub unconfirmed_shell_writes: u64,
 }
 

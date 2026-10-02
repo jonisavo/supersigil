@@ -54,9 +54,9 @@ impl Fixture {
     /// Git isolation and the records directory. The
     /// variables git sets for hooks are removed, as `supersigil_git::Git`
     /// removes them: a test run from a pre-commit hook would otherwise
-    /// point git at the outer repository's index. The variables that pass
-    /// configuration through the environment are removed too, so neither
-    /// git here nor the git supersigil starts reads any.
+    /// point git at the outer repository's index. Environment-passed
+    /// configuration is also removed, so neither git here nor git started
+    /// by supersigil reads it.
     fn isolate(&self, command: &mut Command) {
         for key in [
             "GIT_DIR",
@@ -274,8 +274,8 @@ impl<'a> Session<'a> {
             .push("user", &done, Some(result))
     }
 
-    /// A Bash call running `command` and its result, as Claude Code records
-    /// it: with `report` as the result's `bashEditDiff` when there is one.
+    /// A Bash call running `command` and its result in Claude Code's
+    /// format, with `report` as `bashEditDiff` when present.
     fn bash(&mut self, tool: &str, command: &str, report: Option<Value>) -> &mut Self {
         let call = json!([{"type": "tool_use", "id": tool, "name": "Bash",
             "input": {"command": command}}]);
@@ -2256,9 +2256,9 @@ fn isolation_drops_configuration_passed_through_the_environment() {
     );
 }
 
-/// A change report naming `file` with one entry: `created` or modified,
-/// and one hunk at line 1 holding `lines`, with the header counts the
-/// harness gives it.
+/// A change report for `file`, created or modified, with one entry and
+/// one hunk at line 1 containing `lines` and the harness's header
+/// counts.
 fn change_report(file: &Path, created: bool, lines: &[&str]) -> Value {
     let file = file.to_string_lossy();
     let count = |markers: &[char]| lines.iter().filter(|l| l.starts_with(markers)).count();
@@ -2276,9 +2276,9 @@ const HEREDOC_CREATE: &str = "mkdir -p src && cat > src/gen.rs <<'EOF'\npub fn a
 const HEREDOC_APPEND: &str = "cat >> src/gen.rs <<'EOF'\npub fn b() {}\nEOF\n";
 const SED: &str = "sed -i 's/draft/final/' notes.txt";
 
-/// A session that works through the shell only: a heredoc creates
-/// `src/gen.rs`, another appends to it, `sed` rewrites `notes.txt`, and a
-/// last heredoc has no change report. The working tree holds the result.
+/// A shell-only session: heredocs create and append to `src/gen.rs`,
+/// `sed` rewrites `notes.txt`, and a final heredoc has no change report.
+/// The working tree holds the result.
 fn shell_session(f: &Fixture) {
     write(&f.repo, "notes.txt", "draft\n");
     f.commit(&f.repo, "base");
@@ -2367,8 +2367,8 @@ fn a_review_lists_the_commands_that_changed_each_file() {
     shell_session(&f);
     let review = f.json(&f.repo, &SHELL_REVIEW);
 
-    // Newest first; the heredoc commands are listed although their writes
-    // are also edits.
+    // Newest first, including heredoc commands whose writes are also
+    // edits.
     let gen_rs = file(&review, "src/gen.rs");
     let listed: Vec<(&str, &str)> = gen_rs["command_changes"]
         .as_array()
@@ -2384,8 +2384,8 @@ fn a_review_lists_the_commands_that_changed_each_file() {
         ]
     );
 
-    // `sed` wrote no recorded edit: the line stays unattributed, and the
-    // command is listed with what the harness reported.
+    // `sed` yields no recorded edit. The line stays unattributed; the
+    // command is listed with its harness report.
     let notes = file(&review, "notes.txt");
     let (_, outcome) = &side_lines(notes, "target")[0];
     assert_eq!(outcome["kind"], "unattributed");
@@ -2464,9 +2464,9 @@ fn a_command_that_changed_a_nested_worktree_from_outside_it_is_listed() {
         ".claude/worktrees/feature",
     ]);
     let nested = f.repo.join(".claude/worktrees/feature");
-    // A session in the main checkout whose only activity is a script that
-    // changes a file of the nested worktree: no edit and no observation of
-    // the transcript lies in it.
+    // A main-checkout session only runs a script changing a nested
+    // worktree's file. No edit or transcript observation lies in that
+    // worktree.
     let text = Session::new("s-outer", &f.repo)
         .prompt("Regenerate the feature.")
         .bash(
@@ -2524,9 +2524,9 @@ fn a_command_that_changed_a_nested_worktree_from_outside_it_is_listed() {
     );
 }
 
-/// A session whose one command skips its heredoc (`false &&`) and creates
-/// the file with `echo`; the harness reports the file created, with
-/// `report_lines` as its hunk when there are any.
+/// A session whose sole command skips its heredoc (`false &&`) and
+/// creates the file with `echo`. The harness reports it created, with
+/// `report_lines` as its hunk when present.
 fn skipped_heredoc(f: &Fixture, report_lines: Option<&[&str]>) -> Value {
     write(&f.repo, "README.md", "readme\n");
     f.commit(&f.repo, "base");
@@ -2564,7 +2564,7 @@ fn a_heredoc_the_reported_diff_contradicts_is_not_an_edit() {
     assert_eq!(review["edits"], json!({}));
     let limitations = &review["evidence"]["candidate_transcripts"][0]["capture_limitations"];
     assert_eq!(limitations[0]["unconfirmed_shell_writes"], 1);
-    // The command is still what the reviewer is pointed at.
+    // The review still points to the command.
     assert_eq!(
         made["command_changes"][0]["command"],
         command_id("s-skip", "t_skip")
@@ -2573,9 +2573,9 @@ fn a_heredoc_the_reported_diff_contradicts_is_not_an_edit() {
 
 #[test]
 fn a_heredoc_edit_whose_statement_did_not_run_attributes_nothing() {
-    // Without hunks nothing speaks against the write, so the record holds
-    // an edit that did not happen: the limit of a confirmation per command.
-    // Its text is not the file's bytes, so it attributes nothing.
+    // Without hunks, nothing contradicts the write: command-level
+    // confirmation records an edit that did not happen. Its text differs
+    // from the file's bytes, so it attributes nothing.
     let f = Fixture::new();
     let review = skipped_heredoc(&f, None);
     let made = file(&review, "made.txt");
@@ -2671,10 +2671,10 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
 
 #[test]
 fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
-    // `false &&` skips the heredoc and `printf` leaves the same text, so
-    // every byte and every hunk line agrees with the heredoc: the record
-    // holds its edit, and the edit reproduces the file from nothing.
-    // Nothing recorded says the statement ran, and no output may say so.
+    // `false &&` skips the heredoc; `printf` leaves the same text. Every
+    // byte and hunk line agrees, so the recorded edit reproduces the
+    // file from nothing. No record says the statement ran, and no output
+    // may claim it did.
     let f = Fixture::new();
     write(&f.repo, "README.md", "readme\n");
     f.commit(&f.repo, "base");
@@ -2716,8 +2716,8 @@ fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
         terminal.contains("  changed by 1 recorded command"),
         "{terminal}"
     );
-    // Nor does the review of the untracked file: an edit names it, which
-    // is all the record holds.
+    // The untracked-file review also makes no execution claim: the
+    // record only holds an edit naming it.
     let output = f
         .supersigil(&f.repo, &["review", "--format", "terminal"])
         .output()
@@ -2735,8 +2735,8 @@ fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
 
 #[test]
 fn identical_appends_of_one_command_are_attributed_in_its_order() {
-    // One command appends the same line twice. The bytes fit either order;
-    // the command's text holds one, and the review follows it.
+    // One command appends the same line twice. Either order fits the
+    // bytes; the review follows the order in the command text.
     let f = Fixture::new();
     write(&f.repo, "log.txt", "seed\n");
     f.commit(&f.repo, "base");
@@ -2782,9 +2782,9 @@ const FORMATTED_SESSION: &str = "s-fmt";
 const UNFORMATTED_CREATE: &str = "mkdir -p src && cat > src/gen.rs <<'EOF'\npub fn a(){}\nEOF\n";
 const RUSTFMT: &str = "rustfmt src/gen.rs";
 
-/// A session in which a heredoc creates `src/gen.rs` with an unformatted
-/// line, another appends to it, and `rustfmt` then rewrites the heredoc's
-/// line. The working tree holds the formatted file.
+/// A session where heredocs create `src/gen.rs` with an unformatted line
+/// and append to it, then `rustfmt` rewrites the first line. The working
+/// tree holds the formatted file.
 fn formatted_session(f: &Fixture) {
     write(&f.repo, "README.md", "readme\n");
     f.commit(&f.repo, "base");
@@ -2828,15 +2828,15 @@ fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
     let app = command_id(FORMATTED_SESSION, "t_app");
     let fmt = command_id(FORMATTED_SESSION, "t_fmt");
 
-    // The heredoc's create is a recorded edit, but the line it wrote is not
-    // the line on disk: the rewritten line stays unattributed.
+    // The heredoc create is a recorded edit, but its line differs from the
+    // disk line. The rewritten line stays unattributed.
     let review = f.json(&f.repo, &SHELL_REVIEW);
     assert_eq!(review["edits"][&created]["operation"], "write");
     let gen_rs = file(&review, "src/gen.rs");
     let (text, outcome) = &side_lines(gen_rs, "target")[0];
     assert!(text.starts_with("pub fn a() {}"), "{text}");
     assert_eq!(outcome["kind"], "unattributed", "{outcome:#}");
-    // Every command the harness saw changing the file is listed, the
+    // All commands the harness saw changing the file are listed,
     // formatter first.
     let listed: Vec<(&str, &str)> = gen_rs["command_changes"]
         .as_array()
@@ -2881,8 +2881,7 @@ fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
         "{summary}"
     );
 
-    // `why` on the rewritten line points at the formatter's diff, and only
-    // at it.
+    // `why` on the rewritten line points only to the formatter's diff.
     let (why, terminal) = why_outputs(&f, "src/gen.rs:1");
     assert_eq!(why["line"]["outcome"]["kind"], "unattributed");
     let marked: Vec<(&str, bool)> = why["command_changes"]

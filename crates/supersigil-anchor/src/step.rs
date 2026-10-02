@@ -62,11 +62,10 @@ pub struct Forward {
 /// does. It needs both texts retained, a non-empty `old_text`, a present
 /// before-state, and at least one occurrence. A Write's result is its
 /// retained content whatever the before-state was, and its one replacement
-/// spans both whole files. An Append's result is the before-state's bytes
-/// (none when it is absent) followed by its retained, non-empty text, and
-/// its one replacement is the empty range at the end of the before-state.
-/// Returns `None` when the edit cannot execute, which includes every
-/// `Unknown` operation.
+/// spans both whole files. An Append adds its retained, non-empty text to
+/// the before-state's bytes (none if absent). Its replacement is the
+/// empty range at the end. Returns `None` if the edit cannot execute,
+/// including every `Unknown` operation.
 #[must_use]
 pub fn execute_forward(edit: &Edit, before: &State) -> Option<Forward> {
     match edit.operation {
@@ -201,10 +200,10 @@ impl Budget {
 ///   is absent.
 /// - Write overwriting a file: the before-state is `base`, only when the
 ///   recorded before-hash equals `base`'s hash.
-/// - Append: `current` without the text it must end with. When the recorded
-///   before-state is absent, that prefix must be empty and the before-state
-///   is absent. While the before-hash is unknown, a retained patch must show
-///   its old side in the prefix, as for an Edit's candidate.
+/// - Append: `current` without its required suffix. If the recorded
+///   before-state is absent, this prefix must be empty and the before-state
+///   is absent. With an unknown before-hash, a retained patch must show its
+///   old side in the prefix, as for an Edit.
 ///
 /// With a retained patch, the step stops when the after-hash is unknown and
 /// `current` does not show every hunk's new side, and a candidate is
@@ -962,9 +961,9 @@ fn reverse_write(edit: &Edit, current: &State, base: &State, budget: &mut Budget
     }
 }
 
-/// Reverses an append: `current` must end with the edit's text, and the
-/// one candidate before-state is the bytes before it. While the before-hash
-/// is unknown, a retained patch must show its old side in that candidate.
+/// Reverses an append only if `current` ends with the edit's text. The
+/// prefix is the only candidate. With an unknown before-hash, a retained
+/// patch must show its old side in that candidate.
 fn reverse_append(
     edit: &Edit,
     current: &State,
@@ -1000,8 +999,8 @@ fn reverse_append(
     if !budget.charge(candidate_cost(prefix.len(), current.byte_len())) {
         return out_of_budget();
     }
-    // A file the append created held nothing before it; one that existed
-    // may have been empty.
+    // A created file was absent before the append; an existing file may
+    // have been empty.
     let before = if edit.before == FileState::Absent {
         if !prefix.is_empty() {
             return rejected();

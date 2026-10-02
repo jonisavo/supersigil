@@ -856,8 +856,8 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     assert!(s.store.snapshot().unwrap().sessions().is_empty());
 }
 
-/// A prompt, a heredoc write the harness confirms, a heredoc write it does
-/// not, and a closing prompt, as lines without newline characters.
+/// A prompt, a harness-confirmed and an unconfirmed heredoc write, and a
+/// closing prompt, as lines without newlines.
 fn heredoc_writes() -> Vec<String> {
     let record = |kind: &str, uuid: &str, content: serde_json::Value| {
         serde_json::json!({
@@ -905,7 +905,7 @@ fn heredoc_writes() -> Vec<String> {
     .collect()
 }
 
-/// The unconfirmed shell writes every capture limitation of `s` counts.
+/// Unconfirmed shell writes counted by each capture limitation in `s`.
 fn unconfirmed_shell_writes(s: &Setup) -> u64 {
     let snapshot = s.store.snapshot().unwrap();
     snapshot

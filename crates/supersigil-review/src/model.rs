@@ -270,8 +270,7 @@ pub struct UntrackedInfo {
     /// The file.
     pub path: String,
     /// Whether a candidate edit in the reviewed worktree names this path.
-    /// The edit may be one read from a shell command, which nothing shows
-    /// to have run.
+    /// A shell-inferred edit does not establish that its statement ran.
     pub recorded_edit: bool,
     /// The flag that includes it, for example `--include-untracked src/new.rs`.
     pub include_flag: String,
@@ -405,9 +404,8 @@ pub struct FileReview {
     /// Commands whose text mentions the path (textual evidence, never
     /// attribution), without those listed in `command_changes`.
     pub mentions: Vec<Mention>,
-    /// Recorded commands the harness reported as changing the file, newest
-    /// first: observations that the file changed while each ran, never
-    /// attribution of any line.
+    /// Commands the harness reported as changing the file, newest first.
+    /// These observe file changes during commands, never attribute lines.
     pub command_changes: Vec<CommandChange>,
 }
 
@@ -574,11 +572,11 @@ pub struct Mention {
     pub result: Option<MentionResult>,
 }
 
-/// A recorded command the harness reported as changing a file.
+/// A command the harness reported as changing a file.
 ///
-/// The harness states that the file differed once the command had finished.
-/// It does not state which part of the command changed it or which bytes
-/// the command wrote, so this is never attribution.
+/// The harness reports a file difference after the command, identifying
+/// neither the responsible statement nor its bytes. This is never
+/// attribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommandChange {
     /// Command event id.
@@ -593,28 +591,26 @@ pub struct CommandChange {
     pub time: String,
     /// Checkout the command ran in.
     pub checkout: String,
-    /// Worktree the reported file lies in. A command is listed for a path
-    /// once per file the harness reported, per candidate worktree (in a
-    /// commit review, one entry for each worktree it changed that path in).
-    /// When the repository ignores case, two reported spellings of one
-    /// file are two entries for the reviewed path, each with its own kind
-    /// and diff.
+    /// Worktree containing the reported file. A command is listed once per
+    /// reported file, per candidate worktree: a commit review has an entry
+    /// for each worktree where it changed that path. With case ignored, two
+    /// spellings of one file give two entries for the reviewed path, each
+    /// with its own kind and diff.
     pub worktree: String,
     /// The command text.
     pub text: String,
     /// What the harness stated about the change.
     pub kind: ChangeKind,
-    /// The harness's hunks for the whole command's change to the file, or
-    /// why there are none. Display text, capped by the harness.
+    /// The harness's capped display hunks for this file over the whole
+    /// command, or why none exist.
     pub patch: Material<Vec<Hunk>>,
-    /// Changed files the command's report counted without naming. Any of
-    /// them may be a reviewed file this list does not show the command for.
+    /// Changed files counted but unnamed in the report. Any may be a
+    /// reviewed file missing from this command's listing.
     pub unlisted: u64,
-    /// Files the command's report named outside the command's checkout,
-    /// which the record does not keep.
+    /// Files reported outside the command's checkout, which the record
+    /// omits.
     pub outside: u64,
-    /// Flags the harness set on the command's report, kept by name because
-    /// their meaning is not established.
+    /// Reported flag names, kept because their meaning is not established.
     pub flags: BTreeSet<String>,
 }
 
@@ -624,9 +620,9 @@ pub struct CommandChange {
 pub enum EditOriginInfo {
     /// A call to an editing tool.
     Tool,
-    /// A quoted heredoc in a shell command. The edit is inferred: its text
-    /// is read from the command, and the harness's change report confirms
-    /// that the command changed the file, not that this statement ran.
+    /// A quoted shell heredoc. The edit is inferred from command text. The
+    /// harness confirms the command changed the file, not that this
+    /// statement ran.
     Shell {
         /// The command's event id.
         command: String,

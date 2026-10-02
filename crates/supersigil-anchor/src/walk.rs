@@ -3,8 +3,8 @@
 //!
 //! Edits are grouped by (worktree, transcript); within a group, edits with
 //! equal ordinals form an unordered bucket and buckets are ordered by
-//! ordinal. The heredoc writes of one shell command share an ordinal and
-//! are ordered by their place in the command. A chain starts at a head, continues backward through its group
+//! ordinal. One command's heredoc writes share an ordinal but are walked in
+//! command order. A chain starts at a head and walks backward through its group
 //! without skipping an edit, and may enter another group only through a
 //! verified link: an edit whose recorded after-hash equals the hash of the
 //! current bytes. It ends at the first state equal to the base, or where no
@@ -227,9 +227,9 @@ pub fn walk(request: &Request) -> Walk {
 /// The edits of one file from one transcript.
 struct Group {
     worktree: PathBuf,
-    /// Indices into the accepted edits, oldest first: one bucket per
-    /// ordinal, or per write where one shell command made every edit of an
-    /// ordinal ([`in_command_order`]).
+    /// Indices into accepted edits, oldest first: one bucket per ordinal,
+    /// or per write if one shell command made all edits of that ordinal
+    /// ([`in_command_order`]).
     buckets: Vec<Vec<usize>>,
 }
 
@@ -256,11 +256,10 @@ fn group(accepted: &[AcceptedEdit]) -> Vec<Group> {
         .collect()
 }
 
-/// The edits of one ordinal, as buckets. When one shell command made all
-/// of them, they are its heredoc writes, and the shell ran those in the
-/// order the command's text holds them: each write is a bucket, in that
-/// order. Any other edits that share an ordinal stay one unordered bucket:
-/// they come from one transcript record, and nothing says which was first.
+/// Buckets for one ordinal. If all edits are heredoc writes of one shell
+/// command, each write gets a bucket in command order, the order the shell
+/// runs them. Otherwise they stay in one unordered bucket: sharing a
+/// transcript record gives no order.
 fn in_command_order(accepted: &[AcceptedEdit], bucket: &[usize]) -> Vec<Vec<usize>> {
     let placed: Option<Vec<(&EventId, u64, usize)>> = bucket
         .iter()
