@@ -1252,6 +1252,9 @@ mod tests {
         let root = canonical(dir.path()).unwrap();
         let git = Git::new(&root)
             .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("GIT_CONFIG_GLOBAL", root.join(".gitconfig"))
+            .with_env("GIT_CONFIG_COUNT", "0")
+            .with_env("GIT_CONFIG_PARAMETERS", "")
             .with_env("HOME", &root)
             .with_env("XDG_CONFIG_HOME", root.join("xdg"));
         git.output(["init", "-q", "-b", "main"]).unwrap();

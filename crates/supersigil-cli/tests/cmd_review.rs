@@ -54,13 +54,18 @@ impl Fixture {
     /// Git isolation and the records directory. The
     /// variables git sets for hooks are removed, as `supersigil_git::Git`
     /// removes them: a test run from a pre-commit hook would otherwise
-    /// point git at the outer repository's index.
+    /// point git at the outer repository's index. The variables that pass
+    /// configuration through the environment are removed too, so neither
+    /// git here nor the git supersigil starts reads any.
     fn isolate(&self, command: &mut Command) {
         for key in [
             "GIT_DIR",
             "GIT_WORK_TREE",
             "GIT_INDEX_FILE",
             "GIT_COMMON_DIR",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
         ] {
             command.env_remove(key);
         }
@@ -2200,4 +2205,25 @@ fn a_record_in_an_older_format_fails_with_what_to_do() {
             "uses record format 1; this build reads format 2",
         ))
         .stderr(predicate::str::contains("Delete that directory"));
+}
+
+#[test]
+fn isolation_drops_configuration_passed_through_the_environment() {
+    let f = Fixture::new();
+    let leak = f.root.join("leak.cfg");
+    std::fs::write(&leak, "[core]\n\tleak = global\n").unwrap();
+    let mut command = Command::new("git");
+    command
+        .env("GIT_CONFIG_GLOBAL", &leak)
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "core.leak")
+        .env("GIT_CONFIG_VALUE_0", "count")
+        .env("GIT_CONFIG_PARAMETERS", "'core.leak=parameters'");
+    f.isolate(&mut command);
+    let output = command
+        .current_dir(&f.repo)
+        .args(["config", "--get-all", "core.leak"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
 }
