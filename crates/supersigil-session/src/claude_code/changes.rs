@@ -96,11 +96,11 @@ pub(super) enum Written {
 ///   (measured: every hunk that starts after line 1 leads with three
 ///   context lines, and every hunk followed by another trails with three).
 ///   When every hunk is counted as above, the lines that hunk shows last
-///   must then be the last written lines. And the file, as long as the
-///   lines before that hunk and the lines it shows, must hold at least as
-///   many lines as were written. They need not be shown as added:
+///   must then be the last written lines. They need not be shown as added:
 ///   a diff may align an appended line with an equal old one and show it
-///   as context. The first written line need only end the line it is
+///   as context. The file, as long as the lines before that hunk and the
+///   lines it shows, must hold at least as many lines as were written.
+///   The first written line need only end the line it is
 ///   compared with, since an append onto a line with no newline after it
 ///   completes that line: appending `y` after an unterminated `x` leaves
 ///   `xy`. A hunk that may stop before the end of the file, or whose
