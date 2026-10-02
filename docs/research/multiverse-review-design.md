@@ -376,6 +376,28 @@ Edit and 860 Write calls, Claude Code 2.1.258 to 2.1.284):
   stated cost of using the rule.
 - MultiEdit does not occur.
 
+Measured on 2026-10-01 over every transcript on the author's machine (18,739
+Bash calls, Claude Code 2.1.247 to 2.1.286):
+
+- From 2.1.272 on, a Bash result carries `bashEditDiff`: `changedFiles`
+  (absolute paths, at most 200), `files` (at most five entries, each with
+  `filePath`, `hunks` of at most about 400 lines, and `created` or `deleted`
+  where that applies), `moreFiles` (the changed files without an entry), and
+  sometimes a `shared` or `unavailable` flag whose meaning is not
+  established. A failed call's result is a string and carries none, and
+  neither does a background call.
+- It describes the whole command's net change to unignored files of the
+  project: nothing for an ignored file, a file outside the repository, or a
+  file unchanged again by the end of the command. Its hunks hold literal
+  tabs, unlike `structuredPatch`; they agreed with the bytes on the 10 files
+  that could be checked, which is too few to treat them as bytes.
+- Of 2,897 Bash calls with a heredoc, 1,781 feed a Python script and 1,240
+  are quoted `cat >` or `cat >>` file writes; 20 file writes are unquoted
+  and none goes through `tee`. For 97 quoted writes whose target could be
+  resolved from the record's `cwd` and a leading `cd`, `bashEditDiff` named
+  that path every time, and for the 34 created files its added lines were
+  the heredoc body.
+
 ## 5. Model and mechanics (draft, awaiting the author's review)
 
 ### Layers
