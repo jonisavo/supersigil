@@ -26,7 +26,7 @@ mod shell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use supersigil_record::observations::{
     CaptureCounts, ChangeKind, ChangeReport, Command, CommandCategory, Edit, EditOperation,
@@ -153,8 +153,10 @@ struct RawRecord {
     #[serde(default)]
     prompt_id: Option<String>,
     /// Where the harness says a `user` record came from, such as
-    /// `{"kind": "coordinator"}` for a message resuming an agent.
-    #[serde(default)]
+    /// `{"kind": "coordinator"}` for a message resuming an agent. Any
+    /// present value, `null` included, is kept: only an absent origin is
+    /// `None`.
+    #[serde(default, deserialize_with = "present")]
     origin: Option<Value>,
     /// An `attachment` record's attachment.
     #[serde(default)]
@@ -173,6 +175,13 @@ impl RawRecord {
             .as_deref()
             .filter(|prompt| !prompt.is_empty())
     }
+}
+
+/// Reads a field that is present, whatever its value: `null` becomes
+/// `Some(Value::Null)`, so with `#[serde(default)]` only an absent field
+/// is `None`.
+fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -387,7 +396,7 @@ impl Walk {
             }
             other => {
                 self.count(index, Count::Unknown(other.to_owned()));
-                self.opaque(index);
+                self.unknown(index, &raw);
                 return;
             }
         }
@@ -517,6 +526,23 @@ impl Walk {
                 }
             }
         }
+    }
+
+    /// Ends the agent's work at a record of a type the parser does not
+    /// know. A record of this agent transcript's own session is first read
+    /// for the agent it names, whatever its type: naming another stops
+    /// later receives.
+    fn unknown(&mut self, index: usize, raw: &RawRecord) {
+        if self.outcome.sidechain
+            && let Some(session) = &self.outcome.session
+            && raw
+                .session_id
+                .as_deref()
+                .is_none_or(|id| id.is_empty() || id == session.as_str())
+        {
+            self.identify(index, raw);
+        }
+        self.opaque(index);
     }
 
     /// Ends the agent's work at a record the parser cannot read or place.

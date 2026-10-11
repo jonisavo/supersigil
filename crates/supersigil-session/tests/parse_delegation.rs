@@ -950,11 +950,12 @@ fn an_input_is_received_whether_or_not_the_agent_replied() {
 #[test]
 fn a_record_with_any_other_origin_is_an_input() {
     // An origin the parser does not know, or cannot read, could still be
-    // a wake-up.
+    // a wake-up: a present `null` is no absent origin.
     for origin in [
         json!({"kind": 7}),
         json!({"kind": "scheduler"}),
         json!("human"),
+        json!(null),
     ] {
         let mut record = agent_record("a1", "user", "o1", json!("Wake up."));
         record["isMeta"] = json!(true);
@@ -1138,6 +1139,20 @@ fn an_ignored_record_naming_another_agent_ends_the_agents_work() {
         agent_record("a2", "user", "p0", json!("Do the task.")),
     ];
     assert!(receives(&early).is_empty());
+}
+
+#[test]
+fn an_unknown_record_naming_another_agent_ends_the_agents_work() {
+    let mut records = prompted();
+    records.push(json!({"type": "future-record", "sessionId": SESSION, "agentId": "a2"}));
+    records.push(coordinator("a1", "c1", "Fix round 1."));
+    assert_eq!(
+        receives(&records),
+        vec![
+            (0, receive("a1", ReceiveKind::Dispatch, None)),
+            (2, unplaced("a1")),
+        ]
+    );
 }
 
 #[test]
