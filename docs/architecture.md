@@ -58,6 +58,24 @@ without identifying the statement or bytes responsible. It is never
 attribution; hunks are never treated as file bytes. A missing report says
 nothing about whether files changed.
 
+Delegation between one session's agents is recorded where it happened.
+The transcript that started an agent's work records the start: a dispatch
+whose result names the agent, or a resume whose result names the resumed
+agent. An edit still in flight when a call starts an agent is not before
+it. The same transcript records the earliest notice that the agent
+stopped, naming the start. Only records the harness marks as notices
+count, each beginning with the notice, since reports can quote any text;
+an earlier queue entry of the same text proves nothing, since typed
+messages are queued the same way. Only completed and failed notices count: an
+interrupted agent may have had a tool call in flight. A hand-back message
+is no such notice, since the agent sends it before it stops. The agent's
+own transcript records where it received work: its dispatch prompt, each
+resume message, and any later input that could have woken it, including a
+record the parser cannot read or place. Its agent is the one its own
+session's records name; a record naming another ends its work. Relayed
+reports are reports, not a person's messages; resume messages are
+delegation. An edit's prompt skips relayed reports.
+
 Observations are append-only. Derivations are rebuildable findings identified
 by their inputs and algorithm version. The record format reserves separate
 layers for interpretations and human contributions; these are not a shipped
@@ -127,7 +145,32 @@ chain, as a Write does.
 
 Time orders presentation, not lineage. Source ordinals order edits within a
 transcript. Equal ordinals remain unordered, except one command's heredoc
-writes, which are walked in the order the command runs them. When surviving
+writes, which are walked in the order the command runs them. Across one
+session's transcripts, only recorded delegation orders edits: work an agent
+did before its stop precedes what the issuer recorded after the stop, and
+what the issuer finished before a start precedes the work it started. A
+start is matched with its receipt by the issuer's prompt both record, and a
+resume also by its message, never by position; and only when no other
+recorded start, in any session, could have sent it. A dispatch's receipt is
+proven: its result names the agent. A resume's is inferred, since the
+receipt names no sender. Agents work in the prompt that started them, so a
+resume is matched only when it comes from a transcript that receives no
+work and no other recorded agent could have been working in that prompt by
+then: any agent, of any session, that received work there, or work naming
+no prompt, could have, unless its dispatch there is matched with a start
+the issuer recorded after the resume. An agent's identity is read only from
+the harness's structured result, never from text a report could quote.
+That no
+sender whose records are missing (a transcript not synced, or the part of
+one not yet synced) sent the same agent the identical message in the same
+prompt is an assumption.
+An agent's segment ends at any input that could have woken it. A file's
+edits from several transcripts of one session form one sequence only when
+every pair is so ordered; otherwise the transcripts stay apart, linked only
+by hashes. A session is not ordered when its delegation records contradict
+each other, when two sightings of one record differ (a rewritten transcript,
+or records that disagree), or when its order would exceed a fixed size
+bound. When surviving
 chains disagree, report ambiguity. Agreement must include full provenance,
 including earlier and whitespace-only contributors.
 
@@ -230,7 +273,9 @@ unrecognized earlier creation makes the inferred absent before-state
 wrong, so an append fails its forward check. A `cat` that the user's shell
 profile redefines is still read as the program; the hunks reject such a
 write only if they show other lines.
-Several hashless sessions can remain ambiguous. Claude Code file-history
+Several hashless sessions can remain ambiguous, as can agents of one
+session that ran at once. Agents started without a recorded call, such as
+by a slash command, stay unordered, as do interrupted agents. Claude Code file-history
 backups are not read. Captured trees have no retention ref and can disappear
 under git garbage collection. A transcript that vanishes between discovery
 and read currently aborts reconciliation.

@@ -14,6 +14,7 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use supersigil_record::store::Store;
 use supersigil_record::{EventId, SessionId};
+use supersigil_session::discover::encode_project_dir;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -115,6 +116,23 @@ impl Fixture {
         common::project_transcript(&self.claude, cwd, name, &text)
     }
 
+    /// Writes `text` as the transcript of agent `agent` of session `session`
+    /// in the Claude Code project directory of `cwd`, and returns its path.
+    fn agent_transcript(&self, cwd: &Path, session: &str, agent: &str, text: &str) -> PathBuf {
+        let dir = self
+            .claude
+            .join("projects")
+            .join(encode_project_dir(cwd))
+            .join(session)
+            .join("subagents");
+        std::fs::create_dir_all(&dir).unwrap();
+        self.transcript(
+            cwd,
+            &format!("{session}/subagents/agent-{agent}.jsonl"),
+            text,
+        )
+    }
+
     /// `supersigil <args>` in `dir`, isolated, as typed.
     fn plain(&self, dir: &Path, args: &[&str]) -> Command {
         let mut command = common::supersigil_cmd();
@@ -212,6 +230,8 @@ struct Session<'a> {
     text: String,
     count: u32,
     parent: Option<String>,
+    /// The agent whose transcript this is; `None` for the main transcript.
+    agent: Option<&'a str>,
 }
 
 impl<'a> Session<'a> {
@@ -222,6 +242,15 @@ impl<'a> Session<'a> {
             text: String::new(),
             count: 0,
             parent: None,
+            agent: None,
+        }
+    }
+
+    /// The transcript of agent `agent` of session `id`.
+    fn agent(id: &'a str, cwd: &'a Path, agent: &'a str) -> Self {
+        Self {
+            agent: Some(agent),
+            ..Self::new(id, cwd)
         }
     }
 
@@ -231,10 +260,15 @@ impl<'a> Session<'a> {
             "type": kind, "uuid": uuid, "parentUuid": self.parent, "sessionId": self.id,
             "cwd": self.cwd.to_string_lossy(),
             "timestamp": format!("2026-09-29T10:00:{:02}.000Z", self.count),
-            "isSidechain": false, "message": {"role": kind, "content": content},
+            "isSidechain": false, "promptId": format!("prompt-{}", self.id),
+            "message": {"role": kind, "content": content},
         });
         if let Some(result) = result {
             value["toolUseResult"] = result;
+        }
+        if let Some(agent) = self.agent {
+            value["isSidechain"] = json!(true);
+            value["agentId"] = json!(agent);
         }
         self.text.push_str(&value.to_string());
         self.text.push('\n');
@@ -287,6 +321,43 @@ impl<'a> Session<'a> {
         }
         self.push("assistant", &call, None)
             .push("user", &done, Some(result))
+    }
+
+    /// An Agent call `tool` dispatching `agent` in the background, and its
+    /// result.
+    fn dispatch(&mut self, tool: &str, agent: &str) -> &mut Self {
+        let call = json!([{"type": "tool_use", "id": tool, "name": "Agent",
+            "input": {"description": agent, "prompt": "Edit big.txt.",
+                "subagent_type": "general-purpose"}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool,
+            "content": format!("Async agent launched successfully. agentId: {agent}")}]);
+        self.push("assistant", &call, None).push(
+            "user",
+            &done,
+            Some(json!({"status": "async_launched", "agentId": agent})),
+        )
+    }
+
+    /// The harness delivering the notification that `agent`, started by
+    /// call `tool`, completed, as it does to an idle issuer.
+    fn stopped(&mut self, tool: &str, agent: &str) -> &mut Self {
+        let uuid = format!("{}-{}", self.id, self.count);
+        let text = format!(
+            "<task-notification>\n<task-id>{agent}</task-id>\n<tool-use-id>{tool}</tool-use-id>\n\
+             <status>completed</status>\n</task-notification>"
+        );
+        let value = json!({
+            "type": "user", "uuid": uuid, "parentUuid": self.parent, "sessionId": self.id,
+            "cwd": self.cwd.to_string_lossy(),
+            "timestamp": format!("2026-09-29T10:00:{:02}.000Z", self.count),
+            "isSidechain": false, "origin": {"kind": "task-notification"},
+            "message": {"role": "user", "content": text},
+        });
+        self.text.push_str(&value.to_string());
+        self.text.push('\n');
+        self.parent = Some(uuid);
+        self.count += 1;
+        self
     }
 
     /// A `NotebookEdit` call, which the capture cannot read, and its result.
@@ -649,6 +720,92 @@ fn review_large_file_two_sessions() {
     assert!(
         removed.iter().all(|(_, o)| o["kind"] == "content_match"),
         "{removed:?}"
+    );
+}
+
+/// Session `s-agents`: its main transcript dispatches agents `a1` and `a2`,
+/// which change lines 100 and 300 of big.txt. In turn, a2 is dispatched
+/// after the main transcript learns that a1 stopped; otherwise both are
+/// dispatched before either stops.
+fn agents_editing_big_file(f: &Fixture, in_turn: bool) {
+    write(&f.repo, "big.txt", &big_file());
+    f.commit(&f.repo, "base");
+    let one = big_file().replacen(&big_line(100), "line 100: changed by one\n", 1);
+    let both = one.replacen(&big_line(300), "line 300: changed by two\n", 1);
+    write(&f.repo, "big.txt", &both);
+    let big = f.repo.join("big.txt");
+    let mut main = Session::new("s-agents", &f.repo);
+    main.prompt("Change lines 100 and 300.")
+        .dispatch("toolu_d1", "a1");
+    if in_turn {
+        main.stopped("toolu_d1", "a1").dispatch("toolu_d2", "a2");
+    } else {
+        main.dispatch("toolu_d2", "a2").stopped("toolu_d1", "a1");
+    }
+    main.stopped("toolu_d2", "a2");
+    f.transcript(&f.repo, "s-agents.jsonl", &main.text());
+    let a1 = Session::agent("s-agents", &f.repo, "a1")
+        .prompt("Change line 100.")
+        .edit(
+            "toolu_e1",
+            &big,
+            &big_file(),
+            &big_line(100),
+            "line 100: changed by one\n",
+        )
+        .text();
+    f.agent_transcript(&f.repo, "s-agents", "a1", &a1);
+    let a2 = Session::agent("s-agents", &f.repo, "a2")
+        .prompt("Change line 300.")
+        .edit(
+            "toolu_e2",
+            &big,
+            &one,
+            &big_line(300),
+            "line 300: changed by two\n",
+        )
+        .text();
+    f.agent_transcript(&f.repo, "s-agents", "a2", &a2);
+}
+
+#[test]
+fn review_attributes_through_agents_working_in_turn() {
+    let f = Fixture::new();
+    agents_editing_big_file(&f, true);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // The main transcript learned a1 stopped before dispatching a2, so one
+    // chain passes through both agents' hashless edits to the base.
+    let big = file(&review, "big.txt");
+    let chains = big["attribution"]["chains"].as_array().unwrap();
+    assert_eq!(chains.len(), 1, "{chains:?}");
+    assert_eq!(chains[0]["class"], "exact_from_base");
+    let added = side_lines(big, "target");
+    assert_eq!(added.len(), 2);
+    for ((text, outcome), tool) in added.iter().zip(["toolu_e1", "toolu_e2"]) {
+        assert_eq!(outcome["kind"], "attributed", "{text}");
+        assert_eq!(outcome["edits"][0]["edit"], edit_id("s-agents", tool));
+    }
+}
+
+#[test]
+fn review_keeps_agents_working_at_once_apart() {
+    let f = Fixture::new();
+    agents_editing_big_file(&f, false);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // Nothing recorded orders the agents: as with two sessions, each yields
+    // its own consistent chain and the lines stay ambiguous.
+    let big = file(&review, "big.txt");
+    let chains = big["attribution"]["chains"].as_array().unwrap();
+    assert_eq!(chains.len(), 2);
+    assert!(chains.iter().all(|c| c["class"] == "consistent"));
+    let added = side_lines(big, "target");
+    assert!(
+        added.iter().all(|(_, o)| o["kind"] == "ambiguous"),
+        "{added:?}"
     );
 }
 

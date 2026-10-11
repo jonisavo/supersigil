@@ -1,7 +1,8 @@
 //! The recorded evidence around attribution: which transcripts a review
 //! draws on and what their capture missed, commands the harness reported as
-//! changing a file, commands whose text mentions a file, and the message
-//! that preceded each edit.
+//! changing a file, commands whose text mentions a file, the message that
+//! preceded each edit, and the order delegation records between each
+//! session's transcripts.
 //!
 //! Everything here is an observation, never attribution: a command change
 //! says the file differed once the command had finished, a mention is text
@@ -11,7 +12,9 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
+use supersigil_anchor::Order;
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
     CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Observation, Outcome,
@@ -25,8 +28,9 @@ use supersigil_session::checkout::{canonical, within};
 
 use crate::mapping::{MappedEdit, map_resolved, resolve};
 
-/// Turns, commands, capture limitations, and transcript locations of every
-/// pinned record, indexed for the lookups a review makes.
+/// Turns, commands, capture limitations, transcript locations, and the
+/// delegation order of every pinned record, indexed for the lookups a
+/// review makes.
 #[derive(Debug, Default)]
 pub struct Evidence {
     /// Every turn by session and id; the first occurrence wins.
@@ -39,21 +43,37 @@ pub struct Evidence {
     sessions: BTreeMap<String, SessionId>,
     /// Working directories each transcript's observations name.
     checkouts: BTreeMap<String, Vec<PathBuf>>,
+    /// The order between each session's transcripts that the records'
+    /// delegation steps establish.
+    order: Arc<Order>,
 }
 
 impl Evidence {
     /// Indexes the observations of each record, keeping the first
     /// occurrence of each turn and command, and which record each capture
-    /// limitation came from.
+    /// limitation came from. Orders each session's transcripts by the
+    /// delegation steps of all records ([`Order::new`]): a step seen
+    /// differently in two places leaves its session unordered.
     #[must_use]
     pub fn index<'a>(records: impl IntoIterator<Item = (&'a RecordId, &'a [Observation])>) -> Self {
         let mut evidence = Self::default();
+        let mut steps = Vec::new();
         for (record, observations) in records {
             for observation in observations {
+                if let Observation::Delegation(step) = observation {
+                    steps.push(step);
+                }
                 evidence.add(record, observation);
             }
         }
+        evidence.order = Arc::new(Order::new(steps));
         evidence
+    }
+
+    /// The order between each session's transcripts.
+    #[must_use]
+    pub fn order(&self) -> &Arc<Order> {
+        &self.order
     }
 
     /// Indexes one observation of `record`.
