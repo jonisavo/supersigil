@@ -1114,6 +1114,60 @@ fn only_a_worker_forks_inherited_note_continues_its_prompt() {
 }
 
 #[test]
+fn an_ignored_record_of_another_session_ends_the_agents_work() {
+    let mut records = prompted();
+    records.push(json!({"type": "system", "sessionId": "other", "agentId": "a1"}));
+    assert_eq!(receives(&records)[1..], [(2, unplaced("a1"))]);
+}
+
+#[test]
+fn an_ignored_record_naming_another_agent_ends_the_agents_work() {
+    let mut records = prompted();
+    records.push(json!({"type": "system", "sessionId": SESSION, "agentId": "a2"}));
+    records.push(coordinator("a1", "c1", "Fix round 1."));
+    assert_eq!(
+        receives(&records),
+        vec![
+            (0, receive("a1", ReceiveKind::Dispatch, None)),
+            (2, unplaced("a1")),
+        ]
+    );
+    // An ignored record names the agent before its prompt, too.
+    let early = [
+        json!({"type": "system", "sessionId": SESSION, "agentId": "a1"}),
+        agent_record("a2", "user", "p0", json!("Do the task.")),
+    ];
+    assert!(receives(&early).is_empty());
+}
+
+#[test]
+fn only_a_first_line_fork_context_marks_a_worker_fork() {
+    let forked = [
+        json!({"type": "system", "sessionId": SESSION, "isSidechain": true}),
+        json!({"type": "fork-context-ref", "agentId": "f1", "parentSessionId": SESSION}),
+        agent_record(
+            "f1",
+            "user",
+            "c2",
+            json!("<fork-boilerplate>\nYou are a worker fork."),
+        ),
+        agent_record(
+            "f1",
+            "user",
+            "c3",
+            json!("You've inherited the conversation context above."),
+        ),
+    ];
+    assert_eq!(
+        receives(&forked),
+        vec![
+            (2, receive("f1", ReceiveKind::Dispatch, None)),
+            (3, receive("f1", ReceiveKind::Input, None)),
+        ]
+    );
+}
+
+#[test]
 fn a_receive_with_an_empty_prompt_names_none() {
     let mut records = prompted();
     records[0]["promptId"] = json!("");

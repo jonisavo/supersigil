@@ -354,7 +354,7 @@ impl Walk {
     /// pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
-        if raw.kind == "fork-context-ref" && !self.dispatched {
+        if raw.kind == "fork-context-ref" && index == 0 {
             self.forked = true;
         }
         if let Some(text) = notification_carried(&raw)
@@ -370,6 +370,19 @@ impl Walk {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
                 self.count(index, Count::Ignored(other.to_owned()));
+                if self.outcome.sidechain
+                    && let Some(session) = self.outcome.session.clone()
+                {
+                    if raw
+                        .session_id
+                        .as_deref()
+                        .is_some_and(|id| !id.is_empty() && id != session.as_str())
+                    {
+                        self.opaque(index);
+                    } else {
+                        self.identify(index, &raw);
+                    }
+                }
                 return;
             }
             other => {
@@ -464,16 +477,7 @@ impl Walk {
     /// another ends the work as an input and the transcript receives
     /// nothing more. Nothing is recorded before an agent is named.
     fn receive(&mut self, index: usize, raw: &RawRecord, session: &SessionId) {
-        if let Some(named) = raw.agent_id.as_deref().filter(|a| !a.is_empty()) {
-            match &self.agent {
-                None => self.agent = Some(named.to_owned()),
-                Some(agent) if agent == named => {}
-                Some(_) => {
-                    self.opaque(index);
-                    self.contradicted = true;
-                }
-            }
-        }
+        self.identify(index, raw);
         let content = raw.message.as_ref().map(|m| &m.content);
         if raw.kind == "assistant" || is_tool_output(content) {
             return;
@@ -497,6 +501,22 @@ impl Walk {
             return;
         };
         self.received(index, session, kind, message, raw.prompt());
+    }
+
+    /// Takes the agent ID an own-session record of any type names: the
+    /// first names the agent; a later different one ends the work as an
+    /// input and stops all later receives.
+    fn identify(&mut self, index: usize, raw: &RawRecord) {
+        if let Some(named) = raw.agent_id.as_deref().filter(|a| !a.is_empty()) {
+            match &self.agent {
+                None => self.agent = Some(named.to_owned()),
+                Some(agent) if agent == named => {}
+                Some(_) => {
+                    self.opaque(index);
+                    self.contradicted = true;
+                }
+            }
+        }
     }
 
     /// Ends the agent's work at a record the parser cannot read or place.
