@@ -31,10 +31,11 @@
 //!
 //! Steps that cannot be placed are ignored, which removes orders and never
 //! adds one. A session gets no order at all when its steps contradict each
-//! other or lack a transcript, when two sightings of one step differ (a
-//! transcript rewritten and read again from its start, or records that
-//! disagree: keeping either could pair a stop with the wrong work), or when
-//! its clocks would exceed [`MAX_CLOCK_POSITIONS`].
+//! other (among them one agent's receives in two transcripts, or two
+//! agents' in one) or lack a transcript, when two sightings of one step
+//! differ (a transcript rewritten and read again from its start, or records
+//! that disagree: keeping either could pair a stop with the wrong work), or
+//! when its clocks would exceed [`MAX_CLOCK_POSITIONS`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -308,6 +309,9 @@ impl SessionOrder {
         let mut starts: Vec<Start> = Vec::new();
         let mut ends: Vec<(usize, u64, &str, &str)> = Vec::new();
         let mut agents: BTreeMap<&str, Received> = BTreeMap::new();
+        // The agent each transcript's receives name: one transcript holds
+        // one agent's work, as each agent's work lies in one transcript.
+        let mut homes: BTreeMap<usize, &str> = BTreeMap::new();
         for step in steps {
             let transcript = index(step)?;
             let name = step.transcript.as_deref()?;
@@ -346,7 +350,9 @@ impl SessionOrder {
                         home: transcript,
                         ..Received::default()
                     });
-                    if received.home != transcript {
+                    if received.home != transcript
+                        || *homes.entry(transcript).or_insert(agent) != agent.as_str()
+                    {
                         return None;
                     }
                     received.all.push(ordinal);

@@ -6,11 +6,12 @@
 //! ordinal. One command's heredoc writes share an ordinal but are walked in
 //! command order. A session's transcripts in one worktree form a single
 //! group instead when the recorded order ([`Order`]) settles every pair of
-//! their edits. A chain starts at a head and walks backward through its
-//! group without skipping an edit, and may enter another group only through
-//! a verified link: an edit whose recorded after-hash equals the hash of the
-//! current bytes. It ends at the first state equal to the base, or where no
-//! predecessor is accepted. Time never decides.
+//! their edits, within [`MAX_MERGE_COMPARISONS`]. A chain starts at a head
+//! and walks backward through its group without skipping an edit, and may
+//! enter another group only through a verified link: an edit whose recorded
+//! after-hash equals the hash of the current bytes. It ends at the first
+//! state equal to the base, or where no predecessor is accepted. Time never
+//! decides.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -23,6 +24,13 @@ use crate::input::{CandidateEdit, Request, State, TargetKind};
 use crate::order::Order;
 use crate::result::{Chain, ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
 use crate::step::{Budget, Reversal, Reversed, is_known, reverse};
+
+/// The most head comparisons one merge may make: its group's buckets times
+/// its transcripts, the size of the order's clock bound
+/// ([`MAX_CLOCK_POSITIONS`](crate::order::MAX_CLOCK_POSITIONS)). A larger
+/// group's transcripts stay apart, as when the order does not settle a
+/// pair: merging happens before the request's budget applies.
+pub const MAX_MERGE_COMPARISONS: usize = 1 << 22;
 
 /// An edit that survived deduplication.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,13 +327,18 @@ struct Transcript<'a> {
 /// when `order` settles every pair of their edits: each transcript's
 /// buckets stay in order, and the next bucket taken is the one that
 /// happened before every other transcript's next bucket. `None` when two
-/// transcripts' next buckets are unordered. One bucket's edits share a
-/// transcript and an ordinal, so its first edit answers for all of them.
+/// transcripts' next buckets are unordered, or when their buckets times
+/// their number exceed [`MAX_MERGE_COMPARISONS`]. One bucket's edits share
+/// a transcript and an ordinal, so its first edit answers for all of them.
 fn merge(
     accepted: &[AcceptedEdit],
     order: &Order,
     transcripts: &[&[Vec<usize>]],
 ) -> Option<Vec<Vec<usize>>> {
+    let buckets: usize = transcripts.iter().map(|t| t.len()).sum();
+    if buckets.saturating_mul(transcripts.len()) > MAX_MERGE_COMPARISONS {
+        return None;
+    }
     let mut next = vec![0; transcripts.len()];
     let mut merged = Vec::new();
     let head = |t: usize, next: &[usize]| &accepted[transcripts[t][next[t]][0]].edit;

@@ -11,9 +11,13 @@ use common::{
     append, at_once, candidate, create, finishes_within, ids, in_turn, in_worktree, ordered,
     replace, replace_all, request, unknown_op, with_hashes, with_patch, written_by,
 };
-use supersigil_anchor::walk::{Walk, dedup, walk};
-use supersigil_anchor::{CandidateEdit, ChainClass, ChainEnd, PathStatus, StopReason, TargetKind};
-use supersigil_record::observations::{EditOperation, Hunk, Material};
+use supersigil_anchor::walk::{MAX_MERGE_COMPARISONS, Walk, dedup, walk};
+use supersigil_anchor::{
+    CandidateEdit, ChainClass, ChainEnd, Order, PathStatus, Request, StopReason, TargetKind,
+};
+use supersigil_record::observations::{
+    Delegation, DelegationStep, EditOperation, Hunk, Material, ReceiveKind, StartKind,
+};
 use supersigil_record::{EventId, RecordId, SessionId};
 
 /// (edits oldest first, class, ended at the base) of every chain.
@@ -1013,4 +1017,89 @@ fn a_transcript_holding_edits_of_two_sessions_is_never_merged() {
         "{:?}",
         summary(&out)
     );
+}
+
+/// Main makes `edits` edits, then dispatches the first of `agents` agents,
+/// each of which makes one edit and then dispatches the next: the order
+/// settles every pair. Only the first agent's edit turns the base into the
+/// target; with `order`, the request carries the recorded order.
+fn nested(edits: u64, agents: usize, order: bool) -> Request {
+    let step = |id: String, transcript: &str, ordinal: u64, step: DelegationStep| Delegation {
+        id: EventId::new(id),
+        session: SessionId::new("s1"),
+        step,
+        source_ordinal: ordinal,
+        transcript: Some(transcript.to_owned()),
+    };
+    let names: Vec<String> = (0..agents).map(|k| format!("t{k:03}")).collect();
+    let mut candidates: Vec<CandidateEdit> = (0..edits)
+        .map(|o| candidate(replace(&format!("m{o}"), "main", o, "a\n", "b\n")))
+        .collect();
+    let mut steps = Vec::new();
+    let mut issuer = ("main", edits);
+    for (k, name) in names.iter().enumerate() {
+        let (from, at) = issuer;
+        steps.push(step(
+            format!("start-{name}"),
+            from,
+            at,
+            DelegationStep::Start {
+                agent: Some(name.clone()),
+                call: format!("call-{name}"),
+                kind: StartKind::Dispatch,
+                message: None,
+                prompt: Some("p".to_owned()),
+            },
+        ));
+        steps.push(step(
+            format!("receive-{name}"),
+            name,
+            0,
+            DelegationStep::Receive {
+                agent: name.clone(),
+                kind: ReceiveKind::Dispatch,
+                message: None,
+                prompt: Some("p".to_owned()),
+            },
+        ));
+        let (old, new) = if k == 0 {
+            ("x\n", "y\n")
+        } else {
+            ("a\n", "b\n")
+        };
+        candidates.push(candidate(replace(&format!("e{k}"), name, 1, old, new)));
+        issuer = (name, 2);
+    }
+    let req = request(
+        Some("x\n"),
+        Some("y\n"),
+        TargetKind::WorkingTree,
+        candidates,
+    );
+    if order {
+        ordered(req, Order::new(&steps))
+    } else {
+        req
+    }
+}
+
+#[test]
+fn a_merge_too_large_to_make_keeps_its_transcripts_apart() {
+    // Apart, the first agent's edit is a head of its own group and reaches
+    // the base.
+    let apart = vec![(ids(&["e0"]), ChainClass::ExactFromBase, true)];
+    assert_eq!(summary(&walk(&nested(3, 3, false))), apart);
+    // Merged, the group's last bucket, the last agent's edit, is its only
+    // head, and it is not in the target.
+    let small = walk(&nested(3, 3, true));
+    assert!(small.chains.is_empty(), "{:?}", summary(&small));
+    // One bucket over the merge's limit, the transcripts stay apart, as
+    // when the order does not settle a pair.
+    let agents = 256;
+    let buckets = MAX_MERGE_COMPARISONS / (agents + 1) + 1;
+    let edits = u64::try_from(buckets - agents).unwrap();
+    let large = finishes_within(Duration::from_secs(60), move || {
+        walk(&nested(edits, agents, true))
+    });
+    assert_eq!(summary(&large), apart);
 }

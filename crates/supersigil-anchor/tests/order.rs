@@ -313,6 +313,51 @@ fn a_contradictory_session_gets_no_order() {
 }
 
 #[test]
+fn a_transcript_whose_receives_name_two_agents_leaves_its_session_unordered() {
+    // Two parses of a rewritten agent transcript: one read a's dispatch at
+    // its first line, the other b's. Their event IDs differ, so both are
+    // kept, but one transcript cannot hold both agents' work.
+    const SHARED: &str = "agent.jsonl";
+    let received = |agent: &str| {
+        delegation(
+            &format!("receive-{agent}-0"),
+            SHARED,
+            0,
+            DelegationStep::Receive {
+                agent: agent.to_owned(),
+                kind: ReceiveKind::Dispatch,
+                message: None,
+                prompt: Some(PROMPT.to_owned()),
+            },
+        )
+    };
+    let (m0, m4, x2) = (
+        edit("m0", MAIN, 0),
+        edit("m4", MAIN, 4),
+        edit("x2", SHARED, 2),
+    );
+    // With a's receive alone, the transcript's work comes after main's
+    // edits before a's dispatch, and only those.
+    let one = order(&[
+        dispatch(MAIN, 1, "a", "ca"),
+        received("a"),
+        dispatch(MAIN, 5, "b", "cb"),
+    ]);
+    assert!(one.before(&m0, &x2));
+    assert!(!one.before(&m4, &x2));
+    // With b's too, nothing orders the transcript: either agent's work
+    // could be the one it holds.
+    let both = order(&[
+        dispatch(MAIN, 1, "a", "ca"),
+        received("a"),
+        dispatch(MAIN, 5, "b", "cb"),
+        received("b"),
+    ]);
+    assert!(!both.before(&m4, &x2));
+    assert!(!both.before(&m0, &x2));
+}
+
+#[test]
 fn differing_sightings_of_one_step_void_the_session() {
     let (a, b) = (edit("a", &of("a"), 3), edit("b", &of("b"), 2));
     let delegations = sequential();
