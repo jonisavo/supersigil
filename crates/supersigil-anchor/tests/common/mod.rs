@@ -301,13 +301,6 @@ pub fn at_once(transcripts: &[&str]) -> Order {
 }
 
 fn delegated(transcripts: &[&str], in_turn: bool) -> Order {
-    let step = |id: String, transcript: &str, ordinal: u64, step: DelegationStep| Delegation {
-        id: EventId::new(id),
-        session: SessionId::new("s1"),
-        step,
-        source_ordinal: ordinal,
-        transcript: Some(transcript.to_owned()),
-    };
     let count = transcripts.len() as u64;
     let mut steps = Vec::new();
     for (k, &agent) in (0u64..).zip(transcripts) {
@@ -316,40 +309,61 @@ fn delegated(transcripts: &[&str], in_turn: bool) -> Order {
         } else {
             (k + 1, 10 * count + k)
         };
-        let call = format!("call-{agent}");
-        steps.push(step(
-            format!("start-{agent}"),
+        steps.extend(dispatched("main", started, agent));
+        steps.push(delegation(
+            &format!("stop-{agent}"),
             "main",
-            started,
-            DelegationStep::Start {
-                agent: Some(agent.to_owned()),
-                call: call.clone(),
-                kind: StartKind::Dispatch,
-                message: None,
-                prompt: Some("p".to_owned()),
+            stopped,
+            DelegationStep::Stop {
+                agent: agent.to_owned(),
+                call: format!("call-{agent}"),
+                status: StopStatus::Completed,
             },
         ));
-        steps.push(step(
-            format!("receive-{agent}"),
+    }
+    Order::new(&steps)
+}
+
+/// A delegation step of session `s1`, recorded at `ordinal` of
+/// `transcript`.
+pub fn delegation(id: &str, transcript: &str, ordinal: u64, step: DelegationStep) -> Delegation {
+    Delegation {
+        id: EventId::new(id),
+        session: SessionId::new("s1"),
+        step,
+        source_ordinal: ordinal,
+        transcript: Some(transcript.to_owned()),
+    }
+}
+
+/// `issuer` dispatching `agent` at `ordinal` with call `call-<agent>` in
+/// prompt `p`, and the agent's transcript, named after it, receiving the
+/// dispatch on its first line.
+pub fn dispatched(issuer: &str, ordinal: u64, agent: &str) -> [Delegation; 2] {
+    let prompt = Some("p".to_owned());
+    [
+        delegation(
+            &format!("start-{agent}"),
+            issuer,
+            ordinal,
+            DelegationStep::Start {
+                agent: Some(agent.to_owned()),
+                call: format!("call-{agent}"),
+                kind: StartKind::Dispatch,
+                message: None,
+                prompt: prompt.clone(),
+            },
+        ),
+        delegation(
+            &format!("receive-{agent}"),
             agent,
             0,
             DelegationStep::Receive {
                 agent: agent.to_owned(),
                 kind: ReceiveKind::Dispatch,
                 message: None,
-                prompt: Some("p".to_owned()),
+                prompt,
             },
-        ));
-        steps.push(step(
-            format!("stop-{agent}"),
-            "main",
-            stopped,
-            DelegationStep::Stop {
-                agent: agent.to_owned(),
-                call,
-                status: StopStatus::Completed,
-            },
-        ));
-    }
-    Order::new(&steps)
+        ),
+    ]
 }

@@ -14,7 +14,6 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use supersigil_record::store::Store;
 use supersigil_record::{EventId, SessionId};
-use supersigil_session::discover::encode_project_dir;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -119,13 +118,6 @@ impl Fixture {
     /// Writes `text` as the transcript of agent `agent` of session `session`
     /// in the Claude Code project directory of `cwd`, and returns its path.
     fn agent_transcript(&self, cwd: &Path, session: &str, agent: &str, text: &str) -> PathBuf {
-        let dir = self
-            .claude
-            .join("projects")
-            .join(encode_project_dir(cwd))
-            .join(session)
-            .join("subagents");
-        std::fs::create_dir_all(&dir).unwrap();
         self.transcript(
             cwd,
             &format!("{session}/subagents/agent-{agent}.jsonl"),

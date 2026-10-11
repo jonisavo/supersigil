@@ -175,6 +175,14 @@ impl RawRecord {
             .as_deref()
             .filter(|prompt| !prompt.is_empty())
     }
+
+    /// Whether the record names a session other than `session`. A record
+    /// without a `sessionId`, or with an empty one, names none.
+    fn of_another(&self, session: &SessionId) -> bool {
+        self.session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty() && id != session.as_str())
+    }
 }
 
 /// Reads a field that is present, whatever its value: `null` becomes
@@ -300,15 +308,12 @@ struct Walk {
     /// Whether this session's records named a second agent ID. The
     /// transcript then receives nothing more.
     contradicted: bool,
-    /// Whether this agent transcript reached its dispatch prompt. Calls
-    /// before it are history a worker fork inherited, not its own.
-    dispatched: bool,
-    /// Whether this is a worker fork's transcript: the harness's
-    /// `fork-context-ref` record came before its dispatch prompt.
+    /// The line of this agent transcript's dispatch prompt, once reached.
+    /// Calls before it are history a worker fork inherited, not its own.
+    dispatch_at: Option<usize>,
+    /// Whether this is a worker fork's transcript: its first line is the
+    /// harness's `fork-context-ref` record.
     forked: bool,
-    /// The line where a worker fork's inherited-context note continues
-    /// its dispatch prompt: the line right after it.
-    fork_note_at: Option<usize>,
 }
 
 impl Walk {
@@ -366,37 +371,41 @@ impl Walk {
         if raw.kind == "fork-context-ref" && index == 0 {
             self.forked = true;
         }
-        if let Some(text) = notification_carried(&raw)
-            && let Some(session) = self.outcome.session.clone()
-            && raw
-                .session_id
-                .as_deref()
-                .is_none_or(|id| id.is_empty() || id == session.as_str())
+        // Whether the record is of another session; `None` until a session
+        // is known.
+        let foreign = self
+            .outcome
+            .session
+            .as_ref()
+            .map(|session| raw.of_another(session));
+        if foreign == Some(false)
+            && let Some(text) = notification_carried(&raw)
         {
-            self.notified(index, &text, &session);
+            self.notified(index, &text);
+        }
+        // In an agent transcript, a record of its own session, whatever its
+        // type, is read for the agent it names; one of another session ends
+        // the agent's work.
+        if self.outcome.sidechain {
+            match foreign {
+                Some(false) => self.identify(index, &raw),
+                Some(true) => self.opaque(index),
+                None => {}
+            }
         }
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
                 self.count(index, Count::Ignored(other.to_owned()));
-                if self.outcome.sidechain
-                    && let Some(session) = self.outcome.session.clone()
-                {
-                    if raw
-                        .session_id
-                        .as_deref()
-                        .is_some_and(|id| !id.is_empty() && id != session.as_str())
-                    {
-                        self.opaque(index);
-                    } else {
-                        self.identify(index, &raw);
-                    }
-                }
                 return;
             }
             other => {
                 self.count(index, Count::Unknown(other.to_owned()));
-                self.unknown(index, &raw);
+                // A record of a type the parser does not know could hide an
+                // input; one of another session already ended the work.
+                if foreign != Some(true) {
+                    self.opaque(index);
+                }
                 return;
             }
         }
@@ -405,13 +414,8 @@ impl Walk {
             self.count(index, Count::Unknown("no-session".to_owned()));
             return;
         };
-        if raw
-            .session_id
-            .as_deref()
-            .is_some_and(|id| !id.is_empty() && id != session_id.as_str())
-        {
+        if foreign == Some(true) {
             self.count(index, Count::SessionMismatch);
-            self.opaque(index);
             let content = raw.message.as_ref().map(|m| &m.content);
             if raw.kind == "user"
                 && matches!(classify_role(&raw, content), Role::Human | Role::Delegation)
@@ -421,7 +425,7 @@ impl Walk {
             return;
         }
         if self.outcome.sidechain {
-            self.receive(index, &raw, &session_id);
+            self.receive(index, &raw);
         }
         let Some(uuid) = &raw.uuid else {
             self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
@@ -482,25 +486,23 @@ impl Walk {
     /// prompt, which continues the prompt. A record without a `uuid` counts
     /// too: a missed input would let a stop cover work done after it.
     ///
-    /// The agent is the one this session's records name; a record naming
-    /// another ends the work as an input and the transcript receives
-    /// nothing more. Nothing is recorded before an agent is named.
-    fn receive(&mut self, index: usize, raw: &RawRecord, session: &SessionId) {
-        self.identify(index, raw);
+    /// The agent is the one this session's records name ([`Walk::identify`]);
+    /// nothing is recorded before an agent is named.
+    fn receive(&mut self, index: usize, raw: &RawRecord) {
         let content = raw.message.as_ref().map(|m| &m.content);
         if raw.kind == "assistant" || is_tool_output(content) {
             return;
         }
-        let (kind, message) = if !self.dispatched {
-            self.dispatched = true;
-            self.fork_note_at = self.forked.then_some(index + 1);
+        let (kind, message) = if self.dispatch_at.is_none() {
+            self.dispatch_at = Some(index);
             (ReceiveKind::Dispatch, None)
         } else if raw.origin_kind() == Some("coordinator") {
             let text = text_of(content);
             let message = delegation::resume_message(&text).map(|m| ContentId::of(m.as_bytes()));
             (ReceiveKind::Resume, message)
         } else if raw.origin.is_none()
-            && self.fork_note_at == Some(index)
+            && self.forked
+            && self.dispatch_at.is_some_and(|at| at + 1 == index)
             && delegation::fork_note(&text_of(content))
         {
             return;
@@ -509,7 +511,7 @@ impl Walk {
         } else {
             return;
         };
-        self.received(index, session, kind, message, raw.prompt());
+        self.received(index, kind, message, raw.prompt());
     }
 
     /// Takes the agent ID an own-session record of any type names: the
@@ -528,33 +530,13 @@ impl Walk {
         }
     }
 
-    /// Ends the agent's work at a record of a type the parser does not
-    /// know. A record of this agent transcript's own session is first read
-    /// for the agent it names, whatever its type: naming another stops
-    /// later receives.
-    fn unknown(&mut self, index: usize, raw: &RawRecord) {
-        if self.outcome.sidechain
-            && let Some(session) = &self.outcome.session
-            && raw
-                .session_id
-                .as_deref()
-                .is_none_or(|id| id.is_empty() || id == session.as_str())
-        {
-            self.identify(index, raw);
-        }
-        self.opaque(index);
-    }
-
     /// Ends the agent's work at a record the parser cannot read or place.
     /// Once this agent transcript reached its dispatch prompt, a malformed
     /// line, a record of an unknown type or of another session, or one
     /// naming another agent could hide an input that woke the agent.
     fn opaque(&mut self, index: usize) {
-        if !self.outcome.sidechain || !self.dispatched {
-            return;
-        }
-        if let Some(session) = self.outcome.session.clone() {
-            self.received(index, &session, ReceiveKind::Input, None, None);
+        if self.outcome.sidechain && self.dispatch_at.is_some() {
+            self.received(index, ReceiveKind::Input, None, None);
         }
     }
 
@@ -563,7 +545,6 @@ impl Walk {
     fn received(
         &mut self,
         index: usize,
-        session: &SessionId,
         kind: ReceiveKind,
         message: Option<ContentId>,
         prompt: Option<&str>,
@@ -571,11 +552,9 @@ impl Walk {
         if self.contradicted {
             return;
         }
-        if let Some(agent) = self.agent.clone() {
-            self.observe(
-                index,
-                delegation::receive(session, &agent, kind, message, prompt, index),
-            );
+        if let (Some(session), Some(agent)) = (&self.outcome.session, &self.agent) {
+            let receive = delegation::receive(session, agent, kind, message, prompt, index);
+            self.observe(index, receive);
         }
     }
 
@@ -583,7 +562,7 @@ impl Walk {
     /// naming one of this transcript's starting calls decides that call's
     /// stop; only a completed or failed one records it. Notifications naming
     /// any other call, such as a background shell task's, record nothing.
-    fn notified(&mut self, index: usize, text: &str, session: &SessionId) {
+    fn notified(&mut self, index: usize, text: &str) {
         let Some(notice) = delegation::notification(text) else {
             return;
         };
@@ -593,11 +572,11 @@ impl Walk {
         if !self.starting_calls.contains(call) || !self.stopped.insert(call.to_owned()) {
             return;
         }
-        if let Some(status) = delegation::stop_status(notice.status) {
-            self.observe(
-                index,
-                delegation::stop(session, call, notice.task, status, index),
-            );
+        if let Some(status) = delegation::stop_status(notice.status)
+            && let Some(session) = &self.outcome.session
+        {
+            let stop = delegation::stop(session, call, notice.task, status, index);
+            self.observe(index, stop);
         }
     }
 
@@ -632,10 +611,9 @@ impl Walk {
             }
             (agent, StartKind::Dispatch, None)
         };
-        let report = (kind == StartKind::Dispatch
-            && string_field(structured, "status") == Some("completed"))
-        .then(|| agent.clone())
-        .flatten();
+        let report = agent.clone().filter(|_| {
+            kind == StartKind::Dispatch && string_field(structured, "status") == Some("completed")
+        });
         self.observe(
             index,
             delegation::start(
@@ -712,7 +690,7 @@ impl Walk {
             // earliest still in flight.
             let in_flight = self.pending.first().map(|p| p.record_index);
             if delegation::STARTING_TOOLS.contains(&name.as_str())
-                && (self.dispatched || !self.outcome.sidechain)
+                && (self.dispatch_at.is_some() || !self.outcome.sidechain)
             {
                 self.starting_calls.insert(id.clone());
             }
@@ -798,9 +776,8 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         stopped: BTreeSet::new(),
         agent: None,
         contradicted: false,
-        dispatched: false,
+        dispatch_at: None,
         forked: false,
-        fork_note_at: None,
     };
     // One complete line at a time: parse it, walk it, drop it. A line that
     // is not a JSON object is counted; a trailing line without a newline is
@@ -888,10 +865,12 @@ fn notification_carried(raw: &RawRecord) -> Option<String> {
     match raw.kind.as_str() {
         "attachment" => {
             let attachment = Some(raw.attachment.as_ref()?);
-            (string_field(attachment, "type") == Some("queued_command")
-                && string_field(attachment, "commandMode") == Some("task-notification"))
-            .then(|| string_field(attachment, "prompt").map(str::to_owned))
-            .flatten()
+            string_field(attachment, "prompt")
+                .filter(|_| {
+                    string_field(attachment, "type") == Some("queued_command")
+                        && string_field(attachment, "commandMode") == Some("task-notification")
+                })
+                .map(str::to_owned)
         }
         "user" if raw.origin_kind() == Some("task-notification") => {
             let text = content_text(raw.message.as_ref().map(|m| &m.content))?;

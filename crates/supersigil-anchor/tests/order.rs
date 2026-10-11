@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{finishes_within, replace};
+use common::{delegation, finishes_within, replace};
 use supersigil_anchor::Order;
 use supersigil_record::observations::{
     Delegation, DelegationStep, Edit, ReceiveKind, StartKind, StopStatus,
@@ -19,16 +19,6 @@ const PROMPT: &str = "p";
 /// A transcript of agent `agent`.
 fn of(agent: &str) -> String {
     format!("agent-{agent}.jsonl")
-}
-
-fn delegation(id: &str, transcript: &str, ordinal: u64, step: DelegationStep) -> Delegation {
-    Delegation {
-        id: EventId::new(id),
-        session: SessionId::new("s1"),
-        step,
-        source_ordinal: ordinal,
-        transcript: Some(transcript.to_owned()),
-    }
 }
 
 /// `transcript` dispatching `agent` with call `call` at `ordinal`.
@@ -108,15 +98,6 @@ fn edit(name: &str, transcript: &str, ordinal: u64) -> Edit {
     replace(name, transcript, ordinal, "a\n", "b\n")
 }
 
-fn order(delegations: &[Delegation]) -> Order {
-    Order::new(delegations)
-}
-
-/// [`order`], for tests whose bindings shadow its name.
-fn order_of(delegations: &[Delegation]) -> Order {
-    order(delegations)
-}
-
 /// Main dispatches agent `a` at 1 and learns it stopped at 5; then
 /// dispatches `b` at 6 and learns it stopped at 9.
 fn sequential() -> Vec<Delegation> {
@@ -132,7 +113,7 @@ fn sequential() -> Vec<Delegation> {
 
 #[test]
 fn an_agent_started_after_another_stopped_comes_after_it() {
-    let order = order(&sequential());
+    let order = Order::new(&sequential());
     let (a, b) = (edit("a", &of("a"), 3), edit("b", &of("b"), 2));
     assert!(order.before(&a, &b));
     assert!(!order.before(&b, &a));
@@ -154,7 +135,7 @@ fn an_agent_started_after_another_stopped_comes_after_it() {
 
 #[test]
 fn agents_running_at_once_stay_unordered() {
-    let order = order(&[
+    let order = Order::new(&[
         dispatch(MAIN, 1, "a", "ca"),
         receive("a", 0, ReceiveKind::Dispatch, None),
         dispatch(MAIN, 2, "b", "cb"),
@@ -178,7 +159,7 @@ fn a_resumed_agent_splits_into_segments_at_its_receives() {
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "p2"),
         stop(MAIN, 30, "a", "ra"),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     let (a1, b, a2) = (
         edit("a1", &of("a"), 3),
         edit("b", &of("b"), 2),
@@ -194,7 +175,7 @@ fn a_resumed_agent_splits_into_segments_at_its_receives() {
 fn work_after_an_input_that_could_wake_the_agent_is_not_before_the_stop() {
     let mut delegations = sequential();
     delegations.push(receive("a", 7, ReceiveKind::Input, None));
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     let b = edit("b", &of("b"), 2);
     assert!(order.before(&edit("a3", &of("a"), 3), &b));
     assert!(!order.before(&edit("a9", &of("a"), 9), &b));
@@ -210,7 +191,7 @@ fn resumes_match_by_message_not_by_position() {
         in_prompt(resume(MAIN, 12, "a", "r2", "Second."), "p2"),
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Second.")), "p2"),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     let late = edit("a21", &of("a"), 21);
     assert!(order.before(&edit("m11", MAIN, 11), &late));
     // Main's edit at 12 is not before the agent's: only edits below the
@@ -232,7 +213,7 @@ fn a_message_sent_twice_matches_neither_resume() {
         fresh(resume(MAIN, 10, "a", "r1", "Again.")),
         fresh(receive("a", 20, ReceiveKind::Resume, Some("Again."))),
     ]);
-    assert!(order(&once).before(&m9, &a21));
+    assert!(Order::new(&once).before(&m9, &a21));
     // Sent twice, it matches neither resume, whether it is received once
     // or twice.
     let mut twice = once.clone();
@@ -240,7 +221,7 @@ fn a_message_sent_twice_matches_neither_resume() {
     let mut received_twice = twice.clone();
     received_twice.push(fresh(receive("a", 25, ReceiveKind::Resume, Some("Again."))));
     for delegations in [twice, received_twice] {
-        let order = order(&delegations);
+        let order = Order::new(&delegations);
         assert!(!order.before(&m9, &a21));
         assert!(!order.before(&m11, &a21));
     }
@@ -249,7 +230,7 @@ fn a_message_sent_twice_matches_neither_resume() {
 #[test]
 fn a_nested_agent_is_ordered_through_its_issuer() {
     // Main dispatches a; a dispatches c and learns c stopped; a then stops.
-    let order = order(&[
+    let order = Order::new(&[
         dispatch(MAIN, 1, "a", "ca"),
         receive("a", 0, ReceiveKind::Dispatch, None),
         dispatch(&of("a"), 4, "c", "cc"),
@@ -266,7 +247,7 @@ fn a_nested_agent_is_ordered_through_its_issuer() {
 
 #[test]
 fn a_worker_fork_takes_its_agent_from_its_stop() {
-    let order = order(&[
+    let order = Order::new(&[
         delegation(
             "start-cf",
             MAIN,
@@ -292,11 +273,11 @@ fn missing_records_remove_orders_without_inventing_any() {
     // The issuer synced before it learned that a stopped.
     let mut no_stop = sequential();
     no_stop.retain(|d| d.id != EventId::new("stop-ca"));
-    assert!(!order(&no_stop).before(&a, &b));
+    assert!(!Order::new(&no_stop).before(&a, &b));
     // The agent's transcript was not synced: nothing places its edits.
     let mut no_receive = sequential();
     no_receive.retain(|d| d.id != EventId::new("receive-a-0"));
-    assert!(!order(&no_receive).before(&a, &b));
+    assert!(!Order::new(&no_receive).before(&a, &b));
 }
 
 #[test]
@@ -306,7 +287,7 @@ fn a_contradictory_session_gets_no_order() {
     let mut early = sequential();
     early.retain(|d| d.id != EventId::new("stop-ca"));
     early.push(stop(MAIN, 0, "a", "ca"));
-    assert!(!order(&early).before(&a, &b));
+    assert!(!Order::new(&early).before(&a, &b));
     // Two transcripts receiving one agent's work.
     let mut twice = sequential();
     twice.push(delegation(
@@ -320,11 +301,11 @@ fn a_contradictory_session_gets_no_order() {
             prompt: Some(PROMPT.to_owned()),
         },
     ));
-    assert!(!order(&twice).before(&a, &b));
+    assert!(!Order::new(&twice).before(&a, &b));
     // A step without a transcript cannot be placed.
     let mut unplaced = sequential();
     unplaced[4].transcript = None;
-    assert!(!order(&unplaced).before(&a, &b));
+    assert!(!Order::new(&unplaced).before(&a, &b));
 }
 
 #[test]
@@ -353,7 +334,7 @@ fn a_transcript_whose_receives_name_two_agents_leaves_its_session_unordered() {
     );
     // With a's receive alone, the transcript's work comes after main's
     // edits before a's dispatch, and only those.
-    let one = order(&[
+    let one = Order::new(&[
         dispatch(MAIN, 1, "a", "ca"),
         received("a"),
         dispatch(MAIN, 5, "b", "cb"),
@@ -362,7 +343,7 @@ fn a_transcript_whose_receives_name_two_agents_leaves_its_session_unordered() {
     assert!(!one.before(&m4, &x2));
     // With b's too, nothing orders the transcript: either agent's work
     // could be the one it holds.
-    let both = order(&[
+    let both = Order::new(&[
         dispatch(MAIN, 1, "a", "ca"),
         received("a"),
         dispatch(MAIN, 5, "b", "cb"),
@@ -390,7 +371,7 @@ fn differing_sightings_of_one_step_void_the_session() {
 
 #[test]
 fn edits_of_other_sessions_or_without_a_transcript_are_never_ordered() {
-    let order = order(&sequential());
+    let order = Order::new(&sequential());
     let a = edit("a", &of("a"), 3);
     let mut elsewhere = edit("b", &of("b"), 2);
     elsewhere.session = SessionId::new("s2");
@@ -409,7 +390,7 @@ fn an_agent_whose_start_is_not_recorded_yet_is_not_ordered() {
     // result, so no start is recorded, but the agent's transcript is.
     let mut live = sequential();
     live.retain(|d| d.id != EventId::new("start-cb"));
-    let order = order(&live);
+    let order = Order::new(&live);
     let b = edit("b", &of("b"), 2);
     assert!(!order.before(&edit("a", &of("a"), 3), &b));
     assert!(!order.before(&edit("m0", MAIN, 0), &b));
@@ -426,7 +407,7 @@ fn a_resume_sent_from_another_session_matches_nothing() {
         elsewhere,
         receive("a", 20, ReceiveKind::Resume, Some("Fix it.")),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("b", &of("b"), 2), &edit("a22", &of("a"), 22)));
     assert!(order.before(&edit("a3", &of("a"), 3), &edit("b", &of("b"), 2)));
 }
@@ -445,7 +426,7 @@ fn a_resume_message_another_session_also_sent_matches_nothing() {
         receive("a", 20, ReceiveKind::Resume, Some("Fix it.")),
         resume(MAIN, 10, "a", "rs", "Fix it."),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
 }
 
@@ -461,7 +442,7 @@ fn a_session_too_large_to_order_gets_no_order() {
             delegations.push(receive(&agent, 0, ReceiveKind::Dispatch, None));
             delegations.push(stop(MAIN, 10 * k + 5, &agent, &call));
         }
-        order(&delegations)
+        Order::new(&delegations)
     });
     let (first, last) = (edit("f", &of("x0"), 2), edit("l", &of("x1499"), 2));
     assert!(!large.before(&first, &last));
@@ -474,7 +455,7 @@ fn a_session_too_large_to_order_gets_no_order() {
             delegations.push(receive(&agent, 0, ReceiveKind::Dispatch, None));
             delegations.push(stop(MAIN, 10 * k + 5, &agent, &call));
         }
-        order(&delegations)
+        Order::new(&delegations)
     });
     assert!(long.before(&edit("f", &of("x0"), 2), &edit("l", &of("x499"), 2)));
 }
@@ -489,7 +470,7 @@ fn every_sighting_of_a_start_contends_even_in_a_session_left_unordered() {
         in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "pf"),
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pf"),
     ]);
-    assert!(order(&delegations).before(&m9, &a21));
+    assert!(Order::new(&delegations).before(&m9, &a21));
     // A later session's resume of a, seen with another message in another
     // prompt, could not have started that receive.
     let in_s2 = |mut step: Delegation| {
@@ -503,12 +484,12 @@ fn every_sighting_of_a_start_contends_even_in_a_session_left_unordered() {
         ))
     };
     delegations.push(later("Other.", "pl"));
-    assert!(order(&delegations).before(&m9, &a21));
+    assert!(Order::new(&delegations).before(&m9, &a21));
     // Seen again with "Fix it." in pf, it leaves its session unordered; that
     // sighting still could have started a's receive at 20, so this
     // session's own resume is not matched with it.
     delegations.push(later("Fix it.", "pf"));
-    assert!(!order(&delegations).before(&m9, &a21));
+    assert!(!Order::new(&delegations).before(&m9, &a21));
 }
 
 #[test]
@@ -521,7 +502,7 @@ fn a_resume_with_an_unknown_message_contends_for_every_resume_of_its_agent() {
         in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "pf"),
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pf"),
     ]);
-    assert!(order(&delegations).before(&m9, &a21));
+    assert!(Order::new(&delegations).before(&m9, &a21));
     // A later session resumed a, in another prompt, with a message the
     // parser could not read: it contends for every resume receive of a.
     let mut unknown = delegation(
@@ -538,7 +519,7 @@ fn a_resume_with_an_unknown_message_contends_for_every_resume_of_its_agent() {
     );
     unknown.session = SessionId::new("s2");
     delegations.push(unknown);
-    assert!(!order(&delegations).before(&m9, &a21));
+    assert!(!Order::new(&delegations).before(&m9, &a21));
 }
 
 #[test]
@@ -557,7 +538,7 @@ fn a_fork_not_yet_named_contends_for_every_dispatch_of_its_session() {
             prompt: Some(PROMPT.to_owned()),
         },
     ));
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("a", &of("a"), 3), &edit("b", &of("b"), 2)));
 }
 
@@ -582,7 +563,7 @@ fn many_resumes_are_matched_promptly() {
             delegations.push(receive("a", 10 * k, ReceiveKind::Resume, Some(&message)));
             delegations.push(stop(MAIN, 10 * k + 5, "a", &call));
         }
-        order(&delegations)
+        Order::new(&delegations)
     });
     // The last odd resume is matched: work after its receive comes after
     // main's edit before it was sent.
@@ -599,7 +580,7 @@ fn a_start_is_matched_only_with_a_receive_of_its_prompt() {
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pl"),
         in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "ps"),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
     // With the same prompt it is matched.
     let mut same = sequential();
@@ -607,11 +588,11 @@ fn a_start_is_matched_only_with_a_receive_of_its_prompt() {
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "ps"),
         in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "ps"),
     ]);
-    assert!(order_of(&same).before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
+    assert!(Order::new(&same).before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
     // A dispatch received in another prompt is not matched either.
     let mut other = sequential();
     other[1] = in_prompt(other[1].clone(), "elsewhere");
-    let order = order_of(&other);
+    let order = Order::new(&other);
     assert!(!order.before(&edit("m0", MAIN, 0), &edit("a3", &of("a"), 3)));
 }
 
@@ -639,7 +620,7 @@ fn conflicting_sightings_of_a_forks_stop_are_counted_promptly() {
             end.id = EventId::new("stop-cf");
             delegations.push(end);
         }
-        order(&delegations)
+        Order::new(&delegations)
     });
     assert!(!order.before(&edit("a", &of("a"), 3), &edit("b", &of("b"), 2)));
 }
@@ -653,7 +634,7 @@ fn resumed_in_pm(others: &[Delegation]) -> Order {
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pm"),
     ]);
     delegations.extend(others.iter().cloned());
-    order_of(&delegations)
+    Order::new(&delegations)
 }
 
 #[test]
@@ -694,7 +675,7 @@ fn a_resume_issued_by_an_agent_is_not_matched() {
         in_prompt(resume(&of("b"), 3, "a", "rb", "Fix it."), "pb"),
         in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pb"),
     ]);
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("b2", &of("b"), 2), &edit("a21", &of("a"), 21)));
 }
 
@@ -703,7 +684,7 @@ fn an_empty_prompt_matches_nothing() {
     let mut delegations = sequential();
     delegations[0] = in_prompt(delegations[0].clone(), "");
     delegations[1] = in_prompt(delegations[1].clone(), "");
-    let order = order(&delegations);
+    let order = Order::new(&delegations);
     assert!(!order.before(&edit("m0", MAIN, 0), &edit("a3", &of("a"), 3)));
 }
 
@@ -851,7 +832,7 @@ fn many_issuers_in_one_prompt_are_checked_promptly() {
         }
         // Its event ID sorts last, so a scan would reach it last.
         delegations.push(in_prompt(dispatch("zz.jsonl", 1, "b2", "zzz"), "pm"));
-        order_of(&delegations)
+        Order::new(&delegations)
     });
     assert!(!order.before(
         &edit("i", "issuer-000000.jsonl", 0),

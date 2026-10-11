@@ -287,8 +287,9 @@ struct Received<'a> {
     home: usize,
     /// Every receive's position, sorted.
     all: Vec<u64>,
-    /// The dispatch receives' positions, each with its prompt.
-    dispatches: Vec<(u64, Option<&'a str>)>,
+    /// The dispatch receive's position and prompt. An agent has one: a
+    /// second leaves the session unordered.
+    dispatch: Option<(u64, Option<&'a str>)>,
     /// The resume receives' positions, by message and prompt.
     resumes: BTreeMap<(&'a ContentId, &'a str), Vec<u64>>,
 }
@@ -304,8 +305,10 @@ impl SessionOrder {
     ) -> Option<Self> {
         let mut transcripts: BTreeMap<String, usize> = BTreeMap::new();
         for step in steps {
-            let next = transcripts.len();
-            transcripts.entry(step.transcript.clone()?).or_insert(next);
+            let name = step.transcript.as_ref()?;
+            if !transcripts.contains_key(name) {
+                transcripts.insert(name.clone(), transcripts.len());
+            }
         }
         let index = |step: &Delegation| step.transcript.as_ref().map(|t| transcripts[t]);
         let mut starts: Vec<Start> = Vec::new();
@@ -361,7 +364,9 @@ impl SessionOrder {
                     let prompt = named(prompt.as_ref());
                     match (kind, message, prompt) {
                         (ReceiveKind::Dispatch, ..) => {
-                            received.dispatches.push((ordinal, prompt));
+                            if received.dispatch.replace((ordinal, prompt)).is_some() {
+                                return None;
+                            }
                         }
                         (ReceiveKind::Resume, Some(message), Some(prompt)) => {
                             received
@@ -377,9 +382,6 @@ impl SessionOrder {
         }
         for received in agents.values_mut() {
             received.all.sort_unstable();
-            if received.dispatches.len() > 1 {
-                return None;
-            }
         }
         let (mut edges, matched) = match_starts(session, &starts, &agents, contenders, senders);
         for (transcript, ordinal, agent, call) in ends {
@@ -622,8 +624,8 @@ fn match_starts<'a>(
             continue;
         };
         let at = match (start.kind, start.message) {
-            (StartKind::Dispatch, _) => match received.dispatches.as_slice() {
-                &[(at, Some(received))]
+            (StartKind::Dispatch, _) => match received.dispatch {
+                Some((at, Some(received)))
                     if received == prompt && contenders.dispatching(session, start.agent) == 1 =>
                 {
                     Some(at)

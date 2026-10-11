@@ -281,36 +281,38 @@ fn group(accepted: &[AcceptedEdit], order: &Order) -> Vec<Group> {
             }
         })
         .collect();
-    let mut sessions: BTreeMap<(&PathBuf, &SessionId), Vec<&[Vec<usize>]>> = BTreeMap::new();
-    for t in &transcripts {
-        if let Some(session) = t.session {
-            sessions
-                .entry((&t.worktree, session))
-                .or_default()
-                .push(&t.buckets);
+    // Each merged sequence, by the index of its session's first transcript,
+    // and the session's other transcripts, which it absorbs.
+    let mut merged: BTreeMap<usize, Vec<Vec<usize>>> = BTreeMap::new();
+    let mut absorbed: BTreeSet<usize> = BTreeSet::new();
+    {
+        let mut sessions: BTreeMap<(&PathBuf, &SessionId), Vec<usize>> = BTreeMap::new();
+        for (i, t) in transcripts.iter().enumerate() {
+            if let Some(session) = t.session {
+                sessions.entry((&t.worktree, session)).or_default().push(i);
+            }
+        }
+        for members in sessions.values().filter(|members| members.len() > 1) {
+            let of: Vec<&[Vec<usize>]> = members
+                .iter()
+                .map(|&i| transcripts[i].buckets.as_slice())
+                .collect();
+            if let Some(sequence) = merge(accepted, order, &of) {
+                merged.insert(members[0], sequence);
+                absorbed.extend(&members[1..]);
+            }
         }
     }
-    let mut merged: BTreeMap<(&PathBuf, &SessionId), Option<Vec<Vec<usize>>>> = sessions
+    transcripts
         .into_iter()
-        .filter(|(_, of)| of.len() > 1)
-        .filter_map(|(key, of)| Some((key, Some(merge(accepted, order, &of)?))))
-        .collect();
-    let mut groups = Vec::new();
-    for t in &transcripts {
-        let buckets = match t.session.and_then(|s| merged.get_mut(&(&t.worktree, s))) {
+        .enumerate()
+        .filter(|(i, _)| !absorbed.contains(i))
+        .map(|(i, t)| Group {
+            worktree: t.worktree,
             // The merged group stands where its first transcript was.
-            Some(merged) => match merged.take() {
-                Some(buckets) => buckets,
-                None => continue,
-            },
-            None => t.buckets.clone(),
-        };
-        groups.push(Group {
-            worktree: t.worktree.clone(),
-            buckets,
-        });
-    }
-    groups
+            buckets: merged.remove(&i).unwrap_or(t.buckets),
+        })
+        .collect()
 }
 
 /// One transcript's edits of the path in one worktree.

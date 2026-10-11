@@ -8,16 +8,14 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    append, at_once, candidate, create, finishes_within, ids, in_turn, in_worktree, ordered,
-    replace, replace_all, request, unknown_op, with_hashes, with_patch, written_by,
+    append, at_once, candidate, create, dispatched, finishes_within, ids, in_turn, in_worktree,
+    ordered, replace, replace_all, request, unknown_op, with_hashes, with_patch, written_by,
 };
 use supersigil_anchor::walk::{MAX_MERGE_COMPARISONS, Walk, dedup, walk};
 use supersigil_anchor::{
     CandidateEdit, ChainClass, ChainEnd, Order, PathStatus, Request, StopReason, TargetKind,
 };
-use supersigil_record::observations::{
-    Delegation, DelegationStep, EditOperation, Hunk, Material, ReceiveKind, StartKind,
-};
+use supersigil_record::observations::{EditOperation, Hunk, Material};
 use supersigil_record::{EventId, RecordId, SessionId};
 
 /// (edits oldest first, class, ended at the base) of every chain.
@@ -1035,13 +1033,6 @@ fn a_transcript_holding_edits_of_two_sessions_is_never_merged() {
 /// settles every pair. Only the first agent's edit turns the base into the
 /// target; with `order`, the request carries the recorded order.
 fn nested(edits: u64, agents: usize, order: bool) -> Request {
-    let step = |id: String, transcript: &str, ordinal: u64, step: DelegationStep| Delegation {
-        id: EventId::new(id),
-        session: SessionId::new("s1"),
-        step,
-        source_ordinal: ordinal,
-        transcript: Some(transcript.to_owned()),
-    };
     let names: Vec<String> = (0..agents).map(|k| format!("t{k:03}")).collect();
     let mut candidates: Vec<CandidateEdit> = (0..edits)
         .map(|o| candidate(replace(&format!("m{o}"), "main", o, "a\n", "b\n")))
@@ -1050,29 +1041,7 @@ fn nested(edits: u64, agents: usize, order: bool) -> Request {
     let mut issuer = ("main", edits);
     for (k, name) in names.iter().enumerate() {
         let (from, at) = issuer;
-        steps.push(step(
-            format!("start-{name}"),
-            from,
-            at,
-            DelegationStep::Start {
-                agent: Some(name.clone()),
-                call: format!("call-{name}"),
-                kind: StartKind::Dispatch,
-                message: None,
-                prompt: Some("p".to_owned()),
-            },
-        ));
-        steps.push(step(
-            format!("receive-{name}"),
-            name,
-            0,
-            DelegationStep::Receive {
-                agent: name.clone(),
-                kind: ReceiveKind::Dispatch,
-                message: None,
-                prompt: Some("p".to_owned()),
-            },
-        ));
+        steps.extend(dispatched(from, at, name));
         let (old, new) = if k == 0 {
             ("x\n", "y\n")
         } else {

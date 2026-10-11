@@ -22,11 +22,13 @@ pub fn canonical_tempdir() -> (tempfile::TempDir, PathBuf) {
 }
 
 /// Writes `text` as `<name>` in the Claude Code project directory of `cwd`
-/// under `home`, and returns its path.
+/// under `home`, and returns its path. `name` may hold subdirectories.
 pub fn project_transcript(home: &Path, cwd: &Path, name: &str, text: &str) -> PathBuf {
-    let dir = home.join("projects").join(encode_project_dir(cwd));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(name);
+    let path = home
+        .join("projects")
+        .join(encode_project_dir(cwd))
+        .join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, text).unwrap();
     path
 }

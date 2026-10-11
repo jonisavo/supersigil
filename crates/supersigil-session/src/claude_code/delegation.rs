@@ -120,9 +120,7 @@ pub(super) fn stop_status(status: Option<&str>) -> Option<StopStatus> {
 /// text is never read for it: a synchronous agent's report can quote any
 /// ID.
 pub(super) fn dispatched_agent(structured: Option<&Value>) -> Option<String> {
-    structured
-        .and_then(|s| s.get("agentId"))
-        .and_then(Value::as_str)
+    super::string_field(structured, "agentId")
         .filter(|a| !a.is_empty())
         .map(str::to_owned)
 }
@@ -150,18 +148,17 @@ pub(super) fn receive(
     prompt: Option<&str>,
     ordinal: usize,
 ) -> Observation {
-    Observation::Delegation(Delegation {
-        id: EventId::derive("agent-receive", session, &format!("{agent}:{ordinal}")),
-        session: session.clone(),
-        step: DelegationStep::Receive {
+    delegation(
+        session,
+        EventId::derive("agent-receive", session, &format!("{agent}:{ordinal}")),
+        DelegationStep::Receive {
             agent: agent.to_owned(),
             kind,
             message,
             prompt: prompt.map(str::to_owned),
         },
-        source_ordinal: ordinal as u64,
-        transcript: None,
-    })
+        ordinal,
+    )
 }
 
 /// A start of `call`'s work in the issuer's `prompt`, placed at `ordinal`.
@@ -174,19 +171,18 @@ pub(super) fn start(
     prompt: Option<&str>,
     ordinal: usize,
 ) -> Observation {
-    Observation::Delegation(Delegation {
-        id: EventId::derive("agent-start", session, call),
-        session: session.clone(),
-        step: DelegationStep::Start {
+    delegation(
+        session,
+        EventId::derive("agent-start", session, call),
+        DelegationStep::Start {
             agent,
             call: call.to_owned(),
             kind,
             message,
             prompt: prompt.map(str::to_owned),
         },
-        source_ordinal: ordinal as u64,
-        transcript: None,
-    })
+        ordinal,
+    )
 }
 
 /// The proof, at `ordinal`, that `agent` stopped the work `call` started.
@@ -197,14 +193,30 @@ pub(super) fn stop(
     status: StopStatus,
     ordinal: usize,
 ) -> Observation {
-    Observation::Delegation(Delegation {
-        id: EventId::derive("agent-stop", session, call),
-        session: session.clone(),
-        step: DelegationStep::Stop {
+    delegation(
+        session,
+        EventId::derive("agent-stop", session, call),
+        DelegationStep::Stop {
             agent: agent.to_owned(),
             call: call.to_owned(),
             status,
         },
+        ordinal,
+    )
+}
+
+/// The delegation `step` of `session`, identified by `id`, at `ordinal`.
+/// Sync stamps its transcript.
+fn delegation(
+    session: &SessionId,
+    id: EventId,
+    step: DelegationStep,
+    ordinal: usize,
+) -> Observation {
+    Observation::Delegation(Delegation {
+        id,
+        session: session.clone(),
+        step,
         source_ordinal: ordinal as u64,
         transcript: None,
     })
