@@ -9,6 +9,11 @@
 //! quoted-heredoc write confirmed by the call's harness report. Command
 //! text is read, never run.
 //!
+//! Calls that start another agent's work, the notifications that prove it
+//! stopped, and the records where an agent's own transcript received work
+//! become delegation observations; relayed reports are
+//! report turns.
+//!
 //! A new human or delegation turn marks pending calls as abandoned. Calls
 //! still awaiting results at the end of the input are left for the next parse.
 //! Unknown record types and malformed lines are counted without stopping the parse.
@@ -25,8 +30,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use supersigil_record::observations::{
     CaptureCounts, ChangeKind, ChangeReport, Command, CommandCategory, Edit, EditOperation,
-    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, Role, StartKind,
-    StopStatus, Turn,
+    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, ReceiveKind, Role,
+    StartKind, StopStatus, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -281,6 +286,20 @@ struct Walk {
     starting_calls: BTreeSet<String>,
     /// Calls whose stop was decided by their earliest task-notification.
     stopped: BTreeSet<String>,
+    /// The agent ID this session's own records name, once one does.
+    agent: Option<String>,
+    /// Whether this session's records named a second agent ID. The
+    /// transcript then receives nothing more.
+    contradicted: bool,
+    /// Whether this agent transcript reached its dispatch prompt. Calls
+    /// before it are history a worker fork inherited, not its own.
+    dispatched: bool,
+    /// Whether this is a worker fork's transcript: the harness's
+    /// `fork-context-ref` record came before its dispatch prompt.
+    forked: bool,
+    /// The line where a worker fork's inherited-context note continues
+    /// its dispatch prompt: the line right after it.
+    fork_note_at: Option<usize>,
 }
 
 impl Walk {
@@ -335,6 +354,9 @@ impl Walk {
     /// pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
+        if raw.kind == "fork-context-ref" && !self.dispatched {
+            self.forked = true;
+        }
         if let Some(text) = notification_carried(&raw)
             && let Some(session) = self.outcome.session.clone()
             && raw
@@ -352,6 +374,7 @@ impl Walk {
             }
             other => {
                 self.count(index, Count::Unknown(other.to_owned()));
+                self.opaque(index);
                 return;
             }
         }
@@ -366,6 +389,7 @@ impl Walk {
             .is_some_and(|id| !id.is_empty() && id != session_id.as_str())
         {
             self.count(index, Count::SessionMismatch);
+            self.opaque(index);
             let content = raw.message.as_ref().map(|m| &m.content);
             if raw.kind == "user"
                 && matches!(classify_role(&raw, content), Role::Human | Role::Delegation)
@@ -373,6 +397,9 @@ impl Walk {
                 self.abandon_pending(&session_id);
             }
             return;
+        }
+        if self.outcome.sidechain {
+            self.receive(index, &raw, &session_id);
         }
         let Some(uuid) = &raw.uuid else {
             self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
@@ -419,6 +446,90 @@ impl Walk {
             if matches!(role, Role::Human | Role::Delegation) {
                 self.abandon_pending(&session_id);
             }
+        }
+    }
+
+    /// Records where this agent transcript received work, each with the
+    /// issuer's prompt that sent it. The first typed `user` record is the
+    /// dispatch; each `coordinator` record is a resume, with the hash of the
+    /// message it frames. Any other typed record with an origin (whatever
+    /// its kind, readable or not), or not marked as metadata, is an input
+    /// that could have woken the agent, whether or not the agent replied
+    /// since: a turn can fail before its first reply. The one exception is
+    /// a worker fork's inherited-context note on the line right after its
+    /// prompt, which continues the prompt. A record without a `uuid` counts
+    /// too: a missed input would let a stop cover work done after it.
+    ///
+    /// The agent is the one this session's records name; a record naming
+    /// another ends the work as an input and the transcript receives
+    /// nothing more. Nothing is recorded before an agent is named.
+    fn receive(&mut self, index: usize, raw: &RawRecord, session: &SessionId) {
+        if let Some(named) = raw.agent_id.as_deref().filter(|a| !a.is_empty()) {
+            match &self.agent {
+                None => self.agent = Some(named.to_owned()),
+                Some(agent) if agent == named => {}
+                Some(_) => {
+                    self.opaque(index);
+                    self.contradicted = true;
+                }
+            }
+        }
+        let content = raw.message.as_ref().map(|m| &m.content);
+        if raw.kind == "assistant" || is_tool_output(content) {
+            return;
+        }
+        let (kind, message) = if !self.dispatched {
+            self.dispatched = true;
+            self.fork_note_at = self.forked.then_some(index + 1);
+            (ReceiveKind::Dispatch, None)
+        } else if raw.origin_kind() == Some("coordinator") {
+            let text = text_of(content);
+            let message = delegation::resume_message(&text).map(|m| ContentId::of(m.as_bytes()));
+            (ReceiveKind::Resume, message)
+        } else if raw.origin.is_none()
+            && self.fork_note_at == Some(index)
+            && delegation::fork_note(&text_of(content))
+        {
+            return;
+        } else if raw.origin.is_some() || !raw.is_meta {
+            (ReceiveKind::Input, None)
+        } else {
+            return;
+        };
+        self.received(index, session, kind, message, raw.prompt());
+    }
+
+    /// Ends the agent's work at a record the parser cannot read or place.
+    /// Once this agent transcript reached its dispatch prompt, a malformed
+    /// line, a record of an unknown type or of another session, or one
+    /// naming another agent could hide an input that woke the agent.
+    fn opaque(&mut self, index: usize) {
+        if !self.outcome.sidechain || !self.dispatched {
+            return;
+        }
+        if let Some(session) = self.outcome.session.clone() {
+            self.received(index, &session, ReceiveKind::Input, None, None);
+        }
+    }
+
+    /// Records a receive of `kind` at `index`, unless no agent is named yet
+    /// or the transcript named two.
+    fn received(
+        &mut self,
+        index: usize,
+        session: &SessionId,
+        kind: ReceiveKind,
+        message: Option<ContentId>,
+        prompt: Option<&str>,
+    ) {
+        if self.contradicted {
+            return;
+        }
+        if let Some(agent) = self.agent.clone() {
+            self.observe(
+                index,
+                delegation::receive(session, &agent, kind, message, prompt, index),
+            );
         }
     }
 
@@ -554,7 +665,9 @@ impl Walk {
             // Pending calls stay in transcript order: the first is the
             // earliest still in flight.
             let in_flight = self.pending.first().map(|p| p.record_index);
-            if delegation::STARTING_TOOLS.contains(&name.as_str()) {
+            if delegation::STARTING_TOOLS.contains(&name.as_str())
+                && (self.dispatched || !self.outcome.sidechain)
+            {
                 self.starting_calls.insert(id.clone());
             }
             self.pending.push(PendingTool {
@@ -609,7 +722,7 @@ impl Walk {
                 ended: ended.as_ref(),
                 prompt: raw.prompt(),
             };
-            if delegation::STARTING_TOOLS.contains(&tool.name.as_str()) {
+            if self.starting_calls.contains(&tool.id) {
                 self.delegated(index, &tool, &resolution, session);
             }
             self.built(index, build_resolved(&tool, session, &resolution));
@@ -637,6 +750,11 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         resolved: Vec::new(),
         starting_calls: BTreeSet::new(),
         stopped: BTreeSet::new(),
+        agent: None,
+        contradicted: false,
+        dispatched: false,
+        forked: false,
+        fork_note_at: None,
     };
     // One complete line at a time: parse it, walk it, drop it. A line that
     // is not a JSON object is counted; a trailing line without a newline is
@@ -652,9 +770,11 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         let index = starts.len();
         starts.push(cursor);
         cursor += len + 1;
-        match serde_json::from_slice::<RawRecord>(line) {
-            Ok(raw) => walk.record(index, raw),
-            Err(_) => walk.count(index, Count::Malformed),
+        if let Ok(raw) = serde_json::from_slice::<RawRecord>(line) {
+            walk.record(index, raw);
+        } else {
+            walk.count(index, Count::Malformed);
+            walk.opaque(index);
         }
     }
     let complete_end = cursor;
@@ -744,6 +864,12 @@ fn is_block(block: &Value, ty: &str) -> bool {
 fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
     content.and_then(Value::as_array).into_iter().flatten()
 }
+/// Whether `content` is non-empty and holds only tool results.
+fn is_tool_output(content: Option<&Value>) -> bool {
+    let mut items = blocks(content).peekable();
+    items.peek().is_some() && items.all(|b| is_block(b, "tool_result"))
+}
+
 /// Classifies the record as agent text, metadata, tool output, delegation,
 /// a relayed report, or human text.
 ///
@@ -766,8 +892,7 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.is_meta {
         return Role::Meta;
     }
-    let mut items = blocks(content).peekable();
-    if items.peek().is_some() && items.all(|b| is_block(b, "tool_result")) {
+    if is_tool_output(content) {
         return Role::Tool;
     }
     if raw.is_sidechain {

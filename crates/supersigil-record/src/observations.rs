@@ -500,7 +500,8 @@ pub struct Command {
 /// transcript that recorded it.
 ///
 /// The transcript that started an agent's work (its issuer) records the
-/// start and the proof that the agent stopped. They order one session's
+/// start and the proof that the agent stopped; the agent's own transcript
+/// records where it received work. Together they order one session's
 /// transcripts without timestamps: what an agent did before a stop came
 /// before what its issuer did after the stop's position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -553,6 +554,20 @@ pub enum DelegationStep {
         /// How the work ended.
         status: StopStatus,
     },
+    /// A record of the agent's own transcript where work could begin. Its
+    /// event ID is derived from `agent-receive` and `<agent>:<position>`.
+    Receive {
+        /// The agent whose transcript this is.
+        agent: String,
+        /// What kind of record received the work.
+        kind: ReceiveKind,
+        /// For a resume, the hash of the message the harness delivered;
+        /// `None` when its framing was not recognized.
+        message: Option<ContentId>,
+        /// The issuer's prompt that sent the work (Claude Code's `promptId`
+        /// on the receiving record).
+        prompt: Option<String>,
+    },
 }
 
 /// How an issuer started an agent's work.
@@ -573,6 +588,19 @@ pub enum StopStatus {
     Completed,
     /// The agent failed.
     Failed,
+}
+
+/// What kind of record of an agent's transcript received work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiveKind {
+    /// The dispatch prompt, where the agent's own work begins.
+    Dispatch,
+    /// A message resuming the agent.
+    Resume,
+    /// Any other input that could wake the agent after it stopped. It
+    /// starts no work an issuer recorded; it only ends the work before it.
+    Input,
 }
 
 /// Counts records and tool calls that could not be captured in a transcript range.

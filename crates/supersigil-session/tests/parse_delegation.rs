@@ -4,7 +4,8 @@
 
 use serde_json::{Value, json};
 use supersigil_record::observations::{
-    Delegation, DelegationStep, Material, Observation, Role, StartKind, StopStatus, Turn,
+    Delegation, DelegationStep, Material, Observation, ReceiveKind, Role, StartKind, StopStatus,
+    Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId};
 use supersigil_session::claude_code::{ParseOutcome, parse_transcript};
@@ -53,6 +54,35 @@ fn stop(agent: &str, call: &str, status: StopStatus) -> DelegationStep {
         call: call.to_owned(),
         status,
     }
+}
+
+fn receive(agent: &str, kind: ReceiveKind, message: Option<&str>) -> DelegationStep {
+    DelegationStep::Receive {
+        agent: agent.to_owned(),
+        kind,
+        message: message.map(|m| ContentId::of(m.as_bytes())),
+        prompt: Some(PROMPT.to_owned()),
+    }
+}
+
+/// An input at a record the parser could not read or place, which names no
+/// prompt.
+fn unplaced(agent: &str) -> DelegationStep {
+    DelegationStep::Receive {
+        agent: agent.to_owned(),
+        kind: ReceiveKind::Input,
+        message: None,
+        prompt: None,
+    }
+}
+
+/// The receives of `records`, an agent transcript, with their ordinals.
+fn receives(records: &[Value]) -> Vec<(u64, DelegationStep)> {
+    let outcome = parse_transcript(lines(records).as_bytes(), 0);
+    steps(&outcome)
+        .into_iter()
+        .filter(|(_, step)| matches!(step, DelegationStep::Receive { .. }))
+        .collect()
 }
 
 fn turns(outcome: &ParseOutcome) -> Vec<&Turn> {
@@ -733,4 +763,354 @@ fn many_calls_in_flight_are_placed_promptly() {
     parsed
         .recv_timeout(std::time::Duration::from_secs(20))
         .expect("parsing finishes within its time limit");
+}
+
+/// The first records of agent `a1`'s transcript: its prompt, then its reply.
+fn prompted() -> Vec<Value> {
+    vec![
+        agent_record("a1", "user", "p0", json!("Do the task.")),
+        agent_record(
+            "a1",
+            "assistant",
+            "x1",
+            json!([{"type": "text", "text": "On it."}]),
+        ),
+    ]
+}
+
+#[test]
+fn an_agent_receives_its_dispatch_at_its_first_typed_record() {
+    let outcome = parse_transcript(lines(&prompted()).as_bytes(), 0);
+    assert_eq!(
+        steps(&outcome),
+        vec![(0, receive("a1", ReceiveKind::Dispatch, None))]
+    );
+    assert_eq!(
+        delegations(&outcome)[0].id,
+        EventId::derive("agent-receive", &SessionId::new(SESSION), "a1:0")
+    );
+}
+
+#[test]
+fn a_worker_fork_receives_at_its_boilerplate_and_starts_nothing_it_inherited() {
+    // A worker fork's transcript copies the issuer's Agent call and its
+    // result before the fork's own work begins.
+    let context = json!({"type": "fork-context-ref", "agentId": "f1", "parentSessionId": SESSION});
+    let mut copied = call(
+        "c1",
+        "Agent",
+        "toolu_f",
+        json!({"prompt": "You are fork A.", "subagent_type": "fork"}),
+    );
+    copied["isSidechain"] = json!(true);
+    copied["agentId"] = json!("f1");
+    let begun = agent_record(
+        "f1",
+        "user",
+        "c2",
+        json!([
+            {"type": "tool_result", "tool_use_id": "toolu_f", "content": "Fork started"},
+            {"type": "text", "text": "<fork-boilerplate>\nYou are a worker fork."}
+        ]),
+    );
+    // The next record continues the dispatch prompt.
+    let inherited = agent_record(
+        "f1",
+        "user",
+        "c3",
+        json!("You've inherited the conversation context above."),
+    );
+    let records = [
+        context,
+        copied,
+        begun,
+        inherited,
+        agent_record(
+            "f1",
+            "assistant",
+            "c4",
+            json!([{"type": "text", "text": "Working."}]),
+        ),
+    ];
+    let outcome = parse_transcript(lines(&records).as_bytes(), 0);
+    assert_eq!(
+        steps(&outcome),
+        vec![(2, receive("f1", ReceiveKind::Dispatch, None))]
+    );
+}
+
+#[test]
+fn a_resume_is_received_with_the_hash_of_its_framed_message() {
+    let mut records = prompted();
+    records.push(coordinator("a1", "c1", "Fix round 1."));
+    assert_eq!(
+        receives(&records)[1..],
+        [(2, receive("a1", ReceiveKind::Resume, Some("Fix round 1.")))]
+    );
+    // A message in another framing is still a resume, but cannot be matched.
+    let mut odd = prompted();
+    let mut record = coordinator("a1", "c1", "x");
+    record["message"]["content"] = json!("Resumed: Fix round 1.");
+    odd.push(record);
+    assert_eq!(
+        receives(&odd)[1..],
+        [(2, receive("a1", ReceiveKind::Resume, None))]
+    );
+}
+
+#[test]
+fn an_input_after_the_agent_replied_is_received_as_a_possible_wake_up() {
+    let mut interrupted = agent_record("a1", "user", "i1", json!("[Request interrupted by user]"));
+    interrupted["isMeta"] = json!(false);
+    let mut human = agent_record("a1", "user", "i2", json!("The user sent a message."));
+    human["isMeta"] = json!(true);
+    human["origin"] = json!({"kind": "human"});
+    for (case, record) in [
+        ("task-notification", agent_notification("a1", "i0", "bg1")),
+        ("interrupted", interrupted),
+        ("human", human),
+    ] {
+        let mut records = prompted();
+        records.push(record);
+        assert_eq!(
+            receives(&records)[1..],
+            [(2, receive("a1", ReceiveKind::Input, None))],
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn harness_reminders_and_mid_turn_deliveries_are_not_received() {
+    let mut skill = agent_record(
+        "a1",
+        "user",
+        "m1",
+        json!("Base directory for this skill: /x"),
+    );
+    skill["isMeta"] = json!(true);
+    let attachment = json!({
+        "type": "attachment", "uuid": "m2", "parentUuid": null, "sessionId": SESSION,
+        "cwd": "/work/repo", "timestamp": "2026-10-02T10:00:00.000Z", "isSidechain": true,
+        "agentId": "a1",
+        "attachment": {"type": "queued_command", "prompt": "One more thing."}
+    });
+    let mut records = prompted();
+    records.extend([skill, attachment]);
+    assert_eq!(receives(&records).len(), 1, "{:?}", receives(&records));
+}
+
+#[test]
+fn an_input_is_received_whether_or_not_the_agent_replied() {
+    // Right after the prompt, and twice in a row.
+    let early = [
+        agent_record("a1", "user", "p0", json!("Do the task.")),
+        agent_notification("a1", "n1", "bg1"),
+        agent_notification("a1", "n2", "bg2"),
+    ];
+    assert_eq!(
+        receives(&early)[1..],
+        [
+            (1, receive("a1", ReceiveKind::Input, None)),
+            (2, receive("a1", ReceiveKind::Input, None)),
+        ]
+    );
+    // A resumed turn that failed before any reply, then a background task
+    // woke the agent.
+    let mut failed = prompted();
+    failed.extend([
+        coordinator("a1", "c1", "Fix it."),
+        agent_notification("a1", "n1", "bg1"),
+    ]);
+    assert_eq!(
+        receives(&failed)[2..],
+        [(3, receive("a1", ReceiveKind::Input, None))]
+    );
+    // A typed record right after a resume does not continue it.
+    let mut typed = prompted();
+    typed.extend([
+        coordinator("a1", "c1", "Fix it."),
+        agent_record("a1", "user", "t1", json!("And this.")),
+    ]);
+    assert_eq!(
+        receives(&typed)[2..],
+        [(3, receive("a1", ReceiveKind::Input, None))]
+    );
+}
+
+#[test]
+fn a_record_with_any_other_origin_is_an_input() {
+    // An origin the parser does not know, or cannot read, could still be
+    // a wake-up.
+    for origin in [
+        json!({"kind": 7}),
+        json!({"kind": "scheduler"}),
+        json!("human"),
+    ] {
+        let mut record = agent_record("a1", "user", "o1", json!("Wake up."));
+        record["isMeta"] = json!(true);
+        record["origin"] = origin.clone();
+        let mut records = prompted();
+        records.push(record);
+        assert_eq!(
+            receives(&records)[1..],
+            [(2, receive("a1", ReceiveKind::Input, None))],
+            "{origin}"
+        );
+    }
+}
+
+#[test]
+fn a_record_without_a_uuid_is_still_received() {
+    let mut records = prompted();
+    let mut notice = agent_notification("a1", "n1", "bg1");
+    notice.as_object_mut().unwrap().remove("uuid");
+    records.push(notice);
+    assert_eq!(
+        receives(&records)[1..],
+        [(2, receive("a1", ReceiveKind::Input, None))]
+    );
+}
+
+#[test]
+fn transcripts_without_an_agent_id_or_outside_an_agent_receive_nothing() {
+    let mut anonymous = prompted();
+    for record in &mut anonymous {
+        record.as_object_mut().unwrap().remove("agentId");
+    }
+    assert!(receives(&anonymous).is_empty());
+    let main = [
+        main_record("user", "u0", json!("Start.")),
+        main_record("assistant", "x1", json!([{"type": "text", "text": "Ok."}])),
+        delivered_notification("n1", "ag1", Some("toolu_d"), "completed"),
+    ];
+    assert!(receives(&main).is_empty());
+}
+
+#[test]
+fn records_the_parser_cannot_read_end_the_agents_work() {
+    // Any of these could hide an input that woke the agent, so each ends
+    // its work as an input would, even right after the prompt.
+    let mut foreign = agent_record("a1", "user", "f1", json!("Another session."));
+    foreign["sessionId"] = json!("other");
+    let mut unreadable = agent_notification("a1", "n1", "bg1");
+    unreadable["uuid"] = json!(7);
+    let cases = [
+        ("malformed", "{not json".to_owned()),
+        ("undecodable", unreadable.to_string()),
+        (
+            "unknown type",
+            json!({"type": "brand-new", "sessionId": SESSION, "agentId": "a1"}).to_string(),
+        ),
+        ("another session", foreign.to_string()),
+    ];
+    for (case, line) in cases {
+        for prefix in [vec![prompted()[0].clone()], prompted()] {
+            let at = prefix.len() as u64;
+            let text = format!("{}{line}\n", lines(&prefix));
+            let outcome = parse_transcript(text.as_bytes(), 0);
+            let found: Vec<(u64, DelegationStep)> = steps(&outcome)
+                .into_iter()
+                .filter(|(_, step)| matches!(step, DelegationStep::Receive { .. }))
+                .collect();
+            assert_eq!(found[1..], [(at, unplaced("a1"))], "{case}");
+        }
+    }
+}
+
+#[test]
+fn an_agent_id_is_learned_only_from_the_sessions_own_records() {
+    // A record of another session names agent a; the session's own
+    // records name b.
+    let metadata = json!({"type": "system", "sessionId": SESSION, "isSidechain": true});
+    let mut foreign = agent_record("a", "user", "f1", json!("Another session."));
+    foreign["sessionId"] = json!("other");
+    let records = [
+        metadata,
+        foreign,
+        agent_record("b", "user", "p0", json!("Do the task.")),
+    ];
+    assert_eq!(
+        receives(&records)[0],
+        (2, receive("b", ReceiveKind::Dispatch, None))
+    );
+}
+
+#[test]
+fn a_transcript_naming_two_agents_ends_its_work_and_receives_no_more() {
+    let records = [
+        agent_record("a1", "user", "p0", json!("Do the task.")),
+        agent_record(
+            "a1",
+            "assistant",
+            "x1",
+            json!([{"type": "text", "text": "On it."}]),
+        ),
+        agent_record(
+            "a2",
+            "assistant",
+            "x2",
+            json!([{"type": "text", "text": "Me too."}]),
+        ),
+        coordinator("a1", "c1", "Fix round 1."),
+    ];
+    assert_eq!(
+        receives(&records),
+        vec![
+            (0, receive("a1", ReceiveKind::Dispatch, None)),
+            (2, unplaced("a1")),
+        ]
+    );
+}
+
+#[test]
+fn a_receive_carries_the_prompt_of_its_record() {
+    let mut records = prompted();
+    records[0]["promptId"] = json!("p9");
+    let outcome = parse_transcript(lines(&records).as_bytes(), 0);
+    let DelegationStep::Receive { prompt, .. } = &delegations(&outcome)[0].step else {
+        panic!("a receive: {:?}", steps(&outcome));
+    };
+    assert_eq!(prompt.as_deref(), Some("p9"));
+}
+
+#[test]
+fn only_a_worker_forks_inherited_note_continues_its_prompt() {
+    // An agent's dispatch fails before any reply; an ordinary typed message
+    // on the next line wakes it.
+    let woken = [
+        agent_record("a1", "user", "p0", json!("Do the task.")),
+        agent_record("a1", "user", "t1", json!("Try again.")),
+    ];
+    assert_eq!(
+        receives(&woken)[1..],
+        [(1, receive("a1", ReceiveKind::Input, None))]
+    );
+    // In a worker fork's transcript, other text on that line is an input too.
+    let context = json!({"type": "fork-context-ref", "agentId": "f1", "parentSessionId": SESSION});
+    let forked = [
+        context,
+        agent_record(
+            "f1",
+            "user",
+            "c2",
+            json!("<fork-boilerplate>\nYou are a worker fork."),
+        ),
+        agent_record("f1", "user", "c3", json!("Try again.")),
+    ];
+    assert_eq!(
+        receives(&forked)[1..],
+        [(2, receive("f1", ReceiveKind::Input, None))]
+    );
+}
+
+#[test]
+fn a_receive_with_an_empty_prompt_names_none() {
+    let mut records = prompted();
+    records[0]["promptId"] = json!("");
+    let outcome = parse_transcript(lines(&records).as_bytes(), 0);
+    let DelegationStep::Receive { prompt, .. } = &delegations(&outcome)[0].step else {
+        panic!("a receive: {:?}", steps(&outcome));
+    };
+    assert_eq!(*prompt, None);
 }

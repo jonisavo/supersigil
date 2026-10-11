@@ -1,5 +1,6 @@
 //! Reads how a transcript hands work to other agents: the calls that start
-//! an agent's work and the notifications that prove it stopped.
+//! an agent's work, the notifications that prove it stopped, and, in the
+//! agent's own transcript, the records where it received work.
 //!
 //! Claude Code starts an agent with an `Agent` call, whose result names the
 //! agent, and resumes one with a `SendMessage` call, whose result names
@@ -13,16 +14,26 @@
 //! hand-back message is no proof either: the agent sends it by calling its
 //! hand-back tool, before it stops, and its report can quote any text, a
 //! notification included.
+//!
+//! The agent's transcript begins with its dispatch prompt. A resume
+//! arrives as a `coordinator` record framing the resuming message in fixed
+//! text, so the message can be matched with the call that sent it.
 
 use serde_json::Value;
 use supersigil_record::observations::{
-    Delegation, DelegationStep, Observation, StartKind, StopStatus,
+    Delegation, DelegationStep, Observation, ReceiveKind, StartKind, StopStatus,
 };
 use supersigil_record::{ContentId, EventId, SessionId};
 
 /// What the harness writes before a task-notification it delivers into an
 /// agent's own transcript.
 const NOTIFICATION_WARNING: &str = "[SYSTEM NOTIFICATION - NOT USER INPUT]";
+/// What the harness writes before a message resuming an agent.
+const RESUME_PREFIX: &str = "The coordinator sent a message while you were working:\n";
+/// What the harness writes after a message resuming an agent.
+const RESUME_SUFFIX: &str = "\n\nAddress this before completing your current task.";
+/// How the harness's note continuing a worker fork's prompt begins.
+const FORK_NOTE: &str = "You've inherited the conversation context";
 
 /// Tools whose calls can start an agent's work.
 pub(super) const STARTING_TOOLS: &[&str] = &["Agent", "Task", "SendMessage"];
@@ -95,6 +106,43 @@ pub(super) fn dispatched_agent(structured: Option<&Value>) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|a| !a.is_empty())
         .map(str::to_owned)
+}
+
+/// The message a resume record delivers: its text inside the harness's
+/// fixed framing, or `None` in any other framing.
+pub(super) fn resume_message(text: &str) -> Option<&str> {
+    text.strip_prefix(RESUME_PREFIX)?
+        .strip_suffix(RESUME_SUFFIX)
+}
+
+/// Whether `text` is the harness's note that continues a worker fork's
+/// prompt.
+pub(super) fn fork_note(text: &str) -> bool {
+    text.starts_with(FORK_NOTE)
+}
+
+/// `agent`'s transcript receiving work sent in the issuer's `prompt` at
+/// `ordinal`.
+pub(super) fn receive(
+    session: &SessionId,
+    agent: &str,
+    kind: ReceiveKind,
+    message: Option<ContentId>,
+    prompt: Option<&str>,
+    ordinal: usize,
+) -> Observation {
+    Observation::Delegation(Delegation {
+        id: EventId::derive("agent-receive", session, &format!("{agent}:{ordinal}")),
+        session: session.clone(),
+        step: DelegationStep::Receive {
+            agent: agent.to_owned(),
+            kind,
+            message,
+            prompt: prompt.map(str::to_owned),
+        },
+        source_ordinal: ordinal as u64,
+        transcript: None,
+    })
 }
 
 /// A start of `call`'s work in the issuer's `prompt`, placed at `ordinal`.
@@ -172,6 +220,14 @@ mod tests {
         let warned = format!("{NOTIFICATION_WARNING} This is an automated event.\n\n{envelope}");
         assert_eq!(delivered_envelope(&warned), envelope);
         assert_eq!(delivered_envelope(envelope), envelope);
+    }
+
+    #[test]
+    fn a_resume_message_is_read_only_inside_the_exact_framing() {
+        let framed = format!("{RESUME_PREFIX}Fix it.{RESUME_SUFFIX}");
+        assert_eq!(resume_message(&framed), Some("Fix it."));
+        assert_eq!(resume_message(&format!("{RESUME_PREFIX}Fix it.")), None);
+        assert_eq!(resume_message("Fix it."), None);
     }
 
     #[test]
