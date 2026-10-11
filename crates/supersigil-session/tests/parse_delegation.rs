@@ -1135,10 +1135,18 @@ fn an_ignored_record_naming_another_agent_ends_the_agents_work() {
     );
     // An ignored record names the agent before its prompt, too.
     let early = [
-        json!({"type": "system", "sessionId": SESSION, "agentId": "a1"}),
+        json!({"type": "system", "sessionId": SESSION, "isSidechain": true, "agentId": "a1"}),
         agent_record("a2", "user", "p0", json!("Do the task.")),
     ];
     assert!(receives(&early).is_empty());
+    // Naming the prompt's own agent, it receives the dispatch: the
+    // transcript is read as an agent's.
+    let mut same = early.clone();
+    same[0]["agentId"] = json!("a2");
+    assert_eq!(
+        receives(&same),
+        vec![(1, receive("a2", ReceiveKind::Dispatch, None))]
+    );
 }
 
 #[test]

@@ -995,20 +995,22 @@ fn a_transcript_holding_edits_of_two_sessions_is_never_merged() {
     // Transcript a holds edits of sessions s1 and s2 (a path reused after a
     // rewrite); s1's order puts a before b. Merging would place s2's edit
     // x1 before b1, which nothing orders.
-    let mut other = replace("x1", "a", 3, "p\n", "q\n");
-    other.session = SessionId::new("s2");
-    let edits = vec![
-        candidate(replace("a1", "a", 3, "x\n", "y\n")),
-        candidate(other),
-        candidate(replace("b1", "b", 2, "y\n", "z\n")),
-    ];
-    let request = request(
-        Some("x\np\n"),
-        Some("z\nq\n"),
-        TargetKind::WorkingTree,
-        edits,
-    );
-    let out = walk(&ordered(request, in_turn(&["a", "b"])));
+    let mixed = || {
+        let mut other = replace("x1", "a", 3, "p\n", "q\n");
+        other.session = SessionId::new("s2");
+        let edits = vec![
+            candidate(replace("a1", "a", 3, "x\n", "y\n")),
+            candidate(other),
+            candidate(replace("b1", "b", 2, "y\n", "z\n")),
+        ];
+        request(
+            Some("x\np\n"),
+            Some("z\nq\n"),
+            TargetKind::WorkingTree,
+            edits,
+        )
+    };
+    let out = walk(&ordered(mixed(), in_turn(&["a", "b"])));
     let (x1, b1) = (EventId::new("x1"), EventId::new("b1"));
     assert!(
         out.chains
@@ -1017,6 +1019,15 @@ fn a_transcript_holding_edits_of_two_sessions_is_never_merged() {
         "{:?}",
         summary(&out)
     );
+    // Each transcript keeps its own chain, as with no order at all.
+    assert_eq!(
+        summary(&out),
+        vec![
+            (ids(&["x1"]), ChainClass::Consistent, false),
+            (ids(&["b1"]), ChainClass::Consistent, false),
+        ]
+    );
+    assert_eq!(summary(&out), summary(&walk(&mixed())));
 }
 
 /// Main makes `edits` edits, then dispatches the first of `agents` agents,

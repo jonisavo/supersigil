@@ -220,15 +220,30 @@ fn resumes_match_by_message_not_by_position() {
 
 #[test]
 fn a_message_sent_twice_matches_neither_resume() {
-    let mut delegations = sequential();
-    delegations.extend([
-        resume(MAIN, 10, "a", "r1", "Again."),
-        resume(MAIN, 12, "a", "r2", "Again."),
-        receive("a", 20, ReceiveKind::Resume, Some("Again.")),
-        receive("a", 25, ReceiveKind::Resume, Some("Again.")),
+    let fresh = |step: Delegation| in_prompt(step, "p2");
+    let (m9, m11, a21) = (
+        edit("m9", MAIN, 9),
+        edit("m11", MAIN, 11),
+        edit("a21", &of("a"), 21),
+    );
+    // Sent once in a prompt of its own, the message is matched.
+    let mut once = sequential();
+    once.extend([
+        fresh(resume(MAIN, 10, "a", "r1", "Again.")),
+        fresh(receive("a", 20, ReceiveKind::Resume, Some("Again."))),
     ]);
-    let order = order(&delegations);
-    assert!(!order.before(&edit("m11", MAIN, 11), &edit("a21", &of("a"), 21)));
+    assert!(order(&once).before(&m9, &a21));
+    // Sent twice, it matches neither resume, whether it is received once
+    // or twice.
+    let mut twice = once.clone();
+    twice.push(fresh(resume(MAIN, 12, "a", "r2", "Again.")));
+    let mut received_twice = twice.clone();
+    received_twice.push(fresh(receive("a", 25, ReceiveKind::Resume, Some("Again."))));
+    for delegations in [twice, received_twice] {
+        let order = order(&delegations);
+        assert!(!order.before(&m9, &a21));
+        assert!(!order.before(&m11, &a21));
+    }
 }
 
 #[test]
@@ -466,27 +481,49 @@ fn a_session_too_large_to_order_gets_no_order() {
 
 #[test]
 fn every_sighting_of_a_start_contends_even_in_a_session_left_unordered() {
-    // A later session's resume of a is seen with two different messages, so
-    // that session is unordered; its "Fix it." sighting still could have
-    // started a's receive at 20, so this session's own "Fix it." resume is
-    // not matched with it.
-    let mut other = resume("later.jsonl", 3, "a", "rl", "Other.");
-    other.session = SessionId::new("s2");
-    let mut fix = resume("later.jsonl", 3, "a", "rl", "Fix it.");
-    fix.session = SessionId::new("s2");
+    // This session resumes a with "Fix it." in prompt pf, and a receives it
+    // there: the resume is matched.
+    let (m9, a21) = (edit("m9", MAIN, 9), edit("a21", &of("a"), 21));
     let mut delegations = sequential();
     delegations.extend([
-        other,
-        fix,
-        receive("a", 20, ReceiveKind::Resume, Some("Fix it.")),
-        resume(MAIN, 10, "a", "rs", "Fix it."),
+        in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "pf"),
+        in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pf"),
     ]);
-    let order = order(&delegations);
-    assert!(!order.before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
+    assert!(order(&delegations).before(&m9, &a21));
+    // A later session's resume of a, seen with another message in another
+    // prompt, could not have started that receive.
+    let in_s2 = |mut step: Delegation| {
+        step.session = SessionId::new("s2");
+        step
+    };
+    let later = |message: &str, prompt: &str| {
+        in_s2(in_prompt(
+            resume("later.jsonl", 3, "a", "rl", message),
+            prompt,
+        ))
+    };
+    delegations.push(later("Other.", "pl"));
+    assert!(order(&delegations).before(&m9, &a21));
+    // Seen again with "Fix it." in pf, it leaves its session unordered; that
+    // sighting still could have started a's receive at 20, so this
+    // session's own resume is not matched with it.
+    delegations.push(later("Fix it.", "pf"));
+    assert!(!order(&delegations).before(&m9, &a21));
 }
 
 #[test]
 fn a_resume_with_an_unknown_message_contends_for_every_resume_of_its_agent() {
+    // This session resumes a with "Fix it." in prompt pf, and a receives it
+    // there: the resume is matched.
+    let (m9, a21) = (edit("m9", MAIN, 9), edit("a21", &of("a"), 21));
+    let mut delegations = sequential();
+    delegations.extend([
+        in_prompt(resume(MAIN, 10, "a", "rs", "Fix it."), "pf"),
+        in_prompt(receive("a", 20, ReceiveKind::Resume, Some("Fix it.")), "pf"),
+    ]);
+    assert!(order(&delegations).before(&m9, &a21));
+    // A later session resumed a, in another prompt, with a message the
+    // parser could not read: it contends for every resume receive of a.
     let mut unknown = delegation(
         "start-rl",
         "later.jsonl",
@@ -500,14 +537,8 @@ fn a_resume_with_an_unknown_message_contends_for_every_resume_of_its_agent() {
         },
     );
     unknown.session = SessionId::new("s2");
-    let mut delegations = sequential();
-    delegations.extend([
-        unknown,
-        receive("a", 20, ReceiveKind::Resume, Some("Fix it.")),
-        resume(MAIN, 10, "a", "rs", "Fix it."),
-    ]);
-    let order = order(&delegations);
-    assert!(!order.before(&edit("m9", MAIN, 9), &edit("a21", &of("a"), 21)));
+    delegations.push(unknown);
+    assert!(!order(&delegations).before(&m9, &a21));
 }
 
 #[test]

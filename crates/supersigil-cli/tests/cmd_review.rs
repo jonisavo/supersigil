@@ -810,6 +810,7 @@ fn review_keeps_agents_working_at_once_apart() {
     assert_eq!(chains.len(), 2);
     assert!(chains.iter().all(|c| c["class"] == "consistent"));
     let added = side_lines(big, "target");
+    assert_eq!(added.len(), 2, "{added:?}");
     assert!(
         added.iter().all(|(_, o)| o["kind"] == "ambiguous"),
         "{added:?}"
