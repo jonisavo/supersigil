@@ -126,6 +126,9 @@ pub enum Role {
     Agent,
     /// Instructions from a parent agent to a subagent.
     Delegation,
+    /// Output of another agent or of a background task, relayed into this
+    /// transcript by the harness. Not a person's message.
+    Report,
     /// A message containing only tool results.
     Tool,
     /// Application metadata carried in a user-role message.

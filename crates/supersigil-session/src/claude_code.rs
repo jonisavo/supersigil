@@ -140,6 +140,17 @@ struct RawRecord {
     message: Option<RawMessage>,
     #[serde(default)]
     tool_use_result: Option<Value>,
+    /// Where the harness says a `user` record came from, such as
+    /// `{"kind": "coordinator"}` for a message resuming an agent.
+    #[serde(default)]
+    origin: Option<Value>,
+}
+
+impl RawRecord {
+    /// The `origin.kind` the harness gave the record, if any.
+    fn origin_kind(&self) -> Option<&str> {
+        self.origin.as_ref()?.get("kind")?.as_str()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -582,15 +593,24 @@ fn is_block(block: &Value, ty: &str) -> bool {
 fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
     content.and_then(Value::as_array).into_iter().flatten()
 }
-/// Classifies the record as agent text, metadata, tool output, delegation, or human text.
+/// Classifies the record as agent text, metadata, tool output, delegation,
+/// a relayed report, or human text.
 ///
-/// Assistant records are agent text. User records are metadata when marked
-/// `isMeta`, or tool output when their non-empty content contains only tool
-/// results. Remaining user records are delegation in subagent transcripts
-/// and human text in main transcripts.
+/// Assistant records are agent text. The harness's stated origin decides
+/// first: a `coordinator` message (one resuming an agent) is delegation,
+/// and a `task-notification` or `peer` message (another agent's or a
+/// background task's output) is a report. Otherwise user records are
+/// metadata when marked `isMeta`, or tool output when their non-empty
+/// content contains only tool results. Remaining user records are
+/// delegation in subagent transcripts and human text in main transcripts.
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
+    }
+    match raw.origin_kind() {
+        Some("coordinator") => return Role::Delegation,
+        Some("task-notification" | "peer") => return Role::Report,
+        _ => {}
     }
     if raw.is_meta {
         return Role::Meta;
@@ -630,7 +650,7 @@ fn content_text(content: Option<&Value>) -> Option<String> {
 fn excerpt_for(role: Role, content: Option<&Value>) -> Material<String> {
     match role {
         Role::Human => Material::Retained(text_of(content)),
-        Role::Agent | Role::Delegation => {
+        Role::Agent | Role::Delegation | Role::Report => {
             Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS))
         }
         Role::Tool => Material::unavailable("tool result"),
