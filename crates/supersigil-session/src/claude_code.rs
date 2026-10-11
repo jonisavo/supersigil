@@ -9,22 +9,29 @@
 //! quoted-heredoc write confirmed by the call's harness report. Command
 //! text is read, never run.
 //!
+//! Calls that start another agent's work, the notifications that prove it
+//! stopped, and the records where an agent's own transcript received work
+//! become delegation observations; relayed reports are
+//! report turns.
+//!
 //! A new human or delegation turn marks pending calls as abandoned. Calls
 //! still awaiting results at the end of the input are left for the next parse.
 //! Unknown record types and malformed lines are counted without stopping the parse.
 
 mod changes;
 pub mod content;
+mod delegation;
 mod shell;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use supersigil_record::observations::{
     CaptureCounts, ChangeKind, ChangeReport, Command, CommandCategory, Edit, EditOperation,
-    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, Role, Turn,
+    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, ReceiveKind, Role,
+    StartKind, StopStatus, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -140,6 +147,49 @@ struct RawRecord {
     message: Option<RawMessage>,
     #[serde(default)]
     tool_use_result: Option<Value>,
+    /// The prompt the record belongs to: in an issuer, the prompt it was
+    /// working on; in an agent's transcript, the issuer's prompt that sent
+    /// the work.
+    #[serde(default)]
+    prompt_id: Option<String>,
+    /// Where the harness says a `user` record came from, such as
+    /// `{"kind": "coordinator"}` for a message resuming an agent. Any
+    /// present value, `null` included, is kept: only an absent origin is
+    /// `None`.
+    #[serde(default, deserialize_with = "present")]
+    origin: Option<Value>,
+    /// An `attachment` record's attachment.
+    #[serde(default)]
+    attachment: Option<Value>,
+}
+
+impl RawRecord {
+    /// The `origin.kind` the harness gave the record, if any.
+    fn origin_kind(&self) -> Option<&str> {
+        self.origin.as_ref()?.get("kind")?.as_str()
+    }
+
+    /// The record's prompt, if it names a non-empty one.
+    fn prompt(&self) -> Option<&str> {
+        self.prompt_id
+            .as_deref()
+            .filter(|prompt| !prompt.is_empty())
+    }
+
+    /// Whether the record names a session other than `session`. A record
+    /// without a `sessionId`, or with an empty one, names none.
+    fn of_another(&self, session: &SessionId) -> bool {
+        self.session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty() && id != session.as_str())
+    }
+}
+
+/// Reads a field that is present, whatever its value: `null` becomes
+/// `Some(Value::Null)`, so with `#[serde(default)]` only an absent field
+/// is `None`.
+fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,6 +220,10 @@ struct PendingTool {
     /// Subagent ID from the record that issued the tool call, if available.
     agent_id: Option<String>,
     record_index: usize,
+    /// The line of the earliest call still awaiting its result when this
+    /// call was issued, or this call's own line if that is earlier: every
+    /// call issued before it had its result before this call ran.
+    send_point: usize,
 }
 
 /// One skipped record or tool call to add to [`ParseOutcome`]'s counts.
@@ -245,6 +299,21 @@ struct Walk {
     pending: Vec<PendingTool>,
     /// Pairs of line indexes for completed tool calls and their results.
     resolved: Vec<(usize, usize)>,
+    /// Tool-use IDs of the calls that could start an agent's work.
+    starting_calls: BTreeSet<String>,
+    /// Calls whose stop was decided by their earliest task-notification.
+    stopped: BTreeSet<String>,
+    /// The agent ID this session's own records name, once one does.
+    agent: Option<String>,
+    /// Whether this session's records named a second agent ID. The
+    /// transcript then receives nothing more.
+    contradicted: bool,
+    /// The line of this agent transcript's dispatch prompt, once reached.
+    /// Calls before it are history a worker fork inherited, not its own.
+    dispatch_at: Option<usize>,
+    /// Whether this is a worker fork's transcript: its first line is the
+    /// harness's `fork-context-ref` record.
+    forked: bool,
 }
 
 impl Walk {
@@ -299,6 +368,31 @@ impl Walk {
     /// pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
+        if raw.kind == "fork-context-ref" && index == 0 {
+            self.forked = true;
+        }
+        // Whether the record is of another session; `None` until a session
+        // is known.
+        let foreign = self
+            .outcome
+            .session
+            .as_ref()
+            .map(|session| raw.of_another(session));
+        if foreign == Some(false)
+            && let Some(text) = notification_carried(&raw)
+        {
+            self.notified(index, &text);
+        }
+        // In an agent transcript, a record of its own session, whatever its
+        // type, is read for the agent it names; one of another session ends
+        // the agent's work.
+        if self.outcome.sidechain {
+            match foreign {
+                Some(false) => self.identify(index, &raw),
+                Some(true) => self.opaque(index),
+                None => {}
+            }
+        }
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
@@ -307,6 +401,11 @@ impl Walk {
             }
             other => {
                 self.count(index, Count::Unknown(other.to_owned()));
+                // A record of a type the parser does not know could hide an
+                // input; one of another session already ended the work.
+                if foreign != Some(true) {
+                    self.opaque(index);
+                }
                 return;
             }
         }
@@ -315,11 +414,7 @@ impl Walk {
             self.count(index, Count::Unknown("no-session".to_owned()));
             return;
         };
-        if raw
-            .session_id
-            .as_deref()
-            .is_some_and(|id| !id.is_empty() && id != session_id.as_str())
-        {
+        if foreign == Some(true) {
             self.count(index, Count::SessionMismatch);
             let content = raw.message.as_ref().map(|m| &m.content);
             if raw.kind == "user"
@@ -328,6 +423,9 @@ impl Walk {
                 self.abandon_pending(&session_id);
             }
             return;
+        }
+        if self.outcome.sidechain {
+            self.receive(index, &raw);
         }
         let Some(uuid) = &raw.uuid else {
             self.count(index, Count::Unknown(format!("{}-without-uuid", raw.kind)));
@@ -374,6 +472,167 @@ impl Walk {
             if matches!(role, Role::Human | Role::Delegation) {
                 self.abandon_pending(&session_id);
             }
+        }
+    }
+
+    /// Records where this agent transcript received work, each with the
+    /// issuer's prompt that sent it. The first typed `user` record is the
+    /// dispatch; each `coordinator` record is a resume, with the hash of the
+    /// message it frames. Any other typed record with an origin (whatever
+    /// its kind, readable or not), or not marked as metadata, is an input
+    /// that could have woken the agent, whether or not the agent replied
+    /// since: a turn can fail before its first reply. The one exception is
+    /// a worker fork's inherited-context note on the line right after its
+    /// prompt, which continues the prompt. A record without a `uuid` counts
+    /// too: a missed input would let a stop cover work done after it.
+    ///
+    /// The agent is the one this session's records name ([`Walk::identify`]);
+    /// nothing is recorded before an agent is named.
+    fn receive(&mut self, index: usize, raw: &RawRecord) {
+        let content = raw.message.as_ref().map(|m| &m.content);
+        if raw.kind == "assistant" || is_tool_output(content) {
+            return;
+        }
+        let (kind, message) = if self.dispatch_at.is_none() {
+            self.dispatch_at = Some(index);
+            (ReceiveKind::Dispatch, None)
+        } else if raw.origin_kind() == Some("coordinator") {
+            let text = text_of(content);
+            let message = delegation::resume_message(&text).map(|m| ContentId::of(m.as_bytes()));
+            (ReceiveKind::Resume, message)
+        } else if raw.origin.is_none()
+            && self.forked
+            && self.dispatch_at.is_some_and(|at| at + 1 == index)
+            && delegation::fork_note(&text_of(content))
+        {
+            return;
+        } else if raw.origin.is_some() || !raw.is_meta {
+            (ReceiveKind::Input, None)
+        } else {
+            return;
+        };
+        self.received(index, kind, message, raw.prompt());
+    }
+
+    /// Takes the agent ID an own-session record of any type names: the
+    /// first names the agent; a later different one ends the work as an
+    /// input and stops all later receives.
+    fn identify(&mut self, index: usize, raw: &RawRecord) {
+        if let Some(named) = raw.agent_id.as_deref().filter(|a| !a.is_empty()) {
+            match &self.agent {
+                None => self.agent = Some(named.to_owned()),
+                Some(agent) if agent == named => {}
+                Some(_) => {
+                    self.opaque(index);
+                    self.contradicted = true;
+                }
+            }
+        }
+    }
+
+    /// Ends the agent's work at a record the parser cannot read or place.
+    /// Once this agent transcript reached its dispatch prompt, a malformed
+    /// line, a record of an unknown type or of another session, or one
+    /// naming another agent could hide an input that woke the agent.
+    fn opaque(&mut self, index: usize) {
+        if self.outcome.sidechain && self.dispatch_at.is_some() {
+            self.received(index, ReceiveKind::Input, None, None);
+        }
+    }
+
+    /// Records a receive of `kind` at `index`, unless no agent is named yet
+    /// or the transcript named two.
+    fn received(
+        &mut self,
+        index: usize,
+        kind: ReceiveKind,
+        message: Option<ContentId>,
+        prompt: Option<&str>,
+    ) {
+        if self.contradicted {
+            return;
+        }
+        if let (Some(session), Some(agent)) = (&self.outcome.session, &self.agent) {
+            let receive = delegation::receive(session, agent, kind, message, prompt, index);
+            self.observe(index, receive);
+        }
+    }
+
+    /// Records the stop a task-notification proves. The first notification
+    /// naming one of this transcript's starting calls decides that call's
+    /// stop; only a completed or failed one records it. Notifications naming
+    /// any other call, such as a background shell task's, record nothing.
+    fn notified(&mut self, index: usize, text: &str) {
+        let Some(notice) = delegation::notification(text) else {
+            return;
+        };
+        let Some(call) = notice.call else {
+            return;
+        };
+        if !self.starting_calls.contains(call) || !self.stopped.insert(call.to_owned()) {
+            return;
+        }
+        if let Some(status) = delegation::stop_status(notice.status)
+            && let Some(session) = &self.outcome.session
+        {
+            let stop = delegation::stop(session, call, notice.task, status, index);
+            self.observe(index, stop);
+        }
+    }
+
+    /// Records the start a completed `Agent`, `Task`, or `SendMessage` call
+    /// made, placed at the call's send point. A dispatch must name its agent
+    /// or be a worker fork, which its stop names later; a resume must name
+    /// the resumed agent. A failed call, or a message queued for a running
+    /// agent, starts nothing. A synchronous dispatch's result is its report,
+    /// so it also proves the stop.
+    fn delegated(
+        &mut self,
+        index: usize,
+        tool: &PendingTool,
+        resolution: &Resolution,
+        session: &SessionId,
+    ) {
+        if resolution.is_error {
+            return;
+        }
+        let structured = resolution.structured;
+        let input = Some(&tool.input);
+        let (agent, kind, message) = if tool.name == "SendMessage" {
+            let Some(agent) = string_field(structured, "resumedAgentId") else {
+                return;
+            };
+            let message = string_field(input, "message").map(|m| ContentId::of(m.as_bytes()));
+            (Some(agent.to_owned()), StartKind::Resume, message)
+        } else {
+            let agent = delegation::dispatched_agent(structured);
+            if agent.is_none() && string_field(input, "subagent_type") != Some("fork") {
+                return;
+            }
+            (agent, StartKind::Dispatch, None)
+        };
+        let report = agent.clone().filter(|_| {
+            kind == StartKind::Dispatch && string_field(structured, "status") == Some("completed")
+        });
+        self.observe(
+            index,
+            delegation::start(
+                session,
+                &tool.id,
+                agent,
+                kind,
+                message,
+                resolution.prompt,
+                tool.send_point,
+            ),
+        );
+        if let Some(agent) = report
+            && self.stopped.insert(tool.id.clone())
+        {
+            self.observe(
+                index,
+                delegation::stop(session, &tool.id, &agent, StopStatus::Completed, index),
+            );
         }
     }
 
@@ -427,6 +686,14 @@ impl Walk {
             let name = string_field(Some(block), "name")
                 .unwrap_or_default()
                 .to_owned();
+            // Pending calls stay in transcript order: the first is the
+            // earliest still in flight.
+            let in_flight = self.pending.first().map(|p| p.record_index);
+            if delegation::STARTING_TOOLS.contains(&name.as_str())
+                && (self.dispatch_at.is_some() || !self.outcome.sidechain)
+            {
+                self.starting_calls.insert(id.clone());
+            }
             self.pending.push(PendingTool {
                 id,
                 name,
@@ -436,6 +703,7 @@ impl Walk {
                 cwd: cwd.clone(),
                 agent_id: raw.agent_id.clone(),
                 record_index: index,
+                send_point: in_flight.map_or(index, |line| line.min(index)),
             });
         }
     }
@@ -476,7 +744,11 @@ impl Walk {
                 block: result,
                 is_error,
                 ended: ended.as_ref(),
+                prompt: raw.prompt(),
             };
+            if self.starting_calls.contains(&tool.id) {
+                self.delegated(index, &tool, &resolution, session);
+            }
             self.built(index, build_resolved(&tool, session, &resolution));
         }
     }
@@ -500,6 +772,12 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         effects: Vec::new(),
         pending: Vec::new(),
         resolved: Vec::new(),
+        starting_calls: BTreeSet::new(),
+        stopped: BTreeSet::new(),
+        agent: None,
+        contradicted: false,
+        dispatch_at: None,
+        forked: false,
     };
     // One complete line at a time: parse it, walk it, drop it. A line that
     // is not a JSON object is counted; a trailing line without a newline is
@@ -515,9 +793,11 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         let index = starts.len();
         starts.push(cursor);
         cursor += len + 1;
-        match serde_json::from_slice::<RawRecord>(line) {
-            Ok(raw) => walk.record(index, raw),
-            Err(_) => walk.count(index, Count::Malformed),
+        if let Ok(raw) = serde_json::from_slice::<RawRecord>(line) {
+            walk.record(index, raw);
+        } else {
+            walk.count(index, Count::Malformed);
+            walk.opaque(index);
         }
     }
     let complete_end = cursor;
@@ -528,6 +808,7 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         pending,
         resolved,
         learned_at,
+        ..
     } = walk;
     let from = usize::try_from(from_ordinal)
         .unwrap_or(usize::MAX)
@@ -573,6 +854,32 @@ fn consumption_cutoff(lines: usize, pending: &[PendingTool], resolved: &[(usize,
     cutoff
 }
 
+/// The text a task-notification `raw` may carry, to be read only if it
+/// begins with the notification's envelope ([`delegation::notification`]):
+/// the prompt of a `queued_command` attachment in `task-notification` mode,
+/// or a `user` record the harness marks as a task-notification. Only these
+/// carry the harness's own mark. A `queue-operation` enqueue comes earlier
+/// but is no proof: a message typed while the issuer is busy is enqueued
+/// the same way, as are hand-backs.
+fn notification_carried(raw: &RawRecord) -> Option<String> {
+    match raw.kind.as_str() {
+        "attachment" => {
+            let attachment = Some(raw.attachment.as_ref()?);
+            string_field(attachment, "prompt")
+                .filter(|_| {
+                    string_field(attachment, "type") == Some("queued_command")
+                        && string_field(attachment, "commandMode") == Some("task-notification")
+                })
+                .map(str::to_owned)
+        }
+        "user" if raw.origin_kind() == Some("task-notification") => {
+            let text = content_text(raw.message.as_ref().map(|m| &m.content))?;
+            Some(delegation::delivered_envelope(&text).to_owned())
+        }
+        _ => None,
+    }
+}
+
 /// Checks whether `block` has the content type `ty`.
 fn is_block(block: &Value, ty: &str) -> bool {
     block.get("type").and_then(Value::as_str) == Some(ty)
@@ -582,21 +889,35 @@ fn is_block(block: &Value, ty: &str) -> bool {
 fn blocks(content: Option<&Value>) -> impl Iterator<Item = &Value> {
     content.and_then(Value::as_array).into_iter().flatten()
 }
-/// Classifies the record as agent text, metadata, tool output, delegation, or human text.
+/// Whether `content` is non-empty and holds only tool results.
+fn is_tool_output(content: Option<&Value>) -> bool {
+    let mut items = blocks(content).peekable();
+    items.peek().is_some() && items.all(|b| is_block(b, "tool_result"))
+}
+
+/// Classifies the record as agent text, metadata, tool output, delegation,
+/// a relayed report, or human text.
 ///
-/// Assistant records are agent text. User records are metadata when marked
-/// `isMeta`, or tool output when their non-empty content contains only tool
-/// results. Remaining user records are delegation in subagent transcripts
-/// and human text in main transcripts.
+/// Assistant records are agent text. The harness's stated origin decides
+/// first: a `coordinator` message (one resuming an agent) is delegation,
+/// and a `task-notification` or `peer` message (another agent's or a
+/// background task's output) is a report. Otherwise user records are
+/// metadata when marked `isMeta`, or tool output when their non-empty
+/// content contains only tool results. Remaining user records are
+/// delegation in subagent transcripts and human text in main transcripts.
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
     }
+    match raw.origin_kind() {
+        Some("coordinator") => return Role::Delegation,
+        Some("task-notification" | "peer") => return Role::Report,
+        _ => {}
+    }
     if raw.is_meta {
         return Role::Meta;
     }
-    let mut items = blocks(content).peekable();
-    if items.peek().is_some() && items.all(|b| is_block(b, "tool_result")) {
+    if is_tool_output(content) {
         return Role::Tool;
     }
     if raw.is_sidechain {
@@ -630,7 +951,7 @@ fn content_text(content: Option<&Value>) -> Option<String> {
 fn excerpt_for(role: Role, content: Option<&Value>) -> Material<String> {
     match role {
         Role::Human => Material::Retained(text_of(content)),
-        Role::Agent | Role::Delegation => {
+        Role::Agent | Role::Delegation | Role::Report => {
             Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS))
         }
         Role::Tool => Material::unavailable("tool result"),
@@ -891,6 +1212,8 @@ struct Resolution<'a> {
     is_error: bool,
     /// Timestamp of the record carrying the result, if available.
     ended: Option<&'a Timestamp>,
+    /// The prompt of the record carrying the result, if named.
+    prompt: Option<&'a str>,
 }
 
 /// Builds an edit observation from a supported editing call and its result.

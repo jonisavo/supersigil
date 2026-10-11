@@ -343,12 +343,14 @@ fn drop_outside(outcome: &mut ParseOutcome, associations: &[Association]) {
     outcome.counts.outside_checkout += (before - outcome.observations.len()) as u64;
 }
 
-/// Sets the transcript path on a turn, edit, or command observation.
+/// Sets the transcript path on a turn, edit, command, or delegation
+/// observation.
 fn stamp_transcript(observation: &mut Observation, transcript: &str) {
     let field = match observation {
         Observation::Turn(turn) => &mut turn.transcript,
         Observation::Edit(edit) => &mut edit.transcript,
         Observation::Command(command) => &mut command.transcript,
+        Observation::Delegation(delegation) => &mut delegation.transcript,
         _ => return,
     };
     *field = Some(transcript.to_owned());

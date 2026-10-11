@@ -27,6 +27,8 @@ pub enum Observation {
     Command(Command),
     /// Transcript records or tool calls that the parser could not capture.
     CaptureLimitation(CaptureLimitation),
+    /// A step in handing work to another agent of the session.
+    Delegation(Delegation),
 }
 
 impl Observation {
@@ -40,6 +42,7 @@ impl Observation {
             Self::Edit(e) => &e.session,
             Self::Command(c) => &c.session,
             Self::CaptureLimitation(l) => &l.session,
+            Self::Delegation(d) => &d.session,
         }
     }
 }
@@ -126,6 +129,9 @@ pub enum Role {
     Agent,
     /// Instructions from a parent agent to a subagent.
     Delegation,
+    /// Output of another agent or of a background task, relayed into this
+    /// transcript by the harness. Not a person's message.
+    Report,
     /// A message containing only tool results.
     Tool,
     /// Application metadata carried in a user-role message.
@@ -488,6 +494,113 @@ pub struct Command {
     /// Compare `source_ordinal` values only within the same transcript.
     #[serde(default)]
     pub transcript: Option<String>,
+}
+
+/// A step in handing work to another agent of the session, placed in the
+/// transcript that recorded it.
+///
+/// The transcript that started an agent's work (its issuer) records the
+/// start and the proof that the agent stopped; the agent's own transcript
+/// records where it received work. Together they order one session's
+/// transcripts without timestamps: what an agent did before a stop came
+/// before what its issuer did after the stop's position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delegation {
+    /// Event ID derived from the session ID and the step (see
+    /// [`DelegationStep`]).
+    pub id: EventId,
+    /// Session identifier.
+    pub session: SessionId,
+    /// What happened.
+    pub step: DelegationStep,
+    /// Zero-based line position in the transcript the step is placed at.
+    pub source_ordinal: u64,
+    /// Canonical transcript path, matching `path` in [`SessionStart::source_ids`].
+    /// Compare `source_ordinal` values only within the same transcript.
+    #[serde(default)]
+    pub transcript: Option<String>,
+}
+
+/// What a [`Delegation`] records.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DelegationStep {
+    /// The issuer started an agent's work: every edit of the issuer at a
+    /// lower position had its result before the agent was started. Its
+    /// event ID is derived from `agent-start` and the call.
+    Start {
+        /// The agent, `None` when the call's result did not name it (a
+        /// worker fork, named later by its stop).
+        agent: Option<String>,
+        /// The tool-use ID of the call that started the work.
+        call: String,
+        /// Whether the call dispatched a new agent or resumed one.
+        kind: StartKind,
+        /// For a resume, the hash of the message that resumed the agent.
+        message: Option<ContentId>,
+        /// The issuer's prompt (Claude Code's `promptId` on the call's
+        /// result record). The agent's transcript records the same prompt
+        /// where it receives the work.
+        prompt: Option<String>,
+    },
+    /// The issuer's earliest record proving that the agent stopped the work
+    /// `call` started. Its event ID is derived from `agent-stop` and the
+    /// call.
+    Stop {
+        /// The agent that stopped.
+        agent: String,
+        /// The tool-use ID of the start whose work ended.
+        call: String,
+        /// How the work ended.
+        status: StopStatus,
+    },
+    /// A record of the agent's own transcript where work could begin. Its
+    /// event ID is derived from `agent-receive` and `<agent>:<position>`.
+    Receive {
+        /// The agent whose transcript this is.
+        agent: String,
+        /// What kind of record received the work.
+        kind: ReceiveKind,
+        /// For a resume, the hash of the message the harness delivered;
+        /// `None` when its framing was not recognized.
+        message: Option<ContentId>,
+        /// The issuer's prompt that sent the work (Claude Code's `promptId`
+        /// on the receiving record).
+        prompt: Option<String>,
+    },
+}
+
+/// How an issuer started an agent's work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartKind {
+    /// A new agent.
+    Dispatch,
+    /// More work for an agent that had stopped.
+    Resume,
+}
+
+/// How an agent's work ended, as its issuer was told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopStatus {
+    /// The agent finished.
+    Completed,
+    /// The agent failed.
+    Failed,
+}
+
+/// What kind of record of an agent's transcript received work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiveKind {
+    /// The dispatch prompt, where the agent's own work begins.
+    Dispatch,
+    /// A message resuming the agent.
+    Resume,
+    /// Any other input that could wake the agent after it stopped. It
+    /// starts no work an issuer recorded; it only ends the work before it.
+    Input,
 }
 
 /// Counts records and tool calls that could not be captured in a transcript range.

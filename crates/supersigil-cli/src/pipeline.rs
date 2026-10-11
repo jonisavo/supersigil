@@ -9,6 +9,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use supersigil_anchor::walk::{AcceptedEdit, dedup};
 use supersigil_anchor::{
@@ -1012,6 +1013,7 @@ pub fn attribute_path(
         edits,
         conflicts: conflicts.to_vec(),
         budget_bytes: DEFAULT_BUDGET_BYTES,
+        order: Arc::clone(g.evidence.order()),
     }))
 }
 

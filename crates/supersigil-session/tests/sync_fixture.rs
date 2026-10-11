@@ -1164,3 +1164,36 @@ fn a_session_moving_into_a_nested_worktree_keeps_its_edits() {
         .unwrap();
     assert_eq!(edit.checkout, Path::new(worktree));
 }
+
+#[test]
+fn delegation_observations_carry_their_transcript() {
+    let call = serde_json::json!({
+        "type": "assistant", "uuid": "a1", "parentUuid": null, "sessionId": SESSION,
+        "cwd": "/work/repo", "timestamp": "2026-10-02T10:00:00.000Z", "isSidechain": false,
+        "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_d",
+            "name": "Agent", "input": {"prompt": "Do it.", "subagent_type": "general-purpose"}}]}
+    });
+    let result = serde_json::json!({
+        "type": "user", "uuid": "r1", "parentUuid": "a1", "sessionId": SESSION,
+        "cwd": "/work/repo", "timestamp": "2026-10-02T10:00:01.000Z", "isSidechain": false,
+        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_d",
+            "content": "launched"}]},
+        "toolUseResult": {"status": "async_launched", "agentId": "ag1"}
+    });
+    let s = setup(format!("{call}\n{result}\n").as_bytes());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let observations = s
+        .store
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SESSION))
+        .unwrap();
+    let transcripts: Vec<Option<String>> = observations
+        .iter()
+        .filter_map(|o| match o {
+            Observation::Delegation(d) => Some(d.transcript.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(transcripts, vec![Some(cursor_key(&s.transcript))]);
+}

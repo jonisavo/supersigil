@@ -8,13 +8,15 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use common::{
-    candidate, create, finishes_within, ids, in_worktree, replace, replace_all, request,
-    unknown_op, with_hashes, with_patch,
+    append, at_once, candidate, create, dispatched, finishes_within, ids, in_turn, in_worktree,
+    ordered, replace, replace_all, request, unknown_op, with_hashes, with_patch, written_by,
 };
-use supersigil_anchor::walk::{Walk, dedup, walk};
-use supersigil_anchor::{CandidateEdit, ChainClass, ChainEnd, PathStatus, StopReason, TargetKind};
+use supersigil_anchor::walk::{MAX_MERGE_COMPARISONS, Walk, dedup, walk};
+use supersigil_anchor::{
+    CandidateEdit, ChainClass, ChainEnd, Order, PathStatus, Request, StopReason, TargetKind,
+};
 use supersigil_record::observations::{EditOperation, Hunk, Material};
-use supersigil_record::{EventId, RecordId};
+use supersigil_record::{EventId, RecordId, SessionId};
 
 /// (edits oldest first, class, ended at the base) of every chain.
 fn summary(walk: &Walk) -> Vec<(Vec<EventId>, ChainClass, bool)> {
@@ -835,4 +837,249 @@ fn every_alignment_choice_is_charged_to_the_budget() {
     req.budget_bytes = 1 << 20;
     let out = finishes_within(Duration::from_secs(60), move || walk(&req));
     assert_eq!(out.status, PathStatus::SearchIncomplete);
+}
+
+#[test]
+fn hashless_edits_of_agents_working_in_turn_chain_as_one_sequence() {
+    // Agent a turned x into y, then agent b turned y into z. No hash joins
+    // their transcripts; the recorded order does.
+    let edits = || {
+        vec![
+            candidate(replace("a1", "a", 3, "x\n", "y\n")),
+            candidate(replace("b1", "b", 2, "y\n", "z\n")),
+        ]
+    };
+    let alone = wt("x\n", "z\n", edits());
+    assert_eq!(
+        summary(&alone),
+        vec![(ids(&["b1"]), ChainClass::Consistent, false)]
+    );
+    let request = request(Some("x\n"), Some("z\n"), TargetKind::WorkingTree, edits());
+    let merged = walk(&ordered(request, in_turn(&["a", "b"])));
+    assert_eq!(
+        summary(&merged),
+        vec![(ids(&["a1", "b1"]), ChainClass::ExactFromBase, true)]
+    );
+}
+
+#[test]
+fn agents_working_at_once_keep_their_own_groups() {
+    let edits = vec![
+        candidate(replace("a1", "a", 3, "x\n", "y\n")),
+        candidate(replace("b1", "b", 2, "y\n", "z\n")),
+    ];
+    let request = request(Some("x\n"), Some("z\n"), TargetKind::WorkingTree, edits);
+    let out = walk(&ordered(request, at_once(&["a", "b"])));
+    assert_eq!(
+        summary(&out),
+        vec![(ids(&["b1"]), ChainClass::Consistent, false)]
+    );
+}
+
+#[test]
+fn a_merged_group_offers_only_its_last_bucket_as_a_working_tree_head() {
+    // The target is a1's result; b1 came later and was undone by hand.
+    let edits = || {
+        vec![
+            candidate(replace("a1", "a", 3, "x\n", "y\n")),
+            candidate(replace("b1", "b", 2, "y\n", "z\n")),
+        ]
+    };
+    let working = walk(&ordered(
+        request(Some("x\n"), Some("y\n"), TargetKind::WorkingTree, edits()),
+        in_turn(&["a", "b"]),
+    ));
+    assert!(working.chains.is_empty());
+    assert_eq!(
+        working.status,
+        PathStatus::NotComposed {
+            reasons: vec![StopReason::NotLocatable {
+                edit: EventId::new("b1")
+            }]
+        }
+    );
+    let commit = walk(&ordered(
+        request(Some("x\n"), Some("y\n"), TargetKind::Commit, edits()),
+        in_turn(&["a", "b"]),
+    ));
+    assert_eq!(
+        summary(&commit),
+        vec![(ids(&["a1"]), ChainClass::ExactFromBase, true)]
+    );
+}
+
+#[test]
+fn equal_ordinal_buckets_and_command_order_survive_a_merge() {
+    // a's two parallel edits share an ordinal; then b's command appends
+    // twice.
+    let edits = vec![
+        candidate(replace("a1", "a", 3, "x\n", "y\n")),
+        candidate(replace("a2", "a", 3, "p\n", "q\n")),
+        candidate(written_by(append("b1", "b", 2, "1\n"), "cmd", 0)),
+        candidate(written_by(append("b2", "b", 2, "2\n"), "cmd", 1)),
+    ];
+    let request = request(
+        Some("x\np\n"),
+        Some("y\nq\n1\n2\n"),
+        TargetKind::WorkingTree,
+        edits,
+    );
+    let out = walk(&ordered(request, in_turn(&["a", "b"])));
+    let mut chains = summary(&out);
+    chains.sort();
+    assert_eq!(
+        chains,
+        vec![
+            (
+                ids(&["a1", "a2", "b1", "b2"]),
+                ChainClass::ExactFromBase,
+                true
+            ),
+            (
+                ids(&["a2", "a1", "b1", "b2"]),
+                ChainClass::ExactFromBase,
+                true
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_issuers_own_edit_between_two_agents_joins_their_sequence() {
+    // Agent a turns x into y; once main learns a stopped (at 5) it turns y
+    // into w (at 7) and then dispatches b (at 11), which turns w into z.
+    let edits = vec![
+        candidate(replace("a1", "a", 3, "x\n", "y\n")),
+        candidate(replace("m1", "main", 7, "y\n", "w\n")),
+        candidate(replace("b1", "b", 2, "w\n", "z\n")),
+    ];
+    let request = request(Some("x\n"), Some("z\n"), TargetKind::WorkingTree, edits);
+    let out = walk(&ordered(request, in_turn(&["a", "b"])));
+    assert_eq!(
+        summary(&out),
+        vec![(ids(&["a1", "m1", "b1"]), ChainClass::ExactFromBase, true)]
+    );
+}
+
+#[test]
+fn many_agents_in_turn_are_ordered_and_walked_promptly() {
+    // 300 agents in turn, each changing the one line its predecessor wrote.
+    let out = finishes_within(Duration::from_secs(10), || {
+        let names: Vec<String> = (0..300).map(|k| format!("t{k:03}")).collect();
+        let edits = names
+            .iter()
+            .enumerate()
+            .map(|(k, name)| {
+                candidate(replace(
+                    name,
+                    name,
+                    2,
+                    &format!("v{k}\n"),
+                    &format!("v{}\n", k + 1),
+                ))
+            })
+            .collect();
+        let request = request(Some("v0\n"), Some("v300\n"), TargetKind::WorkingTree, edits);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        walk(&ordered(request, in_turn(&names)))
+    });
+    assert_eq!(out.chains.len(), 1);
+    assert_eq!(out.chains[0].chain.edits.len(), 300);
+    assert_eq!(out.chains[0].chain.class, ChainClass::ExactFromBase);
+}
+
+#[test]
+fn a_transcript_holding_edits_of_two_sessions_is_never_merged() {
+    // Transcript a holds edits of sessions s1 and s2 (a path reused after a
+    // rewrite); s1's order puts a before b. Merging would place s2's edit
+    // x1 before b1, which nothing orders.
+    let mixed = || {
+        let mut other = replace("x1", "a", 3, "p\n", "q\n");
+        other.session = SessionId::new("s2");
+        let edits = vec![
+            candidate(replace("a1", "a", 3, "x\n", "y\n")),
+            candidate(other),
+            candidate(replace("b1", "b", 2, "y\n", "z\n")),
+        ];
+        request(
+            Some("x\np\n"),
+            Some("z\nq\n"),
+            TargetKind::WorkingTree,
+            edits,
+        )
+    };
+    let out = walk(&ordered(mixed(), in_turn(&["a", "b"])));
+    let (x1, b1) = (EventId::new("x1"), EventId::new("b1"));
+    assert!(
+        out.chains
+            .iter()
+            .all(|w| !(w.chain.edits.contains(&x1) && w.chain.edits.contains(&b1))),
+        "{:?}",
+        summary(&out)
+    );
+    // Each transcript keeps its own chain, as with no order at all.
+    assert_eq!(
+        summary(&out),
+        vec![
+            (ids(&["x1"]), ChainClass::Consistent, false),
+            (ids(&["b1"]), ChainClass::Consistent, false),
+        ]
+    );
+    assert_eq!(summary(&out), summary(&walk(&mixed())));
+}
+
+/// Main makes `edits` edits, then dispatches the first of `agents` agents,
+/// each of which makes one edit and then dispatches the next: the order
+/// settles every pair. Only the first agent's edit turns the base into the
+/// target; with `order`, the request carries the recorded order.
+fn nested(edits: u64, agents: usize, order: bool) -> Request {
+    let names: Vec<String> = (0..agents).map(|k| format!("t{k:03}")).collect();
+    let mut candidates: Vec<CandidateEdit> = (0..edits)
+        .map(|o| candidate(replace(&format!("m{o}"), "main", o, "a\n", "b\n")))
+        .collect();
+    let mut steps = Vec::new();
+    let mut issuer = ("main", edits);
+    for (k, name) in names.iter().enumerate() {
+        let (from, at) = issuer;
+        steps.extend(dispatched(from, at, name));
+        let (old, new) = if k == 0 {
+            ("x\n", "y\n")
+        } else {
+            ("a\n", "b\n")
+        };
+        candidates.push(candidate(replace(&format!("e{k}"), name, 1, old, new)));
+        issuer = (name, 2);
+    }
+    let req = request(
+        Some("x\n"),
+        Some("y\n"),
+        TargetKind::WorkingTree,
+        candidates,
+    );
+    if order {
+        ordered(req, Order::new(&steps))
+    } else {
+        req
+    }
+}
+
+#[test]
+fn a_merge_too_large_to_make_keeps_its_transcripts_apart() {
+    // Apart, the first agent's edit is a head of its own group and reaches
+    // the base.
+    let apart = vec![(ids(&["e0"]), ChainClass::ExactFromBase, true)];
+    assert_eq!(summary(&walk(&nested(3, 3, false))), apart);
+    // Merged, the group's last bucket, the last agent's edit, is its only
+    // head, and it is not in the target.
+    let small = walk(&nested(3, 3, true));
+    assert!(small.chains.is_empty(), "{:?}", summary(&small));
+    // One bucket over the merge's limit, the transcripts stay apart, as
+    // when the order does not settle a pair.
+    let agents = 256;
+    let buckets = MAX_MERGE_COMPARISONS / (agents + 1) + 1;
+    let edits = u64::try_from(buckets - agents).unwrap();
+    let large = finishes_within(Duration::from_secs(60), move || {
+        walk(&nested(edits, agents, true))
+    });
+    assert_eq!(summary(&large), apart);
 }

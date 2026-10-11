@@ -2,10 +2,12 @@
 //! and the recorded edits that may connect them.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use supersigil_record::observations::{Content, Edit, FileState};
 use supersigil_record::{ContentId, RecordId};
 
+use crate::order::Order;
 use crate::result::Conflict;
 use crate::walk::AcceptedEdit;
 
@@ -111,4 +113,8 @@ pub struct Request {
     pub conflicts: Vec<Conflict>,
     /// Bytes the search may process before it is marked incomplete.
     pub budget_bytes: u64,
+    /// The recorded order between each session's transcripts. A session's
+    /// edits of this path from several transcripts are walked as one
+    /// sequence when it orders every pair of them.
+    pub order: Arc<Order>,
 }
