@@ -64,17 +64,22 @@ whose result names the agent, or a resume whose result names the resumed
 agent. An edit still in flight when a call starts an agent is not before
 it. The same transcript records the earliest notice that the agent
 stopped, naming the start. Only records the harness marks as notices
-count, each beginning with the notice, since reports can quote any text;
-an earlier queue entry of the same text proves nothing, since typed
-messages are queued the same way. Only completed and failed notices count: an
-interrupted agent may have had a tool call in flight. A hand-back message
-is no such notice, since the agent sends it before it stops. The agent's
-own transcript records where it received work: its dispatch prompt, each
-resume message, and any later input that could have woken it, including a
-record the parser cannot read or place. Its agent is the one its own
-session's records name; a record naming another ends its work. Relayed
-reports are reports, not a person's messages; resume messages are
-delegation. An edit's prompt skips relayed reports.
+count, each beginning with the notice, since reports can quote any text.
+In an agent's transcript, the notice must follow the harness's exact
+warning and framing text. Only the notice's header is read: it ends at the
+first `<summary>`, `<note>`, or `<result>`, which can quote any text, or
+at `</task-notification>`. A header naming its task, call, or status more
+than once proves nothing. An earlier queue entry of the same text proves
+nothing, since typed messages are queued the same way. Only completed and
+failed notices count: an interrupted agent may have had a tool call in
+flight. A hand-back message is no such notice, since the agent sends it
+before it stops. The agent's own transcript records where it received
+work: its dispatch prompt, each resume message, and any later input that
+could have woken it, including a record the parser cannot read or place.
+Its agent is the one its own session's records name. A record naming
+another, of any type, ends its work, and the transcript records no
+receive after it. Relayed reports are reports, not a person's messages;
+resume messages are delegation. An edit's prompt skips relayed reports.
 
 Observations are append-only. Derivations are rebuildable findings identified
 by their inputs and algorithm version. The record format reserves separate

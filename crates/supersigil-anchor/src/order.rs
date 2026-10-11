@@ -99,9 +99,11 @@ impl Order {
 
     /// Whether the record shows that `a` happened before `b`.
     ///
-    /// Edits of one transcript are ordered by their ordinals, edits of
-    /// different transcripts of one session by the recorded delegation.
-    /// Edits of different sessions, or without a transcript, never are.
+    /// Edits of one transcript of one session are ordered by their
+    /// ordinals, whether or not the session got an order: this restates the
+    /// walk's rule for one transcript. Edits of different transcripts of one
+    /// session are ordered by the recorded delegation. Edits of different
+    /// sessions, or without a transcript, never are.
     #[must_use]
     pub fn before(&self, a: &Edit, b: &Edit) -> bool {
         if a.session != b.session {
