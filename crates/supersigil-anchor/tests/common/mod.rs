@@ -5,11 +5,14 @@
 )]
 
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
-use supersigil_anchor::{CandidateEdit, DEFAULT_BUDGET_BYTES, Request, State, TargetKind};
-use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Hunk, Material};
+use supersigil_anchor::{CandidateEdit, DEFAULT_BUDGET_BYTES, Order, Request, State, TargetKind};
+use supersigil_record::observations::{
+    Delegation, DelegationStep, Edit, EditOperation, EditOrigin, FileState, Hunk, Material,
+    ReceiveKind, StartKind, StopStatus,
+};
 use supersigil_record::{ContentId, EventId, RecordId, SessionId, Timestamp, TurnId};
 
 /// The reviewed worktree in tests.
@@ -274,5 +277,79 @@ pub fn request(
         edits,
         conflicts,
         budget_bytes: DEFAULT_BUDGET_BYTES,
+        order: Arc::default(),
     }
+}
+
+/// `request` with `order` as the recorded order of its session.
+pub fn ordered(mut request: Request, order: Order) -> Request {
+    request.order = Arc::new(order);
+    request
+}
+
+/// The order of session `s1` when a main transcript dispatched each of
+/// `transcripts` as an agent and learned it had stopped before dispatching
+/// the next.
+pub fn in_turn(transcripts: &[&str]) -> Order {
+    delegated(transcripts, true)
+}
+
+/// The order of session `s1` when a main transcript dispatched every one of
+/// `transcripts` as an agent before learning that any had stopped.
+pub fn at_once(transcripts: &[&str]) -> Order {
+    delegated(transcripts, false)
+}
+
+fn delegated(transcripts: &[&str], in_turn: bool) -> Order {
+    let step = |id: String, transcript: &str, ordinal: u64, step: DelegationStep| Delegation {
+        id: EventId::new(id),
+        session: SessionId::new("s1"),
+        step,
+        source_ordinal: ordinal,
+        transcript: Some(transcript.to_owned()),
+    };
+    let count = transcripts.len() as u64;
+    let mut steps = Vec::new();
+    for (k, &agent) in (0u64..).zip(transcripts) {
+        let (started, stopped) = if in_turn {
+            (10 * k + 1, 10 * k + 5)
+        } else {
+            (k + 1, 10 * count + k)
+        };
+        let call = format!("call-{agent}");
+        steps.push(step(
+            format!("start-{agent}"),
+            "main",
+            started,
+            DelegationStep::Start {
+                agent: Some(agent.to_owned()),
+                call: call.clone(),
+                kind: StartKind::Dispatch,
+                message: None,
+                prompt: Some("p".to_owned()),
+            },
+        ));
+        steps.push(step(
+            format!("receive-{agent}"),
+            agent,
+            0,
+            DelegationStep::Receive {
+                agent: agent.to_owned(),
+                kind: ReceiveKind::Dispatch,
+                message: None,
+                prompt: Some("p".to_owned()),
+            },
+        ));
+        steps.push(step(
+            format!("stop-{agent}"),
+            "main",
+            stopped,
+            DelegationStep::Stop {
+                agent: agent.to_owned(),
+                call,
+                status: StopStatus::Completed,
+            },
+        ));
+    }
+    Order::new(&steps)
 }

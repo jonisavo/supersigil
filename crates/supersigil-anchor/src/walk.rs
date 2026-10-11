@@ -4,9 +4,11 @@
 //! Edits are grouped by (worktree, transcript); within a group, edits with
 //! equal ordinals form an unordered bucket and buckets are ordered by
 //! ordinal. One command's heredoc writes share an ordinal but are walked in
-//! command order. A chain starts at a head and walks backward through its group
-//! without skipping an edit, and may enter another group only through a
-//! verified link: an edit whose recorded after-hash equals the hash of the
+//! command order. A session's transcripts in one worktree form a single
+//! group instead when the recorded order ([`Order`]) settles every pair of
+//! their edits. A chain starts at a head and walks backward through its
+//! group without skipping an edit, and may enter another group only through
+//! a verified link: an edit whose recorded after-hash equals the hash of the
 //! current bytes. It ends at the first state equal to the base, or where no
 //! predecessor is accepted. Time never decides.
 
@@ -14,10 +16,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::{Edit, EditOperation, EditOrigin};
-use supersigil_record::{ContentId, EventId, RecordId};
+use supersigil_record::{ContentId, EventId, RecordId, SessionId};
 
 use crate::align::{Alignment, Alignments, advance, align};
 use crate::input::{CandidateEdit, Request, State, TargetKind};
+use crate::order::Order;
 use crate::result::{Chain, ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
 use crate::step::{Budget, Reversal, Reversed, is_known, reverse};
 
@@ -192,7 +195,7 @@ pub struct Walk {
 /// A chain whose comparison was refused is not set aside.
 #[must_use]
 pub fn walk(request: &Request) -> Walk {
-    let groups = group(&request.edits);
+    let groups = group(&request.edits, &request.order);
     let mut search = Search::new(request, &request.edits, &groups);
     search.run();
     let Search {
@@ -224,7 +227,8 @@ pub fn walk(request: &Request) -> Walk {
     }
 }
 
-/// The edits of one file from one transcript.
+/// The edits of one file from one transcript, or from several transcripts
+/// of one session that the recorded order merged.
 struct Group {
     worktree: PathBuf,
     /// Indices into accepted edits, oldest first: one bucket per ordinal,
@@ -233,7 +237,12 @@ struct Group {
     buckets: Vec<Vec<usize>>,
 }
 
-fn group(accepted: &[AcceptedEdit]) -> Vec<Group> {
+/// Groups the edits by worktree and transcript, in that order, each
+/// transcript's buckets oldest first. The transcripts of one session in
+/// one worktree become one group, in the place of the first, when `order`
+/// merges them ([`merge`]); a transcript holding edits of several sessions
+/// never merges. Edits without a transcript share a group per worktree.
+fn group(accepted: &[AcceptedEdit], order: &Order) -> Vec<Group> {
     let mut by_key: BTreeMap<(PathBuf, Option<String>), Vec<usize>> = BTreeMap::new();
     for (i, a) in accepted.iter().enumerate() {
         by_key
@@ -241,19 +250,102 @@ fn group(accepted: &[AcceptedEdit]) -> Vec<Group> {
             .or_default()
             .push(i);
     }
-    by_key
+    let transcripts: Vec<Transcript> = by_key
         .into_iter()
-        .map(|((worktree, _), mut indices)| {
+        .map(|((worktree, transcript), mut indices)| {
             indices.sort_by_key(|&i| accepted[i].edit.source_ordinal);
+            // Only a transcript whose edits all share one session can merge:
+            // a bucket's first edit then answers for all of it.
+            let first = &accepted[indices[0]].edit.session;
+            let session = (transcript.is_some()
+                && indices.iter().all(|&i| accepted[i].edit.session == *first))
+            .then_some(first);
             let buckets = indices
                 .chunk_by(|&a, &b| {
                     accepted[a].edit.source_ordinal == accepted[b].edit.source_ordinal
                 })
                 .flat_map(|bucket| in_command_order(accepted, bucket))
                 .collect();
-            Group { worktree, buckets }
+            Transcript {
+                worktree,
+                session,
+                buckets,
+            }
         })
-        .collect()
+        .collect();
+    let mut sessions: BTreeMap<(&PathBuf, &SessionId), Vec<&[Vec<usize>]>> = BTreeMap::new();
+    for t in &transcripts {
+        if let Some(session) = t.session {
+            sessions
+                .entry((&t.worktree, session))
+                .or_default()
+                .push(&t.buckets);
+        }
+    }
+    let mut merged: BTreeMap<(&PathBuf, &SessionId), Option<Vec<Vec<usize>>>> = sessions
+        .into_iter()
+        .filter(|(_, of)| of.len() > 1)
+        .filter_map(|(key, of)| Some((key, Some(merge(accepted, order, &of)?))))
+        .collect();
+    let mut groups = Vec::new();
+    for t in &transcripts {
+        let buckets = match t.session.and_then(|s| merged.get_mut(&(&t.worktree, s))) {
+            // The merged group stands where its first transcript was.
+            Some(merged) => match merged.take() {
+                Some(buckets) => buckets,
+                None => continue,
+            },
+            None => t.buckets.clone(),
+        };
+        groups.push(Group {
+            worktree: t.worktree.clone(),
+            buckets,
+        });
+    }
+    groups
+}
+
+/// One transcript's edits of the path in one worktree.
+struct Transcript<'a> {
+    worktree: PathBuf,
+    /// The edits' session; `None` for edits without a transcript or of
+    /// several sessions.
+    session: Option<&'a SessionId>,
+    /// Indices into accepted edits, oldest first, as in [`Group`].
+    buckets: Vec<Vec<usize>>,
+}
+
+/// One sequence of the buckets of `transcripts`, all of one session,
+/// when `order` settles every pair of their edits: each transcript's
+/// buckets stay in order, and the next bucket taken is the one that
+/// happened before every other transcript's next bucket. `None` when two
+/// transcripts' next buckets are unordered. One bucket's edits share a
+/// transcript and an ordinal, so its first edit answers for all of them.
+fn merge(
+    accepted: &[AcceptedEdit],
+    order: &Order,
+    transcripts: &[&[Vec<usize>]],
+) -> Option<Vec<Vec<usize>>> {
+    let mut next = vec![0; transcripts.len()];
+    let mut merged = Vec::new();
+    let head = |t: usize, next: &[usize]| &accepted[transcripts[t][next[t]][0]].edit;
+    loop {
+        let mut open = (0..transcripts.len()).filter(|&t| next[t] < transcripts[t].len());
+        let Some(mut earliest) = open.next() else {
+            return Some(merged);
+        };
+        for t in open {
+            if order.before(head(earliest, &next), head(t, &next)) {
+                continue;
+            }
+            if !order.before(head(t, &next), head(earliest, &next)) {
+                return None;
+            }
+            earliest = t;
+        }
+        merged.push(transcripts[earliest][next[earliest]].clone());
+        next[earliest] += 1;
+    }
 }
 
 /// Buckets for one ordinal. If all edits are heredoc writes of one shell

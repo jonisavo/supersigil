@@ -1012,6 +1012,7 @@ pub fn attribute_path(
         edits,
         conflicts: conflicts.to_vec(),
         budget_bytes: DEFAULT_BUDGET_BYTES,
+        order: std::sync::Arc::default(),
     }))
 }
 
