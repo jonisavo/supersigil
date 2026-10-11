@@ -255,6 +255,17 @@ impl<'a> Session<'a> {
     }
 
     fn push(&mut self, kind: &str, content: &Value, result: Option<Value>) -> &mut Self {
+        self.push_with(kind, content, result, &json!({}))
+    }
+
+    /// [`Self::push`] with the fields of `extra` added to the record.
+    fn push_with(
+        &mut self,
+        kind: &str,
+        content: &Value,
+        result: Option<Value>,
+        extra: &Value,
+    ) -> &mut Self {
         let uuid = format!("{}-{}", self.id, self.count);
         let mut value = json!({
             "type": kind, "uuid": uuid, "parentUuid": self.parent, "sessionId": self.id,
@@ -269,6 +280,9 @@ impl<'a> Session<'a> {
         if let Some(agent) = self.agent {
             value["isSidechain"] = json!(true);
             value["agentId"] = json!(agent);
+        }
+        for (key, field) in extra.as_object().into_iter().flatten() {
+            value[key] = field.clone();
         }
         self.text.push_str(&value.to_string());
         self.text.push('\n');
@@ -341,23 +355,16 @@ impl<'a> Session<'a> {
     /// The harness delivering the notification that `agent`, started by
     /// call `tool`, completed, as it does to an idle issuer.
     fn stopped(&mut self, tool: &str, agent: &str) -> &mut Self {
-        let uuid = format!("{}-{}", self.id, self.count);
         let text = format!(
             "<task-notification>\n<task-id>{agent}</task-id>\n<tool-use-id>{tool}</tool-use-id>\n\
              <status>completed</status>\n</task-notification>"
         );
-        let value = json!({
-            "type": "user", "uuid": uuid, "parentUuid": self.parent, "sessionId": self.id,
-            "cwd": self.cwd.to_string_lossy(),
-            "timestamp": format!("2026-09-29T10:00:{:02}.000Z", self.count),
-            "isSidechain": false, "origin": {"kind": "task-notification"},
-            "message": {"role": "user", "content": text},
-        });
-        self.text.push_str(&value.to_string());
-        self.text.push('\n');
-        self.parent = Some(uuid);
-        self.count += 1;
-        self
+        self.push_with(
+            "user",
+            &json!(text),
+            None,
+            &json!({"origin": {"kind": "task-notification"}}),
+        )
     }
 
     /// A `NotebookEdit` call, which the capture cannot read, and its result.
