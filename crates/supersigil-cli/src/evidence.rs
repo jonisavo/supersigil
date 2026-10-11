@@ -93,7 +93,7 @@ impl Evidence {
                     .or_default()
                     .push(limitation.clone());
             }
-            Observation::SessionEnd(_) => {}
+            Observation::SessionEnd(_) | Observation::Delegation(_) => {}
         }
     }
 

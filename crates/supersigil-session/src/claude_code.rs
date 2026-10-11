@@ -15,6 +15,7 @@
 
 mod changes;
 pub mod content;
+mod delegation;
 mod shell;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,7 +25,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use supersigil_record::observations::{
     CaptureCounts, ChangeKind, ChangeReport, Command, CommandCategory, Edit, EditOperation,
-    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, Role, Turn,
+    EditOrigin, FileChange, FileState, Hunk, Material, Observation, Outcome, Role, StartKind,
+    StopStatus, Turn,
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
@@ -140,16 +142,31 @@ struct RawRecord {
     message: Option<RawMessage>,
     #[serde(default)]
     tool_use_result: Option<Value>,
+    /// The prompt the record belongs to: in an issuer, the prompt it was
+    /// working on; in an agent's transcript, the issuer's prompt that sent
+    /// the work.
+    #[serde(default)]
+    prompt_id: Option<String>,
     /// Where the harness says a `user` record came from, such as
     /// `{"kind": "coordinator"}` for a message resuming an agent.
     #[serde(default)]
     origin: Option<Value>,
+    /// An `attachment` record's attachment.
+    #[serde(default)]
+    attachment: Option<Value>,
 }
 
 impl RawRecord {
     /// The `origin.kind` the harness gave the record, if any.
     fn origin_kind(&self) -> Option<&str> {
         self.origin.as_ref()?.get("kind")?.as_str()
+    }
+
+    /// The record's prompt, if it names a non-empty one.
+    fn prompt(&self) -> Option<&str> {
+        self.prompt_id
+            .as_deref()
+            .filter(|prompt| !prompt.is_empty())
     }
 }
 
@@ -181,6 +198,10 @@ struct PendingTool {
     /// Subagent ID from the record that issued the tool call, if available.
     agent_id: Option<String>,
     record_index: usize,
+    /// The line of the earliest call still awaiting its result when this
+    /// call was issued, or this call's own line if that is earlier: every
+    /// call issued before it had its result before this call ran.
+    send_point: usize,
 }
 
 /// One skipped record or tool call to add to [`ParseOutcome`]'s counts.
@@ -256,6 +277,10 @@ struct Walk {
     pending: Vec<PendingTool>,
     /// Pairs of line indexes for completed tool calls and their results.
     resolved: Vec<(usize, usize)>,
+    /// Tool-use IDs of the calls that could start an agent's work.
+    starting_calls: BTreeSet<String>,
+    /// Calls whose stop was decided by their earliest task-notification.
+    stopped: BTreeSet<String>,
 }
 
 impl Walk {
@@ -310,6 +335,15 @@ impl Walk {
     /// pending calls open.
     fn record(&mut self, index: usize, mut raw: RawRecord) {
         self.learn_session(index, &raw);
+        if let Some(text) = notification_carried(&raw)
+            && let Some(session) = self.outcome.session.clone()
+            && raw
+                .session_id
+                .as_deref()
+                .is_none_or(|id| id.is_empty() || id == session.as_str())
+        {
+            self.notified(index, &text, &session);
+        }
         match raw.kind.as_str() {
             "user" | "assistant" => {}
             other if IGNORED_TYPES.contains(&other) => {
@@ -388,6 +422,85 @@ impl Walk {
         }
     }
 
+    /// Records the stop a task-notification proves. The first notification
+    /// naming one of this transcript's starting calls decides that call's
+    /// stop; only a completed or failed one records it. Notifications naming
+    /// any other call, such as a background shell task's, record nothing.
+    fn notified(&mut self, index: usize, text: &str, session: &SessionId) {
+        let Some(notice) = delegation::notification(text) else {
+            return;
+        };
+        let Some(call) = notice.call else {
+            return;
+        };
+        if !self.starting_calls.contains(call) || !self.stopped.insert(call.to_owned()) {
+            return;
+        }
+        if let Some(status) = delegation::stop_status(notice.status) {
+            self.observe(
+                index,
+                delegation::stop(session, call, notice.task, status, index),
+            );
+        }
+    }
+
+    /// Records the start a completed `Agent`, `Task`, or `SendMessage` call
+    /// made, placed at the call's send point. A dispatch must name its agent
+    /// or be a worker fork, which its stop names later; a resume must name
+    /// the resumed agent. A failed call, or a message queued for a running
+    /// agent, starts nothing. A synchronous dispatch's result is its report,
+    /// so it also proves the stop.
+    fn delegated(
+        &mut self,
+        index: usize,
+        tool: &PendingTool,
+        resolution: &Resolution,
+        session: &SessionId,
+    ) {
+        if resolution.is_error {
+            return;
+        }
+        let structured = resolution.structured;
+        let input = Some(&tool.input);
+        let (agent, kind, message) = if tool.name == "SendMessage" {
+            let Some(agent) = string_field(structured, "resumedAgentId") else {
+                return;
+            };
+            let message = string_field(input, "message").map(|m| ContentId::of(m.as_bytes()));
+            (Some(agent.to_owned()), StartKind::Resume, message)
+        } else {
+            let agent = delegation::dispatched_agent(structured);
+            if agent.is_none() && string_field(input, "subagent_type") != Some("fork") {
+                return;
+            }
+            (agent, StartKind::Dispatch, None)
+        };
+        let report = (kind == StartKind::Dispatch
+            && string_field(structured, "status") == Some("completed"))
+        .then(|| agent.clone())
+        .flatten();
+        self.observe(
+            index,
+            delegation::start(
+                session,
+                &tool.id,
+                agent,
+                kind,
+                message,
+                resolution.prompt,
+                tool.send_point,
+            ),
+        );
+        if let Some(agent) = report
+            && self.stopped.insert(tool.id.clone())
+        {
+            self.observe(
+                index,
+                delegation::stop(session, &tool.id, &agent, StopStatus::Completed, index),
+            );
+        }
+    }
+
     /// Marks pending tool calls as abandoned when a human or delegation turn arrives.
     /// Records pending shell commands with unavailable results, counts
     /// their heredoc writes as unconfirmed, then clears the queue.
@@ -438,6 +551,12 @@ impl Walk {
             let name = string_field(Some(block), "name")
                 .unwrap_or_default()
                 .to_owned();
+            // Pending calls stay in transcript order: the first is the
+            // earliest still in flight.
+            let in_flight = self.pending.first().map(|p| p.record_index);
+            if delegation::STARTING_TOOLS.contains(&name.as_str()) {
+                self.starting_calls.insert(id.clone());
+            }
             self.pending.push(PendingTool {
                 id,
                 name,
@@ -447,6 +566,7 @@ impl Walk {
                 cwd: cwd.clone(),
                 agent_id: raw.agent_id.clone(),
                 record_index: index,
+                send_point: in_flight.map_or(index, |line| line.min(index)),
             });
         }
     }
@@ -487,7 +607,11 @@ impl Walk {
                 block: result,
                 is_error,
                 ended: ended.as_ref(),
+                prompt: raw.prompt(),
             };
+            if delegation::STARTING_TOOLS.contains(&tool.name.as_str()) {
+                self.delegated(index, &tool, &resolution, session);
+            }
             self.built(index, build_resolved(&tool, session, &resolution));
         }
     }
@@ -511,6 +635,8 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         effects: Vec::new(),
         pending: Vec::new(),
         resolved: Vec::new(),
+        starting_calls: BTreeSet::new(),
+        stopped: BTreeSet::new(),
     };
     // One complete line at a time: parse it, walk it, drop it. A line that
     // is not a JSON object is counted; a trailing line without a newline is
@@ -539,6 +665,7 @@ pub fn parse_transcript(bytes: &[u8], from_ordinal: u64) -> ParseOutcome {
         pending,
         resolved,
         learned_at,
+        ..
     } = walk;
     let from = usize::try_from(from_ordinal)
         .unwrap_or(usize::MAX)
@@ -582,6 +709,30 @@ fn consumption_cutoff(lines: usize, pending: &[PendingTool], resolved: &[(usize,
         cutoff = issued;
     }
     cutoff
+}
+
+/// The text a task-notification `raw` may carry, to be read only if it
+/// begins with the notification's envelope ([`delegation::notification`]):
+/// the prompt of a `queued_command` attachment in `task-notification` mode,
+/// or a `user` record the harness marks as a task-notification. Only these
+/// carry the harness's own mark. A `queue-operation` enqueue comes earlier
+/// but is no proof: a message typed while the issuer is busy is enqueued
+/// the same way, as are hand-backs.
+fn notification_carried(raw: &RawRecord) -> Option<String> {
+    match raw.kind.as_str() {
+        "attachment" => {
+            let attachment = Some(raw.attachment.as_ref()?);
+            (string_field(attachment, "type") == Some("queued_command")
+                && string_field(attachment, "commandMode") == Some("task-notification"))
+            .then(|| string_field(attachment, "prompt").map(str::to_owned))
+            .flatten()
+        }
+        "user" if raw.origin_kind() == Some("task-notification") => {
+            let text = content_text(raw.message.as_ref().map(|m| &m.content))?;
+            Some(delegation::delivered_envelope(&text).to_owned())
+        }
+        _ => None,
+    }
 }
 
 /// Checks whether `block` has the content type `ty`.
@@ -911,6 +1062,8 @@ struct Resolution<'a> {
     is_error: bool,
     /// Timestamp of the record carrying the result, if available.
     ended: Option<&'a Timestamp>,
+    /// The prompt of the record carrying the result, if named.
+    prompt: Option<&'a str>,
 }
 
 /// Builds an edit observation from a supported editing call and its result.
