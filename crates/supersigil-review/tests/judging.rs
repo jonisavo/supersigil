@@ -19,8 +19,8 @@ use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
     AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemChange,
-    ItemState, Ledger, NotClosed, PlannedWithdrawal, RelatedBasis, Relation, Uncovered,
-    WithdrawRefusal, explanations_differ, related_bases, uncovered_items,
+    ItemState, Ledger, NotClosed, RelatedBasis, Relation, Uncovered, WithdrawRefusal,
+    explanations_differ, related_bases, uncovered_items,
 };
 use supersigil_review::model::{
     ChangedEvidence, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations, RelatedInfo,
@@ -158,25 +158,40 @@ fn undo(id: &str, basis: &BasisId, withdraws: &[(&str, Option<&GateItem>)], at: 
     }
 }
 
-/// The withdrawals `plan` records, after checking that each comes with the
-/// judgment it withdraws.
-fn withdrawals(plan: &[PlannedWithdrawal<'_>]) -> Vec<Withdrawal> {
-    plan.iter()
-        .map(|planned| {
-            assert_eq!(planned.withdrawal.judgment, planned.judgment.id);
-            planned.withdrawal.clone()
-        })
+/// The withdrawals `plan` records, after checking that each withdraws a
+/// judgment `ledger` holds.
+fn withdrawals(ledger: &Ledger<'_>, plan: &[Withdrawal]) -> Vec<Withdrawal> {
+    for withdrawal in plan {
+        assert!(
+            ledger.judgment(&withdrawal.judgment).is_some(),
+            "{withdrawal:?}"
+        );
+    }
+    plan.to_vec()
+}
+
+/// The gate index of each review in `reviews`, by basis ID.
+fn indexes(reviews: &[Saved]) -> HashMap<&BasisId, GateIndex<'_>> {
+    reviews
+        .iter()
+        .map(|(id, basis)| (id, GateIndex::new(&basis.gate)))
         .collect()
 }
 
-/// The gate states of `current` among the related reviews in `earlier`.
-fn states<'a>(current: &'a Saved, earlier: &'a [Saved], ledger: &'a Ledger<'a>) -> GateStates<'a> {
+/// The gate states of `current` among the related reviews in `earlier`,
+/// whose gates `indexes` holds.
+fn states<'a>(
+    current: &'a Saved,
+    earlier: &'a [Saved],
+    indexes: &'a HashMap<&'a BasisId, GateIndex<'a>>,
+    ledger: &'a Ledger<'a>,
+) -> GateStates<'a> {
     let related = related_bases(
         &current.0,
         &current.1,
         earlier.iter().map(|(id, b)| (id, b)),
     );
-    GateStates::new(&current.0, &current.1, &related, ledger)
+    GateStates::new(&current.0, &current.1, &related, indexes, ledger)
 }
 
 /// The state of each gate item, in gate order.
@@ -316,7 +331,7 @@ fn own_judgments_close_their_items() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &[], &ledger)),
+        item_states(&states(&current, &[], &indexes(&[]), &ledger)),
         [
             ItemState::Acknowledged(&judgments[0]),
             ItemState::Dismissed(&judgments[1]),
@@ -336,7 +351,7 @@ fn own_beats_carried() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [ItemState::Dismissed(&judgments[0])]
     );
 }
@@ -354,7 +369,8 @@ fn a_related_review_carries_with_a_matching_fingerprint() {
         ack("code-changed", &earlier[1].0, &[&b], 20),
     ];
     let ledger = Ledger::new(&judgments);
-    let states = states(&current, &earlier, &ledger);
+    let indexes = indexes(&earlier);
+    let states = states(&current, &earlier, &indexes, &ledger);
     assert_eq!(
         item_states(&states),
         [
@@ -379,7 +395,7 @@ fn only_a_related_review_holding_the_item_carries() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [ItemState::Open]
     );
 }
@@ -460,7 +476,7 @@ fn each_differing_part_reopens_with_its_reason() {
                 vec![with_changed(Some(changed))],
             ));
             assert_eq!(
-                item_states(&states(&current, &earlier, &ledger)),
+                item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
                 [ItemState::Reopened {
                     judgment: &judgments[0],
                     reasons: vec![*reason],
@@ -479,7 +495,7 @@ fn every_differing_part_gives_its_reason_in_part_order() {
     let judgments = [ack("earlier", &earlier[0].0, &[&before], 10)];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [ItemState::Reopened {
             judgment: &judgments[0],
             reasons: vec![
@@ -501,7 +517,7 @@ fn an_unknown_part_never_carries() {
     let judgments = [ack("earlier", &earlier[0].0, &[&directory, &record], 10)];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [
             ItemState::Reopened {
                 judgment: &judgments[0],
@@ -546,7 +562,7 @@ fn the_most_recent_judgment_wins() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [
             ItemState::Carried(&judgments[0]),
             ItemState::Carried(&judgments[3]),
@@ -585,7 +601,8 @@ fn many_large_judgments_on_related_reviews_decide_the_states_promptly() {
     // about 5 s here in a debug build; an index by item takes milliseconds.
     let latest = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
-        let states = states(&current, &earlier, &ledger);
+        let indexes = indexes(&earlier);
+        let states = states(&current, &earlier, &indexes, &ledger);
         let closing: BTreeSet<&str> = states
             .items()
             .iter()
@@ -633,16 +650,13 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
     // with a judgment of the item takes milliseconds.
     let (closing, same_as_alone) = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
-        let indexes: HashMap<&BasisId, GateIndex<'_>> = reviews
-            .iter()
-            .map(|(id, basis)| (id, GateIndex::new(&basis.gate)))
-            .collect();
+        let indexes = indexes(&reviews);
         let others = || reviews.iter().map(|(id, basis)| (id, basis));
         let closing: BTreeSet<Option<String>> = reviews
             .iter()
             .flat_map(|(id, basis)| {
                 let related = related_bases(id, basis, others());
-                let states = GateStates::with_indexes(id, basis, &related, &indexes, &ledger);
+                let states = GateStates::new(id, basis, &related, &indexes, &ledger);
                 let closing: Vec<_> = states
                     .items()
                     .iter()
@@ -653,10 +667,9 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
             .collect();
         let (id, basis) = &reviews[1];
         let related = related_bases(id, basis, others());
-        let same_as_alone = item_states(&GateStates::new(id, basis, &related, &ledger))
-            == item_states(&GateStates::with_indexes(
-                id, basis, &related, &indexes, &ledger,
-            ));
+        let alone = GateIndex::of(&related);
+        let same_as_alone = item_states(&GateStates::new(id, basis, &related, &alone, &ledger))
+            == item_states(&GateStates::new(id, basis, &related, &indexes, &ledger));
         (closing, same_as_alone)
     });
 
@@ -683,7 +696,8 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
     // a debug build; an index by ID takes milliseconds.
     let (closed, withdrawn) = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
-        let states = states(&current, &[], &ledger);
+        let indexes = indexes(&[]);
+        let states = states(&current, &[], &indexes, &ledger);
         let closed = states.check_close(&named).unwrap_err().len();
         let withdrawn = states.plan_undo(&named).unwrap().len();
         (closed, withdrawn)
@@ -733,15 +747,15 @@ fn withdrawing_a_pair_leaves_the_judgments_other_items_standing() {
         undo("undo-a", &current.0, &[("both", Some(&a))], 30),
     ];
     let ledger = Ledger::new(&judgments);
+    // The acknowledgment no longer closes `a`, which the carried one does,
+    // but still closes `b`.
     assert_eq!(
-        item_states(&states(&current, &earlier, &ledger)),
+        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
         [
             ItemState::Carried(&judgments[1]),
             ItemState::Acknowledged(&judgments[0]),
         ]
     );
-    assert!(!ledger.stands_for(&judgments[0], &a.id));
-    assert!(ledger.stands_for(&judgments[0], &b.id));
     assert!(ledger.stands(&judgments[0]));
 
     let mut more = judgments.to_vec();
@@ -761,15 +775,13 @@ fn withdrawing_a_whole_judgment_withdraws_every_item() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &[], &ledger)),
+        item_states(&states(&current, &[], &indexes(&[]), &ledger)),
         [ItemState::Open, ItemState::Open]
     );
-    assert!(!ledger.stands_for(&judgments[0], &b.id));
     assert!(!ledger.stands(&judgments[0]));
     assert!(!ledger.stands(&judgments[1]));
     assert!(ledger.stands(&judgments[2]));
     assert!(ledger.stands(&judgments[3]));
-    assert!(!ledger.stands_for(&judgments[2], &a.id));
 }
 
 #[test]
@@ -786,7 +798,7 @@ fn the_own_completion_is_the_most_recent_standing_one_on_the_review() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &ledger).own_completion(),
+        states(&current, &earlier, &indexes(&earlier), &ledger).own_completion(),
         Some(&judgments[1])
     );
     assert_eq!(ledger.completion(&earlier[0].0), Some(&judgments[4]));
@@ -797,7 +809,10 @@ fn the_own_completion_is_the_most_recent_standing_one_on_the_review() {
         judgments[3].clone(),
     ];
     let ledger = Ledger::new(&withdrawn);
-    assert_eq!(states(&current, &earlier, &ledger).own_completion(), None);
+    assert_eq!(
+        states(&current, &earlier, &indexes(&earlier), &ledger).own_completion(),
+        None
+    );
 }
 
 #[test]
@@ -817,7 +832,8 @@ fn a_completion_covers_only_items_its_gate_held_as_they_are_now() {
         complete("done-as-y", &earlier[1].0, &[(&y, "as-y")], 30),
     ];
     let ledger = Ledger::new(&judgments);
-    let states = states(&current, &earlier, &ledger);
+    let indexes = indexes(&earlier);
+    let states = states(&current, &earlier, &indexes, &ledger);
     assert_eq!(item_states(&states), [ItemState::Carried(&judgments[0])]);
     assert_eq!(
         states.check_complete(),
@@ -880,7 +896,7 @@ fn complete_is_refused_while_an_item_is_open_or_reopened() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &ledger).check_complete(),
+        states(&current, &earlier, &indexes(&earlier), &ledger).check_complete(),
         Err(CompleteRefusal::Unclosed(vec![
             &current.1.gate[1],
             &current.1.gate[2],
@@ -898,14 +914,14 @@ fn complete_is_refused_on_a_review_with_a_standing_completion() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &[], &ledger).check_complete(),
+        states(&current, &[], &indexes(&[]), &ledger).check_complete(),
         Err(CompleteRefusal::AlreadyComplete(&judgments[1]))
     );
 
     judgments.push(undo("undo", &current.0, &[("done", None)], 30));
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &[], &ledger).check_complete(),
+        states(&current, &[], &indexes(&[]), &ledger).check_complete(),
         Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("ack"))]))
     );
 }
@@ -921,7 +937,7 @@ fn a_completion_counts_own_and_carried_judgments() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &ledger).check_complete(),
+        states(&current, &earlier, &indexes(&earlier), &ledger).check_complete(),
         Ok(BTreeMap::from([
             (a.id.clone(), JudgmentId::new("own")),
             (b.id.clone(), JudgmentId::new("carried")),
@@ -956,7 +972,8 @@ fn acknowledging_a_closed_item_is_refused() {
         ack("reopened", &earlier[0].0, &[&before], 30),
     ];
     let ledger = Ledger::new(&judgments);
-    let states = states(&current, &earlier, &ledger);
+    let indexes = indexes(&earlier);
+    let states = states(&current, &earlier, &indexes, &ledger);
     assert_eq!(states.check_close(&[c.id.clone(), d.id.clone()]), Ok(()));
     assert_eq!(
         states.check_close(&[b.id.clone(), c.id.clone(), a.id.clone()]),
@@ -1001,11 +1018,11 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
         complete("done-b", &earlier[3].0, &[(&b, "own")], 70),
     ];
     let ledger = Ledger::new(&judgments);
-    let plan = states(&current, &earlier, &ledger)
+    let plan = states(&current, &earlier, &indexes(&earlier), &ledger)
         .plan_undo(&[a.id.clone(), a.id.clone()])
         .unwrap();
     assert_eq!(
-        withdrawals(&plan),
+        withdrawals(&ledger, &plan),
         [
             withdrawal("own", Some(&a)),
             withdrawal("same-content", Some(&a)),
@@ -1018,11 +1035,12 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
     let mut after = judgments.clone();
     after.push(Judgment {
         items: vec![a.id.clone()],
-        withdraws: withdrawals(&plan),
+        withdraws: plan,
         ..judgment("undo", &current.0, JudgmentKind::Undo, 80)
     });
     let ledger = Ledger::new(&after);
-    let states = states(&current, &earlier, &ledger);
+    let indexes = indexes(&earlier);
+    let states = states(&current, &earlier, &indexes, &ledger);
     assert_eq!(
         item_states(&states),
         [
@@ -1051,17 +1069,22 @@ fn undoing_a_carried_judgment_withdraws_the_earlier_reviews_completion() {
         complete("done-earlier", &earlier[0].0, &[(&a, "earlier")], 20),
     ];
     let ledger = Ledger::new(&judgments);
-    let plan = states(&current, &earlier, &ledger)
+    let plan = states(&current, &earlier, &indexes(&earlier), &ledger)
         .plan_undo(slice::from_ref(&a.id))
         .unwrap();
     assert_eq!(
-        withdrawals(&plan),
+        withdrawals(&ledger, &plan),
         [
             withdrawal("earlier", Some(&a)),
             withdrawal("done-earlier", None),
         ]
     );
-    assert_eq!(plan[1].judgment.basis, earlier[0].0);
+    assert_eq!(
+        ledger
+            .judgment(&plan[1].judgment)
+            .map(|judgment| &judgment.basis),
+        Some(&earlier[0].0)
+    );
 }
 
 #[test]
@@ -1077,7 +1100,7 @@ fn undo_of_an_item_nothing_closes_is_refused() {
     let ledger = Ledger::new(&judgments);
     let gate = &current.1.gate;
     assert_eq!(
-        states(&current, &earlier, &ledger).plan_undo(&[
+        states(&current, &earlier, &indexes(&earlier), &ledger).plan_undo(&[
             gate[0].id.clone(),
             b.id.clone(),
             c.id.clone(),
@@ -1117,7 +1140,7 @@ fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
     let plan = |judgment| {
         ledger
             .plan_withdrawal(judgment)
-            .map(|plan| withdrawals(&plan))
+            .map(|plan| withdrawals(&ledger, &plan))
     };
     assert_eq!(plan(&judgments[0]), Ok(vec![withdrawal("note", None)]));
     assert_eq!(plan(&judgments[2]), Ok(vec![withdrawal("done", None)]));
@@ -1148,7 +1171,7 @@ fn undo_by_judgment_withdraws_what_stands_of_an_acknowledgment() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        withdrawals(&ledger.plan_withdrawal(&judgments[0]).unwrap()),
+        withdrawals(&ledger, &ledger.plan_withdrawal(&judgments[0]).unwrap()),
         [
             withdrawal("ack", Some(&a)),
             withdrawal("ack", Some(&b)),
@@ -1219,7 +1242,10 @@ fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
     ];
     let ledger = Ledger::new(&judgments);
 
-    let gate = gate_info(&states(&current, &earlier, &ledger), &current.1.gate);
+    let gate = gate_info(
+        &states(&current, &earlier, &indexes(&earlier), &ledger),
+        &current.1.gate,
+    );
 
     let shown: Vec<_> = gate
         .items
@@ -1288,7 +1314,7 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
     ];
 
     let ledger = Ledger::new(&judgments[..2]);
-    let status = StatusInfo::new(&states(&current, &[], &ledger));
+    let status = StatusInfo::new(&states(&current, &[], &indexes(&[]), &ledger));
     assert!(status.complete);
     assert_eq!(
         status.completion,
@@ -1304,7 +1330,7 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
     );
 
     let ledger = Ledger::new(&judgments);
-    let status = StatusInfo::new(&states(&current, &[], &ledger));
+    let status = StatusInfo::new(&states(&current, &[], &indexes(&[]), &ledger));
     assert!(!status.complete);
     assert_eq!(status.completion, None);
 }
@@ -1398,7 +1424,8 @@ fn status<'a>(
         &current.1,
         earlier.iter().map(|(id, b)| (id, b)),
     );
-    let states = GateStates::new(&current.0, &current.1, &related, ledger);
+    let indexes = GateIndex::of(&related);
+    let states = GateStates::new(&current.0, &current.1, &related, &indexes, ledger);
     let gate = gate_info(&states, &current.1.gate);
     let readings = related.iter().map(|related| read(*related)).collect();
     StatusInfo::reviewed(&states, &current.1, readings, &gate)
@@ -1673,7 +1700,8 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
     let status = finishes_within(Duration::from_secs(10), move || {
         let ledger = Ledger::new(&[]);
         let related = related_bases(&current.0, &current.1, ids.iter().map(|id| (id, &earlier)));
-        let states = GateStates::new(&current.0, &current.1, &related, &ledger);
+        let indexes = GateIndex::of(&related);
+        let states = GateStates::new(&current.0, &current.1, &related, &indexes, &ledger);
         let gate = gate_info(&states, &current.1.gate);
         let readings = related
             .iter()

@@ -94,8 +94,8 @@ fn listed(snapshot: &ReviewSnapshot) -> Result<Vec<Listed>, CliError> {
         .iter()
         .map(|(id, basis)| {
             let related = related_bases(id, basis, &bases);
-            let states = GateStates::with_indexes(id, basis, &related, &indexes, &ledger);
-            let last = judgments.iter().rposition(|judgment| judgment.basis == *id);
+            let states = GateStates::new(id, basis, &related, &indexes, &ledger);
+            let last = ledger.on(id).last();
             let listed = Listed {
                 review: id.clone(),
                 selected: selections.values().any(|selected| selected == id),
@@ -108,9 +108,9 @@ fn listed(snapshot: &ReviewSnapshot) -> Result<Vec<Listed>, CliError> {
                     .iter()
                     .filter(|judged| judged.state.closing().is_none())
                     .count(),
-                last_judgment: last.map(|position| JudgmentInfo::new(&judgments[position])),
+                last_judgment: last.map(|(_, judgment)| JudgmentInfo::new(judgment)),
             };
-            (last, listed)
+            (last.map(|(position, _)| position), listed)
         })
         .collect();
     listed.sort_by_key(|&(last, _)| Reverse(last));

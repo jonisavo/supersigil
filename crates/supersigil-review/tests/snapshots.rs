@@ -27,7 +27,7 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::gate::{GateInputs, gate_items};
-use supersigil_review::judging::{GateStates, Ledger, Relation};
+use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation};
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, EditInfo, EditOriginInfo,
     EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus, GateInfo, JudgmentInfo, Mention,
@@ -394,7 +394,8 @@ fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Ju
     (review.status, review.gate) = {
         let judgments = judge(&id, &document.gate);
         let ledger = Ledger::new(&judgments);
-        let states = GateStates::new(&id, &document, &[], &ledger);
+        let indexes = GateIndex::of(&[]);
+        let states = GateStates::new(&id, &document, &[], &indexes, &ledger);
         let associations = BTreeMap::new();
         let names = ItemNames::new(&document.gate, &associations, false, |path| {
             path.to_str().map(str::to_owned)

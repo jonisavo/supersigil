@@ -24,7 +24,7 @@ use supersigil_record::reviews::{
 };
 use supersigil_record::time::UtcTime;
 use supersigil_review::gate::{capture, explanations, gate_items};
-use supersigil_review::judging::{GateStates, Ledger, related_bases};
+use supersigil_review::judging::{GateIndex, GateStates, Ledger, related_bases};
 use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
     GateInfo, NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, Unsaved,
@@ -214,8 +214,9 @@ fn judged(
     stored: &Stored,
 ) -> Result<(StatusInfo, GateInfo), CliError> {
     let related = related_bases(id, basis, &stored.judged);
+    let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&stored.judgments);
-    let states = GateStates::new(id, basis, &related, &ledger);
+    let states = GateStates::new(id, basis, &related, &indexes, &ledger);
     let associations = associations(basis);
     let names = names(g, basis, &associations);
     let gate = GateInfo::new(&states, &names);

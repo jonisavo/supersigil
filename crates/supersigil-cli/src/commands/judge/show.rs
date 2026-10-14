@@ -7,7 +7,7 @@
 //! completion of the same content is shown as related.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::path::Path;
 
@@ -15,15 +15,14 @@ use serde::Serialize;
 use supersigil_record::reviews::{
     BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind, PathBytes,
 };
-use supersigil_review::judging::{GateStates, Ledger, Relation, related_bases};
+use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation, related_bases};
 use supersigil_review::model::{GateInfo, GateItemInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::summary::{
     Addressing, NOTHING_TO_REVIEW, aligned, compared, gate_row, next_lines,
 };
 
 use super::{
-    Checkout, addressing, by_judgment, gate_index, item_name, no_selection, noun, select,
-    unknown_review,
+    Checkout, addressing, gate_index, item_name, no_selection, noun, select, unknown_review,
 };
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
@@ -53,8 +52,9 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let judgments = snapshot.judgments()?;
     let others = judged_bases(&snapshot, &judgments, &id)?;
     let related = related_bases(&id, &basis, &others);
+    let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&judgments);
-    let states = GateStates::new(&id, &basis, &related, &ledger);
+    let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
     let associations = associations(&basis);
     let gate = GateInfo::new(&states, &checkout.names(&basis, &associations)?);
     let mut same_content: Vec<&Judgment> = related
@@ -72,7 +72,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
         status: StatusInfo::new(&states),
         same_content_completions: same_content.into_iter().map(JudgmentInfo::new).collect(),
         comments: comments(&id, &judgments, &ledger, &gate),
-        history: history(&id, &judgments, &gate),
+        history: history(&id, &judgments, &ledger, &gate),
         nothing_to_review: basis.explanations.is_empty() && basis.gate.is_empty(),
         gate,
     };
@@ -163,35 +163,28 @@ fn comments(
         .collect()
 }
 
-/// What every undo in `judgments` withdrew of a judgment on the review
-/// `id`, or withdrew while recorded on it, its items named as `gate` names
-/// them.
-fn history(id: &BasisId, judgments: &[Judgment], gate: &GateInfo) -> Vec<Withdrawn> {
-    let by_id: HashMap<_, _> = judgments
-        .iter()
-        .map(|judgment| (&judgment.id, judgment))
-        .collect();
+/// What every undo in `judgments` withdrew of a judgment of `ledger` on the
+/// review `id`, or withdrew while recorded on it, its items named as `gate`
+/// names them.
+fn history(
+    id: &BasisId,
+    judgments: &[Judgment],
+    ledger: &Ledger<'_>,
+    gate: &GateInfo,
+) -> Vec<Withdrawn> {
     let gate = gate_index(gate);
     judgments
         .iter()
         .filter(|judgment| judgment.kind == JudgmentKind::Undo)
         .flat_map(|undo| {
-            by_judgment(&undo.withdraws)
+            ledger
+                .withdrawn(&undo.withdraws)
                 .into_iter()
-                .filter_map(|(withdrawn, items)| {
-                    let withdrawn = by_id.get(withdrawn)?;
-                    // A whole-judgment withdrawal names no items: the
-                    // subjects are the withdrawn judgment's own.
-                    let items = if items.is_empty() {
-                        withdrawn.items.iter().collect()
-                    } else {
-                        items
-                    };
-                    (withdrawn.basis == *id || undo.basis == *id).then(|| Withdrawn {
-                        judgment: JudgmentInfo::new(withdrawn),
-                        items: names(&gate, items),
-                        undo: JudgmentInfo::new(undo),
-                    })
+                .filter(|(withdrawn, _)| withdrawn.basis == *id || undo.basis == *id)
+                .map(|(withdrawn, items)| Withdrawn {
+                    judgment: JudgmentInfo::new(withdrawn),
+                    items: names(&gate, items),
+                    undo: JudgmentInfo::new(undo),
                 })
                 .collect::<Vec<_>>()
         })

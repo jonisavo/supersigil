@@ -5,7 +5,6 @@
 //! Pure over what the CLI loads from the review store: the current basis,
 //! the bases that have a judgment, and every judgment.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
@@ -85,6 +84,9 @@ pub struct Ledger<'a> {
     /// Every withdrawal of every undo: a pair, or a whole judgment with no
     /// item.
     withdrawn: HashSet<(&'a JudgmentId, Option<&'a ItemId>)>,
+    /// The position in `judgments` of each judgment, by ID; the first
+    /// recorded when several share one.
+    by_id: HashMap<&'a JudgmentId, usize>,
     /// Positions in `judgments` of the judgments on each basis.
     by_basis: HashMap<&'a BasisId, Vec<usize>>,
     /// Positions in `judgments` of the standing acknowledgments and
@@ -100,8 +102,10 @@ impl<'a> Ledger<'a> {
     #[must_use]
     pub fn new(judgments: &'a [Judgment]) -> Self {
         let mut withdrawn = HashSet::new();
+        let mut by_id = HashMap::new();
         let mut by_basis: HashMap<_, Vec<_>> = HashMap::new();
         for (position, judgment) in judgments.iter().enumerate() {
+            by_id.entry(&judgment.id).or_insert(position);
             by_basis.entry(&judgment.basis).or_default().push(position);
             if judgment.kind == JudgmentKind::Undo {
                 withdrawn.extend(
@@ -139,9 +143,63 @@ impl<'a> Ledger<'a> {
         Self {
             judgments,
             withdrawn,
+            by_id,
             by_basis,
             closing,
         }
+    }
+
+    /// The judgment `id` names, if the store holds one: the first recorded
+    /// when several share it.
+    #[must_use]
+    pub fn judgment(&self, id: &JudgmentId) -> Option<&'a Judgment> {
+        self.by_id
+            .get(id)
+            .map(|&position| &self.judgments[position])
+    }
+
+    /// The judgments recorded on `basis`, in the order recorded, each with
+    /// its position in the log.
+    pub fn on(&self, basis: &BasisId) -> impl Iterator<Item = (usize, &'a Judgment)> {
+        let judgments = self.judgments;
+        self.by_basis
+            .get(basis)
+            .into_iter()
+            .flatten()
+            .map(move |&position| (position, &judgments[position]))
+    }
+
+    /// What `withdraws`, an undo's withdrawals, withdrew: each judgment it
+    /// withdraws something of, once, in the order withdrawn, with the items
+    /// whose judgment it withdrew, or the judgment's own items when it was
+    /// withdrawn whole. A judgment the store does not hold is left out.
+    #[must_use]
+    pub fn withdrawn<'u>(&self, withdraws: &'u [Withdrawal]) -> Vec<(&'a Judgment, Vec<&'u ItemId>)>
+    where
+        'a: 'u,
+    {
+        let mut grouped: Vec<(&JudgmentId, Vec<&ItemId>)> = Vec::new();
+        let mut at: HashMap<&JudgmentId, usize> = HashMap::new();
+        for withdrawal in withdraws {
+            if let Some(&index) = at.get(&withdrawal.judgment) {
+                grouped[index].1.extend(&withdrawal.item);
+            } else {
+                at.insert(&withdrawal.judgment, grouped.len());
+                grouped.push((&withdrawal.judgment, withdrawal.item.iter().collect()));
+            }
+        }
+        grouped
+            .into_iter()
+            .filter_map(|(id, items)| {
+                let judgment = self.judgment(id)?;
+                let items = if items.is_empty() {
+                    judgment.items.iter().collect()
+                } else {
+                    items
+                };
+                Some((judgment, items))
+            })
+            .collect()
     }
 
     /// Whether any of `judgment` stands: for an acknowledgment or
@@ -161,21 +219,9 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// Whether `judgment` acknowledges or dismisses `item` and no undo
-    /// withdrew that pair or the whole judgment.
-    #[must_use]
-    pub fn stands_for(&self, judgment: &Judgment, item: &ItemId) -> bool {
-        matches!(
-            judgment.kind,
-            JudgmentKind::Acknowledge | JudgmentKind::Dismiss
-        ) && judgment.items.contains(item)
-            && self.not_withdrawn(judgment, item)
-    }
-
     /// Whether no undo withdrew the pair of `judgment` and `item`, one of
-    /// its items, nor the whole judgment: [`Self::stands_for`] for an
-    /// acknowledgment or dismissal and an item it names, without searching
-    /// its items again.
+    /// its items, nor the whole judgment: whether an acknowledgment or
+    /// dismissal still stands for an item it names.
     fn not_withdrawn(&self, judgment: &Judgment, item: &ItemId) -> bool {
         !self.withdrawn.contains(&(&judgment.id, Some(item)))
             && !self.withdrawn.contains(&(&judgment.id, None))
@@ -239,19 +285,13 @@ impl<'a> Ledger<'a> {
     /// Returns [`WithdrawRefusal::Undo`] for an undo and
     /// [`WithdrawRefusal::Withdrawn`] for a judgment of which nothing
     /// stands.
-    pub fn plan_withdrawal(
-        &self,
-        judgment: &'a Judgment,
-    ) -> Result<Vec<PlannedWithdrawal<'a>>, WithdrawRefusal> {
+    pub fn plan_withdrawal(&self, judgment: &Judgment) -> Result<Vec<Withdrawal>, WithdrawRefusal> {
         match judgment.kind {
             JudgmentKind::Undo => Err(WithdrawRefusal::Undo),
             _ if !self.stands(judgment) => Err(WithdrawRefusal::Withdrawn),
-            JudgmentKind::Comment | JudgmentKind::Complete => Ok(vec![PlannedWithdrawal {
-                withdrawal: Withdrawal {
-                    judgment: judgment.id.clone(),
-                    item: None,
-                },
-                judgment,
+            JudgmentKind::Comment | JudgmentKind::Complete => Ok(vec![Withdrawal {
+                judgment: judgment.id.clone(),
+                item: None,
             }]),
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss => Ok(self.withdraw_pairs(
                 judgment
@@ -266,10 +306,10 @@ impl<'a> Ledger<'a> {
     /// The withdrawals of `pairs`, standing (acknowledgment or dismissal,
     /// item) pairs, each once, then of every standing completion that
     /// counts one of them, in the order recorded.
-    fn withdraw_pairs<'i>(
+    fn withdraw_pairs<'j, 'i>(
         &self,
-        pairs: impl IntoIterator<Item = (&'a Judgment, &'i ItemId)>,
-    ) -> Vec<PlannedWithdrawal<'a>> {
+        pairs: impl IntoIterator<Item = (&'j Judgment, &'i ItemId)>,
+    ) -> Vec<Withdrawal> {
         let mut seen = HashSet::new();
         let pairs: Vec<_> = pairs
             .into_iter()
@@ -286,24 +326,11 @@ impl<'a> Ledger<'a> {
             .iter()
             .map(|&(judgment, item)| (judgment, Some(item.clone())))
             .chain(completions.map(|completion| (completion, None)))
-            .map(|(judgment, item)| PlannedWithdrawal {
-                withdrawal: Withdrawal {
-                    judgment: judgment.id.clone(),
-                    item,
-                },
-                judgment,
+            .map(|(judgment, item)| Withdrawal {
+                judgment: judgment.id.clone(),
+                item,
             })
             .collect()
-    }
-
-    /// The judgments recorded on `basis`, with their positions in the log.
-    fn on(&self, basis: &BasisId) -> impl Iterator<Item = (usize, &'a Judgment)> {
-        let judgments = self.judgments;
-        self.by_basis
-            .get(basis)
-            .into_iter()
-            .flatten()
-            .map(move |&position| (position, &judgments[position]))
     }
 
     /// The standing acknowledgments and dismissals of `item` on `basis`,
@@ -358,16 +385,6 @@ pub enum WithdrawRefusal {
     Withdrawn,
 }
 
-/// A withdrawal an undo would record, with the judgment it withdraws.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedWithdrawal<'a> {
-    /// What the undo records.
-    pub withdrawal: Withdrawal,
-    /// The withdrawn judgment, which gives its kind, the review it was
-    /// made on (`basis`), and its date.
-    pub judgment: &'a Judgment,
-}
-
 /// The key that orders judgments from least to most recent: `at`, then
 /// `position`, the judgment's position in the log.
 fn recency(position: usize, judgment: &Judgment) -> (UtcTime, usize) {
@@ -382,7 +399,7 @@ pub struct GateStates<'a> {
     /// Every judgment in the store.
     ledger: &'a Ledger<'a>,
     /// The related reviews' gates, by basis ID.
-    related: HashMap<&'a BasisId, Cow<'a, GateIndex<'a>>>,
+    related: HashMap<&'a BasisId, &'a GateIndex<'a>>,
     /// The current review's gate items with their states, in gate order.
     items: Vec<JudgedItem<'a>>,
     /// Each item's position in `items`, by ID.
@@ -399,6 +416,16 @@ impl<'a> GateIndex<'a> {
     #[must_use]
     pub fn new(gate: &'a [GateItem]) -> Self {
         Self(gate.iter().map(|item| (&item.id, item)).collect())
+    }
+
+    /// The index of each of `related`'s gates, by basis ID: what
+    /// [`GateStates::new`] takes to decide the states of one review.
+    #[must_use]
+    pub fn of(related: &[RelatedBasis<'a>]) -> HashMap<&'a BasisId, Self> {
+        related
+            .iter()
+            .map(|related| (related.id, Self::new(&related.basis.gate)))
+            .collect()
     }
 }
 
@@ -453,50 +480,21 @@ impl<'a> ItemState<'a> {
 impl<'a> GateStates<'a> {
     /// The state of each gate item of the review `id`, whose basis is
     /// `basis`, from `related`, the reviews related to it, and the
-    /// judgments in `ledger`.
+    /// judgments in `ledger`. `indexes` holds the gate index of each
+    /// related review by basis ID ([`GateIndex::of`]), and may hold others,
+    /// so a caller deciding the states of many reviews indexes each gate
+    /// once; a related review it lacks closes nothing here.
     #[must_use]
     pub fn new(
-        id: &'a BasisId,
-        basis: &'a Basis,
-        related: &[RelatedBasis<'a>],
-        ledger: &'a Ledger<'a>,
-    ) -> Self {
-        Self::indexed(id, basis, related, None, ledger)
-    }
-
-    /// As [`Self::new`], taking each related review's gate index from
-    /// `indexes`, by basis ID, when it holds one, so a caller deciding the
-    /// states of many reviews indexes each gate once.
-    #[must_use]
-    pub fn with_indexes(
         id: &'a BasisId,
         basis: &'a Basis,
         related: &[RelatedBasis<'a>],
         indexes: &'a HashMap<&'a BasisId, GateIndex<'a>>,
         ledger: &'a Ledger<'a>,
     ) -> Self {
-        Self::indexed(id, basis, related, Some(indexes), ledger)
-    }
-
-    /// The states [`Self::with_indexes`] decides, indexing here the gate of
-    /// each related review that `indexes` lacks.
-    fn indexed(
-        id: &'a BasisId,
-        basis: &'a Basis,
-        related: &[RelatedBasis<'a>],
-        indexes: Option<&'a HashMap<&'a BasisId, GateIndex<'a>>>,
-        ledger: &'a Ledger<'a>,
-    ) -> Self {
         let related = related
             .iter()
-            .map(|related| {
-                let index = indexes.and_then(|indexes| indexes.get(related.id));
-                let gate = index.map_or_else(
-                    || Cow::Owned(GateIndex::new(&related.basis.gate)),
-                    Cow::Borrowed,
-                );
-                (related.id, gate)
-            })
+            .filter_map(|related| Some((related.id, indexes.get(related.id)?)))
             .collect();
         let mut states = Self {
             id,
@@ -607,10 +605,7 @@ impl<'a> GateStates<'a> {
     ///
     /// Returns every named item that nothing closes, with its state, in
     /// the order named.
-    pub fn plan_undo(
-        &self,
-        items: &[ItemId],
-    ) -> Result<Vec<PlannedWithdrawal<'a>>, Vec<NotClosed<'a>>> {
+    pub fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
         let named: Vec<_> = items.iter().filter_map(|id| self.judged(id)).collect();
         let unclosed: Vec<_> = named
             .iter()

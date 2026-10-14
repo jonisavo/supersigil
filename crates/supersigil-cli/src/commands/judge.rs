@@ -31,8 +31,8 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, StoreError};
 use supersigil_review::judging::{
-    AlreadyClosed, CompleteRefusal, FindJudgmentError, GateStates, ItemState, Ledger, NotClosed,
-    WithdrawRefusal, related_bases,
+    AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemState, Ledger,
+    NotClosed, WithdrawRefusal, related_bases,
 };
 use supersigil_review::model::{GateInfo, GateItemInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
@@ -269,8 +269,9 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let items = resolve(&names, &call.names, |text| {
         name(&checkout.worktree, &checkout.cwd, text)
     })?;
+    let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&judgments);
-    let states = GateStates::new(&id, &basis, &related, &ledger);
+    let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
     let closes = check(call.verb, &id, &states, &items, &names, &addressing)?;
     let withdraws = match call.judgment {
         Some(prefix) => withdraw_judgment(&ledger, prefix, &addressing)?,
@@ -278,7 +279,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
         None => Vec::new(),
     };
     let who = retention::identity(&checkout.repo)?.ok_or_else(|| refusal(NO_IDENTITY.lines()))?;
-    let first = !judgments.iter().any(|judgment| judgment.basis == id);
+    let first = ledger.on(&id).next().is_none();
     if first {
         keep(&checkout.repo, &id, &basis, &who, &addressing)?;
     }
@@ -304,7 +305,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
 
     judgments.push(judgment.clone());
     let ledger = Ledger::new(&judgments);
-    let after = GateStates::new(&id, &basis, &related, &ledger);
+    let after = GateStates::new(&id, &basis, &related, &indexes, &ledger);
     let recorded = Recorded {
         judgment: &judgment,
         review: &id,
@@ -317,7 +318,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
         OutputFormat::Terminal => {
             let compared = compared(basis.target.commit.as_deref(), basis.base.commit.as_deref());
             let mut out = io::stdout().lock();
-            for line in recorded.lines(call.verb, &compared, first, &addressing, &judgments) {
+            for line in recorded.lines(call.verb, &compared, first, &addressing, &ledger) {
                 writeln!(out, "{}", escape_control(&line))?;
             }
         }
@@ -345,17 +346,17 @@ impl Recorded<'_> {
     /// The lines a terminal shows: what the call `verb` recorded, naming the
     /// items and the review, which `compared` what; the snapshot kept when
     /// the call was the review's `first` judgment; how to review the
-    /// content of an untracked file dismissed; what an undo withdrew of
-    /// `judgments`; the judgment's id and the gate; and what to run next.
-    /// Commands are addressed as `addressing` says, followed by its note
-    /// once when they show a value as given.
+    /// content of an untracked file dismissed; what an undo withdrew of the
+    /// judgments in `ledger`; the judgment's id and the gate; and what to
+    /// run next. Commands are addressed as `addressing` says, followed by
+    /// its note once when they show a value as given.
     fn lines(
         &self,
         verb: Verb,
         compared: &str,
         first: bool,
         addressing: &Addressing,
-        judgments: &[Judgment],
+        ledger: &Ledger<'_>,
     ) -> Vec<String> {
         let id = self.review.short();
         let gate = gate_index(&self.gate);
@@ -405,7 +406,7 @@ impl Recorded<'_> {
                 }
             }
         }
-        lines.extend(self.withdrawn(judgments, &gate));
+        lines.extend(self.withdrawn(ledger, &gate));
         let open: Vec<&str> = self
             .gate
             .items
@@ -431,73 +432,44 @@ impl Recorded<'_> {
         lines
     }
 
-    /// One line per judgment of `judgments` the recorded undo withdraws, in
+    /// One line per judgment of `ledger` the recorded undo withdraws, in
     /// the order withdrawn, naming what of it was withdrawn. A completion
     /// withdrawn because it counted an acknowledgment or dismissal the undo
     /// withdraws is named as also withdrawn.
     fn withdrawn(
         &self,
-        judgments: &[Judgment],
+        ledger: &Ledger<'_>,
         gate: &BTreeMap<&ItemId, &GateItemInfo>,
     ) -> Vec<String> {
         let withdraws = &self.judgment.withdraws;
         let counted = withdraws.iter().any(|withdrawal| withdrawal.item.is_some());
-        let by_id: BTreeMap<&JudgmentId, &Judgment> = judgments
-            .iter()
-            .rev()
-            .map(|judgment| (&judgment.id, judgment))
-            .collect();
-        by_judgment(withdraws)
+        ledger
+            .withdrawn(withdraws)
             .into_iter()
-            .filter_map(|(id, items)| {
-                let judgment = *by_id.get(id)?;
+            .map(|(judgment, items)| {
                 let (date, review) = (judgment.at.date(), judgment.basis.short());
-                let names = |items: &[&ItemId]| {
-                    sentence_list(items.iter().map(|item| item_name(gate, item)))
-                };
-                Some(match judgment.kind {
+                let names = sentence_list(items.iter().map(|item| item_name(gate, item)));
+                match judgment.kind {
                     JudgmentKind::Complete if counted => {
                         format!("Also withdrew the completion of review {review}.")
                     }
                     JudgmentKind::Complete => {
                         format!("Withdrew your completion of review {review} ({date}).")
                     }
-                    JudgmentKind::Comment if judgment.items.is_empty() => {
+                    JudgmentKind::Comment if items.is_empty() => {
                         format!("Withdrew your comment on review {review} ({date}).")
                     }
                     JudgmentKind::Comment => {
-                        let on: Vec<&ItemId> = judgment.items.iter().collect();
-                        format!(
-                            "Withdrew your comment on {} ({date}, review {review}).",
-                            names(&on)
-                        )
+                        format!("Withdrew your comment on {names} ({date}, review {review}).")
                     }
                     kind => format!(
-                        "Withdrew your {} of {} ({date}, review {review}).",
-                        noun(kind),
-                        names(&items)
+                        "Withdrew your {} of {names} ({date}, review {review}).",
+                        noun(kind)
                     ),
-                })
+                }
             })
             .collect()
     }
-}
-
-/// Each judgment `withdraws` withdraws something of, once, in the order
-/// withdrawn, with the items whose judgment it withdraws (none for a whole
-/// comment or completion).
-fn by_judgment(withdraws: &[Withdrawal]) -> Vec<(&JudgmentId, Vec<&ItemId>)> {
-    let mut grouped: Vec<(&JudgmentId, Vec<&ItemId>)> = Vec::new();
-    let mut position: BTreeMap<&JudgmentId, usize> = BTreeMap::new();
-    for withdrawal in withdraws {
-        if let Some(&at) = position.get(&withdrawal.judgment) {
-            grouped[at].1.extend(&withdrawal.item);
-        } else {
-            position.insert(&withdrawal.judgment, grouped.len());
-            grouped.push((&withdrawal.judgment, withdrawal.item.iter().collect()));
-        }
-    }
-    grouped
 }
 
 /// The items of `gate` by id, so each lookup is one search of the index
@@ -760,7 +732,7 @@ fn withdraw_items(
     items: &[ItemId],
     names: &ItemNames<'_>,
 ) -> Result<Vec<Withdrawal>, CliError> {
-    let planned = states.plan_undo(items).map_err(|unclosed| {
+    states.plan_undo(items).map_err(|unclosed| {
         let mut lines = vec!["Nothing closes these items, so there is nothing to undo:".to_owned()];
         for NotClosed { item, state } in &unclosed {
             let name = names.name(&item.id).unwrap_or_default();
@@ -776,8 +748,7 @@ fn withdraw_items(
             });
         }
         refusal(lines)
-    })?;
-    Ok(planned.into_iter().map(|plan| plan.withdrawal).collect())
+    })
 }
 
 /// What `undo --judgment <prefix>` withdraws: the judgment `prefix` names
@@ -820,7 +791,7 @@ fn withdraw_judgment(
             refusal(lines)
         }
     })?;
-    let planned = ledger
+    ledger
         .plan_withdrawal(judgment)
         .map_err(|refused| match refused {
             WithdrawRefusal::Undo => refusal([format!(
@@ -831,8 +802,7 @@ fn withdraw_judgment(
                 "Judgment {} is already withdrawn.",
                 judgment.id.short()
             )]),
-        })?;
-    Ok(planned.into_iter().map(|plan| plan.withdrawal).collect())
+        })
 }
 
 /// Keeps the snapshot `basis` reviewed reachable under
