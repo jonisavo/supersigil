@@ -1588,6 +1588,54 @@ fn list_indexes_each_gate_once_however_many_reviews_are_related() {
     );
 }
 
+#[test]
+fn a_judgment_naming_every_item_of_a_large_gate_prints_promptly() {
+    // 5,000 gate items acknowledged at once; finding each item's printed
+    // name by scanning the gate would take about 12.5 million comparisons.
+    let (f, review) = reviewed();
+    let document: Basis = serde_json::from_value(review["basis"]["document"].clone()).unwrap();
+    let template = &document.gate[0];
+    let mut basis = document.clone();
+    basis.gate = (0..5000)
+        .map(|k| {
+            GateItem::new(
+                Subject::Path(PathBytes::new(format!("src/f{k}.rs"))),
+                template.detail.clone(),
+                template.fingerprint.clone(),
+            )
+        })
+        .collect();
+    let store = review_store(&f, &f.reviews());
+    let mut tx = store.begin().unwrap();
+    let id = tx.save_basis(&basis, UtcTime::now()).unwrap();
+    tx.commit().unwrap();
+    let names: Vec<String> = (0..5000).map(|k| format!("src/f{k}.rs")).collect();
+    let mut args = vec!["acknowledge", "--review", &id.as_str()[..8]];
+    args.extend(names.iter().map(String::as_str));
+
+    let started = Instant::now();
+    let text = judged(&f, &f.repo, &args);
+    let elapsed = started.elapsed();
+
+    let first = text.lines().next().unwrap();
+    let listed = format!("{}, and {}", names[..4999].join(", "), names[4999]);
+    assert!(
+        first.starts_with(&format!(
+            "Acknowledged {listed} on review {} ",
+            &id.as_str()[..8]
+        )),
+        "{}",
+        &first[..200.min(first.len())]
+    );
+    assert!(
+        text.contains("Gate: 0 open."),
+        "{}",
+        &text[text.len() - 200..]
+    );
+    assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
+    eprintln!("5,000-item judgment took {elapsed:?}");
+}
+
 /// `judgment` as reading commands print it in JSON.
 fn info(judgment: &Judgment) -> Value {
     let mut info = json!({

@@ -358,11 +358,12 @@ impl Recorded<'_> {
         judgments: &[Judgment],
     ) -> Vec<String> {
         let id = self.review.short();
+        let gate = gate_index(&self.gate);
         let named: Vec<&GateItemInfo> = self
             .judgment
             .items
             .iter()
-            .filter_map(|item| self.gate.items.iter().find(|info| info.id == *item))
+            .filter_map(|item| gate.get(item).copied())
             .collect();
         let items = sentence_list(named.iter().map(|item| item.name.as_str()));
         let review = format!("review {id} ({compared})");
@@ -404,7 +405,7 @@ impl Recorded<'_> {
                 }
             }
         }
-        lines.extend(self.withdrawn(judgments));
+        lines.extend(self.withdrawn(judgments, &gate));
         let open: Vec<&str> = self
             .gate
             .items
@@ -434,16 +435,25 @@ impl Recorded<'_> {
     /// the order withdrawn, naming what of it was withdrawn. A completion
     /// withdrawn because it counted an acknowledgment or dismissal the undo
     /// withdraws is named as also withdrawn.
-    fn withdrawn(&self, judgments: &[Judgment]) -> Vec<String> {
+    fn withdrawn(
+        &self,
+        judgments: &[Judgment],
+        gate: &BTreeMap<&ItemId, &GateItemInfo>,
+    ) -> Vec<String> {
         let withdraws = &self.judgment.withdraws;
         let counted = withdraws.iter().any(|withdrawal| withdrawal.item.is_some());
+        let by_id: BTreeMap<&JudgmentId, &Judgment> = judgments
+            .iter()
+            .rev()
+            .map(|judgment| (&judgment.id, judgment))
+            .collect();
         by_judgment(withdraws)
             .into_iter()
             .filter_map(|(id, items)| {
-                let judgment = judgments.iter().find(|judgment| judgment.id == *id)?;
+                let judgment = *by_id.get(id)?;
                 let (date, review) = (judgment.at.date(), judgment.basis.short());
                 let names = |items: &[&ItemId]| {
-                    sentence_list(items.iter().map(|item| item_name(&self.gate, item)))
+                    sentence_list(items.iter().map(|item| item_name(gate, item)))
                 };
                 Some(match judgment.kind {
                     JudgmentKind::Complete if counted => {
@@ -478,24 +488,32 @@ impl Recorded<'_> {
 /// comment or completion).
 fn by_judgment(withdraws: &[Withdrawal]) -> Vec<(&JudgmentId, Vec<&ItemId>)> {
     let mut grouped: Vec<(&JudgmentId, Vec<&ItemId>)> = Vec::new();
+    let mut position: BTreeMap<&JudgmentId, usize> = BTreeMap::new();
     for withdrawal in withdraws {
-        match grouped
-            .iter_mut()
-            .find(|(judgment, _)| **judgment == withdrawal.judgment)
-        {
-            Some((_, items)) => items.extend(&withdrawal.item),
-            None => grouped.push((&withdrawal.judgment, withdrawal.item.iter().collect())),
+        if let Some(&at) = position.get(&withdrawal.judgment) {
+            grouped[at].1.extend(&withdrawal.item);
+        } else {
+            position.insert(&withdrawal.judgment, grouped.len());
+            grouped.push((&withdrawal.judgment, withdrawal.item.iter().collect()));
         }
     }
     grouped
 }
 
-/// The name of `item` in `gate`, or `id:` and its first 8 digits when
-/// `gate` does not hold it.
-fn item_name(gate: &GateInfo, item: &ItemId) -> String {
+/// The items of `gate` by id, so each lookup is one search of the index
+/// instead of a scan of the gate. The first item with an id wins.
+fn gate_index(gate: &GateInfo) -> BTreeMap<&ItemId, &GateItemInfo> {
     gate.items
         .iter()
-        .find(|info| info.id == *item)
+        .rev()
+        .map(|info| (&info.id, info))
+        .collect()
+}
+
+/// The name of `item` in `gate`, an index made by [`gate_index`], or `id:`
+/// and its first 8 digits when the gate does not hold it.
+fn item_name(gate: &BTreeMap<&ItemId, &GateItemInfo>, item: &ItemId) -> String {
+    gate.get(item)
         .map_or_else(|| format!("id:{}", item.short()), |info| info.name.clone())
 }
 
