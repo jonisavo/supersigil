@@ -16,7 +16,7 @@
 //! `<n>` is the number assigned to a session on its first write. Using this
 //! number keeps source-provided session IDs out of file paths.
 //!
-//! A derivation document a later revision replaces stays for readers of
+//! A derivation document a later revision replaced stays for readers of
 //! earlier revisions. The manifest lists it as superseded at the time of
 //! that revision, and the first commit more than 14 days later deletes it.
 //!
