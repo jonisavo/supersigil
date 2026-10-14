@@ -459,7 +459,7 @@ pub(crate) const fn relation_words(relation: Relation) -> &'static str {
 /// Sums the counts of every capture limitation of one transcript. They come
 /// from one record and cover disjoint line ranges, so no problem is counted
 /// twice.
-fn total_counts(limitations: &[CaptureLimitation]) -> CaptureCounts {
+pub(crate) fn total_counts(limitations: &[CaptureLimitation]) -> CaptureCounts {
     limitations
         .iter()
         .map(|limitation| &limitation.counts)

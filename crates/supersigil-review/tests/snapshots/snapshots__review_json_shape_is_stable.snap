@@ -42,13 +42,16 @@ scope:
   paths: []
   untracked_excluded:
     - path: src/new.rs
+      path_escaped: ~
       recorded_edit: true
       include_flag: "--include-untracked src/new.rs"
     - path: scratch.txt
+      path_escaped: ~
       recorded_edit: false
       include_flag: "--include-untracked scratch.txt"
   not_captured:
     - path: config.toml
+      path_escaped: ~
       on_disk: present
       cause: assume_unchanged
   skip_worktree_absent: 0

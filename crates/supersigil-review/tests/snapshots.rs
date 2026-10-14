@@ -16,6 +16,7 @@ use supersigil_anchor::{
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
+use supersigil_record::reviews::PathBytes;
 use supersigil_record::{RecordId, SessionId};
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommandChange, EditInfo, EditOriginInfo, EvidenceInfo,
@@ -165,6 +166,7 @@ fn text_file(
     let info = RepoPathInfo {
         display: path.to_owned(),
         escaped: None,
+        bytes: PathBytes::new(path),
     };
     let mode = |side: Option<&[u8]>| if side.is_some() { "100644" } else { "000000" };
     let presence = |side: Option<&[u8]>| {
@@ -198,6 +200,7 @@ fn sample_files() -> Vec<FileReview> {
     let logo = RepoPathInfo {
         display: "logo.png".to_owned(),
         escaped: None,
+        bytes: PathBytes::new("logo.png"),
     };
     let binary = file_review(FileInput {
         path: &logo,
@@ -275,17 +278,23 @@ fn sample_scope() -> ScopeInfo {
         untracked_excluded: vec![
             UntrackedInfo {
                 path: "src/new.rs".to_owned(),
+                path_escaped: None,
+                path_bytes: PathBytes::new("src/new.rs"),
                 recorded_edit: true,
                 include_flag: "--include-untracked src/new.rs".to_owned(),
             },
             UntrackedInfo {
                 path: "scratch.txt".to_owned(),
+                path_escaped: None,
+                path_bytes: PathBytes::new("scratch.txt"),
                 recorded_edit: false,
                 include_flag: "--include-untracked scratch.txt".to_owned(),
             },
         ],
         not_captured: vec![NotCapturedInfo {
             path: "config.toml".to_owned(),
+            path_escaped: None,
+            path_bytes: PathBytes::new("config.toml"),
             on_disk: "present".to_owned(),
             cause: "assume_unchanged".to_owned(),
         }],

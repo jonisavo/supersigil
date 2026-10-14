@@ -836,9 +836,11 @@ dependencies = [
 name = "supersigil-review"
 version = "0.14.0"
 dependencies = [
+ "hex",
  "insta",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "supersigil-anchor",
  "supersigil-record",

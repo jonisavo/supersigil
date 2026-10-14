@@ -7,9 +7,12 @@
 //! maps line for line onto that diff. [`outcome`] turns each diff line's
 //! provenance into one outer outcome by its ordered rules, and
 //! [`model::file_review`] assembles hunks and spans. [`summary`] and [`why`]
-//! render the terminal forms.
+//! render the terminal forms. [`gate`] builds a review's gate items, with
+//! the fingerprints that carry judgments between reviews, and the digests a
+//! saved review keeps of its evidence.
 
 pub mod diff;
+pub mod gate;
 pub mod mapping;
 pub mod model;
 pub mod outcome;

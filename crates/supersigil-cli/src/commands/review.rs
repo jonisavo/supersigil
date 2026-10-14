@@ -11,6 +11,7 @@ use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, changed_paths, classify_bytes, classify_change,
 };
 use supersigil_git::{Ancestry, ObjectId, RepoPath, TargetSpec};
+use supersigil_record::reviews::PathBytes;
 use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
     NotCapturedInfo, RepoPathInfo, ScopeInfo, UntrackedInfo, file_review, unattributed_summary,
@@ -175,14 +176,7 @@ fn review_file(
             Err(format!("not diffed: {}", file_kind(kind).as_str())),
         )
     };
-    let path = RepoPathInfo {
-        display: change.path.display(),
-        escaped: change
-            .path
-            .to_str()
-            .is_none()
-            .then(|| change.path.escaped()),
-    };
+    let path = path_info(&change.path);
     let command_changes: Vec<CommandChange> =
         g.command_changes.touching(&change.path).cloned().collect();
     let mentions = change
@@ -211,6 +205,15 @@ fn review_file(
         file.mentions.clear();
     }
     Ok((file, attribution.ok()))
+}
+
+/// A path's display forms and raw bytes.
+fn path_info(path: &RepoPath) -> RepoPathInfo {
+    RepoPathInfo {
+        display: path.display(),
+        escaped: path.to_str().is_none().then(|| path.escaped()),
+        bytes: PathBytes::new(path.as_bytes()),
+    }
 }
 
 /// Whether any span of `file` is unattributed.
@@ -247,8 +250,11 @@ fn scope_info(g: &Gathered) -> ScopeInfo {
             .candidates
             .iter()
             .any(|m| m.candidate.worktree == g.worktree && same_path(&m.path, path, g.ignore_case));
+        let forms = path_info(path);
         info.untracked_excluded.push(UntrackedInfo {
-            path: path.display(),
+            path: forms.display,
+            path_escaped: forms.escaped,
+            path_bytes: forms.bytes,
             recorded_edit,
             include_flag: format!(
                 "--include-untracked {}",
@@ -264,10 +270,15 @@ fn scope_info(g: &Gathered) -> ScopeInfo {
     info.not_captured = snapshot
         .not_captured
         .iter()
-        .map(|n| NotCapturedInfo {
-            path: n.path.display(),
-            on_disk: on_disk_word(n.on_disk).to_owned(),
-            cause: cause_word(n.cause).to_owned(),
+        .map(|n| {
+            let forms = path_info(&n.path);
+            NotCapturedInfo {
+                path: forms.display,
+                path_escaped: forms.escaped,
+                path_bytes: forms.bytes,
+                on_disk: on_disk_word(n.on_disk).to_owned(),
+                cause: cause_word(n.cause).to_owned(),
+            }
         })
         .collect();
     info.skip_worktree_absent = snapshot.skip_worktree_absent;

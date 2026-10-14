@@ -14,6 +14,7 @@ use supersigil_record::EventId;
 use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
+use supersigil_record::reviews::PathBytes;
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::outcome::{
@@ -206,16 +207,37 @@ pub struct FileCounts {
 }
 
 impl FileCounts {
-    fn empty(path: String) -> Self {
-        Self {
-            path,
+    /// `file`'s counts, with the spans they count: every span except
+    /// attributed, whitespace-only, and realigned lines.
+    pub(crate) fn of(file: &FileReview) -> (Self, Vec<&Span>) {
+        let mut counts = Self {
+            path: file.path.clone(),
             unattributed: 0,
             content_match_incomplete: 0,
             unresolved: 0,
             ambiguous: 0,
             line_ending: 0,
             content_match_only: 0,
+        };
+        let mut counted = Vec::new();
+        for span in file.hunks.iter().flat_map(|hunk| &hunk.spans) {
+            let slot = match span.outcome {
+                Outcome::Unattributed {
+                    reason: UnattributedReason::ContentMatchIncomplete,
+                } => &mut counts.content_match_incomplete,
+                Outcome::Unattributed { .. } => &mut counts.unattributed,
+                Outcome::Unresolved { .. } => &mut counts.unresolved,
+                Outcome::Ambiguous { .. } => &mut counts.ambiguous,
+                Outcome::LineEndingChanged => &mut counts.line_ending,
+                Outcome::ContentMatch { .. } => &mut counts.content_match_only,
+                Outcome::Attributed { .. }
+                | Outcome::WhitespaceOnly { .. }
+                | Outcome::Realigned { .. } => continue,
+            };
+            *slot += span.count;
+            counted.push(span);
         }
+        (counts, counted)
     }
 
     const fn total(&self) -> usize {
@@ -267,8 +289,13 @@ pub struct ScopeInfo {
 /// An untracked file the scope excluded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UntrackedInfo {
-    /// The file.
+    /// The file, lossy when not UTF-8.
     pub path: String,
+    /// Reversible escaped form, present only when the path is not UTF-8.
+    pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate item.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// Whether a candidate edit in the reviewed worktree names this path.
     /// A shell-inferred edit does not establish that its statement ran.
     pub recorded_edit: bool,
@@ -279,8 +306,13 @@ pub struct UntrackedInfo {
 /// A path whose on-disk state the snapshot did not capture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NotCapturedInfo {
-    /// The path.
+    /// The path, lossy when not UTF-8.
     pub path: String,
+    /// Reversible escaped form, present only when the path is not UTF-8.
+    pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate item.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// `present` or `missing`.
     pub on_disk: String,
     /// `assume_unchanged`, `skip_worktree`, or `not_staged`.
@@ -376,6 +408,9 @@ pub struct FileReview {
     pub path: String,
     /// Reversible escaped form, present only when the path is not UTF-8.
     pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate items.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// Git status.
     pub status: FileStatus,
     /// Base mode as octal text, `000000` when absent.
@@ -673,13 +708,15 @@ pub struct PromptInfo {
     pub excerpt: Material<String>,
 }
 
-/// A changed path's display forms.
+/// A changed path's display forms and raw bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoPathInfo {
     /// Lossy display name.
     pub display: String,
     /// Reversible escaped form when the path is not UTF-8.
     pub escaped: Option<String>,
+    /// The raw bytes.
+    pub bytes: PathBytes,
 }
 
 /// Everything [`file_review`] needs for one changed path.
@@ -754,6 +791,7 @@ pub fn file_review(mut input: FileInput<'_>) -> FileReview {
     FileReview {
         path: input.path.display.clone(),
         path_escaped: input.path.escaped.clone(),
+        path_bytes: input.path.bytes.clone(),
         status: input.status,
         old_mode: input.old_mode,
         new_mode: input.new_mode,
@@ -775,23 +813,7 @@ pub fn file_review(mut input: FileInput<'_>) -> FileReview {
 pub fn unattributed_summary(files: &[FileReview], scope: &ScopeInfo) -> UnattributedSummary {
     let mut summary = UnattributedSummary::default();
     for file in files {
-        let mut counts = FileCounts::empty(file.path.clone());
-        for span in file.hunks.iter().flat_map(|hunk| &hunk.spans) {
-            let slot = match span.outcome {
-                Outcome::Unattributed {
-                    reason: UnattributedReason::ContentMatchIncomplete,
-                } => &mut counts.content_match_incomplete,
-                Outcome::Unattributed { .. } => &mut counts.unattributed,
-                Outcome::Unresolved { .. } => &mut counts.unresolved,
-                Outcome::Ambiguous { .. } => &mut counts.ambiguous,
-                Outcome::LineEndingChanged => &mut counts.line_ending,
-                Outcome::ContentMatch { .. } => &mut counts.content_match_only,
-                Outcome::Attributed { .. }
-                | Outcome::WhitespaceOnly { .. }
-                | Outcome::Realigned { .. } => continue,
-            };
-            *slot += span.count;
-        }
+        let (counts, _) = FileCounts::of(file);
         if counts.total() > 0 {
             summary.files.push(counts);
         }
