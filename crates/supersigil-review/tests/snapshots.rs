@@ -27,13 +27,14 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::gate::{GateInputs, gate_items};
-use supersigil_review::judging::{GateStates, Ledger};
+use supersigil_review::judging::{GateStates, Ledger, Relation};
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, CommandChange, EditInfo, EditOriginInfo, EvidenceInfo,
-    FileInput, FileKindInfo, FileReview, FileStatus, GateInfo, Mention, MentionResult,
-    NotCapturedInfo, OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, SavedBasis, ScopeInfo,
-    StatusInfo, TargetInfo, TargetKindInfo, TranscriptInfo, UnreconciledInfo, Unsaved,
-    UntrackedInfo, file_review, unattributed_summary,
+    AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, EditInfo, EditOriginInfo,
+    EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus, GateInfo, JudgmentInfo, Mention,
+    MentionResult, NewObservations, NotCapturedInfo, OriginsInfo, PromptInfo, RecordInfo,
+    RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, TargetInfo, TargetKindInfo,
+    TranscriptInfo, UncoveredInfo, UnreconciledInfo, Unsaved, UntrackedInfo, file_review,
+    unattributed_summary,
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
@@ -866,6 +867,190 @@ fn a_working_tree_without_changes_points_at_a_commit_just_made() {
         )),
         "{commit}"
     );
+}
+
+/// The id of an earlier review, of another target tree than the sample's.
+fn earlier_id() -> BasisId {
+    let mut document = sample_basis().document;
+    document.target.tree = "d".repeat(40);
+    document.basis_id().unwrap()
+}
+
+/// The earlier review related to `review` as `relation`, completed on
+/// 2026-10-13 when `completed`, with nothing changed since.
+fn related(relation: Relation, completed: bool) -> RelatedInfo {
+    let earlier = earlier_id();
+    RelatedInfo {
+        completion: completed
+            .then(|| JudgmentInfo::new(&judgment("done", &earlier, JudgmentKind::Complete, &[]))),
+        review: earlier,
+        relation,
+        changed_paths: Some(Vec::new()),
+        changed_evidence: ChangedEvidence::default(),
+        uncovered: Vec::new(),
+    }
+}
+
+/// The lines of `text` from its status line to the gate line.
+fn status_lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .skip(4)
+        .take_while(|line| !line.starts_with("Gate: "))
+        .collect()
+}
+
+#[test]
+fn a_completion_carried_over_names_its_review() {
+    let mut review = closed_review();
+    let carried = related(Relation::SameContent, true);
+    review.status = StatusInfo {
+        complete: true,
+        completion: carried.completion.clone(),
+        related: vec![carried],
+    };
+
+    let text = summary(&review);
+
+    assert_eq!(
+        status_lines(&text),
+        [format!(
+            "Review complete: completed on 2026-10-13 by Joni Savolainen for the same content \
+             (review {}).",
+            earlier_id().short()
+        )],
+        "{text}"
+    );
+    assert!(!text.contains("Next:"), "{text}");
+}
+
+#[test]
+fn changed_code_and_evidence_are_listed_since_the_completion() {
+    let mut review = sample_review();
+    let mut changed = related(Relation::CodeChanged, true);
+    changed.changed_paths = Some(vec![
+        PathBytes::new("src/lib.rs"),
+        PathBytes::new("src/new.rs"),
+    ]);
+    changed.changed_evidence = ChangedEvidence {
+        explanations: vec![PathBytes::new("notes.txt"), PathBytes::new("old.txt")],
+        new: vec![
+            NewObservations {
+                session: "s1".to_owned(),
+                paths: vec![PathBytes::new("notes.txt")],
+            },
+            NewObservations {
+                session: "s2".to_owned(),
+                paths: vec![PathBytes::new("notes.txt"), PathBytes::new("old.txt")],
+            },
+        ],
+        capture: vec![TRANSCRIPT.to_owned()],
+        gone_or_rewritten: vec![RecordId::new("r1"), RecordId::new("r2")],
+    };
+    // Only the review the completion was made on says what differs.
+    changed.uncovered = vec![UncoveredInfo {
+        id: review.gate.items[0].id.clone(),
+        name: review.gate.items[0].name.clone(),
+        reasons: vec!["new"],
+    }];
+    review.status.related = vec![changed];
+
+    let text = summary(&review);
+
+    let since = format!(
+        "since your completion on 2026-10-13 (review {})",
+        earlier_id().short()
+    );
+    assert_eq!(
+        status_lines(&text),
+        [
+            format!("Review not complete. Code changed {since}:"),
+            "  src/lib.rs".to_owned(),
+            "  src/new.rs".to_owned(),
+            format!("Evidence changed {since}:"),
+            "  explanations differ: notes.txt, old.txt".to_owned(),
+            "  new: session s1: notes.txt; session s2: notes.txt, old.txt".to_owned(),
+            format!("  capture limitations changed: {TRANSCRIPT}"),
+            "  gone or rewritten: r1, r2".to_owned(),
+        ],
+        "{text}"
+    );
+}
+
+#[test]
+fn changed_paths_are_unavailable_once_the_reviewed_snapshot_is_gone() {
+    let mut review = sample_review();
+    let mut changed = related(Relation::CodeChanged, true);
+    changed.changed_paths = None;
+    review.status.related = vec![changed];
+
+    let text = summary(&review);
+    let json = serde_json::to_value(&review.status).unwrap();
+
+    assert_eq!(
+        status_lines(&text),
+        [
+            format!(
+                "Review not complete. Code changed since your completion on 2026-10-13 (review \
+                 {}):",
+                earlier_id().short()
+            ),
+            "  changed paths unavailable: the reviewed snapshot is no longer in the repository"
+                .to_owned(),
+        ],
+        "{text}"
+    );
+    assert_eq!(json["related"][0]["changed_paths"], Value::Null);
+}
+
+#[test]
+fn a_same_content_completion_names_the_gate_items_it_did_not_cover() {
+    let mut review = closed_review();
+    let mut same = related(Relation::SameContent, true);
+    same.uncovered = review.gate.items[..2]
+        .iter()
+        .zip([vec!["file on disk changed"], vec!["new"]])
+        .map(|(item, reasons)| UncoveredInfo {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            reasons,
+        })
+        .collect();
+    let names: Vec<String> = review.gate.items[..2]
+        .iter()
+        .map(|item| item.name.clone())
+        .collect();
+    review.status.related = vec![same];
+
+    let text = summary(&review);
+
+    assert_eq!(
+        status_lines(&text),
+        [
+            "Review not complete. Completed on 2026-10-13 for the same content, but these gate \
+             items differ from that review:"
+                .to_owned(),
+            format!("  {}: file on disk changed", names[0]),
+            format!("  {}: new", names[1]),
+            "No open gate items. This snapshot has not been marked complete.".to_owned(),
+        ],
+        "{text}"
+    );
+    assert!(
+        text.ends_with("\n\nNext: supersigil judge complete\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn related_reviews_without_a_completion_change_nothing_in_the_status() {
+    let mut review = closed_review();
+    let mut changed = related(Relation::CodeChanged, false);
+    changed.changed_paths = Some(vec![PathBytes::new("src/lib.rs")]);
+    review.status.related = vec![changed];
+
+    let text = summary(&review);
+
+    assert_eq!(status_lines(&text), ["Review not complete."], "{text}");
 }
 
 #[test]

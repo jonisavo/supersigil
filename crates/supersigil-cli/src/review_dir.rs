@@ -1,14 +1,17 @@
-//! Where saved reviews live and how a command opens its repository's review
-//! store.
+//! Where saved reviews live, how a command opens its repository's review
+//! store, and which saved reviews it reads beside the one it shows.
 //!
 //! Every lock wait is bounded, as reconcile's are: a store another command
 //! holds is reported busy, never waited on indefinitely.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use supersigil_record::StoreError;
-use supersigil_record::reviews::{self, ReviewStore, ReviewTx};
+use supersigil_record::reviews::{
+    self, Basis, BasisId, Judgment, ReviewSnapshot, ReviewStore, ReviewTx,
+};
 
 use crate::error::CliError;
 use crate::record_dir::{lock_dir_within, poll, resolve_data_dir};
@@ -53,6 +56,44 @@ pub fn open_review_store_within(
     };
     drop(guard);
     Ok(Some(store))
+}
+
+/// The basis of every review other than `id` that one of `judgments` is
+/// recorded on, so carry-forward can relate it to `id`.
+///
+/// # Errors
+///
+/// Returns the store errors of [`ReviewSnapshot::basis`].
+pub fn judged_bases(
+    snapshot: &ReviewSnapshot,
+    judgments: &[Judgment],
+    id: &BasisId,
+) -> Result<BTreeMap<BasisId, Basis>, CliError> {
+    load_bases(
+        snapshot,
+        judgments
+            .iter()
+            .map(|judgment| &judgment.basis)
+            .filter(|basis| *basis != id),
+    )
+}
+
+/// The basis of each review `ids` names in `snapshot`, each read once.
+///
+/// # Errors
+///
+/// Returns the store errors of [`ReviewSnapshot::basis`].
+pub fn load_bases<'i>(
+    snapshot: &ReviewSnapshot,
+    ids: impl IntoIterator<Item = &'i BasisId>,
+) -> Result<BTreeMap<BasisId, Basis>, CliError> {
+    let mut bases = BTreeMap::new();
+    for id in ids {
+        if !bases.contains_key(id) {
+            bases.insert(id.clone(), snapshot.basis(id)?);
+        }
+    }
+    Ok(bases)
 }
 
 /// Begins a write transaction on `store`, trying its writer lock every

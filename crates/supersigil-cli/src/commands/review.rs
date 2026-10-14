@@ -2,7 +2,9 @@
 //! line attributed to the recorded edits that produced it, or the reason it
 //! is not. Every review is saved in the repository's review store, so
 //! judgments can bind to exactly what it showed, and shows its gate with
-//! the judgments recorded on it and the command to run next.
+//! the judgments recorded on it or carried from related reviews that saw an
+//! item's same evidence, what changed since the most recent related
+//! completion, and the command to run next.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write as _};
@@ -23,7 +25,7 @@ use supersigil_record::reviews::{
 };
 use supersigil_record::time::UtcTime;
 use supersigil_review::gate::{capture, explanations, gate_items};
-use supersigil_review::judging::{GateStates, Ledger, RelatedBasis};
+use supersigil_review::judging::{GateStates, Ledger, related_bases};
 use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
     GateInfo, NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, Unsaved,
@@ -49,7 +51,8 @@ use crate::pipeline::{
 };
 use crate::reconcile::LOCK_WAIT;
 use crate::record_dir;
-use crate::review_dir::{begin_within, open_review_store_within, resolve_review_dir};
+use crate::reopening::read_changes;
+use crate::review_dir::{begin_within, judged_bases, open_review_store_within, resolve_review_dir};
 
 /// Runs `supersigil review`.
 ///
@@ -88,13 +91,14 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     // cannot hold it, so it is never saved and no judgment applies to it.
     match document.basis_id() {
         Ok(id) => {
-            let stored = store(&g, &reviews_dir, &document)?;
-            (review.status, review.gate) = judged(&g, &id, &document, &[], &stored.judgments);
+            let stored = store(&g, &reviews_dir, &document, &id)?;
+            (review.status, review.gate) = judged(&g, &review, &id, &document, &stored)?;
             addressing.review =
                 (stored.selection.as_ref() != Some(&id)).then(|| id.short().to_owned());
-            match stored.saved {
-                Some(id) => review.basis = Some(SavedBasis { id, document }),
-                None => review.basis_unsaved = Some(Unsaved::Busy),
+            if stored.saved {
+                review.basis = Some(SavedBasis { id, document });
+            } else {
+                review.basis_unsaved = Some(Unsaved::Busy);
             }
         }
         Err(_not_utf8) => {
@@ -115,30 +119,38 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
 
 /// What the review store holds of a review after [`store`] saved it.
 struct Stored {
-    /// The basis's id, or `None` when the store stayed busy.
-    saved: Option<BasisId>,
+    /// Whether the basis was saved; not when the store stayed busy.
+    saved: bool,
     /// Every judgment in the store, in the order recorded.
     judgments: Vec<Judgment>,
     /// The review the reviewed worktree selects, if any.
     selection: Option<BasisId>,
+    /// The basis of every other review with a judgment, by id.
+    judged: BTreeMap<BasisId, Basis>,
 }
 
-/// Saves `basis` in the review store in `reviews_dir` of `g`'s repository
-/// (see [`save`]), then reads the store without a lock: its judgments and
-/// the reviewed worktree's selection. When the store's directory stayed
-/// busy, the store is only looked up; no store yet has no judgments.
+/// Saves `basis`, whose id is `id`, in the review store in `reviews_dir`
+/// of `g`'s repository (see [`save`]), then reads the store without a
+/// lock: its judgments, the reviewed worktree's selection, and the other
+/// reviews judged. When the store's directory stayed busy, the store is
+/// only looked up; no store yet has no judgments.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Git`] if the repository's common directory cannot be
 /// resolved, the errors of [`save`], and the store errors of finding the
-/// store and reading its manifest and judgments.
-fn store(g: &Gathered, reviews_dir: &Path, basis: &Basis) -> Result<Stored, CliError> {
+/// store and reading its manifest, judgments, and bases.
+fn store(
+    g: &Gathered,
+    reviews_dir: &Path,
+    basis: &Basis,
+    id: &BasisId,
+) -> Result<Stored, CliError> {
     let repository = common_dir(&g.repo)?;
     let store = open_review_store_within(reviews_dir, &repository, LOCK_WAIT)?;
     let saved = match &store {
-        Some(store) => save(g, store, basis)?,
-        None => None,
+        Some(store) => save(g, store, basis)?.is_some(),
+        None => false,
     };
     let store = match store {
         Some(store) => Some(store),
@@ -149,30 +161,42 @@ fn store(g: &Gathered, reviews_dir: &Path, basis: &Basis) -> Result<Stored, CliE
             saved,
             judgments: Vec::new(),
             selection: None,
+            judged: BTreeMap::new(),
         });
     };
+    let judgments = snapshot.judgments()?;
     Ok(Stored {
         saved,
-        judgments: snapshot.judgments()?,
+        judged: judged_bases(&snapshot, &judgments, id)?,
         selection: snapshot.manifest().selections.get(&g.worktree).cloned(),
+        judgments,
     })
 }
 
-/// The status and the gate of the review `id`, whose basis is `basis`, as
-/// `judgments` and the `related` reviews give them, each item named as
-/// typed from the current directory.
+/// The status and the gate of `review`, gathered in `g`, whose basis
+/// `basis` has the id `id`: each item's state from the judgments `stored`
+/// holds on it and on the earlier reviews related to it, named as typed
+/// from the current directory, and the status from what changed since
+/// each of those reviews.
+///
+/// # Errors
+///
+/// Returns the errors of [`read_changes`].
 fn judged(
     g: &Gathered,
+    review: &Review,
     id: &BasisId,
     basis: &Basis,
-    related: &[RelatedBasis<'_>],
-    judgments: &[Judgment],
-) -> (StatusInfo, GateInfo) {
-    let ledger = Ledger::new(judgments);
-    let states = GateStates::new(id, basis, related, &ledger);
+    stored: &Stored,
+) -> Result<(StatusInfo, GateInfo), CliError> {
+    let related = related_bases(id, basis, &stored.judged);
+    let ledger = Ledger::new(&stored.judgments);
+    let states = GateStates::new(id, basis, &related, &ledger);
     let associations = associations(basis);
     let names = names(g, basis, &associations);
-    (StatusInfo::new(&states), GateInfo::new(&states, &names))
+    let gate = GateInfo::new(&states, &names);
+    let readings = read_changes(g, review, &related)?;
+    Ok((StatusInfo::reviewed(&states, basis, readings, &gate), gate))
 }
 
 /// The names of `basis`'s gate items as typed from the current directory

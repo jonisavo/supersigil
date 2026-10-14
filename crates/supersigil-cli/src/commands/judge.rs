@@ -46,7 +46,7 @@ use crate::format::{OutputFormat, escape_control, write_json};
 use crate::item_names::{associations, name, typed};
 use crate::reconcile::LOCK_WAIT;
 use crate::record_dir::canonical_checkout;
-use crate::review_dir::{begin_within, resolve_review_dir};
+use crate::review_dir::{begin_within, judged_bases, resolve_review_dir};
 
 /// What a refusal inside an agent session says. It never suggests unsetting
 /// the marker.
@@ -610,44 +610,6 @@ fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
             addressing.judge("list", &[], "")
         )],
     )
-}
-
-/// The basis of every review other than `id` that one of `judgments` is
-/// recorded on, so carry-forward can relate it to `id`.
-///
-/// # Errors
-///
-/// Returns the store errors of [`ReviewSnapshot::basis`].
-fn judged_bases(
-    snapshot: &ReviewSnapshot,
-    judgments: &[Judgment],
-    id: &BasisId,
-) -> Result<BTreeMap<BasisId, Basis>, CliError> {
-    load_bases(
-        snapshot,
-        judgments
-            .iter()
-            .map(|judgment| &judgment.basis)
-            .filter(|basis| *basis != id),
-    )
-}
-
-/// The basis of each review `ids` names in `snapshot`, each read once.
-///
-/// # Errors
-///
-/// Returns the store errors of [`ReviewSnapshot::basis`].
-fn load_bases<'i>(
-    snapshot: &ReviewSnapshot,
-    ids: impl IntoIterator<Item = &'i BasisId>,
-) -> Result<BTreeMap<BasisId, Basis>, CliError> {
-    let mut bases = BTreeMap::new();
-    for id in ids {
-        if !bases.contains_key(id) {
-            bases.insert(id.clone(), snapshot.basis(id)?);
-        }
-    }
-    Ok(bases)
 }
 
 /// The ids of the gate items `typed` names, in the order named, each once:

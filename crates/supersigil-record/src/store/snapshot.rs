@@ -1,5 +1,6 @@
 //! Reads the log bytes and document files listed in one manifest.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -119,6 +120,73 @@ impl RecordSnapshot {
         }))
     }
 
+    /// Reads the log at `log`, its path in the record (such as
+    /// `observations/0.jsonl`), once up to its pinned length, to compare it
+    /// with what earlier revisions pinned of it: for each of `lengths` this
+    /// snapshot pins, the hex SHA-256 of the log's first that many bytes,
+    /// all hashed in one pass; and the observations from the shortest of
+    /// those lengths at which one begins, with where each ends, so what was
+    /// appended after any earlier pin is a slice ([`LogReading::since`]).
+    ///
+    /// Returns `None` if this snapshot pins no log at `log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the log is shorter than its pinned
+    /// length, [`StoreError::Io`] if it cannot be read, or
+    /// [`StoreError::Json`] if the observations read cannot be parsed.
+    pub fn read_log(
+        &self,
+        log: &str,
+        lengths: &BTreeSet<u64>,
+    ) -> Result<Option<LogReading>, StoreError> {
+        let Some(&length) = self.manifest.logs.get(log) else {
+            return Ok(None);
+        };
+        let path = self.root.join(log);
+        let bytes = files::read_prefix(&path, length)?;
+        // Each length asked for that the bytes read hold, with its index.
+        let within: Vec<(u64, usize)> = lengths
+            .iter()
+            .filter_map(|&asked| {
+                let end = usize::try_from(asked).ok()?;
+                (end <= bytes.len()).then_some((asked, end))
+            })
+            .collect();
+        let mut digests = BTreeMap::new();
+        let mut prefix = Sha256::new();
+        let mut hashed = 0;
+        for &(asked, end) in &within {
+            prefix.update(&bytes[hashed..end]);
+            hashed = end;
+            digests.insert(asked, hex::encode(prefix.clone().finalize()));
+        }
+        // Each observation is one line, and its JSON holds no raw newline,
+        // so one begins wherever a line does.
+        let from = within
+            .iter()
+            .map(|&(_, end)| end)
+            .find(|&end| end == 0 || bytes[end - 1] == b'\n')
+            .unwrap_or(bytes.len());
+        let mut ends = Vec::new();
+        let mut observations = Vec::new();
+        let mut stream = serde_json::Deserializer::from_slice(&bytes[from..]).into_iter();
+        while let Some(observation) = stream.next() {
+            observations.push(observation.map_err(|source| StoreError::Json {
+                path: path.clone(),
+                source,
+            })?);
+            ends.push((from + stream.byte_offset()) as u64);
+        }
+        Ok(Some(LogReading {
+            length,
+            digests,
+            from: from as u64,
+            ends,
+            observations,
+        }))
+    }
+
     /// The path of `session`'s log and its pinned length, if this snapshot
     /// has a log for the session.
     fn log_of(&self, session: &SessionId) -> Option<(&str, u64)> {
@@ -140,6 +208,45 @@ pub struct SessionLog {
     pub pinned: PinnedLog,
     /// The observations in the pinned bytes, in append order.
     pub observations: Vec<Observation>,
+}
+
+/// A log as a snapshot pins it, read once to compare with what earlier
+/// revisions pinned of it ([`RecordSnapshot::read_log`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogReading {
+    /// The pinned length.
+    length: u64,
+    /// For each length asked for within the pinned length, the hex SHA-256
+    /// of the log's first that many bytes.
+    digests: BTreeMap<u64, String>,
+    /// Where the observations read begin.
+    from: u64,
+    /// The offset where each observation's JSON ends, in append order.
+    ends: Vec<u64>,
+    /// The observations from `from` up to the pinned length, in append
+    /// order.
+    observations: Vec<Observation>,
+}
+
+impl LogReading {
+    /// The hex SHA-256 of the log's first `length` bytes, if `length` was
+    /// asked for and is within the pinned length.
+    #[must_use]
+    pub fn digest(&self, length: u64) -> Option<&str> {
+        self.digests.get(&length).map(String::as_str)
+    }
+
+    /// The observations appended after the log's first `length` bytes, in
+    /// append order, where `length` is where an earlier revision's pin
+    /// ended. `None` when the observations read begin after `length`, or
+    /// `length` is beyond the pinned length.
+    #[must_use]
+    pub fn since(&self, length: u64) -> Option<&[Observation]> {
+        (self.from..=self.length).contains(&length).then(|| {
+            let first = self.ends.partition_point(|&end| end <= length);
+            &self.observations[first..]
+        })
+    }
 }
 
 /// Parses the observations in `bytes`, read from the log at `path`.

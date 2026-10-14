@@ -1,7 +1,7 @@
 //! Tests snapshot isolation, atomic publication, writer locking, crash
 //! recovery, and the removal of replaced documents.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -242,6 +242,103 @@ fn a_session_log_is_read_with_its_pinned_length_and_hash() {
     assert_eq!(read(&grown, "s1").observations.len(), 2);
     assert_eq!(read(&grown, "s2"), read(&pinned, "s2"));
     assert_eq!(pinned.session_log(&SessionId::new("s3")).unwrap(), None);
+}
+
+/// The log of session `s1`, the only one in its record.
+const LOG: &str = "observations/0.jsonl";
+
+/// A record whose session `s1` logged one observation, then two, then one
+/// more: a snapshot pinning the first, one pinning the first three, and the
+/// record's directory. The fourth was committed after both.
+fn grown_log() -> (tempfile::TempDir, RecordSnapshot, RecordSnapshot) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let append = |seconds: &[u32]| {
+        let observations: Vec<Observation> =
+            seconds.iter().map(|&s| observation("s1", s)).collect();
+        let mut tx = store.begin().unwrap();
+        tx.append_observations(&observations).unwrap();
+        tx.commit().unwrap();
+        store.snapshot().unwrap()
+    };
+    let earlier = append(&[1]);
+    let pinned = append(&[2, 3]);
+    append(&[4]);
+    (dir, earlier, pinned)
+}
+
+/// The hex SHA-256 of the log `snapshot` pins for session `s1`.
+fn pinned_digest(snapshot: &RecordSnapshot) -> String {
+    snapshot
+        .session_log(&session())
+        .unwrap()
+        .unwrap()
+        .pinned
+        .sha256
+}
+
+#[test]
+fn a_log_is_read_once_for_every_length_earlier_revisions_pinned() {
+    let (_dir, earlier, pinned) = grown_log();
+    let (start, end) = (earlier.manifest().logs[LOG], pinned.manifest().logs[LOG]);
+
+    // Read from the start, after the first observation, after all three,
+    // and beyond what the snapshot pins.
+    let lengths = BTreeSet::from([0, start, end, end + 1]);
+    let reading = pinned.read_log(LOG, &lengths).unwrap().unwrap();
+
+    let nothing = hex::encode(Sha256::digest(b""));
+    assert_eq!(reading.digest(0), Some(nothing.as_str()));
+    assert_eq!(
+        reading.digest(start),
+        Some(pinned_digest(&earlier).as_str())
+    );
+    assert_eq!(reading.digest(end), Some(pinned_digest(&pinned).as_str()));
+    assert_eq!(reading.digest(end + 1), None);
+    assert_eq!(
+        reading.since(0),
+        Some(pinned.observations(&session()).unwrap().as_slice())
+    );
+    assert_eq!(
+        reading.since(start),
+        Some([observation("s1", 2), observation("s1", 3)].as_slice())
+    );
+    assert_eq!(reading.since(end), Some([].as_slice()));
+    assert_eq!(reading.since(end + 1), None);
+    // A log the snapshot does not pin.
+    assert_eq!(
+        pinned
+            .read_log("observations/1.jsonl", &BTreeSet::from([0]))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_log_is_parsed_from_the_first_length_where_an_observation_begins() {
+    let (dir, earlier, pinned) = grown_log();
+    let start = earlier.manifest().logs[LOG];
+    let first = pinned_digest(&earlier);
+    // The first observation rewritten at the same length, so it no longer
+    // parses; no observation begins 3 bytes in.
+    let path = dir.path().join(LOG);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[0] = b' ';
+    fs::write(&path, &bytes).unwrap();
+
+    let reading = pinned
+        .read_log(LOG, &BTreeSet::from([3, start]))
+        .unwrap()
+        .unwrap();
+
+    let three = hex::encode(Sha256::digest(&bytes[..3]));
+    assert_eq!(reading.digest(3), Some(three.as_str()));
+    assert_ne!(reading.digest(start), Some(first.as_str()));
+    assert_eq!(reading.since(3), None);
+    assert_eq!(
+        reading.since(start),
+        Some([observation("s1", 2), observation("s1", 3)].as_slice())
+    );
 }
 
 #[test]

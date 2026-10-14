@@ -22,13 +22,13 @@ use supersigil_review::summary::{
 };
 
 use super::{
-    Checkout, addressing, by_judgment, item_name, judged_bases, no_selection, noun, select,
-    unknown_review,
+    Checkout, addressing, by_judgment, item_name, no_selection, noun, select, unknown_review,
 };
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::item_names::associations;
+use crate::review_dir::judged_bases;
 
 /// Runs `supersigil judge show`.
 ///

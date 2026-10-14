@@ -11,18 +11,21 @@ use std::time::Duration;
 
 use common::finishes_within;
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, Fingerprint,
-    FingerprintPart, GateDetail, GateItem, Judgment, JudgmentKind, PathBytes, Subject, TargetKind,
-    Who, Withdrawal,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, Explanation,
+    Fingerprint, FingerprintPart, GateDetail, GateItem, Judgment, JudgmentKind, PathBytes, Subject,
+    TargetKind, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
     AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemChange,
-    ItemState, Ledger, NotClosed, PlannedWithdrawal, Relation, Uncovered, WithdrawRefusal,
-    related_bases, uncovered_items,
+    ItemState, Ledger, NotClosed, PlannedWithdrawal, RelatedBasis, Relation, Uncovered,
+    WithdrawRefusal, explanations_differ, related_bases, uncovered_items,
 };
-use supersigil_review::model::{GateInfo, ItemStateInfo, JudgmentInfo, StatusInfo};
+use supersigil_review::model::{
+    ChangedEvidence, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations, RelatedInfo,
+    RelatedReading, StatusInfo, UncoveredInfo,
+};
 use supersigil_review::names::ItemNames;
 
 /// A saved review: its basis ID and basis.
@@ -1274,4 +1277,388 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
     let status = StatusInfo::new(&states(&current, &[], &ledger));
     assert!(!status.complete);
     assert_eq!(status.completion, None);
+}
+
+#[test]
+fn the_latest_completion_is_the_most_recent_standing_one_on_any_review_named() {
+    let one = saved(basis("/work/a", '1', '2', Vec::new()));
+    let two = saved(basis("/work/b", '1', '2', Vec::new()));
+    let judgments = [
+        complete("one-early", &one.0, &[], 10),
+        complete("two", &two.0, &[], 20),
+        // As recent as the one before it, but recorded later.
+        complete("one-late", &one.0, &[], 20),
+        complete("withdrawn", &two.0, &[], 30),
+        undo("undo", &two.0, &[("withdrawn", None)], 40),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    assert_eq!(
+        ledger.latest_completion([&one.0, &two.0]),
+        Some(&judgments[2])
+    );
+    assert_eq!(ledger.latest_completion([&two.0]), Some(&judgments[1]));
+    assert_eq!(ledger.latest_completion([]), None);
+}
+
+/// The explanation of `file` whose digest repeats `digest`.
+fn explanation(file: &str, digest: char) -> Explanation {
+    Explanation {
+        path: PathBytes::new(file),
+        digest: digest.to_string().repeat(64),
+    }
+}
+
+fn paths(paths: &[&str]) -> Vec<PathBytes> {
+    paths.iter().map(|path| PathBytes::new(*path)).collect()
+}
+
+#[test]
+fn explanations_differ_only_where_the_content_did_not_change() {
+    let mut current = basis("/work/a", '1', '2', Vec::new());
+    current.explanations = vec![
+        explanation("a.rs", 'a'),
+        explanation("b.rs", 'b'),
+        explanation("c.rs", 'c'),
+        explanation("d.rs", 'd'),
+    ];
+    let mut earlier = basis("/work/a", '1', '3', Vec::new());
+    earlier.explanations = vec![
+        explanation("a.rs", 'a'),
+        explanation("b.rs", 'x'),
+        explanation("c.rs", 'x'),
+        explanation("gone.rs", 'x'),
+    ];
+
+    // `c.rs` changed, so its explanation differs with its content; `d.rs`
+    // was not explained before.
+    assert_eq!(
+        explanations_differ(&current, &earlier, &paths(&["c.rs"])),
+        paths(&["b.rs", "d.rs"])
+    );
+    assert_eq!(
+        explanations_differ(&current, &earlier, &paths(&["c.rs", "d.rs", "gone.rs"])),
+        paths(&["b.rs"])
+    );
+    assert_eq!(explanations_differ(&current, &current, &[]), []);
+}
+
+/// What the CLI read of `related` when nothing changed in the code or the
+/// records.
+fn unchanged(related: RelatedBasis<'_>) -> RelatedReading<'_> {
+    RelatedReading {
+        related,
+        changed_paths: Some(Vec::new()),
+        new: Vec::new(),
+        capture: Vec::new(),
+        gone_or_rewritten: Vec::new(),
+    }
+}
+
+/// The status of `current` among the related reviews in `earlier`, with
+/// what the CLI read of each from `read`.
+fn status<'a>(
+    current: &'a Saved,
+    earlier: &'a [Saved],
+    ledger: &'a Ledger<'a>,
+    read: impl Fn(RelatedBasis<'a>) -> RelatedReading<'a>,
+) -> StatusInfo {
+    let related = related_bases(
+        &current.0,
+        &current.1,
+        earlier.iter().map(|(id, b)| (id, b)),
+    );
+    let states = GateStates::new(&current.0, &current.1, &related, ledger);
+    let gate = gate_info(&states, &current.1.gate);
+    let readings = related.iter().map(|related| read(*related)).collect();
+    StatusInfo::reviewed(&states, &current.1, readings, &gate)
+}
+
+#[test]
+fn a_completion_of_the_same_content_carries_over_when_nothing_changed() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let earlier = [saved(as_commit(
+        basis("/work/a", '1', '2', vec![a.clone()]),
+        'c',
+    ))];
+    let judgments = [
+        ack("ack", &earlier[0].0, &[&a], 10),
+        complete("done", &earlier[0].0, &[(&a, "ack")], 20),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let status = status(&current, &earlier, &ledger, unchanged);
+
+    assert!(status.complete);
+    let done = JudgmentInfo::new(&judgments[1]);
+    assert_eq!(status.completion, Some(done.clone()));
+    assert_eq!(
+        status.related,
+        [RelatedInfo {
+            review: earlier[0].0.clone(),
+            relation: Relation::SameContent,
+            completion: Some(done),
+            changed_paths: Some(Vec::new()),
+            changed_evidence: ChangedEvidence::default(),
+            uncovered: Vec::new(),
+        }]
+    );
+    let json = serde_json::to_value(&status).unwrap();
+    assert_eq!(json["related"][0]["relation"], "same_content");
+    assert_eq!(json["related"][0]["completion"]["id"], "done");
+}
+
+#[test]
+fn a_completion_does_not_carry_over_once_evidence_changed() {
+    let a = lines("a.rs", "x");
+    let mut current = basis("/work/a", '1', '2', vec![a.clone()]);
+    current.explanations = vec![explanation("a.rs", 'a')];
+    let current = saved(current);
+    let earlier = [saved(basis("/work/b", '1', '2', vec![a.clone()]))];
+    let judgments = [
+        ack("ack", &earlier[0].0, &[&a], 10),
+        complete("done", &earlier[0].0, &[(&a, "ack")], 20),
+    ];
+    let ledger = Ledger::new(&judgments);
+    let new = vec![NewObservations {
+        session: "s1".to_owned(),
+        paths: paths(&["a.rs"]),
+    }];
+    let capture = vec!["t1".to_owned()];
+    let gone = vec![RecordId::new("r1")];
+
+    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+        new: new.clone(),
+        capture: capture.clone(),
+        gone_or_rewritten: gone.clone(),
+        ..unchanged(related)
+    });
+
+    assert!(!status.complete);
+    assert_eq!(status.completion, None);
+    assert_eq!(
+        status.related[0].changed_evidence,
+        ChangedEvidence {
+            explanations: paths(&["a.rs"]),
+            new,
+            capture,
+            gone_or_rewritten: gone,
+        }
+    );
+    // The item itself carries: its fingerprint matches.
+    assert_eq!(status.related[0].uncovered, []);
+}
+
+#[test]
+fn a_completion_does_not_carry_over_to_a_gate_it_did_not_cover() {
+    // Review A acknowledged the item as X; review B, of the same content,
+    // acknowledged and completed it as Y. Now it is X again.
+    let (x, y) = (lines("a.rs", "x"), lines("a.rs", "y"));
+    let b = lines("b.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![x.clone(), b.clone()]));
+    let earlier = [
+        saved(basis("/work/b", '1', '2', vec![x.clone()])),
+        saved(basis("/work/c", '1', '2', vec![y.clone()])),
+    ];
+    let judgments = [
+        ack("as-x", &earlier[0].0, &[&x], 10),
+        ack("as-y", &earlier[1].0, &[&y], 20),
+        complete("done-as-y", &earlier[1].0, &[(&y, "as-y")], 30),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let status = status(&current, &earlier, &ledger, unchanged);
+
+    assert!(!status.complete);
+    // The review the status is about comes first.
+    assert_eq!(status.related[0].review, earlier[1].0);
+    assert_eq!(
+        status.related[0].uncovered,
+        [
+            UncoveredInfo {
+                id: x.id.clone(),
+                name: "a.rs".to_owned(),
+                reasons: vec![
+                    "file content or mode changed",
+                    "evidence behind the lines changed",
+                    "line explanations changed",
+                ],
+            },
+            UncoveredInfo {
+                id: b.id.clone(),
+                name: "b.rs".to_owned(),
+                reasons: vec!["new"],
+            },
+        ]
+    );
+    assert_eq!(status.related[1].review, earlier[0].0);
+    assert_eq!(status.related[1].completion, None);
+}
+
+#[test]
+fn a_completion_of_earlier_code_never_carries_over() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let earlier = [saved(basis("/work/a", '1', '3', vec![a.clone()]))];
+    let judgments = [
+        ack("ack", &earlier[0].0, &[&a], 10),
+        complete("done", &earlier[0].0, &[(&a, "ack")], 20),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+        changed_paths: Some(paths(&["b.rs"])),
+        ..unchanged(related)
+    });
+
+    assert!(!status.complete);
+    assert_eq!(status.related[0].relation, Relation::CodeChanged);
+    assert_eq!(status.related[0].changed_paths, Some(paths(&["b.rs"])));
+}
+
+#[test]
+fn without_the_changed_paths_no_explanation_is_said_to_differ() {
+    // The earlier target tree is gone: whether a.rs changed with the code
+    // or only in its explanation cannot be told.
+    let mut current = basis("/work/a", '1', '2', Vec::new());
+    current.explanations = vec![explanation("a.rs", 'a')];
+    let mut earlier = basis("/work/a", '1', '3', Vec::new());
+    earlier.explanations = vec![explanation("a.rs", 'x')];
+    let (current, earlier) = (saved(current), [saved(earlier)]);
+    let judgments = [complete("done", &earlier[0].0, &[], 20)];
+    let ledger = Ledger::new(&judgments);
+
+    let unknown = status(&current, &earlier, &ledger, |related| RelatedReading {
+        changed_paths: None,
+        ..unchanged(related)
+    });
+    let known = status(&current, &earlier, &ledger, unchanged);
+
+    assert_eq!(unknown.related[0].changed_paths, None);
+    assert_eq!(
+        unknown.related[0].changed_evidence,
+        ChangedEvidence::default()
+    );
+    assert_eq!(
+        known.related[0].changed_evidence.explanations,
+        paths(&["a.rs"])
+    );
+}
+
+#[test]
+fn any_completion_that_carries_over_completes_the_review_whatever_was_completed_since() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    // Two reviews of the same content, completed, then one of other code.
+    let earlier = [
+        saved(basis("/work/b", '1', '2', vec![a.clone()])),
+        saved(basis("/work/c", '1', '2', vec![a.clone()])),
+        saved(basis("/work/a", '1', '3', vec![a.clone()])),
+    ];
+    let judgments = [
+        ack("ack", &earlier[0].0, &[&a], 10),
+        complete("older", &earlier[0].0, &[(&a, "ack")], 20),
+        complete("newer", &earlier[1].0, &[(&a, "ack")], 30),
+        complete("code-changed", &earlier[2].0, &[(&a, "ack")], 40),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let status = status(&current, &earlier, &ledger, unchanged);
+
+    // Through the most recent completion that carries over, listed first.
+    assert!(status.complete);
+    assert_eq!(status.completion, Some(JudgmentInfo::new(&judgments[2])));
+    assert_eq!(status.related[0].review, earlier[1].0);
+    assert_eq!(status.related[1].review, earlier[0].0);
+    assert_eq!(status.related[2].review, earlier[2].0);
+}
+
+#[test]
+fn without_a_completion_that_carries_over_the_status_is_about_the_most_recent() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let earlier = [
+        saved(basis("/work/b", '1', '2', vec![a.clone()])),
+        saved(basis("/work/a", '1', '3', vec![a.clone()])),
+    ];
+    let judgments = [
+        ack("ack", &earlier[0].0, &[&a], 10),
+        complete("same-content", &earlier[0].0, &[(&a, "ack")], 20),
+        complete("code-changed", &earlier[1].0, &[(&a, "ack")], 30),
+    ];
+    let ledger = Ledger::new(&judgments);
+    let gone = vec![RecordId::new("r1")];
+
+    // Evidence changed since both.
+    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+        gone_or_rewritten: gone.clone(),
+        ..unchanged(related)
+    });
+
+    assert!(!status.complete);
+    assert_eq!(status.completion, None);
+    assert_eq!(status.related[0].review, earlier[1].0);
+    assert_eq!(status.related[1].review, earlier[0].0);
+}
+
+#[test]
+fn the_reviews_own_completion_completes_it_whatever_changed_since_others() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let earlier = [saved(basis("/work/a", '1', '3', vec![a.clone()]))];
+    let judgments = [
+        ack("ack", &current.0, &[&a], 10),
+        complete("own", &current.0, &[(&a, "ack")], 20),
+        complete("earlier", &earlier[0].0, &[(&a, "ack")], 30),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let status = status(&current, &earlier, &ledger, unchanged);
+
+    assert!(status.complete);
+    assert_eq!(status.completion, Some(JudgmentInfo::new(&judgments[1])));
+    assert_eq!(status.related.len(), 1);
+}
+
+#[test]
+fn many_related_reviews_of_other_code_give_the_status_promptly() {
+    // 100 reviews of the worktree, each of other code in all 5,000 files:
+    // every file changed, and no item of the current gate is covered.
+    let files: Vec<String> = (0..5000).map(|k| format!("src/f{k}.rs")).collect();
+    let gate = |material| files.iter().map(|file| lines(file, material)).collect();
+    let mut current = basis("/work/a", '1', '2', gate("now"));
+    current.explanations = files.iter().map(|file| explanation(file, 'a')).collect();
+    let current = saved(current);
+    // One basis under 100 ids keeps the setup cheap.
+    let earlier = basis("/work/a", '1', '3', gate("then"));
+    let ids: Vec<BasisId> = (0..100)
+        .map(|k| serde_json::from_value(serde_json::Value::String(format!("{k:064x}"))).unwrap())
+        .collect();
+    let changed = paths(&files.iter().map(String::as_str).collect::<Vec<_>>());
+
+    // Searching the gate for each uncovered item's name and the changed
+    // paths for each explanation took about 15 s here in a debug build;
+    // indexed, it takes under 2 s.
+    let status = finishes_within(Duration::from_secs(10), move || {
+        let ledger = Ledger::new(&[]);
+        let related = related_bases(&current.0, &current.1, ids.iter().map(|id| (id, &earlier)));
+        let states = GateStates::new(&current.0, &current.1, &related, &ledger);
+        let gate = gate_info(&states, &current.1.gate);
+        let readings = related
+            .iter()
+            .map(|&related| RelatedReading {
+                changed_paths: Some(changed.clone()),
+                ..unchanged(related)
+            })
+            .collect();
+        StatusInfo::reviewed(&states, &current.1, readings, &gate)
+    });
+
+    assert_eq!(status.related.len(), 100);
+    assert!(
+        status.related.iter().all(|related| {
+            related.uncovered.len() == 5000 && related.changed_evidence.is_empty()
+        })
+    );
 }

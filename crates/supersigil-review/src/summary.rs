@@ -2,9 +2,10 @@
 //!
 //! Plain, deterministic text in five parts: a header (the saved review or
 //! why it was not saved, the worktree, base, and target, and whether the
-//! review is complete), the gate with one row per item, one line per file,
-//! the evidence notes that are not gate items, and the command to run next.
-//! No diff text: the JSON carries it.
+//! review is complete or what changed since its most recent related
+//! completion), the gate with one row per item, one line per file, the
+//! evidence notes that are not gate items, and the command to run next. No
+//! diff text: the JSON carries it.
 //!
 //! Every string that comes from outside the tool (paths, ids, reasons,
 //! names, transcript text) goes through the caller's `escape` function,
@@ -20,9 +21,10 @@ use supersigil_anchor::ChainClass;
 use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
 use supersigil_record::reviews::{GateDetail, JudgmentKind, PathBytes, Subject};
 
+use crate::judging::Relation as ReviewRelation;
 use crate::model::{
-    ANCESTRY_NOTE, AncestryInfo, EvidenceInfo, FileKindInfo, FileReview, GateItemInfo,
-    ItemStateInfo, RecordInfo, Review, SpanSide, StatusInfo, TargetKindInfo, Unsaved,
+    ANCESTRY_NOTE, AncestryInfo, ChangedEvidence, EvidenceInfo, FileKindInfo, FileReview,
+    GateItemInfo, ItemStateInfo, RecordInfo, Review, SpanSide, StatusInfo, TargetKindInfo, Unsaved,
 };
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 
@@ -66,7 +68,9 @@ pub fn render_summary(
     if nothing {
         push(&mut out, NOTHING_TO_REVIEW);
     } else {
-        push(&mut out, &status_line(&review.status, escape));
+        for line in status_lines(&review.status, review.gate.open, escape) {
+            push(&mut out, &line);
+        }
     }
 
     let gate = &review.gate;
@@ -197,16 +201,136 @@ fn short(commit: &str) -> &str {
     commit.get(..7).unwrap_or(commit)
 }
 
-/// Whether the review is complete: by whom and when, or not.
-fn status_line(status: &StatusInfo, escape: fn(&str) -> String) -> String {
-    match &status.completion {
-        Some(completion) => format!(
-            "Review complete: completed on {} by {}.",
+/// Whether the review is complete: by whom and when, and through which
+/// review when its completion carries over. Otherwise what changed since
+/// the most recent related completion still standing (the first related
+/// review, when it has one), and that nothing is open when nothing is.
+fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) -> Vec<String> {
+    if let Some(completion) = &status.completion {
+        let by = format!(
+            "Review complete: completed on {} by {}",
             completion.at.date(),
             escape(&completion.who.name)
-        ),
-        None => "Review not complete.".to_owned(),
+        );
+        let carried = status
+            .related
+            .iter()
+            .any(|related| related.review == completion.review);
+        return vec![if carried {
+            format!(
+                "{by} for the same content (review {}).",
+                completion.review.short()
+            )
+        } else {
+            format!("{by}.")
+        }];
     }
+    let not_complete = "Review not complete.";
+    let Some((related, completion)) = status
+        .related
+        .first()
+        .and_then(|related| Some((related, related.completion.as_ref()?)))
+    else {
+        return vec![not_complete.to_owned()];
+    };
+    let since = format!(
+        "since your completion on {} (review {})",
+        completion.at.date(),
+        related.review.short()
+    );
+    let mut lines = Vec::new();
+    if related.relation == ReviewRelation::CodeChanged {
+        lines.push(format!("Code changed {since}:"));
+        match &related.changed_paths {
+            Some(paths) => {
+                lines.extend(
+                    paths
+                        .iter()
+                        .map(|path| format!("  {}", shown_path(path, escape))),
+                );
+            }
+            None => lines.push(
+                "  changed paths unavailable: the reviewed snapshot is no longer in the \
+                 repository"
+                    .to_owned(),
+            ),
+        }
+    }
+    let evidence = evidence_lines(&related.changed_evidence, escape);
+    if !evidence.is_empty() {
+        lines.push(format!("Evidence changed {since}:"));
+        lines.extend(evidence);
+    }
+    if related.relation == ReviewRelation::SameContent && !related.uncovered.is_empty() {
+        lines.push(format!(
+            "Completed on {} for the same content, but these gate items differ from that review:",
+            completion.at.date()
+        ));
+        lines.extend(
+            related
+                .uncovered
+                .iter()
+                .map(|item| format!("  {}: {}", escape(&item.name), item.reasons.join("; "))),
+        );
+    }
+    match lines.first_mut() {
+        Some(first) => *first = format!("{not_complete} {first}"),
+        None => lines.push(not_complete.to_owned()),
+    }
+    if open == 0 {
+        lines.push("No open gate items. This snapshot has not been marked complete.".to_owned());
+    }
+    lines
+}
+
+/// One line per kind of evidence that changed, naming what changed: the
+/// files whose explanations differ, the sessions with new observations and
+/// the paths they name, the transcripts whose capture limitations changed,
+/// and the records gone or rewritten.
+fn evidence_lines(evidence: &ChangedEvidence, escape: fn(&str) -> String) -> Vec<String> {
+    let paths = |paths: &[PathBytes]| {
+        paths
+            .iter()
+            .map(|path| shown_path(path, escape))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut lines = Vec::new();
+    if !evidence.explanations.is_empty() {
+        lines.push(format!(
+            "  explanations differ: {}",
+            paths(&evidence.explanations)
+        ));
+    }
+    if !evidence.new.is_empty() {
+        let sessions: Vec<String> = evidence
+            .new
+            .iter()
+            .map(|new| format!("session {}: {}", escape(&new.session), paths(&new.paths)))
+            .collect();
+        lines.push(format!("  new: {}", sessions.join("; ")));
+    }
+    if !evidence.capture.is_empty() {
+        let transcripts: Vec<String> = evidence.capture.iter().map(|t| escape(t)).collect();
+        lines.push(format!(
+            "  capture limitations changed: {}",
+            transcripts.join(", ")
+        ));
+    }
+    if !evidence.gone_or_rewritten.is_empty() {
+        let records: Vec<String> = evidence
+            .gone_or_rewritten
+            .iter()
+            .map(|record| escape(record.as_str()))
+            .collect();
+        lines.push(format!("  gone or rewritten: {}", records.join(", ")));
+    }
+    lines
+}
+
+/// A repository path as a terminal shows it.
+fn shown_path(path: &PathBytes, escape: fn(&str) -> String) -> String {
+    escape(&String::from_utf8_lossy(path.as_bytes()))
 }
 
 /// One row per gate item, in gate order, with its columns aligned: its

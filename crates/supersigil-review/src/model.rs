@@ -5,7 +5,7 @@
 //! summary, then scope, origins, records, evidence, files, and the edits
 //! every other section refers to by id.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -19,10 +19,12 @@ use supersigil_record::reviews::{
     PathBytes, Subject, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{EventId, JudgmentId};
+use supersigil_record::{EventId, JudgmentId, RecordId};
 
 use crate::diff::{DiffHunk, diff_lines};
-use crate::judging::{GateStates, ItemState};
+use crate::judging::{
+    GateStates, ItemChange, ItemState, RelatedBasis, Relation, explanations_differ, uncovered_items,
+};
 use crate::names::ItemNames;
 use crate::outcome::{
     AttributionState, Outcome, UnattributedReason, Verdict, base_line_verdict, target_line_verdict,
@@ -118,26 +120,238 @@ impl Serialize for Unsaved {
     }
 }
 
-/// Whether the review is complete.
+/// Whether the review is complete, and what changed since the earlier
+/// judged reviews related to it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct StatusInfo {
     /// Whether a standing completion covers the review.
     pub complete: bool,
-    /// The review's own standing completion, if it has one.
+    /// The standing completion that completes the review: its own, or one
+    /// of a review of the same content that carries over.
     pub completion: Option<JudgmentInfo>,
+    /// Each related review with a judgment, in the order the caller gave
+    /// them, except that the one the status is about comes first: the one
+    /// whose completion carries over, the most recent such, or else the one
+    /// with the most recent standing completion. Omitted when there are
+    /// none, and by `judge`, which reads no records and so relates nothing
+    /// here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related: Vec<RelatedInfo>,
 }
 
 impl StatusInfo {
     /// The status of the review whose gate is `states`: complete with its
-    /// own standing completion.
+    /// own standing completion. Relates no other review.
     #[must_use]
     pub fn new(states: &GateStates<'_>) -> Self {
         let completion = states.own_completion().map(JudgmentInfo::new);
         Self {
             complete: completion.is_some(),
             completion,
+            related: Vec::new(),
         }
     }
+
+    /// The status of the review whose basis is `basis` and whose gate is
+    /// `states`, shown as `gate`, given `related`: the reviews `states`
+    /// relates it to, each with what the CLI read of how its code and
+    /// records changed since.
+    ///
+    /// Complete with its own standing completion; otherwise through the
+    /// most recent standing completion of a related review that carries
+    /// over: the review has the same content, its gate covers this one
+    /// (every item was in it with a matching fingerprint), and no evidence
+    /// changed since it.
+    #[must_use]
+    pub fn reviewed(
+        states: &GateStates<'_>,
+        basis: &Basis,
+        related: Vec<RelatedReading<'_>>,
+        gate: &GateInfo,
+    ) -> Self {
+        let ledger = states.ledger();
+        let names: HashMap<&ItemId, &str> = gate
+            .items
+            .iter()
+            .map(|info| (&info.id, info.name.as_str()))
+            .collect();
+        let mut related: Vec<RelatedInfo> = related
+            .into_iter()
+            .map(|reading| {
+                let completion = ledger.completion(reading.related.id);
+                RelatedInfo::new(basis, reading, completion, &names)
+            })
+            .collect();
+        let carried = ledger.latest_completion(
+            related
+                .iter()
+                .filter(|info| info.carries())
+                .map(|info| &info.review),
+        );
+        let about =
+            carried.or_else(|| ledger.latest_completion(related.iter().map(|info| &info.review)));
+        // The review the status is about first; the others keep their order.
+        related.sort_by_key(|info| about.is_none_or(|about| about.basis != info.review));
+        let completion = states.own_completion().or(carried).map(JudgmentInfo::new);
+        Self {
+            complete: completion.is_some(),
+            completion,
+            related,
+        }
+    }
+}
+
+/// What the CLI read of a related review beyond its basis: how the code
+/// and the records changed since it.
+#[derive(Debug, Clone)]
+pub struct RelatedReading<'a> {
+    /// The related review.
+    pub related: RelatedBasis<'a>,
+    /// The paths that differ between its target tree and the current one,
+    /// within the scope, sorted; `None` when its target tree is no longer
+    /// in the repository, as after its retention ref was deleted and git
+    /// pruned the tree.
+    pub changed_paths: Option<Vec<PathBytes>>,
+    /// The observations recorded since it that edit or change a reviewed
+    /// path, by session.
+    pub new: Vec<NewObservations>,
+    /// The candidate transcripts with a capture limitation recorded since
+    /// it, sorted.
+    pub capture: Vec<String>,
+    /// The records it read that are not involved now or whose logs no
+    /// longer begin with the bytes it read, and any record whose log
+    /// changed while this review read it, sorted.
+    pub gone_or_rewritten: Vec<RecordId>,
+}
+
+/// An earlier judged review related to this one, and what changed since.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelatedInfo {
+    /// The related review's id.
+    pub review: BasisId,
+    /// How it relates: the same content, or another target tree of the
+    /// same worktree.
+    pub relation: Relation,
+    /// Its most recent standing completion, if any.
+    pub completion: Option<JudgmentInfo>,
+    /// The paths that differ between its target tree and this one's,
+    /// within the scope; null when its target tree is no longer in the
+    /// repository.
+    pub changed_paths: Option<Vec<PathBytes>>,
+    /// The evidence that changed since it. Without the changed paths, no
+    /// explanation is said to differ: a file whose content changed has a
+    /// new explanation too.
+    pub changed_evidence: ChangedEvidence,
+    /// The gate items of this review its gate did not hold as they are
+    /// now, in gate order.
+    pub uncovered: Vec<UncoveredInfo>,
+}
+
+impl RelatedInfo {
+    /// What the review whose basis is `basis`, its gate items named as
+    /// `names` gives by ID, shows of the related review `reading` read,
+    /// whose most recent standing completion is `completion`.
+    fn new(
+        basis: &Basis,
+        reading: RelatedReading<'_>,
+        completion: Option<&Judgment>,
+        names: &HashMap<&ItemId, &str>,
+    ) -> Self {
+        let earlier = reading.related.basis;
+        let changed_evidence = ChangedEvidence {
+            explanations: reading
+                .changed_paths
+                .as_ref()
+                .map(|changed| explanations_differ(basis, earlier, changed))
+                .unwrap_or_default(),
+            new: reading.new,
+            capture: reading.capture,
+            gone_or_rewritten: reading.gone_or_rewritten,
+        };
+        let uncovered = uncovered_items(&basis.gate, &earlier.gate)
+            .into_iter()
+            .map(|uncovered| UncoveredInfo {
+                id: uncovered.item.id.clone(),
+                name: names.get(&uncovered.item.id).map_or_else(
+                    || format!("id:{}", uncovered.item.id),
+                    |&name| name.to_owned(),
+                ),
+                reasons: match uncovered.change {
+                    ItemChange::New => vec!["new"],
+                    ItemChange::Changed(reasons) => reasons,
+                },
+            })
+            .collect();
+        Self {
+            review: reading.related.id.clone(),
+            relation: reading.related.relation,
+            completion: completion.map(JudgmentInfo::new),
+            changed_paths: reading.changed_paths,
+            changed_evidence,
+            uncovered,
+        }
+    }
+
+    /// Whether its completion carries over: it has one, of the same
+    /// content, whose gate covers this one, and no evidence changed since.
+    fn carries(&self) -> bool {
+        self.completion.is_some()
+            && self.relation == Relation::SameContent
+            && self.uncovered.is_empty()
+            && self.changed_evidence.is_empty()
+    }
+}
+
+/// What changed in the evidence since an earlier review. Conversation
+/// turns, commands whose change report lists no reviewed path (mentions
+/// included), and capture limitations recorded before it do not count.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ChangedEvidence {
+    /// Reviewed files whose explanation differs while their content does
+    /// not.
+    pub explanations: Vec<PathBytes>,
+    /// The observations recorded since that edit or change a reviewed
+    /// path, by session.
+    pub new: Vec<NewObservations>,
+    /// Candidate transcripts with a capture limitation recorded since.
+    pub capture: Vec<String>,
+    /// Records it read that are gone or rewritten.
+    pub gone_or_rewritten: Vec<RecordId>,
+}
+
+impl ChangedEvidence {
+    /// Whether nothing changed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.explanations.is_empty()
+            && self.new.is_empty()
+            && self.capture.is_empty()
+            && self.gone_or_rewritten.is_empty()
+    }
+}
+
+/// The observations one session recorded since an earlier review that edit
+/// or change a reviewed path: edits that map to one, and commands whose
+/// change report lists one. A command whose text only names one does not
+/// count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NewObservations {
+    /// The session.
+    pub session: String,
+    /// The reviewed paths they edit or change, sorted.
+    pub paths: Vec<PathBytes>,
+}
+
+/// A gate item an earlier review's gate did not hold as it is now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UncoveredInfo {
+    /// The item's id.
+    pub id: ItemId,
+    /// Its name, as the gate shows it.
+    pub name: String,
+    /// The reopen reason of each fingerprint part that differs, or `new`
+    /// when the earlier gate did not hold the item.
+    pub reasons: Vec<&'static str>,
 }
 
 /// The gate: what a person considers before completing the review, and

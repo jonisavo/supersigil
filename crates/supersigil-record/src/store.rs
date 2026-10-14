@@ -32,7 +32,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub use manifest::{Association, Manifest, SCHEMA_VERSION, SourceCursor};
-pub use snapshot::{RecordSnapshot, SessionLog};
+pub use snapshot::{LogReading, RecordSnapshot, SessionLog};
 pub use write::WriteTx;
 
 use crate::files;

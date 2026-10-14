@@ -12,10 +12,11 @@ use supersigil_review::judging::{GateIndex, GateStates, Ledger, related_bases};
 use supersigil_review::model::JudgmentInfo;
 use supersigil_review::summary::{aligned, compared};
 
-use super::{Checkout, load_bases};
+use super::Checkout;
 use crate::commands::JudgeArgs;
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
+use crate::review_dir::load_bases;
 
 /// Runs `supersigil judge list`.
 ///

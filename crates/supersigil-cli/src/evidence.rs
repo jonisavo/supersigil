@@ -322,6 +322,23 @@ impl Evidence {
         changes
     }
 
+    /// The paths of the files in `command`'s retained change report that
+    /// lie in `worktrees`, each relative to the innermost registered
+    /// worktree in `roots` holding it, as [`Self::command_changes`] places
+    /// them. Unlike [`Self::index`], which keeps the first sighting of each
+    /// command, this reads the sighting it is given: a command recorded
+    /// again may carry a report its first sighting lacked.
+    pub fn reported_paths<'c>(
+        &'c self,
+        command: &'c Command,
+        roots: &'c [PathBuf],
+        worktrees: &'c [PathBuf],
+        ignore_case: bool,
+    ) -> impl Iterator<Item = String> + 'c {
+        reported_in(command, roots, &self.resolutions, worktrees, ignore_case)
+            .map(|(_, _, mapped)| mapped.path)
+    }
+
     /// The nearest recorded ancestor of `edit`'s turn, following parent
     /// pointers within its session, whose role is Human or Delegation;
     /// `None` when the chain breaks first. It is the message that preceded

@@ -9,6 +9,7 @@ use supersigil_session::checkout::canonical;
 use supersigil_session::discover::encode_project_dir;
 
 pub mod fixture;
+pub mod session;
 
 /// The `supersigil` binary under test, outside any agent session and with
 /// the reviews directory left to the test: the suite itself often runs

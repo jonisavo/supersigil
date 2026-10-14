@@ -30,6 +30,7 @@ use supersigil_git::{
 };
 use supersigil_record::observations::Observation;
 use supersigil_record::reviews::PinnedLog;
+use supersigil_record::store::RecordSnapshot;
 use supersigil_record::{EventId, RecordId, Revision};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
@@ -199,6 +200,8 @@ pub struct PinnedRecord {
     pub logs: BTreeMap<String, PinnedLog>,
     /// Every session's observations at the pinned revision.
     pub observations: Vec<Observation>,
+    /// The snapshot pinned, for later reads at the same revision.
+    pub snapshot: RecordSnapshot,
 }
 
 /// Everything `review` and `why` need after the shared steps.
@@ -220,6 +223,9 @@ pub struct Gathered {
     /// every worktree or record checkout whose origin evidence is
     /// unavailable.
     pub origins: Origins,
+    /// The registered worktrees' roots, canonical where they exist:
+    /// recorded files map onto the innermost one holding them.
+    pub roots: Vec<PathBuf>,
     /// Origin worktrees, plus the reviewed worktree for a working-tree target.
     pub candidate_worktrees: Vec<PathBuf>,
     /// Every involved record, pinned.
@@ -491,6 +497,7 @@ impl Prepared {
             target_tree,
             snapshot,
             origins,
+            roots,
             candidate_worktrees,
             records,
             unreconciled: reconciliation.unreconciled,
@@ -665,6 +672,7 @@ fn pin(involved: Vec<InvolvedRecord>, hash_logs: bool) -> Result<Vec<PinnedRecor
                 .collect(),
             logs,
             observations,
+            snapshot,
         });
     }
     Ok(records)
@@ -1385,6 +1393,7 @@ mod tests {
             cwd: root,
             snapshot: None,
             origins: supersigil_git::origin::Origins::default(),
+            roots: Vec::new(),
             candidate_worktrees: Vec::new(),
             records: Vec::new(),
             unreconciled: Vec::new(),
@@ -1457,6 +1466,15 @@ mod tests {
     }
 
     fn pinned(associations: Vec<PathBuf>) -> PinnedRecord {
+        // An empty record's snapshot, which nothing here reads.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(
+            dir.path(),
+            Association {
+                checkout: PathBuf::from("/work/repo"),
+            },
+        )
+        .unwrap();
         PinnedRecord {
             record_id: RecordId::new("r1"),
             revision: Revision::ZERO,
@@ -1464,6 +1482,7 @@ mod tests {
             associations,
             logs: BTreeMap::new(),
             observations: Vec::new(),
+            snapshot: store.snapshot().unwrap(),
         }
     }
 

@@ -8,14 +8,17 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde::Serialize;
 use supersigil_record::JudgmentId;
 use supersigil_record::reviews::{
-    Basis, BasisId, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind, Origin, Withdrawal,
+    Basis, BasisId, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind, Origin, PathBytes,
+    Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 
 /// How an earlier saved review relates to the current one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Relation {
     /// Same base tree, target tree, and scope, from any worktree or
     /// command.
@@ -173,7 +176,18 @@ impl<'a> Ledger<'a> {
     /// The most recent standing completion recorded on `basis`.
     #[must_use]
     pub fn completion(&self, basis: &BasisId) -> Option<&'a Judgment> {
-        self.on(basis)
+        self.latest_completion([basis])
+    }
+
+    /// The most recent standing completion recorded on any of `bases`.
+    #[must_use]
+    pub fn latest_completion<'b>(
+        &self,
+        bases: impl IntoIterator<Item = &'b BasisId>,
+    ) -> Option<&'a Judgment> {
+        bases
+            .into_iter()
+            .flat_map(|basis| self.on(basis))
             .filter(|(_, judgment)| {
                 judgment.kind == JudgmentKind::Complete && self.stands(judgment)
             })
@@ -511,6 +525,12 @@ impl<'a> GateStates<'a> {
         self.ledger.completion(self.id)
     }
 
+    /// Every judgment the states come from.
+    #[must_use]
+    pub const fn ledger(&self) -> &'a Ledger<'a> {
+        self.ledger
+    }
+
     /// The `closes` map of a new completion of the current review: each
     /// gate item to the judgment that closes it.
     ///
@@ -748,6 +768,33 @@ pub fn uncovered_items<'a>(gate: &'a [GateItem], completed: &[GateItem]) -> Vec<
             };
             Some(Uncovered { item, change })
         })
+        .collect()
+}
+
+/// The reviewed files of `current` whose explanation differs from what
+/// `earlier` explained, in path order, leaving out `changed`: the paths
+/// whose content differs between the two reviews, whose explanations
+/// differ with the code. A file `earlier` did not explain differs.
+#[must_use]
+pub fn explanations_differ(
+    current: &Basis,
+    earlier: &Basis,
+    changed: &[PathBytes],
+) -> Vec<PathBytes> {
+    let explained: HashMap<_, _> = earlier
+        .explanations
+        .iter()
+        .map(|explanation| (&explanation.path, &explanation.digest))
+        .collect();
+    let changed: HashSet<&PathBytes> = changed.iter().collect();
+    current
+        .explanations
+        .iter()
+        .filter(|explanation| {
+            !changed.contains(&explanation.path)
+                && explained.get(&explanation.path) != Some(&&explanation.digest)
+        })
+        .map(|explanation| explanation.path.clone())
         .collect()
 }
 
