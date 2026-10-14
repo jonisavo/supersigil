@@ -1935,3 +1935,31 @@ fn an_undo_and_a_judgment_already_withdrawn_cannot_be_undone() {
         )
     );
 }
+
+#[test]
+fn history_names_the_item_of_a_withdrawn_comment() {
+    let (f, _) = reviewed();
+    judged(
+        &f,
+        &f.repo,
+        &["comment", "old.txt", "--text", "Check deletion"],
+    );
+    let [comment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
+    judged(&f, &f.repo, &["undo", "--judgment", comment.id.as_str()]);
+    let [_, undo] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    let text = judged(&f, &f.repo, &["show"]);
+    let output = judge(&f, &f.repo, &["show"]).output().unwrap();
+
+    let line = format!(
+        "  comment on old.txt by {NAME} on {} (judgment {}), withdrawn by {NAME} on {} \
+         (judgment {})\n",
+        comment.at.date(),
+        comment.id.short(),
+        undo.at.date(),
+        undo.id.short()
+    );
+    assert!(text.contains(&line), "{text}");
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["history"][0]["items"], json!(["old.txt"]));
+}

@@ -180,6 +180,13 @@ fn history(id: &BasisId, judgments: &[Judgment], gate: &GateInfo) -> Vec<Withdra
                 .into_iter()
                 .filter_map(|(withdrawn, items)| {
                     let withdrawn = by_id.get(withdrawn)?;
+                    // A whole-judgment withdrawal names no items: the
+                    // subjects are the withdrawn judgment's own.
+                    let items = if items.is_empty() {
+                        withdrawn.items.iter().collect()
+                    } else {
+                        items
+                    };
                     (withdrawn.basis == *id || undo.basis == *id).then(|| Withdrawn {
                         judgment: JudgmentInfo::new(withdrawn),
                         items: names(&gate, items),
