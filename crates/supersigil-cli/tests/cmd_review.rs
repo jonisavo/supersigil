@@ -3106,6 +3106,84 @@ fn a_later_sighting_that_changes_an_edit_of_a_gap_changes_its_fingerprint() {
 }
 
 #[test]
+fn an_edit_one_record_missed_closes_the_gap_in_another_record() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // A session started in a directory inside the worktree writes
+    // `x/gap.rs` three times, each write starting from what the last one
+    // left, the second from the worktree's root.
+    let nested = f.repo.join("x");
+    std::fs::create_dir_all(&nested).unwrap();
+    let gap = nested.join("gap.rs");
+    let text = Session::new("s-moved", &nested)
+        .prompt("Write gap.rs three times.")
+        .create("toolu_one", &gap, "one\n")
+        .cd(&f.repo)
+        .overwrite("toolu_two", &gap, "one\n", "two\n")
+        .cd(&nested)
+        .overwrite("toolu_three", &gap, "two\n", "three\n")
+        .text();
+    write(&f.repo, "x/gap.rs", "three\n");
+    // Synced into the record of the directory, which keeps only the first
+    // and third writes (the second's working directory lies outside it),
+    // then into the record of the worktree, which keeps all three. The
+    // nested record comes first: once the worktree has a record, a sync for
+    // the directory inside it would use that one.
+    let transcript = f.root.join("transcripts").join("moved.jsonl");
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(&transcript, text).unwrap();
+    let transcript_arg = transcript.to_string_lossy().into_owned();
+    for checkout in [&nested, &f.repo] {
+        let checkout_arg = checkout.to_string_lossy().into_owned();
+        let args = [
+            "session",
+            "--checkout",
+            checkout_arg.as_str(),
+            "sync",
+            "--transcript",
+            transcript_arg.as_str(),
+        ];
+        f.plain(&f.repo, &args).assert().success();
+    }
+    // On its own, the directory's record has a gap between the first and
+    // third writes; the worktree's has none.
+    let mut gaps: Vec<usize> = std::fs::read_dir(&f.records)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|record| record.join(MANIFEST_FILE).is_file())
+        .map(|record| {
+            let snapshot = Store::open(&record).unwrap().snapshot().unwrap();
+            let derived = snapshot.derivations(&SessionId::new("s-moved")).unwrap();
+            derived.unwrap().discontinuities.len()
+        })
+        .collect();
+    gaps.sort_unstable();
+    assert_eq!(gaps, [0, 1]);
+
+    let review = f.json(
+        &f.repo,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "x/gap.rs",
+        ],
+    );
+
+    // Together the records hold every write, which follow on from each
+    // other: no gap.
+    assert_eq!(review["records"].as_array().unwrap().len(), 2);
+    let gate = review["basis"]["document"]["gate"].as_array().unwrap();
+    assert!(
+        gate.iter()
+            .all(|item| item["detail"]["origin"] != "discontinuity"),
+        "{gate:#?}"
+    );
+}
+
+#[test]
 fn a_later_sighting_that_names_another_file_changes_an_untracked_items_fingerprint() {
     let f = Fixture::new();
     write(&f.repo, "README.md", "readme\n");

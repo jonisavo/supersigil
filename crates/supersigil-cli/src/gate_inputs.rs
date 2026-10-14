@@ -3,6 +3,7 @@
 //! pinned observations, what is on disk at the paths the capture left out,
 //! and every recorded sighting of the edits the review shows.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, FileType, Metadata, OpenOptions};
 use std::io::{self, Read as _};
@@ -10,15 +11,14 @@ use std::path::Path;
 
 use sha2::{Digest as _, Sha256};
 use supersigil_git::RepoPath;
-use supersigil_record::derive::derive;
+use supersigil_record::derive;
 use supersigil_record::observations::{Edit, Observation};
 use supersigil_record::reviews::PathBytes;
 use supersigil_record::{EventId, SessionId};
 use supersigil_review::Review;
 use supersigil_review::gate::{Gap, GateInputs, OnDiskState, UntrackedEvidence};
-use supersigil_review::model::FileReview;
 
-use crate::pipeline::{Gathered, path_key};
+use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, path_key};
 
 /// What `review` supplies beside it to build its gate
 /// ([`supersigil_review::gate::gate_items`]): the gaps between recorded
@@ -28,26 +28,19 @@ use crate::pipeline::{Gathered, path_key};
 /// sighting of each edit the review shows.
 #[must_use]
 pub fn gate_inputs(g: &Gathered, review: &Review) -> GateInputs {
+    let recorded = Recorded::new(&g.records, &g.candidates, &g.worktree, g.ignore_case);
     let scope = &review.scope;
     GateInputs {
-        discontinuities: discontinuities(g, &review.files),
+        discontinuities: recorded.discontinuities(review.files.iter().map(|file| &file.path_bytes)),
         untracked: scope
             .untracked_excluded
             .iter()
             .filter(|untracked| untracked.recorded_edit)
             .map(|untracked| {
                 let path = &untracked.path_bytes;
-                // Each edit with a sighting naming the file, with all its
-                // sightings: one recorded again naming another file
-                // changed under its id.
-                let file = repo_path(path);
-                let naming: BTreeSet<&str> = g
-                    .sightings_of(&file)
-                    .map(|m| m.candidate.edit.id.as_str())
-                    .collect();
                 let evidence = UntrackedEvidence {
                     on_disk: on_disk_at(&g.worktree, path),
-                    edits: sightings(g, naming).into_values().flatten().collect(),
+                    edits: recorded.naming(path),
                 };
                 (path.clone(), evidence)
             })
@@ -60,61 +53,131 @@ pub fn gate_inputs(g: &Gathered, review: &Review) -> GateInputs {
                 (path.clone(), on_disk_at(&g.worktree, path))
             })
             .collect(),
-        edits: sightings(g, review.edits.keys().map(String::as_str)),
+        edits: recorded.sightings(review.edits.keys().map(String::as_str)),
     }
 }
 
-/// Every sighting of each edit `ids` names, by id, from every record's
-/// pinned observations: a record may hold an edit more than once, and
-/// another record may hold it with another payload.
-fn sightings<'i>(
-    g: &Gathered,
-    ids: impl IntoIterator<Item = &'i str>,
-) -> BTreeMap<String, Vec<Edit>> {
-    let mut sightings: BTreeMap<String, Vec<Edit>> = ids
-        .into_iter()
-        .map(|id| (id.to_owned(), Vec::new()))
-        .collect();
-    for observation in g.records.iter().flat_map(|record| &record.observations) {
-        if let Observation::Edit(edit) = observation
-            && let Some(seen) = sightings.get_mut(edit.id.as_str())
-        {
-            seen.push(edit.clone());
+/// Every recorded sighting of an edit in the involved records, indexed once:
+/// by edit id, by session, and, for the sightings in the reviewed worktree,
+/// by the file they name. Collecting the gate's inputs then never scans the
+/// records or the candidate sightings again for each file or session.
+struct Recorded<'g> {
+    /// Every sighting of each edit, by id, in the order of the records and
+    /// then of each record's observations: a record may hold an edit more
+    /// than once, and another record may hold it with another payload.
+    by_id: BTreeMap<&'g str, Vec<&'g Edit>>,
+    /// Every edit observation of each session, in the same order.
+    by_session: BTreeMap<&'g SessionId, Vec<&'g Observation>>,
+    /// The ids of the edits with a sighting naming each file of the reviewed
+    /// worktree, by the file's path key ([`path_key`]).
+    naming: BTreeMap<Cow<'g, str>, BTreeSet<&'g str>>,
+    /// Every sighting whose file lies in a candidate worktree
+    /// ([`Gathered::candidates`]).
+    candidates: &'g [MappedCandidate],
+    /// Whether paths are compared ignoring ASCII case.
+    ignore_case: bool,
+}
+
+impl<'g> Recorded<'g> {
+    /// Indexes every observation of `records`, and the sightings among
+    /// `candidates` that lie in `worktree`, the reviewed worktree, with
+    /// paths compared ignoring ASCII case when `ignore_case` is set.
+    fn new(
+        records: &'g [PinnedRecord],
+        candidates: &'g [MappedCandidate],
+        worktree: &Path,
+        ignore_case: bool,
+    ) -> Self {
+        let mut by_id: BTreeMap<&str, Vec<&Edit>> = BTreeMap::new();
+        let mut by_session: BTreeMap<&SessionId, Vec<&Observation>> = BTreeMap::new();
+        for observation in records.iter().flat_map(|record| &record.observations) {
+            if let Observation::Edit(edit) = observation {
+                by_id.entry(edit.id.as_str()).or_default().push(edit);
+                by_session
+                    .entry(&edit.session)
+                    .or_default()
+                    .push(observation);
+            }
+        }
+        let mut naming: BTreeMap<Cow<str>, BTreeSet<&str>> = BTreeMap::new();
+        for sighting in candidates {
+            if sighting.candidate.worktree == worktree {
+                naming
+                    .entry(path_key(&sighting.path, ignore_case))
+                    .or_default()
+                    .insert(sighting.candidate.edit.id.as_str());
+            }
+        }
+        Self {
+            by_id,
+            by_session,
+            naming,
+            candidates,
+            ignore_case,
         }
     }
-    sightings
-}
 
-/// The gaps between recorded edits of each of `files`, from every record's
-/// pinned observations, each edit with every sighting of it in any record.
-///
-/// Edits are keyed by where they map, as attribution maps them
-/// ([`Gathered::candidates`]): the candidate worktree, and the reviewed file
-/// whose path matches the path in it as [`crate::pipeline::same_path`]
-/// matches paths. An edit that maps into no reviewed file is compared with
-/// nothing. Every keyed edit is a candidate edit, so its session is a
-/// candidate session; each of those sessions is derived once per record.
-/// Derive compares an edit's first sighting; a later one, recorded again
-/// with another payload, changes the gap's fingerprint all the same.
-fn discontinuities(g: &Gathered, files: &[FileReview]) -> Vec<Gap> {
-    let reviewed: BTreeMap<String, &PathBytes> = files
-        .iter()
-        .filter_map(|file| {
-            let path = file.path_bytes.to_str()?;
-            Some((path_key(path, g.ignore_case).into_owned(), &file.path_bytes))
-        })
-        .collect();
-    // Each gap's file and the ids of its two edits.
-    let mut found: Vec<(&PathBytes, &EventId, &EventId)> = Vec::new();
-    for record in &g.records {
-        // Each edit id once, as `derive` takes each once.
+    /// Every sighting of the edit `id`, in any record.
+    fn every(&self, id: &str) -> Vec<Edit> {
+        self.by_id
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|&edit| edit.clone())
+            .collect()
+    }
+
+    /// Every sighting of each edit `ids` names, by id.
+    fn sightings<'i>(&self, ids: impl IntoIterator<Item = &'i str>) -> BTreeMap<String, Vec<Edit>> {
+        ids.into_iter()
+            .map(|id| (id.to_owned(), self.every(id)))
+            .collect()
+    }
+
+    /// Every sighting of each edit with a sighting naming `path`, a file of
+    /// the reviewed worktree, as [`crate::pipeline::same_path`] matches
+    /// paths, in id order: one recorded again naming another file changed
+    /// under its id. None when `path` is not UTF-8.
+    fn naming(&self, path: &PathBytes) -> Vec<Edit> {
+        let ids = path
+            .to_str()
+            .and_then(|path| self.naming.get(path_key(path, self.ignore_case).as_ref()));
+        ids.into_iter()
+            .flatten()
+            .flat_map(|id| self.every(id))
+            .collect()
+    }
+
+    /// The gaps between recorded edits of each of `files`, each edit with
+    /// every sighting of it in any record.
+    ///
+    /// Edits are keyed by where they map, as attribution maps them
+    /// ([`Gathered::candidates`]): the candidate worktree, and the reviewed
+    /// file whose path matches the path in it as
+    /// [`crate::pipeline::same_path`] matches paths. An edit that maps into
+    /// no reviewed file is compared with nothing. Every keyed edit is a
+    /// candidate edit, so its session is a candidate session. Each of those
+    /// sessions is derived once, gaps only, over the observations of every
+    /// record together, each edit id once (its first sighting, in record
+    /// order, as [`derive::discontinuities`] takes it): an edit that one
+    /// record missed, made from a working directory outside its
+    /// association, still joins the edits before and after it there. A
+    /// later sighting, recorded again with another payload, changes the
+    /// gap's fingerprint all the same.
+    fn discontinuities<'p>(&self, files: impl IntoIterator<Item = &'p PathBytes>) -> Vec<Gap> {
+        let reviewed: BTreeMap<String, &PathBytes> = files
+            .into_iter()
+            .filter_map(|file| {
+                let path = file.to_str()?;
+                Some((path_key(path, self.ignore_case).into_owned(), file))
+            })
+            .collect();
+        // Each edit id once, where its first sighting in a candidate
+        // worktree maps.
         let mut keyed: BTreeMap<&EventId, (&Edit, &Path, &PathBytes)> = BTreeMap::new();
-        for sighting in &g.candidates {
-            let candidate = &sighting.candidate;
-            if candidate.record != record.record_id {
-                continue;
-            }
-            if let Some(&file) = reviewed.get(path_key(&sighting.path, g.ignore_case).as_ref()) {
+        for sighting in self.candidates {
+            if let Some(&file) = reviewed.get(path_key(&sighting.path, self.ignore_case).as_ref()) {
+                let candidate = &sighting.candidate;
                 keyed.entry(&candidate.edit.id).or_insert((
                     &candidate.edit,
                     &candidate.worktree,
@@ -124,35 +187,28 @@ fn discontinuities(g: &Gathered, files: &[FileReview]) -> Vec<Gap> {
         }
         let sessions: BTreeSet<&SessionId> =
             keyed.values().map(|(edit, ..)| &edit.session).collect();
+        let mut gaps = Vec::new();
         for session in sessions {
-            let derived = derive(session, &record.observations, record.revision, |edit| {
+            let observations = self.by_session.get(session).into_iter().flatten();
+            let found = derive::discontinuities(session, observations.copied(), |edit| {
                 keyed
                     .get(&edit.id)
                     .map(|&(_, worktree, file)| (worktree, file))
             });
-            for gap in derived.discontinuities {
+            for gap in found {
                 if let (Some(&(prev, ..)), Some(&(next, _, file))) =
                     (keyed.get(&gap.prev), keyed.get(&gap.next))
                 {
-                    found.push((file, &prev.id, &next.id));
+                    gaps.push(Gap {
+                        path: file.clone(),
+                        prev: self.every(prev.id.as_str()),
+                        next: self.every(next.id.as_str()),
+                    });
                 }
             }
         }
+        gaps
     }
-    let seen = sightings(
-        g,
-        found
-            .iter()
-            .flat_map(|&(_, prev, next)| [prev.as_str(), next.as_str()]),
-    );
-    found
-        .into_iter()
-        .map(|(file, prev, next)| Gap {
-            path: file.clone(),
-            prev: seen[prev.as_str()].clone(),
-            next: seen[next.as_str()].clone(),
-        })
-        .collect()
 }
 
 /// The repository path `path` names.
@@ -378,21 +434,181 @@ const fn status_changed(_metadata: &Metadata) -> (i64, i64) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs::File;
     use std::io;
-    #[cfg(unix)]
-    use std::path::Path;
-    use std::time::Duration;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
 
     use sha2::{Digest as _, Sha256};
+    use supersigil_anchor::CandidateEdit;
+    use supersigil_record::observations::{
+        Edit, EditOperation, EditOrigin, FileState, Material, Observation,
+    };
+    use supersigil_record::reviews::PathBytes;
+    use supersigil_record::store::{Association, Store};
+    use supersigil_record::{ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
     use supersigil_review::gate::OnDiskState;
 
-    use super::{CHUNK, hashed, on_disk_state, opened_state, read_failed};
+    use super::{CHUNK, Recorded, hashed, on_disk_state, opened_state, read_failed};
     #[cfg(unix)]
     use super::{as_inspected, file_digest, still_at};
+    use crate::pipeline::{MappedCandidate, PinnedRecord};
 
     /// Hex SHA-256 of `hello\n`.
     const HELLO: &str = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
+
+    /// The worktree the edits here lie in.
+    const WORKTREE: &str = "/r";
+
+    /// Edit `tool` of session `session`, at `ordinal` in its transcript,
+    /// writing `path` in [`WORKTREE`] from content `before` to `after`.
+    fn edit(
+        session: &str,
+        tool: &str,
+        path: &str,
+        ordinal: u64,
+        before: &str,
+        after: &str,
+    ) -> Edit {
+        let content = |text: &str| FileState::known(ContentId::of(text.as_bytes()));
+        Edit {
+            id: EventId::derive("edit", &SessionId::new(session), tool),
+            turn: TurnId::new(format!("a{ordinal}")),
+            session: SessionId::new(session),
+            path: PathBuf::from(path),
+            before: content(before),
+            after: content(after),
+            patch: Material::unavailable("test"),
+            old_text: Material::unavailable("test"),
+            new_text: Material::unavailable("test"),
+            replace_all: false,
+            operation: EditOperation::Replace,
+            origin: EditOrigin::Tool,
+            checkout: PathBuf::from(WORKTREE),
+            time: Timestamp::new("2026-10-14T10:00:00.000Z"),
+            source_ordinal: ordinal,
+            agent_id: None,
+            transcript: Some(format!("{session}.jsonl")),
+        }
+    }
+
+    /// Record `id`, pinned, holding `edits`.
+    fn record(id: &str, edits: &[Edit]) -> PinnedRecord {
+        // An empty record's snapshot, which nothing here reads.
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = PathBuf::from(WORKTREE);
+        let store = Store::create(dir.path(), Association { checkout }).unwrap();
+        PinnedRecord {
+            record_id: RecordId::new(id),
+            revision: Revision::ZERO,
+            not_reconciled: None,
+            associations: vec![PathBuf::from(WORKTREE)],
+            logs: BTreeMap::new(),
+            observations: edits.iter().cloned().map(Observation::Edit).collect(),
+            snapshot: store.snapshot().unwrap(),
+        }
+    }
+
+    /// Every sighting `records` hold, mapped to its path in [`WORKTREE`],
+    /// a candidate worktree, as gathering maps them.
+    fn candidates(records: &[PinnedRecord]) -> Vec<MappedCandidate> {
+        let mut candidates = Vec::new();
+        for record in records {
+            for observation in &record.observations {
+                if let Observation::Edit(edit) = observation {
+                    candidates.push(MappedCandidate {
+                        candidate: CandidateEdit {
+                            record: record.record_id.clone(),
+                            worktree: PathBuf::from(WORKTREE),
+                            edit: edit.clone(),
+                        },
+                        path: edit.path.to_string_lossy().into_owned(),
+                    });
+                }
+            }
+        }
+        candidates
+    }
+
+    #[test]
+    fn an_edit_one_record_missed_closes_the_gap_in_another_record() {
+        // Three writes of `x/gap.rs`, each starting from what the last one
+        // left. The record of `x` missed the second, made from outside it.
+        let writes = [
+            edit("s", "one", "x/gap.rs", 1, "", "one\n"),
+            edit("s", "two", "x/gap.rs", 3, "one\n", "two\n"),
+            edit("s", "three", "x/gap.rs", 5, "two\n", "three\n"),
+        ];
+        let partial = [writes[0].clone(), writes[2].clone()];
+        let reviewed = [PathBytes::new("x/gap.rs")];
+        let gaps = |records: &[PinnedRecord]| {
+            let candidates = candidates(records);
+            Recorded::new(records, &candidates, Path::new(WORKTREE), false)
+                .discontinuities(&reviewed)
+        };
+
+        let records = [record("x", &partial), record("root", &writes)];
+        let found = gaps(&records);
+        assert!(found.is_empty(), "{found:#?}");
+
+        // When neither record holds the second write, the gap is found once,
+        // with both records' sightings of its edits.
+        let records = [record("x", &partial), record("root", &partial)];
+        let found = gaps(&records);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert_eq!(found[0].path, reviewed[0]);
+        assert_eq!(found[0].prev, [writes[0].clone(), writes[0].clone()]);
+        assert_eq!(found[0].next, [writes[2].clone(), writes[2].clone()]);
+    }
+
+    #[test]
+    fn the_gate_inputs_of_many_recorded_edits_are_collected_promptly() {
+        // One record of 20,001 edits: 10,000 of one reviewed file, each
+        // returning it to where the one before started, then one from
+        // other content; one edit of each of 5,000 more reviewed files, each
+        // by a session of its own; and 5,000 untracked files written by one
+        // session.
+        let mut edits: Vec<Edit> = (1..=10_000)
+            .map(|k| {
+                let (before, after) = if k % 2 == 1 {
+                    ("a\n", "b\n")
+                } else {
+                    ("b\n", "a\n")
+                };
+                edit("s-back", &format!("t{k}"), "a.rs", k, before, after)
+            })
+            .collect();
+        edits.push(edit("s-back", "t0", "a.rs", 10_001, "z\n", "a\n"));
+        let mut reviewed = vec![PathBytes::new("a.rs")];
+        let mut untracked = Vec::new();
+        for k in 0..5_000 {
+            let path = format!("f{k}.rs");
+            edits.push(edit(&format!("s{k}"), "t", &path, 1, "", "f\n"));
+            reviewed.push(PathBytes::new(path));
+            let path = format!("u{k}.rs");
+            edits.push(edit("s-new", &path, &path, k, "", "u\n"));
+            untracked.push(PathBytes::new(path));
+        }
+        let records = [record("r", &edits)];
+        let candidates = candidates(&records);
+
+        let started = Instant::now();
+        let recorded = Recorded::new(&records, &candidates, Path::new(WORKTREE), false);
+        let gaps = recorded.discontinuities(&reviewed);
+        let naming: Vec<usize> = untracked
+            .iter()
+            .map(|path| recorded.naming(path).len())
+            .collect();
+        let elapsed = started.elapsed();
+
+        eprintln!("gate inputs of 20,001 edits: {elapsed:?}");
+        assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].prev, [edits[9_999].clone()]);
+        assert_eq!(gaps[0].next, [edits[10_000].clone()]);
+        assert!(naming.iter().all(|&count| count == 1));
+    }
 
     #[test]
     fn a_file_is_its_bytes_hashed() {

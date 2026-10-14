@@ -121,6 +121,20 @@ impl<'a> Session<'a> {
             .push("user", &done, Some(result))
     }
 
+    /// A Write call that replaces `file`, which held `before`, with
+    /// `content`, and its result.
+    pub fn overwrite(&mut self, tool: &str, file: &Path, before: &str, content: &str) -> &mut Self {
+        let file = file.to_string_lossy();
+        let call = json!([{"type": "tool_use", "id": tool, "name": "Write",
+            "input": {"file_path": file, "content": content}}]);
+        let done = json!([{"type": "tool_result", "tool_use_id": tool,
+            "content": "File updated"}]);
+        let result = json!({"type": "update", "filePath": file, "content": content,
+            "originalFile": before, "structuredPatch": []});
+        self.push("assistant", &call, None)
+            .push("user", &done, Some(result))
+    }
+
     /// A Bash call running `command` and its result in Claude Code's
     /// format, with `report` as `bashEditDiff` when present.
     pub fn bash(&mut self, tool: &str, command: &str, report: Option<Value>) -> &mut Self {

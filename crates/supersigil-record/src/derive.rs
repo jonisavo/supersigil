@@ -39,6 +39,53 @@ pub fn derive<K: Ord>(
     observation_revision: Revision,
     key: impl Fn(&Edit) -> Option<K>,
 ) -> DerivationSet {
+    let mut restores = Vec::new();
+    let mut discontinuities = Vec::new();
+    for group in groups(session, observations, key) {
+        let issued = issued(&group);
+        find_restores(&issued, &mut restores);
+        find_discontinuities(&issued, &mut discontinuities);
+    }
+    restores.sort_by(|a, b| a.edit.cmp(&b.edit));
+
+    DerivationSet {
+        session: session.clone(),
+        observation_revision,
+        algorithm_version: ALGORITHM_VERSION,
+        restores,
+        discontinuities,
+    }
+}
+
+/// Finds the discontinuities [`derive()`] finds among the edits belonging to
+/// `session`, grouping and comparing them as it does, without its restores.
+///
+/// For a caller that needs only the gaps: the restores of edits that keep
+/// returning a file to earlier content name every such earlier edit, so
+/// their count can grow with the square of the number of edits. Takes the
+/// observations in any order a caller holds them, such as those of several
+/// records one after another, without copying them.
+#[must_use]
+pub fn discontinuities<'a, K: Ord>(
+    session: &SessionId,
+    observations: impl IntoIterator<Item = &'a Observation>,
+    key: impl Fn(&Edit) -> Option<K>,
+) -> Vec<Discontinuity> {
+    let mut found = Vec::new();
+    for group in groups(session, observations, key) {
+        find_discontinuities(&issued(&group), &mut found);
+    }
+    found
+}
+
+/// The edits [`derive()`] compares with each other, group by group: the
+/// first occurrence of each edit ID of `session` in `observations`, grouped
+/// by `key` and transcript, each group sorted by ordinal.
+fn groups<'a, K: Ord>(
+    session: &SessionId,
+    observations: impl IntoIterator<Item = &'a Observation>,
+    key: impl Fn(&Edit) -> Option<K>,
+) -> Vec<Vec<&'a Edit>> {
     let mut seen: BTreeSet<&EventId> = BTreeSet::new();
     let mut groups: BTreeMap<(K, Option<&str>), Vec<&Edit>> = BTreeMap::new();
     for observation in observations {
@@ -53,61 +100,67 @@ pub fn derive<K: Ord>(
                 .push(edit);
         }
     }
+    groups
+        .into_values()
+        .map(|mut edits| {
+            edits.sort_by_key(|e| e.source_ordinal);
+            edits
+        })
+        .collect()
+}
 
-    let mut restores = Vec::new();
-    let mut discontinuities = Vec::new();
-    for mut edits in groups.into_values() {
-        edits.sort_by_key(|e| e.source_ordinal);
-        // The edits of each ordinal, in ordinal order.
-        let issued: Vec<&[&Edit]> = edits
-            .chunk_by(|a, b| a.source_ordinal == b.source_ordinal)
-            .collect();
-        // Known before-contents of the edits with lower ordinals, each with
-        // its edits oldest first.
-        let mut befores: BTreeMap<&ContentId, Vec<EventId>> = BTreeMap::new();
-        for &together in &issued {
-            for edit in together {
-                let earlier = edit
-                    .after_content()
-                    .filter(|after| edit.before_content() != Some(after))
-                    .and_then(|after| befores.get(after));
-                if let Some(earlier) = earlier {
-                    restores.push(Restore {
-                        edit: edit.id.clone(),
-                        restores: earlier.clone(),
-                    });
-                }
-            }
-            for edit in together {
-                if let Some(before) = edit.before_content() {
-                    befores.entry(before).or_default().push(edit.id.clone());
-                }
-            }
-        }
-        for pair in issued.windows(2) {
-            let (&[prev], &[next]) = (pair[0], pair[1]) else {
-                continue;
-            };
-            if let (Some(a), Some(b)) = (known_state(&prev.after), known_state(&next.before))
-                && a != b
-            {
-                discontinuities.push(Discontinuity {
-                    path: next.path.clone(),
-                    checkout: next.checkout.clone(),
-                    prev: prev.id.clone(),
-                    next: next.id.clone(),
+/// The edits of each ordinal in `group`, which is sorted by ordinal, in
+/// ordinal order.
+fn issued<'g, 'a>(group: &'g [&'a Edit]) -> Vec<&'g [&'a Edit]> {
+    group
+        .chunk_by(|a, b| a.source_ordinal == b.source_ordinal)
+        .collect()
+}
+
+/// Adds to `restores` the restores among `issued`, one group's edits of
+/// each ordinal in ordinal order (see [`derive()`]).
+fn find_restores(issued: &[&[&Edit]], restores: &mut Vec<Restore>) {
+    // Known before-contents of the edits with lower ordinals, each with its
+    // edits oldest first.
+    let mut befores: BTreeMap<&ContentId, Vec<EventId>> = BTreeMap::new();
+    for &together in issued {
+        for edit in together {
+            let earlier = edit
+                .after_content()
+                .filter(|after| edit.before_content() != Some(after))
+                .and_then(|after| befores.get(after));
+            if let Some(earlier) = earlier {
+                restores.push(Restore {
+                    edit: edit.id.clone(),
+                    restores: earlier.clone(),
                 });
             }
         }
+        for edit in together {
+            if let Some(before) = edit.before_content() {
+                befores.entry(before).or_default().push(edit.id.clone());
+            }
+        }
     }
-    restores.sort_by(|a, b| a.edit.cmp(&b.edit));
+}
 
-    DerivationSet {
-        session: session.clone(),
-        observation_revision,
-        algorithm_version: ALGORITHM_VERSION,
-        restores,
-        discontinuities,
+/// Adds to `discontinuities` the discontinuities among `issued`, one
+/// group's edits of each ordinal in ordinal order (see [`derive()`]).
+fn find_discontinuities(issued: &[&[&Edit]], discontinuities: &mut Vec<Discontinuity>) {
+    for pair in issued.windows(2) {
+        let (&[prev], &[next]) = (pair[0], pair[1]) else {
+            continue;
+        };
+        if let (Some(a), Some(b)) = (known_state(&prev.after), known_state(&next.before))
+            && a != b
+        {
+            discontinuities.push(Discontinuity {
+                path: next.path.clone(),
+                checkout: next.checkout.clone(),
+                prev: prev.id.clone(),
+                next: next.id.clone(),
+            });
+        }
     }
 }
 
@@ -529,5 +582,76 @@ mod tests {
         let set = derive(&session(), &obs, Revision::ZERO.next(), as_recorded());
         assert!(set.restores.is_empty());
         assert!(set.discontinuities.is_empty());
+    }
+
+    /// `count` edits of one file, each returning it to the content the one
+    /// before started from, then an edit that starts from other content.
+    fn back_and_forth(count: u64) -> Vec<Observation> {
+        let mut obs: Vec<Observation> = (1..=count)
+            .map(|ordinal| {
+                let (before, after) = if ordinal % 2 == 1 {
+                    ("a\n", "b\n")
+                } else {
+                    ("b\n", "a\n")
+                };
+                let tool = format!("t{ordinal}");
+                edit(&tool, "a.txt", ordinal, known(before), known(after))
+            })
+            .collect();
+        obs.push(edit("t0", "a.txt", count + 1, known("z\n"), known("a\n")));
+        obs
+    }
+
+    #[test]
+    fn discontinuities_alone_are_those_derive_finds() {
+        let cases = [
+            after_a_directory_change(2),
+            after_a_directory_change(1),
+            back_and_forth(6),
+            vec![
+                edit("t1", "notes.txt", 3, known("draft\n"), known("final\n")),
+                edit("t2", "notes.txt", 3, known("final\n"), known("draft\n")),
+                edit("t3", "notes.txt", 4, known("x\n"), known("y\n")),
+            ],
+            vec![
+                edit("t1", "a.txt", 1, known("x\n"), FileState::Absent),
+                edit("t2", "a.txt", 2, known("y\n"), known("z\n")),
+                edit("t3", "b.txt", 1, known("x\n"), known("y\n")),
+                edit("t4", "b.txt", 2, FileState::unknown(), known("z\n")),
+                edit("t1", "a.txt", 1, known("q\n"), known("r\n")),
+            ],
+        ];
+        for (k, obs) in cases.iter().enumerate() {
+            let derived = derive(&session(), obs, Revision::ZERO.next(), joined());
+            let alone = discontinuities(&session(), obs, joined());
+            assert_eq!(alone, derived.discontinuities, "{k}");
+            let derived = derive(&session(), obs, Revision::ZERO.next(), as_recorded());
+            let alone = discontinuities(&session(), obs, as_recorded());
+            assert_eq!(alone, derived.discontinuities, "{k}");
+        }
+    }
+
+    #[test]
+    fn the_discontinuities_of_many_edits_back_and_forth_are_found_promptly() {
+        // Each edit restores every earlier one that started where it ends:
+        // about 25 million restored IDs for 10,000 edits, which derive
+        // collected in about 1.1 s and 1.3 GB here in a debug build.
+        let obs = back_and_forth(10_000);
+
+        let started = std::time::Instant::now();
+        let found = discontinuities(&session(), &obs, as_recorded());
+        let elapsed = started.elapsed();
+
+        eprintln!("10,000 edits back and forth: {elapsed:?}");
+        assert!(elapsed < std::time::Duration::from_secs(20), "{elapsed:?}");
+        assert_eq!(
+            found,
+            [Discontinuity {
+                path: PathBuf::from("a.txt"),
+                checkout: PathBuf::from("/work/repo"),
+                prev: id("t10000"),
+                next: id("t0"),
+            }]
+        );
     }
 }
