@@ -62,7 +62,8 @@ pub fn resolve(checkout: &Path) -> PathBuf {
 
 /// Where the file `path`, recorded relative to `checkout`, lies: `checkout`
 /// as [`resolve`] returns it, joined with `path`, then lexically normalized
-/// (`.` components removed, each `..` folded into the component before it),
+/// (`.` components removed, each `..` folded into the normal component before
+/// it, dropped at a root, and kept when nothing precedes it to fold into),
 /// with letter case as spelled.
 ///
 /// Nothing below the checkout is read from the file system. Sync groups a
@@ -74,9 +75,13 @@ pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
     let mut normal = PathBuf::new();
     for component in resolve(checkout).join(path).components() {
         match component {
-            Component::ParentDir => {
-                normal.pop();
-            }
+            Component::ParentDir => match normal.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normal.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => normal.push(Component::ParentDir),
+            },
             Component::CurDir => {}
             other => normal.push(other),
         }
@@ -277,6 +282,27 @@ mod tests {
         );
         assert_eq!(location("/r/sub", "../a.rs"), PathBuf::from("/r/a.rs"));
         assert_ne!(location("/R", "a.rs"), location("/r", "a.rs"));
+    }
+
+    #[test]
+    fn an_unresolved_parent_component_is_kept_in_a_location() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        assert_eq!(
+            location("../missing", "a.rs"),
+            PathBuf::from("../missing/a.rs")
+        );
+        assert_ne!(location("../missing", "a.rs"), location("missing", "a.rs"));
+        assert_eq!(location("missing", "../../a.rs"), PathBuf::from("../a.rs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_component_above_the_root_is_dropped() {
+        assert_eq!(
+            file_location(Path::new("/r/sub"), Path::new("../../../a.rs")),
+            PathBuf::from("/a.rs")
+        );
     }
 
     #[cfg(unix)]
