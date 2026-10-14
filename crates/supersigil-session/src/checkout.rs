@@ -4,7 +4,7 @@
 //! different path separators. [`placement`] accounts for these differences
 //! when comparing a transcript's working directory with a checkout.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Whether a path is the checkout root, a descendant, or outside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +51,37 @@ pub fn overlaps(a: &Path, b: &Path) -> bool {
 /// Returns any I/O error other than [`std::io::ErrorKind::NotFound`].
 pub fn canonical_or_written(path: &Path) -> std::io::Result<PathBuf> {
     Ok(crate::found(canonical(path))?.unwrap_or_else(|| path.to_path_buf()))
+}
+
+/// Returns [`canonical`] if `checkout` can be resolved, or `checkout` as
+/// written otherwise.
+#[must_use]
+pub fn resolve(checkout: &Path) -> PathBuf {
+    canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
+}
+
+/// Where the file `path`, recorded relative to `checkout`, lies: `checkout`
+/// as [`resolve`] returns it, joined with `path`, then lexically normalized
+/// (`.` components removed, each `..` folded into the component before it),
+/// with letter case as spelled.
+///
+/// Nothing below the checkout is read from the file system. Sync groups a
+/// session's edits by this location, so edits of one file are compared
+/// whether the session named it from a subdirectory, or through a symlink
+/// to the checkout.
+#[must_use]
+pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in resolve(checkout).join(path).components() {
+        match component {
+            Component::ParentDir => {
+                normal.pop();
+            }
+            Component::CurDir => {}
+            other => normal.push(other),
+        }
+    }
+    normal
 }
 
 /// Returns an absolute path with symlinks resolved and no Windows verbatim prefix.
@@ -232,6 +263,35 @@ mod tests {
         assert_eq!(
             without_verbatim_prefix(PathBuf::from("/work/repo")),
             PathBuf::from("/work/repo")
+        );
+    }
+
+    #[test]
+    fn a_missing_checkout_locates_files_by_its_normalized_spelling() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        assert_eq!(location("/r", "sub/a.rs"), location("/r/sub", "a.rs"));
+        assert_eq!(
+            location("/r/./x/../sub", "./a.rs"),
+            PathBuf::from("/r/sub/a.rs")
+        );
+        assert_eq!(location("/r/sub", "../a.rs"), PathBuf::from("/r/a.rs"));
+        assert_ne!(location("/R", "a.rs"), location("/r", "a.rs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_checkout_and_its_real_path_locate_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let file = Path::new("a.rs");
+        assert_eq!(file_location(&link, file), file_location(&real, file));
+        assert_eq!(
+            file_location(&link, file),
+            canonical(&real).unwrap().join(file)
         );
     }
 

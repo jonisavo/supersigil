@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::Edit;
-use supersigil_session::checkout::{Placement, canonical, placement_as_written};
+use supersigil_session::checkout::{Placement, placement_as_written, resolve};
 
 /// The worktree a recorded file lies in, and the file's path inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,13 +51,6 @@ pub fn map_file(
     ignore_case: bool,
 ) -> Option<MappedEdit> {
     map_resolved(&resolve(checkout), path, worktree_roots, ignore_case)
-}
-
-/// Canonicalizes `checkout` if it exists; otherwise keeps its spelling.
-/// [`map_file`] places files under this path.
-#[must_use]
-pub fn resolve(checkout: &Path) -> PathBuf {
-    canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
 }
 
 /// [`map_file`] with an already resolved checkout ([`resolve`]), for

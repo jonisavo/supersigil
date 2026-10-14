@@ -24,9 +24,9 @@ use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
     CommandChange, EditInfo, EditOriginInfo, Mention, MentionResult, PromptInfo, TranscriptInfo,
 };
-use supersigil_session::checkout::{canonical, within};
+use supersigil_session::checkout::{canonical, resolve, within};
 
-use crate::mapping::{MappedEdit, map_resolved, resolve};
+use crate::mapping::{MappedEdit, map_resolved};
 
 /// Turns, commands, capture limitations, transcript locations, and the
 /// delegation order of every pinned record, indexed for the lookups a

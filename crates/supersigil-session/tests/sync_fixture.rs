@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use common::{SESSION, fixture, line_starts};
 
+use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::observations::{
     CaptureLimitation, EditOrigin, Observation, Role, SessionStart, Source, session_start,
 };
@@ -1163,6 +1164,57 @@ fn a_session_moving_into_a_nested_worktree_keeps_its_edits() {
         })
         .unwrap();
     assert_eq!(edit.checkout, Path::new(worktree));
+}
+
+#[test]
+fn a_file_edited_before_and_after_a_change_of_directory_is_compared() {
+    // The fixture creates `src/new.rs` from `/work/repo`; the session then
+    // moves to `src` and creates `new.rs` again, over the content it left.
+    let lines = fixture_and(write_from("/work/repo/src", "new.rs"));
+    let s = setup(joined(&lines).as_bytes());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let session = SessionId::new(SESSION);
+    let gap = derivations(&s.store)
+        .discontinuities
+        .into_iter()
+        .find(|d| d.next == EventId::derive("edit", &session, "toolu_x"))
+        .expect("the two spellings are compared");
+    assert_eq!(gap.prev, EventId::derive("edit", &session, "toolu_02"));
+    assert_eq!(gap.checkout, PathBuf::from("/work/repo/src"));
+    assert_eq!(gap.path, PathBuf::from("new.rs"));
+}
+
+#[test]
+fn a_set_from_an_older_algorithm_is_derived_again_when_sync_writes() {
+    let s = setup(&fixture());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let current = derivations(&s.store);
+    let stale = DerivationSet {
+        algorithm_version: 1,
+        restores: Vec::new(),
+        discontinuities: Vec::new(),
+        ..current.clone()
+    };
+    let mut tx = s.store.begin().unwrap();
+    tx.put_derivations(&stale).unwrap();
+    let stale_revision = tx.commit().unwrap();
+
+    // Nothing to read: nothing is written, and the stale set stays.
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.revision, stale_revision);
+    assert_eq!(derivations(&s.store), stale);
+
+    // Another session's transcript is written, and the stale set is derived
+    // again from the observations already recorded.
+    let other = s.transcript.with_file_name("other.jsonl");
+    std::fs::write(&other, joined(&heredoc_writes())).unwrap();
+    let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), other]).unwrap();
+    assert_eq!(report.sessions, vec![SessionId::new("s")]);
+    let rederived = derivations(&s.store);
+    assert_eq!(rederived.algorithm_version, ALGORITHM_VERSION);
+    assert_eq!(rederived.observation_revision, stale_revision);
+    assert_eq!(rederived.restores, current.restores);
+    assert_eq!(rederived.discontinuities, current.discontinuities);
 }
 
 #[test]

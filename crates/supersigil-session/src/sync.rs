@@ -3,14 +3,15 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::derive::derive;
 use supersigil_record::observations::{
-    CaptureCounts, CaptureLimitation, Observation, SessionStart, Source,
+    CaptureCounts, CaptureLimitation, Edit, Observation, SessionStart, Source,
 };
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
 use supersigil_record::{ContentId, Revision, SessionId, Timestamp};
 
-use crate::checkout::{Placement, canonical, placement, within};
+use crate::checkout::{Placement, canonical, file_location, placement, within};
 use crate::claude_code::{ParseOutcome, parse_transcript};
 
 /// Failure to read a transcript or update the record during sync.
@@ -83,6 +84,11 @@ pub struct SyncReport {
 /// Otherwise returns the existing revision. Capture problems are saved as
 /// [`CaptureLimitation`] observations in the same commit as the cursor update.
 ///
+/// Derivations group each session's edits by [`file_location`], so edits of
+/// one file are compared whatever directory the session named it from. A
+/// commit also derives again every other session's stored set that an older
+/// [`ALGORITHM_VERSION`] produced, from the observations already recorded.
+///
 /// The first working directory recorded for a transcript's session determines
 /// whether it is accepted. It must be `checkout` or a descendant, as checked
 /// by [`placement`]. An outside or unknown checkout is reported as skipped.
@@ -140,14 +146,28 @@ pub fn sync(
         });
     }
 
+    // Edits of one file are compared however the session spelled it.
+    let key = |edit: &Edit| Some(file_location(&edit.checkout, &edit.path));
     let next_revision = tx.manifest().revision.next();
     let mut sessions = Vec::with_capacity(appended.len());
     for (session, new) in appended {
         let mut observations = pinned.observations(&session)?;
         observations.extend(new);
-        let set = derive(&session, &observations, next_revision);
-        tx.put_derivations(&set)?;
+        tx.put_derivations(&derive(&session, &observations, next_revision, key))?;
         sessions.push(session);
+    }
+    // Sets an older algorithm derived are derived again from the pinned
+    // observations, so no set this revision lists is stale.
+    for session in pinned.sessions() {
+        if sessions.contains(&session) {
+            continue;
+        }
+        if let Some(set) = pinned.derivations(&session)?
+            && set.algorithm_version < ALGORITHM_VERSION
+        {
+            let observations = pinned.observations(&session)?;
+            tx.put_derivations(&derive(&session, &observations, pinned.revision(), key))?;
+        }
     }
     let revision = tx.commit()?;
     Ok(SyncReport {

@@ -11,14 +11,18 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{EventId, Revision, SessionId};
 
 /// Version of the comparison rules used by [`crate::derive::derive`].
-pub const ALGORITHM_VERSION: u32 = 1;
+///
+/// Version 2 compares the edits of one file however their checkout and path
+/// spell it, as the caller's key decides; version 1 compared only edits
+/// recorded with the same checkout and path.
+pub const ALGORITHM_VERSION: u32 = 2;
 
 /// An edit that returns a file to content recorded before an earlier edit.
 ///
 /// For example, after `A -> B` followed by `B -> A`, the second edit restores
 /// the content from before the first. The comparison uses known content hashes
-/// for the same checkout, path, and transcript. It does not establish why the
-/// content was restored.
+/// for the same file and transcript. It does not establish why the content
+/// was restored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Restore {
     /// ID of the edit that returned to earlier content.
@@ -31,14 +35,15 @@ pub struct Restore {
 /// A mismatch between the file state after one edit and before the next.
 ///
 /// For example, one edit leaves content `B`, but the next starts with content
-/// `C`. The edits belong to the same checkout, path, and transcript. A missing
-/// file also counts as a known state. If either state has unknown content,
-/// the comparison cannot detect a discontinuity.
+/// `C`. The edits change the same file and belong to the same transcript,
+/// though they may spell the file differently. A missing file also counts as
+/// a known state. If either state has unknown content, the comparison cannot
+/// detect a discontinuity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Discontinuity {
-    /// Path relative to the checkout.
+    /// The next edit's path, relative to its checkout.
     pub path: PathBuf,
-    /// Checkout directory shared by both edits.
+    /// The next edit's checkout directory.
     pub checkout: PathBuf,
     /// ID of the earlier edit, whose after-state is compared.
     pub prev: EventId,
