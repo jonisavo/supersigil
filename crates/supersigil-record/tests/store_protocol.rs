@@ -434,6 +434,52 @@ fn derivations_round_trip_through_the_store() {
     );
 }
 
+/// Writes `s1`'s derivations in the store's first write, at the path
+/// `derivations/0.r1.json`, and checks that they read back.
+fn put_first_derivations(store: &Store) {
+    let set = derivation_set("s1", Revision::ZERO.next());
+    let mut tx = store.begin().unwrap();
+    tx.put_derivations(&set).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().derivations(&session()).unwrap(),
+        Some(set)
+    );
+}
+
+#[test]
+fn a_derivations_document_never_writes_through_a_file_at_its_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    // A file at the next document's path, with a second name that shows
+    // whether its content changes.
+    fs::create_dir(dir.path().join("derivations")).unwrap();
+    let document = dir.path().join("derivations/0.r1.json");
+    fs::write(&document, b"held").unwrap();
+    let held = dir.path().join("held");
+    fs::hard_link(&document, &held).unwrap();
+
+    put_first_derivations(&store);
+    assert_eq!(fs::read(&held).unwrap(), b"held");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_derivations_document_never_writes_through_a_link_at_its_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(&dir.path().join("record"), assoc()).unwrap();
+    let target = dir.path().join("target");
+    fs::write(&target, b"held").unwrap();
+    fs::create_dir(store.root().join("derivations")).unwrap();
+    let document = store.root().join("derivations/0.r1.json");
+    std::os::unix::fs::symlink(&target, &document).unwrap();
+
+    put_first_derivations(&store);
+    // The link is replaced, never followed.
+    assert!(document.symlink_metadata().unwrap().is_file());
+    assert_eq!(fs::read(&target).unwrap(), b"held");
+}
+
 #[test]
 fn open_rejects_a_manifest_that_is_not_a_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -518,6 +564,21 @@ fn a_leftover_temporary_link_cannot_truncate_the_manifest() {
         tmp_names(dir.path()),
         vec![stale.file_name().unwrap().to_string_lossy().into_owned()]
     );
+}
+
+#[test]
+fn publishing_never_opens_a_file_at_the_former_temporary_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    // A file at the fixed name the manifest was once written through.
+    let held = dir.path().join("manifest.json.tmp");
+    fs::write(&held, b"held").unwrap();
+
+    let rev = store.begin().unwrap().commit().unwrap();
+    assert_eq!(store.snapshot().unwrap().revision(), rev);
+    assert_eq!(fs::read(&held).unwrap(), b"held");
+    // The write's own temporary file is renamed into place.
+    assert_eq!(tmp_names(dir.path()), ["manifest.json.tmp"]);
 }
 
 #[test]

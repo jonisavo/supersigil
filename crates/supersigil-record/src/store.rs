@@ -31,9 +31,11 @@ pub use manifest::{Association, Manifest, SCHEMA_VERSION, SourceCursor};
 pub use snapshot::RecordSnapshot;
 pub use write::WriteTx;
 
+use crate::files;
 use crate::ids::RecordId;
+use crate::reviews::BasisId;
 
-/// File name of the manifest inside a record directory.
+/// File name of the manifest inside a record directory or review store.
 pub const MANIFEST_FILE: &str = "manifest.json";
 /// File name of the writer lock inside a record directory.
 pub const LOCK_FILE: &str = "write.lock";
@@ -43,12 +45,15 @@ fn log_path(number: u64) -> String {
     format!("observations/{number}.jsonl")
 }
 
+/// Directory of the derivation documents inside a record directory.
+const DERIVATIONS_DIR: &str = "derivations";
+
 /// Returns the manifest document key for a numbered session's derivations.
 fn derivations_document(number: u64) -> String {
-    format!("derivations/{number}")
+    format!("{DERIVATIONS_DIR}/{number}")
 }
 
-/// Failure to create, read, or write a record.
+/// Failure to create, read, or write a record or a review store.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     /// An I/O operation failed.
@@ -60,7 +65,7 @@ pub enum StoreError {
         #[source]
         source: io::Error,
     },
-    /// Record data could not be encoded as JSON or decoded from it.
+    /// Stored data could not be encoded as JSON or decoded from it.
     #[error("invalid json at {path}: {source}")]
     Json {
         /// File being read or written.
@@ -69,14 +74,16 @@ pub enum StoreError {
         #[source]
         source: serde_json::Error,
     },
-    /// The record path has no `manifest.json` file.
-    #[error("{0} is not a record directory (no manifest.json)")]
+    /// The path has no `manifest.json` file.
+    #[error("{0} is not a record or review store (no manifest.json)")]
     NotARecord(PathBuf),
-    /// A manifest already exists where a new record was requested.
-    #[error("{0} already contains a record")]
+    /// A manifest already exists where a new record or review store was
+    /// requested.
+    #[error("{0} already contains a record or review store")]
     AlreadyExists(PathBuf),
-    /// Another writer holds the lock.
-    #[error("record at {0} is locked by another writer")]
+    /// Another writer holds the lock of the record or review store at this
+    /// path.
+    #[error("{0} is locked by another writer")]
     Locked(PathBuf),
     /// The on-disk revision differs from the transaction's starting revision.
     #[error("manifest revision changed under the writer (expected {expected}, found {found})")]
@@ -87,8 +94,9 @@ pub enum StoreError {
         found: u64,
     },
     /// Stored files are inconsistent with the manifest, such as a log shorter
-    /// than its committed byte length.
-    #[error("record is corrupt: {0}")]
+    /// than its committed byte length or a basis file that does not hash to
+    /// its id.
+    #[error("store is corrupt: {0}")]
     Corrupt(String),
     /// The manifest version differs from this crate's format. No migration
     /// exists; the record stays unchanged. A newer record needs a newer
@@ -107,6 +115,51 @@ pub enum StoreError {
         /// Schema version this crate reads and writes.
         supported: u32,
     },
+    /// The review store's manifest version differs from this crate's
+    /// format. The store stays unchanged.
+    #[error(
+        "review store at {} uses review store format {found}; this build reads format \
+         {supported} and left it unchanged",
+        root.display()
+    )]
+    UnsupportedReviewStore {
+        /// Review store directory holding the manifest.
+        root: PathBuf,
+        /// Schema version found in the manifest.
+        found: u32,
+        /// Schema version this crate reads and writes.
+        supported: u32,
+    },
+    /// Several review stores name one repository. Picking one would hide
+    /// the judgments in the others.
+    #[error(
+        "several review stores name the repository {}: {}. Remove or merge all but one.",
+        repository.display(),
+        joined(stores.iter().map(|store| store.display()))
+    )]
+    SeveralReviewStores {
+        /// The repository's git common directory.
+        repository: PathBuf,
+        /// The stores' directories, sorted.
+        stores: Vec<PathBuf>,
+    },
+    /// No basis in the manifest's `bases` has this id or id prefix.
+    #[error("no saved review matches {0}")]
+    NoSuchBasis(String),
+    /// Several bases in the manifest's `bases` start with this prefix.
+    #[error(
+        "{prefix} matches several saved reviews: {}; give more digits",
+        joined(candidates.iter())
+    )]
+    AmbiguousBasis {
+        /// The prefix as given.
+        prefix: String,
+        /// The matching ids, sorted.
+        candidates: Vec<BasisId>,
+    },
+    /// A review id prefix shorter than 8 digits or not hexadecimal.
+    #[error("{0:?} is not a review id: give at least 8 of its hexadecimal digits")]
+    InvalidBasisPrefix(String),
 }
 
 /// Advice for a record of format `found` refused by a build reading
@@ -119,6 +172,14 @@ fn unsupported_advice(found: u32, supported: u32) -> &'static str {
         "To keep its observations, move that directory out of the records directory; to \
          discard them, delete it. The next sync then reads the transcripts that still exist."
     }
+}
+
+/// Joins displayed items with commas.
+fn joined(items: impl Iterator<Item = impl std::fmt::Display>) -> String {
+    items
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Adds the affected path to an I/O error.
@@ -165,8 +226,7 @@ impl Store {
         association: Association,
     ) -> Result<Self, StoreError> {
         std::fs::create_dir_all(root).map_err(|e| io_error(root, e))?;
-        let manifest = Manifest::new(record_id, association);
-        manifest::create(root, &manifest)?;
+        files::create_manifest(root, &Manifest::new(record_id, association))?;
         Ok(Self {
             root: root.to_path_buf(),
         })
@@ -183,22 +243,10 @@ impl Store {
     /// a directory, or the manifest is not a file. Returns [`StoreError::Io`]
     /// for other metadata errors, such as denied permission.
     pub fn open(root: &Path) -> Result<Self, StoreError> {
-        let path = root.join(MANIFEST_FILE);
-        match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => Ok(Self {
-                root: root.to_path_buf(),
-            }),
-            Ok(_) => Err(StoreError::NotARecord(root.to_path_buf())),
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-                ) =>
-            {
-                Err(StoreError::NotARecord(root.to_path_buf()))
-            }
-            Err(e) => Err(io_error(&path, e)),
-        }
+        files::check_manifest(root)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+        })
     }
 
     /// Returns the record directory path.

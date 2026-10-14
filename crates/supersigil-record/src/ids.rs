@@ -105,6 +105,19 @@ impl RecordId {
     }
 }
 
+string_id!(
+    /// ID of a review store, which also names its directory.
+    StoreId
+);
+
+impl StoreId {
+    /// Generates a random UUID v4 as the store ID.
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(uuid::Uuid::new_v4().to_string())
+    }
+}
+
 /// Record version number, incremented each time a write transaction commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]

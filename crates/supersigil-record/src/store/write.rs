@@ -7,9 +7,11 @@ use std::path::PathBuf;
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    LOCK_FILE, RecordSnapshot, Store, StoreError, derivations_document, io_error, log_path,
+    DERIVATIONS_DIR, LOCK_FILE, RecordSnapshot, Store, StoreError, derivations_document, io_error,
+    log_path,
 };
 use crate::derivations::DerivationSet;
+use crate::files;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 
@@ -43,20 +45,7 @@ impl<'a> WriteTx<'a> {
     /// [`StoreError::Io`] if a lock operation fails, or an error from reading
     /// and validating the manifest.
     pub(super) fn begin(store: &'a Store) -> Result<Self, StoreError> {
-        let lock_path = store.root().join(LOCK_FILE);
-        let lock = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(&lock_path)
-            .map_err(|e| io_error(&lock_path, e))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(std::fs::TryLockError::WouldBlock) => {
-                return Err(StoreError::Locked(store.root().to_path_buf()));
-            }
-            Err(std::fs::TryLockError::Error(e)) => return Err(io_error(&lock_path, e)),
-        }
+        let lock = files::lock(store.root(), LOCK_FILE)?;
         let manifest = manifest::read(store.root())?;
         Ok(Self {
             store,
@@ -154,6 +143,11 @@ impl<'a> WriteTx<'a> {
     /// session in this transaction replaces the pending document. Previously
     /// committed documents remain unchanged.
     ///
+    /// The document is written to a new temporary file and renamed into
+    /// place, so anything already at its path, such as a file a writer that
+    /// never committed left or a symbolic link, is replaced, never written
+    /// through.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Json`] if serialization fails or [`StoreError::Io`]
@@ -163,17 +157,18 @@ impl<'a> WriteTx<'a> {
     ///
     /// Panics if the starting revision is [`u64::MAX`].
     pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
-        let logical = derivations_document(self.session_number(&set.session));
-        let rel = format!("{logical}.r{}.json", self.starting.revision.next().get());
-        let path = self.store.root().join(&rel);
+        let number = self.session_number(&set.session);
+        let logical = derivations_document(number);
+        let name = format!("{number}.r{}.json", self.starting.revision.next().get());
+        let rel = format!("{DERIVATIONS_DIR}/{name}");
+        let dir = self.store.root().join(DERIVATIONS_DIR);
+        let path = dir.join(&name);
         let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
             path: path.clone(),
             source,
         })?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
-        }
-        fs::write(&path, bytes).map_err(|e| io_error(&path, e))?;
+        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
+        files::replace(&dir, &name, &bytes)?;
         self.manifest.documents.insert(logical, rel);
         self.touched.insert(path);
         Ok(())
@@ -248,7 +243,7 @@ impl<'a> WriteTx<'a> {
             }
         }
         for dir in &dirs {
-            manifest::sync_dir(dir)?;
+            files::sync_dir(dir)?;
         }
         let on_disk = manifest::read(self.store.root())?;
         let expected = self.starting.revision;
@@ -259,7 +254,7 @@ impl<'a> WriteTx<'a> {
             });
         }
         self.manifest.revision = expected.next();
-        manifest::publish(self.store.root(), &self.manifest)?;
+        files::publish_manifest(self.store.root(), &self.manifest)?;
         Ok(self.manifest.revision)
     }
 }
