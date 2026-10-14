@@ -168,14 +168,12 @@ fn store(
     id: &BasisId,
 ) -> Result<Stored, CliError> {
     let repository = canonical_common_dir(&g.repo)?;
-    let store = open_review_store_within(reviews_dir, &repository, LOCK_WAIT)?;
-    let saved = match &store {
-        Some(store) => save(g, store, basis)?.is_some(),
-        None => false,
-    };
-    let store = match store {
-        Some(store) => Some(store),
-        None => reviews::find(reviews_dir, &repository)?,
+    let (store, saved) = match open_review_store_within(reviews_dir, &repository, LOCK_WAIT)? {
+        Some(store) => {
+            let saved = save(g, &store, basis)?;
+            (Some(store), saved)
+        }
+        None => (reviews::find(reviews_dir, &repository)?, false),
     };
     let Some(snapshot) = store.as_ref().map(ReviewStore::snapshot).transpose()? else {
         return Ok(Stored {
@@ -296,15 +294,15 @@ fn sorted(paths: &[RepoPath]) -> Vec<PathBytes> {
 
 /// Saves `basis` in `store`, makes it the reviewed worktree's selection
 /// unless an agent session runs the review, and cleans the store up.
-/// Returns the basis's id, or `None` when the store stayed busy: its writer
-/// lock was still held after [`LOCK_WAIT`].
+/// Returns whether it saved: not when the store stayed busy, its writer
+/// lock still held after [`LOCK_WAIT`].
 ///
 /// # Errors
 ///
 /// Returns the store errors of writing and committing the store.
-fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<Option<BasisId>, CliError> {
+fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<bool, CliError> {
     let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
-        return Ok(None);
+        return Ok(false);
     };
     let now = UtcTime::now();
     let id = tx.save_basis(basis, now)?;
@@ -313,7 +311,7 @@ fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<Option<Basis
     }
     tx.cleanup(now)?;
     tx.commit()?;
-    Ok(Some(id))
+    Ok(true)
 }
 
 /// Builds the review model from the gathered inputs.
