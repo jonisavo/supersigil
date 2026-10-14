@@ -194,21 +194,23 @@ impl<'a> ReviewTx<'a> {
     ///   the time `now`. Committing publishes that removal; a later write
     ///   deletes the files.
     /// - Deletes files in `bases/` that the manifest neither lists nor marks
-    ///   removed: leftovers of a write that never committed. Only a file
-    ///   under a name the store writes there (a basis file's, or its
-    ///   temporary file's) is deleted; any other file is kept.
+    ///   removed, and that no selection or judgment names: leftovers of a
+    ///   write that never committed. Only a file under a name the store
+    ///   writes there (a basis file's, or its temporary file's) is deleted;
+    ///   any other file is kept.
     ///
     /// Only regular files are deleted, never a symbolic link nor anything
     /// through one: a removed basis whose file is a link leaves `removed`
     /// with its link kept, and nothing is deleted while `bases/`, the
     /// manifest, the lock, or the judgments log is a link or cannot be
     /// checked (what one leads to could be a file in `bases/`). Before
-    /// deleting anything, the file of each basis in `bases` that is a link
-    /// is replaced by a regular file holding what the link leads to, so no
-    /// deletion removes what a live basis reads; while one cannot be (what
-    /// it leads to cannot be read or does not hash to its ID), nothing is
-    /// deleted. A file that cannot be deleted (on Windows, one another
-    /// process has open) stays, with its entry, for the next write.
+    /// deleting anything, the file of each basis in `bases`, or named by a
+    /// selection or judgment, that is a link is replaced by a regular file
+    /// holding what the link leads to, so no deletion removes what such a
+    /// basis reads; while one cannot be (what it leads to cannot be read or
+    /// does not hash to its ID), nothing is deleted. A file that cannot be
+    /// deleted (on Windows, one another process has open) stays, with its
+    /// entry, for the next write.
     ///
     /// # Errors
     ///
@@ -216,14 +218,14 @@ impl<'a> ReviewTx<'a> {
     pub fn cleanup(&mut self, now: UtcTime) -> Result<(), StoreError> {
         let root = self.store.root();
         let dir = root.join(BASES_DIR);
-        let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
-            && self.make_bases_regular(&dir);
         let kept: BTreeSet<&BasisId> = self
             .manifest
             .selections
             .values()
             .chain(&self.judged)
             .collect();
+        let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
+            && self.make_bases_regular(&dir, &kept);
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -260,6 +262,7 @@ impl<'a> ReviewTx<'a> {
             .bases
             .keys()
             .chain(self.manifest.removed.keys())
+            .chain(kept)
             .map(basis_file_name)
             .collect();
         let entries = match fs::read_dir(&dir) {
@@ -280,21 +283,25 @@ impl<'a> ReviewTx<'a> {
         Ok(())
     }
 
-    /// Replaces the file of each basis in `bases` that is a symbolic link
-    /// with a regular file holding what the link leads to (see
-    /// [`make_regular`]). Returns whether cleanup may delete files in
-    /// `dir`, the `bases/` directory: it is missing, or a directory that is
-    /// not a link and in which every such file was replaced.
-    fn make_bases_regular(&self, dir: &Path) -> bool {
+    /// Replaces the file of each basis in `bases` or in `kept`, the bases a
+    /// selection or judgment names, that is a symbolic link with a regular
+    /// file holding what the link leads to (see [`make_regular`]), in ID
+    /// order. Returns whether cleanup may delete files in `dir`, the
+    /// `bases/` directory: it is missing, or a directory that is not a link
+    /// and in which every such file was replaced.
+    fn make_bases_regular(&self, dir: &Path, kept: &BTreeSet<&BasisId>) -> bool {
         match fs::symlink_metadata(dir) {
             Ok(metadata) if metadata.is_dir() => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => return true,
             _ => return false,
         }
-        self.manifest
+        let live: BTreeSet<&BasisId> = self
+            .manifest
             .bases
             .keys()
-            .all(|id| make_regular(dir, id).is_ok())
+            .chain(kept.iter().copied())
+            .collect();
+        live.into_iter().all(|id| make_regular(dir, id).is_ok())
     }
 
     /// Publishes this transaction's changes and returns the new revision.

@@ -1040,6 +1040,66 @@ fn a_removed_basis_named_by_a_judgment_or_selection_is_not_deleted() {
     assert!(basis_file(&store, &selected).exists());
 }
 
+/// Saves a basis a judgment names and one a selection names, then edits
+/// the manifest to list neither in `bases` nor in `removed`, keeping the
+/// judgment and the selection, as no writer of this build leaves it.
+/// Returns the judged and the selected basis.
+fn referenced_but_unlisted(store: &ReviewStore) -> (BasisId, BasisId) {
+    let mut tx = store.begin().unwrap();
+    let judged = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
+    let selected = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
+    tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
+    tx.select(Path::new("/work/repo"), &selected);
+    tx.commit().unwrap();
+    edit_manifest(store, |m| {
+        m["bases"].as_object_mut().unwrap().clear();
+        m["removed"].as_object_mut().unwrap().clear();
+    });
+    (judged, selected)
+}
+
+#[test]
+fn a_basis_a_judgment_or_selection_names_is_not_deleted_as_a_leftover() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let (judged, selected) = referenced_but_unlisted(&store);
+    let bytes = [&judged, &selected].map(|id| fs::read(basis_file(&store, id)).unwrap());
+
+    clean(&store, at(1));
+
+    for (id, bytes) in [&judged, &selected].into_iter().zip(&bytes) {
+        assert_eq!(&fs::read(basis_file(&store, id)).unwrap(), bytes, "{id}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_basis_a_judgment_or_selection_names_is_made_regular_before_anything_is_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let (judged, selected) = referenced_but_unlisted(&store);
+    // Each basis's file moved to a leftover's name, with a link to it in
+    // its place.
+    let bases = store.root().join("bases");
+    let mut held = Vec::new();
+    for (id, name) in [(&judged, "e"), (&selected, "f")] {
+        let leftover = format!("{}.json", name.repeat(64));
+        let bytes = fs::read(basis_file(&store, id)).unwrap();
+        fs::write(bases.join(&leftover), &bytes).unwrap();
+        link_basis(&store, id, &leftover);
+        held.push((id, leftover, bytes));
+    }
+
+    clean(&store, at(1));
+
+    for (id, leftover, bytes) in held {
+        let path = basis_file(&store, id);
+        assert!(path.symlink_metadata().unwrap().is_file(), "{id}");
+        assert_eq!(fs::read(path).unwrap(), bytes, "{id}");
+        assert!(!bases.join(leftover).exists(), "{id}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn nothing_is_deleted_while_the_judgments_log_is_a_symlink() {
