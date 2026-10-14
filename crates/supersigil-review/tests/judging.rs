@@ -693,6 +693,36 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
 }
 
 #[test]
+fn undoing_a_judgment_of_every_item_of_a_large_gate_is_planned_promptly() {
+    // An acknowledgment of 30,000 items, undone by judgment; then, with
+    // every one of its items withdrawn, undone again.
+    let gate: Vec<GateItem> = (0..30_000)
+        .map(|k| lines(&format!("src/f{k}.rs"), "x"))
+        .collect();
+    let current = saved(basis("/work/now", '1', '2', gate));
+    let named: Vec<&GateItem> = current.1.gate.iter().collect();
+    let standing = vec![ack("all", &current.0, &named, 10)];
+    let pairs: Vec<_> = named.iter().map(|&item| ("all", Some(item))).collect();
+    let mut withdrawn = standing.clone();
+    withdrawn.push(undo("undo-all", &current.0, &pairs, 20));
+
+    let started = std::time::Instant::now();
+    let (planned, refused) = finishes_within(Duration::from_secs(20), move || {
+        let planned = Ledger::new(&standing)
+            .plan_withdrawal(&standing[0])
+            .map(|plan| plan.len());
+        let refused = Ledger::new(&withdrawn)
+            .plan_withdrawal(&withdrawn[0])
+            .map(|plan| plan.len());
+        (planned, refused)
+    });
+    eprintln!("planned in {:?}", started.elapsed());
+
+    assert_eq!(planned, Ok(30_000));
+    assert_eq!(refused, Err(WithdrawRefusal::Withdrawn));
+}
+
+#[test]
 fn withdrawing_a_pair_leaves_the_judgments_other_items_standing() {
     let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
     let current = saved(basis("/work/a", '1', '2', vec![a.clone(), b.clone()]));

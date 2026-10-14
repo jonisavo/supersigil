@@ -153,7 +153,7 @@ impl<'a> Ledger<'a> {
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss => judgment
                 .items
                 .iter()
-                .any(|item| self.stands_for(judgment, item)),
+                .any(|item| self.not_withdrawn(judgment, item)),
             JudgmentKind::Comment | JudgmentKind::Complete => {
                 !self.withdrawn.contains(&(&judgment.id, None))
             }
@@ -169,7 +169,15 @@ impl<'a> Ledger<'a> {
             judgment.kind,
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss
         ) && judgment.items.contains(item)
-            && !self.withdrawn.contains(&(&judgment.id, Some(item)))
+            && self.not_withdrawn(judgment, item)
+    }
+
+    /// Whether no undo withdrew the pair of `judgment` and `item`, one of
+    /// its items, nor the whole judgment: [`Self::stands_for`] for an
+    /// acknowledgment or dismissal and an item it names, without searching
+    /// its items again.
+    fn not_withdrawn(&self, judgment: &Judgment, item: &ItemId) -> bool {
+        !self.withdrawn.contains(&(&judgment.id, Some(item)))
             && !self.withdrawn.contains(&(&judgment.id, None))
     }
 
@@ -249,7 +257,7 @@ impl<'a> Ledger<'a> {
                 judgment
                     .items
                     .iter()
-                    .filter(|item| self.stands_for(judgment, item))
+                    .filter(|item| self.not_withdrawn(judgment, item))
                     .map(|item| (judgment, item)),
             )),
         }
