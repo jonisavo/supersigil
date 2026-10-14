@@ -63,8 +63,9 @@ pub fn resolve(checkout: &Path) -> PathBuf {
 /// Where the file `path`, recorded relative to `checkout`, lies: `checkout`
 /// as [`resolve`] returns it, joined with `path`, then lexically normalized
 /// (`.` components removed, each `..` folded into the normal component before
-/// it, dropped at a root, and kept when nothing precedes it to fold into),
-/// with letter case as spelled.
+/// it, dropped at a root directory, and kept when nothing precedes it to
+/// fold into, as after a Windows drive without a root directory, `C:`,
+/// which names the drive's current directory), with letter case as spelled.
 ///
 /// Nothing below the checkout is read from the file system. Sync groups a
 /// session's edits by this location, so edits of one file are compared
@@ -79,7 +80,7 @@ pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
                 Some(Component::Normal(_)) => {
                     normal.pop();
                 }
-                Some(Component::RootDir | Component::Prefix(_)) => {}
+                Some(Component::RootDir) => {}
                 _ => normal.push(Component::ParentDir),
             },
             Component::CurDir => {}
@@ -302,6 +303,28 @@ mod tests {
         assert_eq!(
             file_location(Path::new("/r/sub"), Path::new("../../../a.rs")),
             PathBuf::from("/a.rs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_parent_component_after_a_drive_without_a_root_is_kept() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        // A drive alone names its current directory, whose parent is
+        // unresolved.
+        assert_eq!(
+            location("C:../supersigil-missing", "a.rs"),
+            PathBuf::from(r"C:..\supersigil-missing\a.rs")
+        );
+        assert_ne!(
+            location("C:../supersigil-missing", "a.rs"),
+            location("C:supersigil-missing", "a.rs")
+        );
+        // Above a drive's root directory there is nothing.
+        assert_eq!(
+            location(r"C:\supersigil-missing", r"..\..\a.rs"),
+            PathBuf::from(r"C:\a.rs")
         );
     }
 
