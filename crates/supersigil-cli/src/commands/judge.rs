@@ -223,6 +223,7 @@ fn addressing(args: &JudgeArgs) -> Addressing {
         review: None,
         checkout: args.checkout.clone(),
         review_dir: args.review_dir.clone(),
+        ..Addressing::default()
     }
 }
 

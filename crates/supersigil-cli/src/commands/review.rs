@@ -33,7 +33,7 @@ use supersigil_review::model::{
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::Outcome;
-use supersigil_review::summary::{Addressing, render_summary};
+use supersigil_review::summary::{Addressing, render_summary, shell_word};
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
@@ -84,6 +84,8 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
         review: None,
         checkout: args.checkout.clone(),
         review_dir: args.review_dir.clone(),
+        retry: retry_flags(args),
+        retry_paths: args.paths.clone(),
     };
     // The id the store saves the basis under. An unsaved review shows the
     // judgments on the same content saved before, which has the same id. A
@@ -115,6 +117,27 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
             .write_all(render_summary(&review, &addressing, escape_control).as_bytes())?,
     }
     Ok(())
+}
+
+/// The flags of the call `args` describes, other than `--checkout` and
+/// `--review-dir`, as it was given them and quoted for a shell, for the
+/// command that runs the review again. Not repeated: the output format and
+/// the record and Claude home directories.
+fn retry_flags(args: &ReviewArgs) -> Vec<String> {
+    let mut flags = Vec::new();
+    if let Some(base) = &args.base {
+        flags.push(format!("--base={}", shell_word(base)));
+    }
+    if let Some(target) = &args.target {
+        flags.push(format!("--target={}", shell_word(target)));
+    }
+    if args.working_tree {
+        flags.push("--working-tree".to_owned());
+    }
+    for path in &args.include_untracked {
+        flags.push(format!("--include-untracked={}", shell_word(path)));
+    }
+    flags
 }
 
 /// What the review store holds of a review after [`store`] saved it.

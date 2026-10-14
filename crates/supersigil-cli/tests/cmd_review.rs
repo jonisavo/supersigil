@@ -2863,9 +2863,8 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
     assert_eq!(gate_row(&review, "notes.txt")["state"], "open");
     let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
     assert_eq!(summary.lines().next(), Some(NOT_SAVED), "{summary}");
-    let base = review["base"]["commit"].as_str().unwrap();
     assert!(
-        summary.ends_with(&format!("\n\nNext: supersigil review --base={base}\n")),
+        summary.ends_with("\n\nNext: supersigil review\n"),
         "{summary}"
     );
     drop(held);
@@ -2874,6 +2873,32 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
         selections(&store),
         BTreeMap::from([(f.repo.clone(), first)])
     );
+}
+
+#[test]
+fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
+    let f = Fixture::new();
+    slice(&f);
+    f.json(&f.repo, &["review", "--format", "json"]);
+    write(&f.repo, "notes.txt", "second\n");
+    f.commit(&f.repo, "second");
+    let store = review_store(&f, &f.reviews());
+    let held = store.begin().unwrap();
+
+    let commit = summary(
+        &f,
+        &f.repo,
+        &["--base", "HEAD~1", "--target=HEAD", "--", "notes.txt"],
+    );
+    let working = summary(&f, &f.repo, &[]);
+    drop(held);
+
+    assert!(
+        commit
+            .ends_with("\n\nNext: supersigil review --base='HEAD~1' --target=HEAD -- notes.txt\n"),
+        "{commit}"
+    );
+    assert!(!working.contains("Next:"), "{working}");
 }
 
 #[test]
@@ -2904,17 +2929,13 @@ fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
     let store = review_store(&f, &reviews);
     let held = store.begin().unwrap();
 
-    let tip = f.git(&["rev-parse", "HEAD"]);
     let unsaved = summary();
     drop(held);
     f.commit(&f.repo, "everything");
     let unchanged = summary();
 
     assert!(
-        unsaved.ends_with(&format!(
-            "\n\nNext: supersigil review --base={} {flags}\n",
-            tip.trim()
-        )),
+        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
         "{unsaved}"
     );
     assert!(
