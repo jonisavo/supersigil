@@ -4,7 +4,7 @@ expression: sample_review()
 ---
 schema: supersigil.review/2
 basis:
-  id: feaad30747ccc98e1bdac5c5e1af43b370dd45e764def8696964b498ab0c166a
+  id: 050e42447b4103dbea051c1e55677e5f5bb7db94570bff8ee82251e92a31666b
   document:
     schema: supersigil.basis/1
     worktree: /work/repo
@@ -24,7 +24,81 @@ basis:
       derivation: 2
     explanations: []
     capture: []
-    gate: []
+    gate:
+      - id: d503d8b458721eaf7ead5168d6d1888d41924cecf5634ba53bf81c5f47c4675f
+        subject:
+          path: notes.txt
+        detail:
+          origin: unexplained_lines
+          unattributed: 2
+          content_match_incomplete: 0
+          unresolved: 0
+          ambiguous: 0
+          line_ending: 0
+          content_match_only: 0
+        fingerprint:
+          content: e6c2c86ff68c96f241cc65d8578d93efcb4238418add8e3a5623ad837bd7b328
+          evidence: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+          outcomes: a4f8df9dc1eb2e87e1cb388fd51203239e6d64bf3c828f1fbfe52dda0fc8fe95
+      - id: 3c4fb793338dd189940f6fa6317ccc761f113ae758125ac68059ea65ba6d67ba
+        subject:
+          path: old.txt
+        detail:
+          origin: unexplained_lines
+          unattributed: 1
+          content_match_incomplete: 0
+          unresolved: 0
+          ambiguous: 0
+          line_ending: 0
+          content_match_only: 0
+        fingerprint:
+          content: 16d9acd0d7331651471355edb73f66eb831115052a36af3035a888c74d534445
+          evidence: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+          outcomes: 46b41c54150fbfd28b4c29388ed9ebcb0f80742bc27d098c9174c551a865d2ff
+      - id: c87f17dc2e1346d2918bf922c4c776b39da492a47db53547f4108e36fb18a7a9
+        subject:
+          path: logo.png
+        detail:
+          origin: not_diffed
+          kind: binary
+        fingerprint:
+          content: 1bf6a5f8c039fe198c7bb56d4a2847f8cc8494cf1c226f28c89dd01a7c937019
+          kind: ba83e3f7cdc21d0cc73d83ac09df81e641e76af0e62f6e7df2f095463ec4461e
+      - id: 9868c7a33c90ff3d51d8d8b2b08455612966a5814e6af268b0af3d1c2e08712e
+        subject:
+          path: src/new.rs
+        detail:
+          origin: untracked_recorded
+          edits: 0
+        fingerprint:
+          edits: unknown
+          on_disk: unknown
+      - id: 21c3759c8ff7310cfec8485d5fb19d9527548232a2be6c3451fe2701e770b67c
+        subject:
+          path: config.toml
+        detail:
+          origin: not_captured
+          cause: assume_unchanged
+          on_disk: unknown
+        fingerprint:
+          cause: 75d0c1c9863021343f42315d8f9a2a183fa2bfd3f88e65f05a0f49a688fa7321
+          on_disk: unknown
+      - id: e30dffa93572aea03bd55b2c9b1d84e60ffad2e04488347d6f88a0f4b41cc418
+        subject:
+          record: rec-2
+        detail:
+          origin: unreconciled
+          reason: locked by another writer
+        fingerprint:
+          evidence: unknown
+      - id: 9c60bf772ac505b7feb60bd353260a8fc628368555634a392ebc89c0860f232f
+        subject:
+          checkout: /work/repo/.claude/worktrees/x
+        detail:
+          origin: unreconciled
+          reason: records directory locked
+        fingerprint:
+          evidence: unknown
 worktree: /work/repo
 base:
   commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -34,6 +108,121 @@ target:
   kind: working_tree
   commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   tree: cccccccccccccccccccccccccccccccccccccccc
+status:
+  complete: false
+  completion: ~
+gate:
+  open: 7
+  items:
+    - id: d503d8b458721eaf7ead5168d6d1888d41924cecf5634ba53bf81c5f47c4675f
+      name: notes.txt
+      origin: unexplained_lines
+      subject:
+        path: notes.txt
+      detail:
+        origin: unexplained_lines
+        unattributed: 2
+        content_match_incomplete: 0
+        unresolved: 0
+        ambiguous: 0
+        line_ending: 0
+        content_match_only: 0
+      fingerprint:
+        content: e6c2c86ff68c96f241cc65d8578d93efcb4238418add8e3a5623ad837bd7b328
+        evidence: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+        outcomes: a4f8df9dc1eb2e87e1cb388fd51203239e6d64bf3c828f1fbfe52dda0fc8fe95
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: 3c4fb793338dd189940f6fa6317ccc761f113ae758125ac68059ea65ba6d67ba
+      name: old.txt
+      origin: unexplained_lines
+      subject:
+        path: old.txt
+      detail:
+        origin: unexplained_lines
+        unattributed: 1
+        content_match_incomplete: 0
+        unresolved: 0
+        ambiguous: 0
+        line_ending: 0
+        content_match_only: 0
+      fingerprint:
+        content: 16d9acd0d7331651471355edb73f66eb831115052a36af3035a888c74d534445
+        evidence: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+        outcomes: 46b41c54150fbfd28b4c29388ed9ebcb0f80742bc27d098c9174c551a865d2ff
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: c87f17dc2e1346d2918bf922c4c776b39da492a47db53547f4108e36fb18a7a9
+      name: logo.png
+      origin: not_diffed
+      subject:
+        path: logo.png
+      detail:
+        origin: not_diffed
+        kind: binary
+      fingerprint:
+        content: 1bf6a5f8c039fe198c7bb56d4a2847f8cc8494cf1c226f28c89dd01a7c937019
+        kind: ba83e3f7cdc21d0cc73d83ac09df81e641e76af0e62f6e7df2f095463ec4461e
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: 9868c7a33c90ff3d51d8d8b2b08455612966a5814e6af268b0af3d1c2e08712e
+      name: src/new.rs
+      origin: untracked_recorded
+      subject:
+        path: src/new.rs
+      detail:
+        origin: untracked_recorded
+        edits: 0
+      fingerprint:
+        edits: unknown
+        on_disk: unknown
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: 21c3759c8ff7310cfec8485d5fb19d9527548232a2be6c3451fe2701e770b67c
+      name: config.toml
+      origin: not_captured
+      subject:
+        path: config.toml
+      detail:
+        origin: not_captured
+        cause: assume_unchanged
+        on_disk: unknown
+      fingerprint:
+        cause: 75d0c1c9863021343f42315d8f9a2a183fa2bfd3f88e65f05a0f49a688fa7321
+        on_disk: unknown
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: e30dffa93572aea03bd55b2c9b1d84e60ffad2e04488347d6f88a0f4b41cc418
+      name: "id:e30dffa9"
+      origin: unreconciled
+      subject:
+        record: rec-2
+      detail:
+        origin: unreconciled
+        reason: locked by another writer
+      fingerprint:
+        evidence: unknown
+      state: open
+      judgment: ~
+      reopen_reasons: []
+    - id: 9c60bf772ac505b7feb60bd353260a8fc628368555634a392ebc89c0860f232f
+      name: "unreconciled:/work/repo/.claude/worktrees/x"
+      origin: unreconciled
+      subject:
+        checkout: /work/repo/.claude/worktrees/x
+      detail:
+        origin: unreconciled
+        reason: records directory locked
+      fingerprint:
+        evidence: unknown
+      state: open
+      judgment: ~
+      reopen_reasons: []
 unattributed:
   files:
     - path: notes.txt
@@ -119,6 +308,7 @@ evidence:
     - checkout: /work/repo/.claude/worktrees/x
       transcripts: 2
       reason: records directory locked
+  removed_transcripts: []
   conflicting_edits:
     - edit: e9
       records:

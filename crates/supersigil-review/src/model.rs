@@ -1,9 +1,9 @@
 //! The JSON review model and the per-file assembly of hunks and spans.
 //!
 //! JSON field order puts identity first (the saved basis, the worktree,
-//! base, and target), followed by the prominent unattributed summary, then
-//! scope, origins, records, evidence, files, and the edits every other
-//! section refers to by id.
+//! base, and target), followed by the status and the gate, the unattributed
+//! summary, then scope, origins, records, evidence, files, and the edits
+//! every other section refers to by id.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,13 +11,19 @@ use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
-use supersigil_record::EventId;
 use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
-use supersigil_record::reviews::{Basis, BasisId, PathBytes};
+use supersigil_record::reviews::{
+    Basis, BasisId, Fingerprint, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, Origin,
+    PathBytes, Subject, Who,
+};
+use supersigil_record::time::UtcTime;
+use supersigil_record::{EventId, JudgmentId};
 
 use crate::diff::{DiffHunk, diff_lines};
+use crate::judging::{GateStates, ItemState};
+use crate::names::ItemNames;
 use crate::outcome::{
     AttributionState, Outcome, UnattributedReason, Verdict, base_line_verdict, target_line_verdict,
 };
@@ -46,8 +52,12 @@ pub struct Review {
     pub base: BaseInfo,
     /// The target snapshot.
     pub target: TargetInfo,
-    /// Everything no recorded edit explains, first so a reader meets it
-    /// before any detail.
+    /// Whether the review is complete.
+    pub status: StatusInfo,
+    /// The gate items and their states, first after the status so a reader
+    /// meets what needs a judgment before any detail.
+    pub gate: GateInfo,
+    /// Everything no recorded edit explains, by kind.
     pub unattributed: UnattributedSummary,
     /// The options used and the snapshot's full listing.
     pub scope: ScopeInfo,
@@ -105,6 +115,182 @@ impl Unsaved {
 impl Serialize for Unsaved {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.reason())
+    }
+}
+
+/// Whether the review is complete.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct StatusInfo {
+    /// Whether a standing completion covers the review.
+    pub complete: bool,
+    /// The review's own standing completion, if it has one.
+    pub completion: Option<JudgmentInfo>,
+}
+
+impl StatusInfo {
+    /// The status of the review whose gate is `states`: complete with its
+    /// own standing completion.
+    #[must_use]
+    pub fn new(states: &GateStates<'_>) -> Self {
+        let completion = states.own_completion().map(JudgmentInfo::new);
+        Self {
+            complete: completion.is_some(),
+            completion,
+        }
+    }
+}
+
+/// The gate: what a person considers before completing the review, and
+/// which judgments close it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct GateInfo {
+    /// How many items need a judgment: those open or reopened.
+    pub open: usize,
+    /// Every item, in gate order.
+    pub items: Vec<GateItemInfo>,
+}
+
+impl GateInfo {
+    /// Every item of `states`, named as `names` names it, with its state.
+    /// An item `names` lacks is named by its full id.
+    #[must_use]
+    pub fn new(states: &GateStates<'_>, names: &ItemNames<'_>) -> Self {
+        Self::of(
+            states
+                .items()
+                .iter()
+                .map(|judged| (judged.item, &judged.state)),
+            names,
+        )
+    }
+
+    /// Every item of `gate`, named as `names` names it, open: the gate of
+    /// a review that could not be saved, which no judgment applies to.
+    #[must_use]
+    pub fn unjudged(gate: &[GateItem], names: &ItemNames<'_>) -> Self {
+        Self::of(gate.iter().map(|item| (item, &ItemState::Open)), names)
+    }
+
+    /// `items` with their states, named as `names` names them.
+    fn of<'s, 'j: 's>(
+        items: impl Iterator<Item = (&'s GateItem, &'s ItemState<'j>)>,
+        names: &ItemNames<'_>,
+    ) -> Self {
+        let items: Vec<GateItemInfo> = items
+            .map(|(item, state)| {
+                let (state, judgment, reopen_reasons) = match state {
+                    ItemState::Acknowledged(judgment) => {
+                        (ItemStateInfo::Acknowledged, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Dismissed(judgment) => {
+                        (ItemStateInfo::Dismissed, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Carried(judgment) => {
+                        (ItemStateInfo::Carried, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Reopened { judgment, reasons } => {
+                        (ItemStateInfo::Reopened, Some(*judgment), reasons.clone())
+                    }
+                    ItemState::Open => (ItemStateInfo::Open, None, Vec::new()),
+                };
+                GateItemInfo {
+                    id: item.id.clone(),
+                    name: names
+                        .name(&item.id)
+                        .map_or_else(|| format!("id:{}", item.id), str::to_owned),
+                    origin: item.origin(),
+                    subject: item.subject.clone(),
+                    detail: item.detail.clone(),
+                    fingerprint: item.fingerprint.clone(),
+                    state,
+                    judgment: judgment.map(JudgmentInfo::new),
+                    reopen_reasons,
+                }
+            })
+            .collect();
+        Self {
+            open: items.iter().filter(|item| item.state.is_open()).count(),
+            items,
+        }
+    }
+}
+
+/// One gate item and its state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GateItemInfo {
+    /// The item's id, the same in every review that has the item.
+    pub id: ItemId,
+    /// The name a person types for it from the current directory.
+    pub name: String,
+    /// Its origin.
+    pub origin: Origin,
+    /// What it is about.
+    pub subject: Subject,
+    /// What its row says, by origin.
+    pub detail: GateDetail,
+    /// What a judgment of it saw.
+    pub fingerprint: Fingerprint,
+    /// Whether a judgment closes it.
+    pub state: ItemStateInfo,
+    /// The judgment that closes it, its own or carried; for a reopened item,
+    /// the earlier one made when its fingerprint differed. Null when open.
+    pub judgment: Option<JudgmentInfo>,
+    /// For a reopened item, the reason of each fingerprint part that
+    /// differs from what that judgment saw.
+    pub reopen_reasons: Vec<&'static str>,
+}
+
+/// Whether a gate item is closed, and how.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemStateInfo {
+    /// No standing judgment names it.
+    Open,
+    /// Acknowledged on this review.
+    Acknowledged,
+    /// Dismissed on this review.
+    Dismissed,
+    /// Closed by a related review's judgment of the same evidence.
+    Carried,
+    /// A related review's judgment names it, but its evidence changed
+    /// since.
+    Reopened,
+}
+
+impl ItemStateInfo {
+    /// Whether the item needs a judgment: it is open or reopened.
+    #[must_use]
+    pub const fn is_open(self) -> bool {
+        matches!(self, Self::Open | Self::Reopened)
+    }
+}
+
+/// A recorded judgment, as the review shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JudgmentInfo {
+    /// The judgment's id.
+    pub id: JudgmentId,
+    /// What it records.
+    pub kind: JudgmentKind,
+    /// The full id of the review it was made on.
+    pub review: BasisId,
+    /// Who recorded it.
+    pub who: Who,
+    /// When, in UTC.
+    pub at: UtcTime,
+}
+
+impl JudgmentInfo {
+    /// What the review shows of `judgment`.
+    #[must_use]
+    pub fn new(judgment: &Judgment) -> Self {
+        Self {
+            id: judgment.id.clone(),
+            kind: judgment.kind,
+            review: judgment.basis.clone(),
+            who: judgment.who.clone(),
+            at: judgment.at,
+        }
     }
 }
 
@@ -423,6 +609,9 @@ pub struct EvidenceInfo {
     pub unplaced_edits: usize,
     /// Checkouts whose discovered transcripts were not reconciled.
     pub unreconciled_checkouts: Vec<UnreconciledInfo>,
+    /// Transcripts listed for reading that were removed before they could
+    /// be read, sorted. Each leaves its record or checkout not reconciled.
+    pub removed_transcripts: Vec<String>,
     /// Edits excluded because their sightings in several records disagree.
     pub conflicting_edits: Vec<Conflict>,
 }

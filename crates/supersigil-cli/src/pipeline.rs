@@ -226,6 +226,9 @@ pub struct Gathered {
     pub records: Vec<PinnedRecord>,
     /// Checkouts whose transcripts no record could take.
     pub unreconciled: Vec<UnreconciledCheckout>,
+    /// Transcripts listed for reading that were removed before they could
+    /// be read, sorted.
+    pub removed_transcripts: Vec<PathBuf>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
     /// Transcripts holding a candidate edit, an observation made in a
@@ -435,17 +438,7 @@ impl Prepared {
 
         // 6. The working tree, captured after the pin, so every pinned
         //    observation predates it.
-        let (target_tree, snapshot) = match &range.target {
-            ResolvedTarget::WorkingTree { .. } => {
-                let options = SnapshotOptions {
-                    include_untracked: include_untracked.clone(),
-                    pathspecs: paths.clone(),
-                };
-                let snapshot = snapshot_working_tree(&repo, &options)?;
-                (snapshot.tree.clone(), Some(snapshot))
-            }
-            ResolvedTarget::Commit { tree, .. } => (tree.clone(), None),
-        };
+        let (target_tree, snapshot) = capture(&repo, &range, &include_untracked, &paths)?;
 
         // 7. Every recorded edit, mapped onto the registered worktrees and
         //    deduplicated once across all of them, before anything is
@@ -501,6 +494,7 @@ impl Prepared {
             candidate_worktrees,
             records,
             unreconciled: reconciliation.unreconciled,
+            removed_transcripts: reconciliation.removed,
             candidates,
             candidate_transcripts,
             accepted,
@@ -513,6 +507,31 @@ impl Prepared {
             evidence,
             command_changes,
         })
+    }
+}
+
+/// The target tree, and for a working-tree target the snapshot that
+/// captured it with `include_untracked` within `paths`.
+///
+/// # Errors
+///
+/// Returns the git errors of [`snapshot_working_tree`].
+fn capture(
+    repo: &Repo,
+    range: &ResolvedRange,
+    include_untracked: &[RepoPath],
+    paths: &[RepoPath],
+) -> Result<(ObjectId, Option<WorkingTreeSnapshot>), CliError> {
+    match &range.target {
+        ResolvedTarget::WorkingTree { .. } => {
+            let options = SnapshotOptions {
+                include_untracked: include_untracked.to_vec(),
+                pathspecs: paths.to_vec(),
+            };
+            let snapshot = snapshot_working_tree(repo, &options)?;
+            Ok((snapshot.tree.clone(), Some(snapshot)))
+        }
+        ResolvedTarget::Commit { tree, .. } => Ok((tree.clone(), None)),
     }
 }
 
@@ -1160,7 +1179,8 @@ pub fn records_info(g: &Gathered) -> Vec<RecordInfo> {
 }
 
 /// The evidence block: candidate transcripts with every capture limitation,
-/// unplaced edits, unreconciled checkouts, and `conflicting_edits`.
+/// unplaced edits, unreconciled checkouts, transcripts removed before they
+/// could be read, and `conflicting_edits`.
 #[must_use]
 pub fn evidence_info(g: &Gathered, conflicting_edits: Vec<Conflict>) -> EvidenceInfo {
     EvidenceInfo {
@@ -1174,6 +1194,11 @@ pub fn evidence_info(g: &Gathered, conflicting_edits: Vec<Conflict>) -> Evidence
                 transcripts: u.transcripts,
                 reason: u.reason.clone(),
             })
+            .collect(),
+        removed_transcripts: g
+            .removed_transcripts
+            .iter()
+            .map(|path| path.display().to_string())
             .collect(),
         conflicting_edits,
     }
@@ -1363,6 +1388,7 @@ mod tests {
             candidate_worktrees: Vec::new(),
             records: Vec::new(),
             unreconciled: Vec::new(),
+            removed_transcripts: Vec::new(),
             candidates: Vec::new(),
             candidate_transcripts: BTreeSet::new(),
             accepted: ByPath::new(accepted.into_iter().map(|edit| (edit, ["a.rs"])), false),

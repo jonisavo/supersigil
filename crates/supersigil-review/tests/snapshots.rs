@@ -4,9 +4,12 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::slice;
+use std::time::Duration;
 
 use common::{
-    attribution, base_line, chain, eid, escape, introduced, kept, no_fate, replaced, unexplained,
+    attribution, base_line, chain, eid, escape, finishes_within, introduced, kept, no_fate,
+    replaced, unexplained,
 };
 use serde_json::{Value, json};
 use supersigil_anchor::lines::split_lines;
@@ -18,18 +21,23 @@ use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisScope, BasisTarget, PathBytes, TargetKind,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, GateItem,
+    Judgment, JudgmentKind, PathBytes, TargetKind, Who,
 };
-use supersigil_record::{RecordId, SessionId};
+use supersigil_record::time::UtcTime;
+use supersigil_record::{JudgmentId, RecordId, SessionId};
+use supersigil_review::gate::{GateInputs, gate_items};
+use supersigil_review::judging::{GateStates, Ledger};
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommandChange, EditInfo, EditOriginInfo, EvidenceInfo,
-    FileInput, FileKindInfo, FileReview, FileStatus, Mention, MentionResult, NotCapturedInfo,
-    OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, SavedBasis, ScopeInfo, TargetInfo,
-    TargetKindInfo, TranscriptInfo, UnreconciledInfo, Unsaved, UntrackedInfo, file_review,
-    unattributed_summary,
+    FileInput, FileKindInfo, FileReview, FileStatus, GateInfo, Mention, MentionResult,
+    NotCapturedInfo, OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, SavedBasis, ScopeInfo,
+    StatusInfo, TargetInfo, TargetKindInfo, TranscriptInfo, UnreconciledInfo, Unsaved,
+    UntrackedInfo, file_review, unattributed_summary,
 };
+use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
-use supersigil_review::summary::render_summary;
+use supersigil_review::summary::{Addressing, next_lines, render_summary, shell_word};
 use supersigil_review::why::{
     OnDiskCheck, Tristate, Why, WhyTarget, line_command_changes, render_why, why_line,
 };
@@ -84,6 +92,7 @@ fn evidence() -> EvidenceInfo {
             transcripts: 2,
             reason: "records directory locked".to_owned(),
         }],
+        removed_transcripts: Vec::new(),
         conflicting_edits: Vec::new(),
     }
 }
@@ -338,10 +347,11 @@ fn sample_basis() -> SavedBasis {
     }
 }
 
+/// The sample review, with its gate open: no judgment recorded.
 fn sample_review() -> Review {
     let files = sample_files();
     let scope = sample_scope();
-    Review {
+    let review = Review {
         schema: REVIEW_SCHEMA,
         basis: Some(sample_basis()),
         basis_unsaved: None,
@@ -356,6 +366,8 @@ fn sample_review() -> Review {
             commit: Some("a".repeat(40)),
             tree: "c".repeat(40),
         },
+        status: StatusInfo::default(),
+        gate: GateInfo::default(),
         unattributed: unattributed_summary(&files, &scope),
         scope,
         origins: OriginsInfo::default(),
@@ -366,7 +378,85 @@ fn sample_review() -> Review {
         },
         files,
         edits: edits(),
+    };
+    gated(review, |_, _| Vec::new())
+}
+
+/// `review` with the gate a basis of it holds, each item's state and the
+/// review's status as given by the judgments `judge` makes from the
+/// basis's ID and gate, and that basis as its saved one when it has one.
+/// Items are named by their paths.
+fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Judgment>) -> Review {
+    let mut document = sample_basis().document;
+    document.gate = gate_items(&review, &GateInputs::default());
+    let id = document.basis_id().unwrap();
+    (review.status, review.gate) = {
+        let judgments = judge(&id, &document.gate);
+        let ledger = Ledger::new(&judgments);
+        let states = GateStates::new(&id, &document, &[], &ledger);
+        let associations = BTreeMap::new();
+        let names = ItemNames::new(&document.gate, &associations, false, |path| {
+            path.to_str().map(str::to_owned)
+        });
+        (StatusInfo::new(&states), GateInfo::new(&states, &names))
+    };
+    if review.basis.is_some() {
+        review.basis = Some(SavedBasis { id, document });
     }
+    review
+}
+
+/// A judgment of `kind` on the review `basis` naming `items`, recorded on
+/// 2026-10-13.
+fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, items: &[GateItem]) -> Judgment {
+    Judgment {
+        id: JudgmentId::new(id),
+        basis: basis.clone(),
+        kind,
+        items: items.iter().map(|item| item.id.clone()).collect(),
+        reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
+        text: None,
+        closes: BTreeMap::new(),
+        withdraws: Vec::new(),
+        who: Who {
+            name: "Joni Savolainen".to_owned(),
+            email: "joni@example.com".to_owned(),
+        },
+        at: "2026-10-13T12:00:00Z".parse::<UtcTime>().unwrap(),
+    }
+}
+
+/// The sample review with its last gate item dismissed and every other
+/// acknowledged.
+fn closed_review() -> Review {
+    gated(sample_review(), |id, gate| {
+        let (last, rest) = gate.split_last().unwrap();
+        vec![
+            judgment("ack", id, JudgmentKind::Acknowledge, rest),
+            judgment("dismiss", id, JudgmentKind::Dismiss, slice::from_ref(last)),
+        ]
+    })
+}
+
+/// The state and what follows it on `name`'s gate row in a terminal
+/// summary.
+fn row<'t>(text: &'t str, name: &str) -> (&'t str, &'t str) {
+    let rest = text
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("  ")?
+                .strip_prefix(name)?
+                .strip_prefix(' ')
+        })
+        .unwrap_or_else(|| panic!("no gate row for {name} in {text}"))
+        .trim_start();
+    let (state, after) = rest.split_once("  ").unwrap_or((rest, ""));
+    (state, after.trim_start())
+}
+
+/// A summary with the default addressing: the review is the selection.
+fn summary(review: &Review) -> String {
+    render_summary(review, &Addressing::default(), escape)
 }
 
 #[test]
@@ -376,7 +466,57 @@ fn review_json_shape_is_stable() {
 
 #[test]
 fn terminal_summary_is_stable() {
-    insta::assert_snapshot!(render_summary(&sample_review(), escape));
+    insta::assert_snapshot!(summary(&sample_review()));
+}
+
+#[test]
+fn a_closed_gate_says_who_closed_each_item() {
+    let review = closed_review();
+
+    let text = summary(&review);
+
+    assert!(
+        text.contains("\nReview not complete.\nGate: 0 open, 7 closed.\n\n"),
+        "{text}"
+    );
+    assert_eq!(
+        row(&text, "notes.txt"),
+        ("acknowledged", "by Joni Savolainen on 2026-10-13")
+    );
+    assert_eq!(
+        row(&text, "unreconciled:/work/repo/.claude/worktrees/x"),
+        ("dismissed", "by Joni Savolainen on 2026-10-13")
+    );
+    assert!(
+        text.ends_with("\n\nNext: supersigil judge complete\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_complete_review_says_when_and_by_whom_and_needs_nothing_next() {
+    let review = gated(sample_review(), |id, gate| {
+        let (last, rest) = gate.split_last().unwrap();
+        vec![
+            judgment("ack", id, JudgmentKind::Acknowledge, rest),
+            judgment("dismiss", id, JudgmentKind::Dismiss, slice::from_ref(last)),
+            judgment("done", id, JudgmentKind::Complete, &[]),
+        ]
+    });
+
+    let text = summary(&review);
+
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[4..6],
+        [
+            "Review complete: completed on 2026-10-13 by Joni Savolainen.",
+            "Gate: 0 open, 7 closed.",
+        ],
+        "{text}"
+    );
+    assert!(!text.contains("Next:"), "{text}");
+    assert!(!text.contains("supersigil judge"), "{text}");
 }
 
 #[test]
@@ -388,18 +528,25 @@ fn a_review_not_saved_says_why_and_how_to_save_it() {
     let json = serde_json::to_value(&review).unwrap();
     assert_eq!(json["basis"], Value::Null);
     assert_eq!(json["basis_unsaved"], "the review store is busy");
-    let summary = render_summary(&review, escape);
-    let header: Vec<&str> = summary.lines().take(4).collect();
+    let text = summary(&review);
     assert_eq!(
-        header[3],
-        "  Review not saved: the review store is busy. Judging needs a saved review; run \
-         supersigil review again.",
-        "{summary}"
+        text.lines().next(),
+        Some(
+            "Review not saved: the review store is busy. Judging needs a saved review; run \
+             supersigil review again."
+        ),
+        "{text}"
     );
-    assert!(!summary.contains("saved as review"), "{summary}");
+    // The gate still shows; judging it waits for a saved review.
+    assert_eq!(row(&text, "notes.txt").0, "open");
+    assert!(text.ends_with("\n\nNext: supersigil review\n"), "{text}");
+    assert!(!text.contains("supersigil judge"), "{text}");
     // A saved review has no reason.
     let saved = serde_json::to_value(sample_review()).unwrap();
-    assert_eq!(saved["basis"]["id"], json!(sample_basis().id));
+    assert_eq!(
+        saved["basis"]["id"],
+        json!(sample_review().basis.unwrap().id)
+    );
     assert!(saved.get("basis_unsaved").is_none(), "{saved}");
 }
 
@@ -410,24 +557,326 @@ fn a_review_that_can_never_be_saved_does_not_ask_to_run_it_again() {
     review.basis_unsaved = Some(Unsaved::PathNotUtf8);
 
     let json = serde_json::to_value(&review).unwrap();
-    let summary = render_summary(&review, escape);
+    let text = summary(&review);
 
     let reason = "it names a path that is not valid UTF-8, which the review store cannot hold";
     assert_eq!(json["basis_unsaved"], reason);
     assert_eq!(
-        summary.lines().nth(3),
-        Some(format!("  Review not saved: {reason}. Judging needs a saved review.").as_str()),
-        "{summary}"
+        text.lines().next(),
+        Some(format!("Review not saved: {reason}. Judging needs a saved review.").as_str()),
+        "{text}"
     );
-    assert!(!summary.contains("supersigil review"), "{summary}");
+    assert_eq!(row(&text, "notes.txt").0, "open");
+    assert!(!text.contains("supersigil review"), "{text}");
+    assert!(!text.contains("supersigil judge"), "{text}");
+}
+
+#[test]
+fn next_lines_address_the_review_shown() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("../my repo")),
+        review_dir: Some(PathBuf::from("/tmp/reviews")),
+    };
+    let flags = "--review=feaad307 --checkout='../my repo' --review-dir=/tmp/reviews";
+
+    assert_eq!(
+        next_lines(
+            &["src/a b.rs", "lines:src/c.rs"],
+            false,
+            &addressing,
+            escape
+        ),
+        [
+            // The names print once; the dismissal names its own.
+            format!("Next: supersigil judge acknowledge 'src/a b.rs' lines:src/c.rs {flags}"),
+            format!("  or: supersigil judge dismiss <name>... --reason <text> {flags}"),
+            format!("  then: supersigil judge complete {flags}"),
+        ]
+    );
+    assert_eq!(
+        next_lines(&[], false, &Addressing::default(), escape),
+        ["Next: supersigil judge complete"]
+    );
+    assert!(next_lines(&[], true, &addressing, escape).is_empty());
+    assert_eq!(shell_word("it's"), r"'it'\''s'");
+    assert_eq!(shell_word(""), "''");
+
+    let text = render_summary(&sample_review(), &addressing, escape);
+    assert!(
+        text.contains(&format!("\n  then: supersigil judge complete {flags}\n")),
+        "{text}"
+    );
+}
+
+#[test]
+fn flag_values_that_start_with_a_dash_stay_values() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("-repo")),
+        review_dir: Some(PathBuf::from("-reviews")),
+    };
+    assert_eq!(
+        next_lines(&[], false, &addressing, escape),
+        [
+            "Next: supersigil judge complete --review=feaad307 --checkout=-repo --review-dir=-reviews"
+        ]
+    );
+    assert_eq!(
+        addressing.review("--target HEAD"),
+        "supersigil review --target HEAD --checkout=-repo --review-dir=-reviews"
+    );
+}
+
+#[test]
+fn more_than_20_open_items_are_left_to_the_list_above() {
+    let names: Vec<String> = (0..21).map(|i| format!("f{i:02}.txt")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        ..Addressing::default()
+    };
+
+    // The command stays short enough for a command line.
+    assert_eq!(
+        next_lines(&names, false, &addressing, escape),
+        [
+            "Next: supersigil judge acknowledge <name>... --review=feaad307 (21 open items, \
+             listed above)",
+            "  or: supersigil judge dismiss <name>... --reason <text> --review=feaad307",
+            "  then: supersigil judge complete --review=feaad307",
+        ]
+    );
+    assert_eq!(
+        next_lines(&names[..20], false, &Addressing::default(), escape)[0],
+        format!(
+            "Next: supersigil judge acknowledge {}",
+            names[..20].join(" ")
+        )
+    );
+    let text = summary(&review_of_files(21));
+    assert!(
+        text.contains(
+            "\n\nNext: supersigil judge acknowledge <name>... (21 open items, listed above)\n"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn follow_up_reviews_repeat_the_checkout_and_reviews_directory() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("../my repo")),
+        review_dir: Some(PathBuf::from("/tmp/reviews")),
+    };
+    let flags = "--checkout='../my repo' --review-dir=/tmp/reviews";
+    let mut unsaved = sample_review();
+    unsaved.basis = None;
+    unsaved.basis_unsaved = Some(Unsaved::Busy);
+
+    let unsaved = render_summary(&unsaved, &addressing, escape);
+    let unchanged = render_summary(&review_of_files(0), &addressing, escape);
+
+    assert!(
+        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
+        "{unsaved}"
+    );
+    assert!(
+        unchanged.contains(&format!(
+            "\nfiles:\n  no changes in scope; to review a commit just made, run supersigil \
+             review --target HEAD {flags}\n"
+        )),
+        "{unchanged}"
+    );
+}
+
+#[test]
+fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
+    // Escaped, the control character would print another directory's name.
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("../my repo")),
+        review_dir: Some(PathBuf::from("/tmp/r-\u{1b}")),
+    };
+    let flags = "--checkout='../my repo' --review-dir=<as given>";
+    let note = "The --review-dir value is not valid UTF-8 or holds a control character, so \
+                commands show <as given> for it: pass it as given.";
+    let mut unsaved = sample_review();
+    unsaved.basis = None;
+    unsaved.basis_unsaved = Some(Unsaved::Busy);
+
+    let saved = render_summary(&sample_review(), &addressing, escape);
+    let unsaved = render_summary(&unsaved, &addressing, escape);
+    let unchanged = render_summary(&review_of_files(0), &addressing, escape);
+
+    // The note follows the commands, once.
+    assert!(
+        saved.contains(&format!(
+            "\n  then: supersigil judge complete --review=feaad307 {flags}\n{note}\n"
+        )),
+        "{saved}"
+    );
+    assert!(
+        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n{note}\n")),
+        "{unsaved}"
+    );
+    assert!(
+        unchanged.ends_with(&format!(
+            "run supersigil review --target HEAD {flags}\n\n{note}\n"
+        )),
+        "{unchanged}"
+    );
+    for text in [&saved, &unsaved, &unchanged] {
+        assert_eq!(text.matches(note).count(), 1, "{text}");
+    }
+    let neither = Addressing {
+        checkout: Some(PathBuf::from("\u{7f}")),
+        ..addressing.clone()
+    };
+    assert_eq!(
+        neither.review(""),
+        "supersigil review --checkout=<as given> --review-dir=<as given>"
+    );
+    assert_eq!(
+        neither.note().as_deref(),
+        Some(
+            "The --checkout and --review-dir values are not valid UTF-8 or hold a control \
+             character, so commands show <as given> for them: pass them as given."
+        )
+    );
+    let printable = Addressing {
+        review_dir: Some(PathBuf::from("/tmp/r-ü")),
+        ..addressing
+    };
+    assert_eq!(
+        printable.review(""),
+        "supersigil review --checkout='../my repo' --review-dir=/tmp/r-ü"
+    );
+    assert_eq!(printable.note(), None);
+}
+
+/// The sample review with only `count` files, each with lines no recorded
+/// edit explains, and nothing else in its gate.
+fn review_of_files(count: usize) -> Review {
+    let unexplained = attribution(vec![], vec![unexplained()], vec![no_fate()]);
+    let mut review = sample_review();
+    review.files = (0..count)
+        .map(|i| {
+            text_file(
+                &format!("f{i:02}.txt"),
+                FileStatus::Modified,
+                Some(b"draft\n"),
+                Some(b"final\n"),
+                &unexplained,
+                Vec::new(),
+                Vec::new(),
+            )
+        })
+        .collect();
+    review.scope = ScopeInfo::default();
+    review.records = Vec::new();
+    review.evidence = EvidenceInfo::default();
+    review.unattributed = unattributed_summary(&review.files, &review.scope);
+    gated(review, |_, _| Vec::new())
+}
+
+#[test]
+fn a_gate_of_more_than_20_rows_suggests_a_pager() {
+    let hint = "\nLong output: run the same review command with --format terminal and pipe it \
+                to less.\n";
+    let twenty = summary(&review_of_files(20));
+    let more = summary(&review_of_files(21));
+
+    assert!(twenty.contains("Gate: 20 open, 0 closed."), "{twenty}");
+    assert!(!twenty.contains(hint), "{twenty}");
+    assert!(more.ends_with(hint), "{more}");
+}
+
+#[test]
+fn a_repository_wide_change_is_summarized_promptly() {
+    // A reformat of every file: 5,000 files with unexplained lines, each
+    // one gate item, named and shown.
+    let text = finishes_within(Duration::from_secs(20), || summary(&review_of_files(5000)));
+
+    assert!(text.contains("\nGate: 5000 open, 0 closed.\n"), "{text}");
+    assert_eq!(row(&text, "f4999.txt").0, "open");
+}
+
+#[test]
+fn a_working_tree_without_changes_points_at_a_commit_just_made() {
+    let mut review = review_of_files(0);
+
+    let working_tree = summary(&review);
+    review.target.kind = TargetKindInfo::Commit;
+    let commit = summary(&review);
+
+    assert!(
+        working_tree.contains("\nGate: no items.\n"),
+        "{working_tree}"
+    );
+    assert!(
+        working_tree.contains(
+            "\nfiles:\n  no changes in scope; to review a commit just made, run supersigil \
+             review --target HEAD\n"
+        ),
+        "{working_tree}"
+    );
+    assert!(
+        commit.contains("\nfiles:\n  no changes in scope\n"),
+        "{commit}"
+    );
+    assert!(
+        commit.starts_with(&format!(
+            "Review {}: commit aaaaaaa over aaaaaaa.\n",
+            review.basis.as_ref().unwrap().id.short()
+        )),
+        "{commit}"
+    );
+}
+
+#[test]
+fn a_review_without_changes_or_gate_items_has_nothing_to_review() {
+    let mut review = review_of_files(0);
+    let nothing = summary(&review);
+    review.basis = None;
+    let unsaved = summary(&review);
+    // A gate item without a changed file still needs a judgment.
+    let mut gated_only = sample_review();
+    gated_only.files.clear();
+    let something = summary(&gated_only);
+
+    assert!(
+        nothing.contains(
+            "\nNothing to review: no changes in scope.\nGate: no items.\n\nfiles:\n  no \
+             changes in scope; to review a commit just made, run supersigil review --target \
+             HEAD\n"
+        ),
+        "{nothing}"
+    );
+    for text in [&nothing, &unsaved] {
+        assert!(!text.contains("Review not complete"), "{text}");
+        assert!(!text.contains("Next:"), "{text}");
+    }
+    assert!(
+        something.contains("\nReview not complete.\n"),
+        "{something}"
+    );
+    assert!(
+        something.contains("\nNext: supersigil judge acknowledge "),
+        "{something}"
+    );
 }
 
 #[test]
 fn terminal_summary_escapes_untrusted_text() {
     let mut review = sample_review();
     review.files[3].path = "src/\u{1b}[2Klib.rs".to_owned();
-    let text = render_summary(&review, escape);
+    review.records[1].reason = Some("locked\u{1b}[2K".to_owned());
+    let review = gated(review, |_, _| Vec::new());
+    let text = summary(&review);
     assert!(text.contains(r"src/\x1b[2Klib.rs"));
+    assert!(text.contains(r"evidence not read: locked\x1b[2K"), "{text}");
     assert!(!text.contains('\u{1b}'));
 }
 
@@ -498,9 +947,9 @@ fn terminal_summary_shows_the_path_note() {
     review.scope.path_note = Some(
         "a path selector named the worktree root, so the review has no path filter".to_owned(),
     );
-    let text = render_summary(&review, escape);
+    let text = summary(&review);
     assert!(text.contains(
-        "\nscope: a path selector named the worktree root, so the review has no path filter\n"
+        "\n  scope: a path selector named the worktree root, so the review has no path filter\n"
     ));
 }
 
@@ -800,16 +1249,21 @@ fn terminal_summary_keeps_search_incomplete_lines_unattributed() {
         Vec::new(),
     )];
     review.unattributed = unattributed_summary(&review.files, &review.scope);
-    let text = render_summary(&review, escape);
-    assert!(
-        text.contains("\n  src/lib.rs: 2 unresolved (search incomplete)\n"),
+    let text = summary(&gated(review, |_, _| Vec::new()));
+    assert_eq!(
+        row(&text, "src/lib.rs"),
+        (
+            "open",
+            "2 unexplained lines: 2 unresolved (search incomplete)"
+        ),
         "{text}"
     );
     assert!(
         text.contains("\n  M src/lib.rs  +1 -1  2 unresolved (search incomplete)\n"),
         "{text}"
     );
-    let files = text.split("\nfiles:\n").nth(1).unwrap();
+    let after = text.split("\nfiles:\n").nth(1).unwrap();
+    let files = after.split("\n\n").next().unwrap();
     for word in ["exact", "introduced", "replaced", "session"] {
         assert!(!files.contains(word), "{word} in {files}");
     }
@@ -845,7 +1299,7 @@ fn content_matched_review(incomplete: bool) -> Review {
         Vec::new(),
     )];
     review.unattributed = unattributed_summary(&review.files, &review.scope);
-    review
+    gated(review, |_, _| Vec::new())
 }
 
 #[test]
@@ -878,18 +1332,23 @@ fn a_review_keeps_whether_a_content_match_search_completed() {
         assert_eq!(file["attribution"]["status"], json!({"kind": "composed"}));
     }
 
-    let complete = render_summary(&content_matched_review(false), escape);
-    let partial = render_summary(&content_matched_review(true), escape);
-    assert!(
-        complete.contains("\n  src/lib.rs: 2 content match only\n"),
+    let complete = summary(&content_matched_review(false));
+    let partial = summary(&content_matched_review(true));
+    assert_eq!(
+        row(&complete, "src/lib.rs"),
+        ("open", "2 unexplained lines: 2 content match only"),
         "{complete}"
     );
     assert!(
         complete.contains("\n  M src/lib.rs  +1 -1  2 content match\n"),
         "{complete}"
     );
-    assert!(
-        partial.contains("\n  src/lib.rs: 2 content match only (search incomplete)\n"),
+    assert_eq!(
+        row(&partial, "src/lib.rs"),
+        (
+            "open",
+            "2 unexplained lines: 2 content match only (search incomplete)"
+        ),
         "{partial}"
     );
     assert!(
@@ -942,7 +1401,7 @@ fn why_keeps_whether_a_content_match_search_completed() {
 
 #[test]
 fn a_file_line_counts_the_commands_that_changed_an_unattributed_file() {
-    let text = render_summary(&sample_review(), escape);
+    let text = summary(&sample_review());
     assert!(
         line_of(&text, "notes.txt").ends_with("changed by 1 recorded command"),
         "{text}"
@@ -952,7 +1411,7 @@ fn a_file_line_counts_the_commands_that_changed_an_unattributed_file() {
     let other = command_change("command:5", "2026-09-28T10:00:10.000Z", "make", hunks(&[]));
     review.files[1].command_changes.push(other.clone());
     review.files[3].command_changes.push(other);
-    let text = render_summary(&review, escape);
+    let text = summary(&review);
     assert!(text.contains("changed by 2 recorded commands"), "{text}");
     assert_eq!(text.matches("changed by").count(), 1, "{text}");
     // One command listed for the path in two worktrees is one command.
@@ -960,7 +1419,7 @@ fn a_file_line_counts_the_commands_that_changed_an_unattributed_file() {
     elsewhere.worktree = "/work/repo/.claude/worktrees/x".to_owned();
     let mut review = sample_review();
     review.files[1].command_changes.push(elsewhere);
-    let text = render_summary(&review, escape);
+    let text = summary(&review);
     assert!(
         line_of(&text, "notes.txt").ends_with("changed by 1 recorded command"),
         "{text}"
@@ -1182,7 +1641,7 @@ fn why_escapes_and_shortens_command_text() {
 }
 
 #[test]
-fn the_header_counts_unconfirmed_shell_writes() {
+fn the_evidence_notes_count_unconfirmed_shell_writes() {
     let mut review = sample_review();
     review.evidence.candidate_transcripts[0].capture_limitations = vec![CaptureLimitation {
         session: SessionId::new("s1"),
@@ -1194,7 +1653,7 @@ fn the_header_counts_unconfirmed_shell_writes() {
             ..CaptureCounts::default()
         },
     }];
-    let text = render_summary(&review, escape);
+    let text = summary(&review);
     assert!(
         text.contains("(session s1): 2 unconfirmed shell writes; not localized to a path"),
         "{text}"

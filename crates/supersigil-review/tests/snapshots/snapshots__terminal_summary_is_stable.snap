@@ -1,21 +1,21 @@
 ---
 source: crates/supersigil-review/tests/snapshots.rs
-expression: "render_summary(&sample_review(), escape)"
+expression: summary(&sample_review())
 ---
-review of /work/repo
+Review 050e4244: working tree over aaaaaaa.
+  worktree: /work/repo
   base: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
   target: working tree over aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree cccccccccccccccccccccccccccccccccccccccc)
-  saved as review feaad307
-  record rec-2 not reconciled: locked by another writer
-  checkout /work/repo/.claude/worktrees/x not reconciled (2 transcripts): records directory locked
-  capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path
+Review not complete.
+Gate: 7 open, 0 closed.
 
-unattributed:
-  src/new.rs: untracked, a recorded edit names this file; not included (--include-untracked src/new.rs)
-  notes.txt: 2 unattributed
-  old.txt: 1 unattributed
-  logo.png: not diffed: binary
-  config.toml: on-disk state not captured
+  notes.txt                                    open  2 unexplained lines: 2 unattributed
+  old.txt                                      open  1 unexplained line: 1 unattributed
+  logo.png                                     open  not diffed: binary
+  src/new.rs                                   open  untracked, a recorded edit names it; not included
+  config.toml                                  open  on-disk state not captured: assume_unchanged
+  id:e30dffa9                                  open  evidence not read: locked by another writer
+  unreconciled:/work/repo/.claude/worktrees/x  open  evidence not read: records directory locked
 
 files:
   M logo.png  not diffed: binary
@@ -23,5 +23,14 @@ files:
   D old.txt  +0 -1  1 unattributed: no surviving chain
   M src/lib.rs  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session
 
-scope: 2 untracked files excluded
-scope: config.toml not captured (assume_unchanged, present on disk)
+Not gate items:
+  capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path
+  edit e9 excluded: its sightings in records rec-1, rec-2 disagree
+  scope: 2 untracked files excluded
+  scope: config.toml not captured (assume_unchanged, present on disk)
+  record rec-2 not reconciled: locked by another writer
+  checkout /work/repo/.claude/worktrees/x not reconciled (2 transcripts): records directory locked
+
+Next: supersigil judge acknowledge notes.txt old.txt logo.png src/new.rs config.toml id:e30dffa9 unreconciled:/work/repo/.claude/worktrees/x
+  or: supersigil judge dismiss <name>... --reason <text>
+  then: supersigil judge complete

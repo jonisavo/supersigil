@@ -1,11 +1,12 @@
 //! `supersigil review`: the change between a base and a target, each changed
 //! line attributed to the recorded edits that produced it, or the reason it
 //! is not. Every review is saved in the repository's review store, so
-//! judgments can bind to exactly what it showed.
+//! judgments can bind to exactly what it showed, and shows its gate with
+//! the judgments recorded on it and the command to run next.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use supersigil_anchor::PathAttribution;
 use supersigil_git::bytes::{Blob, read_blobs_within};
@@ -14,20 +15,23 @@ use supersigil_git::changes::{
 };
 use supersigil_git::retention::common_dir;
 use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
+use supersigil_record::RecordId;
 use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisId, BasisRecord, BasisScope,
-    BasisTarget, PathBytes, TargetKind,
+    self, Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisId, BasisRecord,
+    BasisScope, BasisTarget, Judgment, PathBytes, ReviewStore, TargetKind,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_review::gate::{capture, explanations, gate_items};
+use supersigil_review::judging::{GateStates, Ledger, RelatedBasis};
 use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
-    NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, Unsaved, UntrackedInfo, file_review,
-    unattributed_summary,
+    GateInfo, NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, Unsaved,
+    UntrackedInfo, file_review, unattributed_summary,
 };
+use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::Outcome;
-use supersigil_review::summary::render_summary;
+use supersigil_review::summary::{Addressing, render_summary};
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
@@ -72,24 +76,133 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     })?;
     let mut review = build(&g)?;
     let document = basis(&g, &review);
-    // The store's JSON cannot hold a path that is not UTF-8, so a basis
-    // naming one is never saved.
-    let saved = if document.basis_id().is_err() {
-        Err(Unsaved::PathNotUtf8)
-    } else {
-        save(&g, &reviews_dir, &document)?.ok_or(Unsaved::Busy)
+    let mut addressing = Addressing {
+        review: None,
+        checkout: args.checkout.clone(),
+        review_dir: args.review_dir.clone(),
     };
-    match saved {
-        Ok(id) => review.basis = Some(SavedBasis { id, document }),
-        Err(unsaved) => review.basis_unsaved = Some(unsaved),
+    // The id the store saves the basis under. An unsaved review shows the
+    // judgments on the same content saved before, which has the same id. A
+    // basis naming a path that is not UTF-8 has none: the store's JSON
+    // cannot hold it, so it is never saved and no judgment applies to it.
+    match document.basis_id() {
+        Ok(id) => {
+            let stored = store(&g, &reviews_dir, &document)?;
+            (review.status, review.gate) = judged(&g, &id, &document, &[], &stored.judgments);
+            addressing.review =
+                (stored.selection.as_ref() != Some(&id)).then(|| id.short().to_owned());
+            match stored.saved {
+                Some(id) => review.basis = Some(SavedBasis { id, document }),
+                None => review.basis_unsaved = Some(Unsaved::Busy),
+            }
+        }
+        Err(_not_utf8) => {
+            let associations = associations(&document);
+            let names = names(&g, &document, &associations);
+            review.gate = GateInfo::unjudged(&document.gate, &names);
+            review.basis_unsaved = Some(Unsaved::PathNotUtf8);
+        }
     }
     match args.format.resolve() {
         OutputFormat::Json => write_json(&review)?,
         OutputFormat::Terminal => io::stdout()
             .lock()
-            .write_all(render_summary(&review, escape_control).as_bytes())?,
+            .write_all(render_summary(&review, &addressing, escape_control).as_bytes())?,
     }
     Ok(())
+}
+
+/// What the review store holds of a review after [`store`] saved it.
+struct Stored {
+    /// The basis's id, or `None` when the store stayed busy.
+    saved: Option<BasisId>,
+    /// Every judgment in the store, in the order recorded.
+    judgments: Vec<Judgment>,
+    /// The review the reviewed worktree selects, if any.
+    selection: Option<BasisId>,
+}
+
+/// Saves `basis` in the review store in `reviews_dir` of `g`'s repository
+/// (see [`save`]), then reads the store without a lock: its judgments and
+/// the reviewed worktree's selection. When the store's directory stayed
+/// busy, the store is only looked up; no store yet has no judgments.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] if the repository's common directory cannot be
+/// resolved, the errors of [`save`], and the store errors of finding the
+/// store and reading its manifest and judgments.
+fn store(g: &Gathered, reviews_dir: &Path, basis: &Basis) -> Result<Stored, CliError> {
+    let repository = common_dir(&g.repo)?;
+    let store = open_review_store_within(reviews_dir, &repository, LOCK_WAIT)?;
+    let saved = match &store {
+        Some(store) => save(g, store, basis)?,
+        None => None,
+    };
+    let store = match store {
+        Some(store) => Some(store),
+        None => reviews::find(reviews_dir, &repository)?,
+    };
+    let Some(snapshot) = store.as_ref().map(ReviewStore::snapshot).transpose()? else {
+        return Ok(Stored {
+            saved,
+            judgments: Vec::new(),
+            selection: None,
+        });
+    };
+    Ok(Stored {
+        saved,
+        judgments: snapshot.judgments()?,
+        selection: snapshot.manifest().selections.get(&g.worktree).cloned(),
+    })
+}
+
+/// The status and the gate of the review `id`, whose basis is `basis`, as
+/// `judgments` and the `related` reviews give them, each item named as
+/// typed from the current directory.
+fn judged(
+    g: &Gathered,
+    id: &BasisId,
+    basis: &Basis,
+    related: &[RelatedBasis<'_>],
+    judgments: &[Judgment],
+) -> (StatusInfo, GateInfo) {
+    let ledger = Ledger::new(judgments);
+    let states = GateStates::new(id, basis, related, &ledger);
+    let associations = associations(basis);
+    let names = names(g, basis, &associations);
+    (StatusInfo::new(&states), GateInfo::new(&states, &names))
+}
+
+/// The paths associated with each record `basis` pinned, which
+/// `unreconciled:` names match.
+fn associations(basis: &Basis) -> BTreeMap<RecordId, Vec<PathBuf>> {
+    basis
+        .records
+        .iter()
+        .map(|record| (record.id.clone(), record.associations.clone()))
+        .collect()
+}
+
+/// The names of `basis`'s gate items as typed from the current directory
+/// `g` gathered, with `associations` naming its records.
+fn names<'b>(
+    g: &Gathered,
+    basis: &'b Basis,
+    associations: &'b BTreeMap<RecordId, Vec<PathBuf>>,
+) -> ItemNames<'b> {
+    ItemNames::new(&basis.gate, associations, g.ignore_case, |path| {
+        typed(g, path)
+    })
+}
+
+/// `path` as a person types it from the current directory, or `None` when
+/// it cannot be typed: it is not UTF-8, or that spelling holds a control
+/// character.
+fn typed(g: &Gathered, path: &PathBytes) -> Option<String> {
+    let path = RepoPath::from_utf8(path.to_str()?);
+    Some(display_from(&g.worktree, &g.cwd, &path))
+        .filter(|typed| !typed.chars().any(char::is_control))
 }
 
 /// The basis of `review`: what it compared and the evidence it read, as
@@ -166,21 +279,16 @@ fn sorted(paths: &[RepoPath]) -> Vec<PathBytes> {
     paths.into_iter().collect()
 }
 
-/// Saves `basis` in the review store in `reviews_dir` of `g`'s repository,
-/// makes it the reviewed worktree's selection unless an agent session runs
-/// the review, and cleans the store up. Returns the basis's id, or `None`
-/// when the store stayed busy: a lock was still held after [`LOCK_WAIT`].
+/// Saves `basis` in `store`, makes it the reviewed worktree's selection
+/// unless an agent session runs the review, and cleans the store up.
+/// Returns the basis's id, or `None` when the store stayed busy: its writer
+/// lock was still held after [`LOCK_WAIT`].
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Git`] if the repository's common directory cannot be
-/// resolved, and the errors of opening, writing, and committing the store.
-fn save(g: &Gathered, reviews_dir: &Path, basis: &Basis) -> Result<Option<BasisId>, CliError> {
-    let repository = common_dir(&g.repo)?;
-    let Some(store) = open_review_store_within(reviews_dir, &repository, LOCK_WAIT)? else {
-        return Ok(None);
-    };
-    let Some(mut tx) = begin_within(&store, LOCK_WAIT)? else {
+/// Returns the store errors of writing and committing the store.
+fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<Option<BasisId>, CliError> {
+    let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
         return Ok(None);
     };
     let now = UtcTime::now();
@@ -230,6 +338,8 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
         worktree: g.worktree.display().to_string(),
         base: base_info(g),
         target: target_info(g),
+        status: StatusInfo::default(),
+        gate: GateInfo::default(),
         unattributed: unattributed_summary(&files, &scope),
         scope,
         origins: origins_info(g),

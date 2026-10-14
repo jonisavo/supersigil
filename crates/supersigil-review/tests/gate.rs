@@ -25,9 +25,10 @@ use supersigil_review::gate::{
 };
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, EditInfo, EditOriginInfo, EvidenceInfo, FileInput,
-    FileKindInfo, FileReview, FileStatus, Mention, NotCapturedInfo, OriginsInfo, RecordInfo,
-    RepoPathInfo, ScopeInfo, Span, TargetInfo, TargetKindInfo, TranscriptInfo, UnavailableInfo,
-    UnreconciledInfo, UntrackedInfo, file_review, unattributed_summary,
+    FileKindInfo, FileReview, FileStatus, GateInfo, Mention, NotCapturedInfo, OriginsInfo,
+    RecordInfo, RepoPathInfo, ScopeInfo, Span, StatusInfo, TargetInfo, TargetKindInfo,
+    TranscriptInfo, UnavailableInfo, UnreconciledInfo, UntrackedInfo, file_review,
+    unattributed_summary,
 };
 use supersigil_review::outcome::{AttributionState, Outcome};
 use supersigil_review::{REVIEW_SCHEMA, Review};
@@ -183,6 +184,8 @@ fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
             commit: Some("a".repeat(40)),
             tree: "c".repeat(40),
         },
+        status: StatusInfo::default(),
+        gate: GateInfo::default(),
         unattributed: unattributed_summary(&files, &scope),
         scope,
         origins: OriginsInfo::default(),

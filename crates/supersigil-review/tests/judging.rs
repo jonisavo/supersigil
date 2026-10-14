@@ -22,6 +22,8 @@ use supersigil_review::judging::{
     ItemState, Ledger, NotClosed, PlannedWithdrawal, Relation, Uncovered, WithdrawRefusal,
     related_bases, uncovered_items,
 };
+use supersigil_review::model::{GateInfo, ItemStateInfo, JudgmentInfo, StatusInfo};
+use supersigil_review::names::ItemNames;
 
 /// A saved review: its basis ID and basis.
 type Saved = (BasisId, Basis);
@@ -1159,4 +1161,113 @@ fn a_judgment_is_found_by_a_unique_prefix_of_at_least_8_characters() {
     );
     assert_eq!(ledger.find("77d0e5b"), Err(FindJudgmentError::TooShort));
     assert_eq!(ledger.find("deadbeef"), Err(FindJudgmentError::NoMatch));
+}
+
+/// The gate `states` shows, each path item named by its path.
+fn gate_info(states: &GateStates<'_>, gate: &[GateItem]) -> GateInfo {
+    let associations = BTreeMap::new();
+    let names = ItemNames::new(gate, &associations, false, |path| {
+        path.to_str().map(str::to_owned)
+    });
+    GateInfo::new(states, &names)
+}
+
+#[test]
+fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
+    let (a, b, c) = (lines("a.rs", "x"), lines("b.rs", "x"), lines("c.rs", "now"));
+    let d = untracked("d.rs", known("disk"));
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone(), b.clone(), c, d]));
+    let then = lines("c.rs", "then");
+    let earlier = [saved(basis("/work/a", '1', '3', vec![then.clone()]))];
+    let judgments = [
+        ack("ack-a", &current.0, &[&a], 10),
+        dismiss("dismiss-b", &current.0, &[&b], 20),
+        ack("ack-c", &earlier[0].0, &[&then], 5),
+    ];
+    let ledger = Ledger::new(&judgments);
+
+    let gate = gate_info(&states(&current, &earlier, &ledger), &current.1.gate);
+
+    let shown: Vec<_> = gate
+        .items
+        .iter()
+        .map(|item| {
+            let judgment = item.judgment.as_ref().map(|j| j.id.as_str());
+            (item.name.as_str(), item.state, judgment)
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("a.rs", ItemStateInfo::Acknowledged, Some("ack-a")),
+            ("b.rs", ItemStateInfo::Dismissed, Some("dismiss-b")),
+            ("c.rs", ItemStateInfo::Reopened, Some("ack-c")),
+            ("d.rs", ItemStateInfo::Open, None),
+        ]
+    );
+    // A reopened item needs a judgment again, as an open one does.
+    assert_eq!(gate.open, 2);
+    assert_eq!(
+        gate.items[2].reopen_reasons,
+        [
+            "file content or mode changed",
+            "evidence behind the lines changed",
+            "line explanations changed",
+        ]
+    );
+    assert_eq!(
+        gate.items[1].judgment,
+        Some(JudgmentInfo {
+            id: JudgmentId::new("dismiss-b"),
+            kind: JudgmentKind::Dismiss,
+            review: current.0.clone(),
+            who: judgments[1].who.clone(),
+            at: UtcTime::from_unix(20),
+        })
+    );
+    let json = serde_json::to_value(&gate).unwrap();
+    assert_eq!(json["open"], 2);
+    let first = &json["items"][0];
+    assert_eq!(first["id"], a.id.as_str());
+    assert_eq!(first["origin"], "unexplained_lines");
+    assert_eq!(first["subject"], serde_json::json!({"path": "a.rs"}));
+    assert_eq!(first["detail"]["unattributed"], 1);
+    assert_eq!(
+        first["fingerprint"],
+        serde_json::to_value(&a.fingerprint).unwrap()
+    );
+    assert_eq!(first["state"], "acknowledged");
+    assert_eq!(first["judgment"]["kind"], "acknowledge");
+    assert_eq!(first["judgment"]["review"], current.0.as_str());
+    assert_eq!(json["items"][3]["judgment"], serde_json::Value::Null);
+}
+
+#[test]
+fn the_status_is_complete_with_the_reviews_own_standing_completion() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let judgments = [
+        ack("ack", &current.0, &[&a], 10),
+        complete("done", &current.0, &[(&a, "ack")], 20),
+        undo("undo", &current.0, &[("done", None)], 30),
+    ];
+
+    let ledger = Ledger::new(&judgments[..2]);
+    let status = StatusInfo::new(&states(&current, &[], &ledger));
+    assert!(status.complete);
+    assert_eq!(
+        status.completion,
+        Some(JudgmentInfo {
+            id: JudgmentId::new("done"),
+            kind: JudgmentKind::Complete,
+            review: current.0.clone(),
+            who: judgments[1].who.clone(),
+            at: UtcTime::from_unix(20),
+        })
+    );
+
+    let ledger = Ledger::new(&judgments);
+    let status = StatusInfo::new(&states(&current, &[], &ledger));
+    assert!(!status.complete);
+    assert_eq!(status.completion, None);
 }

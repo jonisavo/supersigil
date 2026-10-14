@@ -14,10 +14,14 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use supersigil_record::observations::{Edit, FileState, Material, Observation};
-use supersigil_record::reviews::{self, Basis, FingerprintPart};
+use supersigil_record::reviews::{
+    self, Basis, BasisId, FingerprintPart, ItemId, Judgment, JudgmentKind, Who,
+};
 use supersigil_record::store::{MANIFEST_FILE, Store};
-use supersigil_record::{ContentId, EventId, ReviewStore, SessionId};
+use supersigil_record::time::UtcTime;
+use supersigil_record::{ContentId, EventId, JudgmentId, ReviewStore, SessionId};
 use supersigil_review::gate::OnDiskState;
+use supersigil_review::summary::shell_word;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -2168,6 +2172,7 @@ fn expected_why(
             }],
             "unplaced_edits": 0,
             "unreconciled_checkouts": [],
+            "removed_transcripts": [],
             "conflicting_edits": [],
         },
         "on_disk": on_disk,
@@ -2890,10 +2895,7 @@ fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
         .unwrap();
     let summary = String::from_utf8(output.stdout).unwrap();
     assert!(
-        summary.contains(
-            "made.txt: untracked, a recorded edit names this file; not included \
-             (--include-untracked made.txt)"
-        ),
+        summary.contains("\n  made.txt  open  untracked, a recorded edit names it; not included\n"),
         "{summary}"
     );
     assert!(!summary.contains("wrote"), "{summary}");
@@ -3250,9 +3252,12 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
     assert!(started.elapsed() < Duration::from_secs(30));
     assert_eq!(review["basis"], Value::Null);
     assert_eq!(review["basis_unsaved"], "the review store is busy");
+    // The gate still shows; judging it needs the review saved.
+    assert_eq!(gate_row(&review, "notes.txt")["state"], "open");
     let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
+    assert_eq!(summary.lines().next(), Some(NOT_SAVED), "{summary}");
     assert!(
-        summary.lines().any(|line| line.trim() == NOT_SAVED),
+        summary.ends_with("\n\nNext: supersigil review\n"),
         "{summary}"
     );
     drop(held);
@@ -3260,6 +3265,52 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
     assert_eq!(
         selections(&store),
         BTreeMap::from([(f.repo.clone(), first)])
+    );
+}
+
+#[test]
+fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
+    let f = Fixture::new();
+    slice(&f);
+    let (elsewhere, reviews) = (f.root.join("elsewhere"), f.root.join("other reviews"));
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let flags = format!(
+        "--checkout={} --review-dir={}",
+        shell_word(&f.repo.display().to_string()),
+        shell_word(&reviews.display().to_string())
+    );
+    let summary = || {
+        let output = f
+            .supersigil(&elsewhere, &["review", "--format", "terminal"])
+            .arg("--checkout")
+            .arg(&f.repo)
+            .arg("--review-dir")
+            .arg(&reviews)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    summary();
+    write(&f.repo, "notes.txt", "changed while the store is busy\n");
+    let store = review_store(&f, &reviews);
+    let held = store.begin().unwrap();
+
+    let unsaved = summary();
+    drop(held);
+    f.commit(&f.repo, "everything");
+    let unchanged = summary();
+
+    assert!(
+        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
+        "{unsaved}"
+    );
+    assert!(
+        unchanged.contains(&format!(
+            "  no changes in scope; to review a commit just made, run supersigil review \
+             --target HEAD {flags}\n"
+        )),
+        "{unchanged}"
     );
 }
 
@@ -3279,23 +3330,20 @@ fn a_worktree_whose_path_is_not_utf8_is_reviewed_unsaved() {
     write(&repo, "notes.txt", "final\n");
 
     let review = f.json(&repo, &["review", "--format", "json"]);
-    let summary = f
-        .supersigil(&repo, &["review", "--format", "terminal"])
-        .assert()
-        .success();
+    let text = summary(&f, &repo, &[]);
 
     // Shown, never saved, and nothing asks to run it again.
     let reason = "it names a path that is not valid UTF-8, which the review store cannot hold";
     assert_eq!(review["basis"], Value::Null);
     assert_eq!(review["basis_unsaved"], reason);
-    assert_eq!(paths(&review), ["notes.txt"]);
-    let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
-    let not_saved = format!("Review not saved: {reason}. Judging needs a saved review.");
-    assert!(
-        summary.lines().any(|line| line.trim() == not_saved),
-        "{summary}"
+    assert_eq!(gate_row(&review, "notes.txt")["state"], "open");
+    assert_eq!(
+        text.lines().next(),
+        Some(format!("Review not saved: {reason}. Judging needs a saved review.").as_str()),
+        "{text}"
     );
-    assert!(!summary.contains("supersigil review"), "{summary}");
+    assert!(text.contains("\n  notes.txt  open  "), "{text}");
+    assert!(!text.contains("supersigil review"), "{text}");
     assert!(!f.reviews().exists());
 }
 
@@ -3572,4 +3620,463 @@ fn an_unreconciled_checkout_salts_every_basis() {
     assert!(first["basis"]["document"]["salt"].is_string(), "{first:#}");
     // Same code and evidence, yet never the same saved review.
     assert_ne!(basis_id(&first), basis_id(&second));
+}
+
+/// The item of `review`'s gate named `name`.
+fn gate_row<'v>(review: &'v Value, name: &str) -> &'v Value {
+    review["gate"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == name)
+        .unwrap_or_else(|| panic!("no gate item {name} in {:#}", review["gate"]))
+}
+
+/// Each item of `review`'s gate by name, with its state, in gate order.
+fn gate_states(review: &Value) -> Vec<(&str, &str)> {
+    review["gate"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            (
+                item["name"].as_str().unwrap(),
+                item["state"].as_str().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// Records a judgment of `kind` on the saved `review` naming its gate items
+/// `items`, through the store as `Test` on 2026-10-13, and returns its id.
+fn record_judgment(
+    store: &ReviewStore,
+    review: &Value,
+    kind: JudgmentKind,
+    items: &[&str],
+) -> String {
+    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
+    let items: Vec<ItemId> = items
+        .iter()
+        .map(|name| serde_json::from_value(gate_row(review, name)["id"].clone()).unwrap())
+        .collect();
+    let judgment = Judgment {
+        id: JudgmentId::generate(),
+        basis,
+        kind,
+        items,
+        reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
+        text: None,
+        closes: BTreeMap::new(),
+        withdraws: Vec::new(),
+        who: Who {
+            name: "Test".to_owned(),
+            email: "test@example.com".to_owned(),
+        },
+        at: "2026-10-13T12:00:00Z".parse::<UtcTime>().unwrap(),
+    };
+    let mut tx = store.begin().unwrap();
+    tx.append_judgment(&judgment).unwrap();
+    tx.commit().unwrap();
+    judgment.id.as_str().to_owned()
+}
+
+/// The summary `supersigil review --format terminal <args>` prints in `dir`.
+fn summary(f: &Fixture, dir: &Path, args: &[&str]) -> String {
+    let output = f
+        .supersigil(dir, &[&["review", "--format", "terminal"], args].concat())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn a_review_shows_its_gate_with_the_judgments_recorded_on_it() {
+    let f = Fixture::new();
+    slice(&f);
+
+    let open = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // `src/lib.rs` has two items, so each is named with its qualifier.
+    assert_eq!(
+        gate_states(&open),
+        [
+            ("old.txt", "open"),
+            ("lines:src/lib.rs", "open"),
+            ("src/new.rs", "open"),
+            ("gap:src/lib.rs", "open"),
+        ]
+    );
+    assert_eq!(open["gate"]["open"], 4);
+    let new = gate_row(&open, "src/new.rs");
+    assert_eq!(new["origin"], "untracked_recorded");
+    assert_eq!(new["subject"], json!({"path": "src/new.rs"}));
+    assert_eq!(new["judgment"], Value::Null);
+    assert_eq!(
+        open["status"],
+        json!({"complete": false, "completion": null})
+    );
+
+    let store = review_store(&f, &f.reviews());
+    let acknowledged = record_judgment(
+        &store,
+        &open,
+        JudgmentKind::Acknowledge,
+        &["lines:src/lib.rs"],
+    );
+    let dismissed = record_judgment(&store, &open, JudgmentKind::Dismiss, &["old.txt"]);
+    let judged = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert_eq!(basis_id(&judged), basis_id(&open));
+    assert_eq!(
+        gate_states(&judged),
+        [
+            ("old.txt", "dismissed"),
+            ("lines:src/lib.rs", "acknowledged"),
+            ("src/new.rs", "open"),
+            ("gap:src/lib.rs", "open"),
+        ]
+    );
+    assert_eq!(judged["gate"]["open"], 2);
+    assert_eq!(
+        gate_row(&judged, "old.txt")["judgment"],
+        json!({
+            "id": dismissed,
+            "kind": "dismiss",
+            "review": basis_id(&open),
+            "who": {"name": "Test", "email": "test@example.com"},
+            "at": "2026-10-13T12:00:00Z",
+        })
+    );
+    assert_eq!(
+        gate_row(&judged, "lines:src/lib.rs")["judgment"]["id"],
+        acknowledged
+    );
+    assert_eq!(judged["status"]["complete"], false);
+
+    record_judgment(
+        &store,
+        &open,
+        JudgmentKind::Acknowledge,
+        &["src/new.rs", "gap:src/lib.rs"],
+    );
+    let completion = record_judgment(&store, &open, JudgmentKind::Complete, &[]);
+    let complete = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert_eq!(complete["gate"]["open"], 0);
+    assert_eq!(complete["status"]["complete"], true);
+    assert_eq!(complete["status"]["completion"]["id"], completion);
+    assert_eq!(complete["status"]["completion"]["kind"], "complete");
+    assert_eq!(complete["status"]["completion"]["who"]["name"], "Test");
+}
+
+#[test]
+fn the_summary_shows_the_gate_and_what_to_run_next() {
+    let f = Fixture::new();
+    slice(&f);
+    let head = f.git(&["rev-parse", "--short=7", "HEAD"]);
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let id8 = &basis_id(&review)[..8];
+
+    let open = summary(&f, &f.repo, &[]);
+
+    let header: Vec<&str> = open.lines().take(6).collect();
+    assert_eq!(
+        header,
+        [
+            format!("Review {id8}: working tree over {}.", head.trim()),
+            format!("  worktree: {}", f.repo.display()),
+            format!(
+                "  base: {} (tree {})",
+                review["base"]["commit"].as_str().unwrap(),
+                review["base"]["tree"].as_str().unwrap()
+            ),
+            format!(
+                "  target: working tree over {} (tree {})",
+                review["target"]["commit"].as_str().unwrap(),
+                review["target"]["tree"].as_str().unwrap()
+            ),
+            "Review not complete.".to_owned(),
+            "Gate: 4 open, 0 closed.".to_owned(),
+        ],
+        "{open}"
+    );
+    assert!(
+        open.contains(
+            "\n\n  old.txt           open  1 unexplained line: 1 unattributed\n  \
+             lines:src/lib.rs  open  4 unexplained lines: 4 unattributed\n  \
+             src/new.rs        open  untracked, a recorded edit names it; not included\n  \
+             gap:src/lib.rs    open  1 gap between recorded edits\n\nfiles:\n"
+        ),
+        "{open}"
+    );
+    let names = "old.txt lines:src/lib.rs src/new.rs gap:src/lib.rs";
+    assert!(
+        open.ends_with(&format!(
+            "\n\nNext: supersigil judge acknowledge {names}\n  \
+             or: supersigil judge dismiss <name>... --reason <text>\n  \
+             then: supersigil judge complete\n"
+        )),
+        "{open}"
+    );
+
+    let store = review_store(&f, &f.reviews());
+    record_judgment(
+        &store,
+        &review,
+        JudgmentKind::Acknowledge,
+        &["old.txt", "lines:src/lib.rs", "gap:src/lib.rs"],
+    );
+    record_judgment(&store, &review, JudgmentKind::Dismiss, &["src/new.rs"]);
+    let closed = summary(&f, &f.repo, &[]);
+
+    assert!(
+        closed.contains(
+            "\nGate: 0 open, 4 closed.\n\n  \
+             old.txt           acknowledged  by Test on 2026-10-13\n  \
+             lines:src/lib.rs  acknowledged  by Test on 2026-10-13\n  \
+             src/new.rs        dismissed     by Test on 2026-10-13\n  \
+             gap:src/lib.rs    acknowledged  by Test on 2026-10-13\n"
+        ),
+        "{closed}"
+    );
+    assert!(
+        closed.ends_with("\n\nNext: supersigil judge complete\n"),
+        "{closed}"
+    );
+
+    record_judgment(&store, &review, JudgmentKind::Complete, &[]);
+    let complete = summary(&f, &f.repo, &[]);
+
+    assert!(
+        complete.contains(
+            "\nReview complete: completed on 2026-10-13 by Test.\nGate: 0 open, 4 closed.\n"
+        ),
+        "{complete}"
+    );
+    assert!(!complete.contains("Next:"), "{complete}");
+}
+
+#[test]
+fn an_agent_sessions_review_names_itself_in_the_next_commands() {
+    let f = Fixture::new();
+    slice(&f);
+    f.json(&f.repo, &["review", "--format", "json"]);
+    write(&f.repo, "notes.txt", "changed by the agent\n");
+    let in_agent = |format: &str| {
+        let output = f
+            .supersigil(&f.repo, &["review", "--format", format])
+            .env("CLAUDECODE", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    let id = basis_id(&serde_json::from_str(&in_agent("json")).unwrap());
+    let text = in_agent("terminal");
+
+    // The person's earlier review stays selected, so `judge` alone would
+    // apply to it.
+    let flag = format!(" --review={}", &id[..8]);
+    let next = text
+        .lines()
+        .find(|line| line.starts_with("Next: supersigil judge acknowledge "))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(next.ends_with(&flag), "{text}");
+    assert!(
+        text.ends_with(&format!("\n  then: supersigil judge complete{flag}\n")),
+        "{text}"
+    );
+    // The person reviewing the same content selects it: no flag.
+    let own = summary(&f, &f.repo, &[]);
+    assert!(
+        own.ends_with("\n  then: supersigil judge complete\n"),
+        "{own}"
+    );
+}
+
+#[test]
+fn next_commands_repeat_the_checkout_and_the_reviews_directory() {
+    let f = Fixture::new();
+    slice(&f);
+
+    let text = summary(
+        &f,
+        &f.root,
+        &["--checkout", "repo", "--review-dir", "reviews-x"],
+    );
+
+    let flags = " --checkout=repo --review-dir=reviews-x";
+    let next = text
+        .lines()
+        .find(|line| line.starts_with("Next: supersigil judge acknowledge "))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(next.ends_with(flags), "{text}");
+    assert!(
+        text.ends_with(&format!("\n  then: supersigil judge complete{flags}\n")),
+        "{text}"
+    );
+    // Named from the current directory, outside the worktree.
+    let old = shell_word(&f.repo.join("old.txt").display().to_string());
+    assert!(next.contains(&format!(" {old} ")), "{text}");
+    assert!(f.root.join("reviews-x").is_dir());
+}
+
+#[test]
+fn next_commands_keep_flag_values_that_start_with_a_dash() {
+    let f = Fixture::new();
+    write(&f.repo, "notes.txt", "draft\n");
+    f.commit(&f.repo, "base");
+    // A worktree whose path starts with a dash, with a change no recorded
+    // edit explains.
+    f.git(&["worktree", "add", "-q", "-b", "dash", "../-wt"]);
+    write(&f.root.join("-wt"), "notes.txt", "final\n");
+
+    let text = summary(&f, &f.root, &["--checkout=-wt", "--review-dir=-reviews"]);
+
+    // Given as `--checkout -wt`, the value would read as a flag.
+    let flags = " --checkout=-wt --review-dir=-reviews";
+    assert!(
+        text.ends_with(&format!("\n  then: supersigil judge complete{flags}\n")),
+        "{text}"
+    );
+    assert!(f.root.join("-reviews").is_dir());
+}
+
+/// Needs a filesystem that accepts a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn next_commands_show_a_flag_value_that_cannot_be_printed_as_given() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let f = Fixture::new();
+    slice(&f);
+    // Printed lossily, this directory would read as `r-\u{fffd}`, another
+    // directory, which can hold another review store.
+    let reviews = f.root.join(OsStr::from_bytes(b"r-\xff"));
+
+    let output = f
+        .supersigil(
+            &f.root,
+            &["review", "--format", "terminal", "--checkout=repo"],
+        )
+        .arg("--review-dir")
+        .arg(&reviews)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    // A value that can be printed still is.
+    let flags = " --checkout=repo --review-dir=<as given>";
+    let note = "The --review-dir value is not valid UTF-8 or holds a control character, so \
+                commands show <as given> for it: pass it as given.";
+    assert!(
+        text.ends_with(&format!(
+            "\n  then: supersigil judge complete{flags}\n{note}\n"
+        )),
+        "{text}"
+    );
+    assert_eq!(text.matches(note).count(), 1, "{text}");
+    assert!(!text.contains('\u{fffd}'), "{text}");
+    assert!(reviews.is_dir());
+}
+
+/// Needs a filesystem that accepts a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_item_whose_path_is_not_utf8_is_named_by_its_id() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let f = Fixture::new();
+    let name = OsStr::from_bytes(b"caf\xe9.txt");
+    std::fs::write(f.repo.join(name), "one\n").unwrap();
+    f.commit(&f.repo, "base");
+    std::fs::write(f.repo.join(name), "two\n").unwrap();
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let items = review["gate"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{:#}", review["gate"]);
+    assert_eq!(
+        items[0]["subject"],
+        json!({"path": {"hex": hex::encode(b"caf\xe9.txt")}})
+    );
+    let name = format!("id:{}", &items[0]["id"].as_str().unwrap()[..8]);
+    assert_eq!(items[0]["name"], name);
+    let text = summary(&f, &f.repo, &[]);
+    assert!(text.contains(&format!("\n  {name}  open  ")), "{text}");
+    assert!(
+        text.contains(&format!("\nNext: supersigil judge acknowledge {name}\n")),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_working_tree_without_changes_points_at_a_commit_just_made() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+
+    let text = summary(&f, &f.repo, &[]);
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // Nothing changed and nothing needs a judgment: no judgment is
+    // suggested.
+    assert!(
+        text.contains("\nNothing to review: no changes in scope.\nGate: no items.\n"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(
+            "\nfiles:\n  no changes in scope; to review a commit just made, run supersigil \
+             review --target HEAD\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("Review not complete"), "{text}");
+    assert!(!text.contains("supersigil judge"), "{text}");
+    // The JSON says what it always says.
+    assert_eq!(
+        review["status"],
+        json!({"complete": false, "completion": null})
+    );
+    assert_eq!(review["gate"], json!({"open": 0, "items": []}));
+}
+
+#[test]
+fn a_transcript_removed_before_it_could_be_read_is_noted() {
+    let f = Fixture::new();
+    slice(&f);
+    // A transcript listed for reading that is no regular file when read.
+    let project = f.transcript(&f.repo, "slice.jsonl", &slice_text());
+    let gone = project
+        .parent()
+        .unwrap()
+        .join("s-gone/subagents/agent-gone.jsonl");
+    std::fs::create_dir_all(&gone).unwrap();
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &[]);
+
+    let gone = gone.display().to_string();
+    assert_eq!(review["evidence"]["removed_transcripts"], json!([gone]));
+    assert!(
+        text.contains(&format!(
+            "\n  transcript {gone} removed before it could be read\n"
+        )),
+        "{text}"
+    );
 }
