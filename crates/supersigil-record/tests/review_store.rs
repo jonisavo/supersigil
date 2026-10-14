@@ -1,17 +1,20 @@
 //! Tests the review store: finding it by repository, saving bases,
-//! selections, and the two-phase cleanup.
+//! selections, judgments, and the two-phase cleanup.
 
-use std::fs;
+use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::slice;
 
 use serde_json::{Value, json};
-use supersigil_record::Revision;
 use supersigil_record::reviews::{
     Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, BasisTimes,
-    PathBytes, ReviewStore, TargetKind, create_in, find,
+    Judgment, JudgmentKind, PathBytes, ReviewStore, TargetKind, Who, create_in, find,
 };
 use supersigil_record::store::StoreError;
 use supersigil_record::time::{GRACE_SECONDS, REMOVAL_DELAY_SECONDS, UtcTime};
+use supersigil_record::{JudgmentId, Revision};
 
 const REPOSITORY: &str = "/work/repo/.git";
 
@@ -855,4 +858,217 @@ fn a_review_is_found_by_a_unique_prefix_of_at_least_8_digits() {
         store.snapshot().unwrap().find_basis(id.as_str()),
         Err(StoreError::NoSuchBasis(_))
     ));
+}
+
+/// An acknowledgment on `basis` at `now` with a fresh ID.
+fn acknowledgment(basis: &BasisId, now: UtcTime) -> Judgment {
+    Judgment {
+        id: JudgmentId::generate(),
+        basis: basis.clone(),
+        kind: JudgmentKind::Acknowledge,
+        items: Vec::new(),
+        reason: None,
+        text: None,
+        closes: BTreeMap::new(),
+        withdraws: Vec::new(),
+        who: Who {
+            name: "Ada Lovelace".to_owned(),
+            email: "ada@example.com".to_owned(),
+        },
+        at: now,
+    }
+}
+
+/// Appends `judgment` in its own transaction and commits it.
+fn judge(store: &ReviewStore, judgment: &Judgment) {
+    let mut tx = store.begin().unwrap();
+    tx.append_judgment(judgment).unwrap();
+    tx.commit().unwrap();
+}
+
+#[test]
+fn judgments_are_appended_and_read_back_at_the_pinned_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let id = save(&store, &basis("/work/repo", 'a'), at(0));
+    assert!(store.snapshot().unwrap().judgments().unwrap().is_empty());
+
+    let first = acknowledgment(&id, at(1));
+    judge(&store, &first);
+    let only_first = slice::from_ref(&first);
+    let pinned = store.snapshot().unwrap();
+    let path = store.root().join("judgments.jsonl");
+    assert_eq!(
+        pinned.manifest().judgments_length,
+        fs::metadata(&path).unwrap().len()
+    );
+    assert_eq!(pinned.judgments().unwrap(), only_first);
+
+    let mut tx = store.begin().unwrap();
+    let more = [acknowledgment(&id, at(2)), acknowledgment(&id, at(3))];
+    for judgment in &more {
+        tx.append_judgment(judgment).unwrap();
+    }
+    // The transaction shows the judgments as of its start; readers do not
+    // see the appended ones before the commit.
+    assert_eq!(tx.judgments(), only_first);
+    assert_eq!(store.snapshot().unwrap().judgments().unwrap(), only_first);
+    tx.commit().unwrap();
+
+    assert_eq!(pinned.judgments().unwrap(), only_first);
+    let all = store.snapshot().unwrap().judgments().unwrap();
+    assert_eq!(all, [first, more[0].clone(), more[1].clone()]);
+    let text = fs::read_to_string(&path).unwrap();
+    assert_eq!(text.lines().count(), 3);
+    assert!(text.ends_with('\n'));
+}
+
+#[test]
+fn a_torn_judgment_tail_is_ignored_and_truncated() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let id = save(&store, &basis("/work/repo", 'a'), at(0));
+    let first = acknowledgment(&id, at(1));
+    judge(&store, &first);
+
+    // Simulate a crash after appending but before publishing the manifest.
+    let path = store.root().join("judgments.jsonl");
+    let mut expected = fs::read(&path).unwrap();
+    let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+    file.write_all(b"{\"id\":\"partial").unwrap();
+    drop(file);
+    let only_first = slice::from_ref(&first);
+    assert_eq!(store.snapshot().unwrap().judgments().unwrap(), only_first);
+    let tx = store.begin().unwrap();
+    assert_eq!(tx.judgments(), only_first);
+    drop(tx);
+
+    let second = acknowledgment(&id, at(2));
+    judge(&store, &second);
+    expected.extend(serde_json::to_vec(&second).unwrap());
+    expected.push(b'\n');
+    assert_eq!(fs::read(&path).unwrap(), expected);
+    assert_eq!(
+        store.snapshot().unwrap().judgments().unwrap(),
+        [first, second]
+    );
+}
+
+#[test]
+fn a_judgments_log_shorter_than_its_pinned_length_is_corrupt() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let id = save(&store, &basis("/work/repo", 'a'), at(0));
+    judge(&store, &acknowledgment(&id, at(1)));
+    let path = store.root().join("judgments.jsonl");
+    let bytes = fs::read(&path).unwrap();
+    fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+
+    assert!(matches!(
+        store.snapshot().unwrap().judgments(),
+        Err(StoreError::Corrupt(_))
+    ));
+    assert!(matches!(store.begin(), Err(StoreError::Corrupt(_))));
+}
+
+#[test]
+fn a_judgment_needs_a_saved_basis() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let unsaved = basis("/work/repo", 'a').basis_id().unwrap();
+    let mut tx = store.begin().unwrap();
+    assert!(matches!(
+        tx.append_judgment(&acknowledgment(&unsaved, at(0))),
+        Err(StoreError::NoSuchBasis(prefix)) if prefix == unsaved.as_str()
+    ));
+    assert_eq!(tx.manifest().judgments_length, 0);
+    assert!(!store.root().join("judgments.jsonl").exists());
+}
+
+#[test]
+fn cleanup_keeps_a_judged_basis() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let mut tx = store.begin().unwrap();
+    let judged = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
+    let unjudged = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
+    let judged_later = tx.save_basis(&basis("/work/repo", 'c'), at(0)).unwrap();
+    tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
+    tx.commit().unwrap();
+
+    // A judgment appended in the same write counts too.
+    let later = at(100 * 86_400);
+    let mut tx = store.begin().unwrap();
+    tx.append_judgment(&acknowledgment(&judged_later, later))
+        .unwrap();
+    tx.cleanup(later).unwrap();
+    tx.commit().unwrap();
+    clean(&store, at(200 * 86_400));
+
+    let manifest = store.snapshot().unwrap().manifest().clone();
+    assert!(manifest.bases.contains_key(&judged));
+    assert!(manifest.bases.contains_key(&judged_later));
+    assert!(!manifest.bases.contains_key(&unjudged));
+    assert!(!basis_file(&store, &unjudged).exists());
+    assert!(basis_file(&store, &judged).exists());
+}
+
+#[test]
+fn a_removed_basis_named_by_a_judgment_or_selection_is_not_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    let mut tx = store.begin().unwrap();
+    let judged = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
+    let selected = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
+    tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
+    tx.commit().unwrap();
+    // A manifest that lists both as removed and a selection of one, as no
+    // writer of this build leaves it.
+    edit_manifest(&store, |m| {
+        let bases = m["bases"].as_object_mut().unwrap();
+        bases.clear();
+        for id in [&judged, &selected] {
+            m["removed"][id.as_str()] = json!("2026-10-13T00:00:00Z");
+        }
+        m["selections"]["/work/repo"] = json!(selected);
+    });
+
+    clean(&store, at(100 * 86_400));
+    let manifest = store.snapshot().unwrap().manifest().clone();
+    assert_eq!(manifest.removed.len(), 2);
+    assert!(basis_file(&store, &judged).exists());
+    assert!(basis_file(&store, &selected).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn nothing_is_deleted_while_the_judgments_log_is_a_symlink() {
+    // A name the store writes in `bases/`, and one it never does.
+    for target in [stray("json"), "current-log.json".to_owned()] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = new_store(dir.path());
+        let mut tx = store.begin().unwrap();
+        let live = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
+        let unused = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
+        tx.select(Path::new("/work/repo"), &live);
+        let judgment = acknowledgment(&live, at(0));
+        tx.append_judgment(&judgment).unwrap();
+        tx.commit().unwrap();
+        clean(&store, at(GRACE_SECONDS + 1));
+        // The log moved into `bases/`, with a link to it in its place.
+        let log = store.root().join("judgments.jsonl");
+        let moved = store.root().join("bases").join(&target);
+        fs::rename(&log, &moved).unwrap();
+        std::os::unix::fs::symlink(Path::new("bases").join(&target), &log).unwrap();
+
+        clean(&store, at(GRACE_SECONDS + 2 + REMOVAL_DELAY_SECONDS));
+
+        // Neither what the log leads to nor the due removed basis's file
+        // is deleted, and the judgments still read.
+        assert!(moved.exists(), "{target}");
+        assert!(basis_file(&store, &unused).exists(), "{target}");
+        let only = slice::from_ref(&judgment);
+        assert_eq!(store.snapshot().unwrap().judgments().unwrap(), only);
+        assert_eq!(store.begin().unwrap().judgments(), only);
+    }
 }

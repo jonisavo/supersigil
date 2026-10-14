@@ -1,8 +1,7 @@
 //! Writes record data under an exclusive lock and commits it through the manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Seek as _, SeekFrom, Write as _};
+use std::fs::{self, File};
 use std::path::PathBuf;
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
@@ -113,23 +112,7 @@ impl<'a> WriteTx<'a> {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
         let pinned = self.manifest.logs.get(log).copied().unwrap_or(0);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|e| io_error(&path, e))?;
-        let len = file.metadata().map_err(|e| io_error(&path, e))?.len();
-        if len < pinned {
-            return Err(StoreError::Corrupt(format!(
-                "{} is shorter ({len} bytes) than its pinned length ({pinned})",
-                path.display()
-            )));
-        }
-        file.set_len(pinned).map_err(|e| io_error(&path, e))?;
-        file.seek(SeekFrom::Start(pinned))
-            .map_err(|e| io_error(&path, e))?;
-        file.write_all(bytes).map_err(|e| io_error(&path, e))?;
+        files::append_at(&path, pinned, bytes)?;
         self.manifest
             .logs
             .insert(log.to_owned(), pinned + bytes.len() as u64);
@@ -228,13 +211,7 @@ impl<'a> WriteTx<'a> {
         let root = self.store.root();
         let mut dirs = BTreeSet::new();
         for path in &self.touched {
-            // Write access: Windows flushes through `FlushFileBuffers`, which
-            // needs it.
-            OpenOptions::new()
-                .write(true)
-                .open(path)
-                .and_then(|f| f.sync_all())
-                .map_err(|e| io_error(path, e))?;
+            files::sync_file(path)?;
             for dir in path.ancestors().skip(1) {
                 dirs.insert(dir.to_path_buf());
                 if dir == root {

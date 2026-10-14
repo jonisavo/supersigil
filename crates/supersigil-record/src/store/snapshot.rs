@@ -1,11 +1,11 @@
 //! Reads the log bytes and document files listed in one manifest.
 
-use std::fs::{self, File};
-use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::PathBuf;
 
 use super::{Manifest, StoreError, derivations_document, io_error, log_path};
 use crate::derivations::DerivationSet;
+use crate::files;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 
@@ -89,32 +89,10 @@ impl RecordSnapshot {
             return Ok(Vec::new());
         };
         let path = self.root.join(log);
-        let bytes = read_prefix(&path, pinned)?;
+        let bytes = files::read_prefix(&path, pinned)?;
         serde_json::Deserializer::from_slice(&bytes)
             .into_iter()
             .collect::<Result<_, _>>()
             .map_err(|source| StoreError::Json { path, source })
     }
-}
-
-/// Reads exactly the first `len` bytes of a file.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Corrupt`] if the file is too short or
-/// [`StoreError::Io`] if opening or reading it fails.
-fn read_prefix(path: &Path, len: u64) -> Result<Vec<u8>, StoreError> {
-    let file = File::open(path).map_err(|e| io_error(path, e))?;
-    let mut bytes = Vec::new();
-    file.take(len)
-        .read_to_end(&mut bytes)
-        .map_err(|e| io_error(path, e))?;
-    if bytes.len() as u64 != len {
-        return Err(StoreError::Corrupt(format!(
-            "{} is shorter ({} bytes) than its pinned length ({len})",
-            path.display(),
-            bytes.len()
-        )));
-    }
-    Ok(bytes)
 }

@@ -1,8 +1,8 @@
 //! File operations shared by the record and review stores: the writer lock,
-//! the manifest, and durable publication.
+//! the manifest, pinned logs, and durable publication.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Write as _};
+use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -219,6 +219,71 @@ pub(crate) fn temporary_target(name: &str) -> Option<&str> {
     uuid::Uuid::try_parse(unique)
         .is_ok_and(|id| id.to_string() == unique)
         .then_some(target)
+}
+
+/// Removes bytes of `path` beyond `pinned`, a tail no manifest published,
+/// then appends `bytes`. Creates the file if needed; the caller syncs it
+/// before publishing.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Corrupt`] if the file is shorter than `pinned` or
+/// [`StoreError::Io`] if a file operation fails.
+pub(crate) fn append_at(path: &Path, pinned: u64, bytes: &[u8]) -> Result<(), StoreError> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|e| io_error(path, e))?;
+    let len = file.metadata().map_err(|e| io_error(path, e))?.len();
+    if len < pinned {
+        return Err(StoreError::Corrupt(format!(
+            "{} is shorter ({len} bytes) than its pinned length ({pinned})",
+            path.display()
+        )));
+    }
+    file.set_len(pinned).map_err(|e| io_error(path, e))?;
+    file.seek(SeekFrom::Start(pinned))
+        .map_err(|e| io_error(path, e))?;
+    file.write_all(bytes).map_err(|e| io_error(path, e))
+}
+
+/// Reads exactly the first `len` bytes of a file.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Corrupt`] if the file is too short or
+/// [`StoreError::Io`] if opening or reading it fails.
+pub(crate) fn read_prefix(path: &Path, len: u64) -> Result<Vec<u8>, StoreError> {
+    let file = File::open(path).map_err(|e| io_error(path, e))?;
+    let mut bytes = Vec::new();
+    file.take(len)
+        .read_to_end(&mut bytes)
+        .map_err(|e| io_error(path, e))?;
+    if bytes.len() as u64 != len {
+        return Err(StoreError::Corrupt(format!(
+            "{} is shorter ({} bytes) than its pinned length ({len})",
+            path.display(),
+            bytes.len()
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Syncs a written file's contents to disk.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Io`] if the file cannot be opened or synced.
+pub(crate) fn sync_file(path: &Path) -> Result<(), StoreError> {
+    // Write access: Windows flushes through `FlushFileBuffers`, which needs
+    // it.
+    OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| io_error(path, e))
 }
 
 /// Syncs a directory's entries to disk.

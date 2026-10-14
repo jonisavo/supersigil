@@ -1,9 +1,11 @@
-//! Reads the bases listed in one review store manifest.
+//! Reads the bases and judgments one review store manifest pins.
 
 use std::fs;
 use std::path::PathBuf;
 
-use super::{BASES_DIR, Basis, BasisId, ReviewManifest, basis_file_name};
+use super::{
+    BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, ReviewManifest, basis_file_name, judgment,
+};
 use crate::store::{StoreError, io_error};
 
 /// Reads a review store at the revision captured by its manifest.
@@ -49,6 +51,21 @@ impl ReviewSnapshot {
             )));
         }
         serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
+    }
+
+    /// Reads the judgments this snapshot pins, in the order they were
+    /// recorded. Bytes appended after this snapshot's revision are ignored.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the log is shorter than its
+    /// committed length, [`StoreError::Io`] if it cannot be read, or
+    /// [`StoreError::Json`] if its lines are not judgments.
+    pub fn judgments(&self) -> Result<Vec<Judgment>, StoreError> {
+        judgment::read_log(
+            &self.root.join(JUDGMENTS_FILE),
+            self.manifest.judgments_length,
+        )
     }
 
     /// Resolves a full basis ID, or a prefix of at least 8 hexadecimal

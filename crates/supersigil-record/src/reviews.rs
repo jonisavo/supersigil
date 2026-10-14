@@ -1,5 +1,5 @@
-//! A repository's saved reviews: each review's basis and which review each
-//! worktree selected.
+//! A repository's saved reviews: each review's basis, which review each
+//! worktree selected, and the judgments people recorded on them.
 //!
 //! One store serves a repository, named by the canonical path of its git
 //! common directory, which every worktree shares. Stores live in
@@ -9,16 +9,18 @@
 //! Layout inside a review store:
 //!
 //! ```text
-//! manifest.json            store ID, revision, repository, bases with their times,
-//!                          removed bases, selections
+//! manifest.json            store ID, revision, repository, judgments length,
+//!                          bases with their times, removed bases, selections
 //! .lock                    OS lock used to allow only one writer
 //! bases/<basis id>.json    a basis, exactly the bytes its ID hashes
+//! judgments.jsonl          judgments, read up to the committed length
 //! ```
 //!
 //! The store follows the record store's protocol: a writer takes the lock,
-//! writes and syncs new files, then publishes the manifest with the next
+//! drops any judgment bytes beyond the committed length, writes and syncs
+//! new files and appended bytes, then publishes the manifest with the next
 //! revision by rename. A reader uses one manifest and reads only what it
-//! lists. Cleanup removes an unused basis in two writes, so no published
+//! pins. Cleanup removes an unused basis in two writes, so no published
 //! manifest names a deleted file (see [`ReviewTx::cleanup`]).
 
 /// Defines a newtype over the 64 lowercase hexadecimal digits of a SHA-256
@@ -72,6 +74,7 @@ macro_rules! sha256_id {
 
 mod basis;
 mod gate;
+mod judgment;
 mod manifest;
 mod path;
 mod snapshot;
@@ -84,6 +87,7 @@ pub use basis::{
     BasisTarget, CaptureEntry, Explanation, PinnedLog, TargetKind,
 };
 pub use gate::{Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Origin, Subject};
+pub use judgment::{Judgment, JudgmentKind, Who, Withdrawal};
 pub use manifest::{BasisTimes, ReviewManifest, SCHEMA_VERSION};
 pub use path::PathBytes;
 pub use snapshot::ReviewSnapshot;
@@ -98,6 +102,9 @@ const LOCK_FILE: &str = ".lock";
 
 /// Directory of the basis files inside a review store.
 const BASES_DIR: &str = "bases";
+
+/// File name of the judgments log inside a review store.
+const JUDGMENTS_FILE: &str = "judgments.jsonl";
 
 /// File name of a basis inside [`BASES_DIR`].
 fn basis_file_name(id: &BasisId) -> String {
@@ -193,13 +200,14 @@ impl ReviewStore {
     }
 
     /// Takes the writer lock without waiting and starts a transaction at
-    /// the current revision.
+    /// the current revision, reading the judgments it pins.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Locked`] if another writer holds the lock,
     /// [`StoreError::Io`] if the lock file cannot be opened or locked, or
-    /// any error returned by [`Self::snapshot`].
+    /// any error returned by [`Self::snapshot`] or
+    /// [`ReviewSnapshot::judgments`].
     pub fn begin(&self) -> Result<ReviewTx<'_>, StoreError> {
         ReviewTx::begin(self)
     }

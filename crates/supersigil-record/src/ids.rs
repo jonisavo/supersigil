@@ -118,6 +118,26 @@ impl StoreId {
     }
 }
 
+string_id!(
+    /// ID of a judgment recorded on a saved review.
+    JudgmentId
+);
+
+impl JudgmentId {
+    /// Generates a random UUID v4 as the judgment ID.
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(uuid::Uuid::new_v4().to_string())
+    }
+
+    /// Returns the first 8 characters, the form output prints, or the
+    /// whole ID if it is shorter.
+    #[must_use]
+    pub fn short(&self) -> &str {
+        self.0.get(..8).unwrap_or(&self.0)
+    }
+}
+
 /// Record version number, incremented each time a write transaction commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]

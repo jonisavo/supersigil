@@ -7,7 +7,10 @@ use std::io;
 use std::path::Path;
 
 use super::manifest::{self, BasisTimes, ReviewManifest};
-use super::{BASES_DIR, Basis, BasisId, LOCK_FILE, ReviewStore, basis_file_name, written_in_bases};
+use super::{
+    BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, LOCK_FILE, ReviewStore, basis_file_name,
+    judgment, written_in_bases,
+};
 use crate::files;
 use crate::ids::Revision;
 use crate::store::{MANIFEST_FILE, StoreError, io_error};
@@ -15,10 +18,12 @@ use crate::time::{GRACE_SECONDS, REMOVAL_DELAY_SECONDS, UtcTime};
 
 /// Holds the writer lock while preparing the next review store revision.
 ///
-/// Basis files reach `bases/` before [`Self::commit`], but readers see them
-/// only once the published manifest lists them. Dropping the transaction
-/// without committing leaves the manifest unchanged and releases the lock;
-/// the files it wrote are deleted as leftovers by a later cleanup.
+/// Basis files and judgment lines reach the disk before [`Self::commit`],
+/// but readers see them only once the published manifest lists them.
+/// Dropping the transaction without committing leaves the manifest
+/// unchanged and releases the lock; the next writer truncates the
+/// judgments it appended, and a later cleanup deletes the basis files it
+/// wrote.
 #[derive(Debug)]
 pub struct ReviewTx<'a> {
     store: &'a ReviewStore,
@@ -26,11 +31,18 @@ pub struct ReviewTx<'a> {
     manifest: ReviewManifest,
     /// Manifest read after acquiring the writer lock.
     starting: ReviewManifest,
+    /// Judgments the starting manifest pins.
+    judgments: Vec<Judgment>,
+    /// Bases named by any judgment, including this transaction's.
+    judged: BTreeSet<BasisId>,
+    /// Whether this transaction appended to the judgments log.
+    appended: bool,
     _lock: File,
 }
 
 impl<'a> ReviewTx<'a> {
-    /// Acquires the writer lock and reads the starting manifest.
+    /// Acquires the writer lock and reads the starting manifest and the
+    /// judgments it pins.
     ///
     /// A basis listed in both `bases` and `removed`, as no writer of this
     /// build leaves a manifest, is live: it leaves `removed`, so no cleanup
@@ -40,17 +52,24 @@ impl<'a> ReviewTx<'a> {
     ///
     /// Returns [`StoreError::Locked`] if another writer holds the lock,
     /// [`StoreError::Io`] if a lock operation fails, or an error from
-    /// reading and validating the manifest.
+    /// reading and validating the manifest or the judgments.
     pub(super) fn begin(store: &'a ReviewStore) -> Result<Self, StoreError> {
         let lock = files::lock(store.root(), LOCK_FILE)?;
         let mut manifest = manifest::read(store.root())?;
         manifest
             .removed
             .retain(|id, _| !manifest.bases.contains_key(id));
+        let judgments = judgment::read_log(
+            &store.root().join(JUDGMENTS_FILE),
+            manifest.judgments_length,
+        )?;
         Ok(Self {
             store,
             starting: manifest.clone(),
             manifest,
+            judged: judgments.iter().map(|j| j.basis.clone()).collect(),
+            judgments,
+            appended: false,
             _lock: lock,
         })
     }
@@ -61,6 +80,44 @@ impl<'a> ReviewTx<'a> {
     #[must_use]
     pub fn manifest(&self) -> &ReviewManifest {
         &self.manifest
+    }
+
+    /// Returns the judgments as of the transaction's start, in the order
+    /// they were recorded, excluding those this transaction appended. A
+    /// writer checks them under the lock before appending.
+    #[must_use]
+    pub fn judgments(&self) -> &[Judgment] {
+        &self.judgments
+    }
+
+    /// Appends `judgment` as one line to the judgments log.
+    ///
+    /// The first append drops any bytes beyond the committed length, which
+    /// a writer that never committed left. The line becomes visible to new
+    /// snapshots after [`Self::commit`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoSuchBasis`] if the judgment's basis is not
+    /// in this transaction's `bases`, [`StoreError::Corrupt`] if the log is
+    /// shorter than its committed length, [`StoreError::Json`] if
+    /// serialization fails, or [`StoreError::Io`] if a file operation
+    /// fails.
+    pub fn append_judgment(&mut self, judgment: &Judgment) -> Result<(), StoreError> {
+        if !self.manifest.bases.contains_key(&judgment.basis) {
+            return Err(StoreError::NoSuchBasis(judgment.basis.to_string()));
+        }
+        let path = self.store.root().join(JUDGMENTS_FILE);
+        let mut line = serde_json::to_vec(judgment).map_err(|source| StoreError::Json {
+            path: path.clone(),
+            source,
+        })?;
+        line.push(b'\n');
+        files::append_at(&path, self.manifest.judgments_length, &line)?;
+        self.manifest.judgments_length += line.len() as u64;
+        self.judged.insert(judgment.basis.clone());
+        self.appended = true;
+        Ok(())
     }
 
     /// Saves `basis` as reviewed at `now` and returns its ID.
@@ -119,16 +176,18 @@ impl<'a> ReviewTx<'a> {
     }
 
     /// Removes bases nobody uses, in two phases so no published manifest
-    /// names a deleted file.
+    /// names a deleted file. A basis that a selection or any judgment names
+    /// is kept, so a judged basis is kept forever.
     ///
     /// - Deletes the files of bases whose removal a published manifest
     ///   recorded more than [`REMOVAL_DELAY_SECONDS`] before `now`, after
-    ///   checking again that no selection names them, and drops them from
-    ///   `removed`. A removal this transaction made is never deleted here.
-    /// - Moves bases that no selection names and that were last reviewed
-    ///   more than [`GRACE_SECONDS`] before `now` from `bases` to `removed`
-    ///   with the time `now`. Committing publishes that removal; a later
-    ///   write deletes the files.
+    ///   checking again that no selection or judgment names them, and drops
+    ///   them from `removed`. A removal this transaction made is never
+    ///   deleted here.
+    /// - Moves bases that nothing names and that were last reviewed more
+    ///   than [`GRACE_SECONDS`] before `now` from `bases` to `removed` with
+    ///   the time `now`. Committing publishes that removal; a later write
+    ///   deletes the files.
     /// - Deletes files in `bases/` that the manifest neither lists nor marks
     ///   removed: leftovers of a write that never committed. Only a file
     ///   under a name the store writes there (a basis file's, or its
@@ -137,14 +196,14 @@ impl<'a> ReviewTx<'a> {
     /// Only regular files are deleted, never a symbolic link nor anything
     /// through one: a removed basis whose file is a link leaves `removed`
     /// with its link kept, and nothing is deleted while `bases/`, the
-    /// manifest, or the lock is a link or cannot be checked (what one leads
-    /// to could be a file in `bases/`). Before deleting anything, the file
-    /// of each basis in `bases` that is a link is replaced by a regular
-    /// file holding what the link leads to, so no deletion removes what a
-    /// live basis reads; while one cannot be (what it leads to cannot be
-    /// read or does not hash to its ID), nothing is deleted. A file that
-    /// cannot be deleted (on Windows, one another process has open) stays,
-    /// with its entry, for the next write.
+    /// manifest, the lock, or the judgments log is a link or cannot be
+    /// checked (what one leads to could be a file in `bases/`). Before
+    /// deleting anything, the file of each basis in `bases` that is a link
+    /// is replaced by a regular file holding what the link leads to, so no
+    /// deletion removes what a live basis reads; while one cannot be (what
+    /// it leads to cannot be read or does not hash to its ID), nothing is
+    /// deleted. A file that cannot be deleted (on Windows, one another
+    /// process has open) stays, with its entry, for the next write.
     ///
     /// # Errors
     ///
@@ -152,9 +211,14 @@ impl<'a> ReviewTx<'a> {
     pub fn cleanup(&mut self, now: UtcTime) -> Result<(), StoreError> {
         let root = self.store.root();
         let dir = root.join(BASES_DIR);
-        let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE])
+        let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
             && self.make_bases_regular(&dir);
-        let kept: BTreeSet<&BasisId> = self.manifest.selections.values().collect();
+        let kept: BTreeSet<&BasisId> = self
+            .manifest
+            .selections
+            .values()
+            .chain(&self.judged)
+            .collect();
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -230,23 +294,31 @@ impl<'a> ReviewTx<'a> {
 
     /// Publishes this transaction's changes and returns the new revision.
     ///
-    /// Checks that the on-disk revision still matches the starting one,
-    /// increments it, and publishes the manifest by atomic rename. Basis
-    /// files were synced when they were written.
+    /// Syncs the appended judgments and the store directory, then checks
+    /// that the on-disk revision still matches the starting one, increments
+    /// it, and publishes the manifest by atomic rename. Basis files were
+    /// synced when they were written.
+    ///
+    /// On Windows, the store directory is not synced; its entries then rely
+    /// on the file system's durability guarantees.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if the on-disk revision changed,
     /// errors from reading or validating the current manifest, or
-    /// [`StoreError::Json`] or [`StoreError::Io`] if publishing fails. An
-    /// error syncing the store directory after the rename can occur after
-    /// the new manifest is already visible.
+    /// [`StoreError::Json`] or [`StoreError::Io`] if syncing or publishing
+    /// fails. An error syncing the store directory after the rename can
+    /// occur after the new manifest is already visible.
     ///
     /// # Panics
     ///
     /// Panics if the starting revision is [`u64::MAX`].
     pub fn commit(mut self) -> Result<Revision, StoreError> {
         let root = self.store.root();
+        if self.appended {
+            files::sync_file(&root.join(JUDGMENTS_FILE))?;
+            files::sync_dir(root)?;
+        }
         let on_disk = manifest::read(root)?;
         let expected = self.starting.revision;
         if on_disk.revision != expected {
