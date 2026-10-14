@@ -79,6 +79,22 @@ impl Basis {
     }
 }
 
+/// What a basis says of how its review relates to another: the fields of
+/// [`Basis`] that name the reviewed worktree, base, target, and scope,
+/// read without the rest
+/// ([`ReviewSnapshot::basis_if`](super::ReviewSnapshot::basis_if)).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BasisHeader {
+    /// Canonical path of the reviewed worktree.
+    pub worktree: PathBuf,
+    /// What the review compared against.
+    pub base: BasisBase,
+    /// What the review reviewed.
+    pub target: BasisTarget,
+    /// The review's options that select paths.
+    pub scope: BasisScope,
+}
+
 /// The review's base.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BasisBase {

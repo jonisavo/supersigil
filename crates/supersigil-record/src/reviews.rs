@@ -83,8 +83,8 @@ mod write;
 use std::path::{Path, PathBuf};
 
 pub use basis::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisId, BasisRecord, BasisScope,
-    BasisTarget, CaptureEntry, Explanation, PinnedLog, TargetKind,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisHeader, BasisId, BasisRecord,
+    BasisScope, BasisTarget, CaptureEntry, Explanation, PinnedLog, TargetKind,
 };
 pub use gate::{Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Origin, Subject};
 pub use judgment::{Judgment, JudgmentKind, Who, Withdrawal};

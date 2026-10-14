@@ -249,7 +249,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     )?;
     let basis = snapshot.basis(&id)?;
     let mut judgments = tx.judgments().to_vec();
-    let others = judged_bases(&snapshot, &judgments, &id)?;
+    let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
     let related = related_bases(&id, &basis, &others);
     let names = checkout.names(&basis)?;
     let items = resolve(&names, &call.names, |text| {

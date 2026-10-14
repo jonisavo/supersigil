@@ -4,7 +4,7 @@
 //! Every lock wait is bounded, as reconcile's are: a store another command
 //! holds is reported busy, never waited on indefinitely.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,7 @@ use supersigil_record::StoreError;
 use supersigil_record::reviews::{
     self, Basis, BasisId, Judgment, ReviewSnapshot, ReviewStore, ReviewTx,
 };
+use supersigil_review::judging::relates;
 use supersigil_session::checkout::canonical;
 
 use crate::error::CliError;
@@ -81,24 +82,31 @@ pub fn open_review_store_within(
     Ok(Some(store))
 }
 
-/// The basis of every review other than `id` that one of `judgments` is
-/// recorded on, so carry-forward can relate it to `id`.
+/// The basis of every review other than `id`, whose basis is `basis`, that
+/// one of `judgments` is recorded on and that relates to it ([`relates`]),
+/// so carry-forward can relate it to `id`. Every such basis is read and
+/// checked once, but only one that relates is parsed whole.
 ///
 /// # Errors
 ///
-/// Returns the store errors of [`ReviewSnapshot::basis`].
+/// Returns the store errors of [`ReviewSnapshot::basis_if`].
 pub fn judged_bases(
     snapshot: &ReviewSnapshot,
     judgments: &[Judgment],
     id: &BasisId,
+    basis: &Basis,
 ) -> Result<BTreeMap<BasisId, Basis>, CliError> {
-    load_bases(
-        snapshot,
-        judgments
-            .iter()
-            .map(|judgment| &judgment.basis)
-            .filter(|basis| *basis != id),
-    )
+    let mut read = BTreeSet::new();
+    let mut related = BTreeMap::new();
+    for other in judgments.iter().map(|judgment| &judgment.basis) {
+        if other != id
+            && read.insert(other)
+            && let Some(found) = snapshot.basis_if(other, |header| relates(basis, header))?
+        {
+            related.insert(other.clone(), found);
+        }
+    }
+    Ok(related)
 }
 
 /// The basis of each review `ids` names in `snapshot`, each read once.

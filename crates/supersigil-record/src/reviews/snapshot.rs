@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use super::{
-    BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, ReviewManifest, basis_file_name, judgment,
-    read_basis_file,
+    BASES_DIR, Basis, BasisHeader, BasisId, JUDGMENTS_FILE, Judgment, ReviewManifest,
+    basis_file_name, judgment, read_basis_file,
 };
 use crate::store::StoreError;
 
@@ -39,12 +39,51 @@ impl ReviewSnapshot {
     /// [`StoreError::Corrupt`] if its bytes do not hash to `id`, or
     /// [`StoreError::Json`] if they are not a basis.
     pub fn basis(&self, id: &BasisId) -> Result<Basis, StoreError> {
+        let (path, bytes) = self.basis_bytes(id)?;
+        serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
+    }
+
+    /// Reads a basis this snapshot lists in `bases`, checking that the file
+    /// hashes to `id`, as [`Self::basis`] does, but parses all of it only
+    /// when `wanted` accepts its header; `None` when it does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Self::basis`], [`StoreError::Json`] only when
+    /// the basis is to be parsed whole: when `wanted` accepts its header, or
+    /// when its header does not parse, which is reported as reading the
+    /// whole basis reports it.
+    pub fn basis_if(
+        &self,
+        id: &BasisId,
+        wanted: impl FnOnce(&BasisHeader) -> bool,
+    ) -> Result<Option<Basis>, StoreError> {
+        let (path, bytes) = self.basis_bytes(id)?;
+        if let Ok(header) = serde_json::from_slice::<BasisHeader>(&bytes)
+            && !wanted(&header)
+        {
+            return Ok(None);
+        }
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|source| StoreError::Json { path, source })
+    }
+
+    /// The path and the bytes of a basis this snapshot lists in `bases`,
+    /// checked to hash to `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoSuchBasis`] if the manifest does not list
+    /// `id` in `bases`, [`StoreError::Io`] if the file cannot be read, or
+    /// [`StoreError::Corrupt`] if its bytes do not hash to `id`.
+    fn basis_bytes(&self, id: &BasisId) -> Result<(PathBuf, Vec<u8>), StoreError> {
         if !self.manifest.bases.contains_key(id) {
             return Err(StoreError::NoSuchBasis(id.to_string()));
         }
         let path = self.root.join(BASES_DIR).join(basis_file_name(id));
         let bytes = read_basis_file(&path, id)?;
-        serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
+        Ok((path, bytes))
     }
 
     /// Reads the judgments this snapshot pins, in the order they were

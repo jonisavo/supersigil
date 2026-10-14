@@ -6,12 +6,13 @@
 //! the bases that have a judgment, and every judgment.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 
 use serde::Serialize;
 use supersigil_record::JudgmentId;
 use supersigil_record::reviews::{
-    Basis, BasisId, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind, Origin, PathBytes,
-    Withdrawal,
+    Basis, BasisHeader, BasisId, BasisScope, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind,
+    Origin, PathBytes, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 
@@ -50,7 +51,7 @@ pub fn related_bases<'a>(
         .into_iter()
         .filter(|(other_id, _)| *other_id != id)
         .filter_map(|(other_id, other)| {
-            relation(basis, other).map(|relation| RelatedBasis {
+            relation(basis.into(), other.into()).map(|relation| RelatedBasis {
                 id: other_id,
                 basis: other,
                 relation,
@@ -59,11 +60,54 @@ pub fn related_bases<'a>(
         .collect()
 }
 
+/// Whether the review whose basis begins with `other` relates to the
+/// current review, whose basis is `current`, as [`related_bases`] relates
+/// them: reading the rest of its basis can be skipped when it does not.
+#[must_use]
+pub fn relates(current: &Basis, other: &BasisHeader) -> bool {
+    relation(current.into(), other.into()).is_some()
+}
+
+/// What relating two saved reviews compares of each one's basis.
+#[derive(Clone, Copy)]
+struct Compared<'a> {
+    /// The reviewed worktree.
+    worktree: &'a Path,
+    /// The base tree.
+    base: &'a str,
+    /// The target tree.
+    target: &'a str,
+    /// The path options.
+    scope: &'a BasisScope,
+}
+
+impl<'a> From<&'a Basis> for Compared<'a> {
+    fn from(basis: &'a Basis) -> Self {
+        Self {
+            worktree: &basis.worktree,
+            base: &basis.base.tree,
+            target: &basis.target.tree,
+            scope: &basis.scope,
+        }
+    }
+}
+
+impl<'a> From<&'a BasisHeader> for Compared<'a> {
+    fn from(header: &'a BasisHeader) -> Self {
+        Self {
+            worktree: &header.worktree,
+            base: &header.base.tree,
+            target: &header.target.tree,
+            scope: &header.scope,
+        }
+    }
+}
+
 /// How `other` relates to `current`, or `None` when it does not.
-fn relation(current: &Basis, other: &Basis) -> Option<Relation> {
-    if current.base.tree != other.base.tree || current.scope != other.scope {
+fn relation(current: Compared<'_>, other: Compared<'_>) -> Option<Relation> {
+    if current.base != other.base || current.scope != other.scope {
         None
-    } else if current.target.tree == other.target.tree {
+    } else if current.target == other.target {
         Some(Relation::SameContent)
     } else if current.worktree == other.worktree {
         Some(Relation::CodeChanged)

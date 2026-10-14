@@ -146,15 +146,16 @@ struct Stored {
     judgments: Vec<Judgment>,
     /// The review the reviewed worktree selects, if any.
     selection: Option<BasisId>,
-    /// The basis of every other review with a judgment, by id.
+    /// The basis of every other review with a judgment that relates to
+    /// it, by id.
     judged: BTreeMap<BasisId, Basis>,
 }
 
 /// Saves `basis`, whose id is `id`, in the review store in `reviews_dir`
 /// of `g`'s repository (see [`save`]), then reads the store without a
 /// lock: its judgments, the reviewed worktree's selection, and the other
-/// reviews judged. When the store's directory stayed busy, the store is
-/// only looked up; no store yet has no judgments.
+/// reviews judged that relate to it. When the store's directory stayed
+/// busy, the store is only looked up; no store yet has no judgments.
 ///
 /// # Errors
 ///
@@ -186,7 +187,7 @@ fn store(
     let judgments = snapshot.judgments()?;
     Ok(Stored {
         saved,
-        judged: judged_bases(&snapshot, &judgments, id)?,
+        judged: judged_bases(&snapshot, &judgments, id, basis)?,
         selection: snapshot.manifest().selections.get(&g.worktree).cloned(),
         judgments,
     })

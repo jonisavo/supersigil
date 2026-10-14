@@ -42,7 +42,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let id = select(&snapshot, prefix, &checkout.worktree, &mut addressing)?;
     let basis = snapshot.basis(&id)?;
     let judgments = snapshot.judgments()?;
-    let others = judged_bases(&snapshot, &judgments, &id)?;
+    let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
     let related = related_bases(&id, &basis, &others);
     let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&judgments);
