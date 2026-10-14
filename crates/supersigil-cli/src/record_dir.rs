@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use supersigil_record::RecordId;
-use supersigil_record::store::{Association, Store, StoreError, WriteTx};
+use supersigil_record::store::{Association, Store, StoreError, WriteTx, stores_in};
 use supersigil_session::checkout::{self, Placement, placement};
-use supersigil_session::found;
 
 use crate::error::CliError;
 
@@ -133,23 +132,7 @@ fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usiz
 /// Returns [`CliError::Io`] if `records_dir` exists but cannot be read, or a
 /// store error if a record's manifest cannot be accessed.
 pub fn records_in(records_dir: &Path) -> Result<Vec<Store>, CliError> {
-    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
-        return Ok(Vec::new());
-    };
-    let mut candidates = Vec::new();
-    for entry in entries {
-        candidates.push(entry?.path());
-    }
-    candidates.sort();
-    let mut stores = Vec::new();
-    for candidate in candidates {
-        match Store::open(&candidate) {
-            Ok(store) => stores.push(store),
-            Err(StoreError::NotARecord(_)) => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(stores)
+    Ok(stores_in(records_dir, Store::open)?.collect::<Result<_, _>>()?)
 }
 
 /// How many components `association` lies above `checkout`: zero when it is

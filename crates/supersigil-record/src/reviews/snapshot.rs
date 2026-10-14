@@ -1,12 +1,12 @@
 //! Reads the bases and judgments one review store manifest pins.
 
-use std::fs;
 use std::path::PathBuf;
 
 use super::{
     BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, ReviewManifest, basis_file_name, judgment,
+    read_basis_file,
 };
-use crate::store::{StoreError, io_error};
+use crate::store::StoreError;
 
 /// Reads a review store at the revision captured by its manifest.
 ///
@@ -43,13 +43,7 @@ impl ReviewSnapshot {
             return Err(StoreError::NoSuchBasis(id.to_string()));
         }
         let path = self.root.join(BASES_DIR).join(basis_file_name(id));
-        let bytes = fs::read(&path).map_err(|e| io_error(&path, e))?;
-        if BasisId::of(&bytes) != *id {
-            return Err(StoreError::Corrupt(format!(
-                "{} does not hash to its basis id",
-                path.display()
-            )));
-        }
+        let bytes = read_basis_file(&path, id)?;
         serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
     }
 

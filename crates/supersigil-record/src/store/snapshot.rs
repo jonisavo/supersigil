@@ -87,9 +87,7 @@ impl RecordSnapshot {
         let Some((log, length)) = self.log_of(session) else {
             return Ok(Vec::new());
         };
-        let path = self.root.join(log);
-        let bytes = files::read_prefix(&path, length)?;
-        parse(path, &bytes)
+        files::read_log(&self.root.join(log), length)
     }
 
     /// Reads a session's log once, up to the committed byte length: its
@@ -116,7 +114,7 @@ impl RecordSnapshot {
         Ok(Some(SessionLog {
             path: log.to_owned(),
             pinned,
-            observations: parse(path, &bytes)?,
+            observations: files::parse_log(&path, &bytes)?,
         }))
     }
 
@@ -247,16 +245,4 @@ impl LogReading {
             &self.observations[first..]
         })
     }
-}
-
-/// Parses the observations in `bytes`, read from the log at `path`.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Json`] naming `path` if they cannot be parsed.
-fn parse(path: PathBuf, bytes: &[u8]) -> Result<Vec<Observation>, StoreError> {
-    serde_json::Deserializer::from_slice(bytes)
-        .into_iter()
-        .collect::<Result<_, _>>()
-        .map_err(|source| StoreError::Json { path, source })
 }

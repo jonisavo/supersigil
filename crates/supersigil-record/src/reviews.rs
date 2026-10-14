@@ -95,7 +95,7 @@ pub use write::ReviewTx;
 
 use crate::files;
 use crate::ids::StoreId;
-use crate::store::{StoreError, io_error};
+use crate::store::{StoreError, io_error, stores_in};
 
 /// File name of the writer lock inside a review store.
 const LOCK_FILE: &str = ".lock";
@@ -109,6 +109,23 @@ const JUDGMENTS_FILE: &str = "judgments.jsonl";
 /// File name of a basis inside [`BASES_DIR`].
 fn basis_file_name(id: &BasisId) -> String {
     format!("{id}.json")
+}
+
+/// Reads the basis file at `path`, checking that its bytes hash to `id`.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Io`] if the file cannot be read or
+/// [`StoreError::Corrupt`] if its bytes do not hash to `id`.
+fn read_basis_file(path: &Path, id: &BasisId) -> Result<Vec<u8>, StoreError> {
+    let bytes = std::fs::read(path).map_err(|e| io_error(path, e))?;
+    if BasisId::of(&bytes) != *id {
+        return Err(StoreError::Corrupt(format!(
+            "{} does not hash to its basis id",
+            path.display()
+        )));
+    }
+    Ok(bytes)
 }
 
 /// Whether `name` is one the store writes inside [`BASES_DIR`]: a basis
@@ -227,23 +244,10 @@ impl ReviewStore {
 /// mistaken for an absent one), or [`StoreError::SeveralReviewStores`] if
 /// more than one store names `repository`.
 pub fn find(reviews_dir: &Path, repository: &Path) -> Result<Option<ReviewStore>, StoreError> {
-    let entries = match std::fs::read_dir(reviews_dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(io_error(reviews_dir, e)),
-    };
-    let mut candidates = Vec::new();
-    for entry in entries {
-        candidates.push(entry.map_err(|e| io_error(reviews_dir, e))?.path());
-    }
-    candidates.sort();
+    let stores = stores_in(reviews_dir, ReviewStore::open).map_err(|e| io_error(reviews_dir, e))?;
     let mut found = Vec::new();
-    for candidate in candidates {
-        let store = match ReviewStore::open(&candidate) {
-            Ok(store) => store,
-            Err(StoreError::NotARecord(_)) => continue,
-            Err(e) => return Err(e),
-        };
+    for store in stores {
+        let store = store?;
         if manifest::read(store.root())?.repository == repository {
             found.push(store);
         }

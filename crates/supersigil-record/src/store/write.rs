@@ -7,7 +7,7 @@ use std::{io, iter};
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    DERIVATIONS_DIR, LOCK_FILE, MANIFEST_FILE, RecordSnapshot, Store, StoreError,
+    DERIVATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR, RecordSnapshot, Store, StoreError,
     derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
@@ -261,14 +261,7 @@ impl<'a> WriteTx<'a> {
             files::sync_dir(dir)?;
         }
         let on_disk = manifest::read(self.store.root())?;
-        let expected = self.starting.revision;
-        if on_disk.revision != expected {
-            return Err(StoreError::Conflict {
-                expected: expected.get(),
-                found: on_disk.revision.get(),
-            });
-        }
-        self.manifest.revision = expected.next();
+        self.manifest.revision = files::next_revision(self.starting.revision, on_disk.revision)?;
         files::publish_manifest(self.store.root(), &self.manifest)?;
         Ok(self.manifest.revision)
     }
@@ -306,41 +299,54 @@ impl<'a> WriteTx<'a> {
             superseded,
             ..
         } = &mut self.manifest;
-        let pending = || documents.values().chain(logs.keys()).map(String::as_str);
-        let published = || {
-            starting
-                .documents
-                .values()
-                .chain(starting.logs.keys())
-                .map(String::as_str)
-        };
-        let Some(named) = pending().map(location).collect::<Option<HashSet<String>>>() else {
-            return BTreeSet::new();
-        };
-        if published().any(|file| location(file).is_none()) {
-            return BTreeSet::new();
+        let pending: BTreeSet<&str> = documents
+            .values()
+            .chain(logs.keys())
+            .map(String::as_str)
+            .collect();
+        let published: BTreeSet<&str> = starting
+            .documents
+            .values()
+            .chain(starting.logs.keys())
+            .map(String::as_str)
+            .collect();
+        // The two differ only in the documents this transaction replaced, so
+        // each file either references is checked once.
+        let referenced = || pending.union(&published).copied();
+        let mut named = HashSet::new();
+        for file in referenced() {
+            let Some(spelled) = location(file) else {
+                return BTreeSet::new();
+            };
+            if pending.contains(file) {
+                named.insert(spelled);
+            }
         }
         superseded.retain(|file, _| replaced_document(file, &named));
         let due = |replaced: &UtcTime| now.unix() - replaced.unix() > GRACE_SECONDS;
         if !superseded.values().any(due) {
             return BTreeSet::new();
         }
-        if !files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, "observations"])
-            || !iter::once("derivations")
-                .chain(pending())
-                .chain(published())
+        if !files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, OBSERVATIONS_DIR])
+            || !iter::once(DERIVATIONS_DIR)
+                .chain(referenced())
                 .all(|file| unlinked(root, file))
         {
             return BTreeSet::new();
         }
-        let resolved = |files: &mut dyn Iterator<Item = &str>| {
-            files
-                .map(|file| fs::canonicalize(root.join(file)))
-                .collect::<io::Result<HashSet<PathBuf>>>()
-        };
-        let (Ok(current), Ok(held)) = (resolved(&mut pending()), resolved(&mut published())) else {
-            return BTreeSet::new();
-        };
+        let mut current = HashSet::new();
+        let mut held = HashSet::new();
+        for file in referenced() {
+            let Ok(target) = fs::canonicalize(root.join(file)) else {
+                return BTreeSet::new();
+            };
+            if published.contains(file) {
+                held.insert(target.clone());
+            }
+            if pending.contains(file) {
+                current.insert(target);
+            }
+        }
         let mut changed = BTreeSet::new();
         superseded.retain(|file, replaced| {
             if !due(replaced) {
@@ -387,7 +393,9 @@ fn unlinked(root: &Path, file: &str) -> bool {
 /// directory, or another name, whose [`location`] is none of `referenced`,
 /// those of the manifest's document files and logs.
 fn replaced_document(file: &str, referenced: &HashSet<String>) -> bool {
-    file.strip_prefix("derivations/").is_some_and(document_name)
+    file.strip_prefix(DERIVATIONS_DIR)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(document_name)
         && location(file).is_some_and(|location| !referenced.contains(&location))
 }
 

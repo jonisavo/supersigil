@@ -45,9 +45,12 @@ pub const MANIFEST_FILE: &str = "manifest.json";
 /// File name of the writer lock inside a record directory.
 pub const LOCK_FILE: &str = "write.lock";
 
+/// Directory of the observation logs inside a record directory.
+const OBSERVATIONS_DIR: &str = "observations";
+
 /// Returns the observation log path for a numbered session.
 fn log_path(number: u64) -> String {
-    format!("observations/{number}.jsonl")
+    format!("{OBSERVATIONS_DIR}/{number}.jsonl")
 }
 
 /// Directory of the derivation documents inside a record directory.
@@ -193,6 +196,41 @@ pub(crate) fn io_error(path: &Path, source: io::Error) -> StoreError {
         path: path.to_path_buf(),
         source,
     }
+}
+
+/// Lists the entries of `dir`, a directory of records or of review stores,
+/// sorted by path, and opens each with `open` (such as [`Store::open`]) as
+/// the returned iterator reaches it. Entries without a manifest, such as a
+/// directory lock, are skipped, but no other error is, so an unreadable
+/// store is never mistaken for an absent one; a missing `dir` has no
+/// stores.
+///
+/// # Errors
+///
+/// Returns the I/O error of listing `dir` when it exists but cannot be
+/// read. The iterator yields each error of `open` other than
+/// [`StoreError::NotARecord`].
+pub fn stores_in<T>(
+    dir: &Path,
+    open: impl Fn(&Path) -> Result<T, StoreError>,
+) -> io::Result<impl Iterator<Item = Result<T, StoreError>>> {
+    let mut candidates = Vec::new();
+    match std::fs::read_dir(dir) {
+        Ok(entries) => {
+            for entry in entries {
+                candidates.push(entry?.path());
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    candidates.sort();
+    Ok(candidates
+        .into_iter()
+        .filter_map(move |candidate| match open(&candidate) {
+            Err(StoreError::NotARecord(_)) => None,
+            opened => Some(opened),
+        }))
 }
 
 /// Path to a record directory, used to create snapshots and write transactions.

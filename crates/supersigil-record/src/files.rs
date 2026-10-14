@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::ids::Revision;
 use crate::store::{MANIFEST_FILE, StoreError, io_error};
 
 /// Checks that `root/manifest.json` is a file, reading metadata only.
@@ -107,6 +108,26 @@ fn manifest_json(root: &Path, manifest: &impl Serialize) -> Result<Vec<u8>, Stor
         path: root.join(MANIFEST_FILE),
         source,
     })
+}
+
+/// Returns the revision a commit that started at `expected` publishes, once
+/// the manifest on disk, at `found`, shows no other writer committed since.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Conflict`] if `found` differs from `expected`.
+///
+/// # Panics
+///
+/// Panics if `expected` is [`u64::MAX`].
+pub(crate) fn next_revision(expected: Revision, found: Revision) -> Result<Revision, StoreError> {
+    if found != expected {
+        return Err(StoreError::Conflict {
+            expected: expected.get(),
+            found: found.get(),
+        });
+    }
+    Ok(expected.next())
 }
 
 /// Takes the operating-system lock on `dir/name` without waiting, creating
@@ -269,6 +290,36 @@ pub(crate) fn read_prefix(path: &Path, len: u64) -> Result<Vec<u8>, StoreError> 
         )));
     }
     Ok(bytes)
+}
+
+/// Reads the JSON values of the log at `path` up to its pinned length
+/// `len` ([`read_prefix`], [`parse_log`]).
+///
+/// # Errors
+///
+/// Returns [`StoreError::Corrupt`] if the log is shorter than `len`,
+/// [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`] naming
+/// `path` if its values cannot be parsed.
+pub(crate) fn read_log<T: DeserializeOwned>(path: &Path, len: u64) -> Result<Vec<T>, StoreError> {
+    parse_log(path, &read_prefix(path, len)?)
+}
+
+/// Parses the JSON values in `bytes`, read from the log at `path`.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Json`] naming `path` if they cannot be parsed.
+pub(crate) fn parse_log<T: DeserializeOwned>(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<Vec<T>, StoreError> {
+    serde_json::Deserializer::from_slice(bytes)
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .map_err(|source| StoreError::Json {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 /// Syncs a written file's contents to disk.

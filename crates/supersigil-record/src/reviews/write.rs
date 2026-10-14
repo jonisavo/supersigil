@@ -9,7 +9,7 @@ use std::path::Path;
 use super::manifest::{self, BasisTimes, ReviewManifest};
 use super::{
     BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, LOCK_FILE, ReviewStore, basis_file_name,
-    judgment, written_in_bases,
+    judgment, read_basis_file, written_in_bases,
 };
 use crate::files;
 use crate::ids::Revision;
@@ -332,14 +332,7 @@ impl<'a> ReviewTx<'a> {
             files::sync_dir(root)?;
         }
         let on_disk = manifest::read(root)?;
-        let expected = self.starting.revision;
-        if on_disk.revision != expected {
-            return Err(StoreError::Conflict {
-                expected: expected.get(),
-                found: on_disk.revision.get(),
-            });
-        }
-        self.manifest.revision = expected.next();
+        self.manifest.revision = files::next_revision(self.starting.revision, on_disk.revision)?;
         files::publish_manifest(root, &self.manifest)?;
         Ok(self.manifest.revision)
     }
@@ -361,13 +354,7 @@ fn make_regular(dir: &Path, id: &BasisId) -> Result<(), StoreError> {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(io_error(&path, e)),
         _ => return Ok(()),
     }
-    let bytes = fs::read(&path).map_err(|e| io_error(&path, e))?;
-    if BasisId::of(&bytes) != *id {
-        return Err(StoreError::Corrupt(format!(
-            "{} does not hash to its basis id",
-            path.display()
-        )));
-    }
+    let bytes = read_basis_file(&path, id)?;
     files::replace(dir, &name, &bytes)
 }
 

@@ -96,12 +96,5 @@ pub(super) fn read_log(path: &Path, length: u64) -> Result<Vec<Judgment>, StoreE
     if length == 0 {
         return Ok(Vec::new());
     }
-    let bytes = files::read_prefix(path, length)?;
-    serde_json::Deserializer::from_slice(&bytes)
-        .into_iter()
-        .collect::<Result<_, _>>()
-        .map_err(|source| StoreError::Json {
-            path: path.to_path_buf(),
-            source,
-        })
+    files::read_log(path, length)
 }

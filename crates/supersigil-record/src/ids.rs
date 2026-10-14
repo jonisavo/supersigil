@@ -25,7 +25,20 @@ impl ContentId {
     }
 }
 
+/// Defines a newtype over a string ID; with `generate`, one that also
+/// generates fresh random IDs.
 macro_rules! string_id {
+    ($(#[$meta:meta])* $name:ident, generate) => {
+        string_id!($(#[$meta])* $name);
+
+        impl $name {
+            /// Generates a random UUID v4 as the ID.
+            #[must_use]
+            pub fn generate() -> Self {
+                Self(uuid::Uuid::new_v4().to_string())
+            }
+        }
+    };
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -68,7 +81,8 @@ string_id!(
 );
 string_id!(
     /// ID of a stored development history, shared by its associated checkouts.
-    RecordId
+    RecordId,
+    generate
 );
 string_id!(
     /// Timestamp string expected to contain an RFC 3339 UTC value.
@@ -97,39 +111,19 @@ impl EventId {
     }
 }
 
-impl RecordId {
-    /// Generates a random UUID v4 as the record ID.
-    #[must_use]
-    pub fn generate() -> Self {
-        Self(uuid::Uuid::new_v4().to_string())
-    }
-}
-
 string_id!(
     /// ID of a review store, which also names its directory.
-    StoreId
+    StoreId,
+    generate
 );
-
-impl StoreId {
-    /// Generates a random UUID v4 as the store ID.
-    #[must_use]
-    pub fn generate() -> Self {
-        Self(uuid::Uuid::new_v4().to_string())
-    }
-}
 
 string_id!(
     /// ID of a judgment recorded on a saved review.
-    JudgmentId
+    JudgmentId,
+    generate
 );
 
 impl JudgmentId {
-    /// Generates a random UUID v4 as the judgment ID.
-    #[must_use]
-    pub fn generate() -> Self {
-        Self(uuid::Uuid::new_v4().to_string())
-    }
-
     /// Returns the first 8 characters, the form output prints, or the
     /// whole ID if it is shorter.
     #[must_use]
