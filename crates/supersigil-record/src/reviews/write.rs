@@ -123,7 +123,8 @@ impl<'a> ReviewTx<'a> {
     /// Saves `basis` as reviewed at `now` and returns its ID.
     ///
     /// Writes `bases/<id>.json` through a temporary file in `bases/`, unless
-    /// a regular file there already hashes to the ID; a file that does not,
+    /// a regular file there already hashes to the ID (which is synced, with
+    /// `bases/`, before it is used); a file that does not,
     /// such as one a crashed writer left, is replaced, and so is a symbolic
     /// link. Sets the basis's `last_reviewed` to `now`, and its
     /// `first_written` when it is new. A basis listed in `removed` leaves it
@@ -150,7 +151,11 @@ impl<'a> ReviewTx<'a> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => false,
             Err(e) => return Err(io_error(&path, e)),
         };
-        if !intact {
+        if intact {
+            // A crash may have left it renamed into place but not durable.
+            files::sync_file(&path)?;
+            files::sync_dir(&dir)?;
+        } else {
             fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
             files::sync_dir(root)?;
             files::replace(&dir, &name, &bytes)?;
