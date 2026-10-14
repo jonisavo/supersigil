@@ -849,6 +849,7 @@ name = "supersigil-session"
 version = "0.14.0"
 dependencies = [
  "insta",
+ "libc",
  "serde",
  "serde_json",
  "supersigil-record",

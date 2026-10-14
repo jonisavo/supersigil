@@ -32,6 +32,7 @@ supersigil-anchor = { path = "crates/supersigil-anchor", version = "=0.14.0" }
 supersigil-git = { path = "crates/supersigil-git", version = "=0.14.0" }
 supersigil-review = { path = "crates/supersigil-review", version = "=0.14.0" }
 similar = { version = "2.7.0", default-features = false }
+libc = "0.2.186"
 
 [profile.release]
 strip = true

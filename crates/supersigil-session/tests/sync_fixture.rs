@@ -13,7 +13,7 @@ use supersigil_record::observations::{
 use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::checkout::canonical;
-use supersigil_session::sync::sync;
+use supersigil_session::sync::{REMOVED_BEFORE_READ, sync};
 
 struct Setup {
     dir: tempfile::TempDir,
@@ -251,13 +251,35 @@ fn rewritten_shorter_transcript_is_read_from_the_start() {
 }
 
 #[test]
-fn missing_transcript_is_an_io_error() {
-    let s = setup(&fixture());
-    let missing = s.transcript.with_file_name("missing.jsonl");
-    assert!(matches!(
-        sync(&s.store, &s.checkout, &[missing]),
-        Err(supersigil_session::sync::SyncError::Io { .. })
-    ));
+fn a_transcript_removed_before_it_is_read_is_skipped_until_it_returns() {
+    let bytes = fixture();
+    let starts = line_starts(&bytes);
+    let s = setup(&bytes[..starts[18]]);
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let key = cursor_key(&s.transcript);
+    let cursor = s.store.manifest().unwrap().cursors[&key].clone();
+    std::fs::remove_file(&s.transcript).unwrap();
+    let other = s.transcript.with_file_name("other.jsonl");
+    std::fs::write(&other, joined(&heredoc_writes())).unwrap();
+
+    let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), other]).unwrap();
+    let removed = &report.transcripts[0];
+    assert_eq!(removed.skipped.as_deref(), Some(REMOVED_BEFORE_READ));
+    assert_eq!((removed.new_observations, removed.consumed), (0, 0));
+    assert_eq!(report.sessions, vec![SessionId::new("s")]);
+    assert_eq!(s.store.manifest().unwrap().cursors[&key], cursor);
+
+    // Back with more lines: reading resumes at the cursor.
+    std::fs::write(&s.transcript, &bytes).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(
+        report.transcripts[0].consumed,
+        (bytes.len() - starts[18]) as u64
+    );
+    let ids = turn_ids(&s.store);
+    let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+    assert_eq!((ids.len(), unique.len()), (17, 17));
 }
 
 #[test]

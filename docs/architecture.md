@@ -282,8 +282,7 @@ Several hashless sessions can remain ambiguous, as can agents of one
 session that ran at once. Agents started without a recorded call, such as
 by a slash command, stay unordered, as do interrupted agents. Claude Code file-history
 backups are not read. Captured trees have no retention ref and can disappear
-under git garbage collection. A transcript that vanishes between discovery
-and read currently aborts reconciliation.
+under git garbage collection.
 
 The intended product adds sourced annotations, durable human corrections,
 judgments bound to exact code and evidence revisions, a closing review gate,

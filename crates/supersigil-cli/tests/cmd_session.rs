@@ -731,20 +731,44 @@ fn error_messages_escape_control_bytes_in_arguments() {
     assert!(!stderr.contains('\u{1b}'), "{stderr}");
 }
 
+#[test]
+fn a_named_transcript_that_is_not_a_file_is_an_error() {
+    // Only a listed transcript can have been removed before it was read; a
+    // named one that is missing or a directory is the person's mistake.
+    let e = env();
+    for named in [e.checkout.join("slcie.jsonl"), e.checkout.clone()] {
+        let output = session_cmd(&e)
+            .args(["sync", "--transcript"])
+            .arg(&named)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{named:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("cannot read transcript"), "{stderr}");
+        assert!(
+            stderr.contains(&*named.to_string_lossy()),
+            "{named:?}: {stderr}"
+        );
+    }
+}
+
+// Unix reports a path beneath a regular file as "not a directory": an
+// error, where a missing transcript would be skipped.
 #[cfg(unix)]
 #[test]
 fn sync_errors_escape_transcript_paths() {
     let e = env();
-    let missing = e.checkout.join("gone\u{1b}[2K.jsonl");
+    let file = e.checkout.join("file\u{1b}[2K");
+    std::fs::write(&file, "").unwrap();
     let output = session_cmd(&e)
         .args(["sync", "--transcript"])
-        .arg(&missing)
+        .arg(file.join("t.jsonl"))
         .output()
         .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("cannot read transcript"), "{stderr}");
-    assert!(stderr.contains(r"gone\x1b[2K.jsonl"), "{stderr}");
+    assert!(stderr.contains(r"file\x1b[2K/t.jsonl"), "{stderr}");
     assert!(!stderr.contains('\u{1b}'), "{stderr}");
 }
 
