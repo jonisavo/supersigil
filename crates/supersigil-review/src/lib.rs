@@ -9,12 +9,14 @@
 //! [`model::file_review`] assembles hunks and spans. [`summary`] and [`why`]
 //! render the terminal forms. [`gate`] builds a review's gate items, with
 //! the fingerprints that carry judgments between reviews, and the digests a
-//! saved review keeps of its evidence.
+//! saved review keeps of its evidence; [`names`] names its items and
+//! resolves typed names to them.
 
 pub mod diff;
 pub mod gate;
 pub mod mapping;
 pub mod model;
+pub mod names;
 pub mod outcome;
 
 pub use model::{REVIEW_SCHEMA, Review, WHY_SCHEMA};
