@@ -33,7 +33,7 @@ use supersigil_review::model::{
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::Outcome;
-use supersigil_review::summary::{Addressing, render_summary, shell_word};
+use supersigil_review::summary::{Addressing, render_summary};
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
@@ -120,22 +120,22 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
 }
 
 /// The flags of the call `args` describes, other than `--checkout` and
-/// `--review-dir`, as it was given them and quoted for a shell, for the
-/// command that runs the review again. Not repeated: the output format and
-/// the record and Claude home directories.
-fn retry_flags(args: &ReviewArgs) -> Vec<String> {
+/// `--review-dir`, each with the value it was given, for the command that
+/// runs the review again. Not repeated: the output format and the record
+/// and Claude home directories.
+fn retry_flags(args: &ReviewArgs) -> Vec<(&'static str, Option<String>)> {
     let mut flags = Vec::new();
     if let Some(base) = &args.base {
-        flags.push(format!("--base={}", shell_word(base)));
+        flags.push(("--base", Some(base.clone())));
     }
     if let Some(target) = &args.target {
-        flags.push(format!("--target={}", shell_word(target)));
+        flags.push(("--target", Some(target.clone())));
     }
     if args.working_tree {
-        flags.push("--working-tree".to_owned());
+        flags.push(("--working-tree", None));
     }
     for path in &args.include_untracked {
-        flags.push(format!("--include-untracked={}", shell_word(path)));
+        flags.push(("--include-untracked", Some(path.clone())));
     }
     flags
 }

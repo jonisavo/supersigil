@@ -109,10 +109,12 @@ pub fn render_summary(
         }
     }
 
+    let mut retried = false;
     let mut last = if nothing {
         Vec::new()
     } else if review.basis.is_none() {
         if saves_later(review) {
+            retried = true;
             vec![escape(&format!("Next: {}", addressing.retry()))]
         } else {
             Vec::new()
@@ -131,7 +133,7 @@ pub fn render_summary(
     let suggests_commit =
         review.files.is_empty() && review.target.kind == TargetKindInfo::WorkingTree;
     if !last.is_empty() || suggests_commit {
-        last.extend(addressing.note());
+        last.extend(addressing.note_for(retried));
     }
     if gate.items.len() > LONG_GATE {
         last.push(
@@ -525,25 +527,35 @@ pub struct Addressing {
     /// `--review-dir` as the call was given it.
     pub review_dir: Option<PathBuf>,
     /// The flags of the `review` call other than `--checkout` and
-    /// `--review-dir`, as it was given them and already quoted for a shell,
-    /// for the command that runs it again.
-    pub retry: Vec<String>,
-    /// The path filters of the `review` call as it was given them, unquoted.
+    /// `--review-dir`, each with the value it was given (`None` for a flag
+    /// without one), for the command that runs it again.
+    pub retry: Vec<(&'static str, Option<String>)>,
+    /// The path filters of the `review` call as it was given them.
     pub retry_paths: Vec<String>,
 }
 
 impl Addressing {
     /// `supersigil review` with the arguments the call was given: its
-    /// [`retry`](Self::retry) flags, the `--checkout` and `--review-dir`
-    /// flags, then `--` and its [`retry_paths`](Self::retry_paths).
+    /// [`retry`](Self::retry) flags as `<flag>=<value>`, the `--checkout`
+    /// and `--review-dir` flags, then `--` and its
+    /// [`retry_paths`](Self::retry_paths). A value that cannot be printed
+    /// exactly shows as `<as given>`, as the other flags' do.
     #[must_use]
     pub fn retry(&self) -> String {
-        let mut command = self.review(&self.retry.join(" "));
+        let words: Vec<String> = self
+            .retry
+            .iter()
+            .map(|(flag, value)| match value {
+                None => (*flag).to_owned(),
+                Some(value) => format!("{flag}={}", quoted(value)),
+            })
+            .collect();
+        let mut command = self.review(&words.join(" "));
         if !self.retry_paths.is_empty() {
             command.push_str(" --");
             for path in &self.retry_paths {
                 command.push(' ');
-                command.push_str(&shell_word(path));
+                command.push_str(&quoted(path));
             }
         }
         command
@@ -594,12 +606,36 @@ impl Addressing {
     /// given. `None` when every value prints exactly.
     #[must_use]
     pub fn note(&self) -> Option<String> {
-        let flags: Vec<&str> = self
+        self.note_for(false)
+    }
+
+    /// [`note`](Self::note), also covering the [`retry`](Self::retry)
+    /// command's flag values and path filters when `retry` says it is
+    /// printed.
+    fn note_for(&self, retry: bool) -> Option<String> {
+        let mut flags: Vec<&str> = self
             .paths()
             .into_iter()
             .filter(|(_, value)| value.is_some_and(|value| printed(value).is_none()))
             .map(|(flag, _)| flag)
             .collect();
+        if retry {
+            for (flag, value) in &self.retry {
+                let unprintable = value
+                    .as_deref()
+                    .is_some_and(|value| printed(OsStr::new(value)).is_none());
+                if unprintable && !flags.contains(flag) {
+                    flags.push(flag);
+                }
+            }
+            if self
+                .retry_paths
+                .iter()
+                .any(|path| printed(OsStr::new(path)).is_none())
+            {
+                flags.push("path filter");
+            }
+        }
         match flags.as_slice() {
             [] => None,
             [flag] => Some(format!(
@@ -645,6 +681,12 @@ fn append_flags(command: &mut String, flags: &[(&str, Option<&OsStr>)]) {
             let _ = write!(command, " {flag}={value}");
         }
     }
+}
+
+/// `value` quoted with [`shell_word`], or `<as given>` when a command
+/// cannot print it exactly (see [`printed`]).
+fn quoted(value: &str) -> String {
+    printed(OsStr::new(value)).map_or_else(|| AS_GIVEN.to_owned(), shell_word)
 }
 
 /// `value` as a command prints it exactly, or `None` when it cannot be:

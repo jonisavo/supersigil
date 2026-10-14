@@ -735,7 +735,10 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
         review: Some("feaad307".to_owned()),
         checkout: Some(PathBuf::from("../my repo")),
         review_dir: Some(PathBuf::from("/tmp/reviews")),
-        retry: vec!["--base=HEAD~1".to_owned(), "--target=HEAD".to_owned()],
+        retry: vec![
+            ("--base", Some("HEAD~1".to_owned())),
+            ("--target", Some("HEAD".to_owned())),
+        ],
         retry_paths: vec!["src/parser.rs".to_owned(), "a b".to_owned()],
     };
     let mut unsaved = sample_review();
@@ -747,12 +750,38 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
 
     assert!(
         given.ends_with(
-            "\n\nNext: supersigil review --base=HEAD~1 --target=HEAD --checkout='../my repo' \
+            "\n\nNext: supersigil review --base='HEAD~1' --target=HEAD --checkout='../my repo' \
              --review-dir=/tmp/reviews -- src/parser.rs 'a b'\n"
         ),
         "{given}"
     );
     assert!(plain.ends_with("\n\nNext: supersigil review\n"), "{plain}");
+}
+
+#[test]
+fn a_retried_argument_that_cannot_be_printed_as_given_shows_as_given() {
+    let addressing = Addressing {
+        retry: vec![("--include-untracked", Some("a\nb".to_owned()))],
+        retry_paths: vec!["src/ok.rs".to_owned(), "c\u{1b}d".to_owned()],
+        ..Addressing::default()
+    };
+    let mut unsaved = sample_review();
+    unsaved.basis = None;
+    unsaved.basis_unsaved = Some(Unsaved::Busy);
+
+    let text = render_summary(&unsaved, &addressing, escape);
+    let saved = render_summary(&sample_review(), &addressing, escape);
+
+    assert!(
+        text.ends_with(
+            "\n\nNext: supersigil review --include-untracked=<as given> -- src/ok.rs <as given>\n\
+             The --include-untracked and path filter values are not valid UTF-8 or hold a \
+             control character, so commands show <as given> for them: pass them as given.\n"
+        ),
+        "{text}"
+    );
+    // A saved review prints no retry command, so no note about it.
+    assert!(!saved.contains("<as given>"), "{saved}");
 }
 
 #[test]

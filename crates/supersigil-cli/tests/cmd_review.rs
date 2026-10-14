@@ -2902,6 +2902,29 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
 }
 
 #[test]
+fn a_busy_review_does_not_retry_an_argument_that_cannot_be_printed_as_given() {
+    let f = Fixture::new();
+    slice(&f);
+    f.json(&f.repo, &["review", "--format", "json"]);
+    write(&f.repo, "notes.txt", "changed while the store is busy\n");
+    write(&f.repo, "odd\nname.txt", "untracked\n");
+    let store = review_store(&f, &f.reviews());
+    let held = store.begin().unwrap();
+
+    let text = summary(&f, &f.repo, &["--include-untracked", "odd\nname.txt"]);
+    drop(held);
+
+    let note = "The --include-untracked value is not valid UTF-8 or holds a control character, \
+                so commands show <as given> for it: pass it as given.";
+    assert!(
+        text.ends_with(&format!(
+            "\n\nNext: supersigil review --include-untracked=<as given>\n{note}\n"
+        )),
+        "{text}"
+    );
+}
+
+#[test]
 fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
     let f = Fixture::new();
     slice(&f);
