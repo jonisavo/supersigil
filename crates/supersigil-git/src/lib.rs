@@ -4,9 +4,12 @@
 //! target of a review. The working-tree target is written by
 //! [`snapshot::snapshot_working_tree`] through a temporary index, so it is the
 //! tree `git add -u` would produce, and nothing here ever writes the real
-//! index, the worktree, or a ref. [`changes`] lists changed paths,
-//! [`bytes`] reads blob contents and their worktree form, [`worktree`] lists
-//! worktrees, and [`origin`] reads which worktree created a commit.
+//! index or the worktree. [`changes`] lists changed paths, [`bytes`] reads
+//! blob contents and their worktree form, [`worktree`] lists worktrees, and
+//! [`origin`] reads which worktree created a commit. [`retention`] names the
+//! repository and the person for a judgment and writes the only ref this
+//! crate writes: one that keeps a reviewed snapshot, created once and never
+//! moved.
 //!
 //! Git runs only through [`Git`], which scrubs the variables that could point
 //! it at another repository, index, or object store or change how it reads
@@ -20,6 +23,7 @@ pub mod oid;
 pub mod origin;
 pub mod path;
 pub mod repo;
+pub mod retention;
 pub mod run;
 pub mod snapshot;
 pub mod worktree;

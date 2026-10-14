@@ -79,6 +79,15 @@ pub enum GitError {
         /// Why it cannot be included.
         reason: String,
     },
+    /// A reference to be created already exists and is not a direct
+    /// reference to the expected snapshot; it was left as it is.
+    #[error("{reference} already exists and {reason}")]
+    RefMismatch {
+        /// The full reference name.
+        reference: String,
+        /// What it holds instead.
+        reason: String,
+    },
 }
 
 /// Describes an exit status for a message: `exit <code>`, or that git was
