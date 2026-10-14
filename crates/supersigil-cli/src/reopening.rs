@@ -325,9 +325,7 @@ fn reviewed_paths(review: &Review) -> impl Iterator<Item = &PathBytes> {
         .map(|file| &file.path_bytes)
         .chain(
             scope
-                .untracked_excluded
-                .iter()
-                .filter(|untracked| untracked.recorded_edit)
+                .recorded_untracked()
                 .map(|untracked| &untracked.path_bytes),
         )
         .chain(scope.not_captured.iter().map(|entry| &entry.path_bytes))

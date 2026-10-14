@@ -222,8 +222,71 @@ fn observed(id: &str, text: &str) -> Edit {
     }
 }
 
-/// Every recorded sighting of each edit, by id ([`GateInputs::edits`]).
+/// Every recorded sighting of each edit, by id, owned ([`GateInputs::edits`]
+/// borrows them).
 type Sightings = BTreeMap<String, Vec<Edit>>;
+
+/// `sightings` as [`GateInputs::edits`] and [`explanations`] take them.
+fn borrowed(sightings: &Sightings) -> BTreeMap<String, Vec<&Edit>> {
+    sightings
+        .iter()
+        .map(|(id, seen)| (id.clone(), seen.iter().collect()))
+        .collect()
+}
+
+/// A [`Gap`] owning its sightings.
+#[derive(Clone)]
+struct OwnedGap {
+    path: PathBytes,
+    prev: Vec<Edit>,
+    next: Vec<Edit>,
+}
+
+/// An [`UntrackedEvidence`] owning its sightings.
+#[derive(Clone)]
+struct OwnedEvidence {
+    on_disk: OnDiskState,
+    edits: Vec<Edit>,
+}
+
+/// The [`GateInputs`] beside a review, owning the sightings they borrow.
+#[derive(Clone, Default)]
+struct OwnedInputs {
+    discontinuities: Vec<OwnedGap>,
+    untracked: BTreeMap<PathBytes, OwnedEvidence>,
+    not_captured: BTreeMap<PathBytes, OnDiskState>,
+    edits: Sightings,
+}
+
+impl OwnedInputs {
+    /// The inputs as [`gate_items`] takes them.
+    fn borrowed(&self) -> GateInputs<'_> {
+        GateInputs {
+            discontinuities: self
+                .discontinuities
+                .iter()
+                .map(|gap| Gap {
+                    path: gap.path.clone(),
+                    prev: gap.prev.iter().collect(),
+                    next: gap.next.iter().collect(),
+                })
+                .collect(),
+            untracked: self
+                .untracked
+                .iter()
+                .map(|(path, evidence)| {
+                    let evidence = UntrackedEvidence {
+                        on_disk: evidence.on_disk.clone(),
+                        edits: evidence.edits.iter().collect(),
+                    };
+                    (path.clone(), evidence)
+                })
+                .collect(),
+            not_captured: self.not_captured.clone(),
+            edits: borrowed(&self.edits),
+        }
+    }
+}
 
 /// Every sighting of each edit the sample review shows, as the records
 /// hold them: one of each.
@@ -251,8 +314,8 @@ fn on_disk(executable: bool, digit: char) -> OnDiskState {
 }
 
 /// A gap between two recorded edits of `bytes`, each recorded once.
-fn gap(bytes: &[u8]) -> Gap {
-    Gap {
+fn gap(bytes: &[u8]) -> OwnedGap {
+    OwnedGap {
         path: PathBytes::new(bytes),
         prev: vec![observed("e3", "first")],
         next: vec![observed("e4", "second")],
@@ -261,7 +324,7 @@ fn gap(bytes: &[u8]) -> Gap {
 
 /// A review with an item of every origin but `unreconciled`, and the
 /// inputs beside it.
-fn sample() -> (Review, GateInputs) {
+fn sample() -> (Review, OwnedInputs) {
     let scope = ScopeInfo {
         untracked_excluded: vec![
             untracked(b"src/new.rs", true),
@@ -279,11 +342,11 @@ fn sample() -> (Review, GateInputs) {
             reason: "directory missing".to_owned(),
         }],
     };
-    let inputs = GateInputs {
+    let inputs = OwnedInputs {
         discontinuities: vec![gap(b"src/a.rs")],
         untracked: BTreeMap::from([(
             PathBytes::new("src/new.rs"),
-            UntrackedEvidence {
+            OwnedEvidence {
                 on_disk: on_disk(false, 'a'),
                 edits: vec![observed("e5", "new")],
             },
@@ -333,7 +396,7 @@ fn item(items: &[GateItem], origin: Origin) -> &GateItem {
 fn each_origin_gives_one_item_with_its_subject_detail_and_parts() {
     let (mut review, inputs) = sample();
     with_unreconciled(&mut review);
-    let items = gate_items(&review, &inputs);
+    let items = gate_items(&review, &inputs.borrowed());
     let shown: Vec<(Subject, GateDetail, Vec<&str>)> = items
         .iter()
         .map(|item| {
@@ -408,7 +471,7 @@ fn each_origin_gives_one_item_with_its_subject_detail_and_parts() {
 fn each_known_part_is_the_digest_of_its_material() {
     let (mut review, inputs) = sample();
     with_unreconciled(&mut review);
-    let items = gate_items(&review, &inputs);
+    let items = gate_items(&review, &inputs.borrowed());
     let part = |origin, name: &str| item(&items, origin).fingerprint.0[name].clone();
     let file = &review.files[1];
     let content = (
@@ -480,11 +543,11 @@ fn items_sort_by_origin_then_subject() {
     ];
     review.evidence.unreconciled_checkouts =
         vec![checkout("/work/b", "locked"), checkout("/work/a", "locked")];
-    let inputs = GateInputs {
+    let inputs = OwnedInputs {
         discontinuities: vec![gap(b"z.rs"), gap(b"a.rs")],
-        ..GateInputs::default()
+        ..OwnedInputs::default()
     };
-    let subjects: Vec<(Origin, Subject)> = gate_items(&review, &inputs)
+    let subjects: Vec<(Origin, Subject)> = gate_items(&review, &inputs.borrowed())
         .into_iter()
         .map(|item| (item.origin(), item.subject))
         .collect();
@@ -535,7 +598,7 @@ fn sources_of_one_subject_fold_into_one_item() {
         ),
         checkout("/work/x", "records directory locked"),
     ];
-    let items = gate_items(&review, &inputs);
+    let items = gate_items(&review, &inputs.borrowed());
     assert_eq!(
         item(&items, Origin::Discontinuity).detail,
         GateDetail::Discontinuity { gaps: 2 }
@@ -574,11 +637,11 @@ fn paths_that_print_alike_give_separate_items() {
         ..ScopeInfo::default()
     };
     let review = review(vec![binary(two), binary(one)], scope);
-    let evidence = |state| UntrackedEvidence {
+    let evidence = |state| OwnedEvidence {
         on_disk: state,
         edits: vec![observed("e5", "new")],
     };
-    let inputs = GateInputs {
+    let inputs = OwnedInputs {
         discontinuities: Vec::new(),
         untracked: BTreeMap::from([
             (PathBytes::new(one), evidence(OnDiskState::Missing)),
@@ -590,7 +653,7 @@ fn paths_that_print_alike_give_separate_items() {
         ]),
         edits: BTreeMap::new(),
     };
-    let items = gate_items(&review, &inputs);
+    let items = gate_items(&review, &inputs.borrowed());
     let shown: Vec<(Origin, Subject, &FingerprintPart)> = items
         .iter()
         .map(|item| {
@@ -657,11 +720,11 @@ fn reopened(before: &[GateItem], after: &[GateItem]) -> Vec<(Origin, Vec<String>
 }
 
 /// What `change` reopens in the sample's gate.
-fn after(change: impl FnOnce(&mut Review, &mut GateInputs)) -> Vec<(Origin, Vec<String>)> {
+fn after(change: impl FnOnce(&mut Review, &mut OwnedInputs)) -> Vec<(Origin, Vec<String>)> {
     let (mut review, mut inputs) = sample();
-    let before = gate_items(&review, &inputs);
+    let before = gate_items(&review, &inputs.borrowed());
     change(&mut review, &mut inputs);
-    reopened(&before, &gate_items(&review, &inputs))
+    reopened(&before, &gate_items(&review, &inputs.borrowed()))
 }
 
 /// `origin` reopened by `parts`.
@@ -745,7 +808,7 @@ fn not_diffed_files_reopen_on_their_content_and_kind() {
 
 #[test]
 fn untracked_files_reopen_on_their_disk_state_and_recorded_edits() {
-    let evidence = |inputs: &GateInputs| inputs.untracked[&PathBytes::new("src/new.rs")].clone();
+    let evidence = |inputs: &OwnedInputs| inputs.untracked[&PathBytes::new("src/new.rs")].clone();
     let untracked = |part| by(Origin::UntrackedRecorded, &[part]);
     assert_eq!(
         after(|_, inputs| {
@@ -850,7 +913,7 @@ fn unknown_material_gives_an_unknown_part() {
     inputs.untracked.values_mut().next().unwrap().on_disk = OnDiskState::Unknown;
     inputs.not_captured.clear();
     inputs.edits.remove("e2");
-    let items = gate_items(&review, &inputs);
+    let items = gate_items(&review, &inputs.borrowed());
     let unknown: Vec<(Origin, Vec<&str>)> = items
         .iter()
         .filter(|item| item.fingerprint.has_unknown())
@@ -888,7 +951,7 @@ fn unknown_material_gives_an_unknown_part() {
 #[test]
 fn explanations_digest_what_the_review_shows_about_each_file() {
     let (review, inputs) = sample();
-    let shown = explanations(&review, &inputs.edits);
+    let shown = explanations(&review, &borrowed(&inputs.edits));
     let paths: Vec<&PathBytes> = shown.iter().map(|entry| &entry.path).collect();
     assert_eq!(
         paths,
@@ -909,7 +972,7 @@ fn explanations_digest_what_the_review_shows_about_each_file() {
     let changed = |change: &dyn Fn(&mut Review, &mut Sightings)| {
         let (mut other, mut sightings) = (review.clone(), inputs.edits.clone());
         change(&mut other, &mut sightings);
-        let after = explanations(&other, &sightings);
+        let after = explanations(&other, &borrowed(&sightings));
         assert_eq!(after.len(), shown.len());
         shown
             .iter()
@@ -993,13 +1056,13 @@ fn an_edit_behind_counted_lines_recorded_again_with_another_payload_reopens_them
         .insert("e2".to_owned(), vec![observed("e2", "keep\nold")]);
     assert_eq!(
         reopened(
-            &gate_items(&review, &inputs),
-            &gate_items(&review, &rewritten)
+            &gate_items(&review, &inputs.borrowed()),
+            &gate_items(&review, &rewritten.borrowed())
         ),
         by(Origin::UnexplainedLines, &["evidence"])
     );
-    let digests = |inputs: &GateInputs| {
-        explanations(&review, &inputs.edits)
+    let digests = |inputs: &OwnedInputs| {
+        explanations(&review, &borrowed(&inputs.edits))
             .into_iter()
             .map(|explanation| (explanation.path, explanation.digest))
             .collect::<Vec<_>>()

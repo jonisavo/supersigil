@@ -756,6 +756,16 @@ pub struct ScopeInfo {
     pub path_note: Option<String>,
 }
 
+impl ScopeInfo {
+    /// The untracked files the scope excluded that a recorded edit names,
+    /// each a gate item, in the order listed.
+    pub fn recorded_untracked(&self) -> impl Iterator<Item = &UntrackedInfo> {
+        self.untracked_excluded
+            .iter()
+            .filter(|untracked| untracked.recorded_edit)
+    }
+}
+
 /// An untracked file the scope excluded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UntrackedInfo {
@@ -1308,9 +1318,7 @@ pub fn unattributed_summary(files: &[FileReview], scope: &ScopeInfo) -> Unattrib
         }
     }
     summary.untracked_with_recorded_edits = scope
-        .untracked_excluded
-        .iter()
-        .filter(|untracked| untracked.recorded_edit)
+        .recorded_untracked()
         .map(|untracked| untracked.path.clone())
         .collect();
     summary.not_captured = scope

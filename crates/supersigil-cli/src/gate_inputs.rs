@@ -27,15 +27,13 @@ use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, path_key};
 /// sighting names; what is on disk at each path not captured; and every
 /// sighting of each edit the review shows.
 #[must_use]
-pub fn gate_inputs(g: &Gathered, review: &Review) -> GateInputs {
+pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
     let recorded = Recorded::new(&g.records, &g.candidates, &g.worktree, g.ignore_case);
     let scope = &review.scope;
     GateInputs {
         discontinuities: recorded.discontinuities(review.files.iter().map(|file| &file.path_bytes)),
         untracked: scope
-            .untracked_excluded
-            .iter()
-            .filter(|untracked| untracked.recorded_edit)
+            .recorded_untracked()
             .map(|untracked| {
                 let path = &untracked.path_bytes;
                 let evidence = UntrackedEvidence {
@@ -118,17 +116,15 @@ impl<'g> Recorded<'g> {
     }
 
     /// Every sighting of the edit `id`, in any record.
-    fn every(&self, id: &str) -> Vec<Edit> {
-        self.by_id
-            .get(id)
-            .into_iter()
-            .flatten()
-            .map(|&edit| edit.clone())
-            .collect()
+    fn every(&self, id: &str) -> Vec<&'g Edit> {
+        self.by_id.get(id).cloned().unwrap_or_default()
     }
 
     /// Every sighting of each edit `ids` names, by id.
-    fn sightings<'i>(&self, ids: impl IntoIterator<Item = &'i str>) -> BTreeMap<String, Vec<Edit>> {
+    fn sightings<'i>(
+        &self,
+        ids: impl IntoIterator<Item = &'i str>,
+    ) -> BTreeMap<String, Vec<&'g Edit>> {
         ids.into_iter()
             .map(|id| (id.to_owned(), self.every(id)))
             .collect()
@@ -138,7 +134,7 @@ impl<'g> Recorded<'g> {
     /// the reviewed worktree, as [`crate::pipeline::same_path`] matches
     /// paths, in id order: one recorded again naming another file changed
     /// under its id. None when `path` is not UTF-8.
-    fn naming(&self, path: &PathBytes) -> Vec<Edit> {
+    fn naming(&self, path: &PathBytes) -> Vec<&'g Edit> {
         let ids = path
             .to_str()
             .and_then(|path| self.naming.get(path_key(path, self.ignore_case).as_ref()));
@@ -164,7 +160,7 @@ impl<'g> Recorded<'g> {
     /// association, still joins the edits before and after it there. A
     /// later sighting, recorded again with another payload, changes the
     /// gap's fingerprint all the same.
-    fn discontinuities<'p>(&self, files: impl IntoIterator<Item = &'p PathBytes>) -> Vec<Gap> {
+    fn discontinuities<'p>(&self, files: impl IntoIterator<Item = &'p PathBytes>) -> Vec<Gap<'g>> {
         let reviewed: BTreeMap<String, &PathBytes> = files
             .into_iter()
             .filter_map(|file| {
@@ -211,15 +207,10 @@ impl<'g> Recorded<'g> {
     }
 }
 
-/// The repository path `path` names.
-fn repo_path(path: &PathBytes) -> RepoPath {
-    RepoPath::new(path.as_bytes().to_vec())
-}
-
 /// What is on disk at the repository path `path` of `worktree`
 /// ([`on_disk_state`]); unknown when this platform cannot name the path.
 fn on_disk_at(worktree: &Path, path: &PathBytes) -> OnDiskState {
-    repo_path(path)
+    RepoPath::new(path.as_bytes().to_vec())
         .to_path()
         .map_or(OnDiskState::Unknown, |path| {
             on_disk_state(&worktree.join(path))
@@ -542,24 +533,23 @@ mod tests {
         ];
         let partial = [writes[0].clone(), writes[2].clone()];
         let reviewed = [PathBytes::new("x/gap.rs")];
-        let gaps = |records: &[PinnedRecord]| {
-            let candidates = candidates(records);
-            Recorded::new(records, &candidates, Path::new(WORKTREE), false)
-                .discontinuities(&reviewed)
-        };
 
         let records = [record("x", &partial), record("root", &writes)];
-        let found = gaps(&records);
+        let mapped = candidates(&records);
+        let recorded = Recorded::new(&records, &mapped, Path::new(WORKTREE), false);
+        let found = recorded.discontinuities(&reviewed);
         assert!(found.is_empty(), "{found:#?}");
 
         // When neither record holds the second write, the gap is found once,
         // with both records' sightings of its edits.
         let records = [record("x", &partial), record("root", &partial)];
-        let found = gaps(&records);
+        let mapped = candidates(&records);
+        let recorded = Recorded::new(&records, &mapped, Path::new(WORKTREE), false);
+        let found = recorded.discontinuities(&reviewed);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert_eq!(found[0].path, reviewed[0]);
-        assert_eq!(found[0].prev, [writes[0].clone(), writes[0].clone()]);
-        assert_eq!(found[0].next, [writes[2].clone(), writes[2].clone()]);
+        assert_eq!(found[0].prev, [&writes[0], &writes[0]]);
+        assert_eq!(found[0].next, [&writes[2], &writes[2]]);
     }
 
     #[test]
@@ -605,8 +595,8 @@ mod tests {
         eprintln!("gate inputs of 20,001 edits: {elapsed:?}");
         assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
         assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].prev, [edits[9_999].clone()]);
-        assert_eq!(gaps[0].next, [edits[10_000].clone()]);
+        assert_eq!(gaps[0].prev, [&edits[9_999]]);
+        assert_eq!(gaps[0].next, [&edits[10_000]]);
         assert!(naming.iter().all(|&count| count == 1));
     }
 
