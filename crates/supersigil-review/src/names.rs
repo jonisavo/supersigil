@@ -182,6 +182,11 @@ pub struct ItemNames<'g> {
     by_path: BTreeMap<Vec<u8>, Vec<usize>>,
     /// Each item's index, by id.
     by_id: BTreeMap<&'g ItemId, usize>,
+    /// Every item id with its item's index, sorted, so the ids a prefix
+    /// starts form one range.
+    id_keys: Vec<(&'g str, usize)>,
+    /// The same for the ids of commits.
+    commit_keys: Vec<(&'g str, usize)>,
     names: Vec<String>,
 }
 
@@ -224,6 +229,8 @@ impl<'g> ItemNames<'g> {
             ignore_case,
             by_path,
             by_id,
+            id_keys: keyed(items, |item| Some(item.id.as_str())),
+            commit_keys: keyed(items, commit_of),
             names: Vec::new(),
         };
         let ids = sorted(items.iter().map(|item| item.id.as_str()));
@@ -294,10 +301,8 @@ impl<'g> ItemNames<'g> {
                 }
                 matches
             }
-            Name::Commit(prefix) => self.by_prefix(typed, prefix, COMMIT_PREFIX, commit_of)?,
-            Name::Id(prefix) => {
-                self.by_prefix(typed, prefix, ID_PREFIX, |item| Some(item.id.as_str()))?
-            }
+            Name::Commit(prefix) => by_prefix(typed, prefix, COMMIT_PREFIX, &self.commit_keys)?,
+            Name::Id(prefix) => by_prefix(typed, prefix, ID_PREFIX, &self.id_keys)?,
             Name::Unreconciled(path) => self.unreconciled(path),
         };
         match matches.as_slice() {
@@ -341,31 +346,6 @@ impl<'g> ItemNames<'g> {
             name: typed.to_owned(),
             nearby: self.names_of(&nearby),
         }
-    }
-
-    /// The items whose `key` starts with `prefix`, which must be at least
-    /// `minimum` digits long.
-    fn by_prefix(
-        &self,
-        typed: &str,
-        prefix: &str,
-        minimum: usize,
-        key: impl Fn(&GateItem) -> Option<&str>,
-    ) -> Result<Vec<usize>, NameError> {
-        if prefix.len() < minimum {
-            return Err(NameError::TooShort {
-                name: typed.to_owned(),
-                minimum,
-            });
-        }
-        let prefix = prefix.to_ascii_lowercase();
-        Ok(self
-            .items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| key(item).is_some_and(|key| key.starts_with(&prefix)))
-            .map(|(index, _)| index)
-            .collect())
     }
 
     /// The unreconciled items `path` names: a checkout, or a record it is
@@ -486,6 +466,46 @@ impl<'g> ItemNames<'g> {
             .map(|index| self.names[*index].clone())
             .collect()
     }
+}
+
+/// The `key` of each item that has one, with the item's index, sorted.
+fn keyed<'g>(
+    items: &'g [GateItem],
+    key: impl Fn(&'g GateItem) -> Option<&'g str>,
+) -> Vec<(&'g str, usize)> {
+    let mut keys: Vec<(&str, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| key(item).map(|key| (key, index)))
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// The indexes, in gate order, of the items whose key in `keys` (sorted, see
+/// [`keyed`]) starts with `prefix`, which must be at least `minimum` digits
+/// long. The keys it starts form one range, found by binary search.
+fn by_prefix(
+    typed: &str,
+    prefix: &str,
+    minimum: usize,
+    keys: &[(&str, usize)],
+) -> Result<Vec<usize>, NameError> {
+    if prefix.len() < minimum {
+        return Err(NameError::TooShort {
+            name: typed.to_owned(),
+            minimum,
+        });
+    }
+    let prefix = prefix.to_ascii_lowercase();
+    let start = keys.partition_point(|(key, _)| *key < prefix.as_str());
+    let mut indexes: Vec<usize> = keys[start..]
+        .iter()
+        .take_while(|(key, _)| key.starts_with(&prefix))
+        .map(|(_, index)| *index)
+        .collect();
+    indexes.sort_unstable();
+    Ok(indexes)
 }
 
 /// The commit `item` is about, if it is about one.

@@ -525,6 +525,25 @@ fn a_repository_wide_change_is_named_and_resolved_promptly() {
 }
 
 #[test]
+fn thousands_of_id_names_resolve_in_one_batch_promptly() {
+    let items: Vec<GateItem> = (0..5000).map(|k| lines(&format!("f{k}.rs"))).collect();
+    let typed: Vec<String> = items
+        .iter()
+        .map(|item| format!("id:{}", item.id.as_str()))
+        .collect();
+    let every = ids(&items.iter().collect::<Vec<_>>());
+
+    let started = std::time::Instant::now();
+    let resolved = finishes_within(Duration::from_secs(20), move || {
+        let names = named(&items, false);
+        resolve(&names, &typed)
+    });
+    eprintln!("resolved 5,000 id names in {:?}", started.elapsed());
+
+    assert_eq!(resolved, Ok(every));
+}
+
+#[test]
 fn each_name_that_names_no_single_item_is_refused() {
     let items = [lines("src/a.rs"), at(Origin::Discontinuity, b"src/a.rs")];
     let names = named(&items, false);
