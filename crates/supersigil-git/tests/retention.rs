@@ -379,13 +379,19 @@ fn a_symbolic_ref_to_a_missing_branch_is_never_followed() {
     range
         .repo
         .run(&["symbolic-ref", reference, "refs/heads/missing"]);
+    let objects = range.repo.run(&["count-objects", "-v"]);
     let err = range
         .keep(reference, &range.tree, std::slice::from_ref(&range.target))
         .unwrap_err();
     assert!(
-        matches!(err, GitError::RefMismatch { .. } | GitError::Failed { .. }),
+        matches!(&err, GitError::RefMismatch { reference: r, .. } if r == reference),
         "{err:?}"
     );
+    assert_eq!(
+        err.to_string(),
+        format!("{reference} already exists and is a symbolic reference to refs/heads/missing")
+    );
+    assert_eq!(range.repo.run(&["count-objects", "-v"]), objects);
     // Neither the branch it names nor the reference itself was written.
     let exists = |name: &str| {
         let output = range
@@ -424,4 +430,30 @@ fn a_ref_below_the_name_is_not_taken_for_it() {
         .raw(["show-ref", "--verify", "--quiet", reference])
         .unwrap();
     assert!(!exists.status.success());
+}
+
+#[test]
+fn a_held_ref_lock_fails_the_write_within_a_bound_whatever_the_configuration() {
+    let range = Range::new();
+    range
+        .repo
+        .run(&["config", "core.filesRefLockTimeout", "10000"]);
+    let git_dir = range.repo.root.join(".git");
+    let lock = git_dir.join("refs/supersigil/reviews/locked.lock");
+    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    std::fs::write(&lock, b"").unwrap();
+    let started = std::time::Instant::now();
+    let err = range
+        .keep(
+            "refs/supersigil/reviews/locked",
+            &range.tree,
+            std::slice::from_ref(&range.target),
+        )
+        .unwrap_err();
+    assert!(matches!(err, GitError::Failed { .. }), "{err:?}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "waited {:?}",
+        started.elapsed()
+    );
 }

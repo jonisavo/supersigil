@@ -141,6 +141,15 @@ pub fn retain(
             unique.push(parent);
         }
     }
+    // `for-each-ref` omits a symbolic reference to a missing branch, so ask
+    // for symbolic references first, before anything is written.
+    let symbolic = repo
+        .git()
+        .probe_output(["symbolic-ref", "--quiet", reference])?;
+    if let Some(target) = symbolic {
+        let target = String::from_utf8_lossy(&target).trim_end().to_owned();
+        return Pointed::Symbolic { target }.matching(reference, tree, &unique);
+    }
     if let Some(existing) = read_ref(repo, reference)? {
         return existing.matching(reference, tree, &unique);
     }
@@ -161,8 +170,22 @@ pub fn retain(
     // An empty old value creates the reference only if it does not exist;
     // without dereferencing, a symbolic reference left at the name, even
     // one to a missing branch, counts as existing and is never followed.
-    repo.git()
-        .output(["update-ref", "--no-deref", reference, commit.as_str(), ""])?;
+    // Repository configuration can make a lock wait long or endless, so the
+    // waits are set here; together they stay within the 2 s bound. Older git
+    // ignores the unknown reftable key.
+    repo.git().output([
+        "-c",
+        "core.filesRefLockTimeout=1000",
+        "-c",
+        "core.packedRefsTimeout=1000",
+        "-c",
+        "reftable.lockTimeout=1000",
+        "update-ref",
+        "--no-deref",
+        reference,
+        commit.as_str(),
+        "",
+    ])?;
     Ok(Retained::Created(commit))
 }
 
