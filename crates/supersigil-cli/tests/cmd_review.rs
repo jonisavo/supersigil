@@ -3541,6 +3541,7 @@ fn a_review_shows_its_gate_with_the_judgments_recorded_on_it() {
             "id": dismissed,
             "kind": "dismiss",
             "review": basis_id(&open),
+            "reason": "generated",
             "who": {"name": "Test", "email": "test@example.com"},
             "at": "2026-10-13T12:00:00Z",
         })

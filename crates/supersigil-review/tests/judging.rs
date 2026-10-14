@@ -1221,6 +1221,8 @@ fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
             id: JudgmentId::new("dismiss-b"),
             kind: JudgmentKind::Dismiss,
             review: current.0.clone(),
+            reason: Some("generated".to_owned()),
+            text: None,
             who: judgments[1].who.clone(),
             at: UtcTime::from_unix(20),
         })
@@ -1261,6 +1263,8 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
             id: JudgmentId::new("done"),
             kind: JudgmentKind::Complete,
             review: current.0.clone(),
+            reason: None,
+            text: None,
             who: judgments[1].who.clone(),
             at: UtcTime::from_unix(20),
         })

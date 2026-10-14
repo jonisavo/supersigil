@@ -20,7 +20,7 @@ pub mod why;
 pub enum Command {
     /// Generate shell completions
     Completions(CompletionsArgs),
-    /// Record judgments on a saved review: acknowledge, dismiss, comment, complete
+    /// Record judgments on a saved review, undo them, and read them back
     ///
     /// A completion carries over to any review of the same content, not
     /// only to the same review id.
@@ -193,6 +193,12 @@ pub enum JudgeCommand {
     Comment(CommentArgs),
     /// Record completion of this saved review; it does not commit or merge
     Complete(CompleteArgs),
+    /// Withdraw the judgments closing items, or one judgment by its id
+    Undo(UndoArgs),
+    /// List the saved reviews with judgments and each worktree's selection
+    List,
+    /// Show a saved review's gate, comments, and withdrawn judgments
+    Show(ShowArgs),
 }
 
 /// Arguments for `judge acknowledge` and `judge dismiss`, which close
@@ -224,4 +230,31 @@ pub struct CompleteArgs {
     /// A note recorded with the completion
     #[arg(long)]
     pub text: Option<String>,
+}
+
+/// Arguments for `judge undo`, which withdraws the judgments closing the
+/// named items, or one judgment named by its id.
+#[derive(Debug, clap::Args)]
+pub struct UndoArgs {
+    /// Gate items whose closing judgments to withdraw, named as the review prints them
+    #[arg(
+        required_unless_present = "judgment",
+        conflicts_with = "judgment",
+        value_name = "ITEM"
+    )]
+    pub items: Vec<String>,
+    /// Withdraw this judgment whole instead, named by at least 8 characters of its id
+    #[arg(long, value_name = "ID")]
+    pub judgment: Option<String>,
+    /// Why, recorded with the undo
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+/// Arguments for `judge show`.
+#[derive(Debug, clap::Args)]
+pub struct ShowArgs {
+    /// Review to show, by at least 8 hex digits of its id (default: --review, then the review last run in this worktree)
+    #[arg(value_name = "REVIEW")]
+    pub review: Option<String>,
 }

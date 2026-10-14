@@ -274,6 +274,12 @@ pub struct JudgmentInfo {
     pub kind: JudgmentKind,
     /// The full id of the review it was made on.
     pub review: BasisId,
+    /// The reason given with it, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The text given with it, if any: a comment's note or a completion's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// Who recorded it.
     pub who: Who,
     /// When, in UTC.
@@ -288,6 +294,8 @@ impl JudgmentInfo {
             id: judgment.id.clone(),
             kind: judgment.kind,
             review: judgment.basis.clone(),
+            reason: judgment.reason.clone(),
+            text: judgment.text.clone(),
             who: judgment.who.clone(),
             at: judgment.at,
         }

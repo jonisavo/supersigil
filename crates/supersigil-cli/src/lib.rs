@@ -32,7 +32,7 @@ pub mod review_dir;
 pub use commands::{
     CloseArgs, Command, CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand,
     ReviewArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
-    WhyArgs,
+    ShowArgs, UndoArgs, WhyArgs,
 };
 pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 

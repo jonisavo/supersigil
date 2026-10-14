@@ -217,31 +217,58 @@ fn gate_rows(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
         .iter()
         .map(|file| (&file.path_bytes, incomplete_content_matches(file)))
         .collect();
-    let rows: Vec<[String; 3]> = review
-        .gate
-        .items
-        .iter()
-        .map(|item| {
-            let incomplete = match &item.subject {
-                Subject::Path(path) => incomplete.get(path).copied().unwrap_or_default(),
-                _ => 0,
-            };
-            [
-                escape(&item.name),
-                state_word(item).to_owned(),
-                attention(item, incomplete, escape),
-            ]
-        })
-        .collect();
-    let width = |column: usize| {
-        rows.iter()
-            .map(|row| row[column].chars().count())
-            .max()
-            .unwrap_or_default()
-    };
-    let (names, states) = (width(0), width(1));
+    aligned(
+        review
+            .gate
+            .items
+            .iter()
+            .map(|item| {
+                let incomplete = match &item.subject {
+                    Subject::Path(path) => incomplete.get(path).copied().unwrap_or_default(),
+                    _ => 0,
+                };
+                gate_row(item, incomplete, escape)
+            })
+            .collect(),
+    )
+}
+
+/// The columns of `item`'s gate row, as a review summary shows them: its
+/// name, its state, and what needs attention or who closed it.
+/// `incomplete` counts the item's content-matched lines whose search did
+/// not complete. Untrusted text is escaped with `escape`.
+#[must_use]
+pub fn gate_row(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String) -> [String; 3] {
+    [
+        escape(&item.name),
+        state_word(item).to_owned(),
+        attention(item, incomplete, escape),
+    ]
+}
+
+/// `rows` as lines, each column but the last padded to its widest cell and
+/// two spaces apart, with no trailing spaces.
+#[must_use]
+pub fn aligned<const N: usize>(rows: Vec<[String; N]>) -> Vec<String> {
+    let mut widths = [0; N];
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
     rows.into_iter()
-        .map(|[name, state, text]| format!("{name:<names$}  {state:<states$}  {text}"))
+        .map(|row| {
+            let mut line = String::new();
+            for (index, (cell, width)) in row.iter().zip(widths).enumerate() {
+                if index + 1 == N {
+                    line.push_str(cell);
+                } else {
+                    let _ = write!(line, "{cell:<width$}  ");
+                }
+            }
+            line.truncate(line.trim_end().len());
+            line
+        })
         .collect()
 }
 

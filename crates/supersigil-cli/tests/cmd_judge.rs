@@ -4,13 +4,20 @@
 mod common;
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use common::fixture::{Fixture, basis_id, gate_row, review_store, slice, slice_text, write};
+use common::fixture::{
+    Fixture, LIB_FINAL, basis_id, gate_row, review_store, slice, slice_text, write,
+};
 use serde_json::{Value, json};
-use supersigil_record::reviews::{self, ItemId, Judgment, JudgmentKind, Who};
+use supersigil_record::JudgmentId;
+use supersigil_record::reviews::{
+    self, Basis, BasisId, GateItem, ItemId, Judgment, JudgmentKind, PathBytes, Subject, Who,
+    Withdrawal,
+};
+use supersigil_record::time::UtcTime;
 use supersigil_review::summary::shell_word;
 
 /// The name of the person judging in every fixture.
@@ -672,6 +679,10 @@ fn commands_and_refusals_show_a_flag_value_that_cannot_be_printed_as_given() {
         .output()
         .unwrap();
     let open = refused(&f, &mut in_reviews(&["complete"]));
+    let short = refused(&f, &mut in_reviews(&["undo", "--judgment", "1234"]));
+    let shown = in_reviews(&["--format", "terminal", "show"])
+        .output()
+        .unwrap();
 
     assert_eq!(
         unselected,
@@ -681,13 +692,23 @@ fn commands_and_refusals_show_a_flag_value_that_cannot_be_printed_as_given() {
              --review-dir=<as given> shows reviews).\n{note}\n"
         )
     );
-    assert!(
-        acknowledged.status.success(),
-        "{}",
-        String::from_utf8_lossy(&acknowledged.stderr)
+    assert_eq!(
+        short,
+        format!(
+            "No judgment recorded. Name a judgment by at least 8 characters of its id, not 1234 \
+             (supersigil judge show --review-dir=<as given> lists each judgment's id).\n{note}\n"
+        )
     );
+    for output in [&acknowledged, &shown] {
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let acknowledged = String::from_utf8(acknowledged.stdout).unwrap();
-    for text in [&acknowledged, &open] {
+    let shown = String::from_utf8(shown.stdout).unwrap();
+    for text in [&acknowledged, &open, &shown] {
         assert!(
             text.ends_with(&format!(
                 "\n  then: supersigil judge complete --review-dir=<as given>\n{note}\n"
@@ -695,7 +716,7 @@ fn commands_and_refusals_show_a_flag_value_that_cannot_be_printed_as_given() {
             "{text}"
         );
     }
-    for text in [&unselected, &acknowledged, &open] {
+    for text in [&unselected, &acknowledged, &open, &short, &shown] {
         assert_eq!(text.matches(note).count(), 1, "{text}");
         assert!(!text.contains('\u{fffd}'), "{text}");
     }
@@ -717,6 +738,9 @@ fn help_defines_each_verb_and_what_judging_keeps() {
         "dismiss      Dismiss items: \"it needs no follow-up, for the recorded reason\"",
         "comment      Add a note to the review or an item; it leaves the item's state alone",
         "complete     Record completion of this saved review; it does not commit or merge",
+        "undo         Withdraw the judgments closing items, or one judgment by its id",
+        "list         List the saved reviews with judgments and each worktree's selection",
+        "show         Show a saved review's gate, comments, and withdrawn judgments",
         "A completion carries over to any review of the same content, not only to the same \
          review id.",
         "Judgments stay on this machine: refs/supersigil/ is not pushed by default.",
@@ -731,13 +755,18 @@ fn help_defines_each_verb_and_what_judging_keeps() {
 #[test]
 fn inside_an_agent_session_nothing_is_recorded() {
     let (f, _) = reviewed();
+    judged(&f, &f.repo, &["acknowledge", "src/new.rs"]);
+    let [acknowledgment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
 
     for marker in ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID"] {
-        let message = refused(
-            &f,
-            judge(&f, &f.repo, &["acknowledge", "old.txt"]).env(marker, "1"),
-        );
-        assert_eq!(message, AGENT);
+        for args in [
+            &["acknowledge", "old.txt"][..],
+            &["undo", "src/new.rs"],
+            &["undo", "--judgment", acknowledgment.id.as_str()],
+        ] {
+            let message = refused(&f, judge(&f, &f.repo, args).env(marker, "1"));
+            assert_eq!(message, AGENT);
+        }
     }
 }
 
@@ -1002,5 +1031,859 @@ fn a_snapshot_git_pruned_before_the_first_judgment_needs_a_new_review() {
         message,
         "No judgment recorded. The reviewed snapshot is no longer in the repository; run \
          supersigil review again.\n"
+    );
+}
+
+/// The slice fixture reviewed with every gate item acknowledged and the
+/// review completed: the acknowledgment and the completion.
+fn completed() -> (Fixture, Value, Judgment, Judgment) {
+    let (f, review) = reviewed();
+    judged(
+        &f,
+        &f.repo,
+        &[
+            "acknowledge",
+            "old.txt",
+            "lines:src/lib.rs",
+            "src/new.rs",
+            "gap:src/lib.rs",
+        ],
+    );
+    judged(&f, &f.repo, &["complete"]);
+    let [acknowledgment, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+    (f, review, acknowledgment, completion)
+}
+
+/// A repository whose `a.txt` and `b.txt` changed, reviewed, both
+/// acknowledged with a reason, and completed; then a second worktree,
+/// `other`, holding the same change, reviewed there too. Returns the
+/// fixture, the second worktree, and both reviews.
+fn carried() -> (Fixture, PathBuf, Value, Value) {
+    let f = Fixture::new();
+    identify(&f);
+    write(&f.repo, "a.txt", "one\n");
+    write(&f.repo, "b.txt", "one\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "a.txt", "two\n");
+    write(&f.repo, "b.txt", "two\n");
+    let first = f.json(&f.repo, &["review", "--format", "json"]);
+    judged(
+        &f,
+        &f.repo,
+        &["acknowledge", "a.txt", "b.txt", "--reason", "checked"],
+    );
+    judged(&f, &f.repo, &["complete"]);
+    let other = f.root.join("other");
+    f.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "--detach",
+        &other.display().to_string(),
+    ]);
+    write(&other, "a.txt", "two\n");
+    write(&other, "b.txt", "two\n");
+    let second = f.json(&other, &["review", "--format", "json"]);
+    (f, other, first, second)
+}
+
+/// A withdrawal of `judgment`'s judgment of `item`, or of the whole
+/// judgment.
+fn withdrawal(judgment: &Judgment, item: Option<ItemId>) -> Withdrawal {
+    Withdrawal {
+        judgment: judgment.id.clone(),
+        item,
+    }
+}
+
+#[test]
+fn undoing_an_item_withdraws_its_acknowledgment_and_opens_it_again() {
+    let (f, review) = reviewed();
+    let id8 = &basis_id(&review)[..8];
+    judged(&f, &f.repo, &["acknowledge", "old.txt", "src/new.rs"]);
+    let kept = refs(&f);
+
+    let text = judged(&f, &f.repo, &["undo", "old.txt", "--reason", "wrong item"]);
+
+    let [acknowledgment, undo] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(undo.kind, JudgmentKind::Undo);
+    assert_eq!(undo.basis, acknowledgment.basis);
+    assert_eq!(undo.items, [item(&review, "old.txt")]);
+    assert_eq!(undo.reason.as_deref(), Some("wrong item"));
+    assert_eq!(
+        undo.withdraws,
+        [withdrawal(&acknowledgment, Some(item(&review, "old.txt")))]
+    );
+    assert_eq!(refs(&f), kept);
+    assert_eq!(
+        text,
+        format!(
+            "Undid old.txt on review {id8} (working tree over {}).\n\
+             Withdrew your acknowledgment of old.txt ({}, review {id8}).\n\
+             Judgment {}. Gate: 3 open: old.txt, lines:src/lib.rs, gap:src/lib.rs.\n{}",
+            head(&f),
+            acknowledgment.at.date(),
+            undo.id.short(),
+            next("old.txt lines:src/lib.rs gap:src/lib.rs")
+        )
+    );
+}
+
+#[test]
+fn undoing_an_item_of_a_completed_review_withdraws_the_completion_too() {
+    let (f, review, acknowledgment, completion) = completed();
+    let id8 = &basis_id(&review)[..8];
+
+    let text = judged(&f, &f.repo, &["undo", "gap:src/lib.rs"]);
+
+    let [_, _, undo] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(
+        undo.withdraws,
+        [
+            withdrawal(&acknowledgment, Some(item(&review, "gap:src/lib.rs"))),
+            withdrawal(&completion, None),
+        ]
+    );
+    assert_eq!(
+        text,
+        format!(
+            "Undid gap:src/lib.rs on review {id8} (working tree over {}).\n\
+             Withdrew your acknowledgment of gap:src/lib.rs ({}, review {id8}).\n\
+             Also withdrew the completion of review {id8}.\n\
+             Judgment {}. Gate: 1 open: gap:src/lib.rs.\n{}",
+            head(&f),
+            acknowledgment.at.date(),
+            undo.id.short(),
+            next("gap:src/lib.rs")
+        )
+    );
+}
+
+#[test]
+fn undoing_a_carried_acknowledgment_withdraws_it_and_the_completion_counting_it() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    let [acknowledgment, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    let text = judged(&f, &other, &["undo", "a.txt"]);
+
+    let [_, _, undo] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(undo.basis.as_str(), basis_id(&second));
+    assert_eq!(
+        undo.withdraws,
+        [
+            withdrawal(&acknowledgment, Some(item(&second, "a.txt"))),
+            withdrawal(&completion, None),
+        ]
+    );
+    assert_eq!(
+        text,
+        format!(
+            "Undid a.txt on review {second8} (working tree over {}).\n\
+             Kept the reviewed snapshot as refs/supersigil/reviews/{second8}…\n\
+             Withdrew your acknowledgment of a.txt ({}, review {first8}).\n\
+             Also withdrew the completion of review {first8}.\n\
+             Judgment {}. Gate: 1 open: a.txt.\n{}",
+            head(&f),
+            acknowledgment.at.date(),
+            undo.id.short(),
+            next("a.txt")
+        )
+    );
+    // Withdrawn on the first review as well: the judgment covered the
+    // same evidence there.
+    let again = f.json(&f.repo, &["review", "--format", "json"]);
+    assert_eq!(gate_row(&again, "a.txt")["state"], "open");
+    assert_eq!(gate_row(&again, "b.txt")["state"], "acknowledged");
+    assert_eq!(again["status"]["complete"], false);
+}
+
+#[test]
+fn only_a_closed_item_can_be_undone() {
+    let (f, first) = reviewed();
+    judged(&f, &f.repo, &["acknowledge", "old.txt", "lines:src/lib.rs"]);
+    let [acknowledgment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
+
+    let open = refused(
+        &f,
+        &mut judge(&f, &f.repo, &["undo", "old.txt", "src/new.rs"]),
+    );
+    // The library changes again: the acknowledgment of its lines no
+    // longer matches what the new review shows.
+    write(&f.repo, "src/lib.rs", &format!("{LIB_FINAL}// more\n"));
+    f.json(&f.repo, &["review", "--format", "json"]);
+    let reopened = refused(&f, &mut judge(&f, &f.repo, &["undo", "lines:src/lib.rs"]));
+
+    assert_eq!(
+        open,
+        "No judgment recorded. Nothing closes these items, so there is nothing to undo:\n  \
+         src/new.rs: open\n"
+    );
+    assert_eq!(
+        reopened,
+        format!(
+            "No judgment recorded. Nothing closes these items, so there is nothing to undo:\n  \
+             lines:src/lib.rs: reopened: file content or mode changed; evidence behind the \
+             lines changed; line explanations changed since your acknowledgment (judgment {}, \
+             review {})\n",
+            acknowledgment.id.short(),
+            &basis_id(&first)[..8]
+        )
+    );
+}
+
+#[test]
+fn undoing_a_judgment_by_id_withdraws_it_whole() {
+    let (f, review) = reviewed();
+    let id8 = &basis_id(&review)[..8];
+    judged(&f, &f.repo, &["acknowledge", "old.txt", "src/new.rs"]);
+    judged(
+        &f,
+        &f.repo,
+        &["acknowledge", "lines:src/lib.rs", "gap:src/lib.rs"],
+    );
+    judged(&f, &f.repo, &["comment", "--text", "Careful work."]);
+    judged(&f, &f.repo, &["complete"]);
+    let [both, _, comment, completion] = <[Judgment; 4]>::try_from(recorded(&f)).unwrap();
+    let date = both.at.date();
+
+    let uncommented = judged(&f, &f.repo, &["undo", "--judgment", comment.id.short()]);
+    let uncompleted = judged(&f, &f.repo, &["undo", "--judgment", completion.id.as_str()]);
+    judged(&f, &f.repo, &["complete"]);
+    let unacknowledged = judged(
+        &f,
+        &f.repo,
+        &[
+            "undo",
+            "--judgment",
+            &both.id.as_str()[..10],
+            "--reason",
+            "too fast",
+        ],
+    );
+
+    let [.., first, second, again, third] = <[Judgment; 8]>::try_from(recorded(&f)).unwrap();
+    for undo in [&first, &second, &third] {
+        assert_eq!(undo.kind, JudgmentKind::Undo);
+        assert!(undo.items.is_empty());
+    }
+    assert_eq!(first.withdraws, [withdrawal(&comment, None)]);
+    assert_eq!(second.withdraws, [withdrawal(&completion, None)]);
+    assert_eq!(
+        third.withdraws,
+        [
+            withdrawal(&both, Some(item(&review, "old.txt"))),
+            withdrawal(&both, Some(item(&review, "src/new.rs"))),
+            withdrawal(&again, None),
+        ]
+    );
+    assert_eq!(third.reason.as_deref(), Some("too fast"));
+    let undid = |judgment: &Judgment| {
+        format!(
+            "Undid judgment {} on review {id8} (working tree over {}).\n",
+            judgment.id.short(),
+            head(&f)
+        )
+    };
+    assert_eq!(
+        uncommented,
+        format!(
+            "{}Withdrew your comment on review {id8} ({date}).\n\
+             Judgment {}. Gate: 0 open. Review complete.\n",
+            undid(&comment),
+            first.id.short()
+        )
+    );
+    assert_eq!(
+        uncompleted,
+        format!(
+            "{}Withdrew your completion of review {id8} ({date}).\n\
+             Judgment {}. Gate: 0 open. Review not yet complete.\n\
+             Next: supersigil judge complete\n",
+            undid(&completion),
+            second.id.short()
+        )
+    );
+    assert_eq!(
+        unacknowledged,
+        format!(
+            "{}Withdrew your acknowledgment of old.txt and src/new.rs ({date}, review {id8}).\n\
+             Also withdrew the completion of review {id8}.\n\
+             Judgment {}. Gate: 2 open: old.txt, src/new.rs.\n{}",
+            undid(&both),
+            third.id.short(),
+            next("old.txt src/new.rs")
+        )
+    );
+}
+
+#[test]
+fn a_judgment_id_prefix_must_name_one_judgment() {
+    let (f, review) = reviewed();
+    // Two comments whose ids share their first 8 characters.
+    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
+    let store = review_store(&f, &f.reviews());
+    let mut tx = store.begin().unwrap();
+    for last in ["1", "2"] {
+        tx.append_judgment(&Judgment {
+            id: JudgmentId::new(format!("deadbeef-0000-4000-8000-00000000000{last}")),
+            basis: basis.clone(),
+            kind: JudgmentKind::Comment,
+            items: Vec::new(),
+            reason: None,
+            text: Some("Twin.".to_owned()),
+            closes: BTreeMap::new(),
+            withdraws: Vec::new(),
+            who: Who {
+                name: NAME.to_owned(),
+                email: EMAIL.to_owned(),
+            },
+            at: UtcTime::now(),
+        })
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    let undo = |prefix: &str| refused(&f, &mut judge(&f, &f.repo, &["undo", "--judgment", prefix]));
+
+    assert_eq!(
+        undo("deadbee"),
+        "No judgment recorded. Name a judgment by at least 8 characters of its id, not deadbee \
+         (supersigil judge show lists each judgment's id).\n"
+    );
+    assert_eq!(
+        undo("0123abcd"),
+        "No judgment recorded. No judgment starts with 0123abcd (supersigil judge show lists \
+         each judgment's id).\n"
+    );
+    assert_eq!(
+        undo("deadbeef"),
+        "No judgment recorded. Several judgments start with deadbeef; give more characters:\n  \
+         deadbeef-0000-4000-8000-000000000001\n  deadbeef-0000-4000-8000-000000000002\n"
+    );
+}
+
+/// The lines `judge list` prints in `dir`, each split into its columns.
+fn listed(f: &Fixture, dir: &Path, env: &[(&str, &str)]) -> Vec<Vec<String>> {
+    let output = judge(f, dir, &["--format", "terminal", "list"])
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            line.split("  ")
+                .map(str::trim)
+                .filter(|column| !column.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .collect()
+}
+
+/// `columns` as owned strings.
+fn row(columns: &[&str]) -> Vec<String> {
+    columns.iter().map(|&column| column.to_owned()).collect()
+}
+
+#[test]
+fn list_shows_judged_reviews_most_recently_judged_first_and_each_selection() {
+    let (f, first, ..) = completed();
+    write(&f.repo, "notes.txt", "changed since\n");
+    let second = f.json(&f.repo, &["review", "--format", "json"]);
+    judged(&f, &f.repo, &["comment", "--text", "Later."]);
+    // Another worktree's review, selected there and never judged.
+    let other = f.root.join("other");
+    f.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "--detach",
+        &other.display().to_string(),
+    ]);
+    let third = f.json(&other, &["review", "--format", "json"]);
+    let (first8, second8, third8) = (
+        &basis_id(&first)[..8],
+        &basis_id(&second)[..8],
+        &basis_id(&third)[..8],
+    );
+    let date = recorded(&f)[0].at.date();
+    let compared = format!("working tree over {}", head(&f));
+    let (repo, other_path) = (f.repo.display().to_string(), other.display().to_string());
+    let header = row(&[
+        "review",
+        "target",
+        "worktree",
+        "last judged",
+        "status",
+        "by",
+    ]);
+    let second_row = row(&[
+        &format!("* {second8}"),
+        &compared,
+        &repo,
+        &date,
+        "1 open",
+        NAME,
+    ]);
+    let first_row = row(&[first8, &compared, &repo, &date, "complete", NAME]);
+    let third_row = row(&[
+        &format!("* {third8}"),
+        &compared,
+        &other_path,
+        "not judged",
+        "0 open",
+    ]);
+
+    let before = listed(&f, &f.repo, &[]);
+    // Reading needs no person: an agent may list.
+    let by_agent = listed(&f, &other, &[("CLAUDECODE", "1")]);
+    judged(
+        &f,
+        &f.repo,
+        &["comment", "--review", first8, "--text", "Again."],
+    );
+    let after = listed(&f, &f.repo, &[]);
+
+    assert_eq!(
+        before,
+        [
+            header.clone(),
+            second_row.clone(),
+            first_row.clone(),
+            third_row.clone()
+        ]
+    );
+    assert_eq!(by_agent, before);
+    assert_eq!(after, [header, first_row, second_row, third_row]);
+}
+
+#[test]
+fn list_prints_each_review_as_json() {
+    let (f, first, ..) = completed();
+    write(&f.repo, "notes.txt", "changed since\n");
+    let second = f.json(&f.repo, &["review", "--format", "json"]);
+    let [_, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    // Piped, so `auto` prints JSON.
+    let output = judge(&f, &f.repo, &["list"]).output().unwrap();
+
+    assert!(output.status.success());
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        printed,
+        json!({"reviews": [
+            {
+                "review": basis_id(&first),
+                "selected": false,
+                "worktree": f.repo,
+                "base": first["basis"]["document"]["base"],
+                "target": first["basis"]["document"]["target"],
+                "complete": true,
+                "open": 0,
+                "last_judgment": {
+                    "id": completion.id.as_str(),
+                    "kind": "complete",
+                    "review": basis_id(&first),
+                    "who": {"name": NAME, "email": EMAIL},
+                    "at": completion.at.to_string(),
+                },
+            },
+            {
+                "review": basis_id(&second),
+                "selected": true,
+                "worktree": f.repo,
+                "base": second["basis"]["document"]["base"],
+                "target": second["basis"]["document"]["target"],
+                "complete": false,
+                "open": 1,
+                "last_judgment": null,
+            },
+        ]})
+    );
+}
+
+#[test]
+fn list_without_a_review_store_lists_nothing() {
+    let f = Fixture::new();
+    write(&f.repo, "a.txt", "one\n");
+    f.commit(&f.repo, "base");
+
+    let text = judged(&f, &f.repo, &["list"]);
+    let output = judge(&f, &f.repo, &["list"]).output().unwrap();
+
+    assert_eq!(text, "No judged or selected reviews in this repository.\n");
+    assert!(output.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!({"reviews": []})
+    );
+    // Reading created no store.
+    assert!(!f.reviews().exists());
+}
+
+#[test]
+fn list_indexes_each_gate_once_however_many_reviews_are_related() {
+    // 600 commented reviews of the worktree over one base, each of another
+    // target tree with the same 50 gate items, as reviewing a branch again
+    // and again collects; every one is related to every other.
+    let (f, review) = reviewed();
+    let document: Basis = serde_json::from_value(review["basis"]["document"].clone()).unwrap();
+    let template = &document.gate[0];
+    let gate: Vec<GateItem> = (0..50)
+        .map(|k| {
+            GateItem::new(
+                Subject::Path(PathBytes::new(format!("src/f{k}.rs"))),
+                template.detail.clone(),
+                template.fingerprint.clone(),
+            )
+        })
+        .collect();
+    let store = review_store(&f, &f.reviews());
+    let mut tx = store.begin().unwrap();
+    for k in 0..600 {
+        let mut basis = document.clone();
+        basis.target.tree = format!("{k:040x}");
+        basis.gate.clone_from(&gate);
+        let basis = tx.save_basis(&basis, UtcTime::now()).unwrap();
+        tx.append_judgment(&Judgment {
+            id: JudgmentId::generate(),
+            basis,
+            kind: JudgmentKind::Comment,
+            items: Vec::new(),
+            reason: None,
+            text: Some("Again.".to_owned()),
+            closes: BTreeMap::new(),
+            withdraws: Vec::new(),
+            who: Who {
+                name: NAME.to_owned(),
+                email: EMAIL.to_owned(),
+            },
+            at: UtcTime::now(),
+        })
+        .unwrap();
+    }
+    tx.commit().unwrap();
+
+    // Indexing every related review's gate again for each listed review
+    // took about 6 s here in a debug build; indexing each gate once takes
+    // under a second.
+    let started = Instant::now();
+    let rows = listed(&f, &f.repo, &[]);
+    let elapsed = started.elapsed();
+
+    assert!(elapsed < Duration::from_secs(4), "{elapsed:?}");
+    // The header, the 600, and the selected review.
+    assert_eq!(rows.len(), 602);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.iter().any(|column| column == "50 open"))
+            .count(),
+        600
+    );
+}
+
+/// `judgment` as reading commands print it in JSON.
+fn info(judgment: &Judgment) -> Value {
+    let mut info = json!({
+        "id": judgment.id.as_str(),
+        "kind": judgment.kind,
+        "review": judgment.basis.as_str(),
+        "who": judgment.who,
+        "at": judgment.at.to_string(),
+    });
+    if let Some(reason) = &judgment.reason {
+        info["reason"] = json!(reason);
+    }
+    if let Some(text) = &judgment.text {
+        info["text"] = json!(text);
+    }
+    info
+}
+
+/// The header `judge show` prints for `review`, reviewed in `worktree`
+/// over the commit `head`, with the whole working tree in scope.
+fn shown_header(review: &Value, worktree: &Path, head: &str) -> String {
+    let document = &review["basis"]["document"];
+    format!(
+        "Review {}: working tree over {head}.\n  worktree: {}\n  base: {} (tree {})\n  \
+         target: working tree (tree {})\n  scope: all tracked paths\n",
+        &basis_id(review)[..8],
+        worktree.display(),
+        document["base"]["commit"].as_str().unwrap(),
+        document["base"]["tree"].as_str().unwrap(),
+        document["target"]["tree"].as_str().unwrap(),
+    )
+}
+
+/// The slice fixture reviewed, then: `old.txt` acknowledged with a reason,
+/// `src/new.rs` dismissed, a comment on the review and one on
+/// `src/new.rs`, and `lines:src/lib.rs` acknowledged and undone. Returns
+/// the six judgments in that order.
+fn judged_with_history() -> (Fixture, Value, [Judgment; 6]) {
+    let (f, review) = reviewed();
+    for args in [
+        &[
+            "acknowledge",
+            "old.txt",
+            "--reason",
+            "read with the transcript",
+        ][..],
+        &["dismiss", "src/new.rs", "--reason", "generated"],
+        &["comment", "--text", "Careful work."],
+        &["comment", "src/new.rs", "--text", "Ask why."],
+        &["acknowledge", "lines:src/lib.rs"],
+        &["undo", "lines:src/lib.rs", "--reason", "wrong item"],
+    ] {
+        judged(&f, &f.repo, args);
+    }
+    let judgments = <[Judgment; 6]>::try_from(recorded(&f)).unwrap();
+    (f, review, judgments)
+}
+
+#[test]
+fn show_prints_the_selected_review_with_reasons_comments_and_history() {
+    let (
+        f,
+        review,
+        [
+            acknowledgment,
+            dismissal,
+            on_review,
+            on_item,
+            mistaken,
+            undo,
+        ],
+    ) = judged_with_history();
+    let by = |judgment: &Judgment| {
+        format!(
+            "by {NAME} on {} (judgment {})",
+            judgment.at.date(),
+            judgment.id.short()
+        )
+    };
+
+    let text = judged(&f, &f.repo, &["show"]);
+    // Reading needs no person: an agent may show.
+    let by_agent = judge(&f, &f.repo, &["--format", "terminal", "show"])
+        .env("CLAUDECODE", "1")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        text,
+        format!(
+            "{}Review not complete.\nGate: 2 open, 2 closed.\n\n  \
+             old.txt           acknowledged  {}: read with the transcript\n  \
+             lines:src/lib.rs  open          4 unexplained lines: 4 unattributed\n  \
+             src/new.rs        dismissed     {}: generated\n  \
+             gap:src/lib.rs    open          1 gap between recorded edits\n\n\
+             Comments:\n  on the review, {}: Careful work.\n  on src/new.rs, {}: Ask why.\n\n\
+             History:\n  acknowledgment of lines:src/lib.rs {}, withdrawn {}: wrong item\n\n{}",
+            shown_header(&review, &f.repo, &head(&f)),
+            by(&acknowledgment),
+            by(&dismissal),
+            by(&on_review),
+            by(&on_item),
+            by(&mistaken),
+            by(&undo),
+            next("lines:src/lib.rs gap:src/lib.rs")
+        )
+    );
+    assert!(by_agent.status.success());
+    assert_eq!(String::from_utf8(by_agent.stdout).unwrap(), text);
+}
+
+#[test]
+fn show_prints_the_review_as_json() {
+    let (f, review, [acknowledgment, _, on_review, on_item, mistaken, undo]) =
+        judged_with_history();
+
+    // Piped, so `auto` prints JSON.
+    let output = judge(&f, &f.repo, &["show"]).output().unwrap();
+
+    assert!(output.status.success());
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let document = &review["basis"]["document"];
+    assert_eq!(printed["review"], basis_id(&review));
+    for field in ["worktree", "base", "target", "scope"] {
+        assert_eq!(printed[field], document[field], "{field}");
+    }
+    assert_eq!(
+        printed["status"],
+        json!({"complete": false, "completion": null})
+    );
+    assert_eq!(printed["same_content_completions"], json!([]));
+    assert_eq!(printed["gate"]["open"], 2);
+    assert_eq!(
+        gate_row(&printed, "old.txt")["judgment"],
+        info(&acknowledgment)
+    );
+    assert_eq!(
+        printed["comments"],
+        json!([
+            {"judgment": info(&on_review), "items": []},
+            {"judgment": info(&on_item), "items": ["src/new.rs"]},
+        ])
+    );
+    assert_eq!(
+        printed["history"],
+        json!([{
+            "judgment": info(&mistaken),
+            "items": ["lines:src/lib.rs"],
+            "undo": info(&undo),
+        }])
+    );
+}
+
+#[test]
+fn show_names_a_review_and_its_closures_carried_from_a_completed_review_of_the_same_content() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    let [acknowledgment, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+    let date = acknowledgment.at.date();
+    let carried = format!(
+        "acknowledged  carried from review {first8}, by {NAME} on {date} (judgment {}): checked",
+        acknowledgment.id.short()
+    );
+    let body = format!(
+        "Review not complete.\nCompleted {date} for the same content as review {first8}; \
+         supersigil review shows whether it carries over.\nGate: 0 open, 2 closed.\n\n  \
+         a.txt  {carried}\n  b.txt  {carried}\n\n"
+    );
+
+    let selected = judged(&f, &other, &["show"]);
+    let named = judged(&f, &f.repo, &["show", second8]);
+    let completed = judged(&f, &f.repo, &["show"]);
+    let output = judge(&f, &other, &["show"]).output().unwrap();
+
+    let header = shown_header(&second, &other, &head(&f));
+    assert_eq!(
+        selected,
+        format!("{header}{body}Next: supersigil judge complete\n")
+    );
+    // From the first worktree, which selects the first review, every next
+    // command names the second.
+    assert_eq!(
+        named,
+        format!("{header}{body}Next: supersigil judge complete --review={second8}\n")
+    );
+    assert_eq!(
+        completed,
+        format!(
+            "{}Review complete: completed on {date} by {NAME} (judgment {}).\nGate: 0 open, 2 \
+             closed.\n\n  a.txt  acknowledged  by {NAME} on {date} (judgment {}): checked\n  \
+             b.txt  acknowledged  by {NAME} on {date} (judgment {}): checked\n",
+            shown_header(&first, &f.repo, &head(&f)),
+            completion.id.short(),
+            acknowledgment.id.short(),
+            acknowledgment.id.short()
+        )
+    );
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["review"], basis_id(&second));
+    assert_eq!(
+        printed["same_content_completions"],
+        json!([info(&completion)])
+    );
+    assert_eq!(gate_row(&printed, "a.txt")["state"], "carried");
+    assert_eq!(
+        gate_row(&printed, "a.txt")["judgment"],
+        info(&acknowledgment)
+    );
+}
+
+#[test]
+fn show_needs_a_review_to_show() {
+    let f = Fixture::new();
+    write(&f.repo, "a.txt", "one\n");
+    f.commit(&f.repo, "base");
+    let show = |args: &[&str]| {
+        let output = judge(&f, &f.repo, &[&["show"], args].concat())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        String::from_utf8(output.stderr).unwrap()
+    };
+
+    assert_eq!(
+        show(&[]),
+        "No review selected in this worktree. Run supersigil review first, or pass --review \
+         <id> (supersigil judge list shows reviews).\n"
+    );
+    assert_eq!(
+        show(&["0123abcd"]),
+        "No saved review starts with 0123abcd (supersigil judge list shows reviews).\n"
+    );
+    // Reading created no store.
+    assert!(!f.reviews().exists());
+}
+
+#[test]
+fn show_of_a_review_with_nothing_to_review_suggests_no_judgment() {
+    let f = Fixture::new();
+    write(&f.repo, "a.txt", "one\n");
+    f.commit(&f.repo, "base");
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let text = judged(&f, &f.repo, &["show"]);
+    let output = judge(&f, &f.repo, &["show"]).output().unwrap();
+
+    assert_eq!(
+        text,
+        format!(
+            "{}Nothing to review: no changes in scope.\nGate: no items.\n",
+            shown_header(&review, &f.repo, &head(&f))
+        )
+    );
+    // The JSON says what it always says.
+    assert!(output.status.success());
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        printed["status"],
+        json!({"complete": false, "completion": null})
+    );
+    assert_eq!(printed["gate"], json!({"open": 0, "items": []}));
+}
+
+#[test]
+fn an_undo_and_a_judgment_already_withdrawn_cannot_be_undone() {
+    let (f, _) = reviewed();
+    judged(&f, &f.repo, &["acknowledge", "old.txt"]);
+    judged(&f, &f.repo, &["undo", "old.txt"]);
+    let [acknowledgment, undo] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    let of_undo = refused(
+        &f,
+        &mut judge(&f, &f.repo, &["undo", "--judgment", undo.id.as_str()]),
+    );
+    let withdrawn = refused(
+        &f,
+        &mut judge(
+            &f,
+            &f.repo,
+            &["undo", "--judgment", acknowledgment.id.as_str()],
+        ),
+    );
+
+    assert_eq!(
+        of_undo,
+        format!(
+            "No judgment recorded. Judgment {} is an undo; an undo cannot be withdrawn.\n",
+            undo.id.short()
+        )
+    );
+    assert_eq!(
+        withdrawn,
+        format!(
+            "No judgment recorded. Judgment {} is already withdrawn.\n",
+            acknowledgment.id.short()
+        )
     );
 }
