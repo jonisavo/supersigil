@@ -15,7 +15,6 @@ use supersigil_git::bytes::{Blob, read_blobs_within};
 use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, changed_paths, classify_bytes, classify_change,
 };
-use supersigil_git::retention::common_dir;
 use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_record::RecordId;
 use supersigil_record::derivations::ALGORITHM_VERSION;
@@ -52,7 +51,9 @@ use crate::pipeline::{
 use crate::reconcile::LOCK_WAIT;
 use crate::record_dir;
 use crate::reopening::read_changes;
-use crate::review_dir::{begin_within, judged_bases, open_review_store_within, resolve_review_dir};
+use crate::review_dir::{
+    begin_within, canonical_common_dir, judged_bases, open_review_store_within, resolve_review_dir,
+};
 
 /// Runs `supersigil review`.
 ///
@@ -169,7 +170,7 @@ fn store(
     basis: &Basis,
     id: &BasisId,
 ) -> Result<Stored, CliError> {
-    let repository = common_dir(&g.repo)?;
+    let repository = canonical_common_dir(&g.repo)?;
     let store = open_review_store_within(reviews_dir, &repository, LOCK_WAIT)?;
     let saved = match &store {
         Some(store) => save(g, store, basis)?.is_some(),

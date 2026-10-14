@@ -8,10 +8,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use supersigil_git::retention::common_dir;
+use supersigil_git::{GitError, Repo};
 use supersigil_record::StoreError;
 use supersigil_record::reviews::{
     self, Basis, BasisId, Judgment, ReviewSnapshot, ReviewStore, ReviewTx,
 };
+use supersigil_session::checkout::canonical;
 
 use crate::error::CliError;
 use crate::record_dir::{lock_dir_within, poll, resolve_data_dir};
@@ -28,10 +31,30 @@ pub fn resolve_review_dir(flag: Option<&Path>) -> Result<PathBuf, CliError> {
     resolve_data_dir(flag, "SUPERSIGIL_REVIEW_DIR", "reviews")
 }
 
+/// The canonical path of `repo`'s git common directory
+/// ([`common_dir`]), which names the repository's review store: resolved as
+/// [`canonical`] resolves the worktrees whose selections the store keeps,
+/// so every worktree finds the one store.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] if git cannot name the common directory or it
+/// cannot be resolved.
+pub fn canonical_common_dir(repo: &Repo) -> Result<PathBuf, CliError> {
+    let path = common_dir(repo)?;
+    canonical(&path).map_err(|source| {
+        CliError::Git(GitError::Io {
+            context: format!("cannot resolve {}", path.display()),
+            source,
+        })
+    })
+}
+
 /// Finds the review store of `repository`, the canonical path of its git
-/// common directory, in `reviews_dir`, or creates one there. Lookup and
-/// creation happen under the lock on `<reviews_dir>/.lock`, tried every
-/// 50 ms for up to `wait`; returns `None` when it stays held.
+/// common directory ([`canonical_common_dir`]), in `reviews_dir`, or
+/// creates one there. Lookup and creation happen under the lock on
+/// `<reviews_dir>/.lock`, tried every 50 ms for up to `wait`; returns
+/// `None` when it stays held.
 ///
 /// # Errors
 ///

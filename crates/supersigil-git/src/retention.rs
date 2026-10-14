@@ -8,18 +8,16 @@ use crate::error::GitError;
 use crate::oid::{ObjectId, parse_output};
 use crate::path::path_from_line;
 use crate::repo::Repo;
-use crate::run::io_error;
 
-/// Returns the canonical path of the repository's git common directory,
-/// which every worktree of the repository shares: symlinks resolved and, on
-/// Windows, no verbatim prefix, as `supersigil-session` canonicalizes
-/// checkouts.
+/// Returns the path of the repository's git common directory, which every
+/// worktree of the repository shares, as git names it from `repo`'s root,
+/// made absolute but not resolved: two worktrees may spell it differently,
+/// as through a symbolic link, so a caller comparing it canonicalizes it.
 ///
 /// # Errors
 ///
 /// Returns [`GitError::Parse`] if the platform cannot represent the path git
-/// prints, [`GitError::Io`] if it cannot be resolved, or the errors of
-/// [`crate::Git::output`].
+/// prints, or the errors of [`crate::Git::output`].
 pub fn common_dir(repo: &Repo) -> Result<PathBuf, GitError> {
     let output = repo.git().output(["rev-parse", "--git-common-dir"])?;
     // No `-z` form: strip only the line terminator, since a path may end in
@@ -28,10 +26,7 @@ pub fn common_dir(repo: &Repo) -> Result<PathBuf, GitError> {
         GitError::Parse("common directory not representable on this platform".to_owned())
     })?;
     // A relative path is relative to the directory git ran in, the root.
-    let path = repo.root().join(path);
-    std::fs::canonicalize(&path)
-        .map(without_verbatim_prefix)
-        .map_err(|e| io_error(&format!("cannot resolve {}", path.display()), e))
+    Ok(repo.root().join(path))
 }
 
 /// The person's git identity, from `user.name` and `user.email`.
@@ -291,39 +286,4 @@ fn read_ref(repo: &Repo, reference: &str) -> Result<Option<Pointed>, GitError> {
             .map(parse)
             .collect::<Result<_, _>>()?,
     }))
-}
-
-/// Converts `\\?\C:\x` to `C:\x` and `\\?\UNC\server\share` to
-/// `\\server\share`, leaving other paths unchanged.
-fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
-    let stripped = {
-        let text = path.to_string_lossy();
-        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-            Some(format!(r"\\{rest}"))
-        } else {
-            text.strip_prefix(r"\\?\").map(str::to_owned)
-        }
-    };
-    stripped.map_or(path, PathBuf::from)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn verbatim_prefixes_are_dropped() {
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"\\?\C:\work\repo\.git")),
-            PathBuf::from(r"C:\work\repo\.git")
-        );
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\.git")),
-            PathBuf::from(r"\\server\share\.git")
-        );
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from("/work/repo/.git")),
-            PathBuf::from("/work/repo/.git")
-        );
-    }
 }

@@ -46,7 +46,7 @@ use crate::format::{OutputFormat, escape_control, write_json};
 use crate::item_names::{associations, name, typed};
 use crate::reconcile::LOCK_WAIT;
 use crate::record_dir::canonical_checkout;
-use crate::review_dir::{begin_within, judged_bases, resolve_review_dir};
+use crate::review_dir::{begin_within, canonical_common_dir, judged_bases, resolve_review_dir};
 
 /// What a refusal inside an agent session says. It never suggests unsetting
 /// the marker.
@@ -185,7 +185,7 @@ impl Checkout {
         let repo = Repo::open(Git::new(&canonical_checkout(args.checkout.as_deref())?))?;
         let worktree = canonical(repo.root())?;
         let cwd = canonical_checkout(None)?;
-        let store = reviews::find(&reviews_dir, &retention::common_dir(&repo)?)?;
+        let store = reviews::find(&reviews_dir, &canonical_common_dir(&repo)?)?;
         Ok(Self {
             repo,
             worktree,
