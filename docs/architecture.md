@@ -294,9 +294,14 @@ directory, which every worktree shares. Writes follow the record protocol:
 a writer lock, immutable basis files, an append-only judgment log read only
 to its pinned length, and a manifest published by rename. Lock waits are
 bounded at 2 seconds: a review whose store stays busy is still printed,
-marked unsaved, and judging needs a saved review. A review that names a
-path that is not valid UTF-8, such as its worktree's, is printed but never
-saved, since the store's JSON cannot hold the path. Bases with no judgment
+marked unsaved, and judging needs a saved review. A review whose basis
+cannot be stored, since it names a path that is not valid UTF-8 (its
+worktree's, say) and the store's JSON cannot hold that path, is likewise
+printed but never saved. Records hold checkout paths in JSON too: when
+reconciling would store a record's checkout that is not valid UTF-8 (a
+repository at such a path, reached through a UTF-8 alias that a transcript
+recorded, say), the command fails before any review is printed, as it did
+before reviews were saved. Bases with no judgment
 that no worktree selects leave the manifest 14 days after they were last
 reviewed, and their files are deleted a day later, so no published manifest
 names a deleted file. Judged bases are kept. Neither store's cleanup ever
