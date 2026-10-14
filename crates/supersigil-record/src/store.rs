@@ -16,6 +16,10 @@
 //! `<n>` is the number assigned to a session on its first write. Using this
 //! number keeps source-provided session IDs out of file paths.
 //!
+//! A derivation document a later revision replaces stays for readers of
+//! earlier revisions. The manifest lists it as superseded at the time of
+//! that revision, and the first commit more than 14 days later deletes it.
+//!
 //! Keep `write.lock` in place. Its presence does not mean a writer is active;
 //! the operating-system lock controls access. Deleting the file would let a
 //! second writer create and lock a different file while the first still runs.
@@ -34,6 +38,7 @@ pub use write::WriteTx;
 use crate::files;
 use crate::ids::RecordId;
 use crate::reviews::BasisId;
+use crate::time::UtcTime;
 
 /// File name of the manifest inside a record directory or review store.
 pub const MANIFEST_FILE: &str = "manifest.json";
@@ -278,14 +283,29 @@ impl Store {
         Ok(RecordSnapshot::new(self.root.clone(), self.manifest()?))
     }
 
-    /// Acquires the writer lock and starts a transaction at the current revision.
+    /// Acquires the writer lock and starts a transaction at the current
+    /// revision, timed by the system clock (see [`Self::begin_at`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::begin_at`].
+    pub fn begin(&self) -> Result<WriteTx<'_>, StoreError> {
+        self.begin_at(UtcTime::now())
+    }
+
+    /// Acquires the writer lock and starts a transaction at the current
+    /// revision whose commit is published at `now`: documents it replaces
+    /// are listed as superseded at `now`, and its commit deletes those
+    /// superseded more than [`GRACE_SECONDS`] before `now`.
+    ///
+    /// [`GRACE_SECONDS`]: crate::time::GRACE_SECONDS
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Locked`] if another writer holds the lock,
     /// [`StoreError::Io`] if the lock file cannot be opened or locked, or any
     /// error returned by [`Self::manifest`].
-    pub fn begin(&self) -> Result<WriteTx<'_>, StoreError> {
-        WriteTx::begin(self)
+    pub fn begin_at(&self, now: UtcTime) -> Result<WriteTx<'_>, StoreError> {
+        WriteTx::begin(self, now)
     }
 }

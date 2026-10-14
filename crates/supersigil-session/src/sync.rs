@@ -86,6 +86,8 @@ pub struct SyncReport {
 /// Commits one revision if observations were added or cursors changed.
 /// Otherwise returns the existing revision. Capture problems are saved as
 /// [`CaptureLimitation`] observations in the same commit as the cursor update.
+/// The commit, timed by the system clock, also deletes derivation documents
+/// replaced more than 14 days earlier (see [`WriteTx::commit`]).
 ///
 /// Derivations group each session's edits by [`file_location`], so edits of
 /// one file are compared whatever directory the session named it from. A

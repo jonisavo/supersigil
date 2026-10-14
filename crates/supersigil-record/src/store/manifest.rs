@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::StoreError;
 use crate::files;
 use crate::ids::{ContentId, RecordId, Revision, SessionId};
+use crate::time::UtcTime;
 
 /// Manifest schema version supported for reading and writing.
 pub const SCHEMA_VERSION: u32 = 2;
@@ -58,6 +59,18 @@ pub struct Manifest {
     /// Document keys mapped to files relative to the record directory, for
     /// example `derivations/0` mapped to `derivations/0.r3.json`.
     pub documents: BTreeMap<String, String>,
+    /// Document files a later revision replaced, relative to the record
+    /// directory, mapped to the time that revision was published. The
+    /// first commit more than [`GRACE_SECONDS`] after that time deletes
+    /// the file and drops its entry; an entry that names anything but a
+    /// derivation document no longer referenced, under any spelling or
+    /// through a symbolic link, is dropped without deleting anything
+    /// ([`WriteTx::commit`]). Omitted from the JSON when empty.
+    ///
+    /// [`GRACE_SECONDS`]: crate::time::GRACE_SECONDS
+    /// [`WriteTx::commit`]: crate::store::WriteTx::commit
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub superseded: BTreeMap<String, UtcTime>,
     /// Transcript paths mapped to the positions where sync should resume.
     pub cursors: BTreeMap<String, SourceCursor>,
 }
@@ -74,6 +87,7 @@ impl Manifest {
             sessions: BTreeMap::new(),
             logs: BTreeMap::new(),
             documents: BTreeMap::new(),
+            superseded: BTreeMap::new(),
             cursors: BTreeMap::new(),
         }
     }
