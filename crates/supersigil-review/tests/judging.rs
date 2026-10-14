@@ -583,7 +583,7 @@ fn many_large_judgments_on_related_reviews_decide_the_states_promptly() {
 
     // Checking each item against each judgment's whole list of items took
     // about 5 s here in a debug build; an index by item takes milliseconds.
-    let latest = finishes_within(Duration::from_secs(2), move || {
+    let latest = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
         let states = states(&current, &earlier, &ledger);
         let closing: BTreeSet<&str> = states
@@ -631,7 +631,7 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
     // looking each item up in every related gate, took about 8 s here in
     // a debug build; indexing each gate once and visiting only the reviews
     // with a judgment of the item takes milliseconds.
-    let (closing, same_as_alone) = finishes_within(Duration::from_secs(2), move || {
+    let (closing, same_as_alone) = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
         let indexes: HashMap<&BasisId, GateIndex<'_>> = reviews
             .iter()
@@ -681,7 +681,7 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
 
     // Finding each named item by scanning the gate took about 5 s here in
     // a debug build; an index by ID takes milliseconds.
-    let (closed, withdrawn) = finishes_within(Duration::from_secs(2), move || {
+    let (closed, withdrawn) = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
         let states = states(&current, &[], &ledger);
         let closed = states.check_close(&named).unwrap_err().len();

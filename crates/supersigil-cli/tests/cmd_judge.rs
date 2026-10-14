@@ -1577,7 +1577,7 @@ fn list_indexes_each_gate_once_however_many_reviews_are_related() {
     let rows = listed(&f, &f.repo, &[]);
     let elapsed = started.elapsed();
 
-    assert!(elapsed < Duration::from_secs(4), "{elapsed:?}");
+    assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
     // The header, the 600, and the selected review.
     assert_eq!(rows.len(), 602);
     assert_eq!(

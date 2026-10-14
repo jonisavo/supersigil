@@ -289,7 +289,31 @@ mod tests {
         let earlier = UtcTime::from_unix(-5);
         let later = UtcTime::from_unix(1_791_894_896);
         assert!(earlier < later);
-        assert!(UtcTime::now() > later);
+        assert!(later < UtcTime::from_unix(1_791_894_897));
+    }
+
+    /// The system time `time` names.
+    fn system_time(time: UtcTime) -> SystemTime {
+        let seconds = std::time::Duration::from_secs(time.unix().unsigned_abs());
+        if time.unix() < 0 {
+            UNIX_EPOCH - seconds
+        } else {
+            UNIX_EPOCH + seconds
+        }
+    }
+
+    #[test]
+    fn now_is_the_system_clock_without_its_fraction_of_a_second() {
+        // Compared only with readings of the clock taken around it, so the
+        // test holds whatever date the clock is set to.
+        let second = std::time::Duration::from_secs(1);
+        let before = SystemTime::now();
+        let now = system_time(UtcTime::now());
+        let after = SystemTime::now();
+        assert!(
+            before < now + second && now < after + second,
+            "{before:?} {now:?} {after:?}"
+        );
     }
 
     #[test]
