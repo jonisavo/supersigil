@@ -540,7 +540,13 @@ fn a_review_not_saved_says_why_and_how_to_save_it() {
     );
     // The gate still shows; judging it waits for a saved review.
     assert_eq!(row(&text, "notes.txt").0, "open");
-    assert!(text.ends_with("\n\nNext: supersigil review\n"), "{text}");
+    assert!(
+        text.ends_with(&format!(
+            "\n\nNext: supersigil review --base={}\n",
+            "a".repeat(40)
+        )),
+        "{text}"
+    );
     assert!(!text.contains("supersigil judge"), "{text}");
     // A saved review has no reason.
     let saved = serde_json::to_value(sample_review()).unwrap();
@@ -697,7 +703,10 @@ fn follow_up_reviews_repeat_the_checkout_and_reviews_directory() {
     let unchanged = render_summary(&review_of_files(0), &addressing, escape);
 
     assert!(
-        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
+        unsaved.ends_with(&format!(
+            "\n\nNext: supersigil review --base={} {flags}\n",
+            "a".repeat(40)
+        )),
         "{unsaved}"
     );
     assert!(
@@ -723,6 +732,59 @@ fn review_commands_repeat_the_checkout_and_the_reviews_directory() {
          --review-dir=/tmp/reviews"
     );
     assert_eq!(Addressing::default().review(""), "supersigil review");
+}
+
+#[test]
+fn a_busy_review_is_retried_with_its_own_base_target_and_paths() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("../my repo")),
+        review_dir: Some(PathBuf::from("/tmp/reviews")),
+    };
+    let mut commit = sample_review();
+    commit.basis = None;
+    commit.basis_unsaved = Some(Unsaved::Busy);
+    commit.target.kind = TargetKindInfo::Commit;
+    commit.target.commit = Some("d".repeat(40));
+    commit.scope.paths = vec!["src/parser.rs".to_owned(), "a b".to_owned()];
+    let mut working = sample_review();
+    working.basis = None;
+    working.basis_unsaved = Some(Unsaved::Busy);
+    working.scope.include_untracked = vec!["new file.txt".to_owned()];
+
+    let commit = render_summary(&commit, &addressing, escape);
+    let working = render_summary(&working, &addressing, escape);
+    let working_plain = {
+        let mut review = sample_review();
+        review.basis = None;
+        review.basis_unsaved = Some(Unsaved::Busy);
+        summary(&review)
+    };
+
+    assert!(
+        commit.ends_with(&format!(
+            "\n\nNext: supersigil review --base={} --target={} --checkout='../my repo' \
+             --review-dir=/tmp/reviews -- src/parser.rs 'a b'\n",
+            "a".repeat(40),
+            "d".repeat(40)
+        )),
+        "{commit}"
+    );
+    assert!(
+        working.ends_with(&format!(
+            "\n\nNext: supersigil review --base={} --include-untracked='new file.txt' \
+             --checkout='../my repo' --review-dir=/tmp/reviews\n",
+            "a".repeat(40)
+        )),
+        "{working}"
+    );
+    assert!(
+        working_plain.ends_with(&format!(
+            "\n\nNext: supersigil review --base={}\n",
+            "a".repeat(40)
+        )),
+        "{working_plain}"
+    );
 }
 
 #[test]
@@ -752,7 +814,10 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         "{saved}"
     );
     assert!(
-        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n{note}\n")),
+        unsaved.ends_with(&format!(
+            "\n\nNext: supersigil review --base={} {flags}\n{note}\n",
+            "a".repeat(40)
+        )),
         "{unsaved}"
     );
     assert!(

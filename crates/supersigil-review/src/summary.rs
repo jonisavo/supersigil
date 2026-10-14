@@ -113,7 +113,10 @@ pub fn render_summary(
         Vec::new()
     } else if review.basis.is_none() {
         if saves_later(review) {
-            vec![escape(&format!("Next: {}", addressing.review("")))]
+            vec![escape(&format!(
+                "Next: {}",
+                retry_command(review, addressing)
+            ))]
         } else {
             Vec::new()
         }
@@ -188,6 +191,33 @@ pub fn compared(target_commit: Option<&str>, base_commit: Option<&str>) -> Strin
         "{target} over {}",
         base_commit.map_or("the empty tree", short)
     )
+}
+
+/// The command that reviews again what `review` shows: its base, a commit
+/// target, the untracked files it included, and its path filter, then the
+/// addressing flags.
+fn retry_command(review: &Review, addressing: &Addressing) -> String {
+    let mut words = Vec::new();
+    if let Some(base) = &review.base.commit {
+        words.push(format!("--base={}", shell_word(base)));
+    }
+    if review.target.kind == TargetKindInfo::Commit
+        && let Some(target) = &review.target.commit
+    {
+        words.push(format!("--target={}", shell_word(target)));
+    }
+    for path in &review.scope.include_untracked {
+        words.push(format!("--include-untracked={}", shell_word(path)));
+    }
+    let mut command = addressing.review(&words.join(" "));
+    if !review.scope.paths.is_empty() {
+        command.push_str(" --");
+        for path in &review.scope.paths {
+            command.push(' ');
+            command.push_str(&shell_word(path));
+        }
+    }
+    command
 }
 
 /// Whether running the review again may save it: unless it names a path

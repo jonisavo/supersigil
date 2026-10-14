@@ -2863,8 +2863,9 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
     assert_eq!(gate_row(&review, "notes.txt")["state"], "open");
     let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
     assert_eq!(summary.lines().next(), Some(NOT_SAVED), "{summary}");
+    let base = review["base"]["commit"].as_str().unwrap();
     assert!(
-        summary.ends_with("\n\nNext: supersigil review\n"),
+        summary.ends_with(&format!("\n\nNext: supersigil review --base={base}\n")),
         "{summary}"
     );
     drop(held);
@@ -2903,13 +2904,17 @@ fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
     let store = review_store(&f, &reviews);
     let held = store.begin().unwrap();
 
+    let tip = f.git(&["rev-parse", "HEAD"]);
     let unsaved = summary();
     drop(held);
     f.commit(&f.repo, "everything");
     let unchanged = summary();
 
     assert!(
-        unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
+        unsaved.ends_with(&format!(
+            "\n\nNext: supersigil review --base={} {flags}\n",
+            tip.trim()
+        )),
         "{unsaved}"
     );
     assert!(
