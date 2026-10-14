@@ -128,9 +128,8 @@ fn read_basis_file(path: &Path, id: &BasisId) -> Result<Vec<u8>, StoreError> {
     Ok(bytes)
 }
 
-/// Whether `name` is one the store writes inside [`BASES_DIR`]: a basis
-/// file's ([`basis_file_name`]), or that of a temporary file
-/// [`files::replace`] writes one through ([`files::temporary_target`]).
+/// Checks whether `name` is a basis file name ([`basis_file_name`]) or its
+/// temporary file name ([`files::temporary_target`]) in [`BASES_DIR`].
 fn written_in_bases(name: &str) -> bool {
     files::temporary_target(name)
         .unwrap_or(name)
@@ -138,8 +137,7 @@ fn written_in_bases(name: &str) -> bool {
         .is_some_and(is_sha256_hex)
 }
 
-/// Whether `text` is 64 lowercase hexadecimal digits, as a SHA-256 hash
-/// is written.
+/// Checks whether `text` contains exactly 64 lowercase hexadecimal digits.
 fn is_sha256_hex(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
@@ -165,7 +163,7 @@ impl ReviewStore {
         Self::create_with_id(root, StoreId::generate(), repository)
     }
 
-    /// [`Self::create`] with the ID the caller named `root` after.
+    /// Creates the store as [`Self::create`] does, using the ID in `root`'s name.
     ///
     /// # Errors
     ///

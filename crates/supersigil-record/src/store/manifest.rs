@@ -59,13 +59,12 @@ pub struct Manifest {
     /// Document keys mapped to files relative to the record directory, for
     /// example `derivations/0` mapped to `derivations/0.r3.json`.
     pub documents: BTreeMap<String, String>,
-    /// Document files a later revision replaced, relative to the record
-    /// directory, mapped to the time that revision was published. The
-    /// first commit more than [`GRACE_SECONDS`] after that time deletes
-    /// the file and drops its entry; an entry that names anything but a
-    /// derivation document no longer referenced, under any spelling or
-    /// through a symbolic link, is dropped without deleting anything
-    /// ([`WriteTx::commit`]). Omitted from the JSON when empty.
+    /// Replaced document paths relative to the record directory, mapped to
+    /// their replacement times. Commits delete eligible files more than
+    /// [`GRACE_SECONDS`] after replacement and drop their entries. Cleanup
+    /// keeps files still needed by readers and retries undeletable files.
+    /// It drops invalid entries without deleting files ([`WriteTx::commit`]).
+    /// Serialization omits this map when empty.
     ///
     /// [`GRACE_SECONDS`]: crate::time::GRACE_SECONDS
     /// [`WriteTx::commit`]: crate::store::WriteTx::commit

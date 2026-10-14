@@ -26,11 +26,9 @@ pub mod pipeline;
 pub mod reconcile;
 /// Records directory resolution and record lookup.
 pub mod record_dir;
-/// What `review` reads of how the code and the records changed since an
-/// earlier judged review.
+/// Reads code and record changes since an earlier judged review.
 pub mod reopening;
-/// Reviews directory resolution, review store lookup, and the judged
-/// reviews read beside one.
+/// Resolves review directories, finds review stores, and loads related judged reviews.
 pub mod review_dir;
 
 pub use commands::{

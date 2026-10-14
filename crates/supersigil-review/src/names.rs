@@ -1,16 +1,14 @@
-//! Item names: the name a person types for each gate item, and how a typed
-//! name resolves to items.
+//! Names people type for gate items and rules for resolving them.
 //!
-//! A path names its only item (`src/parser.rs`); every item of a path with
-//! several items needs its origin's qualifier (`lines:src/parser.rs`). A
-//! commit is `commit:` with a prefix of its id, evidence not brought up to
-//! date is `unreconciled:` with a checkout or any path associated with the
-//! record, and any item is `id:` with a prefix of its id, the name of an item
-//! whose path cannot be typed. [`parse`] splits a typed name's qualifier from
-//! the rest; the CLI turns the rest into a [`Name`], and
-//! [`ItemNames::resolve`] finds the items it names. There are no wildcards:
-//! a name that matches nothing, several items, or a directory is refused
-//! with the names to type instead.
+//! A path names its only item (`src/parser.rs`). Multiple items at a path
+//! need origin qualifiers (`lines:src/parser.rs`). Commits use `commit:` with
+//! an ID prefix. Unreconciled evidence uses `unreconciled:` with a checkout
+//! or a path associated with the record. Any item accepts `id:` with an ID
+//! prefix, including items whose paths cannot be typed.
+//!
+//! [`parse`] splits the qualifier; the CLI resolves the rest into a [`Name`];
+//! [`ItemNames::resolve`] finds its items. Names have no wildcards. Refusals
+//! report missing or ambiguous matches or directories, with alternatives.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -21,13 +19,13 @@ use supersigil_record::reviews::{GateItem, ItemId, Origin, PathBytes, Subject};
 
 use crate::summary::printed;
 
-/// Fewest hex digits of a commit id a `commit:` name takes.
+/// Minimum hex digits in a `commit:` prefix.
 const COMMIT_PREFIX: usize = 7;
 
-/// Fewest hex digits of an item id an `id:` name takes.
+/// Minimum hex digits in an `id:` prefix.
 const ID_PREFIX: usize = 8;
 
-/// Most nearby names a refusal lists.
+/// Maximum nearby names in a refusal.
 const NEARBY: usize = 5;
 
 /// Every origin, each with its qualifier.
@@ -61,8 +59,8 @@ pub enum Parsed<'a> {
     Id(&'a str),
 }
 
-/// Splits a known qualifier from `typed`. Only one is split, and a name
-/// starting with no known qualifier is a path, colons and all.
+/// Splits one known qualifier from `typed`. Without a known leading
+/// qualifier, treats the whole name as a path, including colons.
 #[must_use]
 pub fn parse(typed: &str) -> Parsed<'_> {
     if let Some(prefix) = typed.strip_prefix("id:") {
@@ -90,7 +88,7 @@ pub fn parse(typed: &str) -> Parsed<'_> {
     }
 }
 
-/// A typed name with its rest resolved by the CLI.
+/// A parsed name whose remaining text the CLI has resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Name {
     /// A repository path, with the origin its qualifier names, if any. The
@@ -138,7 +136,7 @@ pub enum NameError {
     TooShort {
         /// The name as typed.
         name: String,
-        /// The fewest hex digits it takes.
+        /// The minimum number of hex digits.
         minimum: usize,
     },
 }
@@ -179,13 +177,12 @@ pub struct ItemNames<'g> {
     items: &'g [GateItem],
     associations: BTreeMap<RecordId, Vec<PathBuf>>,
     ignore_case: bool,
-    /// The index of every item about a path, in gate order, by the path
-    /// as the repository compares paths (see [`folded`]).
+    /// Item indices in gate order, keyed by path under the repository's case
+    /// rule (see [`folded`]).
     by_path: BTreeMap<Vec<u8>, Vec<usize>>,
     /// Each item's index, by id.
     by_id: BTreeMap<&'g ItemId, usize>,
-    /// Every item id with its item's index, sorted, so the ids a prefix
-    /// starts form one range.
+    /// Sorted item IDs with their indices, so prefix matches form one range.
     id_keys: Vec<(&'g str, usize)>,
     /// The same for the ids of commits.
     commit_keys: Vec<(&'g str, usize)>,
@@ -193,23 +190,20 @@ pub struct ItemNames<'g> {
 }
 
 impl<'g> ItemNames<'g> {
-    /// Names `items`. `show` gives a repository path as typed from the
-    /// current directory, or `None` when it cannot be typed (it is not
-    /// UTF-8 or holds a control character); `associations` are the
-    /// checkouts associated with each record not reconciled; with
-    /// `ignore_case`, paths that differ only in ASCII case are one path.
+    /// Names `items`. `show` returns a repository path as typed from the
+    /// current directory, or `None` for non-UTF-8 paths or control characters.
+    /// `associations` maps unreconciled records to checkouts. `ignore_case`
+    /// treats paths differing only in ASCII case as one path.
     ///
-    /// A path names its only item; each item of a path with several is
-    /// qualified, and one whose qualified name still matches several items
-    /// (paths differing only in case) is named by its id. A commit's name
-    /// holds the shortest prefix of at least 7 digits no other commit
-    /// shares; an unreconciled item's is its checkout or the record's first
-    /// association, when that is typeable and names it alone. Every other
-    /// item is `id:` with the shortest prefix of at least 8 digits no other
-    /// item shares.
+    /// A path names its only item; multiple items require origin qualifiers.
+    /// Items whose qualified names remain ambiguous use IDs. Commit names use
+    /// the shortest unique prefix of at least 7 digits. Unreconciled items use
+    /// the checkout or record's first association if typeable and unambiguous.
+    /// Other items use `id:` with the shortest unique prefix of at least
+    /// 8 digits.
     ///
-    /// Items are looked up by path and by id, never compared pairwise, so a
-    /// repository-wide change of thousands of files is named promptly.
+    /// Uses path and ID indexes to avoid pairwise comparisons for changes
+    /// across the repository.
     pub fn new(
         items: &'g [GateItem],
         associations: BTreeMap<RecordId, Vec<PathBuf>>,
@@ -261,9 +255,8 @@ impl<'g> ItemNames<'g> {
         Some(&self.items[*index])
     }
 
-    /// The items `names` name, in the order named, each once. Each name
-    /// pairs the text typed, which refusals repeat, with what the CLI made
-    /// of it.
+    /// Resolves `names` to items in named order, each once. Each input pairs
+    /// the typed text, repeated in refusals, with its CLI-resolved name.
     ///
     /// # Errors
     ///
@@ -325,8 +318,8 @@ impl<'g> ItemNames<'g> {
         }
     }
 
-    /// Why no item is at `path`: a directory holding items, or nothing,
-    /// with the items nearby.
+    /// Reports `path` as a directory containing items or as a missing match
+    /// with nearby items.
     fn no_path(&self, typed: &str, path: &[u8]) -> NameError {
         let under: Vec<usize> = self
             .paths()
@@ -355,8 +348,8 @@ impl<'g> ItemNames<'g> {
         }
     }
 
-    /// The unreconciled items `path` names: a checkout, or a record it is
-    /// associated with.
+    /// Finds unreconciled items for checkout `path` or records associated
+    /// with it.
     fn unreconciled(&self, path: &Path) -> Vec<usize> {
         self.items
             .iter()
@@ -373,7 +366,6 @@ impl<'g> ItemNames<'g> {
             .collect()
     }
 
-    /// The name of item `index`.
     fn display(&self, index: usize, show: &impl Fn(&PathBytes) -> Option<String>) -> String {
         let item = &self.items[index];
         let typed = match &item.subject {
@@ -395,9 +387,9 @@ impl<'g> ItemNames<'g> {
         })
     }
 
-    /// The name of path item `index` shown as `shown`: bare when it is its
-    /// path's only item, qualified when it is its path's only item of its
-    /// origin, and none otherwise.
+    /// Names path item `index` as `shown`. Uses a bare name for its path's
+    /// only item if it cannot parse as qualified, an origin qualifier if
+    /// unique at that path, or `None` if still ambiguous.
     fn path_name(&self, index: usize, path: &PathBytes, shown: String) -> Option<String> {
         let others: Vec<usize> = self
             .at(path.as_bytes())
@@ -405,7 +397,7 @@ impl<'g> ItemNames<'g> {
             .copied()
             .filter(|other| *other != index)
             .collect();
-        // A bare name must not read as qualified.
+        // Do not let the parser read a bare path as a qualifier.
         if others.is_empty() && matches!(parse(&shown), Parsed::Path { origin: None, .. }) {
             return Some(shown);
         }
@@ -460,7 +452,6 @@ impl<'g> ItemNames<'g> {
         path.get(directory.len()) == Some(&b'/') && self.same(&path[..directory.len()], directory)
     }
 
-    /// The names of the items at `indices`.
     fn names_of(&self, indices: &[usize]) -> Vec<String> {
         indices
             .iter()
@@ -469,7 +460,6 @@ impl<'g> ItemNames<'g> {
     }
 }
 
-/// The `key` of each item that has one, with the item's index, sorted.
 fn keyed<'g>(
     items: &'g [GateItem],
     key: impl Fn(&'g GateItem) -> Option<&'g str>,
@@ -483,9 +473,9 @@ fn keyed<'g>(
     keys
 }
 
-/// The indexes, in gate order, of the items whose key in `keys` (sorted, see
-/// [`keyed`]) starts with `prefix`, which must be at least `minimum` digits
-/// long. The keys it starts form one range, found by binary search.
+/// Finds item indices in gate order whose sorted keys ([`keyed`]) start
+/// with `prefix`. Requires at least `minimum` digits and finds the matching
+/// range by binary search.
 fn by_prefix(
     typed: &str,
     prefix: &str,
@@ -509,7 +499,6 @@ fn by_prefix(
     Ok(indexes)
 }
 
-/// The commit `item` is about, if it is about one.
 fn commit_of(item: &GateItem) -> Option<&str> {
     match &item.subject {
         Subject::Commit(commit) => Some(commit),
@@ -517,8 +506,7 @@ fn commit_of(item: &GateItem) -> Option<&str> {
     }
 }
 
-/// `path` as the repository compares paths: in ASCII lower case when it
-/// ignores case, so two spellings of one path are one key.
+/// Builds a path key, folding ASCII case when the repository ignores case.
 fn folded(path: &[u8], ignore_case: bool) -> Vec<u8> {
     if ignore_case {
         path.to_ascii_lowercase()
@@ -527,7 +515,6 @@ fn folded(path: &[u8], ignore_case: bool) -> Vec<u8> {
     }
 }
 
-/// A repository path's directory and file name.
 fn split(path: &[u8]) -> (&[u8], &[u8]) {
     match path.iter().rposition(|byte| *byte == b'/') {
         Some(slash) => (&path[..slash], &path[slash + 1..]),
@@ -535,9 +522,9 @@ fn split(path: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
-/// The shortest prefix of `id`, at least `minimum` long, that no other key
-/// of `keys` (sorted, see [`keyed`]) starts with. The other key sharing the
-/// longest prefix with `id` sorts next to it, past any equal to `id`.
+/// Finds the shortest unique prefix of `id` with at least `minimum` bytes
+/// among sorted `keys` ([`keyed`]). The longest shared prefix belongs to a
+/// neighboring key after skipping keys equal to `id`.
 fn unique_prefix<'a>(id: &'a str, keys: &[(&str, usize)], minimum: usize) -> &'a str {
     let at = keys.partition_point(|(other, _)| *other < id);
     let before = at.checked_sub(1).map(|before| keys[before].0);
@@ -553,7 +540,6 @@ fn unique_prefix<'a>(id: &'a str, keys: &[(&str, usize)], minimum: usize) -> &'a
     id.get(..length).unwrap_or(id)
 }
 
-/// How many leading bytes `a` and `b` share.
 fn common_prefix(a: &str, b: &str) -> usize {
     a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
 }

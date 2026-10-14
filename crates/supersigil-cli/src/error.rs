@@ -20,9 +20,8 @@ pub enum CliError {
     /// Generic command failure with a message.
     #[error("{0}")]
     CommandFailed(String),
-    /// A `judge` call refused: the lines to print as they are, their
-    /// untrusted text already escaped. A writing call's first starts with
-    /// "No judgment recorded.".
+    /// A refused `judge` call's printable lines, with untrusted text already escaped.
+    /// Write command refusals start with "No judgment recorded.".
     #[error("{0}")]
     Refused(String),
 }

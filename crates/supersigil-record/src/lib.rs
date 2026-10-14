@@ -9,9 +9,8 @@
 //! log lengths and document names listed in one manifest, so later writes do
 //! not change what that snapshot returns.
 //!
-//! [`ReviewStore`] keeps a repository's saved reviews under the same
-//! protocol: each review's [`reviews::Basis`] and which one each worktree
-//! selected.
+//! [`ReviewStore`] uses the same protocol to save each review's
+//! [`reviews::Basis`] and each worktree's selected review.
 
 pub mod derivations;
 pub mod derive;

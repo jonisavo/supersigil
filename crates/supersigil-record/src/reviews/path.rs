@@ -5,9 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A repository path's raw bytes.
 ///
-/// Serialized as a JSON string when the bytes are UTF-8 and as
-/// `{"hex": "<hex digits>"}` otherwise, so two paths that print alike keep
-/// distinct spellings. Ordered by bytes.
+/// Serializes as a JSON string for UTF-8 bytes and as
+/// `{"hex": "<hex digits>"}` otherwise, preserving paths that print alike.
+/// Sorts by raw bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PathBytes(Vec<u8>);
 

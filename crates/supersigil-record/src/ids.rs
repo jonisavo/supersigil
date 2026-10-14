@@ -25,8 +25,7 @@ impl ContentId {
     }
 }
 
-/// Defines a newtype over a string ID; with `generate`, one that also
-/// generates fresh random IDs.
+/// Defines a string ID newtype with optional random ID generation.
 macro_rules! string_id {
     ($(#[$meta:meta])* $name:ident, generate) => {
         string_id!($(#[$meta])* $name);
@@ -124,8 +123,7 @@ string_id!(
 );
 
 impl JudgmentId {
-    /// Returns the first 8 characters, the form output prints, or the
-    /// whole ID if it is shorter.
+    /// Returns the first 8 characters for display, or the whole ID if shorter.
     #[must_use]
     pub fn short(&self) -> &str {
         self.0.get(..8).unwrap_or(&self.0)

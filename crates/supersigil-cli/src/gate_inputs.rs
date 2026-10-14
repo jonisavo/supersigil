@@ -1,7 +1,6 @@
-//! What `review` reads beside the review to build its gate: the gaps
-//! between recorded edits of each reviewed file, derived in memory from the
-//! pinned observations, what is on disk at the paths the capture left out,
-//! and every recorded sighting of the edits the review shows.
+//! Collects gate inputs beside the review: gaps between recorded edits of reviewed
+//! files, derived in memory from pinned observations; on-disk state at paths the
+//! capture omitted; and every recorded sighting of the edits the review shows.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, FileType, Metadata, OpenOptions};
@@ -19,12 +18,10 @@ use supersigil_review::gate::{Gap, GateInputs, OnDiskState, UntrackedEvidence};
 
 use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, by_path_key, path_key};
 
-/// What `review` supplies beside it to build its gate
-/// ([`supersigil_review::gate::gate_items`]): the gaps between recorded
-/// edits of its files; for each untracked file with recorded edits, what is
-/// on disk there and every sighting of those edits, whatever file a
-/// sighting names; what is on disk at each path not captured; and every
-/// sighting of each edit the review shows.
+/// Collects inputs for [`supersigil_review::gate::gate_items`]: gaps between recorded
+/// edits of reviewed files; on-disk state and all edit sightings for each recorded
+/// untracked file, even sightings naming another file; on-disk state at each
+/// uncaptured path; and all sightings of each edit the review shows.
 #[must_use]
 pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
     let recorded = Recorded::new(&g.records, &g.candidates, g.ignore_case);
@@ -55,13 +52,11 @@ pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
     }
 }
 
-/// Every recorded sighting of an edit in the involved records, indexed once:
-/// by edit id and by session. Collecting the gate's inputs then never scans
-/// the records again for each file or session.
+/// Indexes edit sightings in involved records once by edit id and session.
+/// Gate input collection avoids rescanning records for each file or session.
 struct Recorded<'g> {
-    /// Every sighting of each edit, by id, in the order of the records and
-    /// then of each record's observations: a record may hold an edit more
-    /// than once, and another record may hold it with another payload.
+    /// Edit sightings by id, in record order, then observation order.
+    /// A record may repeat an edit, and records may disagree on its payload.
     by_id: BTreeMap<&'g str, Vec<&'g Edit>>,
     /// Every edit observation of each session, in the same order.
     by_session: BTreeMap<&'g SessionId, Vec<&'g Observation>>,
@@ -73,8 +68,8 @@ struct Recorded<'g> {
 }
 
 impl<'g> Recorded<'g> {
-    /// Indexes every observation of `records`, beside `candidates`, with
-    /// paths compared ignoring ASCII case when `ignore_case` is set.
+    /// Indexes edit observations in `records` and keeps `candidates`.
+    /// Ignores ASCII case when comparing paths if `ignore_case` is set.
     fn new(
         records: &'g [PinnedRecord],
         candidates: &'g [MappedCandidate],
@@ -114,10 +109,9 @@ impl<'g> Recorded<'g> {
             .collect()
     }
 
-    /// Every sighting, in any record, of each edit among `sightings`, in id
-    /// order, each edit once. Given the sightings naming a file
-    /// ([`Gathered::sightings_of`]), that includes those of an edit recorded
-    /// again naming another file changed under its id.
+    /// Returns all recorded sightings of each edit id in `sightings`, in id order.
+    /// Processes each id once. For sightings naming a file ([`Gathered::sightings_of`]),
+    /// this includes later sightings of the same id that name another file.
     fn every_of<'s>(
         &self,
         sightings: impl IntoIterator<Item = &'s MappedCandidate>,
@@ -129,22 +123,16 @@ impl<'g> Recorded<'g> {
         ids.into_iter().flat_map(|id| self.every(id)).collect()
     }
 
-    /// The gaps between recorded edits of each of `files`, each edit with
-    /// every sighting of it in any record.
+    /// Finds gaps between recorded edits of `files`, retaining all sightings of each edit.
     ///
-    /// Edits are keyed by where they map, as attribution maps them
-    /// ([`Gathered::candidates`]): the candidate worktree, and the reviewed
-    /// file whose path matches the path in it as
-    /// [`crate::pipeline::same_path`] matches paths. An edit that maps into
-    /// no reviewed file is compared with nothing. Every keyed edit is a
-    /// candidate edit, so its session is a candidate session. Each of those
-    /// sessions is derived once, gaps only, over the observations of every
-    /// record together, each edit id once (its first sighting, in record
-    /// order, as [`derive::discontinuities`] takes it): an edit that one
-    /// record missed, made from a working directory outside its
-    /// association, still joins the edits before and after it there. A
-    /// later sighting, recorded again with another payload, changes the
-    /// gap's fingerprint all the same.
+    /// Keys edits by candidate worktree and reviewed file ([`Gathered::candidates`]),
+    /// matching paths with [`crate::pipeline::same_path`], as attribution does.
+    /// Edits mapping to no reviewed file take no part in comparisons.
+    /// Derives gaps once per keyed edit's session using observations from all records.
+    /// [`derive::discontinuities`] takes each edit id's first sighting in record order.
+    /// An edit missing from one record because its working directory lay outside that
+    /// record's association can therefore join the edits before and after it.
+    /// Later sightings with different payloads still change the gap's fingerprint.
     fn discontinuities<'p>(&self, files: impl IntoIterator<Item = &'p PathBytes>) -> Vec<Gap<'g>> {
         let reviewed = by_path_key(files, self.ignore_case);
         // Each edit id once, where its first sighting in a candidate
@@ -196,24 +184,20 @@ fn on_disk_at(worktree: &Path, path: &PathBytes) -> OnDiskState {
         })
 }
 
-/// What is on disk at `path`, never following a symbolic link: nothing; a
-/// regular file's executable bit and the SHA-256 of its bytes; or a
-/// symbolic link's target, hashed. A directory, any other kind of entry,
-/// or a path that cannot be read is unknown, as is a path replaced by
-/// another kind of entry or another file, or a file changed, while it is
-/// read.
+/// Reads `path` without following symbolic links. Reports a missing path,
+/// a regular file's executable bit and SHA-256 digest, or a symlink's hashed target.
+/// Reports unknown for directories, other entry types, unreadable paths, and
+/// paths replaced by another entry type or file, or files changed, during the read.
 #[must_use]
 pub fn on_disk_state(path: &Path) -> OnDiskState {
     as_inspected(path, std::fs::symlink_metadata(path))
 }
 
-/// What is on disk at `path`, which `inspected` describes as it was a
-/// moment earlier ([`on_disk_state`]). A symbolic link's target is read
-/// from the path, so a link replaced by anything else is unknown. A
-/// regular file is opened without following a symbolic link or waiting
-/// for a writer, shared on Windows with readers only ([`open_unfollowed`]);
-/// its kind, executable bit, and bytes are all taken from that one handle
-/// ([`opened_state`]).
+/// Reads the state at `path` after `inspected` ([`on_disk_state`]).
+/// Reads a symlink's target by path; replacing it with another entry type gives
+/// unknown. Opens regular files without following symlinks or waiting for a writer,
+/// and shares them with readers only on Windows ([`open_unfollowed`]).
+/// Reads their kind, executable bit, and bytes from one handle ([`opened_state`]).
 fn as_inspected(path: &Path, inspected: io::Result<Metadata>) -> OnDiskState {
     let kind = match inspected {
         Ok(metadata) => metadata.file_type(),
@@ -303,13 +287,11 @@ fn opened_state(path: &Path, inspected: FileType, mut file: File) -> io::Result<
     Ok(hashed(&before, &after, content))
 }
 
-/// Whether the file whose handle's metadata was `opened` once its bytes were
-/// hashed is still the one at `path`, unchanged: on Unix, the path's own
-/// entry, never followed, has the handle's device and inode and the same
-/// state ([`same_state`]). A file moved away while it was open, with another
-/// put at the path or none, or changed since and moved back, may hold bytes
-/// the path never had; an entry that cannot be inspected tells nothing
-/// either.
+/// Checks that `path` still names the unchanged file described by `opened`
+/// after hashing. On Unix, inspects the path without following symlinks and
+/// compares device, inode, and [`same_state`] with the handle.
+/// Rejects unreadable entries and files moved away, replaced, or changed and moved
+/// back, because their hashed bytes may never have existed at this path.
 #[cfg(unix)]
 fn still_at(path: &Path, opened: &Metadata) -> bool {
     use std::os::unix::fs::MetadataExt as _;
@@ -318,19 +300,17 @@ fn still_at(path: &Path, opened: &Metadata) -> bool {
     })
 }
 
-/// Always: on Windows the file was opened sharing it with readers only
-/// ([`open_unfollowed`]), which denies renaming or deleting it while it is
-/// open, so it stays the file at its path.
+/// Returns true. Windows reader-only sharing ([`open_unfollowed`]) prevents
+/// renaming or deleting the open file, so it stays at its path.
 #[cfg(not(unix))]
 const fn still_at(_path: &Path, _opened: &Metadata) -> bool {
     true
 }
 
-/// A regular file's state from `content`, the SHA-256 of the bytes read
-/// from a handle whose metadata was `before` as the read began and `after`
-/// once it ended. Unknown when the two differ ([`same_state`]): the file
-/// changed while it was read, so its bytes and its executable bit may never
-/// have been there together.
+/// Builds a regular file's state from its SHA-256 digest `content`.
+/// Compares handle metadata `before` and `after` the read ([`same_state`]).
+/// Returns unknown if they differ, because the bytes and executable bit
+/// may never have existed together.
 fn hashed(before: &Metadata, after: &Metadata, content: String) -> OnDiskState {
     if same_state(before, after) {
         OnDiskState::File {
@@ -342,9 +322,8 @@ fn hashed(before: &Metadata, after: &Metadata, content: String) -> OnDiskState {
     }
 }
 
-/// Whether two looks at one file see it in the same state: the same length,
-/// executable bit, modification time (where the platform records one), and,
-/// on Unix, status change time, which no writer can set back.
+/// Compares file length, executable bit, modification time where available,
+/// and Unix status change time, which writers cannot set back.
 fn same_state(a: &Metadata, b: &Metadata) -> bool {
     a.len() == b.len()
         && executable(a) == executable(b)
@@ -355,8 +334,8 @@ fn same_state(a: &Metadata, b: &Metadata) -> bool {
 /// Bytes [`file_digest`] reads at a time.
 const CHUNK: usize = 8 * 1024;
 
-/// Hex SHA-256 of the bytes of `file`, read [`CHUNK`] bytes at a time so a
-/// large file is never held whole.
+/// Hashes `file` as hex SHA-256, reading [`CHUNK`] bytes at a time without
+/// holding the whole file in memory.
 ///
 /// # Errors
 ///
@@ -659,8 +638,8 @@ mod tests {
         );
     }
 
-    /// Returns what `read` returns, run on another thread, failing unless
-    /// it returns within ten seconds.
+    /// Runs `read` on another thread and returns its result.
+    /// Fails if it does not return within ten seconds.
     #[cfg(unix)]
     fn promptly<T: Send + 'static>(read: impl FnOnce() -> T + Send + 'static) -> T {
         let (done, result) = std::sync::mpsc::channel();

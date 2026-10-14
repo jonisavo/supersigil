@@ -47,8 +47,8 @@ fn lines_item(path: &str) -> GateItem {
     )
 }
 
-/// A basis with every list non-empty and every optional field set except
-/// the salt.
+/// A basis with non-empty lists, a base commit, and an unreconciled record.
+/// Leaves the working-tree target's commit and the salt unset.
 fn basis() -> Basis {
     Basis {
         schema: BASIS_SCHEMA.to_owned(),
@@ -485,7 +485,8 @@ fn a_known_part_is_the_hex_sha256_of_its_material() {
     );
 }
 
-/// A judgment of `kind` on the example basis with nothing else set.
+/// Creates a judgment of `kind` on the example basis with no items, reason,
+/// text, closing judgments, or withdrawals.
 fn judgment(kind: JudgmentKind) -> Judgment {
     Judgment {
         id: JudgmentId::new("4f1c9a2e-0000-4000-8000-000000000001"),

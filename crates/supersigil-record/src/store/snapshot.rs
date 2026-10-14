@@ -56,9 +56,8 @@ impl RecordSnapshot {
         self.derivation_document(session)
     }
 
-    /// Reads only the algorithm version of the session's derivation
-    /// document referenced by this snapshot ([`Self::derivations`]); the
-    /// rest of the document is not parsed into a derivation set.
+    /// Reads the algorithm version from the session's pinned derivation
+    /// document ([`Self::derivations`]) without constructing a derivation set.
     ///
     /// Returns `None` if the manifest lists no document for the session.
     ///
@@ -78,8 +77,8 @@ impl RecordSnapshot {
             .map(|document| document.algorithm_version))
     }
 
-    /// Reads the session's derivation document referenced by this snapshot
-    /// as a `T`, or `None` if the manifest lists none.
+    /// Parses the session's pinned derivation document as `T`, returning
+    /// `None` if the manifest lists none.
     ///
     /// # Errors
     ///
@@ -127,11 +126,9 @@ impl RecordSnapshot {
         files::read_log(&self.root.join(log), length)
     }
 
-    /// Reads a session's log once, up to the committed byte length: its
-    /// observations, as [`Self::observations`] returns them, with the log's
-    /// path, its pinned length, and the SHA-256 of the bytes they were read
-    /// from, so a later reader can tell whether those bytes are still there
-    /// unchanged.
+    /// Reads a session's pinned log bytes once and returns the observations
+    /// ([`Self::observations`]), log path, pinned length, and SHA-256 digest.
+    /// Later readers can use the digest to detect changes to those bytes.
     ///
     /// Returns `None` if this snapshot has no log for the session.
     ///
@@ -155,13 +152,13 @@ impl RecordSnapshot {
         }))
     }
 
-    /// Reads the log at `log`, its path in the record (such as
-    /// `observations/0.jsonl`), once up to its pinned length, to compare it
-    /// with what earlier revisions pinned of it: for each of `lengths` this
-    /// snapshot pins, the hex SHA-256 of the log's first that many bytes,
-    /// all hashed in one pass; and the observations from the shortest of
-    /// those lengths at which one begins, with where each ends, so what was
-    /// appended after any earlier pin is a slice ([`LogReading::since`]).
+    /// Reads the pinned bytes of `log`, a path in the record such as
+    /// `observations/0.jsonl`. Hashes prefixes for requested `lengths` within
+    /// the pinned length in one pass, producing hex SHA-256 digests.
+    ///
+    /// Parses observations from the shortest requested length at a line boundary
+    /// and records their end offsets. [`LogReading::since`] returns slices of
+    /// observations appended after earlier pins.
     ///
     /// Returns `None` if this snapshot pins no log at `log`.
     ///
@@ -180,7 +177,7 @@ impl RecordSnapshot {
         };
         let path = self.root.join(log);
         let bytes = files::read_prefix(&path, length)?;
-        // Each length asked for that the bytes read hold, with its index.
+        // Keep requested lengths within the bytes read, with their end indexes.
         let within: Vec<(u64, usize)> = lengths
             .iter()
             .filter_map(|&asked| {
@@ -196,8 +193,7 @@ impl RecordSnapshot {
             hashed = end;
             digests.insert(asked, hex::encode(prefix.clone().finalize()));
         }
-        // Each observation is one line, and its JSON holds no raw newline,
-        // so one begins wherever a line does.
+        // Each observation occupies one line, with no raw newline inside its JSON.
         let from = within
             .iter()
             .map(|&(_, end)| end)
@@ -264,17 +260,16 @@ pub struct LogReading {
 }
 
 impl LogReading {
-    /// The hex SHA-256 of the log's first `length` bytes, if `length` was
-    /// asked for and is within the pinned length.
+    /// Returns the hex SHA-256 of the first `length` bytes if that length
+    /// was requested and lies within the pinned length.
     #[must_use]
     pub fn digest(&self, length: u64) -> Option<&str> {
         self.digests.get(&length).map(String::as_str)
     }
 
-    /// The observations appended after the log's first `length` bytes, in
-    /// append order, where `length` is where an earlier revision's pin
-    /// ended. `None` when the observations read begin after `length`, or
-    /// `length` is beyond the pinned length.
+    /// Returns observations whose JSON ends after an earlier pin's `length`,
+    /// in append order. Returns `None` if `length` precedes the parsed portion
+    /// or exceeds the pinned length.
     #[must_use]
     pub fn since(&self, length: u64) -> Option<&[Observation]> {
         (self.from..=self.length).contains(&length).then(|| {

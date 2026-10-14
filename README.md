@@ -26,8 +26,8 @@ not maintained.
 ## Status
 
 The current CLI imports Claude Code sessions, reviews working-tree or commit
-changes, explains individual lines, and records a person's judgments of a
-review. It prints JSON or a plain terminal summary. Sourced annotations,
+changes, explains individual lines, and saves human review judgments. It
+prints JSON or a plain terminal summary. Sourced annotations,
 corrections, and an interactive terminal review remain planned.
 
 ```sh
@@ -44,10 +44,10 @@ supersigil judge show
 Untracked files are excluded from a review unless named with
 `--include-untracked PATH`. Unattributed lines remain visible.
 
-Each review is saved and ends with a gate of what it could not explain.
-`judge` acknowledges or dismisses gate items and completes the review last
-run in the worktree; it refuses inside an agent session. A later review
-reports whether the code or the evidence changed since the completion.
+Each review attempts to save a basis and lists gate items for a person to judge.
+`judge` acknowledges or dismisses items and completes the worktree's selected
+review. It refuses to write inside an agent session. Later reviews report
+code and evidence changes since completion.
 
 ## Development
 

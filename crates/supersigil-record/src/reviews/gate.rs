@@ -214,8 +214,8 @@ impl From<FingerprintPart> for String {
     }
 }
 
-/// What a judgment of a gate item saw, by part name: a judgment carries to
-/// another review's item only when their fingerprints match.
+/// The evidence a gate item's judgment saw, by part name. A judgment carries
+/// to another review's item only when their fingerprints match.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Fingerprint(pub BTreeMap<String, FingerprintPart>);
@@ -229,9 +229,8 @@ impl Fingerprint {
         self.differing(other).is_empty()
     }
 
-    /// Names of the parts that keep the fingerprints from matching, sorted:
-    /// parts that differ, parts unknown on either side, and parts present
-    /// on one side only.
+    /// Returns sorted names of differing parts, parts unknown on either side,
+    /// and parts present on one side only.
     #[must_use]
     pub fn differing(&self, other: &Self) -> Vec<String> {
         let names: BTreeSet<&String> = self.0.keys().chain(other.0.keys()).collect();
@@ -268,7 +267,7 @@ pub struct GateItem {
 }
 
 impl GateItem {
-    /// An item with its ID computed from the detail's origin and `subject`.
+    /// Creates an item whose ID hashes the detail's origin and `subject`.
     #[must_use]
     pub fn new(subject: Subject, detail: GateDetail, fingerprint: Fingerprint) -> Self {
         Self {

@@ -1,7 +1,6 @@
-//! `supersigil review` after a completion: each review is related to the
-//! earlier judged reviews of its content or its worktree, carries their
-//! judgments forward where the evidence is the same, and says what changed
-//! since the most recent completion, or that the completion carries over.
+//! Tests `supersigil review` after completion. Reviews relate to earlier judged
+//! reviews of their content or worktree, carry judgments with matching evidence,
+//! and report changes since the most recent completion or that it carries over.
 
 mod common;
 
@@ -105,9 +104,8 @@ fn last_judgment(f: &Fixture) -> Judgment {
         .unwrap()
 }
 
-/// The slice fixture with an identity, reviewed, each gate item
-/// acknowledged, and completed: the fixture, the completed review, and its
-/// completion.
+/// Reviews the slice fixture with a git identity, acknowledges each gate item,
+/// and completes it. Returns the fixture, review, and completion.
 fn completed() -> (Fixture, Value, Judgment) {
     let f = Fixture::new();
     slice(&f);
@@ -126,7 +124,7 @@ fn append_to_slice(f: &Fixture, text: &str) {
     f.transcript(&f.repo, "slice.jsonl", &format!("{}{text}", slice_text()));
 }
 
-/// What a status line names a completion by: when, and on which review.
+/// Formats a completion's date and review for a status line.
 fn since(completed: &Value, completion: &Judgment) -> String {
     format!(
         "since your completion on {} (review {})",

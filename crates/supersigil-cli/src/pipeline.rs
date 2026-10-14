@@ -184,9 +184,9 @@ pub(crate) fn path_key(path: &str, ignore_case: bool) -> Cow<'_, str> {
     }
 }
 
-/// `paths` by their keys ([`path_key`]), so the key of a mapped path finds
-/// the one [`same_path`] matches it to; of paths with one key, the last. A
-/// path that is not UTF-8 matches no mapped path and is left out.
+/// Indexes `paths` by [`path_key`], using the last path for duplicate keys.
+/// A mapped path's key finds its [`same_path`] match. Omits non-UTF-8 paths,
+/// which cannot match mapped paths.
 pub(crate) fn by_path_key<'p>(
     paths: impl IntoIterator<Item = &'p reviews::PathBytes>,
     ignore_case: bool,
@@ -313,9 +313,8 @@ impl Gathered {
         observed_worktrees(&self.range, &self.worktree, &self.candidate_worktrees)
     }
 
-    /// The sightings of recorded edits whose file is `path` in the reviewed
-    /// worktree, in every record, as [`same_path`] matches paths, in the
-    /// order of [`Self::candidates`].
+    /// Returns edit sightings from every record matching `path` in the reviewed
+    /// worktree, using [`same_path`], in [`Self::candidates`] order.
     pub fn sightings_of<'a>(
         &'a self,
         path: &'a RepoPath,
@@ -677,9 +676,8 @@ fn candidates_for(range: &ResolvedRange, origins: &Origins, reviewed: &Path) -> 
     candidates
 }
 
-/// Pins one snapshot per involved record and reads every session from it,
-/// with `hash_logs` hashing each log from the bytes its observations are
-/// read from.
+/// Pins one snapshot per involved record and reads every session from it.
+/// With `hash_logs`, hashes each log from the same bytes used to read observations.
 ///
 /// # Errors
 ///

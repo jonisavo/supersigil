@@ -1,21 +1,18 @@
-//! The gate: what a person considers before completing a review.
+//! Gate items a person judges before completing a review.
 //!
 //! [`gate_items`] builds one item per origin and subject from the review and
-//! what the CLI supplies beside it ([`GateInputs`]): the gaps between
-//! recorded edits of reviewed files, what is on disk at the paths the
-//! snapshot left out, and every recorded sighting of the edits the review
-//! shows, payloads included. Items name paths by their raw bytes, which the model
-//! carries unserialized, so two paths that print alike never share an item.
+//! [`GateInputs`]. The CLI supplies gaps between recorded edits of reviewed
+//! files, on-disk states of uncaptured paths, and every recorded sighting of
+//! reviewed edits, including payloads. Items use raw path bytes that the model
+//! omits from serialization, so paths that print alike remain distinct.
 //!
-//! Each item's fingerprint has one part per kind of material a judgment of
-//! it saw: the SHA-256 of the material's JSON, or unknown when the material
-//! could not be established. A judgment carries to a later review's item
-//! only when every part matches, and an unknown part matches nothing.
+//! Each fingerprint part hashes a kind of judgment material as SHA-256 of its
+//! JSON, or is unknown when the material cannot be established. A judgment
+//! carries to a later item only when every part matches. Unknown parts never
+//! match.
 //!
-//! A basis also keeps [`explanations`], the digests of what the review
-//! shows about each file, so that a later review can tell whether the
-//! evidence behind the files changed, and [`capture`], the capture
-//! limitations the review saw.
+//! A basis keeps [`explanations`] to detect changes in each file's evidence
+//! and [`capture`] to retain the review's capture limitations.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,8 +31,8 @@ use supersigil_record::reviews::{
 use crate::model::{EditInfo, FileCounts, FileKindInfo, FileReview, NotCapturedInfo, Review, Span};
 use crate::summary::total_counts;
 
-/// What is on disk at a path the snapshot did not capture or the scope
-/// left out; the CLI reads it, and hashes what it finds.
+/// The on-disk state of an uncaptured or excluded path, read and hashed by
+/// the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OnDiskState {
@@ -85,10 +82,10 @@ impl OnDiskState {
     }
 }
 
-/// A discontinuity between two recorded edits that map into a reviewed
-/// file: the state one edit left is not the state the next one started
-/// from. Each edit comes with every recorded sighting of it, in any order,
-/// since a later sighting may carry another payload under the same id.
+/// Two recorded edits that map into a reviewed file but have different
+/// earlier after-states and later before-states. Includes every sighting of
+/// each edit, in any order, since later sightings may have different payloads
+/// under the same ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gap<'g> {
     /// The reviewed file.
@@ -109,9 +106,8 @@ pub struct UntrackedEvidence<'g> {
     pub edits: Vec<&'g Edit>,
 }
 
-/// What the CLI supplies beside a review to build its gate, borrowing the
-/// recorded sightings from the records it read. Paths are the raw bytes
-/// the review's entries carry.
+/// CLI inputs for building a review's gate. Borrows sightings from the
+/// records the CLI read and uses the review entries' raw path bytes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GateInputs<'g> {
     /// The gaps among edits of candidate sessions that map into a reviewed
@@ -121,22 +117,21 @@ pub struct GateInputs<'g> {
     pub untracked: BTreeMap<PathBytes, UntrackedEvidence<'g>>,
     /// Per path not captured, what is on disk.
     pub not_captured: BTreeMap<PathBytes, OnDiskState>,
-    /// Every recorded sighting of each edit in the review's `edits` map,
-    /// by id, in any order: the `edits` entries leave out the payload and
-    /// the states an edit was recorded with.
+    /// Every sighting of each edit in the review's `edits` map, by ID, in any
+    /// order. Supplies the payloads and states those entries omit.
     pub edits: BTreeMap<String, Vec<&'g Edit>>,
 }
 
-/// The review's gate items, sorted by origin, then subject.
+/// Builds gate items sorted by origin, then subject.
 ///
-/// One item per file with lines no recorded edit explains (counted as the
-/// unattributed summary counts them), per file not diffed, per untracked
-/// file with recorded edits, per path not captured, per commit without an
-/// origin, per reviewed file with gaps between its recorded edits, and per
-/// record or checkout not reconciled. Evidence the inputs lack for an
-/// untracked or uncaptured path, or for an edit behind counted lines, gives
-/// unknown parts, as a directory does; an unreconciled item's evidence is
-/// always unknown, since it was not read.
+/// Creates one item per file with unexplained lines, using the unattributed
+/// summary's counts; per file not diffed; per untracked file with recorded
+/// edits; per uncaptured path; per commit without an origin; per reviewed
+/// file with edit gaps; and per unreconciled record or checkout.
+///
+/// Missing inputs for untracked or uncaptured paths or edits behind counted
+/// lines produce unknown parts. Directories also have unknown on-disk states.
+/// Unreconciled evidence is always unknown because the CLI did not read it.
 #[must_use]
 pub fn gate_items(review: &Review, inputs: &GateInputs<'_>) -> Vec<GateItem> {
     let files = &review.files;
@@ -175,8 +170,8 @@ pub fn gate_items(review: &Review, inputs: &GateInputs<'_>) -> Vec<GateItem> {
     items
 }
 
-/// The item of `file`'s lines no recorded edit explains, if it has any.
-/// Its evidence is unknown when `sightings` lacks an edit those lines name.
+/// Builds an item for `file`'s unexplained lines, if any. Its evidence is
+/// unknown when `sightings` lacks an edit those lines name.
 fn unexplained_lines(
     file: &FileReview,
     edits: &BTreeMap<String, EditInfo>,
@@ -212,10 +207,10 @@ fn unexplained_lines(
     ))
 }
 
-/// The entries of `edits` that `spans` name, by id. Outcomes name edits as
-/// ids, and anchor's provenance names them inside JSON values, so every
-/// string in the spans' JSON that is an edit's id counts. Only a span's
-/// side and outcome are converted to JSON; its provenance is JSON already.
+/// Finds entries of `edits` named by `spans`, keyed by ID. Outcomes and
+/// anchor provenance name edits in JSON, so any JSON string matching an edit
+/// ID counts. Converts only span sides and outcomes; provenance is already
+/// JSON.
 fn named_edits<'e>(
     spans: &[&Span],
     edits: &'e BTreeMap<String, EditInfo>,
@@ -258,8 +253,8 @@ struct RecordedEdit<'e> {
     sightings: Vec<&'e Edit>,
 }
 
-/// Each edit of `named`, entries of the review's `edits` map by id, with
-/// its sightings in `sightings` (none when it lacks them).
+/// Pairs each review edit in `named` with its recorded sightings, keyed by
+/// ID. Uses an empty list when `sightings` lacks the edit.
 fn recorded_edits<'e>(
     named: BTreeMap<&'e str, &'e EditInfo>,
     sightings: &BTreeMap<String, Vec<&'e Edit>>,
@@ -279,7 +274,6 @@ fn recorded_edits<'e>(
         .collect()
 }
 
-/// The item of a file listed but not diffed.
 fn not_diffed(file: &FileReview) -> GateItem {
     let kind = file.kind.as_str();
     GateItem::new(
@@ -291,7 +285,7 @@ fn not_diffed(file: &FileReview) -> GateItem {
     )
 }
 
-/// The `content` part of a file's item: its blob ids and modes.
+/// Hashes a file's blob IDs and modes for its `content` part.
 fn content(file: &FileReview) -> FingerprintPart {
     part(&(
         &file.old_blob,
@@ -301,8 +295,6 @@ fn content(file: &FileReview) -> FingerprintPart {
     ))
 }
 
-/// The item of an untracked file with recorded edits, from what the CLI
-/// found for it.
 fn untracked_recorded(path: &PathBytes, evidence: Option<&UntrackedEvidence<'_>>) -> GateItem {
     let sightings = evidence.map(|evidence| canonical(evidence.edits.clone()));
     let edits: BTreeSet<_> = sightings.iter().flatten().map(|edit| &edit.id).collect();
@@ -324,7 +316,6 @@ fn untracked_recorded(path: &PathBytes, evidence: Option<&UntrackedEvidence<'_>>
     )
 }
 
-/// The item of a path not captured, with what is on disk there.
 fn not_captured(entry: &NotCapturedInfo, on_disk: Option<&OnDiskState>) -> GateItem {
     let on_disk = on_disk.unwrap_or(&OnDiskState::Unknown);
     GateItem::new(
@@ -337,8 +328,8 @@ fn not_captured(entry: &NotCapturedInfo, on_disk: Option<&OnDiskState>) -> GateI
     )
 }
 
-/// One item per file with gaps, holding every distinct gap with every
-/// sighting of its two edits.
+/// Builds one item per file with gaps, including every distinct gap and
+/// every sighting of its two edits.
 fn discontinuities(gaps: &[Gap<'_>]) -> Vec<GateItem> {
     type Sightings<'g> = Vec<&'g Edit>;
     let mut by_path: BTreeMap<&PathBytes, Vec<(Sightings, Sightings)>> = BTreeMap::new();
@@ -363,8 +354,7 @@ fn discontinuities(gaps: &[Gap<'_>]) -> Vec<GateItem> {
         .collect()
 }
 
-/// One item per record or checkout not reconciled, with its distinct
-/// reasons.
+/// Builds one item per unreconciled record or checkout with its distinct reasons.
 fn unreconciled(review: &Review) -> Vec<GateItem> {
     let records = review
         .records
@@ -395,7 +385,6 @@ fn unreconciled(review: &Review) -> Vec<GateItem> {
         .collect()
 }
 
-/// A fingerprint of the named parts.
 fn fingerprint<const N: usize>(parts: [(&str, FingerprintPart); N]) -> Fingerprint {
     Fingerprint(
         parts
@@ -405,34 +394,32 @@ fn fingerprint<const N: usize>(parts: [(&str, FingerprintPart); N]) -> Fingerpri
     )
 }
 
-/// The part for `material`: the SHA-256 of its JSON, or unknown if it
-/// cannot be serialized.
+/// Hashes `material` as SHA-256 of its JSON, or returns an unknown part if
+/// serialization fails.
 fn part(material: &impl Serialize) -> FingerprintPart {
     serde_json::to_vec(material).map_or(FingerprintPart::Unknown, |json| FingerprintPart::of(&json))
 }
 
-/// `material` in the order of its JSON and without repeats, so neither the
-/// order the CLI found it in nor how often changes its part.
+/// Sorts `material` by its JSON and removes duplicates so input order and
+/// repeated sightings do not change its fingerprint part.
 fn canonical<T: Serialize + PartialEq>(mut material: Vec<T>) -> Vec<T> {
     material.sort_by_cached_key(|piece| serde_json::to_vec(piece).ok());
     material.dedup();
     material
 }
 
-/// Per reviewed file, the digest of what the review shows about it: its
-/// entry without its mentions, and the `edits` entries it references, by
-/// id, each with every recorded sighting of it in `sightings`
-/// ([`GateInputs::edits`]), so a payload recorded again under the same id
-/// changes the digest. Sorted by path bytes.
+/// Builds each reviewed file's explanation digest, sorted by path bytes.
+/// Hashes the file entry without mentions and its referenced `edits` entries,
+/// keyed by ID, with every recorded sighting from `sightings`
+/// ([`GateInputs::edits`]). A new payload under the same ID changes the digest.
 ///
-/// Mentions, the commands whose text names the file, are shown as hints
-/// but never explain a line, and most are reads: a command that reads a
-/// reviewed file leaves its digest as it was.
+/// Command text that names a file is a hint, not a line explanation. These
+/// mentions, including read commands, do not change the digest.
 ///
 /// # Panics
 ///
-/// Panics if a file's entry cannot be serialized as JSON, which its types
-/// (text, numbers, and JSON values) rule out.
+/// Panics if a file entry cannot serialize as JSON. Its types, text, numbers,
+/// and JSON values, rule out this failure.
 #[must_use]
 pub fn explanations(review: &Review, sightings: &BTreeMap<String, Vec<&Edit>>) -> Vec<Explanation> {
     let mut explanations: Vec<Explanation> = review
@@ -446,7 +433,7 @@ pub fn explanations(review: &Review, sightings: &BTreeMap<String, Vec<&Edit>>) -
                 .map(|(id, info)| (id.as_str(), info))
                 .collect();
             let edits = recorded_edits(named, sightings);
-            // Copied only to leave out the mentions it has.
+            // Clone only when there are mentions to remove.
             let entry = if file.mentions.is_empty() {
                 Cow::Borrowed(file)
             } else {
@@ -466,8 +453,8 @@ pub fn explanations(review: &Review, sightings: &BTreeMap<String, Vec<&Edit>>) -
     explanations
 }
 
-/// Each candidate transcript with any capture limitation, with its summed
-/// counts, sorted by transcript.
+/// Sums capture limitation counts for each candidate transcript with any
+/// limitations, sorted by transcript.
 #[must_use]
 pub fn capture(review: &Review) -> Vec<CaptureEntry> {
     let mut entries: Vec<CaptureEntry> = review

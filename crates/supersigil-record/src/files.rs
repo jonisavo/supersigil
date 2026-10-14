@@ -110,8 +110,7 @@ fn manifest_json(root: &Path, manifest: &impl Serialize) -> Result<Vec<u8>, Stor
     })
 }
 
-/// Returns the revision a commit that started at `expected` publishes, once
-/// the manifest on disk, at `found`, shows no other writer committed since.
+/// Checks that `found` equals `expected` and returns the next revision.
 ///
 /// # Errors
 ///
@@ -152,10 +151,9 @@ pub(crate) fn lock(dir: &Path, name: &str) -> Result<File, StoreError> {
     }
 }
 
-/// Whether each of `names`, a store's own entries in its directory `dir`,
-/// is missing or, inspected without following it, not a symbolic link.
-/// Cleanup deletes nothing otherwise: what a linked entry leads to, or
-/// what an entry that cannot be inspected is, could be a file it deletes.
+/// Checks that every store entry in `names` is missing or is not a symbolic
+/// link, without following links. Cleanup must stop if a link or an unreadable
+/// entry could reference a file it would delete.
 pub(crate) fn unlinked_entries(dir: &Path, names: &[&str]) -> bool {
     names
         .iter()
@@ -233,8 +231,8 @@ fn write_temporary(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, Stor
     Ok(path)
 }
 
-/// The name of the file a temporary file named `name` was written for, if
-/// `name` is one [`write_temporary`] gives: `<target>.<uuid>.tmp`.
+/// Returns the target name if `name` has [`write_temporary`]'s
+/// `<target>.<uuid>.tmp` form.
 pub(crate) fn temporary_target(name: &str) -> Option<&str> {
     let (target, unique) = name.strip_suffix(".tmp")?.rsplit_once('.')?;
     uuid::Uuid::try_parse(unique)
@@ -242,9 +240,8 @@ pub(crate) fn temporary_target(name: &str) -> Option<&str> {
         .then_some(target)
 }
 
-/// Removes bytes of `path` beyond `pinned`, a tail no manifest published,
-/// then appends `bytes`. Creates the file if needed; the caller syncs it
-/// before publishing.
+/// Truncates `path` to its published length `pinned`, then appends `bytes`.
+/// Creates the file if needed. The caller syncs it before publishing.
 ///
 /// # Errors
 ///
@@ -328,8 +325,7 @@ pub(crate) fn parse_log<T: DeserializeOwned>(
 ///
 /// Returns [`StoreError::Io`] if the file cannot be opened or synced.
 pub(crate) fn sync_file(path: &Path) -> Result<(), StoreError> {
-    // Write access: Windows flushes through `FlushFileBuffers`, which needs
-    // it.
+    // Windows requires write access for `FlushFileBuffers`.
     OpenOptions::new()
         .write(true)
         .open(path)

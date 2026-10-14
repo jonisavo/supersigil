@@ -47,12 +47,10 @@ impl Fixture {
         fixture
     }
 
-    /// Git isolation and the records directory. The
-    /// variables git sets for hooks are removed, as `supersigil_git::Git`
-    /// removes them: a test run from a pre-commit hook would otherwise
-    /// point git at the outer repository's index. Environment-passed
-    /// configuration is also removed, so neither git here nor git started
-    /// by supersigil reads it.
+    /// Isolates git configuration and sets the records directory.
+    /// Removes git hook variables, as `supersigil_git::Git` does, so pre-commit test
+    /// runs do not use the outer repository's index. Removes environment-passed
+    /// configuration from git and from git processes started by supersigil.
     pub fn isolate(&self, command: &mut Command) {
         for key in [
             "GIT_DIR",
@@ -107,10 +105,9 @@ impl Fixture {
         self.git_in(dir, &["rev-parse", "HEAD"]).trim().to_owned()
     }
 
-    /// Writes `text` as transcript `name` in the Claude Code project
-    /// directory of `cwd`, with the fixtures' `/work/repo` replaced by `cwd`
-    /// (escaped for a JSON string: a Windows path has backslashes), and
-    /// returns its path.
+    /// Writes transcript `name` in `cwd`'s Claude Code project directory and returns
+    /// its path. Replaces `/work/repo` in `text` with JSON-escaped `cwd`, including
+    /// backslash escapes for Windows paths.
     pub fn transcript(&self, cwd: &Path, name: &str, text: &str) -> PathBuf {
         let quoted = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
         let text = text.replace("/work/repo", &quoted[1..quoted.len() - 1]);
@@ -159,9 +156,12 @@ impl Fixture {
         serde_json::from_slice(&output.stdout).unwrap()
     }
 
-    /// Runs a command with `<key>=1` in supersigil's own environment, which
-    /// every git it starts inherits unless supersigil removes it. Returns
-    /// the parsed JSON output, or standard error when the command fails.
+    /// Runs a command with `<key>=1` in supersigil's environment. Git subprocesses
+    /// inherit it unless supersigil removes it. Returns the parsed JSON output.
+    ///
+    /// # Errors
+    ///
+    /// Returns standard error when the command fails.
     pub fn json_inheriting(&self, key: &str, dir: &Path, args: &[&str]) -> Result<Value, String> {
         let output = self.supersigil(dir, args).env(key, "1").output().unwrap();
         if !output.status.success() {
@@ -212,9 +212,9 @@ pub fn slice_text() -> String {
     .unwrap()
 }
 
-/// The slice fixture: the files the session found, committed,
-/// then the working tree after the session plus the manual line it never
-/// recorded. `old.txt` appears only in a command, so it is seeded here.
+/// Creates and commits the slice session's starting files, then writes its final
+/// working tree plus the unrecorded manual line. Seeds `old.txt`, which appears
+/// only in a command.
 pub fn slice(f: &Fixture) {
     write(&f.repo, "src/lib.rs", LIB_BASE);
     write(&f.repo, "notes.txt", "draft\n");

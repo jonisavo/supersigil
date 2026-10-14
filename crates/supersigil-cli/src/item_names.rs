@@ -1,6 +1,5 @@
-//! The CLI's half of naming gate items: how a saved review's items read
-//! from the current directory, and what a typed name means there.
-//! `supersigil_review::names` does the rest.
+//! Names saved gate items from the current directory and parses typed names.
+//! `supersigil_review::names` resolves those names to items.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -14,10 +13,9 @@ use supersigil_session::checkout::resolve;
 use crate::error::CliError;
 use crate::pipeline::{display_from, repo_path};
 
-/// The names of `basis`'s gate items as typed from `cwd` in `worktree`,
-/// paths that differ only in ASCII case being one path when `ignore_case`
-/// is set, and `unreconciled:` names matching the paths associated with
-/// each record `basis` pinned.
+/// Names `basis`'s gate items as typed from `cwd` in `worktree`.
+/// With `ignore_case`, paths differing only in ASCII case count as one path.
+/// `unreconciled:` names match each pinned record's associated paths.
 #[must_use]
 pub fn item_names<'b>(
     basis: &'b Basis,
@@ -35,23 +33,21 @@ pub fn item_names<'b>(
     })
 }
 
-/// `path`, a repository path in `worktree`, as a person types it from
-/// `cwd`, or `None` when it cannot be typed: it is not UTF-8, or that
-/// spelling holds a control character.
+/// Spells repository `path` in `worktree` relative to `cwd`.
+/// Returns `None` if the path is not UTF-8 or its spelling contains a control character.
 fn typed(worktree: &Path, cwd: &Path, path: &PathBytes) -> Option<String> {
     let path = RepoPath::from_utf8(path.to_str()?);
     let typed = display_from(worktree, cwd, &path);
     printed(OsStr::new(&typed)).is_some().then_some(typed)
 }
 
-/// What `typed`, a name a person typed in `cwd`, means in `worktree`: a
-/// path relative to `cwd` as a repository path (the root as the empty
-/// path), an `unreconciled:` path made absolute and canonical where it
-/// exists, and a prefix as typed.
+/// Parses `typed` from `cwd` in `worktree`. Converts ordinary paths to repository
+/// paths, using an empty path for the root. Makes `unreconciled:` paths absolute
+/// and canonical where they exist. Leaves prefixes as typed.
 ///
 /// # Errors
 ///
-/// Returns [`CliError::CommandFailed`] when a path lies outside `worktree`
+/// Returns [`CliError::CommandFailed`] when an ordinary path lies outside `worktree`
 /// or is not valid UTF-8.
 pub fn name(worktree: &Path, cwd: &Path, typed: &str) -> Result<Name, CliError> {
     Ok(match parse(typed) {

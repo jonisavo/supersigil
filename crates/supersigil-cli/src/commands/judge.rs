@@ -1,18 +1,16 @@
-//! `supersigil judge`: a person's judgments on a saved review.
-//! Acknowledging or dismissing gate items closes them, a comment notes
-//! something and closes nothing, a completion records that the review
-//! is done, and an undo withdraws earlier judgments.
+//! `supersigil judge` records a person's judgments on a saved review.
+//! Acknowledgments and dismissals close gate items. Comments close nothing.
+//! Completions record that a review is done. Undos withdraw earlier judgments.
 //!
-//! A writing call refuses inside an agent session: judging is for people.
-//! It takes the review store's writer lock before it reads anything, then
-//! resolves the review, checks the call, keeps the reviewed snapshot under a
-//! ref on the review's first judgment, and appends its judgment while
-//! holding the lock, so cleanup cannot remove the review in between. It
-//! reads the saved review, never the working tree. A refused call records
-//! nothing and says why.
+//! Write commands refuse to run inside agent sessions. They take the review
+//! store's writer lock before reading the saved review, then resolve the review,
+//! check the call, retain its snapshot under a ref on its first judgment, and
+//! append the judgment. The lock prevents cleanup from removing the review
+//! between these steps. These commands read the saved review without inspecting
+//! the working tree. Refused calls record nothing and explain why.
 //!
-//! A reading call, `list` or `show`, takes no lock and creates no store,
-//! so an agent may run it.
+//! Agents may run `list` and `show`. These read commands take no lock and
+//! create no store.
 
 mod list;
 mod show;
@@ -50,14 +48,13 @@ use crate::reconcile::LOCK_WAIT;
 use crate::record_dir::canonical_checkout;
 use crate::review_dir::{begin_within, canonical_common_dir, judged_bases, resolve_review_dir};
 
-/// What a refusal inside an agent session says. It never suggests unsetting
-/// the marker.
+/// Refusal message for an agent session. It never suggests unsetting the marker.
 const AGENT_SESSION: &str = "Judgments must be made by a person; this command is running inside \
                              a Claude Code session. The agent can list the open items \
                              (supersigil judge show) and prepare the exact command for you to \
                              inspect and run outside the agent.";
 
-/// What a refusal without a git identity says, in `git commit`'s words.
+/// Refusal message for a missing git identity, using `git commit`'s wording.
 const NO_IDENTITY: &str = "Author identity unknown
 
 *** Please tell me who you are.
@@ -112,8 +109,8 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
     })
 }
 
-/// A writing call as given: the kind of judgment it records, the items it
-/// names as typed, its reason or text, and the judgment an undo names by id.
+/// A write command's judgment kind, typed item names, reason or text,
+/// and judgment id for an undo.
 struct Call<'a> {
     kind: JudgmentKind,
     names: Vec<&'a str>,
@@ -123,8 +120,7 @@ struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    /// The call recording `kind`, an acknowledgment or a dismissal, with
-    /// `args`.
+    /// Builds an acknowledgment or dismissal of `kind` from `args`.
     fn closing(kind: JudgmentKind, args: &'a CloseArgs) -> Self {
         Self {
             kind,
@@ -142,8 +138,7 @@ struct Checkout {
     repo: Repo,
     /// The canonical path of its worktree.
     worktree: PathBuf,
-    /// The canonical path of the current directory, which typed names are
-    /// relative to.
+    /// The canonical current directory. Typed names are relative to it.
     cwd: PathBuf,
     /// The repository's review store, found without creating one; `None`
     /// when no review was saved for the repository.
@@ -174,14 +169,13 @@ impl Checkout {
         })
     }
 
-    /// The repository's review store, where the review `prefix` names, or
-    /// else the worktree's selection, would be saved.
+    /// Returns the repository's review store for `prefix` or the worktree's selection.
     ///
     /// # Errors
     ///
-    /// Returns a refusal when no review was saved for the repository: as
-    /// for an unknown review when there is a `prefix`, else as for no
-    /// selection. Its commands are addressed as `addressing` says.
+    /// Refuses if the repository has no saved review. Reports an unknown review
+    /// when `prefix` is present, or no selection otherwise. Uses `addressing`
+    /// for commands in the refusal.
     fn store(
         &self,
         prefix: Option<&str>,
@@ -205,9 +199,8 @@ impl Checkout {
     }
 }
 
-/// How the commands a call prints address its review: with the
-/// `--checkout` and `--review-dir` `args` gives. The review is added once
-/// resolved (see [`select`]).
+/// Addresses printed commands with `args`'s `--checkout` and `--review-dir`.
+/// [`select`] adds the review once resolved.
 fn addressing(args: &JudgeArgs) -> Addressing {
     Addressing {
         review: None,
@@ -313,8 +306,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     Ok(())
 }
 
-/// A judgment `judge` recorded and the review it leaves, as JSON shows
-/// them.
+/// JSON output for a recorded judgment and the resulting review state.
 #[derive(Debug, Serialize)]
 struct Recorded<'a> {
     /// The judgment, as the review store holds it.
@@ -330,14 +322,12 @@ struct Recorded<'a> {
 }
 
 impl Recorded<'_> {
-    /// The lines a terminal shows: what the judgment recorded, naming the
-    /// items and the review, which `compared` what; the snapshot kept when
-    /// the call was the review's `first` judgment; how to review the
-    /// content of an untracked file dismissed; what an undo withdrew of the
-    /// judgments in `ledger`; the judgment's id and the gate; and what to
-    /// run next. Items are named as `names`, which named the gate, names
-    /// them. Commands are addressed as `addressing` says, followed by its
-    /// note once when they show a value as given.
+    /// Renders the recorded judgment, items, review, and `compared` description.
+    /// Reports snapshot retention on the `first` judgment, commands to review
+    /// dismissed untracked files, withdrawals from `ledger`, the judgment id,
+    /// gate state, and next commands. Uses the gate's `names` for items and
+    /// `addressing` for commands. Appends its note once when commands show a
+    /// value as given.
     fn lines(
         &self,
         compared: &str,
@@ -414,11 +404,10 @@ impl Recorded<'_> {
         lines
     }
 
-    /// One line per judgment of `ledger` the recorded undo withdraws, in
-    /// the order withdrawn, naming what of it was withdrawn, its items named
-    /// as [`item_name`] names them in `names`. A completion withdrawn
-    /// because it counted an acknowledgment or dismissal the undo withdraws
-    /// is named as also withdrawn.
+    /// Renders one line per judgment withdrawn from `ledger`, in withdrawal order.
+    /// Reports what was withdrawn and names items with [`item_name`] in `names`.
+    /// Also reports completions withdrawn because they counted a withdrawn
+    /// acknowledgment or dismissal.
     fn withdrawn(&self, ledger: &Ledger<'_>, names: &ItemNames<'_>) -> Vec<String> {
         let withdraws = &self.judgment.withdraws;
         let counted = withdraws.iter().any(|withdrawal| withdrawal.item.is_some());
@@ -451,15 +440,15 @@ impl Recorded<'_> {
     }
 }
 
-/// The name of `item` in `names`, or `id:` and its first 8 digits when the
-/// gate `names` names does not hold it.
+/// Returns `item`'s name in `names`, or `id:` followed by its first 8 digits
+/// when the gate does not contain it.
 fn item_name(names: &ItemNames<'_>, item: &ItemId) -> String {
     names
         .name(item)
         .map_or_else(|| format!("id:{}", item.short()), str::to_owned)
 }
 
-/// `names` as a sentence lists them: `a`, `a and b`, `a, b, and c`.
+/// Joins `names` as `a`, `a and b`, or `a, b, and c`.
 fn sentence_list<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> String {
     let names: Vec<S> = names.into_iter().collect();
     let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
@@ -471,15 +460,14 @@ fn sentence_list<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> String {
     }
 }
 
-/// The review `prefix` names in `snapshot`, else the one `worktree`
-/// selects. Sets `addressing` to name the review when it is not the
-/// selection, so printed commands apply to it.
+/// Finds the review named by `prefix` in `snapshot`, or `worktree`'s selection.
+/// Adds the review to `addressing` when it differs from the selection, so printed
+/// commands apply to it.
 ///
 /// # Errors
 ///
-/// Returns a refusal when `prefix` names no saved review or several, or is
-/// too short, or when there is no prefix and no selection, and the other
-/// store errors of [`ReviewSnapshot::find_basis`].
+/// Refuses an invalid, unknown, or ambiguous `prefix`, or no prefix and no selection.
+/// Also returns other store errors from [`ReviewSnapshot::find_basis`].
 fn select(
     snapshot: &ReviewSnapshot,
     prefix: Option<&str>,
@@ -566,13 +554,12 @@ fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
     )
 }
 
-/// The ids of the gate items `typed` names, in the order named, each once:
-/// `name` says what a typed name means, and `names` finds its item.
+/// Resolves `typed` to unique gate item ids in the order named.
+/// `name` parses each name, and `names` finds its item.
 ///
 /// # Errors
 ///
-/// Returns a refusal listing why each name that does not name exactly one
-/// item does not.
+/// Returns a refusal explaining each name that fails to resolve to exactly one item.
 fn resolve(
     names: &ItemNames<'_>,
     typed: &[&str],
@@ -596,15 +583,15 @@ fn resolve(
     Err(refusal(lines))
 }
 
-/// Checks a call recording `kind` naming `items` against `states`, the gate
-/// of the review `id` as the store's judgments leave it, and returns what a
-/// completion closes (empty for other calls). An undo is checked as it is
-/// planned ([`withdraw_items`], [`withdraw_judgment`]).
+/// Checks `kind` and `items` against review `id`'s gate `states` after judgments.
+/// Returns the items and judgments a completion closes, or an empty map for
+/// other calls. [`withdraw_items`] and [`withdraw_judgment`] check undos
+/// while planning them.
 ///
 /// # Errors
 ///
-/// Returns a refusal when an item to acknowledge or dismiss is already
-/// closed, or when a completion finds an item open or the review complete.
+/// Returns a refusal when an item to acknowledge or dismiss is already closed,
+/// or when a completion finds an open item or an already completed review.
 fn check(
     kind: JudgmentKind,
     id: &BasisId,
@@ -681,14 +668,14 @@ fn already_closed(
     addressed_refusal(addressing, lines, [&undo])
 }
 
-/// What `undo <items>` withdraws on the review whose gate is `states`:
-/// every judgment closing each of `items` there, own or carried, and every
-/// standing completion counting one of them.
+/// Plans `undo <items>` against gate `states`. Withdraws every own or carried
+/// judgment closing an item in `items`, and standing completions counting
+/// those judgments.
 ///
 /// # Errors
 ///
-/// Returns a refusal naming each item nothing closes with its state: open,
-/// or reopened with the judgment it no longer matches.
+/// Refuses items without closing judgments. Lists their states as open or
+/// reopened, with the judgment each reopened item no longer matches.
 fn withdraw_items(
     states: &GateStates<'_>,
     items: &[ItemId],
@@ -713,20 +700,19 @@ fn withdraw_items(
     })
 }
 
-/// What `undo --judgment <prefix>` withdraws: the judgment `prefix` names
-/// in `ledger`, whole, and every standing completion counting it.
+/// Plans withdrawal of the whole judgment named by `prefix` in `ledger`,
+/// and every standing completion counting it.
 ///
 /// # Errors
 ///
-/// Returns a refusal when `prefix` is shorter than 8 characters or names
-/// no judgment or several, or when the judgment is an undo or already
-/// withdrawn.
+/// Refuses prefixes shorter than 8 characters, unknown or ambiguous prefixes,
+/// and judgments that are undos or already withdrawn.
 fn withdraw_judgment(
     ledger: &Ledger<'_>,
     prefix: &str,
     addressing: &Addressing,
 ) -> Result<Vec<Withdrawal>, CliError> {
-    // Printed, with the note that follows it, only when the prefix names no
+    // Print this command and its note when the prefix is too short or names no
     // judgment.
     let show = addressing.judge("show", &[], "");
     let listed = format!("{show} lists each judgment's id");
@@ -812,9 +798,8 @@ fn keep(
     Ok(())
 }
 
-/// A refused call's error: the lines of `rest`, each escaped. A writing
-/// call's refusal gains "No judgment recorded." in front when [`run`]
-/// returns it.
+/// Escapes each line of `rest` and joins them into a refusal.
+/// [`run`] prefixes write command refusals with "No judgment recorded."
 fn refusal<S: AsRef<str>>(rest: impl IntoIterator<Item = S>) -> CliError {
     let lines: Vec<String> = rest
         .into_iter()
@@ -823,9 +808,8 @@ fn refusal<S: AsRef<str>>(rest: impl IntoIterator<Item = S>) -> CliError {
     CliError::Refused(lines.join("\n"))
 }
 
-/// A refused call's error, as [`refusal`] makes it, whose `rest` prints
-/// `commands`, addressed as `addressing` says, followed by its note when
-/// they show a value as given.
+/// Builds a [`refusal`] from `rest`, which prints `commands` using `addressing`.
+/// Appends the addressing note when a command shows a value as given.
 fn addressed_refusal<'c, S: AsRef<str>>(
     addressing: &Addressing,
     rest: impl IntoIterator<Item = S>,

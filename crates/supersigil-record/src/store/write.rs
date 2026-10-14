@@ -40,8 +40,8 @@ pub struct WriteTx<'a> {
 }
 
 impl<'a> WriteTx<'a> {
-    /// Acquires the writer lock and reads the starting manifest of a
-    /// transaction published at `now`.
+    /// Acquires the writer lock and reads the starting manifest, using `now`
+    /// as this transaction's publication time.
     ///
     /// # Errors
     ///
@@ -128,16 +128,14 @@ impl<'a> WriteTx<'a> {
 
     /// Writes a session's derivations to a file named for the next store revision.
     ///
-    /// Assigns a number to a new session. Calling this again for the same
-    /// session in this transaction replaces the pending document. A
-    /// committed document this replaces stays for readers of earlier
-    /// revisions, listed in the manifest's `superseded` with the
-    /// transaction's time; see [`Self::commit`].
+    /// Assigns a number to a new session. Repeated calls for the same session
+    /// replace the pending document. Keeps replaced committed documents for
+    /// earlier readers and lists them in `superseded` at the transaction's
+    /// time; see [`Self::commit`].
     ///
-    /// The document is written to a new temporary file and renamed into
-    /// place, so anything already at its path, such as a file a writer that
-    /// never committed left or a symbolic link, is replaced, never written
-    /// through.
+    /// Writes a new temporary file and renames it into place, replacing any
+    /// existing target, including uncommitted files and symbolic links,
+    /// without writing through them.
     ///
     /// # Errors
     ///
@@ -160,11 +158,9 @@ impl<'a> WriteTx<'a> {
         })?;
         fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
         files::replace(&dir, &name, &bytes)?;
-        // A second write in this transaction replaces its own pending file,
-        // which no manifest names. The replaced document is listed under the
-        // name cleanup deletes it by ([`listed`]), whatever reached it, and
-        // keeps the later of two replacement times, so it gets its full
-        // grace period.
+        // Repeated writes replace only the unpublished pending file. List a
+        // replaced committed document by its cleanup name ([`listed`]) and
+        // keep the later replacement time to preserve its full grace period.
         if let Some(replaced) = self.manifest.documents.insert(logical, rel.clone())
             && replaced != rel
         {
@@ -212,20 +208,17 @@ impl<'a> WriteTx<'a> {
 
     /// Publishes this transaction's changes and returns the new revision number.
     ///
-    /// First deletes the documents superseded more than [`GRACE_SECONDS`]
-    /// before the transaction's time and drops their entries; one that
-    /// cannot be deleted (on Windows, a file another process has open) keeps
-    /// its entry for the next commit. Only manifests published before the
-    /// replacement name such a document. An entry naming anything else, such
-    /// as a file the manifest still references under any spelling, a name
-    /// no derivation document is written under, or a symbolic link, is
-    /// dropped and never deleted. Only regular files are deleted, never
-    /// through a symbolic link. Nothing is deleted while the manifest, the
-    /// lock, or the observations or derivations directory is a symbolic
-    /// link, or while the manifest references a file by anything but a
-    /// plain path inside the record, through a symbolic link, or a file
-    /// that cannot be resolved on disk. File modification times are never
-    /// consulted.
+    /// First deletes documents superseded more than [`GRACE_SECONDS`] before
+    /// the transaction's time and drops their entries. Keeps undeletable files,
+    /// including open files on Windows, listed for the next commit. Only
+    /// manifests published before the replacement name these documents.
+    ///
+    /// Drops entries for still-referenced files, unsupported document names,
+    /// and symbolic links without deleting them. Deletes only regular files,
+    /// without following symbolic links. Skips deletion if the manifest, lock,
+    /// observations directory, or derivations directory is a link, or a referenced
+    /// path is not plain and inside the record, crosses a link, or cannot be
+    /// resolved on disk. Ignores file modification times.
     ///
     /// Syncs changed files and their parent directories up to the record root,
     /// then checks that the on-disk revision still matches the starting one.
@@ -266,29 +259,26 @@ impl<'a> WriteTx<'a> {
         Ok(self.manifest.revision)
     }
 
-    /// Deletes the documents superseded more than [`GRACE_SECONDS`] before
-    /// the transaction's time and drops them from `superseded`. A missing
-    /// file counts as deleted; one that cannot be deleted keeps its entry.
-    /// An entry that is not a replaced derivation document
-    /// ([`replaced_document`]) is dropped without deleting anything. While
-    /// the manifest references a document or log by anything but a plain
-    /// path inside the record ([`location`]), which may name any file,
-    /// nothing is deleted and every entry is kept.
+    /// Deletes documents superseded more than [`GRACE_SECONDS`] before the
+    /// transaction's time and drops their entries. Treats missing files as
+    /// deleted and keeps undeletable files listed. Drops unsupported entries
+    /// ([`replaced_document`]) without deleting anything. If a referenced
+    /// document or log has a non-plain path or leaves the record ([`location`]),
+    /// skips deletion and keeps every entry.
     ///
-    /// Once an entry is due, cleanup reads the disk. Nothing is deleted
-    /// while the manifest, the lock, or the observations directory is a
-    /// symbolic link or cannot be checked ([`files::unlinked_entries`]),
-    /// the derivations directory or any component of a referenced document
-    /// or log is missing or a symbolic link ([`unlinked`]), or a referenced
-    /// file cannot be resolved; every entry is kept. A due entry that is a
-    /// symbolic link is dropped without deleting it; one that is not a
-    /// regular file keeps its entry. A regular file that resolves to a file
-    /// the pending manifest references is dropped without deleting it; one
-    /// that resolves to a file the published manifest this transaction
-    /// started from references keeps its entry for a later commit (that
-    /// manifest stays current until this commit publishes, and a reader may
-    /// hold it); otherwise it is deleted. Returns the directories files were
-    /// deleted from, for [`Self::commit`] to sync before publishing.
+    /// For due entries, skips deletion if the manifest, lock, or observations
+    /// directory is linked or unreadable ([`files::unlinked_entries`]), if the
+    /// derivations directory or any referenced path component is missing or
+    /// linked ([`unlinked`]), or if a referenced file cannot be resolved.
+    /// Keeps entries that passed the earlier name check.
+    ///
+    /// Drops due symbolic-link entries without deleting their links. Keeps
+    /// non-regular files listed. Drops regular-file entries without deletion
+    /// if their resolved target is still referenced by the pending manifest.
+    /// Keeps targets referenced by the starting manifest for a later commit,
+    /// since that manifest stays current until publication and readers may
+    /// hold it. Deletes other due regular files. Returns their parent directories
+    /// for [`Self::commit`] to sync before publishing.
     fn delete_superseded(&mut self) -> BTreeSet<PathBuf> {
         let root = self.store.root();
         let now = self.now;
@@ -310,8 +300,7 @@ impl<'a> WriteTx<'a> {
             .chain(starting.logs.keys())
             .map(String::as_str)
             .collect();
-        // The two differ only in the documents this transaction replaced, so
-        // each file either references is checked once.
+        // Check each path referenced by either manifest once.
         let referenced = || pending.union(&published).copied();
         let mut named = HashSet::new();
         for file in referenced() {
@@ -375,9 +364,8 @@ impl<'a> WriteTx<'a> {
     }
 }
 
-/// Whether each component of `file`, a plain path inside the record at
-/// `root`, is on disk and none is a symbolic link, so nothing reached
-/// through `file` is reached through a link.
+/// Checks that every component of the plain record-relative `file` exists
+/// and is not a symbolic link.
 fn unlinked(root: &Path, file: &str) -> bool {
     let mut path = root.to_path_buf();
     Path::new(file).components().all(|component| {
@@ -386,12 +374,10 @@ fn unlinked(root: &Path, file: &str) -> bool {
     })
 }
 
-/// Whether `file`, an entry of a manifest's `superseded`, names a
-/// derivation document the manifest no longer references: a name
-/// [`WriteTx::put_derivations`] writes directly in the derivations
-/// directory ([`document_name`]), never an absolute path, `..`, another
-/// directory, or another name, whose [`location`] is none of `referenced`,
-/// those of the manifest's document files and logs.
+/// Checks that `file` names a derivation document directly in the derivations
+/// directory ([`document_name`]) and its [`location`] is absent from the
+/// manifest's referenced documents and logs. Rejects absolute paths, `..`,
+/// other directories, and unsupported names.
 fn replaced_document(file: &str, referenced: &HashSet<String>) -> bool {
     file.strip_prefix(DERIVATIONS_DIR)
         .and_then(|rest| rest.strip_prefix('/'))
@@ -399,8 +385,8 @@ fn replaced_document(file: &str, referenced: &HashSet<String>) -> bool {
         && location(file).is_some_and(|location| !referenced.contains(&location))
 }
 
-/// Whether `name` is one a derivation document is written under:
-/// `<number>.r<revision>.json`, both numbers in decimal digits.
+/// Checks whether `name` has the `<number>.r<revision>.json` document form,
+/// with non-empty decimal numbers.
 fn document_name(name: &str) -> bool {
     let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
     name.strip_suffix(".json")
@@ -408,17 +394,15 @@ fn document_name(name: &str) -> bool {
         .is_some_and(|(number, revision)| digits(number) && digits(revision))
 }
 
-/// The file `file`, a path relative to the record root, names, spelled
-/// one way for comparison: [`normalized`], with ASCII letters in lowercase
-/// (a file system may ignore case). `None` unless `file` is a plain path
-/// inside the record.
+/// Normalizes record-relative `file` ([`normalized`]) and lowercases ASCII
+/// letters for comparison on file systems that may ignore case. Returns
+/// `None` unless the path is plain and stays inside the record.
 fn location(file: &str) -> Option<String> {
     normalized(file).map(|plain| plain.to_ascii_lowercase())
 }
 
-/// `file`, a path relative to the record root, as a plain path: as
-/// [`resolved`], but `None` when `file` holds a `..`, so that it is not a
-/// plain path inside the record.
+/// Resolves record-relative `file` as [`resolved`] does, but rejects any
+/// `..` component to require a plain path inside the record.
 fn normalized(file: &str) -> Option<String> {
     let parent = Path::new(&file.replace('\\', "/"))
         .components()
@@ -426,13 +410,11 @@ fn normalized(file: &str) -> Option<String> {
     if parent { None } else { resolved(file) }
 }
 
-/// The name under which a document a manifest stopped referencing as
-/// `replaced` is listed as replaced: when the file that reference reaches on
-/// disk (through an absolute path, a link, or any spelling) is a file
-/// directly in the record's derivations directory, `derivations/<its name>`
-/// in lowercase, as the record names its documents (a file system may
-/// ignore case); otherwise the reference resolved lexically inside the
-/// record ([`resolved`]), in lowercase; otherwise as written.
+/// Finds the cleanup name for `replaced`. First resolves it on disk, including
+/// absolute paths and links. If the target is directly in the record's
+/// derivations directory, returns `derivations/<name>` in ASCII lowercase.
+/// Otherwise returns its lexically resolved record-relative path ([`resolved`])
+/// in ASCII lowercase, or the original spelling if resolution fails.
 fn listed(root: &Path, replaced: &str) -> String {
     let on_disk = || {
         let dir = fs::canonicalize(root.join(DERIVATIONS_DIR)).ok()?;
@@ -445,10 +427,9 @@ fn listed(root: &Path, replaced: &str) -> String {
         .unwrap_or_else(|| replaced.to_owned())
 }
 
-/// `file`, a path relative to the record root, resolved lexically: its
-/// names joined by `/`, with `\` read as a separator, `.` dropped, and
-/// each `..` removing the name before it. `None` when `file` is empty,
-/// absolute, or leaves the record.
+/// Resolves record-relative `file` lexically. Joins names with `/`, treats
+/// `\` as a separator, drops `.`, and removes the preceding name for each
+/// `..`. Returns `None` for empty or absolute paths, or paths that leave the record.
 fn resolved(file: &str) -> Option<String> {
     let unified = file.replace('\\', "/");
     let mut names = Vec::new();

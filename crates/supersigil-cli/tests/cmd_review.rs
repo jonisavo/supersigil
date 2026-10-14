@@ -3125,11 +3125,10 @@ fn an_edit_one_record_missed_closes_the_gap_in_another_record() {
         .overwrite("toolu_three", &gap, "two\n", "three\n")
         .text();
     write(&f.repo, "x/gap.rs", "three\n");
-    // Synced into the record of the directory, which keeps only the first
-    // and third writes (the second's working directory lies outside it),
-    // then into the record of the worktree, which keeps all three. The
-    // nested record comes first: once the worktree has a record, a sync for
-    // the directory inside it would use that one.
+    // Sync into the nested directory's record first. It keeps only the first
+    // and third writes because the second's working directory lies outside it.
+    // Then sync into the worktree's record, which keeps all three. Creating that
+    // record first would make the nested directory's sync use it too.
     let transcript = f.root.join("transcripts").join("moved.jsonl");
     std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
     std::fs::write(&transcript, text).unwrap();
@@ -3172,8 +3171,8 @@ fn an_edit_one_record_missed_closes_the_gap_in_another_record() {
         ],
     );
 
-    // Together the records hold every write, which follow on from each
-    // other: no gap.
+    // Together the records hold all writes, with matching before and after states,
+    // so there is no gap.
     assert_eq!(review["records"].as_array().unwrap().len(), 2);
     let gate = review["basis"]["document"]["gate"].as_array().unwrap();
     assert!(
@@ -3293,9 +3292,8 @@ fn the_basis_gate_hashes_the_recorded_edits_behind_unexplained_lines() {
     assert_ne!(explanation(&again), explanation(&review));
 }
 
-/// Rewrites every recorded sighting of the edit `id` in the records under
-/// `records` as `change` makes it, keeping each log's pinned length in step
-/// with its bytes, as a hand edit of the record would.
+/// Applies `change` to every sighting of edit `id` under `records`.
+/// Updates each log's pinned length to match its bytes, simulating a manual edit.
 fn rewrite_edit(records: &Path, id: &str, change: impl Fn(&mut Edit)) {
     for entry in std::fs::read_dir(records).unwrap() {
         let record = entry.unwrap().path();

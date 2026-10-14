@@ -12,10 +12,10 @@ use crate::ids::JudgmentId;
 use crate::store::StoreError;
 use crate::time::UtcTime;
 
-/// One writing call's judgment. Judgments are never edited; an undo
-/// withdraws earlier ones.
+/// A judgment recorded by one writing call. An undo withdraws earlier
+/// judgments without editing them.
 ///
-/// Empty lists and maps and absent text are left out of its JSON line.
+/// Serialization omits empty lists and maps and absent text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Judgment {
     /// A fresh UUID.
@@ -34,8 +34,8 @@ pub struct Judgment {
     /// The text given with `--text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// For a completion: each gate item and the judgment that closes it,
-    /// its own or carried.
+    /// For a completion, maps each gate item to its closing judgment,
+    /// recorded on this review or carried from another.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub closes: BTreeMap<ItemId, JudgmentId>,
     /// For an undo: the judgments it withdraws.

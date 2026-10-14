@@ -1,18 +1,17 @@
-//! Whether a command runs inside an agent session.
+//! Detects commands running inside an agent session.
 //!
-//! An agent may read reviews and judgments but never closes an item or a
-//! review: judging is for people. The check reads markers the agent's
-//! harness sets in the environment of the commands it runs, so it guards
-//! against accidents, not malice; anyone can unset them.
+//! Agents may read reviews and judgments, but only people may close items or
+//! reviews. This check reads environment markers set by the agent's harness.
+//! It prevents accidents; anyone can unset the markers.
 
 use std::ffi::OsString;
 
-/// Environment variables whose presence marks an agent session: Claude
-/// Code sets both. Another agent's markers can join the list.
+/// Environment markers for agent sessions. Claude Code sets both.
+/// The list can include other agents' markers.
 pub const AGENT_MARKERS: [&str; 2] = ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID"];
 
-/// Whether any of [`AGENT_MARKERS`] is set and non-empty, as `lookup` reads
-/// the environment (`std::env::var_os` for the process's own).
+/// Returns whether `lookup` finds a non-empty value for any of [`AGENT_MARKERS`].
+/// Use `std::env::var_os` to read the process environment.
 #[must_use]
 pub fn in_agent_session(lookup: impl Fn(&str) -> Option<OsString>) -> bool {
     AGENT_MARKERS

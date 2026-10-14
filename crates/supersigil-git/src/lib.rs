@@ -6,10 +6,9 @@
 //! tree `git add -u` would produce, and nothing here ever writes the real
 //! index or the worktree. [`changes`] lists changed paths, [`bytes`] reads
 //! blob contents and their worktree form, [`worktree`] lists worktrees, and
-//! [`origin`] reads which worktree created a commit. [`retention`] names the
-//! repository and the person for a judgment and writes the only ref this
-//! crate writes: one that keeps a reviewed snapshot, created once and never
-//! moved.
+//! [`origin`] reads which worktree created a commit. [`retention`] reads the
+//! git common directory and user identity and creates refs to retain judged
+//! trees. These are the only refs this crate writes; it never moves them.
 //!
 //! Git runs only through [`Git`], which scrubs the variables that could point
 //! it at another repository, index, or object store or change how it reads

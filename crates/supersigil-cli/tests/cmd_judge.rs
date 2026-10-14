@@ -1,5 +1,5 @@
-//! `supersigil judge` end to end: judgments recorded on saved reviews of
-//! temporary git repositories, and every refusal recording nothing.
+//! Tests `supersigil judge` in temporary git repositories.
+//! Judgments apply to saved reviews, and refused calls record nothing.
 
 mod common;
 
@@ -56,9 +56,8 @@ fn identify(f: &Fixture) {
     f.git(&["config", "user.email", EMAIL]);
 }
 
-/// The slice fixture with an identity, reviewed. Its gate: `old.txt`,
-/// `lines:src/lib.rs`, `src/new.rs` (untracked), and `gap:src/lib.rs`, all
-/// open.
+/// Reviews the slice fixture with a git identity. Leaves all gate items open:
+/// `old.txt`, `lines:src/lib.rs`, untracked `src/new.rs`, and `gap:src/lib.rs`.
 fn reviewed() -> (Fixture, Value) {
     let f = Fixture::new();
     slice(&f);
@@ -72,8 +71,8 @@ fn judge(f: &Fixture, dir: &Path, args: &[&str]) -> Command {
     f.plain(dir, &[&["judge"], args].concat())
 }
 
-/// What `supersigil judge --format terminal <args>` prints in `dir`; panics
-/// unless it succeeds.
+/// Runs `supersigil judge --format terminal <args>` in `dir` and returns its output.
+/// Panics unless it succeeds.
 fn judged(f: &Fixture, dir: &Path, args: &[&str]) -> String {
     let output = judge(f, dir, &[&["--format", "terminal"], args].concat())
         .output()
@@ -86,9 +85,8 @@ fn judged(f: &Fixture, dir: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// Runs `command`, a judge call expected to be refused: it exits 1, prints
-/// nothing on standard output, and records no judgment and no ref. Returns
-/// what it printed on standard error.
+/// Runs `command` and checks that it exits 1, prints no standard output,
+/// and records no judgment or ref. Returns its standard error.
 fn refused(f: &Fixture, command: &mut Command) -> String {
     let before = (recorded(f), refs(f));
     let output = command.output().unwrap();
@@ -1034,8 +1032,8 @@ fn a_snapshot_git_pruned_before_the_first_judgment_needs_a_new_review() {
     );
 }
 
-/// The slice fixture reviewed with every gate item acknowledged and the
-/// review completed: the acknowledgment and the completion.
+/// Reviews the slice fixture, acknowledges every gate item, and completes it.
+/// Returns the fixture, review, acknowledgment, and completion.
 fn completed() -> (Fixture, Value, Judgment, Judgment) {
     let (f, review) = reviewed();
     judged(
@@ -1054,10 +1052,9 @@ fn completed() -> (Fixture, Value, Judgment, Judgment) {
     (f, review, acknowledgment, completion)
 }
 
-/// A repository whose `a.txt` and `b.txt` changed, reviewed, both
-/// acknowledged with a reason, and completed; then a second worktree,
-/// `other`, holding the same change, reviewed there too. Returns the
-/// fixture, the second worktree, and both reviews.
+/// Reviews changed `a.txt` and `b.txt`, acknowledges both with a reason, and
+/// completes the review. Creates worktree `other` with the same changes and
+/// reviews it. Returns the fixture, second worktree, and both reviews.
 fn carried() -> (Fixture, PathBuf, Value, Value) {
     let f = Fixture::new();
     identify(&f);
@@ -1087,8 +1084,7 @@ fn carried() -> (Fixture, PathBuf, Value, Value) {
     (f, other, first, second)
 }
 
-/// A withdrawal of `judgment`'s judgment of `item`, or of the whole
-/// judgment.
+/// Builds a withdrawal of `judgment` for `item`, or the whole judgment if absent.
 fn withdrawal(judgment: &Judgment, item: Option<ItemId>) -> Withdrawal {
     Withdrawal {
         judgment: judgment.id.clone(),

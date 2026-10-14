@@ -20,10 +20,9 @@ use crate::time::{GRACE_SECONDS, REMOVAL_DELAY_SECONDS, UtcTime};
 ///
 /// Basis files and judgment lines reach the disk before [`Self::commit`],
 /// but readers see them only once the published manifest lists them.
-/// Dropping the transaction without committing leaves the manifest
-/// unchanged and releases the lock; the next writer truncates the
-/// judgments it appended, and a later cleanup deletes the basis files it
-/// wrote.
+/// Dropping the transaction without committing leaves the manifest unchanged
+/// and releases the lock. The next append truncates uncommitted judgment bytes.
+/// Later cleanup deletes unlisted basis files this transaction wrote.
 #[derive(Debug)]
 pub struct ReviewTx<'a> {
     store: &'a ReviewStore,
@@ -44,9 +43,8 @@ impl<'a> ReviewTx<'a> {
     /// Acquires the writer lock and reads the starting manifest and the
     /// judgments it pins.
     ///
-    /// A basis listed in both `bases` and `removed`, as no writer of this
-    /// build leaves a manifest, is live: it leaves `removed`, so no cleanup
-    /// deletes its file.
+    /// Treats a basis listed in both `bases` and `removed` as live and removes
+    /// its `removed` entry to prevent deletion. This build never writes that overlap.
     ///
     /// # Errors
     ///
@@ -82,9 +80,8 @@ impl<'a> ReviewTx<'a> {
         &self.manifest
     }
 
-    /// Returns the judgments as of the transaction's start, in the order
-    /// they were recorded, excluding those this transaction appended. A
-    /// writer checks them under the lock before appending.
+    /// Returns judgments in recorded order as of the transaction's start,
+    /// excluding its appends. Writers check these under the lock before appending.
     #[must_use]
     pub fn judgments(&self) -> &[Judgment] {
         &self.judgments
@@ -122,13 +119,11 @@ impl<'a> ReviewTx<'a> {
 
     /// Saves `basis` as reviewed at `now` and returns its ID.
     ///
-    /// Writes `bases/<id>.json` through a temporary file in `bases/`, unless
-    /// a regular file there already hashes to the ID (which is synced, with
-    /// `bases/`, before it is used); a file that does not,
-    /// such as one a crashed writer left, is replaced, and so is a symbolic
-    /// link. Sets the basis's `last_reviewed` to `now`, and its
-    /// `first_written` when it is new. A basis listed in `removed` leaves it
-    /// and is new again.
+    /// Reuses an existing regular `bases/<id>.json` if its bytes hash to the
+    /// ID, syncing it and `bases/` first. Otherwise writes through a temporary
+    /// file in `bases/` and replaces the target, including symbolic links.
+    /// Sets `last_reviewed` to `now` and sets `first_written` for a new basis.
+    /// Removes the basis from `removed`; a previously removed basis is new again.
     ///
     /// # Errors
     ///
@@ -172,17 +167,16 @@ impl<'a> ReviewTx<'a> {
         Ok(id)
     }
 
-    /// Makes `basis` the review `judge` applies to in `worktree`, a
-    /// canonical worktree path.
+    /// Selects `basis` for `judge` in the canonical path `worktree`.
     pub fn select(&mut self, worktree: &Path, basis: &BasisId) {
         self.manifest
             .selections
             .insert(worktree.to_path_buf(), basis.clone());
     }
 
-    /// Removes bases nobody uses, in two phases so no published manifest
-    /// names a deleted file. A basis that a selection or any judgment names
-    /// is kept, so a judged basis is kept forever.
+    /// Removes unused bases in two phases. Keeps bases named by a selection
+    /// or any judgment, so judged bases stay forever. Publishes each removal
+    /// before a later write deletes its file.
     ///
     /// - Deletes the files of bases whose removal a published manifest
     ///   recorded more than [`REMOVAL_DELAY_SECONDS`] before `now`, after
@@ -193,24 +187,20 @@ impl<'a> ReviewTx<'a> {
     ///   than [`GRACE_SECONDS`] before `now` from `bases` to `removed` with
     ///   the time `now`. Committing publishes that removal; a later write
     ///   deletes the files.
-    /// - Deletes files in `bases/` that the manifest neither lists nor marks
-    ///   removed, and that no selection or judgment names: leftovers of a
-    ///   write that never committed. Only a file under a name the store
-    ///   writes there (a basis file's, or its temporary file's) is deleted;
-    ///   any other file is kept.
+    /// - Deletes leftover files in `bases/` that no manifest entry, selection,
+    ///   or judgment names. Deletes only basis files and their temporary files
+    ///   under names the store writes; keeps all other names.
     ///
-    /// Only regular files are deleted, never a symbolic link nor anything
-    /// through one: a removed basis whose file is a link leaves `removed`
-    /// with its link kept, and nothing is deleted while `bases/`, the
-    /// manifest, the lock, or the judgments log is a link or cannot be
-    /// checked (what one leads to could be a file in `bases/`). Before
-    /// deleting anything, the file of each basis in `bases`, or named by a
-    /// selection or judgment, that is a link is replaced by a regular file
-    /// holding what the link leads to, so no deletion removes what such a
-    /// basis reads; while one cannot be (what it leads to cannot be read or
-    /// does not hash to its ID), nothing is deleted. A file that cannot be
-    /// deleted (on Windows, one another process has open) stays, with its
-    /// entry, for the next write.
+    /// Deletes only regular files, without following symbolic links. A removed
+    /// basis whose file is a link leaves `removed`, but keeps its link. Skips
+    /// all deletions if `bases/`, the manifest, the lock, or the judgments log
+    /// is a link or cannot be checked, since it could reference a deletion target.
+    ///
+    /// Before deleting, replaces linked files of live, selected, or judged
+    /// bases with regular files containing the same bytes. Skips all deletions
+    /// if any such link cannot be read or its bytes do not hash to the basis ID.
+    /// Files that cannot be deleted, including open files on Windows, keep
+    /// their entries for the next write.
     ///
     /// # Errors
     ///
@@ -277,18 +267,16 @@ impl<'a> ReviewTx<'a> {
             if listed.contains(name) || !written_in_bases(name) {
                 continue;
             }
-            // A leftover that cannot be deleted is tried again next write.
+            // Retry undeletable leftovers on the next write.
             remove_regular(&entry.path());
         }
         Ok(())
     }
 
-    /// Replaces the file of each basis in `bases` or in `kept`, the bases a
-    /// selection or judgment names, that is a symbolic link with a regular
-    /// file holding what the link leads to (see [`make_regular`]), in ID
-    /// order. Returns whether cleanup may delete files in `dir`, the
-    /// `bases/` directory: it is missing, or a directory that is not a link
-    /// and in which every such file was replaced.
+    /// Replaces linked files of bases in `bases` or `kept` with regular files,
+    /// in ID order (see [`make_regular`]). `kept` contains selected or judged bases.
+    /// Allows deletion only if `dir` is missing, or is an unlinked directory
+    /// where every required replacement succeeded.
     fn make_bases_regular(&self, dir: &Path, kept: &BTreeSet<&BasisId>) -> bool {
         match fs::symlink_metadata(dir) {
             Ok(metadata) if metadata.is_dir() => {}
@@ -311,8 +299,8 @@ impl<'a> ReviewTx<'a> {
     /// it, and publishes the manifest by atomic rename. Basis files were
     /// synced when they were written.
     ///
-    /// On Windows, the store directory is not synced; its entries then rely
-    /// on the file system's durability guarantees.
+    /// On Windows, skips directory syncing if the directory cannot be opened.
+    /// Its entries then rely on the file system's durability guarantees.
     ///
     /// # Errors
     ///
@@ -338,9 +326,8 @@ impl<'a> ReviewTx<'a> {
     }
 }
 
-/// Replaces the file of basis `id` in `dir` with a regular file holding
-/// what the file leads to, written as [`ReviewTx::save_basis`] writes, when
-/// it is a symbolic link; anything else is left as it is.
+/// Replaces a symbolic link for basis `id` in `dir` with its target's bytes,
+/// written as [`ReviewTx::save_basis`] writes. Leaves other entries unchanged.
 ///
 /// # Errors
 ///
@@ -358,10 +345,9 @@ fn make_regular(dir: &Path, id: &BasisId) -> Result<(), StoreError> {
     files::replace(dir, &name, &bytes)
 }
 
-/// Deletes `path` if it is a regular file; cleanup never deletes a
-/// symbolic link, nor what one leads to. Returns whether nothing is left
-/// for cleanup to delete: the file was deleted or is missing, or `path` is
-/// a link.
+/// Deletes `path` only if it is a regular file, without following links.
+/// Returns `true` if it was deleted, is missing, or is a symbolic link that
+/// cleanup must keep.
 fn remove_regular(path: &Path) -> bool {
     let removed = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_symlink() => return true,

@@ -69,8 +69,8 @@ struct Listed {
     last_judgment: Option<JudgmentInfo>,
 }
 
-/// Every review in `snapshot` with a judgment or a worktree's selection,
-/// the one judged last first, then those never judged.
+/// Lists reviews in `snapshot` with a judgment or worktree selection.
+/// Orders them by most recent judgment, then lists reviews never judged.
 ///
 /// # Errors
 ///
@@ -117,8 +117,8 @@ fn listed(snapshot: &ReviewSnapshot) -> Result<Vec<Listed>, CliError> {
     Ok(listed.into_iter().map(|(_, listed)| listed).collect())
 }
 
-/// The lines a terminal shows for `reviews`: a header, then one row per
-/// review, a selected one marked `*`; or that there is none.
+/// Renders a header and one row per review, marking selected reviews with `*`.
+/// Renders an empty-list message when `reviews` is empty.
 fn lines(reviews: &[Listed]) -> Vec<String> {
     if reviews.is_empty() {
         return vec!["No judged or selected reviews in this repository.".to_owned()];

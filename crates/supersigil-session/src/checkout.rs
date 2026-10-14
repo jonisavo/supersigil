@@ -62,25 +62,21 @@ pub fn resolve(checkout: &Path) -> PathBuf {
     canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
 }
 
-/// The resolution ([`resolve`]) of each checkout a review's records name,
-/// made once for the whole review, or that a sync's edits name, made once
-/// for the whole sync. Every placement of a recorded file in the review,
-/// and every location sync compares edits by, goes through it, so a
-/// symbolic link on a checkout's path that changes meanwhile never places
-/// one file two ways.
+/// Cached [`resolve`] paths, once per checkout for a review or sync.
+/// Review places recorded files and sync compares edit locations through
+/// this cache, so a changing checkout symlink cannot place one file two ways.
 #[derive(Debug, Clone, Default)]
 pub struct Resolutions(BTreeMap<PathBuf, PathBuf>);
 
 impl Resolutions {
-    /// Resolves `checkout` unless it already was.
+    /// Caches [`resolve`] for `checkout` unless already cached.
     pub fn add(&mut self, checkout: &Path) {
         self.0
             .entry(checkout.to_path_buf())
             .or_insert_with(|| resolve(checkout));
     }
 
-    /// The resolution of `checkout`: the one made once, or, for a checkout
-    /// never added, one made now.
+    /// Borrows the cached path, or calls [`resolve`] if `checkout` was never added.
     #[must_use]
     pub fn resolution(&self, checkout: &Path) -> Cow<'_, Path> {
         self.0.get(checkout).map_or_else(
@@ -90,25 +86,21 @@ impl Resolutions {
     }
 }
 
-/// Where the file `path`, recorded relative to `checkout`, lies: `checkout`
-/// as [`resolve`] returns it, joined with `path`, then lexically normalized
-/// (`.` components removed, each `..` folded into the normal component before
-/// it, dropped at a root directory, and kept when nothing precedes it to
-/// fold into, as after a Windows drive without a root directory, `C:`,
-/// which names the drive's current directory), with letter case as spelled.
+/// Joins [`resolve`] of `checkout` with `path` and normalizes components,
+/// preserving letter case. Removes `.`, folds `..` into a preceding normal
+/// component, and drops `..` at a root. Keeps `..` without a preceding normal
+/// component or root, including after `C:`, the Windows drive's current directory.
 ///
-/// Nothing below the checkout is read from the file system. Sync groups a
-/// session's edits by this location, so edits of one file are compared
-/// whether the session named it from a subdirectory, or through a symlink
-/// to the checkout.
+/// Reads nothing below the checkout. Sync groups edits by this location to
+/// compare one file named from different subdirectories or checkout symlinks.
 #[must_use]
 pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
     file_location_in(&resolve(checkout), path)
 }
 
-/// [`file_location`] with `checkout` already resolved ([`resolve`]): only
-/// the lexical normalization, so locating several files of one checkout
-/// resolves it once ([`Resolutions`]).
+/// [`file_location`] for an already resolved `checkout`.
+/// Normalizes components without resolving the checkout again, allowing
+/// [`Resolutions`] to cache one resolution for several files.
 #[must_use]
 pub fn file_location_in(checkout: &Path, path: &Path) -> PathBuf {
     let mut normal = PathBuf::new();

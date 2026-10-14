@@ -119,8 +119,7 @@ pub fn read_blobs_within(
     Ok(blobs)
 }
 
-/// One object id per line, as `cat-file --batch` and `--batch-check` read
-/// them.
+/// Newline-separated object ids for `cat-file --batch` and `--batch-check`.
 pub(crate) fn request<'i>(ids: impl IntoIterator<Item = &'i ObjectId>) -> Vec<u8> {
     let mut input = Vec::new();
     for id in ids {

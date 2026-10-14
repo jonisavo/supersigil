@@ -1,5 +1,4 @@
-//! Item names: the name a person types for each gate item, and how a typed
-//! name resolves to items, or why it is refused.
+//! Tests typed gate item names, resolution, and refusals.
 
 mod common;
 
@@ -14,7 +13,6 @@ use supersigil_record::reviews::{
 };
 use supersigil_review::names::{ItemNames, Name, NameError, Parsed, parse};
 
-/// A placeholder detail of `origin`.
 fn detail(origin: Origin) -> GateDetail {
     match origin {
         Origin::UnexplainedLines => GateDetail::UnexplainedLines {
@@ -57,20 +55,18 @@ fn commit(id: &str) -> GateItem {
     item(Origin::CommitWithoutOrigin, Subject::Commit(id.to_owned()))
 }
 
-/// A repository path as typed from the repository root: absent when it is
-/// not UTF-8 or holds a control character.
+/// Returns a path typed from the repository root, or `None` for non-UTF-8
+/// paths or control characters.
 fn from_root(path: &PathBytes) -> Option<String> {
     path.to_str()
         .filter(|text| !text.chars().any(char::is_control))
         .map(str::to_owned)
 }
 
-/// Names for `items` from the repository root, with no record associations.
 fn named(items: &[GateItem], ignore_case: bool) -> ItemNames<'_> {
     ItemNames::new(items, BTreeMap::new(), ignore_case, from_root)
 }
 
-/// What the CLI makes of `typed` at the repository root.
 fn name(typed: &str) -> Name {
     match parse(typed) {
         Parsed::Path { origin, path } => Name::Path {
@@ -94,7 +90,6 @@ fn resolve(
     names.resolve(&requests)
 }
 
-/// The single error resolving `typed` gives.
 fn refusal(names: &ItemNames<'_>, typed: &str) -> NameError {
     let mut errors = resolve(names, &[typed]).unwrap_err();
     assert_eq!(errors.len(), 1);
@@ -139,7 +134,7 @@ fn parsing_splits_a_known_qualifier_from_the_rest() {
         Parsed::Unreconciled("/work/x")
     );
     assert_eq!(parse("id:4f1c9a2e"), Parsed::Id("4f1c9a2e"));
-    // Only one known qualifier is split; any other colon is the path's.
+    // Split one known qualifier; keep other colons in the path.
     assert_eq!(
         parse("gap:lines:x"),
         path(Some(Origin::Discontinuity), "lines:x")
@@ -195,8 +190,7 @@ fn a_path_that_gains_a_second_item_needs_its_qualifier() {
     assert_eq!(named(&before, false).names(), strings(&["src/a.rs"]));
     let names = named(&after, false);
     assert_eq!(names.names(), strings(&["lines:src/a.rs", "gap:src/a.rs"]));
-    // The qualified name keeps naming the same item; the bare one no
-    // longer names one item.
+    // The qualified name still resolves; the bare name is now ambiguous.
     assert_eq!(
         resolve(&named(&before, false), &["lines:src/a.rs"]),
         Ok(ids(&[&before[0]]))
@@ -213,7 +207,7 @@ fn a_path_that_gains_a_second_item_needs_its_qualifier() {
 
 #[test]
 fn names_show_paths_as_typed_from_the_current_directory() {
-    // From `src`: paths below it are relative, others absolute.
+    // Show paths under `src` as relative and others as absolute.
     let from_src = |path: &PathBytes| {
         from_root(path).map(|text| match text.strip_prefix("src/") {
             Some(below) => below.to_owned(),
@@ -353,7 +347,7 @@ fn a_case_insensitive_repository_matches_paths_in_any_case() {
         named(&items, false).names(),
         strings(&["src/A.rs", "src/a.rs"])
     );
-    // With one origin, only the id tells them apart.
+    // Items sharing an origin need IDs to remain distinct.
     let items = [lines("A.rs"), lines("a.rs")];
     let names = named(&items, true);
     for (item, typed) in items.iter().zip(names.names()) {
@@ -458,7 +452,7 @@ fn a_name_that_matches_nothing_lists_up_to_five_nearby_names() {
             ]),
         }
     );
-    // A qualifier the path has no item of.
+    // No item at this path has the requested origin.
     assert_eq!(
         refusal(&names, "gap:docs/other.md"),
         NameError::NoMatch {
@@ -499,7 +493,7 @@ fn a_repository_wide_change_is_named_and_resolved_promptly() {
     }));
     let every = ids(&items.iter().collect::<Vec<_>>());
 
-    // Every name, each looked up by id, and all of them resolved at once.
+    // Look up every name by ID, then resolve all names at once.
     let (shown, by_id, resolved) = finishes_within(Duration::from_secs(20), move || {
         let names = named(&items, true);
         let by_id: Vec<String> = items

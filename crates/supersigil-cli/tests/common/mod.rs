@@ -11,9 +11,9 @@ use supersigil_session::discover::encode_project_dir;
 pub mod fixture;
 pub mod session;
 
-/// The `supersigil` binary under test, outside any agent session and with
-/// the reviews directory left to the test: the suite itself often runs
-/// inside Claude Code.
+/// Builds a command for the `supersigil` binary under test, clearing agent session
+/// markers and the reviews directory override. Tests may run inside Claude Code
+/// and choose their own reviews directory.
 pub fn supersigil_cmd() -> Command {
     let mut command = Command::new(assert_cmd::cargo::cargo_bin("supersigil"));
     for key in [

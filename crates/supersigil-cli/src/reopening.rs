@@ -1,10 +1,8 @@
-//! What `review` reads of how the code and the records changed since an
-//! earlier judged review related to it: the paths that differ between the
-//! two target trees while the earlier one is still in the repository, the
-//! observations recorded since that edit or change a reviewed path, the
-//! capture limitations recorded since in candidate transcripts, and the
-//! records the earlier review read that are gone or rewritten. What the two
-//! bases alone tell (explanations, gate items) the review model compares
+//! Reads changes since an earlier related judged review: paths differing between
+//! the target trees while the earlier tree still exists, new observations editing
+//! or changing reviewed paths, new capture limitations in candidate transcripts,
+//! and previously read records now gone or rewritten.
+//! The review model compares explanations and gate items from the two bases
 //! ([`StatusInfo::reviewed`](supersigil_review::model::StatusInfo::reviewed)).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -26,18 +24,15 @@ use crate::error::CliError;
 use crate::mapping::map_edit;
 use crate::pipeline::{Gathered, PinnedRecord, by_path_key, path_key};
 
-/// Reads how the code and the records changed since each of `related`, the
-/// earlier reviews related to `review`, the one gathered in `g`, in order.
-/// Each current log is read at most once for all of them. The
-/// changed paths are unknown when an earlier target tree is gone: its
-/// retention ref keeps it, but a person may delete the ref and git prune
-/// the tree.
+/// Reads code and record changes since each earlier review in `related`, in order,
+/// for `review` gathered in `g`. Reads each current log at most once across all
+/// comparisons. Reports unknown changed paths if an earlier target tree is gone.
+/// Its retention ref keeps it until someone deletes the ref and git prunes the tree.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Git`] if an earlier target tree cannot be looked up
-/// or compared with the current one, and the store errors of reading a
-/// pinned log.
+/// or compared with the current one, and the store errors of reading a pinned log.
 pub fn read_changes<'a>(
     g: &Gathered,
     review: &Review,
@@ -65,11 +60,11 @@ pub fn read_changes<'a>(
         .collect())
 }
 
-/// The paths that differ, within scope, between each of `related`'s target
-/// tree and the one `g` reviews, in order: none for the same content,
-/// `None` when the earlier tree is no longer in the repository. Each
-/// earlier tree is compared once, however many of `related` reviewed it,
-/// and git is asked once whether each is still there.
+/// Compares scoped paths between each `related` target tree and `g`'s target tree,
+/// in order. Returns no changed paths for matching content, or `None` when the
+/// earlier tree is gone. Checks all earlier trees' existence in one git call.
+/// Compares each distinct earlier tree once, regardless of how many related
+/// reviews share it.
 ///
 /// # Errors
 ///
@@ -118,21 +113,17 @@ fn code_changed(
 /// The current logs of a review's records, each read at most once for all
 /// the earlier reviews related to it.
 struct Logs {
-    /// Per record and log, the log read once, when an earlier review pinned
-    /// it shorter than it is now or did not pin it, and it still holds the
-    /// bytes the current review read.
+    /// Logs by record and path, each read once because an earlier review pinned
+    /// fewer bytes or none. Each still matches the current review's pinned bytes.
     readings: BTreeMap<RecordId, BTreeMap<String, LogReading>>,
 }
 
 impl Logs {
-    /// Reads, once, each log of `records` that an earlier review pinned
-    /// shorter than it is now or did not pin, hashing its prefix at each
-    /// length one of them pinned and at the current review's pinned length
-    /// ([`RecordSnapshot::read_log`]). Each of `earlier` holds the records
-    /// one earlier review pinned. A log whose bytes up to the current
-    /// review's pinned length no longer hash as they did when that review
-    /// read them changed under it: it is left unread, so it counts as
-    /// rewritten rather than giving observations the review never saw.
+    /// Reads each log in `records` once if an earlier review pinned fewer bytes or none.
+    /// Hashes prefixes at each earlier pinned length and the current pinned length
+    /// ([`RecordSnapshot::read_log`]). Each entry in `earlier` holds one review's records.
+    /// Discards a reading if its current pinned prefix digest changed, and counts the
+    /// log as rewritten rather than supplying observations the current review never saw.
     ///
     /// [`RecordSnapshot::read_log`]: supersigil_record::store::RecordSnapshot::read_log
     ///
@@ -171,12 +162,10 @@ impl Logs {
         Ok(Self { readings })
     }
 
-    /// The observations appended to `record`'s log `log` since an earlier
-    /// review pinned it as `then`, all of them when it did not pin it;
-    /// `None` when the log is shorter now, no longer begins with the bytes
-    /// that review read, or changed since the current review read it.
-    /// Length alone never shows that it does. `record` is one of those
-    /// [`Self::read`] read.
+    /// Returns observations appended to `record`'s `log` since pin `then`, or all
+    /// observations if the earlier review did not pin it. Returns `None` if the log
+    /// shrank, its earlier pinned prefix changed, or it changed since the current
+    /// review read it. Checks digests, not length alone. [`Self::read`] read `record`.
     fn since<'s>(
         &'s self,
         record: &PinnedRecord,
@@ -186,8 +175,7 @@ impl Logs {
         let now = record.logs.get(log)?;
         let start = then.map_or(0, |then| then.length);
         if start == now.length {
-            // Nothing appended; pinned at this length, the hash the pin
-            // computed tells.
+            // Equal pinned lengths mean no append; compare the pinned digests.
             return then
                 .is_none_or(|then| then.sha256 == now.sha256)
                 .then_some(&[]);
@@ -209,13 +197,12 @@ struct Since<'l> {
     gone_or_rewritten: Vec<RecordId>,
 }
 
-/// The observations each record `g` pinned holds beyond what `earlier`
-/// pinned of it, all of a record or log it did not pin, as `logs` read
-/// them; and the records `earlier` pinned that are gone or rewritten: not
-/// involved now, or with a log missing or no longer beginning with the
-/// bytes it read. A record whose log changed while the current review read
-/// it counts as rewritten too. A rewritten log's later observations are not
-/// read, since where they begin is unknown.
+/// Collects observations from `logs` beyond `earlier`'s pins in `g`'s records,
+/// including all observations from records or logs not previously pinned.
+/// Lists earlier records now absent, with missing logs, or with changed pinned
+/// prefixes as gone or rewritten. Also counts logs changed during the current
+/// review's read as rewritten. Excludes later observations from rewritten logs
+/// because their starting position is unknown.
 fn records_since<'l>(g: &Gathered, earlier: &Basis, logs: &'l Logs) -> Since<'l> {
     let mut gone = BTreeSet::new();
     let mut appended = Vec::new();
@@ -245,14 +232,12 @@ fn records_since<'l>(g: &Gathered, earlier: &Basis, logs: &'l Logs) -> Since<'l>
     }
 }
 
-/// The observations among `appended` that edit or change a path `review`
-/// reviewed, by session: edits whose file maps to one, as the review maps
-/// edits (through the checkout resolutions it made while gathering), and
-/// each sighting of a command, in any transcript, whose change report
-/// lists one, placed the same way. Reviewed paths are the files, the
-/// untracked files with recorded edits, and the paths not captured. Turns,
-/// delegation steps, and other commands do not count, nor does a command
-/// whose text only names a reviewed path: most such commands read it.
+/// Groups `appended` observations editing or changing reviewed paths by session.
+/// Maps edits using the checkout resolutions made while gathering the review.
+/// Maps each command sighting's reported changes the same way, in any transcript.
+/// Reviewed paths include reviewed files, recorded untracked files, and uncaptured
+/// paths. Excludes turns, delegation steps, and commands without reported changes
+/// to these paths. A textual path mention alone does not count.
 fn new_observations(
     g: &Gathered,
     review: &Review,
@@ -280,10 +265,8 @@ fn new_observations(
                     name(edit.session.as_str(), &path);
                 }
             }
-            // Every sighting counts, not only a command's first: recorded
-            // again, it may carry a change report the first lacked. So does
-            // its transcript, candidate or not, since candidates come from
-            // first sightings.
+            // Count every command sighting, even from noncandidate transcripts.
+            // Later sightings may add change reports; candidates use first sightings.
             Observation::Command(command) => {
                 for path in evidence.reported_paths(command, &g.roots, &observed, g.ignore_case) {
                     name(command.session.as_str(), &path);
@@ -301,12 +284,10 @@ fn new_observations(
         .collect()
 }
 
-/// Where the file `edit` names lies, when that is one of the candidate
-/// `worktrees` among `roots`: placed through `resolutions`, the checkout
-/// resolutions the review made while gathering, so an edit appended since
-/// an earlier review maps as the review's own sightings did, even if a
-/// checkout would resolve otherwise now. A checkout the review never saw is
-/// resolved now.
+/// Maps `edit`'s file to a candidate `worktree` among `roots`, using the review's
+/// checkout `resolutions`. Appended edits therefore map like the review's own
+/// sightings even if a checkout now resolves differently. Resolves previously
+/// unseen checkouts now.
 fn candidate_path(
     edit: &Edit,
     resolutions: &Resolutions,
@@ -319,9 +300,9 @@ fn candidate_path(
         .map(|mapped| mapped.path)
 }
 
-/// The candidate transcripts with a capture limitation among `appended`,
-/// sorted: the limitations recorded since the earlier review. A transcript
-/// that became a candidate since brings none it had before.
+/// Lists candidate transcripts with capture limitations in `appended`, sorted.
+/// Counts only limitations recorded since the earlier review, even for newly
+/// candidate transcripts.
 fn capture_changed(g: &Gathered, appended: &[&Observation]) -> Vec<String> {
     let transcripts: BTreeSet<&String> = appended
         .iter()

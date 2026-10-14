@@ -36,8 +36,7 @@ impl<'a> Session<'a> {
         }
     }
 
-    /// Works in `cwd` from the next record on, as a session that changes
-    /// directory does.
+    /// Uses `cwd` as the working directory for subsequent records.
     pub fn cd(&mut self, cwd: &'a Path) -> &mut Self {
         self.cwd = cwd;
         self
@@ -87,9 +86,9 @@ impl<'a> Session<'a> {
         self.push("user", &json!(text), None)
     }
 
-    /// An Edit call on a file over 10 KB and its result, as Claude Code
-    /// records it: no `originalFile`, and the patch of replacing `old` with
-    /// `new` in `before`, the file as the edit found it.
+    /// Appends an Edit call and result for a file over 10 KB in Claude Code's format.
+    /// Sets `originalFile` to null and supplies the patch replacing `old` with `new`
+    /// in `before`, the file's contents before the edit.
     pub fn edit(
         &mut self,
         tool: &str,
@@ -165,8 +164,8 @@ impl<'a> Session<'a> {
         )
     }
 
-    /// The harness delivering the notification that `agent`, started by
-    /// call `tool`, completed, as it does to an idle issuer.
+    /// Appends the harness notification that `agent`, started by `tool`, completed,
+    /// as delivered to an idle issuer.
     pub fn stopped(&mut self, tool: &str, agent: &str) -> &mut Self {
         let text = format!(
             "<task-notification>\n<task-id>{agent}</task-id>\n<tool-use-id>{tool}</tool-use-id>\n\

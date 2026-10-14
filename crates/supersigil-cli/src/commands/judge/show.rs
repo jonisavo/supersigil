@@ -1,10 +1,9 @@
-//! `supersigil judge show`: one saved review as its judgments leave it:
-//! each gate item with the judgment that closes it, the comments, and what
-//! undos withdrew.
+//! `supersigil judge show` displays a saved review's gate items and closing
+//! judgments, comments, and undo history.
 //!
-//! `judge` reads no records, so it cannot tell whether evidence changed: a
-//! review is complete only with its own standing completion, and a
-//! completion of the same content is shown as related.
+//! `judge` reads no records and cannot detect evidence changes. It marks a review
+//! complete only with its own standing completion, and lists completions of the
+//! same content as related.
 
 use std::cmp::Reverse;
 use std::io::{self, Write as _};
@@ -101,8 +100,8 @@ struct Shown<'a> {
     gate: GateInfo,
     /// Its standing comments, in the order recorded.
     comments: Vec<Comment>,
-    /// What undos withdrew of its judgments, or recorded on it withdrew,
-    /// in the order withdrawn.
+    /// Withdrawals affecting this review's judgments or recorded on this review,
+    /// in withdrawal order.
     history: Vec<Withdrawn>,
     /// Whether it reviewed no changed file and has no gate item, so there
     /// is nothing to judge; the terminal says so, and JSON leaves it out.
@@ -131,8 +130,7 @@ struct Withdrawn {
     undo: JudgmentInfo,
 }
 
-/// The standing comments of `judgments` recorded on the review `id`, their
-/// items named in `names`.
+/// Lists standing comments from `judgments` on review `id`, naming items with `names`.
 fn comments(
     id: &BasisId,
     judgments: &[Judgment],
@@ -153,9 +151,9 @@ fn comments(
         .collect()
 }
 
-/// What every undo in `judgments` withdrew of a judgment of `ledger` on the
-/// review `id`, or withdrew while recorded on it, its items named in
-/// `names`.
+/// Lists withdrawals by each undo in `judgments` affecting review `id`'s judgments
+/// or recorded on that review. Looks up withdrawals in `ledger` and names items
+/// with `names`.
 fn history(
     id: &BasisId,
     judgments: &[Judgment],
@@ -189,11 +187,10 @@ fn named<'i>(names: &ItemNames<'_>, items: impl IntoIterator<Item = &'i ItemId>)
 }
 
 impl Shown<'_> {
-    /// The lines a terminal shows, untrusted text escaped: the header, the
-    /// status, the gate rows, the comments, the history, and what to run
-    /// next, addressed as `addressing` says, followed by its note when the
-    /// commands show a value as given. A review with nothing to review says
-    /// so in place of its status and suggests no command.
+    /// Renders the header, status, gate rows, comments, history, and next commands,
+    /// escaping untrusted text. Uses `addressing` for commands and appends its note
+    /// when they show a value as given. Replaces status with an empty-review message
+    /// and suggests no command when there is nothing to review.
     fn lines(&self, addressing: &Addressing) -> Vec<String> {
         let mut lines = self.header();
         if self.nothing_to_review {
@@ -287,8 +284,8 @@ impl Shown<'_> {
         lines
     }
 
-    /// The status: complete with the review's own completion; otherwise
-    /// not, with each completion of the same content as related.
+    /// Renders completion from this review's own standing completion.
+    /// Otherwise reports it incomplete and lists same-content completions as related.
     fn status(&self) -> Vec<String> {
         if let Some(completion) = &self.status.completion {
             return vec![format!(

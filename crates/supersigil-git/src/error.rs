@@ -79,8 +79,8 @@ pub enum GitError {
         /// Why it cannot be included.
         reason: String,
     },
-    /// A reference to be created already exists and is not a direct
-    /// reference to the expected snapshot; it was left as it is.
+    /// The existing ref does not point directly to the expected snapshot.
+    /// The ref is unchanged.
     #[error("{reference} already exists and {reason}")]
     RefMismatch {
         /// The full reference name.

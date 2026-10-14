@@ -1,16 +1,14 @@
 //! The plain terminal summary of a review.
 //!
-//! Plain, deterministic text in five parts: a header (the saved review or
-//! why it was not saved, the worktree, base, and target, and whether the
-//! review is complete or what changed since its most recent related
-//! completion), the gate with one row per item, one line per file, the
-//! evidence notes that are not gate items, and the command to run next. No
-//! diff text: the JSON carries it.
+//! Deterministic text with a header, gate rows, file rows, evidence notes,
+//! and next commands. The header identifies the saved review or why saving
+//! failed, worktree, base, target, and completion status or changes since the
+//! most recent related completion. Diff text remains in JSON.
 //!
 //! Every string that comes from outside the tool (paths, ids, reasons,
-//! names, transcript text) goes through the caller's `escape` function,
-//! which the CLI supplies as its `format::escape_control`, so an escape
-//! sequence in a path cannot rewrite the terminal.
+//! names, transcript text) uses the caller's `escape` function. The CLI
+//! supplies `format::escape_control` so path escape sequences cannot rewrite
+//! the terminal.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -28,17 +26,17 @@ use crate::model::{
 };
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 
-/// Most gate rows a summary shows before it suggests a pager.
+/// Maximum gate rows before the summary suggests a pager.
 const LONG_GATE: usize = 20;
 
-/// What a review with no changed file and no gate item says in place of
-/// its status: there is nothing to judge or complete.
+/// Status text when both the changed-file list and gate are empty, with
+/// nothing to judge or complete.
 pub const NOTHING_TO_REVIEW: &str = "Nothing to review: no changes in scope.";
 
 /// Renders `review` as the terminal summary, escaping untrusted text with
-/// `escape`. Every command it prints is addressed as `addressing` says,
-/// with [`Addressing::note`] after the last; a review with no changed file
-/// and no gate item says [`NOTHING_TO_REVIEW`] and suggests no judgment.
+/// `escape`. Addresses commands using `addressing` and adds
+/// [`Addressing::note`] after the last. With no changed files and no gate
+/// items, prints [`NOTHING_TO_REVIEW`] and suggests no judgment.
 #[must_use]
 pub fn render_summary(
     review: &Review,
@@ -73,7 +71,7 @@ pub fn render_summary(
         push(&mut out, &line);
     }
 
-    // The commands printed, for the note after the last.
+    // Collect commands for the note after the last.
     let mut commands = Vec::new();
     push(&mut out, "");
     push(&mut out, "files:");
@@ -112,8 +110,7 @@ pub fn render_summary(
         commands.extend(next_commands);
         next
     };
-    // The note follows every command printed, the file list's suggestion to
-    // review a commit included.
+    // Add the note after all commands, including the file list's commit review.
     last.extend(addressing.note(&commands));
     if review.gate.items.len() > LONG_GATE {
         last.push(
@@ -131,8 +128,6 @@ pub fn render_summary(
     out
 }
 
-/// The first line: the saved review by its id's first 8 digits, what it
-/// reviewed over which base, or why it was not saved.
 fn header_line(review: &Review) -> String {
     let Some(saved) = &review.basis else {
         let reason = review
@@ -153,22 +148,20 @@ fn header_line(review: &Review) -> String {
     review_line(&saved.id, &compared(target, review.base.commit.as_deref()))
 }
 
-/// The first line of a saved review's header: the review `id` by its first
-/// 8 digits, and what it `compared` ([`compared`]).
+/// Builds a saved review's first header line from `id`'s first 8 digits and
+/// its `compared` description ([`compared`]).
 #[must_use]
 pub fn review_line(id: &BasisId, compared: &str) -> String {
     format!("Review {}: {compared}.", id.short())
 }
 
-/// The header line naming the `worktree` a review reviewed, escaped with
-/// `escape`.
+/// Builds the worktree header line, escaping `worktree` with `escape`.
 #[must_use]
 pub fn worktree_line(worktree: &str, escape: fn(&str) -> String) -> String {
     format!("  worktree: {}", escape(worktree))
 }
 
-/// The header line naming a review's base: the base commit `commit` with
-/// its tree `tree`, or the empty tree.
+/// Builds the base header line with `commit` and `tree`, or the empty tree.
 #[must_use]
 pub fn base_line(commit: Option<&str>, tree: &str) -> String {
     match commit {
@@ -177,9 +170,8 @@ pub fn base_line(commit: Option<&str>, tree: &str) -> String {
     }
 }
 
-/// What a review compared, as its summary's first line says it: the
-/// working tree, or `commit <short id>` when `target_commit` names the
-/// reviewed commit, over the base commit's short id or the empty tree.
+/// Describes the working tree or `target_commit` over the base commit or
+/// empty tree for the first summary line. Abbreviates commit IDs.
 #[must_use]
 pub fn compared(target_commit: Option<&str>, base_commit: Option<&str>) -> String {
     let target = target_commit.map_or_else(
@@ -192,21 +184,19 @@ pub fn compared(target_commit: Option<&str>, base_commit: Option<&str>) -> Strin
     )
 }
 
-/// Whether running the review again may save it: unless it names a path
-/// the review store cannot hold.
+/// Checks whether rerunning may save the review, unless its paths cannot
+/// serialize in the store.
 fn saves_later(review: &Review) -> bool {
     review.basis_unsaved.is_none_or(Unsaved::may_save_later)
 }
 
-/// A commit id's first 7 digits, as git abbreviates it.
 fn short(commit: &str) -> &str {
     commit.get(..7).unwrap_or(commit)
 }
 
-/// Whether the review is complete: by whom and when, and through which
-/// review when its completion carries over. Otherwise what changed since
-/// the most recent related completion still standing (the first related
-/// review, when it has one), and that nothing is open when nothing is.
+/// Shows who completed the review and when, naming the earlier review if
+/// completion carries. Otherwise shows changes since the first related
+/// review's standing completion, if any, and reports an empty open gate.
 fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) -> Vec<String> {
     if let Some(completion) = &status.completion {
         let by = format!(
@@ -285,10 +275,9 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
     lines
 }
 
-/// One line per kind of evidence that changed, naming what changed: the
-/// files whose explanations differ, the sessions with new observations and
-/// the paths they name, the transcripts whose capture limitations changed,
-/// and the records gone or rewritten.
+/// Lists changed file explanations, new observations by session and path,
+/// changed transcript capture limitations, and gone or rewritten records,
+/// one line per kind.
 fn evidence_lines(evidence: &ChangedEvidence, escape: fn(&str) -> String) -> Vec<String> {
     let paths = |paths: &[PathBytes]| {
         paths
@@ -330,16 +319,12 @@ fn evidence_lines(evidence: &ChangedEvidence, escape: fn(&str) -> String) -> Vec
     lines
 }
 
-/// `path`, a repository path, as a terminal shows it, escaped with
-/// `escape`.
+/// Displays repository `path` with lossy UTF-8 conversion and `escape`.
 #[must_use]
 pub fn shown_path(path: &PathBytes, escape: fn(&str) -> String) -> String {
     escape(&String::from_utf8_lossy(path.as_bytes()))
 }
 
-/// The review's gate as [`gate_lines`] shows it, each row the columns
-/// [`gate_row`] gives an item, counting its content-matched lines whose
-/// search did not complete.
 fn gate(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     let incomplete: BTreeMap<&PathBytes, usize> = review
         .files
@@ -355,10 +340,9 @@ fn gate(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     })
 }
 
-/// The lines that show `gate`: how many of its items are open and closed,
-/// then a blank line and one row per item, in gate order, indented, with
-/// the columns `row` gives the item aligned ([`aligned`]); or that it has
-/// no items.
+/// Renders `gate`'s open and closed counts, a blank line, and indented item
+/// rows in gate order. Aligns columns from `row` with [`aligned`]. For an
+/// empty gate, reports no items.
 #[must_use]
 pub fn gate_lines(gate: &GateInfo, row: impl Fn(&GateItemInfo) -> [String; 3]) -> Vec<String> {
     if gate.items.is_empty() {
@@ -374,10 +358,9 @@ pub fn gate_lines(gate: &GateInfo, row: impl Fn(&GateItemInfo) -> [String; 3]) -
     lines
 }
 
-/// The columns of `item`'s gate row, as a review summary shows them: its
-/// name, its state, and what needs attention or who closed it.
-/// `incomplete` counts the item's content-matched lines whose search did
-/// not complete. Untrusted text is escaped with `escape`.
+/// Builds `item`'s name, state, and attention or closing-judgment columns.
+/// `incomplete` counts content-matched lines whose search did not complete.
+/// Escapes untrusted text with `escape`.
 #[must_use]
 pub fn gate_row(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String) -> [String; 3] {
     [
@@ -387,8 +370,8 @@ pub fn gate_row(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> Stri
     ]
 }
 
-/// `rows` as lines, each column but the last padded to its widest cell and
-/// two spaces apart, with no trailing spaces.
+/// Formats `rows` as lines with two spaces between columns. Pads each
+/// column except the last to its widest cell and trims trailing spaces.
 #[must_use]
 pub fn aligned<const N: usize>(rows: Vec<[String; N]>) -> Vec<String> {
     let mut widths = [0; N];
@@ -413,8 +396,7 @@ pub fn aligned<const N: usize>(rows: Vec<[String; N]>) -> Vec<String> {
         .collect()
 }
 
-/// The state a row shows: a carried item shows how the judgment carried to
-/// it closed it.
+/// Carried items show the carried judgment's closing kind.
 fn state_word(item: &GateItemInfo) -> &'static str {
     match item.state {
         ItemStateInfo::Open => "open",
@@ -440,8 +422,8 @@ pub const fn noun(kind: JudgmentKind) -> &'static str {
     }
 }
 
-/// What an item a judgment of `kind`, an acknowledgment or a dismissal,
-/// closes is: `dismissed` by a dismissal, `acknowledged` by any other.
+/// Returns `dismissed` for a dismissal and `acknowledged` for any other
+/// `kind`. Callers use this for closing judgments.
 #[must_use]
 pub const fn closed_word(kind: JudgmentKind) -> &'static str {
     match kind {
@@ -450,10 +432,9 @@ pub const fn closed_word(kind: JudgmentKind) -> &'static str {
     }
 }
 
-/// What a row says after the state: what needs attention for an item that
-/// needs a judgment, who closed a closed one and when, and why a reopened
-/// one reopened. `incomplete` counts the item's content-matched lines whose
-/// search did not complete.
+/// Builds the text after a row's state, describing needed attention, who
+/// closed it and when, or why it reopened. `incomplete` counts the item's
+/// content-matched lines whose search did not complete.
 fn attention(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String) -> String {
     let Some(judgment) = &item.judgment else {
         return needs(&item.detail, incomplete as u64, escape);
@@ -477,9 +458,7 @@ fn attention(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String)
     }
 }
 
-/// What needs attention in an item with `detail`, in the words of its
-/// origin. `incomplete` counts its content-matched lines whose search did
-/// not complete.
+/// `incomplete` counts content-matched lines whose search did not complete.
 fn needs(detail: &GateDetail, incomplete: u64, escape: fn(&str) -> String) -> String {
     match detail {
         GateDetail::UnexplainedLines {
@@ -528,10 +507,8 @@ fn needs(detail: &GateDetail, incomplete: u64, escape: fn(&str) -> String) -> St
     }
 }
 
-/// What the file list says when the review has no changed file, with the
-/// command it prints: a working tree without changes may have just been
-/// committed, so it suggests reviewing that commit, addressed as
-/// `addressing` says.
+/// Builds the empty file-list text and optional command. For a working
+/// tree, suggests reviewing a commit just made, using `addressing`.
 fn no_changes_line(target: TargetKindInfo, addressing: &Addressing) -> (String, Option<Command>) {
     match target {
         TargetKindInfo::WorkingTree => {
@@ -551,9 +528,8 @@ const AS_GIVEN: &str = "<as given>";
 /// What [`Command`] records for a path filter it shows as `<as given>`.
 const PATH_FILTER: &str = "path filter";
 
-/// A command an output prints, as [`Addressing`] renders it, with the
-/// values it shows as `<as given>`, so the output can add
-/// [`Addressing::note`] once, after the commands it printed.
+/// A command rendered by [`Addressing`], tracking values replaced by
+/// `<as given>` so output can add [`Addressing::note`] after all commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     /// The command as printed.
@@ -581,16 +557,15 @@ impl Command {
         }
     }
 
-    /// Appends `<flag>=<value>`, the value as [`Self::value`] prints it, so
-    /// a value that starts with `-` is never read as a flag.
+    /// Appends `<flag>=<value>` using [`Self::value`] so leading `-` in a
+    /// value cannot parse as a flag.
     fn flag(&mut self, flag: &'static str, value: &OsStr) {
         let value = self.value(flag, value);
         self.words(&format!("{flag}={value}"));
     }
 
-    /// `value`, the value of `what`, quoted with [`shell_word`], or
-    /// `<as given>`, recording `what`, when it cannot be printed exactly
-    /// ([`printed`]).
+    /// Quotes `value` with [`shell_word`], or substitutes `<as given>` and
+    /// records `what` if [`printed`] cannot represent it exactly.
     fn value(&mut self, what: &'static str, value: &OsStr) -> String {
         printed(value).map_or_else(
             || {
@@ -608,18 +583,17 @@ impl fmt::Display for Command {
     }
 }
 
-/// How the commands an output prints address what it shows: `judge`
-/// commands name the review when it is not the worktree's selection, and
-/// every command repeats the `--checkout` and `--review-dir` the call was
-/// given. A value that is not valid UTF-8 or holds a control character
-/// cannot be printed exactly, and a lossy or escaped rendering could name
-/// another path, so commands show `<as given>` in its place; an output
-/// whose commands do adds [`Addressing::note`] once, after them.
+/// Addresses printed commands. `judge` commands name the review when it
+/// differs from the worktree's selection. Every command repeats the supplied
+/// `--checkout` and `--review-dir`.
+///
+/// Commands replace non-UTF-8 values or control characters with `<as given>`
+/// because lossy or escaped values could name another path. Output adds
+/// [`Addressing::note`] once after commands containing these placeholders.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Addressing {
-    /// The review's id, its first 8 digits, when `judge` would otherwise
-    /// apply to another review: an agent session's review, or a `--review`
-    /// override.
+    /// The review's first 8 ID digits for an agent session or `--review`
+    /// override, when `judge` would otherwise apply to another review.
     pub review: Option<String>,
     /// `--checkout` as the call was given it.
     pub checkout: Option<PathBuf>,
@@ -634,11 +608,10 @@ pub struct Addressing {
 }
 
 impl Addressing {
-    /// `supersigil review` with the arguments the call was given: its
-    /// [`retry`](Self::retry) flags as `<flag>=<value>`, the `--checkout`
-    /// and `--review-dir` flags, then `--` and its
-    /// [`retry_paths`](Self::retry_paths). A value that cannot be printed
-    /// exactly shows as `<as given>`, as the other flags' do.
+    /// Builds `supersigil review` with the supplied arguments. Emits
+    /// [`retry`](Self::retry) flags as `<flag>=<value>`, then `--checkout` and
+    /// `--review-dir`, then `--` and any [`retry_paths`](Self::retry_paths).
+    /// Values that cannot print exactly become `<as given>`.
     #[must_use]
     pub fn retry(&self) -> Command {
         let mut command = Command::new("supersigil review");
@@ -659,10 +632,9 @@ impl Addressing {
         command
     }
 
-    /// `supersigil judge <verb>` with the items `names`, each quoted with
-    /// [`shell_word`], then `options`, printed as given, and the flags that
-    /// address the review. When a name starts with `-`, the names come
-    /// last, after `--`, so `judge` reads none of them as a flag.
+    /// Builds `supersigil judge <verb>` with `names` quoted by [`shell_word`],
+    /// then literal `options` and review address flags. If any name starts
+    /// with `-`, puts all names last after `--` to prevent flag parsing.
     #[must_use]
     pub fn judge(&self, verb: &str, names: &[&str], options: &str) -> Command {
         let dashed = names.iter().any(|name| name.starts_with('-'));
@@ -687,8 +659,8 @@ impl Addressing {
         command
     }
 
-    /// `supersigil review <words>` followed by the `--checkout` and
-    /// `--review-dir` the call was given. `words` are printed as given.
+    /// Builds `supersigil review <words>` with literal `words`, then the
+    /// supplied `--checkout` and `--review-dir`.
     #[must_use]
     pub fn review(&self, words: &str) -> Command {
         let mut command = Command::new("supersigil review");
@@ -697,18 +669,16 @@ impl Addressing {
         command
     }
 
-    /// The line an output adds once, after `commands`, the commands it
-    /// printed, when they show a value as `<as given>`: which values cannot
-    /// be printed, and that they must be passed as given. `None` when every
-    /// value they show prints exactly.
+    /// Builds the note after printed `commands`, naming values shown as
+    /// `<as given>` and telling the reader to pass them unchanged. Returns
+    /// `None` when every value prints exactly.
     #[must_use]
     pub fn note<'c>(&self, commands: impl IntoIterator<Item = &'c Command>) -> Option<String> {
         let shown: BTreeSet<&str> = commands
             .into_iter()
             .flat_map(|command| command.as_given.iter().copied())
             .collect();
-        // In a fixed order: the flags that address the review, those of the
-        // review call to run again, then its path filters.
+        // List review address flags, retry flags, then path filters.
         let order = ["--review", "--checkout", "--review-dir"]
             .into_iter()
             .chain(self.retry.iter().map(|&(flag, _)| flag))
@@ -733,8 +703,7 @@ impl Addressing {
         }
     }
 
-    /// Appends to `command` the `--checkout` and `--review-dir` flags the
-    /// call was given, with their values.
+    /// Appends supplied `--checkout` and `--review-dir` values to `command`.
     fn address(&self, command: &mut Command) {
         let flags = [
             ("--checkout", &self.checkout),
@@ -748,9 +717,8 @@ impl Addressing {
     }
 }
 
-/// `value` as a command or a name prints it exactly, or `None` when it
-/// cannot be: it is not valid UTF-8, or it holds a control character, which
-/// output escapes.
+/// Returns `value`'s exact text for commands or names, or `None` for
+/// non-UTF-8 values or control characters that output would escape.
 #[must_use]
 pub fn printed(value: &OsStr) -> Option<&str> {
     value
@@ -758,18 +726,16 @@ pub fn printed(value: &OsStr) -> Option<&str> {
         .filter(|text| !text.chars().any(char::is_control))
 }
 
-/// Most open items a `Next:` line names. With more, it leaves them to the
-/// list the output shows above it, so the command stays short enough to
-/// run.
+/// Maximum open items named in a `Next:` command before using a placeholder
+/// that refers to the item list above.
 const MOST_NAMED: usize = 20;
 
-/// The lines naming what to run next on a saved review whose items named
-/// `open` need a judgment, each escaped with `escape`, with the commands
-/// they print: acknowledging them, or dismissing items named in place of a
-/// placeholder, then completing the review; completing it when none is
-/// open; nothing when it is complete. The names print once, so a long
-/// gate's lines stay readable; with more than 20, the acknowledgment takes
-/// a placeholder too and points at the open items listed above.
+/// Builds next-step lines and their commands for a saved review, escaping
+/// lines with `escape`. Suggests acknowledging `open` items or dismissing
+/// placeholder names, then completing; suggests only completion with no open
+/// items; emits nothing for a complete review. Prints item names once to keep
+/// long gates readable. Above 20 open items, acknowledgment also uses a
+/// placeholder and refers to the item list above.
 #[must_use]
 pub fn next_lines(
     open: &[&str],
@@ -804,8 +770,8 @@ pub fn next_lines(
     (lines.iter().map(|line| escape(line)).collect(), commands)
 }
 
-/// `word` as a POSIX shell reads it back: as it is when no character in it
-/// is special to a shell, single-quoted otherwise.
+/// Quotes `word` for a POSIX shell, leaving safe nonempty words unchanged
+/// and single-quoting the rest.
 #[must_use]
 pub fn shell_word(word: &str) -> String {
     let plain = !word.is_empty()
@@ -856,7 +822,6 @@ fn unreconciled_lines(
     lines
 }
 
-/// One line per candidate transcript with capture limitations.
 fn capture_lines(evidence: &EvidenceInfo, escape: fn(&str) -> String) -> Vec<String> {
     let mut lines = Vec::new();
     for transcript in &evidence.candidate_transcripts {
@@ -874,8 +839,8 @@ fn capture_lines(evidence: &EvidenceInfo, escape: fn(&str) -> String) -> Vec<Str
     lines
 }
 
-/// Lines of `file` with a content match whose search did not complete. The
-/// gate's counts do not tell them apart, so they come from the spans.
+/// Counts `file`'s content-matched lines with incomplete searches from its
+/// spans, since gate counts do not separate them.
 fn incomplete_content_matches(file: &FileReview) -> usize {
     file.hunks
         .iter()
@@ -1056,10 +1021,9 @@ impl Tally {
     }
 }
 
-/// The evidence notes that are not gate items: coarse diffs, attribution
-/// unavailable, capture limitations, conflicting edits, transcripts removed
-/// before they could be read, scope and origin notes, and what was not
-/// reconciled.
+/// Builds evidence notes outside gate items for coarse diffs, unavailable
+/// attribution, capture limitations, conflicting edits, removed transcripts,
+/// scope, origins, and unreconciled evidence.
 fn notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     let summary = &review.unattributed;
     let evidence = &review.evidence;

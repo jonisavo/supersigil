@@ -1,10 +1,9 @@
-//! `supersigil review`: the change between a base and a target, each changed
-//! line attributed to the recorded edits that produced it, or the reason it
-//! is not. Every review is saved in the repository's review store, so
-//! judgments can bind to exactly what it showed, and shows its gate with
-//! the judgments recorded on it or carried from related reviews that saw an
-//! item's same evidence, what changed since the most recent related
-//! completion, and the command to run next.
+//! `supersigil review` compares a base and target. It attributes changed lines to
+//! recorded edits or explains why attribution failed. It attempts to save each
+//! review in the repository's review store so judgments bind to what it showed.
+//! It shows gate judgments, including those carried from related reviews with
+//! matching item evidence, changes since the most recent related completion,
+//! and the next command to run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write as _};
@@ -117,10 +116,9 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// The flags of the call `args` describes, other than `--checkout` and
-/// `--review-dir`, each with the value it was given, for the command that
-/// runs the review again. Not repeated: the output format and the record
-/// and Claude home directories.
+/// Builds retry flags from `args`, preserving their given values.
+/// Omits `--checkout` and `--review-dir`, which addressing supplies separately,
+/// and the output format, records directory, and Claude home.
 fn retry_flags(args: &ReviewArgs) -> Vec<(&'static str, Option<String>)> {
     let mut flags = Vec::new();
     if let Some(base) = &args.base {
@@ -138,7 +136,7 @@ fn retry_flags(args: &ReviewArgs) -> Vec<(&'static str, Option<String>)> {
     flags
 }
 
-/// What the review store holds of a review after [`store`] saved it.
+/// Review store state after [`store`] attempts to save the review.
 struct Stored {
     /// Whether the basis was saved; not when the store stayed busy.
     saved: bool,
@@ -151,11 +149,10 @@ struct Stored {
     judged: BTreeMap<BasisId, Basis>,
 }
 
-/// Saves `basis`, whose id is `id`, in the review store in `reviews_dir`
-/// of `g`'s repository (see [`save`]), then reads the store without a
-/// lock: its judgments, the reviewed worktree's selection, and the other
-/// reviews judged that relate to it. When the store's directory stayed
-/// busy, the store is only looked up; no store yet has no judgments.
+/// Attempts to save `basis` with `id` in `g`'s repository store under `reviews_dir`
+/// ([`save`]). Then reads judgments, the reviewed worktree's selection, and related
+/// judged reviews without a lock. If the reviews directory stays busy, only looks
+/// up an existing store. Returns no judgments when no store exists.
 ///
 /// # Errors
 ///
@@ -193,11 +190,10 @@ fn store(
     })
 }
 
-/// The status and the gate of `review`, gathered in `g`, whose basis
-/// `basis` has the id `id`: each item's state from the judgments `stored`
-/// holds on it and on the earlier reviews related to it, named as typed
-/// from the current directory, and the status from what changed since
-/// each of those reviews.
+/// Builds the status and gate for `review` gathered in `g`, with `basis` and `id`.
+/// Uses `stored` judgments on this review and related earlier reviews for item
+/// states, and changes since those reviews for status. Names items from the
+/// current directory.
 ///
 /// # Errors
 ///
@@ -219,10 +215,9 @@ fn judged(
     Ok((StatusInfo::reviewed(&states, basis, readings, &names), gate))
 }
 
-/// The basis of `review`: what it compared and the evidence it read, as
-/// gathered in `g`, the digests of what it shows, and its gate, every list
-/// sorted. Salted when a gate item has an unknown fingerprint part, so such
-/// a review is never taken for an earlier one.
+/// Builds `review`'s basis from `g`: the comparison, evidence read, digests of
+/// what it shows, and gate, with every list sorted. Adds a salt when any gate
+/// fingerprint part is unknown, so the review never matches an earlier basis.
 fn basis(g: &Gathered, review: &Review) -> Basis {
     let inputs = gate_inputs(g, review);
     let gate = gate_items(review, &inputs);
@@ -293,10 +288,9 @@ fn sorted(paths: &[RepoPath]) -> Vec<PathBytes> {
     paths.into_iter().collect()
 }
 
-/// Saves `basis` in `store`, makes it the reviewed worktree's selection
-/// unless an agent session runs the review, and cleans the store up.
-/// Returns whether it saved: not when the store stayed busy, its writer
-/// lock still held after [`LOCK_WAIT`].
+/// Saves `basis` in `store`, selects it for the reviewed worktree unless running
+/// inside an agent session, and cleans up the store. Returns `false` if the
+/// writer lock stays held beyond [`LOCK_WAIT`].
 ///
 /// # Errors
 ///

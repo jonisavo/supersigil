@@ -1,9 +1,8 @@
-//! Judgment rules: how saved reviews relate, which judgments stand, each
-//! gate item's state, when a review may be completed, and what an undo
-//! withdraws.
+//! Rules for related reviews, standing judgments, gate states, completion,
+//! and undo withdrawals.
 //!
-//! Pure over what the CLI loads from the review store: the current basis,
-//! the bases that have a judgment, and every judgment.
+//! Uses only the current basis, judged bases, and judgments the CLI loads
+//! from the review store.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -38,9 +37,8 @@ pub struct RelatedBasis<'a> {
     pub relation: Relation,
 }
 
-/// The reviews among `others` related to the current review `id`, whose
-/// basis is `basis`, in the order given. The current review is not related
-/// to itself.
+/// Finds reviews in `others` related to review `id` with `basis`, preserving
+/// input order and excluding the current review itself.
 #[must_use]
 pub fn related_bases<'a>(
     id: &BasisId,
@@ -60,15 +58,14 @@ pub fn related_bases<'a>(
         .collect()
 }
 
-/// Whether the review whose basis begins with `other` relates to the
-/// current review, whose basis is `current`, as [`related_bases`] relates
-/// them: reading the rest of its basis can be skipped when it does not.
+/// Checks whether `other` relates to `current` by the [`related_bases`]
+/// rules. If not, the caller can skip reading the rest of `other`'s basis.
 #[must_use]
 pub fn relates(current: &Basis, other: &BasisHeader) -> bool {
     relation(current.into(), other.into()).is_some()
 }
 
-/// What relating two saved reviews compares of each one's basis.
+/// Basis fields used to relate two saved reviews.
 #[derive(Clone, Copy)]
 struct Compared<'a> {
     /// The reviewed worktree.
@@ -103,7 +100,6 @@ impl<'a> From<&'a BasisHeader> for Compared<'a> {
     }
 }
 
-/// How `other` relates to `current`, or `None` when it does not.
 fn relation(current: Compared<'_>, other: Compared<'_>) -> Option<Relation> {
     if current.base != other.base || current.scope != other.scope {
         None
@@ -116,11 +112,11 @@ fn relation(current: Compared<'_>, other: Compared<'_>) -> Option<Relation> {
     }
 }
 
-/// Every judgment in a review store, with what stands of each.
+/// Tracks judgments in a review store and which remain standing.
 ///
-/// An acknowledgment or dismissal stands for an item until an undo
-/// withdraws that (judgment, item) pair; a comment or completion stands
-/// until an undo withdraws it whole.
+/// An acknowledgment or dismissal stands for an item until an undo withdraws
+/// that judgment-item pair. A comment or completion stands until an undo
+/// withdraws the whole judgment.
 #[derive(Debug)]
 pub struct Ledger<'a> {
     /// Every judgment, in the order recorded.
@@ -133,16 +129,14 @@ pub struct Ledger<'a> {
     by_id: HashMap<&'a JudgmentId, usize>,
     /// Positions in `judgments` of the judgments on each basis.
     by_basis: HashMap<&'a BasisId, Vec<usize>>,
-    /// Positions in `judgments` of the standing acknowledgments and
-    /// dismissals of each item, by the basis they were recorded on, in the
-    /// order recorded, so deciding an item's state never scans a judgment's
-    /// list of items nor visits a related review that never closed it.
+    /// Positions of each item's standing acknowledgments and dismissals,
+    /// grouped by basis in recorded order. Resolving a state neither scans
+    /// judgment item lists nor visits reviews that never closed the item.
     closing: HashMap<&'a ItemId, HashMap<&'a BasisId, Vec<usize>>>,
 }
 
 impl<'a> Ledger<'a> {
-    /// The ledger of `judgments`, every judgment in the store in the order
-    /// recorded.
+    /// Builds a ledger from all store judgments in recorded order.
     #[must_use]
     pub fn new(judgments: &'a [Judgment]) -> Self {
         let mut withdrawn = HashSet::new();
@@ -193,8 +187,8 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// The judgment `id` names, if the store holds one: the first recorded
-    /// when several share it.
+    /// Finds judgment `id`, if present. Returns the first recorded judgment
+    /// when several share the ID.
     #[must_use]
     pub fn judgment(&self, id: &JudgmentId) -> Option<&'a Judgment> {
         self.by_id
@@ -213,10 +207,9 @@ impl<'a> Ledger<'a> {
             .map(move |&position| (position, &judgments[position]))
     }
 
-    /// What `withdraws`, an undo's withdrawals, withdrew: each judgment it
-    /// withdraws something of, once, in the order withdrawn, with the items
-    /// whose judgment it withdrew, or the judgment's own items when it was
-    /// withdrawn whole. A judgment the store does not hold is left out.
+    /// Groups `withdraws` by judgment in withdrawal order, omitting judgments
+    /// absent from the store. Lists each judgment once with its withdrawn
+    /// items, or all its items for a whole-judgment withdrawal.
     #[must_use]
     pub fn withdrawn<'u>(&self, withdraws: &'u [Withdrawal]) -> Vec<(&'a Judgment, Vec<&'u ItemId>)>
     where
@@ -246,9 +239,9 @@ impl<'a> Ledger<'a> {
             .collect()
     }
 
-    /// Whether any of `judgment` stands: for an acknowledgment or
-    /// dismissal, its judgment of any item; for a comment or completion,
-    /// the whole. An undo always stands, since nothing withdraws one.
+    /// Checks whether `judgment` still stands for any item if it acknowledges
+    /// or dismisses, or as a whole if it comments or completes. Undos always
+    /// stand because nothing withdraws them.
     #[must_use]
     pub fn stands(&self, judgment: &Judgment) -> bool {
         match judgment.kind {
@@ -263,9 +256,6 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// Whether no undo withdrew the pair of `judgment` and `item`, one of
-    /// its items, nor the whole judgment: whether an acknowledgment or
-    /// dismissal still stands for an item it names.
     fn not_withdrawn(&self, judgment: &Judgment, item: &ItemId) -> bool {
         !self.withdrawn.contains(&(&judgment.id, Some(item)))
             && !self.withdrawn.contains(&(&judgment.id, None))
@@ -293,8 +283,8 @@ impl<'a> Ledger<'a> {
             .map(|(_, judgment)| judgment)
     }
 
-    /// Resolves `prefix`, a full judgment ID or the first 8 or more
-    /// characters of one in either case, among every judgment.
+    /// Resolves `prefix` against all judgments. Accepts a full ID or at least
+    /// 8 leading characters, ignoring ASCII case.
     ///
     /// # Errors
     ///
@@ -319,10 +309,10 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// What `undo --judgment` withdraws of `judgment`: a standing comment
-    /// or completion whole; for an acknowledgment or dismissal, each item
-    /// it still stands for, then every standing completion that counts one
-    /// of those.
+    /// Plans `undo --judgment` for `judgment`. Withdraws a standing comment or
+    /// completion as a whole. For an acknowledgment or dismissal, withdraws
+    /// each standing item pair, then every standing completion that counts
+    /// one of those pairs.
     ///
     /// # Errors
     ///
@@ -347,9 +337,9 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// The withdrawals of `pairs`, standing (acknowledgment or dismissal,
-    /// item) pairs, each once, then of every standing completion that
-    /// counts one of them, in the order recorded.
+    /// Withdraws each standing acknowledgment or dismissal pair in `pairs`
+    /// once, then every standing completion that counts one of those pairs,
+    /// in recorded order.
     fn withdraw_pairs<'j, 'i>(
         &self,
         pairs: impl IntoIterator<Item = (&'j Judgment, &'i ItemId)>,
@@ -425,7 +415,7 @@ pub enum FindJudgmentError<'a> {
 pub enum WithdrawRefusal {
     /// The judgment is an undo, which nothing withdraws.
     Undo,
-    /// Nothing of the judgment stands any more.
+    /// No part of the judgment still stands.
     Withdrawn,
 }
 
@@ -450,8 +440,8 @@ pub struct GateStates<'a> {
     positions: HashMap<&'a ItemId, usize>,
 }
 
-/// A saved review's gate items by ID, built once for the [`GateStates`]
-/// of every review it is related to.
+/// Indexes a saved review's gate by ID for reuse across related reviews'
+/// [`GateStates`].
 #[derive(Debug, Clone)]
 pub struct GateIndex<'a>(HashMap<&'a ItemId, &'a GateItem>);
 
@@ -462,8 +452,7 @@ impl<'a> GateIndex<'a> {
         Self(gate.iter().map(|item| (&item.id, item)).collect())
     }
 
-    /// The index of each of `related`'s gates, by basis ID: what
-    /// [`GateStates::new`] takes to decide the states of one review.
+    /// Indexes each gate in `related` by basis ID for [`GateStates::new`].
     #[must_use]
     pub fn of(related: &[RelatedBasis<'a>]) -> HashMap<&'a BasisId, Self> {
         related
@@ -489,9 +478,9 @@ pub enum ItemState<'a> {
     Acknowledged(&'a Judgment),
     /// A standing dismissal on the current review closes it.
     Dismissed(&'a Judgment),
-    /// No judgment on the current review names it, but a standing
-    /// acknowledgment or dismissal on a related review whose gate holds it
-    /// with a matching fingerprint closes it, carried from that review.
+    /// No standing acknowledgment or dismissal on the current review closes
+    /// it. A standing acknowledgment or dismissal carries from a related
+    /// review whose gate holds the item with a matching fingerprint.
     Carried(&'a Judgment),
     /// Nothing closes it, but a related review has a standing
     /// acknowledgment or dismissal of it, made when its fingerprint
@@ -503,13 +492,13 @@ pub enum ItemState<'a> {
         /// part-name order.
         reasons: Vec<&'static str>,
     },
-    /// No standing judgment names it.
+    /// No standing acknowledgment or dismissal closes or reopens it.
     Open,
 }
 
 impl<'a> ItemState<'a> {
-    /// The judgment that closes the item: its own acknowledgment or
-    /// dismissal, or the one carried. `None` when it is open or reopened.
+    /// Returns the item's closing acknowledgment or dismissal, own or
+    /// carried, or `None` for an open or reopened item.
     #[must_use]
     pub const fn closing(&self) -> Option<&'a Judgment> {
         match self {
@@ -522,12 +511,11 @@ impl<'a> ItemState<'a> {
 }
 
 impl<'a> GateStates<'a> {
-    /// The state of each gate item of the review `id`, whose basis is
-    /// `basis`, from `related`, the reviews related to it, and the
-    /// judgments in `ledger`. `indexes` holds the gate index of each
-    /// related review by basis ID ([`GateIndex::of`]), and may hold others,
-    /// so a caller deciding the states of many reviews indexes each gate
-    /// once; a related review it lacks closes nothing here.
+    /// Resolves gate states for review `id` and `basis` using `related`
+    /// reviews and `ledger` judgments. `indexes` maps related basis IDs to
+    /// gates ([`GateIndex::of`]) and may contain other reviews. Callers can
+    /// index each gate once for reuse. Related reviews missing from `indexes`
+    /// cannot close items here.
     #[must_use]
     pub fn new(
         id: &'a BasisId,
@@ -581,8 +569,8 @@ impl<'a> GateStates<'a> {
         self.ledger
     }
 
-    /// The `closes` map of a new completion of the current review: each
-    /// gate item to the judgment that closes it.
+    /// Builds the `closes` map for a new completion of the current review,
+    /// mapping each gate item to its closing judgment.
     ///
     /// # Errors
     ///
@@ -612,9 +600,8 @@ impl<'a> GateStates<'a> {
             .collect())
     }
 
-    /// Checks that a new acknowledgment or dismissal may name each of
-    /// `items`, IDs of the current review's gate items (others are
-    /// ignored).
+    /// Checks whether a new acknowledgment or dismissal may name `items`.
+    /// Ignores IDs absent from the current review's gate.
     ///
     /// # Errors
     ///
@@ -639,11 +626,11 @@ impl<'a> GateStates<'a> {
         }
     }
 
-    /// What `undo <items>` on the current review withdraws: for each of
-    /// `items`, IDs of its gate items (others are ignored), every standing
-    /// acknowledgment or dismissal that closes it here (its own, and every
-    /// carried one, not only the most recent), then every standing
-    /// completion, on any review, that counts one of those.
+    /// Plans `undo <items>` on the current review, ignoring IDs absent from
+    /// its gate. Withdraws every standing acknowledgment or dismissal that
+    /// closes each item, own or carried, including older closers. Then
+    /// withdraws every standing completion on any review that counts one of
+    /// those judgment-item pairs.
     ///
     /// # Errors
     ///
@@ -669,9 +656,9 @@ impl<'a> GateStates<'a> {
         })))
     }
 
-    /// The state of `item`: closed by the most recent standing judgment of
-    /// its own, else carried by the most recent one with a matching
-    /// fingerprint, else reopened by the most recent other one.
+    /// Resolves `item` using the most recent standing own closer, then the
+    /// most recent related closer with a matching fingerprint, then the most
+    /// recent differing closer to reopen it. Otherwise leaves it open.
     fn state(&self, item: &GateItem) -> ItemState<'a> {
         let own = self
             .ledger
@@ -720,16 +707,15 @@ impl<'a> GateStates<'a> {
         closers.into_iter().map(|(_, judgment)| judgment).collect()
     }
 
-    /// The current review's item `id` with its state.
     fn judged(&self, id: &ItemId) -> Option<&JudgedItem<'a>> {
         self.positions
             .get(id)
             .map(|&position| &self.items[position])
     }
 
-    /// The standing acknowledgments and dismissals of `item` on related
-    /// reviews whose gate holds it, each with its position in the log and
-    /// that review's item. Visits only the reviews with such a judgment.
+    /// Finds standing acknowledgments and dismissals of `item` on related
+    /// reviews whose gates hold it. Includes each judgment's log position and
+    /// the earlier item. Visits only reviews with such judgments.
     fn related_closing<'s>(
         &'s self,
         item: &'s ItemId,
@@ -752,8 +738,8 @@ pub enum CompleteRefusal<'a> {
     Unclosed(Vec<&'a GateItem>),
 }
 
-/// A gate item a new acknowledgment or dismissal may not name, since a
-/// judgment already closes it.
+/// An item that already has a closing judgment, refusing a new
+/// acknowledgment or dismissal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlreadyClosed<'a> {
     /// The item.
@@ -774,8 +760,7 @@ pub struct NotClosed<'a> {
     pub state: ItemState<'a>,
 }
 
-/// A gate item of the current review that an earlier review's gate did not
-/// hold as it is now.
+/// A current gate item absent from an earlier gate or with a changed fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uncovered<'a> {
     /// The current review's item.
@@ -794,10 +779,9 @@ pub enum ItemChange {
     Changed(Vec<&'static str>),
 }
 
-/// The items of `gate`, the current review's, that `completed`, an earlier
-/// review's gate, does not hold with a matching fingerprint, in gate
-/// order. A completion of that review covers the current gate only when
-/// there are none; items only `completed` holds do not matter.
+/// Finds current `gate` items absent from `completed` or with nonmatching
+/// fingerprints, in gate order. An earlier completion covers this gate only
+/// if none differ. Ignores items found only in the earlier gate.
 #[must_use]
 pub fn uncovered_items<'a>(gate: &'a [GateItem], completed: &[GateItem]) -> Vec<Uncovered<'a>> {
     let completed: HashMap<_, _> = completed.iter().map(|item| (&item.id, item)).collect();
@@ -818,10 +802,9 @@ pub fn uncovered_items<'a>(gate: &'a [GateItem], completed: &[GateItem]) -> Vec<
         .collect()
 }
 
-/// The reviewed files of `current` whose explanation differs from what
-/// `earlier` explained, in path order, leaving out `changed`: the paths
-/// whose content differs between the two reviews, whose explanations
-/// differ with the code. A file `earlier` did not explain differs.
+/// Finds `current` files whose explanation differs from `earlier`, in path
+/// order. Excludes `changed` paths, whose content and explanations changed
+/// together. A file absent from `earlier`'s explanations also differs.
 #[must_use]
 pub fn explanations_differ(
     current: &Basis,

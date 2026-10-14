@@ -316,7 +316,6 @@ fn sample_scope() -> ScopeInfo {
     }
 }
 
-/// The sample review's saved basis, with nothing in its lists.
 fn sample_basis() -> SavedBasis {
     let document = Basis {
         schema: BASIS_SCHEMA.to_owned(),
@@ -348,7 +347,6 @@ fn sample_basis() -> SavedBasis {
     }
 }
 
-/// The sample review, with its gate open: no judgment recorded.
 fn sample_review() -> Review {
     let files = sample_files();
     let scope = sample_scope();
@@ -383,10 +381,9 @@ fn sample_review() -> Review {
     gated(review, |_, _| Vec::new())
 }
 
-/// `review` with the gate a basis of it holds, each item's state and the
-/// review's status as given by the judgments `judge` makes from the
-/// basis's ID and gate, and that basis as its saved one when it has one.
-/// Items are named by their paths.
+/// Builds `review`'s gate and status from judgments `judge` supplies for its
+/// basis ID and gate. Names path items by their paths and replaces the saved
+/// basis if present.
 fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Judgment>) -> Review {
     let mut document = sample_basis().document;
     document.gate = gate_items(&review, &GateInputs::default());
@@ -407,8 +404,6 @@ fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Ju
     review
 }
 
-/// A judgment of `kind` on the review `basis` naming `items`, recorded on
-/// 2026-10-13.
 fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, items: &[GateItem]) -> Judgment {
     Judgment {
         id: JudgmentId::new(id),
@@ -427,8 +422,6 @@ fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, items: &[GateItem]) -
     }
 }
 
-/// The sample review with its last gate item dismissed and every other
-/// acknowledged.
 fn closed_review() -> Review {
     gated(sample_review(), |id, gate| {
         let (last, rest) = gate.split_last().unwrap();
@@ -439,8 +432,6 @@ fn closed_review() -> Review {
     })
 }
 
-/// The state and what follows it on `name`'s gate row in a terminal
-/// summary.
 fn row<'t>(text: &'t str, name: &str) -> (&'t str, &'t str) {
     let rest = text
         .lines()
@@ -455,7 +446,6 @@ fn row<'t>(text: &'t str, name: &str) -> (&'t str, &'t str) {
     (state, after.trim_start())
 }
 
-/// A summary with the default addressing: the review is the selection.
 fn summary(review: &Review) -> String {
     render_summary(review, &Addressing::default(), escape)
 }
@@ -591,7 +581,7 @@ fn next_lines_address_the_review_shown() {
         )
         .0,
         [
-            // The names print once; the dismissal names its own.
+            // Print names once; dismissal uses a name placeholder.
             format!("Next: supersigil judge acknowledge 'src/a b.rs' lines:src/c.rs {flags}"),
             format!("  or: supersigil judge dismiss <name>... --reason <text> {flags}"),
             format!("  then: supersigil judge complete {flags}"),
@@ -658,7 +648,7 @@ fn more_than_20_open_items_are_left_to_the_list_above() {
         ..Addressing::default()
     };
 
-    // The command stays short enough for a command line.
+    // Replace the 21 names with a placeholder to keep the command short.
     assert_eq!(
         next_lines(&names, false, &addressing, escape).0,
         [
@@ -786,13 +776,13 @@ fn a_retried_argument_that_cannot_be_printed_as_given_shows_as_given() {
         ),
         "{text}"
     );
-    // A saved review prints no retry command, so no note about it.
+    // Saved reviews omit retry commands and their value notes.
     assert!(!saved.contains("<as given>"), "{saved}");
 }
 
 #[test]
 fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
-    // Escaped, the control character would print another directory's name.
+    // Escaping the control character would name a different directory.
     let addressing = Addressing {
         review: Some("feaad307".to_owned()),
         checkout: Some(PathBuf::from("../my repo")),
@@ -858,8 +848,7 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
     assert_eq!(printable.note([&command]), None);
 }
 
-/// The sample review with only `count` files, each with lines no recorded
-/// edit explains, and nothing else in its gate.
+/// Contains `count` files with unexplained lines and no other gate items.
 fn review_of_files(count: usize) -> Review {
     let unexplained = attribution(vec![], vec![unexplained()], vec![no_fate()]);
     let mut review = sample_review();
@@ -897,8 +886,7 @@ fn a_gate_of_more_than_20_rows_suggests_a_pager() {
 
 #[test]
 fn a_repository_wide_change_is_summarized_promptly() {
-    // A reformat of every file: 5,000 files with unexplained lines, each
-    // one gate item, named and shown.
+    // Model a reformat of 5,000 files, each with one named gate item.
     let text = finishes_within(Duration::from_secs(20), || summary(&review_of_files(5000)));
 
     assert!(text.contains("\nGate: 5000 open, 0 closed.\n"), "{text}");
@@ -937,15 +925,12 @@ fn a_working_tree_without_changes_points_at_a_commit_just_made() {
     );
 }
 
-/// The id of an earlier review, of another target tree than the sample's.
 fn earlier_id() -> BasisId {
     let mut document = sample_basis().document;
     document.target.tree = "d".repeat(40);
     document.basis_id().unwrap()
 }
 
-/// The earlier review related to `review` as `relation`, completed on
-/// 2026-10-13 when `completed`, with nothing changed since.
 fn related(relation: Relation, completed: bool) -> RelatedInfo {
     let earlier = earlier_id();
     RelatedInfo {
@@ -959,7 +944,6 @@ fn related(relation: Relation, completed: bool) -> RelatedInfo {
     }
 }
 
-/// The lines of `text` from its status line to the gate line.
 fn status_lines(text: &str) -> Vec<&str> {
     text.lines()
         .skip(4)

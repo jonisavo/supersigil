@@ -12,9 +12,8 @@ use crate::ids::{EventId, Revision, SessionId};
 
 /// Version of the comparison rules used by [`crate::derive::derive`].
 ///
-/// Version 2 compares the edits of one file however their checkout and path
-/// spell it, as the caller's key decides; version 1 compared only edits
-/// recorded with the same checkout and path.
+/// Version 2 groups edits by the caller's file key, regardless of checkout
+/// and path spelling. Version 1 grouped edits by the recorded checkout and path.
 pub const ALGORITHM_VERSION: u32 = 2;
 
 /// An edit that returns a file to content recorded before an earlier edit.

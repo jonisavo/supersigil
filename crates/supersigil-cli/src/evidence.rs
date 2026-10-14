@@ -28,9 +28,8 @@ use supersigil_session::checkout::{Resolutions, canonical, within};
 
 use crate::mapping::{MappedEdit, map_resolved};
 
-/// Turns, commands, capture limitations, transcript locations, the
-/// delegation order, and the resolution of each checkout of every pinned
-/// record, indexed for the lookups a review makes.
+/// Indexes pinned records' turns, commands, capture limitations, transcript
+/// locations, delegation order, and checkout resolutions for review lookups.
 #[derive(Debug, Default)]
 pub struct Evidence {
     /// Every turn by session and id; the first occurrence wins.
@@ -80,8 +79,8 @@ impl Evidence {
         &self.order
     }
 
-    /// The resolution of the checkout of every edit and command, made once
-    /// for the review.
+    /// Returns checkout resolutions made once per edit and command checkout for the
+    /// review.
     #[must_use]
     pub fn resolutions(&self) -> &Resolutions {
         &self.resolutions
@@ -322,12 +321,11 @@ impl Evidence {
         changes
     }
 
-    /// The paths of the files in `command`'s retained change report that
-    /// lie in `worktrees`, each relative to the innermost registered
-    /// worktree in `roots` holding it, as [`Self::command_changes`] places
-    /// them. Unlike [`Self::index`], which keeps the first sighting of each
-    /// command, this reads the sighting it is given: a command recorded
-    /// again may carry a report its first sighting lacked.
+    /// Returns paths from `command`'s retained change report in `worktrees`.
+    /// Makes each path relative to the innermost containing worktree in `roots`,
+    /// as [`Self::command_changes`] does. Reads the given sighting, while
+    /// [`Self::index`] keeps the first sighting. Later sightings may add change
+    /// reports absent from the first.
     pub fn reported_paths<'c>(
         &'c self,
         command: &'c Command,

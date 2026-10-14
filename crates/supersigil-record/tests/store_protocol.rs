@@ -247,9 +247,9 @@ fn a_session_log_is_read_with_its_pinned_length_and_hash() {
 /// The log of session `s1`, the only one in its record.
 const LOG: &str = "observations/0.jsonl";
 
-/// A record whose session `s1` logged one observation, then two, then one
-/// more: a snapshot pinning the first, one pinning the first three, and the
-/// record's directory. The fourth was committed after both.
+/// Creates a record with four observations for `s1`. Returns its directory
+/// and snapshots pinning one and three observations. Commits the fourth
+/// after both snapshots.
 fn grown_log() -> (tempfile::TempDir, RecordSnapshot, RecordSnapshot) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
@@ -548,8 +548,7 @@ fn a_replaced_document_that_cannot_be_deleted_is_tried_again_by_the_next_commit(
     let store = Store::create(dir.path(), assoc()).unwrap();
     put_derivations_at(&store, at(0));
     put_derivations_at(&store, at(60));
-    // A non-empty directory in its place cannot be removed as a file, as a
-    // file another process has open cannot be on Windows.
+    // Use a non-empty directory to simulate an undeletable replacement target.
     let replaced = dir.path().join("derivations/0.r1.json");
     fs::remove_file(&replaced).unwrap();
     fs::create_dir(&replaced).unwrap();
@@ -579,8 +578,8 @@ fn a_manifest_without_superseded_documents_omits_the_field_and_reads() {
     assert!(store.manifest().unwrap().superseded.is_empty());
 }
 
-/// Lists each of `files` as superseded at `replaced` in the manifest of the
-/// record at `root`, as a malformed manifest might.
+/// Marks `files` superseded at `replaced` in `root`'s manifest to simulate
+/// malformed entries.
 fn list_as_superseded(root: &std::path::Path, files: &[&str], replaced: UtcTime) {
     let mut json = read_manifest_json(root);
     for file in files {
@@ -602,9 +601,8 @@ fn a_superseded_entry_naming_a_file_the_manifest_references_is_dropped_never_del
     tx.put_derivations(&derivation_set("s1", Revision::ZERO))
         .unwrap();
     tx.commit().unwrap();
-    // The live log, the current document (also as a file system that
-    // ignores case names it), the manifest, and the lock, listed as
-    // replaced long ago.
+    // Mark the live log, current document with both case spellings, manifest,
+    // and lock as replaced long ago.
     list_as_superseded(
         dir.path(),
         &[
@@ -682,8 +680,7 @@ fn a_superseded_entry_outside_the_derivations_directory_is_dropped_never_deleted
     assert!(store.manifest().unwrap().superseded.is_empty());
 }
 
-/// Makes the manifest of the record at `root` reference session `s1`'s
-/// current document as `file`, as a hand-edited manifest might.
+/// Changes `root`'s manifest to reference `s1`'s current document as `file`.
 fn reference_as_current(root: &std::path::Path, file: &str) {
     let mut json = read_manifest_json(root);
     json["documents"]["derivations/0"] = json!(file);
@@ -704,8 +701,8 @@ fn a_document_the_manifest_references_under_another_spelling_is_never_deleted() 
         let dir = tempfile::tempdir().unwrap();
         let store = Store::create(dir.path(), assoc()).unwrap();
         put_derivations_at(&store, at(0));
-        // The current document, referenced under a spelling that reads it
-        // all the same, and listed as replaced long ago under its own.
+        // Reference the current document under an equivalent path and mark
+        // its original spelling as replaced long ago.
         reference_as_current(dir.path(), spelling);
         list_as_superseded(
             dir.path(),
@@ -743,9 +740,9 @@ fn a_document_the_published_manifest_references_survives_its_own_replacement() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::create(dir.path(), assoc()).unwrap();
         put_derivations_at(&store, at(0));
-        // The current document, referenced under another spelling, and
-        // listed as replaced long ago under its own. A file system that
-        // tells case apart reads nothing at `Derivations/0.R1.json`.
+        // Reference the current document under another spelling and mark its
+        // original path as replaced long ago. On case-sensitive file systems,
+        // `Derivations/0.R1.json` does not exist.
         reference_as_current(dir.path(), spelling);
         list_as_superseded(
             dir.path(),
@@ -755,10 +752,9 @@ fn a_document_the_published_manifest_references_survives_its_own_replacement() {
         let readable = dir.path().join(spelling).is_file();
         let pinned = store.snapshot().unwrap();
 
-        // The same session's derivations are written again: the document is
-        // replaced in this commit, so a reader of the published manifest
-        // still needs it, and its replacement starts a full grace period,
-        // which the next commit keeps.
+        // Replace the same session's derivations. Earlier readers still need
+        // the old document, which starts a full grace period that the next
+        // commit must preserve.
         let replaced = at(60);
         put_derivations_at(&store, replaced);
         commit_at(&store, at(61));
@@ -782,10 +778,9 @@ fn a_document_the_published_manifest_references_survives_its_own_replacement() {
     }
 }
 
-/// Replaces `s1`'s current document, referenced as `reference` spells it
-/// for the record at its root, at T, then writes again at T + 1 s, and
-/// checks that the document keeps its grace period: it outlives both writes
-/// for a reader pinned before them.
+/// Replaces `s1`'s document using the path `reference` supplies, then commits
+/// again one second later. Checks that its full grace period survives both
+/// writes for a reader pinned before them.
 fn replaced_through(reference: impl Fn(&std::path::Path) -> String) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
@@ -847,8 +842,7 @@ fn a_reference_that_is_not_a_plain_path_in_the_record_keeps_every_replaced_docum
     let store = Store::create(dir.path(), assoc()).unwrap();
     put_derivations_at(&store, at(0));
     put_derivations_at(&store, at(60));
-    // The replaced document referenced again through `..`, which reads it
-    // all the same: what such a path names is not compared.
+    // Reference the replaced document through `..`, which cleanup refuses to compare.
     reference_as_current(dir.path(), "derivations/../derivations/0.r1.json");
 
     commit_at(&store, at(61 + GRACE_SECONDS));
@@ -866,9 +860,8 @@ fn a_reference_that_is_not_a_plain_path_in_the_record_keeps_every_replaced_docum
 #[cfg(unix)]
 #[test]
 fn nothing_is_deleted_while_the_manifest_references_a_document_through_a_symlink() {
-    // The current document, listed as replaced, referenced through a link
-    // to it, through a link to its directory, and through a link to a
-    // directory holding a link to it.
+    // Mark the current document replaced and reference it through a file
+    // link, a directory link, or both.
     let replaced = "derivations/0.r1.json";
     for (links, reference) in [
         (&[("current", "0.r1.json")][..], "derivations/current"),
@@ -919,8 +912,8 @@ fn nothing_is_deleted_through_a_derivations_directory_that_is_a_symlink() {
     let store = Store::create(&root, assoc()).unwrap();
     put_derivations_at(&store, at(0));
     put_derivations_at(&store, at(60));
-    // The directory moved out of the record, with a link to it in its
-    // place, and no document the manifest references inside it.
+    // Move the directory outside the record, link to it, and clear the
+    // manifest's document references.
     let elsewhere = dir.path().join("elsewhere");
     fs::rename(root.join("derivations"), &elsewhere).unwrap();
     std::os::unix::fs::symlink("../elsewhere", root.join("derivations")).unwrap();
@@ -946,10 +939,8 @@ fn a_reference_that_cannot_be_resolved_on_disk_keeps_every_replaced_document() {
     let store = Store::create(dir.path(), assoc()).unwrap();
     put_derivations_at(&store, at(0));
     put_derivations_at(&store, at(60));
-    // The current document referenced as a file that is not there. A
-    // reference that cannot be resolved might lead to a replaced document
-    // in a way that cannot be seen (through a directory that cannot be
-    // searched, say), so none is deleted.
+    // Reference a missing file. Cleanup cannot prove that an unresolved path
+    // does not reach a replaced document, so it must keep every document.
     reference_as_current(dir.path(), "derivations/0.r9.json");
 
     commit_at(&store, at(61 + GRACE_SECONDS));
@@ -963,8 +954,7 @@ fn a_reference_that_cannot_be_resolved_on_disk_keeps_every_replaced_document() {
 #[cfg(unix)]
 #[test]
 fn a_replaced_document_that_is_a_symlink_is_dropped_never_deleted() {
-    // A link in its place to itself, where it leads cannot be told, and to
-    // a file outside the record.
+    // Replace the document with a self-referencing link or a link outside the record.
     for target in ["0.r1.json", "../../outside.txt"] {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("record");
@@ -1000,8 +990,7 @@ fn nothing_is_deleted_while_the_manifest_the_lock_or_the_observations_directory_
             // No log yet, and logs would go to the derivations directory.
             std::os::unix::fs::symlink("derivations", dir.path().join(entry)).unwrap();
         } else {
-            // The entry moved over the replaced document, due for deletion,
-            // with a link to it in its place.
+            // Move the entry over the due document and link its old path to it.
             fs::rename(dir.path().join(entry), &replaced).unwrap();
             std::os::unix::fs::symlink("derivations/0.r1.json", dir.path().join(entry)).unwrap();
         }
@@ -1021,8 +1010,7 @@ fn a_superseded_entry_under_a_name_the_record_never_writes_is_dropped_never_dele
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
     put_derivations_at(&store, at(0));
-    // Files in the derivations directory under names no derivation
-    // document has, listed as replaced long ago.
+    // Mark files with unsupported derivation document names as replaced long ago.
     let names = [
         "notes.json",
         "0.json",

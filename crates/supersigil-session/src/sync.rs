@@ -86,15 +86,14 @@ pub struct SyncReport {
 /// Commits one revision if observations were added or cursors changed.
 /// Otherwise returns the existing revision. Capture problems are saved as
 /// [`CaptureLimitation`] observations in the same commit as the cursor update.
-/// The commit, timed by the system clock, also deletes derivation documents
-/// replaced more than 14 days earlier (see [`WriteTx::commit`]).
+/// Commit uses the system clock to delete derivation documents replaced
+/// more than 14 days earlier (see [`WriteTx::commit`]).
 ///
-/// Derivations group each session's edits by
-/// [`file_location`](crate::checkout::file_location), with each checkout
-/// resolved once per call ([`Resolutions`]), so edits of one file are
-/// compared whatever directory the session named it from. A
-/// commit also derives again every other session's stored set that an older
-/// [`ALGORITHM_VERSION`] produced, from the observations already recorded.
+/// Derivations group edits by [`file_location`](crate::checkout::file_location),
+/// resolving each checkout once per call ([`Resolutions`]). This compares
+/// edits of one file named from different directories. Commit also rebuilds
+/// other sessions' sets from stored observations if their [`ALGORITHM_VERSION`]
+/// is older.
 ///
 /// The first working directory recorded for a transcript's session determines
 /// whether it is accepted. It must be `checkout` or a descendant, as checked
@@ -113,10 +112,9 @@ pub struct SyncReport {
 /// or the supplied path if the file vanishes before resolution. Line
 /// positions are comparable only within one transcript.
 ///
-/// A transcript that is gone, or no longer a regular file, when read is
-/// reported as skipped with the reason [`Skip::Removed`], and its
-/// cursor and recorded observations stay. If it reappears, a later sync
-/// resumes from that cursor once the consumed bytes still match.
+/// Missing or non-regular transcripts are skipped as [`Skip::Removed`].
+/// Their cursors and observations stay. If a transcript returns with matching
+/// consumed bytes, sync resumes from its cursor.
 ///
 /// # Errors
 ///
@@ -168,8 +166,8 @@ pub fn sync(
         tx.put_derivations(&set)?;
         sessions.push(session);
     }
-    // Sets an older algorithm derived are derived again from the pinned
-    // observations, so no set this revision lists is stale.
+    // Rebuild older algorithm versions from pinned observations so every
+    // set listed by this revision uses the current algorithm.
     for session in pinned.sessions() {
         if sessions.contains(&session) {
             continue;
@@ -191,10 +189,9 @@ pub fn sync(
     })
 }
 
-/// Derives `session`'s set from `observations`, as of `revision`, grouping
-/// its edits by where the file each changed lies ([`file_location_in`]):
-/// edits of one file are compared however the session spelled it. Each
-/// checkout is resolved through `resolutions`, once for the whole sync.
+/// Derives `session`'s set at `revision`, grouping edits by [`file_location_in`]
+/// to compare alternate spellings of one file. Caches each checkout in
+/// `resolutions` once per sync.
 fn derive_located(
     session: &SessionId,
     observations: &[Observation],
@@ -215,13 +212,10 @@ fn derive_located(
     })
 }
 
-/// Reads the transcript at `path`, or returns `None` if it was removed
-/// before it could be read: it is not found, or what is there, following a
-/// symbolic link, is no longer a regular file. The type is checked before
-/// the file is opened, since a device reads as anything, and again on the
-/// opened file, which may have replaced it since. Opening never waits: on
-/// Unix the file is opened non-blocking, since opening a FIFO to read
-/// otherwise waits for a writer.
+/// Reads `path`; returns `None` if missing or non-regular, following symlinks.
+/// Checks the type before opening to exclude devices, then on the opened
+/// file to detect replacement. Opening never waits for a writer; Unix uses
+/// non-blocking mode so a replacement FIFO cannot block.
 ///
 /// # Errors
 ///
@@ -240,10 +234,9 @@ pub fn read_transcript(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-/// Opens the file at `path` to read it, or returns `None` if it is no
-/// longer a regular file: what was inspected was removed or replaced since.
-/// On Unix it is opened non-blocking, so a FIFO opens at once and is then
-/// skipped by its type; reading a regular file is unaffected.
+/// Opens `path`; returns `None` if removed or replaced with a non-regular file.
+/// Unix uses non-blocking mode to open replacement FIFOs without waiting,
+/// then skips them by type. Regular-file reads are unaffected.
 ///
 /// # Errors
 ///
@@ -261,10 +254,8 @@ fn open_regular(path: &Path) -> std::io::Result<Option<File>> {
     }
 }
 
-/// What `error`, a failure to open `path`, means once what is there is
-/// inspected again: a removal (`None`) when nothing or something other than
-/// a regular file is there, as when a directory replaced the file (opening
-/// one fails on Windows).
+/// Rechecks `path` after an open failure. Returns `None` if missing or
+/// non-regular, including a replacement directory that Windows cannot open.
 ///
 /// # Errors
 ///
@@ -561,8 +552,7 @@ mod tests {
         assert_eq!(read_transcript(dir.path()).unwrap(), None);
     }
 
-    /// What `read` returns for `path`, failing the test unless it returns
-    /// within a few seconds.
+    /// Calls `read` on `path`, failing the test if it takes more than a few seconds.
     #[cfg(unix)]
     fn promptly<T: Send + 'static>(path: &Path, read: fn(&Path) -> T) -> T {
         let (done, result) = std::sync::mpsc::channel();
@@ -575,7 +565,6 @@ mod tests {
             .expect("the read returns promptly")
     }
 
-    /// Makes a FIFO at `path`.
     #[cfg(unix)]
     fn mkfifo(path: &Path) {
         let made = std::process::Command::new("mkfifo")
@@ -597,8 +586,7 @@ mod tests {
             promptly(&link, read_transcript).unwrap(),
             Some(b"{}\n".to_vec())
         );
-        // A device reads as no lines at all, which would pass for a
-        // transcript with nothing new.
+        // An empty device read would look like a transcript with no new lines.
         let device = dir.path().join("device.jsonl");
         std::os::unix::fs::symlink("/dev/null", &device).unwrap();
         assert_eq!(promptly(&device, read_transcript).unwrap(), None);

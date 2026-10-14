@@ -43,16 +43,14 @@ impl ReviewSnapshot {
         serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
     }
 
-    /// Reads a basis this snapshot lists in `bases`, checking that the file
-    /// hashes to `id`, as [`Self::basis`] does, but parses all of it only
-    /// when `wanted` accepts its header; `None` when it does not.
+    /// Checks a listed basis's hash as [`Self::basis`] does, then returns
+    /// `None` if `wanted` rejects its header. Otherwise parses the full basis.
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`Self::basis`], [`StoreError::Json`] only when
-    /// the basis is to be parsed whole: when `wanted` accepts its header, or
-    /// when its header does not parse, which is reported as reading the
-    /// whole basis reports it.
+    /// Returns the errors of [`Self::basis`]. A rejected valid header skips
+    /// full parsing and its JSON errors. An invalid header falls back to
+    /// full parsing, which reports any JSON error.
     pub fn basis_if(
         &self,
         id: &BasisId,
@@ -69,8 +67,7 @@ impl ReviewSnapshot {
             .map_err(|source| StoreError::Json { path, source })
     }
 
-    /// The path and the bytes of a basis this snapshot lists in `bases`,
-    /// checked to hash to `id`.
+    /// Returns a listed basis's path and bytes after checking its hash against `id`.
     ///
     /// # Errors
     ///

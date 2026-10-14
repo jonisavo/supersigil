@@ -1,5 +1,4 @@
-//! The basis: what a saved review showed and the code and evidence it
-//! showed it from.
+//! A saved review's content and the code and evidence it used.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,12 +26,12 @@ impl BasisId {
     }
 }
 
-/// What a review showed, and the code and evidence it showed it from.
+/// A review's content and the code and evidence it used.
 ///
-/// Its ID ([`Self::basis_id`]) hashes its JSON: struct fields in
-/// declaration order, maps sorted by key, and lists in the order given.
-/// Callers sort every list (by path, record, checkout, transcript, or for
-/// `gate` by origin then subject), so one review always gets one ID.
+/// Its ID ([`Self::basis_id`]) hashes its JSON, with struct fields in
+/// declaration order, maps sorted by key, and lists in the supplied order.
+/// Callers sort lists by path, record, checkout, or transcript, and `gate`
+/// by origin then subject, to give the same review the same ID.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Basis {
     /// [`BASIS_SCHEMA`].
@@ -51,24 +50,22 @@ pub struct Basis {
     pub unreconciled_checkouts: Vec<BasisCheckout>,
     /// Versions of the algorithms the review ran.
     pub algorithms: Algorithms,
-    /// Per reviewed file, a digest of what the review shows about it apart
-    /// from the commands that mention it, sorted by path.
+    /// File explanation digests, excluding command mentions, sorted by path.
     pub explanations: Vec<Explanation>,
     /// Candidate transcripts with any capture limitation, with the counts
     /// the review saw, sorted by transcript.
     pub capture: Vec<CaptureEntry>,
     /// The gate items, sorted by origin, then subject.
     pub gate: Vec<GateItem>,
-    /// A fresh random value, present only when a gate item has an unknown
-    /// fingerprint part, so such a review never gets an earlier review's
-    /// ID.
+    /// A fresh random value when a gate item has an unknown fingerprint part,
+    /// to prevent reuse of an earlier review's ID. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub salt: Option<String>,
 }
 
 impl Basis {
-    /// The basis's ID: the SHA-256 of `serde_json::to_vec(self)`, which is
-    /// also what the store writes to `bases/<id>.json`.
+    /// Returns the SHA-256 of `serde_json::to_vec(self)`, the bytes the store
+    /// writes to `bases/<id>.json`.
     ///
     /// # Errors
     ///
@@ -79,10 +76,9 @@ impl Basis {
     }
 }
 
-/// What a basis says of how its review relates to another: the fields of
-/// [`Basis`] that name the reviewed worktree, base, target, and scope,
-/// read without the rest
-/// ([`ReviewSnapshot::basis_if`](super::ReviewSnapshot::basis_if)).
+/// The [`Basis`] fields used to relate reviews: worktree, base, target, and
+/// scope. [`ReviewSnapshot::basis_if`](super::ReviewSnapshot::basis_if) reads
+/// these before parsing the rest.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BasisHeader {
     /// Canonical path of the reviewed worktree.
@@ -145,9 +141,8 @@ pub struct BasisRecord {
     pub logs: BTreeMap<String, PinnedLog>,
     /// Why reconcile did not bring the record up to date, if it did not.
     pub not_reconciled: Option<String>,
-    /// The record's checkout associations at the pinned revision, sorted,
-    /// which name an unreconciled record's gate item without reading the
-    /// record.
+    /// Sorted checkout associations at the pinned revision, used to name an
+    /// unreconciled record's gate item without reading the record.
     pub associations: Vec<PathBuf>,
 }
 
@@ -165,7 +160,7 @@ pub struct PinnedLog {
 pub struct BasisCheckout {
     /// The checkout's canonical path.
     pub checkout: PathBuf,
-    /// Why not.
+    /// Why reconcile could not update the checkout.
     pub reason: String,
 }
 

@@ -16,9 +16,9 @@
 //! `<n>` is the number assigned to a session on its first write. Using this
 //! number keeps source-provided session IDs out of file paths.
 //!
-//! A derivation document a later revision replaced stays for readers of
-//! earlier revisions. The manifest lists it as superseded at the time of
-//! that revision, and the first commit more than 14 days later deletes it.
+//! Keeps replaced derivation documents for earlier readers and lists them
+//! as superseded at the replacement revision's time. Later commits delete
+//! eligible documents more than 14 days after replacement.
 //!
 //! Keep `write.lock` in place. Its presence does not mean a writer is active;
 //! the operating-system lock controls access. Deleting the file would let a
@@ -198,12 +198,10 @@ pub(crate) fn io_error(path: &Path, source: io::Error) -> StoreError {
     }
 }
 
-/// Lists the entries of `dir`, a directory of records or of review stores,
-/// sorted by path, and opens each with `open` (such as [`Store::open`]) as
-/// the returned iterator reaches it. Entries without a manifest, such as a
-/// directory lock, are skipped, but no other error is, so an unreadable
-/// store is never mistaken for an absent one; a missing `dir` has no
-/// stores.
+/// Lists record or review-store entries in `dir`, sorted by path. The
+/// returned iterator opens each with `open`, such as [`Store::open`]. Skips
+/// entries without a manifest, including directory locks, and yields all other
+/// errors so unreadable stores remain visible. A missing `dir` has no stores.
 ///
 /// # Errors
 ///
@@ -332,9 +330,9 @@ impl Store {
     }
 
     /// Acquires the writer lock and starts a transaction at the current
-    /// revision whose commit is published at `now`: documents it replaces
-    /// are listed as superseded at `now`, and its commit deletes those
-    /// superseded more than [`GRACE_SECONDS`] before `now`.
+    /// revision, using `now` as its publication time. Lists replaced documents
+    /// as superseded at `now` and deletes eligible documents superseded more
+    /// than [`GRACE_SECONDS`] earlier at commit.
     ///
     /// [`GRACE_SECONDS`]: crate::time::GRACE_SECONDS
     ///

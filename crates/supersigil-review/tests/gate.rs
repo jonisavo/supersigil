@@ -1,6 +1,5 @@
-//! The gate built from a review: one item per origin and subject, sorted,
-//! with fingerprint parts that change exactly when their material does; and
-//! the explanation digests and capture entries a basis keeps.
+//! Tests sorted gate items per origin and subject, fingerprint changes with
+//! their material, and saved explanation digests and capture entries.
 
 mod common;
 
@@ -37,7 +36,6 @@ const WORKTREE: &str = "/work/repo";
 const TRANSCRIPT: &str = "/home/u/.claude/projects/-work-repo/s1.jsonl";
 const COMMIT: &str = "cccccccccccccccccccccccccccccccccccccccc";
 
-/// A path's display forms and bytes, as the CLI builds them.
 fn path(bytes: &[u8]) -> RepoPathInfo {
     RepoPathInfo {
         display: String::from_utf8_lossy(bytes).into_owned(),
@@ -52,8 +50,6 @@ fn subject(bytes: &[u8]) -> Subject {
     Subject::Path(PathBytes::new(bytes))
 }
 
-/// A modified file of `kind`, diffed from `base` to `target` under `attr`
-/// when it is text.
 fn file(
     bytes: &[u8],
     kind: FileKindInfo,
@@ -82,7 +78,6 @@ fn file(
     })
 }
 
-/// A binary file, listed and not diffed.
 fn binary(bytes: &[u8]) -> FileReview {
     file(
         bytes,
@@ -125,7 +120,6 @@ fn explained_in_part() -> FileReview {
     )
 }
 
-/// The span of `src/a.rs` that no chain explains.
 fn unexplained_span(review: &mut Review) -> &mut Span {
     let span = review.files[1].hunks[0].spans.last_mut().unwrap();
     assert!(matches!(span.outcome, Outcome::Unattributed { .. }));
@@ -167,7 +161,6 @@ fn not_captured(bytes: &[u8], cause: &str) -> NotCapturedInfo {
     }
 }
 
-/// A review of `files` within `scope`, with nothing else to report.
 fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
     Review {
         schema: REVIEW_SCHEMA,
@@ -199,7 +192,6 @@ fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
     }
 }
 
-/// A recorded edit writing `text` to `src/a.rs`.
 fn observed(id: &str, text: &str) -> Edit {
     Edit {
         id: EventId::new(id),
@@ -222,11 +214,9 @@ fn observed(id: &str, text: &str) -> Edit {
     }
 }
 
-/// Every recorded sighting of each edit, by id, owned ([`GateInputs::edits`]
-/// borrows them).
+/// Owns edit sightings by ID for [`GateInputs::edits`] to borrow.
 type Sightings = BTreeMap<String, Vec<Edit>>;
 
-/// `sightings` as [`GateInputs::edits`] and [`explanations`] take them.
 fn borrowed(sightings: &Sightings) -> BTreeMap<String, Vec<&Edit>> {
     sightings
         .iter()
@@ -249,7 +239,7 @@ struct OwnedEvidence {
     edits: Vec<Edit>,
 }
 
-/// The [`GateInputs`] beside a review, owning the sightings they borrow.
+/// Owns sightings for a review's [`GateInputs`] to borrow.
 #[derive(Clone, Default)]
 struct OwnedInputs {
     discontinuities: Vec<OwnedGap>,
@@ -259,7 +249,6 @@ struct OwnedInputs {
 }
 
 impl OwnedInputs {
-    /// The inputs as [`gate_items`] takes them.
     fn borrowed(&self) -> GateInputs<'_> {
         GateInputs {
             discontinuities: self
@@ -288,8 +277,6 @@ impl OwnedInputs {
     }
 }
 
-/// Every sighting of each edit the sample review shows, as the records
-/// hold them: one of each.
 fn sightings() -> Sightings {
     BTreeMap::from([
         ("e1".to_owned(), vec![observed("e1", "keep\nnew\n")]),
@@ -297,15 +284,14 @@ fn sightings() -> Sightings {
     ])
 }
 
-/// An edit's material as the gate and the explanations hash it: its entry
-/// in the review's `edits` map and every recorded sighting of it.
+/// Material hashed by gates and explanations, pairing an edit's review
+/// entry with every recorded sighting.
 #[derive(Serialize)]
 struct Recorded<'a> {
     entry: &'a EditInfo,
     sightings: &'a [Edit],
 }
 
-/// A file on disk whose content hashes to `digit` repeated.
 fn on_disk(executable: bool, digit: char) -> OnDiskState {
     OnDiskState::File {
         executable,
@@ -322,8 +308,7 @@ fn gap(bytes: &[u8]) -> OwnedGap {
     }
 }
 
-/// A review with an item of every origin but `unreconciled`, and the
-/// inputs beside it.
+/// Covers every gate origin except `unreconciled`, with the required inputs.
 fn sample() -> (Review, OwnedInputs) {
     let scope = ScopeInfo {
         untracked_excluded: vec![
@@ -374,7 +359,6 @@ fn checkout(path: &str, reason: &str) -> UnreconciledInfo {
     }
 }
 
-/// Adds a record and a checkout that reconcile could not bring up to date.
 fn with_unreconciled(review: &mut Review) {
     review.records = vec![
         record("rec-1", None),
@@ -383,7 +367,6 @@ fn with_unreconciled(review: &mut Review) {
     review.evidence.unreconciled_checkouts = vec![checkout("/work/x", "records directory locked")];
 }
 
-/// The part a known material gives: the SHA-256 of its JSON.
 fn digest(material: &impl Serialize) -> FingerprintPart {
     FingerprintPart::of(&serde_json::to_vec(material).unwrap())
 }
@@ -704,8 +687,8 @@ fn paths_that_print_alike_give_separate_items() {
     assert_eq!(ids.len(), items.len());
 }
 
-/// For each item of `after`, its origin and the fingerprint parts that do
-/// not match the same item of `before`, when any do not.
+/// Lists origins and differing fingerprint parts for `after` items that
+/// do not match their `before` counterparts.
 fn reopened(before: &[GateItem], after: &[GateItem]) -> Vec<(Origin, Vec<String>)> {
     let ids = |items: &[GateItem]| items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
     assert_eq!(ids(before), ids(after), "the same items");
@@ -719,7 +702,6 @@ fn reopened(before: &[GateItem], after: &[GateItem]) -> Vec<(Origin, Vec<String>
         .collect()
 }
 
-/// What `change` reopens in the sample's gate.
 fn after(change: impl FnOnce(&mut Review, &mut OwnedInputs)) -> Vec<(Origin, Vec<String>)> {
     let (mut review, mut inputs) = sample();
     let before = gate_items(&review, &inputs.borrowed());
@@ -727,7 +709,6 @@ fn after(change: impl FnOnce(&mut Review, &mut OwnedInputs)) -> Vec<(Origin, Vec
     reopened(&before, &gate_items(&review, &inputs.borrowed()))
 }
 
-/// `origin` reopened by `parts`.
 fn by(origin: Origin, parts: &[&str]) -> Vec<(Origin, Vec<String>)> {
     vec![(
         origin,
@@ -766,8 +747,8 @@ fn unexplained_lines_reopen_on_their_content_outcomes_and_evidence() {
         ),
         lines("evidence")
     );
-    // Not the same sightings seen again, an edit no counted line names, a
-    // line that is not counted, or what the gate does not show.
+    // Duplicate sightings, unnamed edits, uncounted lines, and data outside
+    // the gate do not reopen these items.
     assert_eq!(
         after(|_, inputs| {
             let seen = inputs.edits.get_mut("e2").unwrap();
@@ -991,8 +972,8 @@ fn explanations_digest_what_the_review_shows_about_each_file() {
         changed(&|review, _| review.edits.get_mut("e1").unwrap().time = "later".to_owned()),
         a
     );
-    // A referenced edit's payload under the same id, but not the same
-    // sighting seen again.
+    // A changed payload under the same ID changes the digest; a duplicate
+    // sighting does not.
     assert_eq!(
         changed(
             &|_, sightings| sightings.get_mut("e1").unwrap()[0].new_text =
@@ -1016,8 +997,7 @@ fn explanations_digest_what_the_review_shows_about_each_file() {
         ),
         [PathBytes::new("logo.png")]
     );
-    // Not a command that mentions the file: the review shows it, but a
-    // mention never explains a line, and most are reads.
+    // Command mentions do not change digests because they explain no lines.
     assert_eq!(
         changed(&|review, _| review.files[1].mentions.push(Mention {
             command: "command:1".to_owned(),
@@ -1029,7 +1009,7 @@ fn explanations_digest_what_the_review_shows_about_each_file() {
         })),
         []
     );
-    // Not an edit no file references, or what is outside the files.
+    // Unreferenced edits and data outside the files do not change digests.
     assert_eq!(
         changed(&|review, _| {
             review
@@ -1046,9 +1026,8 @@ fn explanations_digest_what_the_review_shows_about_each_file() {
 
 #[test]
 fn an_edit_behind_counted_lines_recorded_again_with_another_payload_reopens_them() {
-    // The records hold `e2`, the edit the unexplained line names, again
-    // under the same id and with the same metadata, but with another
-    // payload and after-state: the review shows the same outcomes.
+    // Another sighting of `e2` has the same ID and metadata but a different
+    // payload and after-state. The review still shows the same outcomes.
     let (review, inputs) = sample();
     let mut rewritten = inputs.clone();
     rewritten

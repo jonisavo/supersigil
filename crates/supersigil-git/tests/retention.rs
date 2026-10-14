@@ -12,8 +12,7 @@ fn id(repo: &Repo, output: &str) -> ObjectId {
     ObjectId::parse(output.trim(), repo.format()).unwrap()
 }
 
-/// The identity retention commits are written with in these tests, unlike
-/// the fixture's `Test` author and committer.
+/// The retention identity, distinct from the fixture's `Test` identity.
 fn person() -> Identity {
     Identity {
         name: "Ada Lovelace".to_owned(),
@@ -415,8 +414,8 @@ fn a_ref_below_the_name_is_not_taken_for_it() {
     let elsewhere = range
         .keep("refs/supersigil/reviews/elsewhere", &range.tree, &parents)
         .unwrap();
-    // A matching snapshot under `one/`, which a name match up to a slash
-    // would read as `one` itself; `one` cannot be created beside it.
+    // Matching only up to a slash would mistake `one/` for `one`.
+    // Git cannot create `one` beside its descendant ref.
     let below = "refs/supersigil/reviews/one/x";
     range
         .repo

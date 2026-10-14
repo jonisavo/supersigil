@@ -14,8 +14,8 @@ use crate::time::UtcTime;
 /// Review store manifest schema version supported for reading and writing.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// When a saved basis was first written and last reviewed. Kept outside
-/// the basis so they do not change its ID.
+/// A basis's first write and latest review times, stored separately so they
+/// do not change its ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BasisTimes {
     /// When a review first saved the basis (again, after a removal).
@@ -42,8 +42,8 @@ pub struct ReviewManifest {
     pub judgments_length: u64,
     /// Saved bases and their times.
     pub bases: BTreeMap<BasisId, BasisTimes>,
-    /// Bases taken out of `bases` by cleanup, with the time that removal
-    /// was published. Their files are deleted by a later write.
+    /// Bases cleanup removed from `bases`, mapped to the removal time.
+    /// A later write deletes their files after the removal delay.
     pub removed: BTreeMap<BasisId, UtcTime>,
     /// Canonical worktree paths mapped to the basis `judge` applies to
     /// there.

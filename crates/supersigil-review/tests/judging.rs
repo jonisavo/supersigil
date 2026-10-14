@@ -1,6 +1,5 @@
-//! Tests the judgment rules over hand-made bases and judgments: relations
-//! between saved reviews, standing, each gate item's state, completion,
-//! and withdrawal plans.
+//! Tests related reviews, standing judgments, gate states, completion,
+//! and withdrawal plans using constructed bases and judgments.
 
 mod common;
 
@@ -47,8 +46,6 @@ fn path(path: &str) -> Subject {
     Subject::Path(PathBytes::new(path))
 }
 
-/// The `unexplained_lines` item of `file` whose fingerprint parts all hash
-/// `material`.
 fn lines(file: &str, material: &str) -> GateItem {
     item(
         path(file),
@@ -68,7 +65,6 @@ fn lines(file: &str, material: &str) -> GateItem {
     )
 }
 
-/// The `untracked_recorded` item of `file` with on-disk state `on_disk`.
 fn untracked(file: &str, on_disk: FingerprintPart) -> GateItem {
     item(
         path(file),
@@ -77,7 +73,6 @@ fn untracked(file: &str, on_disk: FingerprintPart) -> GateItem {
     )
 }
 
-/// The `unreconciled` item of `record`, whose evidence is always unknown.
 fn unreconciled(record: &str) -> GateItem {
     item(
         Subject::Record(RecordId::new(record)),
@@ -128,7 +123,6 @@ fn comment(id: &str, basis: &BasisId, at: i64) -> Judgment {
     }
 }
 
-/// A completion that counts each item closed by the named judgment.
 fn complete(id: &str, basis: &BasisId, closes: &[(&GateItem, &str)], at: i64) -> Judgment {
     Judgment {
         closes: closes
@@ -139,7 +133,6 @@ fn complete(id: &str, basis: &BasisId, closes: &[(&GateItem, &str)], at: i64) ->
     }
 }
 
-/// The withdrawal of `judgment`'s `item`, or of the whole judgment.
 fn withdrawal(judgment: &str, item: Option<&GateItem>) -> Withdrawal {
     Withdrawal {
         judgment: JudgmentId::new(judgment),
@@ -147,7 +140,6 @@ fn withdrawal(judgment: &str, item: Option<&GateItem>) -> Withdrawal {
     }
 }
 
-/// An undo of each (judgment, item) pair, or whole judgment without item.
 fn undo(id: &str, basis: &BasisId, withdraws: &[(&str, Option<&GateItem>)], at: i64) -> Judgment {
     Judgment {
         withdraws: withdraws
@@ -158,8 +150,8 @@ fn undo(id: &str, basis: &BasisId, withdraws: &[(&str, Option<&GateItem>)], at: 
     }
 }
 
-/// The withdrawals `plan` records, after checking that each withdraws a
-/// judgment `ledger` holds.
+/// Returns `plan` after checking that each withdrawal names a judgment in
+/// `ledger`.
 fn withdrawals(ledger: &Ledger<'_>, plan: &[Withdrawal]) -> Vec<Withdrawal> {
     for withdrawal in plan {
         assert!(
@@ -170,7 +162,6 @@ fn withdrawals(ledger: &Ledger<'_>, plan: &[Withdrawal]) -> Vec<Withdrawal> {
     plan.to_vec()
 }
 
-/// The gate index of each review in `reviews`, by basis ID.
 fn indexes(reviews: &[Saved]) -> HashMap<&BasisId, GateIndex<'_>> {
     reviews
         .iter()
@@ -178,8 +169,6 @@ fn indexes(reviews: &[Saved]) -> HashMap<&BasisId, GateIndex<'_>> {
         .collect()
 }
 
-/// The gate states of `current` among the related reviews in `earlier`,
-/// whose gates `indexes` holds.
 fn states<'a>(
     current: &'a Saved,
     earlier: &'a [Saved],
@@ -194,7 +183,6 @@ fn states<'a>(
     GateStates::new(&current.0, &current.1, &related, indexes, ledger)
 }
 
-/// The state of each gate item, in gate order.
 fn item_states<'a>(states: &GateStates<'a>) -> Vec<ItemState<'a>> {
     states
         .items()
@@ -203,8 +191,6 @@ fn item_states<'a>(states: &GateStates<'a>) -> Vec<ItemState<'a>> {
         .collect()
 }
 
-/// A working-tree review of `worktree` comparing the tree named by
-/// repeating `base` with the one named by repeating `target`.
 fn basis(worktree: &str, base: char, target: char, gate: Vec<GateItem>) -> Basis {
     Basis {
         schema: BASIS_SCHEMA.to_owned(),
@@ -236,14 +222,12 @@ fn saved(basis: Basis) -> Saved {
     (basis.basis_id().unwrap(), basis)
 }
 
-/// `basis` reviewed as commit `commit` instead of the working tree.
 fn as_commit(mut basis: Basis, commit: char) -> Basis {
     basis.target.kind = TargetKind::Commit;
     basis.target.commit = Some(commit.to_string().repeat(40));
     basis
 }
 
-/// How each of `earlier` relates to `current`, in order.
 fn relations(current: &Saved, earlier: &[Saved]) -> Vec<Option<Relation>> {
     let related = related_bases(
         &current.0,
@@ -619,9 +603,9 @@ fn many_large_judgments_on_related_reviews_decide_the_states_promptly() {
 
 #[test]
 fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes() {
-    // 200 reviews of one worktree and base, each of another target tree
-    // with the same 300 items and a comment; the first also acknowledges
-    // every item, which carries to all the others.
+    // Give 200 reviews the same worktree, base, and 300 items, with different
+    // targets and one comment each. The first acknowledges all items, which
+    // carries to the others.
     let gate: Vec<GateItem> = (0..300)
         .map(|k| lines(&format!("src/f{k}.rs"), "x"))
         .collect();
@@ -644,10 +628,9 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
         1000,
     ));
 
-    // Indexing every related review's gate again for each review, and
-    // looking each item up in every related gate, took about 8 s here in
-    // a debug build; indexing each gate once and visiting only the reviews
-    // with a judgment of the item takes milliseconds.
+    // Rebuilding related gate indexes and searching every related gate took
+    // about 8 s here in a debug build. Shared gate indexes and visiting only
+    // reviews with a judgment of the item take milliseconds.
     let (closing, same_as_alone) = finishes_within(Duration::from_secs(20), move || {
         let ledger = Ledger::new(&judgments);
         let indexes = indexes(&reviews);
@@ -708,8 +691,8 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
 
 #[test]
 fn undoing_a_judgment_of_every_item_of_a_large_gate_is_planned_promptly() {
-    // An acknowledgment of 30,000 items, undone by judgment; then, with
-    // every one of its items withdrawn, undone again.
+    // Plan undo for a 30,000-item acknowledgment, then retry after every
+    // item pair has been withdrawn.
     let gate: Vec<GateItem> = (0..30_000)
         .map(|k| lines(&format!("src/f{k}.rs"), "x"))
         .collect();
@@ -817,9 +800,9 @@ fn the_own_completion_is_the_most_recent_standing_one_on_the_review() {
 
 #[test]
 fn a_completion_covers_only_items_its_gate_held_as_they_are_now() {
-    // Review A acknowledged the item as X; review B, of the same content,
-    // acknowledged and completed it as Y. Now it is X again: A's
-    // acknowledgment closes it, but B's completion does not cover it.
+    // A acknowledged X; B reviewed the same content, acknowledged Y, and
+    // completed. With X restored, A closes the item but B's gate does not
+    // cover it.
     let (x, y) = (lines("a.rs", "x"), lines("a.rs", "y"));
     let current = saved(basis("/work/a", '1', '2', vec![x.clone()]));
     let earlier = [
@@ -1219,14 +1202,12 @@ fn a_judgment_is_found_by_a_unique_prefix_of_at_least_8_characters() {
     assert_eq!(ledger.find("deadbeef"), Err(FindJudgmentError::NoMatch));
 }
 
-/// The names of `gate`'s items, each path item named by its path.
 fn names(gate: &[GateItem]) -> ItemNames<'_> {
     ItemNames::new(gate, BTreeMap::new(), false, |path| {
         path.to_str().map(str::to_owned)
     })
 }
 
-/// The gate `states` shows, each path item named by its path.
 fn gate_info(states: &GateStates<'_>, gate: &[GateItem]) -> GateInfo {
     GateInfo::new(states, &names(gate))
 }
@@ -1360,7 +1341,6 @@ fn the_latest_completion_is_the_most_recent_standing_one_on_any_review_named() {
     assert_eq!(ledger.latest_completion([]), None);
 }
 
-/// The explanation of `file` whose digest repeats `digest`.
 fn explanation(file: &str, digest: char) -> Explanation {
     Explanation {
         path: PathBytes::new(file),
@@ -1402,8 +1382,6 @@ fn explanations_differ_only_where_the_content_did_not_change() {
     assert_eq!(explanations_differ(&current, &current, &[]), []);
 }
 
-/// What the CLI read of `related` when nothing changed in the code or the
-/// records.
 fn unchanged(related: RelatedBasis<'_>) -> RelatedReading<'_> {
     RelatedReading {
         related,
@@ -1414,8 +1392,6 @@ fn unchanged(related: RelatedBasis<'_>) -> RelatedReading<'_> {
     }
 }
 
-/// The status of `current` among the related reviews in `earlier`, with
-/// what the CLI read of each from `read`.
 fn status<'a>(
     current: &'a Saved,
     earlier: &'a [Saved],
@@ -1578,8 +1554,8 @@ fn a_completion_of_earlier_code_never_carries_over() {
 
 #[test]
 fn without_the_changed_paths_no_explanation_is_said_to_differ() {
-    // The earlier target tree is gone: whether a.rs changed with the code
-    // or only in its explanation cannot be told.
+    // Without the earlier target tree, code and explanation changes in
+    // a.rs cannot be separated.
     let mut current = basis("/work/a", '1', '2', Vec::new());
     current.explanations = vec![explanation("a.rs", 'a')];
     let mut earlier = basis("/work/a", '1', '3', Vec::new());
@@ -1682,8 +1658,8 @@ fn the_reviews_own_completion_completes_it_whatever_changed_since_others() {
 
 #[test]
 fn many_related_reviews_of_other_code_give_the_status_promptly() {
-    // 100 reviews of the worktree, each of other code in all 5,000 files:
-    // every file changed, and no item of the current gate is covered.
+    // Give 100 worktree reviews different code in all 5,000 files, so no
+    // current gate item is covered.
     let files: Vec<String> = (0..5000).map(|k| format!("src/f{k}.rs")).collect();
     let gate = |material| files.iter().map(|file| lines(file, material)).collect();
     let mut current = basis("/work/a", '1', '2', gate("now"));
@@ -1696,9 +1672,9 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
         .collect();
     let changed = paths(&files.iter().map(String::as_str).collect::<Vec<_>>());
 
-    // Searching the gate for each uncovered item's name and the changed
-    // paths for each explanation took about 15 s here in a debug build;
-    // indexed, it takes under 2 s.
+    // Searching the gate for every uncovered name and changed paths for
+    // every explanation took about 15 s here in a debug build. Indexes reduce
+    // this to under 2 s.
     let status = finishes_within(Duration::from_secs(10), move || {
         let ledger = Ledger::new(&[]);
         let related = related_bases(&current.0, &current.1, ids.iter().map(|id| (id, &earlier)));

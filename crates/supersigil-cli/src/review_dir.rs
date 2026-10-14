@@ -1,8 +1,7 @@
-//! Where saved reviews live, how a command opens its repository's review
-//! store, and which saved reviews it reads beside the one it shows.
+//! Locates review stores and loads saved reviews related to the current review.
 //!
-//! Every lock wait is bounded, as reconcile's are: a store another command
-//! holds is reported busy, never waited on indefinitely.
+//! Lock waits are bounded, as in reconcile. A command reports the store as busy
+//! when another command holds its lock beyond the deadline.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -20,27 +19,26 @@ use supersigil_session::checkout::canonical;
 use crate::error::CliError;
 use crate::record_dir::{lock_dir_within, poll, resolve_data_dir};
 
-/// Resolves the reviews directory: the flag, then `SUPERSIGIL_REVIEW_DIR`,
+/// Resolves the reviews directory from the flag, then `SUPERSIGIL_REVIEW_DIR`,
 /// then `$XDG_DATA_HOME/supersigil/reviews`, then
 /// `$HOME/.local/share/supersigil/reviews`.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::CommandFailed`] if neither `XDG_DATA_HOME` nor `HOME`
-/// is set and no flag was given.
+/// is set and neither the flag nor `SUPERSIGIL_REVIEW_DIR` was given.
 pub fn resolve_review_dir(flag: Option<&Path>) -> Result<PathBuf, CliError> {
     resolve_data_dir(flag, "SUPERSIGIL_REVIEW_DIR", "reviews")
 }
 
-/// The canonical path of `repo`'s git common directory
-/// ([`common_dir`]), which names the repository's review store: resolved as
-/// [`canonical`] resolves the worktrees whose selections the store keeps,
-/// so every worktree finds the one store.
+/// Returns the canonical path of `repo`'s git common directory ([`common_dir`]).
+/// This path identifies the repository's review store. It uses [`canonical`],
+/// as worktree selections do, so all worktrees find the same store.
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Git`] if git cannot name the common directory or it
-/// cannot be resolved.
+/// Returns [`CliError::Git`] if git cannot name the common directory or
+/// [`canonical`] cannot resolve it.
 pub fn canonical_common_dir(repo: &Repo) -> Result<PathBuf, CliError> {
     let path = common_dir(repo)?;
     canonical(&path).map_err(|source| {
@@ -82,10 +80,9 @@ pub fn open_review_store_within(
     Ok(Some(store))
 }
 
-/// The basis of every review other than `id`, whose basis is `basis`, that
-/// one of `judgments` is recorded on and that relates to it ([`relates`]),
-/// so carry-forward can relate it to `id`. Every such basis is read and
-/// checked once, but only one that relates is parsed whole.
+/// Loads judged reviews related to `basis`, excluding its own review `id`,
+/// for carry-forward ([`relates`]). Reads and checks each basis once,
+/// and parses the full basis only when it relates.
 ///
 /// # Errors
 ///
@@ -109,7 +106,7 @@ pub fn judged_bases(
     Ok(related)
 }
 
-/// The basis of each review `ids` names in `snapshot`, each read once.
+/// Loads each basis named by `ids` from `snapshot` once.
 ///
 /// # Errors
 ///

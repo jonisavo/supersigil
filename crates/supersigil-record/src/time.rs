@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// How long an unused review basis or a replaced document is kept: 14
-/// days, git's default prune age.
+/// Grace period for unused review bases and replaced documents: 14 days,
+/// git's default prune age.
 pub const GRACE_SECONDS: i64 = 14 * DAY;
 
 /// How long a removal stays published before the removed file is deleted.
@@ -42,10 +42,9 @@ impl UtcTime {
         Self::from_unix(unix)
     }
 
-    /// The time `unix` seconds after the epoch (before it when negative).
+    /// Returns the time `unix` seconds after the epoch, or before it if negative.
     ///
-    /// Times outside the years 0000 to 9999, which the fixed-width form
-    /// cannot write, are clamped to the nearest one it can.
+    /// Clamps times to years 0000 through 9999, the fixed-width format's range.
     #[must_use]
     pub const fn from_unix(unix: i64) -> Self {
         Self(if unix < MIN_UNIX {
@@ -93,9 +92,8 @@ pub struct ParseTimeError(String);
 impl FromStr for UtcTime {
     type Err = ParseTimeError;
 
-    /// Accepts exactly the strings [`fmt::Display`] writes: a field out of
-    /// range, such as 30 February or hour 24, changes the written form and
-    /// is refused.
+    /// Accepts only strings that round-trip through [`fmt::Display`]. Rejects
+    /// out-of-range fields, including 30 February and hour 24.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let invalid = || ParseTimeError(text.to_owned());
         let bytes = text.as_bytes();
@@ -304,8 +302,7 @@ mod tests {
 
     #[test]
     fn now_is_the_system_clock_without_its_fraction_of_a_second() {
-        // Compared only with readings of the clock taken around it, so the
-        // test holds whatever date the clock is set to.
+        // Compare with surrounding clock readings so the test works on any date.
         let second = std::time::Duration::from_secs(1);
         let before = SystemTime::now();
         let now = system_time(UtcTime::now());

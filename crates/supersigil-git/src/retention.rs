@@ -1,6 +1,4 @@
-//! What judging a review needs from git: the repository's identity across
-//! worktrees, the person's identity, and a ref that keeps the reviewed
-//! snapshot.
+//! Reads the git common directory and user identity, and retains judged trees.
 
 use std::path::PathBuf;
 use std::slice;
@@ -11,10 +9,9 @@ use crate::oid::{ObjectId, parse_output};
 use crate::path::path_from_line;
 use crate::repo::Repo;
 
-/// Returns the path of the repository's git common directory, which every
-/// worktree of the repository shares, as git names it from `repo`'s root,
-/// made absolute but not resolved: two worktrees may spell it differently,
-/// as through a symbolic link, so a caller comparing it canonicalizes it.
+/// Returns the absolute git common directory shared by `repo`'s worktrees.
+/// The path is not resolved. Canonicalize it before comparing repositories,
+/// since worktrees may reach it through different symlinks.
 ///
 /// # Errors
 ///
@@ -22,8 +19,7 @@ use crate::repo::Repo;
 /// prints, or the errors of [`crate::Git::output`].
 pub fn common_dir(repo: &Repo) -> Result<PathBuf, GitError> {
     let output = repo.git().output(["rev-parse", "--git-common-dir"])?;
-    // No `-z` form: strip only the line terminator, since a path may end in
-    // spaces.
+    // Git has no `-z` form here. Keep trailing spaces in the path.
     let path = path_from_line(&output).ok_or_else(|| {
         GitError::Parse("common directory not representable on this platform".to_owned())
     })?;
@@ -56,8 +52,7 @@ pub fn identity(repo: &Repo) -> Result<Option<Identity>, GitError> {
         .map(|(name, email)| Identity { name, email }))
 }
 
-/// Reads a configuration value as text without surrounding whitespace, as
-/// git writes it into an identity, or `None` when it is unset or blank.
+/// Trims a git configuration value; returns `None` if unset or blank.
 fn config_text(repo: &Repo, key: &str) -> Result<Option<String>, GitError> {
     let Some(output) = repo.git().probe_output(["config", "--get", key])? else {
         return Ok(None);
@@ -68,9 +63,8 @@ fn config_text(repo: &Repo, key: &str) -> Result<Option<String>, GitError> {
     Ok((!text.is_empty()).then(|| text.to_owned()))
 }
 
-/// Returns whether `tree` names a tree in the repository: `false` for a
-/// missing object, such as a captured tree git has pruned, and for an object
-/// of another type.
+/// Returns `false` for missing objects, including pruned captured trees,
+/// and objects of any type other than tree.
 ///
 /// # Errors
 ///
@@ -79,9 +73,8 @@ pub fn tree_exists(repo: &Repo, tree: &ObjectId) -> Result<bool, GitError> {
     Ok(trees_exist(repo, slice::from_ref(tree))? == [true])
 }
 
-/// Returns whether each of `trees`, in order, names a tree in the
-/// repository, as [`tree_exists`] tells, asking git once for all of them;
-/// git is not run when there are none.
+/// Checks `trees` in order with one git call, using [`tree_exists`] rules.
+/// An empty input runs no git command.
 ///
 /// # Errors
 ///
@@ -112,14 +105,12 @@ pub fn trees_exist(repo: &Repo, trees: &[ObjectId]) -> Result<Vec<bool>, GitErro
     Ok(answers)
 }
 
-/// What [`retain`] left the reference pointing at.
+/// The commit retained by [`retain`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Retained {
-    /// The reference did not exist: this commit was written and the
-    /// reference created.
+    /// The new commit and ref.
     Created(ObjectId),
-    /// The reference already pointed at this commit, which has the expected
-    /// tree and parents; nothing was written.
+    /// An existing commit with the expected tree and parents. Nothing was written.
     Existing(ObjectId),
 }
 
@@ -133,16 +124,14 @@ impl Retained {
     }
 }
 
-/// Keeps `tree` reachable under `reference`, a full reference name such as
-/// `refs/supersigil/reviews/<id>`, through a commit with that tree,
-/// `parents` in order without duplicates, and `message`, authored and
-/// committed by `who`.
+/// Retains `tree` under a full ref name, such as `refs/supersigil/reviews/<id>`.
+/// The commit has `parents` in order without duplicates and `message`, with
+/// `who` as both author and committer.
 ///
-/// The reference is a direct one, created only if it does not exist and
-/// never moved. When it exists, nothing is written: it is reused if it
-/// points directly at a commit with exactly that tree and those parents,
-/// whatever its message and identity, and refused otherwise, as a symbolic
-/// reference always is: what it keeps moves with the reference it names.
+/// Creates a direct ref only if absent and never moves it. An existing ref
+/// writes nothing and is reused only if it points directly to a commit with
+/// exactly that tree and those parents, regardless of message or identity.
+/// Symbolic refs are always refused because their targets can move.
 ///
 /// # Errors
 ///
@@ -190,12 +179,10 @@ pub fn retain(
         .with_env("GIT_COMMITTER_NAME", &who.name)
         .with_env("GIT_COMMITTER_EMAIL", &who.email);
     let commit = parse_output(&git.output(&args)?, repo.format())?;
-    // An empty old value creates the reference only if it does not exist;
-    // without dereferencing, a symbolic reference left at the name, even
-    // one to a missing branch, counts as existing and is never followed.
-    // Repository configuration can make a lock wait long or endless, so the
-    // waits are set here; together they stay within the 2 s bound. Older git
-    // ignores the unknown reftable key.
+    // The empty old value requires an absent ref. `--no-deref` rejects any
+    // symbolic ref, including one to a missing branch, without following it.
+    // Override configured lock waits to keep the total within 2 s. Older git
+    // ignores the reftable key.
     repo.git().output([
         "-c",
         "core.filesRefLockTimeout=1000",
@@ -222,7 +209,7 @@ enum Pointed {
     },
     /// An object of another type, such as `tree`.
     Other { kind: String },
-    /// Another reference, by name: what it keeps moves with that one.
+    /// A symbolic ref whose target can move.
     Symbolic { target: String },
 }
 
@@ -269,13 +256,11 @@ fn listed<'a>(ids: impl Iterator<Item = &'a ObjectId>) -> String {
     }
 }
 
-/// Reads what the reference named exactly `reference` points at, or `None`
-/// when there is no such reference.
+/// Reads exactly `reference`; returns `None` if absent.
 fn read_ref(repo: &Repo, reference: &str) -> Result<Option<Pointed>, GitError> {
-    // `for-each-ref` also lists refs below `reference/` and never fails for
-    // a missing one. Fields are tab-separated, since a direct reference's
-    // `symref` is empty; reference names hold no tabs, and the parents are
-    // separated by spaces.
+    // `for-each-ref` also lists `reference/` descendants and accepts absent
+    // refs. Tabs preserve an empty `symref` field; ref names contain no tabs
+    // and parent ids use spaces.
     let output = repo.git().output([
         "for-each-ref",
         "--format=%(refname)%09%(symref)%09%(objecttype)%09%(objectname)%09%(tree)%09%(parent)",

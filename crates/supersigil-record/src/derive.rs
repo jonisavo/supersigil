@@ -9,13 +9,11 @@ use crate::observations::{Content, Edit, FileState, Observation};
 /// Finds restores and discontinuities among the edits belonging to `session`.
 ///
 /// Keeps the first occurrence of each edit ID in `observations`, then groups
-/// edits by transcript and by `key`, which names the file an edit changed:
-/// edits with equal keys changed one file, however their checkout and path
-/// spell it. An edit whose key is `None` joins no group and is compared with
-/// nothing. Edits without a transcript path form their own group for each
-/// key. Each group is sorted by [`Edit::source_ordinal`]. Timestamps do not
-/// affect this order. Edits with equal ordinals were issued by one record,
-/// such as parallel tool calls, and nothing records which ran first.
+/// edits by transcript and file `key`, regardless of checkout and path
+/// spelling. Excludes edits whose key is `None`. Edits without a transcript
+/// path form a separate group for each key. Sorts each group by
+/// [`Edit::source_ordinal`], ignoring timestamps. Equal ordinals identify edits
+/// issued by one record, such as parallel tool calls, with no recorded order.
 ///
 /// Within each group:
 ///
@@ -57,14 +55,12 @@ pub fn derive<K: Ord>(
     }
 }
 
-/// Finds the discontinuities [`derive()`] finds among the edits belonging to
-/// `session`, grouping and comparing them as it does, without its restores.
+/// Finds the same discontinuities as [`derive()`] for `session`, without
+/// computing restores.
 ///
-/// For a caller that needs only the gaps: the restores of edits that keep
-/// returning a file to earlier content name every such earlier edit, so
-/// their count can grow with the square of the number of edits. Takes the
-/// observations in any order a caller holds them, such as those of several
-/// records one after another, without copying them.
+/// Repeated restores can name quadratically many earlier edits. This function
+/// skips that work when callers need only gaps. Accepts observations in any
+/// order, including observations from several records, without copying them.
 #[must_use]
 pub fn discontinuities<'a, K: Ord>(
     session: &SessionId,
@@ -78,9 +74,8 @@ pub fn discontinuities<'a, K: Ord>(
     found
 }
 
-/// The edits [`derive()`] compares with each other, group by group: the
-/// first occurrence of each edit ID of `session` in `observations`, grouped
-/// by `key` and transcript, each group sorted by ordinal.
+/// Keeps the first occurrence of each edit ID for `session`, groups by `key`
+/// and transcript, and sorts each group by ordinal, as [`derive()`] requires.
 fn groups<'a, K: Ord>(
     session: &SessionId,
     observations: impl IntoIterator<Item = &'a Observation>,
@@ -109,19 +104,17 @@ fn groups<'a, K: Ord>(
         .collect()
 }
 
-/// The edits of each ordinal in `group`, which is sorted by ordinal, in
-/// ordinal order.
+/// Splits the ordinal-sorted `group` into slices of edits with equal ordinals.
 fn issued<'g, 'a>(group: &'g [&'a Edit]) -> Vec<&'g [&'a Edit]> {
     group
         .chunk_by(|a, b| a.source_ordinal == b.source_ordinal)
         .collect()
 }
 
-/// Adds to `restores` the restores among `issued`, one group's edits of
-/// each ordinal in ordinal order (see [`derive()`]).
+/// Appends restores from `issued`, a group's edits split by ordinal in
+/// ascending order (see [`derive()`]).
 fn find_restores(issued: &[&[&Edit]], restores: &mut Vec<Restore>) {
-    // Known before-contents of the edits with lower ordinals, each with its
-    // edits oldest first.
+    // Maps known before-content hashes to edits with lower ordinals, oldest first.
     let mut befores: BTreeMap<&ContentId, Vec<EventId>> = BTreeMap::new();
     for &together in issued {
         for edit in together {
@@ -144,8 +137,8 @@ fn find_restores(issued: &[&[&Edit]], restores: &mut Vec<Restore>) {
     }
 }
 
-/// Adds to `discontinuities` the discontinuities among `issued`, one
-/// group's edits of each ordinal in ordinal order (see [`derive()`]).
+/// Appends discontinuities from `issued`, a group's edits split by ordinal
+/// in ascending order (see [`derive()`]).
 fn find_discontinuities(issued: &[&[&Edit]], discontinuities: &mut Vec<Discontinuity>) {
     for pair in issued.windows(2) {
         let (&[prev], &[next]) = (pair[0], pair[1]) else {
@@ -244,10 +237,9 @@ mod tests {
         |edit| Some(edit.checkout.join(&edit.path))
     }
 
-    /// One file edited under two spellings: from `/r` as `sub/a.rs`, then
-    /// from `/r/sub` as `a.rs`, the second at `ordinal`. The second edit
-    /// starts from other content than the first left and ends where the
-    /// first began.
+    /// Edits `sub/a.rs` from `/r`, then `a.rs` from `/r/sub` at `ordinal`.
+    /// The second edit starts from different content and restores the first's
+    /// before-content.
     fn after_a_directory_change(ordinal: u64) -> Vec<Observation> {
         vec![
             in_checkout(edit("t1", "sub/a.rs", 1, known("a\n"), known("b\n")), "/r"),
@@ -584,8 +576,8 @@ mod tests {
         assert!(set.discontinuities.is_empty());
     }
 
-    /// `count` edits of one file, each returning it to the content the one
-    /// before started from, then an edit that starts from other content.
+    /// Alternates one file between two contents for `count` edits, then adds
+    /// an edit that starts from different content.
     fn back_and_forth(count: u64) -> Vec<Observation> {
         let mut obs: Vec<Observation> = (1..=count)
             .map(|ordinal| {

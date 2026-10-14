@@ -1,11 +1,10 @@
-//! The usability review's seven scenarios, end to end: a person reviews an
-//! agent's finished work, judges its gate, and completes it, then comes
-//! back to it as the code, the history, and their own mistakes move on.
-//! Each test types the commands the person would and reads what they print;
-//! `--format terminal` stands in for the terminal `auto` detects.
+//! Tests the usability review's seven scenarios end to end: reviewing agent work,
+//! judging its gate, completing it, and revisiting it after changes or mistakes.
+//! Each test runs the person's commands and reads their output.
+//! `--format terminal` substitutes for the terminal that `auto` detects.
 //!
-//! `cmd_judge.rs` and `cmd_reopen.rs` test each step in more depth; these
-//! tests walk the steps together.
+//! `cmd_judge.rs` and `cmd_reopen.rs` test individual steps in more depth.
+//! These tests combine those steps.
 
 mod common;
 
@@ -35,9 +34,9 @@ fn identify(f: &Fixture) {
     f.git(&["config", "user.email", "ada@example.com"]);
 }
 
-/// The agent's finished work: the slice fixture, in a repository where the
-/// person has a git identity. Its gate: `old.txt`, `lines:src/lib.rs`,
-/// `src/new.rs` (untracked), and `gap:src/lib.rs`.
+/// Creates the slice fixture with the person's git identity.
+/// Its gate has `old.txt`, `lines:src/lib.rs`, untracked `src/new.rs`,
+/// and `gap:src/lib.rs`.
 fn finished() -> Fixture {
     let f = Fixture::new();
     slice(&f);
@@ -61,7 +60,7 @@ fn judge(f: &Fixture, args: &[&str]) -> String {
     ))
 }
 
-/// What `command` prints; panics unless it succeeds.
+/// Runs `command` and returns its standard output; panics unless it succeeds.
 fn printed(mut command: Command) -> String {
     let output = command.output().unwrap();
     assert!(
@@ -72,8 +71,8 @@ fn printed(mut command: Command) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// `supersigil judge <args>` in the repository, run by an agent: inside a
-/// Claude Code session, its output piped.
+/// Runs `supersigil judge <args>` in the repository with a Claude Code session
+/// marker and piped output.
 fn judge_in_agent(f: &Fixture, args: &[&str]) -> Output {
     f.plain(&f.repo, &[&["judge"], args].concat())
         .env("CLAUDECODE", "1")

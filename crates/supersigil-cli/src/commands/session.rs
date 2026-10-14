@@ -116,8 +116,8 @@ fn run_sync(
 }
 
 /// Checks that every transcript named with `--transcript` is a regular file.
-/// Sync skips a listed transcript that is gone when read as removed; a named
-/// one was never listed, so a missing one is a mistake to report.
+/// Sync skips removed transcripts found through discovery. A missing explicitly
+/// named transcript is an error.
 ///
 /// # Errors
 ///

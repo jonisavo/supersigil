@@ -465,10 +465,10 @@ fn skipped_transcript_stays_available_to_unowned_discovery() {
     assert_eq!(associations[0].checkout, nested);
 }
 
-/// Puts a directory where `cwd`'s project directory under `home` holds a
-/// subagent transcript, and returns its path. Discovery lists
-/// `agent-*.jsonl` entries without looking at their type, and reading finds
-/// no regular file there: a transcript removed between discovery and read.
+/// Creates a directory at a subagent transcript path in `cwd`'s project directory
+/// under `home` and returns its path. Discovery lists `agent-*.jsonl` entries
+/// without checking types. Reading rejects this non-file as removed, simulating
+/// a transcript removed between discovery and read.
 fn removed_transcript(home: &Path, cwd: &Path) -> PathBuf {
     let path = home
         .join("projects")

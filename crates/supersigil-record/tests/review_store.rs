@@ -88,18 +88,16 @@ fn file_name(id: &BasisId) -> String {
     format!("{id}.json")
 }
 
-/// The extension of a temporary file the store writes a basis file
-/// through: `json`, a fresh UUID, and `tmp`.
+/// A basis temporary file extension: `json`, a UUID, and `tmp`.
 const TEMPORARY: &str = "json.0f6e3a52-8d1c-4b7e-9a35-2c4d6e8f1a0b.tmp";
 
-/// A name the store writes in `bases/` that no basis here has: a basis
-/// file's with `extension` `json`, a temporary file's with [`TEMPORARY`].
+/// Creates an unused basis file name for extension `json`, or a temporary
+/// file name for extension [`TEMPORARY`].
 fn stray(extension: &str) -> String {
     format!("{}.{extension}", "f".repeat(64))
 }
 
-/// Rewrites the store's manifest through `edit`, as a crash or another
-/// build might have left it.
+/// Applies `edit` to simulate a manifest left by a crash or another build.
 fn edit_manifest(store: &ReviewStore, edit: impl FnOnce(&mut Value)) {
     let path = store.root().join("manifest.json");
     let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -300,8 +298,7 @@ fn a_damaged_basis_file_is_refused_on_read_and_replaced_on_save() {
         assert_eq!(store.snapshot().unwrap().basis(&id).unwrap(), original);
     }
 
-    // A file a crashed writer left before the basis entered any manifest
-    // is checked too.
+    // Also check a crash leftover that no manifest lists.
     let other_id = other.basis_id().unwrap();
     fs::write(basis_file(&store, &other_id), b"{\"partial").unwrap();
     assert_eq!(save(&store, &other, at(2)), other_id);
@@ -344,8 +341,7 @@ fn cleanup_deletes_only_names_the_store_writes_in_bases() {
     let store = new_store(dir.path());
     let kept = save(&store, &basis("/work/repo", 'a'), at(0));
     let bases = store.root().join("bases");
-    // Neither a basis file's name nor a temporary file's, such as the
-    // fixed name temporary files once had.
+    // These names match neither basis files nor current temporary files.
     let foreign = [
         "notes.json".to_owned(),
         "stray.json.tmp".to_owned(),
@@ -375,8 +371,7 @@ fn a_write_never_opens_a_file_at_a_former_temporary_name() {
     let original = basis("/work/repo", 'a');
     let id = original.basis_id().unwrap();
     let held_name = format!("{}.tmp", file_name(&id));
-    // Files at the fixed names temporary files were once written under:
-    // the manifest's and that of the basis about to be saved.
+    // Keep files at the former fixed temporary names for the manifest and basis.
     let held = [
         store.root().join("manifest.json.tmp"),
         store.root().join("bases").join(&held_name),
@@ -399,8 +394,7 @@ fn a_write_never_opens_a_file_at_a_former_temporary_name() {
     assert_eq!(bases_files(&store), [file_name(&id), held_name]);
 }
 
-/// Replaces the file of basis `id` with a symbolic link to `target`, as
-/// someone with access to the store might.
+/// Replaces basis `id`'s file with a symbolic link to `target`.
 #[cfg(unix)]
 fn link_basis(store: &ReviewStore, id: &BasisId, target: &str) {
     let path = basis_file(store, id);
@@ -421,11 +415,9 @@ fn a_live_basis_file_that_is_a_symlink_is_made_regular_before_anything_is_delete
     let path = basis_file(&store, &id);
     let current = store.root().join("bases").join(stray("json"));
 
-    // A review of the same content (saving and cleaning), a write that
-    // only saves, and a judgment's write (only cleaning).
+    // Exercise review writes, save-only writes, and cleanup-only judgment writes.
     for (k, saves, cleans) in [(1, true, true), (2, true, false), (3, false, true)] {
-        // The live basis's file moved to a leftover's name, with a link to
-        // it in its place.
+        // Copy the live basis to a leftover name and link its file to the copy.
         fs::copy(&path, &current).unwrap();
         link_basis(&store, &id, &stray("json"));
 
@@ -464,8 +456,8 @@ fn making_a_basis_file_regular_never_overwrites_what_another_one_leads_to() {
         .iter()
         .map(|id| fs::read(basis_file(&store, id)).unwrap())
         .collect();
-    // The first's file links to a copy of its bytes; the second's links to
-    // its only copy, a regular file at the first's former temporary name.
+    // Link the first basis to a copy of its bytes. Link the second to its
+    // only copy, stored at the first basis's former temporary name.
     let bases = store.root().join("bases");
     let held = format!("{}.tmp", file_name(&first));
     fs::write(bases.join("current.json"), &bytes[0]).unwrap();
@@ -715,8 +707,7 @@ fn a_basis_listed_live_is_never_deleted_whatever_removed_says() {
     let live = tx.save_basis(&original, reviewed).unwrap();
     tx.select(Path::new("/work/repo"), &live);
     tx.commit().unwrap();
-    // Also listed as removed ten days earlier, as no writer of this build
-    // leaves a manifest.
+    // Add an invalid removal entry dated ten days before the live basis's review.
     edit_manifest(&store, |m| {
         m["removed"][live.as_str()] = json!("2026-10-13T00:00:00Z");
     });
@@ -762,8 +753,8 @@ fn saving_a_removed_basis_revives_it_before_and_after_its_file_is_deleted() {
     );
     assert_eq!(store.snapshot().unwrap().basis(&id).unwrap(), original);
 
-    // Still listed as removed, but its file is gone (a deletion whose
-    // manifest was never published): saving writes the file again.
+    // Simulate deletion before manifest publication. Saving recreates the file
+    // even though the manifest still lists the basis as removed.
     clean(&store, at(3 * GRACE_SECONDS));
     assert!(
         store
@@ -1022,8 +1013,7 @@ fn a_removed_basis_named_by_a_judgment_or_selection_is_not_deleted() {
     let selected = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
     tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
     tx.commit().unwrap();
-    // A manifest that lists both as removed and a selection of one, as no
-    // writer of this build leaves it.
+    // Simulate an invalid manifest with judged and selected bases marked removed.
     edit_manifest(&store, |m| {
         let bases = m["bases"].as_object_mut().unwrap();
         bases.clear();
@@ -1040,10 +1030,9 @@ fn a_removed_basis_named_by_a_judgment_or_selection_is_not_deleted() {
     assert!(basis_file(&store, &selected).exists());
 }
 
-/// Saves a basis a judgment names and one a selection names, then edits
-/// the manifest to list neither in `bases` nor in `removed`, keeping the
-/// judgment and the selection, as no writer of this build leaves it.
-/// Returns the judged and the selected basis.
+/// Saves judged and selected bases, then removes their `bases` and `removed`
+/// entries while keeping the judgment and selection. This build never writes
+/// such a manifest. Returns the judged and selected basis IDs.
 fn referenced_but_unlisted(store: &ReviewStore) -> (BasisId, BasisId) {
     let mut tx = store.begin().unwrap();
     let judged = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
@@ -1078,8 +1067,7 @@ fn a_basis_a_judgment_or_selection_names_is_made_regular_before_anything_is_dele
     let dir = tempfile::tempdir().unwrap();
     let store = new_store(dir.path());
     let (judged, selected) = referenced_but_unlisted(&store);
-    // Each basis's file moved to a leftover's name, with a link to it in
-    // its place.
+    // Copy each basis to a leftover name and link its file to the copy.
     let bases = store.root().join("bases");
     let mut held = Vec::new();
     for (id, name) in [(&judged, "e"), (&selected, "f")] {

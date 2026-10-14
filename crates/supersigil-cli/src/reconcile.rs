@@ -337,8 +337,8 @@ fn sync_record(
     Ok(reason)
 }
 
-/// Adds every transcript `report` skipped as removed before it could be
-/// read to `removed`, and returns the reason naming the first, if any.
+/// Adds transcripts skipped as removed in `report` to `removed`.
+/// Returns the reason naming the first such transcript, if any.
 fn note_removed(report: &SyncReport, removed: &mut BTreeSet<PathBuf>) -> Option<String> {
     let mut reason = None;
     for transcript in &report.transcripts {
@@ -350,8 +350,8 @@ fn note_removed(report: &SyncReport, removed: &mut BTreeSet<PathBuf>) -> Option<
     reason
 }
 
-/// Why a record or checkout with `transcript` is not reconciled when the
-/// transcript was removed before it could be read.
+/// Explains that a record or checkout is unreconciled because `transcript`
+/// was removed before it could be read.
 fn removed_reason(transcript: &Path) -> String {
     format!(
         "transcript {} {}",
@@ -385,9 +385,8 @@ struct Unowned {
     /// Admitted transcripts, grouped by the canonical working directory
     /// they record.
     groups: BTreeMap<PathBuf, Vec<PathBuf>>,
-    /// Each transcript removed before it could be read
-    /// ([`read_transcript`]), once: the worktree or ancestor whose project
-    /// directory listed it first, and the transcript.
+    /// Removed transcripts ([`read_transcript`]), each paired once with the worktree
+    /// or ancestor whose project directory first listed it.
     removed: Vec<(PathBuf, PathBuf)>,
 }
 
