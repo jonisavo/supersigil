@@ -428,6 +428,25 @@ basis gone, and a reader holding a record's manifest more than 14 days
 after a later revision replaced one of its documents may find that
 document gone.
 
+Supersigil detects ordinary concurrent writers (an editor, a formatter, or
+an agent saving a file while a review reads it) through each file's length,
+mode, modification time, and status change time. A process of the same user
+that deliberately races Supersigil's system calls, restoring timestamps
+within one kernel clock tick, is out of scope: such a process can write the
+review store directly. A working tree written while a review reads it can
+be read in a state its files never had: git's capture of tracked files and
+Supersigil's reads of untracked and uncaptured files take no locks, and a
+writer through a shared memory mapping need not update timestamps. Review a
+quiet working tree, or review a commit.
+
+The review store and the records are written only by Supersigil. Someone
+who edits them by hand (a planted link, FIFO, or file, an edited manifest
+or log line) can already make anything appear, so hand edits inside the
+stores are handled only where Supersigil's own cleanup would then delete
+data a current reference still needs; otherwise a hand-edited store may
+make a command fail or wait. Changes outside the stores (the working tree,
+git, transcripts, and records as sync writes them) stay in scope.
+
 The intended product adds sourced annotations, durable human corrections,
 and a terminal UI with final-change and development-history views. These
 are not shipped. Their durable constraints are:

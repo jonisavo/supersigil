@@ -129,12 +129,13 @@ fn next(names: &str) -> String {
 }
 
 /// Judges the slice fixture's gate as scenario 1 does and completes the
-/// review; returns the completion.
-fn complete(f: &Fixture) -> Judgment {
+/// review; returns the acknowledgment, the dismissal, and the completion,
+/// each stamped when it was recorded.
+fn complete(f: &Fixture) -> [Judgment; 3] {
     judge(f, &["ack", "old.txt", "lines:src/lib.rs", "gap:src/lib.rs"]);
     judge(f, &["dismiss", "src/new.rs", "--reason", GENERATED]);
     judge(f, &["complete"]);
-    last(f)
+    <[Judgment; 3]>::try_from(recorded(f)).unwrap()
 }
 
 #[test]
@@ -184,7 +185,9 @@ fn scenario_1_review_acknowledge_dismiss_comment_and_complete() {
         )
     );
 
+    let acknowledgment = last(&f);
     let dismissed = judge(&f, &["dismiss", "src/new.rs", "--reason", GENERATED]);
+    let dismissal = last(&f);
     assert_eq!(
         dismissed,
         format!(
@@ -225,14 +228,15 @@ fn scenario_1_review_acknowledge_dismiss_comment_and_complete() {
     // Reviewing again finds the same review, complete.
     let again = review(&f, &[]);
     let date = completion.at.date();
+    let (acked, dismissed_on) = (acknowledgment.at.date(), dismissal.at.date());
     assert_eq!(shown_review(&again), id8);
     assert!(
         again.contains(&format!(
             "\nReview complete: completed on {date} by {NAME}.\nGate: 0 open, 4 closed.\n\n  \
-             old.txt           acknowledged  by {NAME} on {date}\n  \
-             lines:src/lib.rs  acknowledged  by {NAME} on {date}\n  \
-             src/new.rs        dismissed     by {NAME} on {date}\n  \
-             gap:src/lib.rs    acknowledged  by {NAME} on {date}\n"
+             old.txt           acknowledged  by {NAME} on {acked}\n  \
+             lines:src/lib.rs  acknowledged  by {NAME} on {acked}\n  \
+             src/new.rs        dismissed     by {NAME} on {dismissed_on}\n  \
+             gap:src/lib.rs    acknowledged  by {NAME} on {acked}\n"
         )),
         "{again}"
     );
@@ -328,7 +332,7 @@ fn scenario_2_eighty_files_with_unexplained_lines_are_judged_in_one_call() {
 fn scenario_3_a_file_the_agent_changes_after_completion_is_reported_and_judged_again() {
     let f = finished();
     let id8 = shown_review(&review(&f, &[]));
-    let completion = complete(&f);
+    let [acknowledgment, dismissal, completion] = complete(&f);
     // The agent changes `src/lib.rs` again, in a recorded edit.
     let lib = f.repo.join("src/lib.rs");
     let appended = Session::new(SLICE_SESSION, &f.repo)
@@ -368,15 +372,22 @@ fn scenario_3_a_file_the_agent_changes_after_completion_is_reported_and_judged_a
     );
     // The new edit explains the line it changed, so the edits behind the
     // lines still unexplained are the same.
-    let carried = format!("carried from review {id8}, by {NAME} on {date}");
+    let carried = |judgment: &Judgment| {
+        format!(
+            "carried from review {id8}, by {NAME} on {}",
+            judgment.at.date()
+        )
+    };
     assert!(
         summary.contains(&format!(
             "\nGate: 1 open, 3 closed.\n\n  \
-             old.txt           acknowledged  {carried}\n  \
+             old.txt           acknowledged  {ack}\n  \
              lines:src/lib.rs  reopened      file content or mode changed; line explanations \
              changed since your acknowledgment\n  \
-             src/new.rs        dismissed     {carried}\n  \
-             gap:src/lib.rs    acknowledged  {carried}\n"
+             src/new.rs        dismissed     {dismissed}\n  \
+             gap:src/lib.rs    acknowledged  {ack}\n",
+            ack = carried(&acknowledgment),
+            dismissed = carried(&dismissal)
         )),
         "{summary}"
     );
@@ -408,7 +419,7 @@ fn scenario_3_a_file_the_agent_changes_after_completion_is_reported_and_judged_a
 fn scenario_4_the_reviewed_working_tree_committed_is_reviewed_as_a_commit() {
     let f = finished();
     let id8 = shown_review(&review(&f, &[]));
-    let completion = complete(&f);
+    let [acknowledgment, _, completion] = complete(&f);
     // The person commits what they reviewed; untracked `src/new.rs` stays
     // out of the commit.
     f.git(&["commit", "-qam", "Add greet"]);
@@ -433,7 +444,10 @@ fn scenario_4_the_reviewed_working_tree_committed_is_reviewed_as_a_commit() {
         )],
         "{commit}"
     );
-    let carried = format!("acknowledged  carried from review {id8}, by {NAME} on {date}");
+    let carried = format!(
+        "acknowledged  carried from review {id8}, by {NAME} on {}",
+        acknowledgment.at.date()
+    );
     assert!(
         commit.contains(&format!(
             "\nGate: 0 open, 3 closed.\n\n  \
@@ -597,8 +611,13 @@ fn scenario_7_later_the_person_reads_back_what_they_decided_and_why() {
         ],
         "{listed}"
     );
-    let by =
-        |judgment: &Judgment| format!("by {NAME} on {date} (judgment {})", judgment.id.short());
+    let by = |judgment: &Judgment| {
+        format!(
+            "by {NAME} on {} (judgment {})",
+            judgment.at.date(),
+            judgment.id.short()
+        )
+    };
     assert!(
         shown.starts_with(&format!("Review {first8}: {compared}.\n")),
         "{shown}"
