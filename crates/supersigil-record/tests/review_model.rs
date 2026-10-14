@@ -77,6 +77,7 @@ fn basis() -> Basis {
                 },
             )]),
             not_reconciled: Some("locked by another writer".to_owned()),
+            associations: vec![PathBuf::from("/work/repo")],
         }],
         unreconciled_checkouts: vec![BasisCheckout {
             checkout: PathBuf::from("/work/other"),
@@ -118,7 +119,7 @@ fn a_basis_id_is_stable_across_serializations() {
 #[test]
 fn a_basis_id_changes_with_every_field() {
     let id = basis().basis_id().unwrap();
-    let mutations: [fn(&mut Basis); 21] = [
+    let mutations: [fn(&mut Basis); 22] = [
         |b| b.schema = "supersigil.basis/2".to_owned(),
         |b| b.worktree.push("sub"),
         |b| b.base.commit = None,
@@ -138,6 +139,7 @@ fn a_basis_id_changes_with_every_field() {
                 .length += 1;
         },
         |b| b.records[0].not_reconciled = None,
+        |b| b.records[0].associations.push(PathBuf::from("/work/other")),
         |b| b.unreconciled_checkouts[0].reason.push('!'),
         |b| b.algorithms.derivation = 1,
         |b| b.explanations[0].digest = "9".repeat(64),

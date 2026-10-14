@@ -129,6 +129,10 @@ pub struct BasisRecord {
     pub logs: BTreeMap<String, PinnedLog>,
     /// Why reconcile did not bring the record up to date, if it did not.
     pub not_reconciled: Option<String>,
+    /// The record's checkout associations at the pinned revision, sorted,
+    /// which name an unreconciled record's gate item without reading the
+    /// record.
+    pub associations: Vec<PathBuf>,
 }
 
 /// The pinned part of one log.

@@ -3,6 +3,7 @@
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use common::{
     attribution, base_line, chain, eid, escape, introduced, kept, no_fate, replaced, unexplained,
@@ -16,13 +17,16 @@ use supersigil_anchor::{
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
-use supersigil_record::reviews::PathBytes;
+use supersigil_record::reviews::{
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisScope, BasisTarget, PathBytes, TargetKind,
+};
 use supersigil_record::{RecordId, SessionId};
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommandChange, EditInfo, EditOriginInfo, EvidenceInfo,
     FileInput, FileKindInfo, FileReview, FileStatus, Mention, MentionResult, NotCapturedInfo,
-    OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, ScopeInfo, TargetInfo, TargetKindInfo,
-    TranscriptInfo, UnreconciledInfo, UntrackedInfo, file_review, unattributed_summary,
+    OriginsInfo, PromptInfo, RecordInfo, RepoPathInfo, SavedBasis, ScopeInfo, TargetInfo,
+    TargetKindInfo, TranscriptInfo, UnreconciledInfo, Unsaved, UntrackedInfo, file_review,
+    unattributed_summary,
 };
 use supersigil_review::outcome::AttributionState;
 use supersigil_review::summary::render_summary;
@@ -302,11 +306,45 @@ fn sample_scope() -> ScopeInfo {
     }
 }
 
+/// The sample review's saved basis, with nothing in its lists.
+fn sample_basis() -> SavedBasis {
+    let document = Basis {
+        schema: BASIS_SCHEMA.to_owned(),
+        worktree: PathBuf::from("/work/repo"),
+        base: BasisBase {
+            commit: Some("a".repeat(40)),
+            tree: "b".repeat(40),
+        },
+        target: BasisTarget {
+            kind: TargetKind::WorkingTree,
+            commit: None,
+            tree: "c".repeat(40),
+        },
+        scope: BasisScope {
+            include_untracked: Vec::new(),
+            paths: Vec::new(),
+        },
+        records: Vec::new(),
+        unreconciled_checkouts: Vec::new(),
+        algorithms: Algorithms { derivation: 2 },
+        explanations: Vec::new(),
+        capture: Vec::new(),
+        gate: Vec::new(),
+        salt: None,
+    };
+    SavedBasis {
+        id: document.basis_id().unwrap(),
+        document,
+    }
+}
+
 fn sample_review() -> Review {
     let files = sample_files();
     let scope = sample_scope();
     Review {
         schema: REVIEW_SCHEMA,
+        basis: Some(sample_basis()),
+        basis_unsaved: None,
         worktree: "/work/repo".to_owned(),
         base: BaseInfo {
             commit: Some("a".repeat(40)),
@@ -339,6 +377,49 @@ fn review_json_shape_is_stable() {
 #[test]
 fn terminal_summary_is_stable() {
     insta::assert_snapshot!(render_summary(&sample_review(), escape));
+}
+
+#[test]
+fn a_review_not_saved_says_why_and_how_to_save_it() {
+    let mut review = sample_review();
+    review.basis = None;
+    review.basis_unsaved = Some(Unsaved::Busy);
+
+    let json = serde_json::to_value(&review).unwrap();
+    assert_eq!(json["basis"], Value::Null);
+    assert_eq!(json["basis_unsaved"], "the review store is busy");
+    let summary = render_summary(&review, escape);
+    let header: Vec<&str> = summary.lines().take(4).collect();
+    assert_eq!(
+        header[3],
+        "  Review not saved: the review store is busy. Judging needs a saved review; run \
+         supersigil review again.",
+        "{summary}"
+    );
+    assert!(!summary.contains("saved as review"), "{summary}");
+    // A saved review has no reason.
+    let saved = serde_json::to_value(sample_review()).unwrap();
+    assert_eq!(saved["basis"]["id"], json!(sample_basis().id));
+    assert!(saved.get("basis_unsaved").is_none(), "{saved}");
+}
+
+#[test]
+fn a_review_that_can_never_be_saved_does_not_ask_to_run_it_again() {
+    let mut review = sample_review();
+    review.basis = None;
+    review.basis_unsaved = Some(Unsaved::PathNotUtf8);
+
+    let json = serde_json::to_value(&review).unwrap();
+    let summary = render_summary(&review, escape);
+
+    let reason = "it names a path that is not valid UTF-8, which the review store cannot hold";
+    assert_eq!(json["basis_unsaved"], reason);
+    assert_eq!(
+        summary.lines().nth(3),
+        Some(format!("  Review not saved: {reason}. Judging needs a saved review.").as_str()),
+        "{summary}"
+    );
+    assert!(!summary.contains("supersigil review"), "{summary}");
 }
 
 #[test]

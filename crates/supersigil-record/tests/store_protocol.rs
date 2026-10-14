@@ -7,9 +7,13 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
 use supersigil_record::observations::{EndReason, Observation, SessionEnd};
-use supersigil_record::store::{Association, SourceCursor, Store, StoreError};
+use supersigil_record::reviews::PinnedLog;
+use supersigil_record::store::{
+    Association, RecordSnapshot, SessionLog, SourceCursor, Store, StoreError,
+};
 use supersigil_record::time::{GRACE_SECONDS, UtcTime};
 use supersigil_record::{ContentId, RecordId, Revision, SessionId, Timestamp};
 
@@ -189,6 +193,55 @@ fn reader_stays_pinned_to_its_manifest_while_writer_appends() {
     assert_eq!(pinned.observations(&session()).unwrap().len(), 2);
     let fresh = store.snapshot().unwrap();
     assert_eq!(fresh.observations(&session()).unwrap().len(), 3);
+}
+
+#[test]
+fn a_session_log_is_read_with_its_pinned_length_and_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 1), observation("s2", 2)])
+        .unwrap();
+    tx.commit().unwrap();
+    let pinned = store.snapshot().unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 3)]).unwrap();
+    tx.commit().unwrap();
+
+    // The first log grew after the pin; the pinned snapshot still reads and
+    // hashes only the bytes it pinned.
+    for (session, log) in [
+        ("s1", "observations/0.jsonl"),
+        ("s2", "observations/1.jsonl"),
+    ] {
+        let session = SessionId::new(session);
+        let length = pinned.manifest().logs[log];
+        let bytes = fs::read(dir.path().join(log)).unwrap();
+        let sha256 = hex::encode(Sha256::digest(&bytes[..usize::try_from(length).unwrap()]));
+        assert_eq!(
+            pinned.session_log(&session).unwrap(),
+            Some(SessionLog {
+                path: log.to_owned(),
+                pinned: PinnedLog { length, sha256 },
+                observations: pinned.observations(&session).unwrap(),
+            })
+        );
+    }
+    let read = |snapshot: &RecordSnapshot, session: &str| {
+        snapshot
+            .session_log(&SessionId::new(session))
+            .unwrap()
+            .unwrap()
+    };
+    let grown = store.snapshot().unwrap();
+    assert!(read(&grown, "s1").pinned.length > read(&pinned, "s1").pinned.length);
+    assert_ne!(
+        read(&grown, "s1").pinned.sha256,
+        read(&pinned, "s1").pinned.sha256
+    );
+    assert_eq!(read(&grown, "s1").observations.len(), 2);
+    assert_eq!(read(&grown, "s2"), read(&pinned, "s2"));
+    assert_eq!(pinned.session_log(&SessionId::new("s3")).unwrap(), None);
 }
 
 #[test]

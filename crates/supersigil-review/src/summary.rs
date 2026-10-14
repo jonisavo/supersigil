@@ -1,9 +1,10 @@
 //! The plain terminal summary of a review.
 //!
 //! Plain, deterministic text in four parts: a header (worktree, base,
-//! target, anything not reconciled, and every candidate transcript's capture
-//! limitations), the unattributed summary before anything else, one line per
-//! file, and scope and origin notes. No diff text: the JSON carries it.
+//! target, the saved review or why it was not saved, anything not
+//! reconciled, and every candidate transcript's capture limitations), the
+//! unattributed summary before anything else, one line per file, and scope
+//! and origin notes. No diff text: the JSON carries it.
 //!
 //! Every string that comes from outside the tool (paths, ids, reasons,
 //! transcript text) goes through the caller's `escape` function, which the
@@ -41,6 +42,9 @@ pub fn render_summary(review: &Review, escape: fn(&str) -> String) -> String {
         (_, None) => "  target: working tree over an unborn HEAD".to_owned(),
     };
     push(&mut out, &format!("{target} (tree {})", review.target.tree));
+    if let Some(line) = saved_line(review) {
+        push(&mut out, &format!("  {line}"));
+    }
     for line in context_lines(&review.records, &review.evidence, escape) {
         push(&mut out, &format!("  {line}"));
     }
@@ -73,6 +77,26 @@ pub fn render_summary(review: &Review, escape: fn(&str) -> String) -> String {
         }
     }
     out
+}
+
+/// The header line naming the saved review by its id's first 8 digits, or
+/// saying why it was not saved.
+fn saved_line(review: &Review) -> Option<String> {
+    match (&review.basis, review.basis_unsaved) {
+        (Some(saved), _) => Some(format!("saved as review {}", saved.id.short())),
+        (None, Some(unsaved)) => {
+            let then = if unsaved.may_save_later() {
+                "; run supersigil review again"
+            } else {
+                ""
+            };
+            Some(format!(
+                "Review not saved: {}. Judging needs a saved review{then}.",
+                unsaved.reason()
+            ))
+        }
+        (None, None) => None,
+    }
 }
 
 /// Header lines shared with `why`: records and checkouts not reconciled,

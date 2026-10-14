@@ -7,6 +7,8 @@
 //! `.claude/worktrees/feature/src/lib.rs` thus maps to `src/lib.rs` in
 //! `feature`.
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::Edit;
@@ -87,6 +89,45 @@ pub fn map_resolved(
     })
 }
 
+/// The resolution ([`resolve`]) of each checkout a review's records name,
+/// made once for the whole review. Every placement of a recorded file in
+/// the review goes through it, so a symbolic link on a checkout's path that
+/// changes while the review runs never places one file two ways.
+#[derive(Debug, Clone, Default)]
+pub struct Resolutions(BTreeMap<PathBuf, PathBuf>);
+
+impl Resolutions {
+    /// Resolves `checkout` unless it already was.
+    pub fn add(&mut self, checkout: &Path) {
+        self.0
+            .entry(checkout.to_path_buf())
+            .or_insert_with(|| resolve(checkout));
+    }
+
+    /// The resolution of `checkout`: the one made for the review, or, for
+    /// a checkout its records never named, one made now.
+    #[must_use]
+    pub fn resolution(&self, checkout: &Path) -> Cow<'_, Path> {
+        self.0.get(checkout).map_or_else(
+            || Cow::Owned(resolve(checkout)),
+            |resolved| Cow::Borrowed(resolved.as_path()),
+        )
+    }
+
+    /// [`map_edit`] through the resolution of the edit's checkout
+    /// ([`Self::resolution`]).
+    #[must_use]
+    pub fn map_edit(
+        &self,
+        edit: &Edit,
+        worktree_roots: &[PathBuf],
+        ignore_case: bool,
+    ) -> Option<MappedEdit> {
+        let checkout = self.resolution(&edit.checkout);
+        map_resolved(&checkout, &edit.path, worktree_roots, ignore_case)
+    }
+}
+
 /// How many components `path` lies below `root`, as written, or `None` when
 /// it is outside.
 fn depth_below(path: &Path, root: &Path, ignore_case: bool) -> Option<usize> {
@@ -115,7 +156,7 @@ mod tests {
     use supersigil_record::{EventId, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
-    use super::{MappedEdit, map_edit};
+    use super::{MappedEdit, Resolutions, map_edit};
 
     fn edit(checkout: &Path, path: &str) -> Edit {
         Edit {
@@ -230,5 +271,28 @@ mod tests {
         assert_eq!(map_edit(&edit(checkout, "a.rs"), &roots, false), None);
         let mapped = map_edit(&edit(checkout, "a.rs"), &roots, true);
         assert_eq!(mapped.map(|m| m.path), Some("src/a.rs".to_owned()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_checkout_is_resolved_once_for_the_whole_review() {
+        let (dir, repo, _nested) = dirs();
+        let root = canonical(dir.path()).unwrap();
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&repo, &alias).unwrap();
+        let edited = edit(&alias, "a.rs");
+        let mut resolutions = Resolutions::default();
+        resolutions.add(&alias);
+        // The link repointed outside every worktree once the review
+        // resolved it.
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        std::fs::remove_file(&alias).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &alias).unwrap();
+        let roots = std::slice::from_ref(&repo);
+
+        assert_eq!(map_edit(&edited, roots, false), None);
+        let mapped = resolutions.map_edit(&edited, roots, false);
+        assert_eq!(mapped.map(|m| m.path), Some("a.rs".to_owned()));
     }
 }

@@ -2,7 +2,29 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: sample_review()
 ---
-schema: supersigil.review/1
+schema: supersigil.review/2
+basis:
+  id: feaad30747ccc98e1bdac5c5e1af43b370dd45e764def8696964b498ab0c166a
+  document:
+    schema: supersigil.basis/1
+    worktree: /work/repo
+    base:
+      commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      tree: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    target:
+      kind: working_tree
+      commit: ~
+      tree: cccccccccccccccccccccccccccccccccccccccc
+    scope:
+      include_untracked: []
+      paths: []
+    records: []
+    unreconciled_checkouts: []
+    algorithms:
+      derivation: 2
+    explanations: []
+    capture: []
+    gate: []
 worktree: /work/repo
 base:
   commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

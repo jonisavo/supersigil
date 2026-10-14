@@ -50,6 +50,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         target: TargetSpec::WorkingTree,
         include_untracked: Vec::new(),
         paths: Vec::new(),
+        hash_logs: false,
     })?;
     let path = repo_path(prepared.worktree(), &cwd, &typed)?.ok_or_else(|| {
         CliError::CommandFailed(format!("{typed} names the worktree, not a file"))

@@ -3,7 +3,7 @@
 
 mod common;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,8 +12,12 @@ use std::time::{Duration, Instant};
 use assert_cmd::assert::OutputAssertExt;
 use predicates::prelude::*;
 use serde_json::{Value, json};
-use supersigil_record::store::Store;
-use supersigil_record::{EventId, SessionId};
+use sha2::{Digest as _, Sha256};
+use supersigil_record::observations::{Edit, FileState, Material, Observation};
+use supersigil_record::reviews::{self, Basis, FingerprintPart};
+use supersigil_record::store::{MANIFEST_FILE, Store};
+use supersigil_record::{ContentId, EventId, ReviewStore, SessionId};
+use supersigil_review::gate::OnDiskState;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -96,6 +100,11 @@ impl Fixture {
 
     fn git(&self, args: &[&str]) -> String {
         self.git_in(&self.repo, args)
+    }
+
+    /// The default reviews directory, under the isolated `HOME`.
+    fn reviews(&self) -> PathBuf {
+        self.root.join(".local/share/supersigil/reviews")
     }
 
     /// Stages everything in `dir`, commits, and returns the commit id.
@@ -1213,7 +1222,7 @@ fn review_format_auto_prints_json_when_piped() {
     let f = Fixture::new();
     slice(&f);
     let review = f.json(&f.repo, &["review"]);
-    assert_eq!(review["schema"], "supersigil.review/1");
+    assert_eq!(review["schema"], "supersigil.review/2");
 }
 
 #[test]
@@ -3071,4 +3080,496 @@ fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
         1,
         "{terminal}"
     );
+}
+
+/// What a review prints when the review store stays busy.
+const NOT_SAVED: &str = "Review not saved: the review store is busy. Judging needs a saved \
+                         review; run supersigil review again.";
+
+/// The review store of `f`'s repository in `reviews`.
+fn review_store(f: &Fixture, reviews: &Path) -> ReviewStore {
+    reviews::find(reviews, &f.repo.join(".git"))
+        .unwrap()
+        .unwrap_or_else(|| panic!("no review store in {}", reviews.display()))
+}
+
+/// The id of the basis `review` saved.
+fn basis_id(review: &Value) -> String {
+    review["basis"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no saved basis in {review:#}"))
+        .to_owned()
+}
+
+/// The names of the basis files in `store`, sorted.
+fn basis_files(store: &ReviewStore) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(store.root().join("bases"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The worktree selections of `store`, by worktree, as basis ids.
+fn selections(store: &ReviewStore) -> BTreeMap<PathBuf, String> {
+    store
+        .snapshot()
+        .unwrap()
+        .manifest()
+        .selections
+        .iter()
+        .map(|(worktree, id)| (worktree.clone(), id.as_str().to_owned()))
+        .collect()
+}
+
+/// The gate item of `review`'s basis with `origin` and `subject`.
+fn gate_item<'v>(review: &'v Value, origin: &str, subject: &Value) -> &'v Value {
+    review["basis"]["document"]["gate"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["detail"]["origin"] == origin && item["subject"] == *subject)
+        .unwrap_or_else(|| panic!("no {origin} item for {subject} in {review:#}"))
+}
+
+#[test]
+fn a_review_saves_its_basis_and_selects_it_for_the_worktree() {
+    let f = Fixture::new();
+    slice(&f);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert!(review.get("basis_unsaved").is_none(), "{review:#}");
+    let id = basis_id(&review);
+    // In the default reviews directory, under `HOME`.
+    let store = review_store(&f, &f.reviews());
+    assert_eq!(basis_files(&store), [format!("{id}.json")]);
+    let saved = std::fs::read(store.root().join("bases").join(format!("{id}.json"))).unwrap();
+    let document: Basis = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(document.basis_id().unwrap().as_str(), id);
+    assert_eq!(
+        serde_json::to_value(&document).unwrap(),
+        review["basis"]["document"]
+    );
+    assert_eq!(document.worktree, f.repo);
+    assert_eq!(selections(&store), BTreeMap::from([(f.repo.clone(), id)]));
+}
+
+#[test]
+fn reviewing_again_reuses_the_saved_basis() {
+    let f = Fixture::new();
+    slice(&f);
+
+    let first = f.json(&f.repo, &["review", "--format", "json"]);
+    let second = f.json(&f.repo, &["review", "--format", "json"]);
+
+    let id = basis_id(&first);
+    assert_eq!(basis_id(&second), id);
+    assert_eq!(
+        basis_files(&review_store(&f, &f.reviews())),
+        [format!("{id}.json")]
+    );
+}
+
+#[test]
+fn the_flag_and_the_variable_choose_the_reviews_directory() {
+    let f = Fixture::new();
+    slice(&f);
+    let (flagged, variable) = (f.root.join("flagged"), f.root.join("variable"));
+    let review_in = |flag: Option<&Path>, var: Option<&Path>| -> String {
+        let mut command = f.supersigil(&f.repo, &["review", "--format", "json"]);
+        if let Some(dir) = flag {
+            command.arg("--review-dir").arg(dir);
+        }
+        if let Some(dir) = var {
+            command.env("SUPERSIGIL_REVIEW_DIR", dir);
+        }
+        let output = command.output().unwrap();
+        assert!(output.status.success());
+        basis_id(&serde_json::from_slice(&output.stdout).unwrap())
+    };
+
+    let by_variable = review_in(None, Some(&variable));
+    let by_flag = review_in(Some(&flagged), Some(&variable));
+
+    for (dir, id) in [(&variable, by_variable), (&flagged, by_flag)] {
+        let store = review_store(&f, dir);
+        assert_eq!(basis_files(&store), [format!("{id}.json")]);
+        assert_eq!(selections(&store), BTreeMap::from([(f.repo.clone(), id)]));
+    }
+    assert!(!f.reviews().exists());
+}
+
+#[test]
+fn a_review_in_an_agent_session_is_saved_without_changing_the_selection() {
+    let f = Fixture::new();
+    slice(&f);
+    let first = basis_id(&f.json(&f.repo, &["review", "--format", "json"]));
+    write(&f.repo, "notes.txt", "changed by the agent\n");
+
+    let output = f
+        .supersigil(&f.repo, &["review", "--format", "json"])
+        .env("CLAUDECODE", "1")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let agent = basis_id(&serde_json::from_slice(&output.stdout).unwrap());
+    assert_ne!(agent, first);
+    let store = review_store(&f, &f.reviews());
+    assert_eq!(
+        basis_files(&store),
+        BTreeSet::from([format!("{first}.json"), format!("{agent}.json")])
+            .into_iter()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        selections(&store),
+        BTreeMap::from([(f.repo.clone(), first)])
+    );
+}
+
+#[test]
+fn a_busy_review_store_leaves_the_review_unsaved() {
+    let f = Fixture::new();
+    slice(&f);
+    let first = basis_id(&f.json(&f.repo, &["review", "--format", "json"]));
+    write(&f.repo, "notes.txt", "changed while the store is busy\n");
+    let store = review_store(&f, &f.reviews());
+    // Another command, say a judgment, holding the store's writer lock.
+    let held = store.begin().unwrap();
+
+    let started = Instant::now();
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let summary = f
+        .supersigil(&f.repo, &["review", "--format", "terminal"])
+        .assert()
+        .success();
+
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert_eq!(review["basis"], Value::Null);
+    assert_eq!(review["basis_unsaved"], "the review store is busy");
+    let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
+    assert!(
+        summary.lines().any(|line| line.trim() == NOT_SAVED),
+        "{summary}"
+    );
+    drop(held);
+    assert_eq!(basis_files(&store), [format!("{first}.json")]);
+    assert_eq!(
+        selections(&store),
+        BTreeMap::from([(f.repo.clone(), first)])
+    );
+}
+
+/// Needs a filesystem that accepts a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_worktree_whose_path_is_not_utf8_is_reviewed_unsaved() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let f = Fixture::new();
+    let repo = f.root.join(OsStr::from_bytes(b"caf\xe9"));
+    std::fs::create_dir(&repo).unwrap();
+    f.git_in(&repo, &["init", "-q", "-b", "main"]);
+    write(&repo, "notes.txt", "draft\n");
+    f.commit(&repo, "base");
+    write(&repo, "notes.txt", "final\n");
+
+    let review = f.json(&repo, &["review", "--format", "json"]);
+    let summary = f
+        .supersigil(&repo, &["review", "--format", "terminal"])
+        .assert()
+        .success();
+
+    // Shown, never saved, and nothing asks to run it again.
+    let reason = "it names a path that is not valid UTF-8, which the review store cannot hold";
+    assert_eq!(review["basis"], Value::Null);
+    assert_eq!(review["basis_unsaved"], reason);
+    assert_eq!(paths(&review), ["notes.txt"]);
+    let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
+    let not_saved = format!("Review not saved: {reason}. Judging needs a saved review.");
+    assert!(
+        summary.lines().any(|line| line.trim() == not_saved),
+        "{summary}"
+    );
+    assert!(!summary.contains("supersigil review"), "{summary}");
+    assert!(!f.reviews().exists());
+}
+
+#[test]
+fn the_basis_gate_holds_unexplained_lines_and_untracked_files_with_their_state_on_disk() {
+    let f = Fixture::new();
+    slice(&f);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // The manual line in `src/lib.rs` is unattributed.
+    let lines = gate_item(&review, "unexplained_lines", &json!({"path": "src/lib.rs"}));
+    assert!(
+        lines["detail"]["unattributed"].as_u64().unwrap() > 0,
+        "{lines}"
+    );
+    let untracked = gate_item(
+        &review,
+        "untracked_recorded",
+        &json!({"path": "src/new.rs"}),
+    );
+    assert_eq!(untracked["detail"]["edits"], 1);
+    let on_disk = OnDiskState::File {
+        executable: false,
+        content: hex::encode(Sha256::digest(NEW_RS)),
+    };
+    let part = FingerprintPart::of(&serde_json::to_vec(&on_disk).unwrap());
+    assert_eq!(untracked["fingerprint"]["on_disk"], json!(part));
+    assert_ne!(untracked["fingerprint"]["edits"], "unknown");
+    // Every part is known, so the basis needs no salt.
+    assert!(review["basis"]["document"].get("salt").is_none());
+}
+
+#[test]
+fn the_basis_gate_holds_a_gap_between_recorded_edits_of_a_reviewed_file() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let gap = f.repo.join("src/gap.rs");
+    // The file was gone again before the second write created it.
+    let text = Session::new("s-gap", &f.repo)
+        .prompt("Write gap.rs twice.")
+        .create("toolu_one", &gap, "one\n")
+        .create("toolu_two", &gap, "two\n")
+        .text();
+    f.transcript(&f.repo, "gap.jsonl", &text);
+    write(&f.repo, "src/gap.rs", "two\n");
+
+    let review = f.json(
+        &f.repo,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "src/gap.rs",
+        ],
+    );
+
+    let item = gate_item(&review, "discontinuity", &json!({"path": "src/gap.rs"}));
+    assert_eq!(item["detail"]["gaps"], 1);
+    assert_ne!(item["fingerprint"]["gaps"], "unknown");
+}
+
+#[test]
+fn a_later_sighting_that_changes_an_edit_of_a_gap_changes_its_fingerprint() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let gap = f.repo.join("src/gap.rs");
+    let created = |second: &str| {
+        Session::new("s-gap", &f.repo)
+            .prompt("Write gap.rs twice.")
+            .create("toolu_one", &gap, "one\n")
+            .create("toolu_two", &gap, second)
+            .text()
+    };
+    f.transcript(&f.repo, "gap.jsonl", &created("two\n"));
+    write(&f.repo, "src/gap.rs", "two\n");
+    let args = [
+        "review",
+        "--format",
+        "json",
+        "--include-untracked",
+        "src/gap.rs",
+    ];
+    let gaps = |review: &Value| {
+        let item = gate_item(review, "discontinuity", &json!({"path": "src/gap.rs"}));
+        (
+            item["detail"]["gaps"].clone(),
+            item["fingerprint"]["gaps"].clone(),
+        )
+    };
+    let before = gaps(&f.json(&f.repo, &args));
+
+    // The second write's payload rewritten in its transcript: read again
+    // from the start, it is recorded again under the same id, while the
+    // edit derive compares stays the first sighting, as on disk.
+    f.transcript(&f.repo, "gap.jsonl", &created("three\n"));
+    let after = gaps(&f.json(&f.repo, &args));
+
+    assert_eq!(after.0, before.0);
+    assert_ne!(after.1, before.1);
+}
+
+#[test]
+fn a_later_sighting_that_names_another_file_changes_an_untracked_items_fingerprint() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let written = |file: &str| {
+        Session::new("s-notes", &f.repo)
+            .prompt("Write the notes.")
+            .create("toolu_notes", &f.repo.join(file), "notes\n")
+            .text()
+    };
+    f.transcript(&f.repo, "notes.jsonl", &written("notes.txt"));
+    write(&f.repo, "notes.txt", "notes\n");
+    let untracked = |review: &Value| {
+        let path = json!({"path": "notes.txt"});
+        gate_item(review, "untracked_recorded", &path).clone()
+    };
+    let before = untracked(&f.json(&f.repo, &["review", "--format", "json"]));
+
+    // The write rewritten in its transcript to name a file that is not
+    // there: read again from the start, it is recorded again under the
+    // same id, while the record keeps its first sighting, which names the
+    // untracked file.
+    f.transcript(&f.repo, "notes.jsonl", &written("elsewhere.txt"));
+    let after = untracked(&f.json(&f.repo, &["review", "--format", "json"]));
+
+    assert_eq!(after["detail"], before["detail"]);
+    assert_eq!(
+        after["fingerprint"]["on_disk"],
+        before["fingerprint"]["on_disk"]
+    );
+    assert_ne!(
+        after["fingerprint"]["edits"],
+        before["fingerprint"]["edits"]
+    );
+}
+
+#[test]
+fn the_basis_gate_hashes_the_recorded_edits_behind_unexplained_lines() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    let file = f.repo.join("src/matched.rs");
+    // The recorded write cannot be reversed from the file, which gained a
+    // line since, but its first line matches the write's content.
+    let text = Session::new("s-match", &f.repo)
+        .prompt("Write matched.rs.")
+        .create("toolu_write", &file, "first\n")
+        .text();
+    f.transcript(&f.repo, "match.jsonl", &text);
+    write(&f.repo, "src/matched.rs", "first\nsecond\n");
+
+    let review = f.json(
+        &f.repo,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "src/matched.rs",
+        ],
+    );
+
+    let lines = |review: &Value| {
+        let path = json!({"path": "src/matched.rs"});
+        gate_item(review, "unexplained_lines", &path).clone()
+    };
+    let explanation = |review: &Value| {
+        review["basis"]["document"]["explanations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["path"] == "src/matched.rs")
+            .unwrap()["digest"]
+            .clone()
+    };
+    let before = lines(&review);
+    assert_eq!(before["detail"]["content_match_only"], 1, "{before}");
+    assert_ne!(before["fingerprint"]["evidence"], "unknown");
+    assert!(review["basis"]["document"].get("salt").is_none());
+
+    // The record edited by hand: the write keeps its id and metadata, but
+    // its content and after-state change, and the first line still matches.
+    rewrite_edit(&f.records, &edit_id("s-match", "toolu_write"), |edit| {
+        edit.new_text = Material::Retained("first".to_owned());
+        edit.after = FileState::known(ContentId::of(b"first"));
+    });
+    let again = f.json(
+        &f.repo,
+        &[
+            "review",
+            "--format",
+            "json",
+            "--include-untracked",
+            "src/matched.rs",
+        ],
+    );
+    let after = lines(&again);
+    assert_eq!(after["detail"], before["detail"]);
+    assert_eq!(
+        after["fingerprint"]["outcomes"],
+        before["fingerprint"]["outcomes"]
+    );
+    assert_ne!(
+        after["fingerprint"]["evidence"],
+        before["fingerprint"]["evidence"]
+    );
+    assert_ne!(explanation(&again), explanation(&review));
+}
+
+/// Rewrites every recorded sighting of the edit `id` in the records under
+/// `records` as `change` makes it, keeping each log's pinned length in step
+/// with its bytes, as a hand edit of the record would.
+fn rewrite_edit(records: &Path, id: &str, change: impl Fn(&mut Edit)) {
+    for entry in std::fs::read_dir(records).unwrap() {
+        let record = entry.unwrap().path();
+        let manifest_path = record.join(MANIFEST_FILE);
+        if !manifest_path.is_file() {
+            continue;
+        }
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        let logs: Vec<String> = manifest["logs"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        for log in logs {
+            let path = record.join(&log);
+            let mut bytes = Vec::new();
+            for line in std::fs::read_to_string(&path).unwrap().lines() {
+                let mut observation: Observation = serde_json::from_str(line).unwrap();
+                if let Observation::Edit(edit) = &mut observation
+                    && edit.id.as_str() == id
+                {
+                    change(edit);
+                }
+                bytes.extend(serde_json::to_vec(&observation).unwrap());
+                bytes.push(b'\n');
+            }
+            manifest["logs"][&log] = json!(bytes.len());
+            std::fs::write(&path, bytes).unwrap();
+        }
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn an_unreconciled_checkout_salts_every_basis() {
+    let f = Fixture::new();
+    slice(&f);
+    std::fs::create_dir_all(&f.records).unwrap();
+    let guard = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(f.records.join(".lock"))
+        .unwrap();
+    guard.lock().unwrap();
+
+    let first = f.json(&f.repo, &["review", "--format", "json"]);
+    let second = f.json(&f.repo, &["review", "--format", "json"]);
+    drop(guard);
+
+    let checkout = json!({"checkout": f.repo.display().to_string()});
+    let item = gate_item(&first, "unreconciled", &checkout);
+    assert_eq!(item["fingerprint"]["evidence"], "unknown");
+    assert!(first["basis"]["document"]["salt"].is_string(), "{first:#}");
+    // Same code and evidence, yet never the same saved review.
+    assert_ne!(basis_id(&first), basis_id(&second));
 }

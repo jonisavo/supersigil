@@ -1,8 +1,9 @@
 //! The JSON review model and the per-file assembly of hunks and spans.
 //!
-//! JSON field order puts identity first, followed by the prominent
-//! unattributed summary, then scope, origins, records, evidence, files, and
-//! the edits every other section refers to by id.
+//! JSON field order puts identity first (the saved basis, the worktree,
+//! base, and target), followed by the prominent unattributed summary, then
+//! scope, origins, records, evidence, files, and the edits every other
+//! section refers to by id.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,7 +15,7 @@ use supersigil_record::EventId;
 use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
-use supersigil_record::reviews::PathBytes;
+use supersigil_record::reviews::{Basis, BasisId, PathBytes};
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::outcome::{
@@ -23,7 +24,7 @@ use crate::outcome::{
 
 /// Schema string of the review JSON; a version marker, not a promise, while
 /// the pivot is unreleased.
-pub const REVIEW_SCHEMA: &str = "supersigil.review/1";
+pub const REVIEW_SCHEMA: &str = "supersigil.review/2";
 /// Schema string of the `why` JSON.
 pub const WHY_SCHEMA: &str = "supersigil.why/1";
 
@@ -32,6 +33,13 @@ pub const WHY_SCHEMA: &str = "supersigil.why/1";
 pub struct Review {
     /// [`REVIEW_SCHEMA`].
     pub schema: &'static str,
+    /// The basis saved for this review, which judgments bind to; `None`
+    /// when it could not be saved.
+    pub basis: Option<SavedBasis>,
+    /// Why the basis could not be saved, when it could not; JSON gives the
+    /// reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basis_unsaved: Option<Unsaved>,
     /// The reviewed worktree.
     pub worktree: String,
     /// The base snapshot.
@@ -53,6 +61,51 @@ pub struct Review {
     pub files: Vec<FileReview>,
     /// Every accepted edit referenced above, keyed by edit id.
     pub edits: BTreeMap<String, EditInfo>,
+}
+
+/// A review's basis as the review store saved it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SavedBasis {
+    /// The basis's id, which names the saved review.
+    pub id: BasisId,
+    /// The basis.
+    pub document: Basis,
+}
+
+/// Why a review's basis was not saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unsaved {
+    /// The review store stayed busy; running the review again may save it.
+    Busy,
+    /// A path the basis names, such as the worktree's, is not valid UTF-8,
+    /// which the review store's JSON cannot hold; no review of it is ever
+    /// saved.
+    PathNotUtf8,
+}
+
+impl Unsaved {
+    /// Why, as the summary and the JSON say it.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::Busy => "the review store is busy",
+            Self::PathNotUtf8 => {
+                "it names a path that is not valid UTF-8, which the review store cannot hold"
+            }
+        }
+    }
+
+    /// Whether running the review again may save it.
+    #[must_use]
+    pub const fn may_save_later(self) -> bool {
+        matches!(self, Self::Busy)
+    }
+}
+
+impl Serialize for Unsaved {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.reason())
+    }
 }
 
 /// The base snapshot.

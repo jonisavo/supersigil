@@ -115,6 +115,9 @@ pub struct ReviewArgs {
     /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
     #[arg(long)]
     pub record_dir: Option<PathBuf>,
+    /// Reviews directory (default: `$SUPERSIGIL_REVIEW_DIR`, then `$XDG_DATA_HOME/supersigil/reviews`, then `~/.local/share/supersigil/reviews`)
+    #[arg(long)]
+    pub review_dir: Option<PathBuf>,
     /// Claude home directory used for discovery (default: ~/.claude)
     #[arg(long)]
     pub claude_home: Option<PathBuf>,

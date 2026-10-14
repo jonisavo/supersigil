@@ -170,6 +170,8 @@ fn not_captured(bytes: &[u8], cause: &str) -> NotCapturedInfo {
 fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
     Review {
         schema: REVIEW_SCHEMA,
+        basis: None,
+        basis_unsaved: None,
         worktree: WORKTREE.to_owned(),
         base: BaseInfo {
             commit: Some("a".repeat(40)),

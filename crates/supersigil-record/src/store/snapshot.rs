@@ -3,11 +3,14 @@
 use std::fs;
 use std::path::PathBuf;
 
+use sha2::{Digest as _, Sha256};
+
 use super::{Manifest, StoreError, derivations_document, io_error, log_path};
 use crate::derivations::DerivationSet;
 use crate::files;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
+use crate::reviews::PinnedLog;
 
 /// Reads a record at the revision captured by its manifest.
 ///
@@ -80,19 +83,73 @@ impl RecordSnapshot {
     /// length, [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`]
     /// if its contents cannot be parsed as observations.
     pub fn observations(&self, session: &SessionId) -> Result<Vec<Observation>, StoreError> {
-        let Some((log, &pinned)) = self
-            .manifest
-            .sessions
-            .get(session)
-            .and_then(|&number| self.manifest.logs.get_key_value(&log_path(number)))
-        else {
+        let Some((log, length)) = self.log_of(session) else {
             return Ok(Vec::new());
         };
         let path = self.root.join(log);
-        let bytes = files::read_prefix(&path, pinned)?;
-        serde_json::Deserializer::from_slice(&bytes)
-            .into_iter()
-            .collect::<Result<_, _>>()
-            .map_err(|source| StoreError::Json { path, source })
+        let bytes = files::read_prefix(&path, length)?;
+        parse(path, &bytes)
     }
+
+    /// Reads a session's log once, up to the committed byte length: its
+    /// observations, as [`Self::observations`] returns them, with the log's
+    /// path, its pinned length, and the SHA-256 of the bytes they were read
+    /// from, so a later reader can tell whether those bytes are still there
+    /// unchanged.
+    ///
+    /// Returns `None` if this snapshot has no log for the session.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::observations`].
+    pub fn session_log(&self, session: &SessionId) -> Result<Option<SessionLog>, StoreError> {
+        let Some((log, length)) = self.log_of(session) else {
+            return Ok(None);
+        };
+        let path = self.root.join(log);
+        let bytes = files::read_prefix(&path, length)?;
+        let pinned = PinnedLog {
+            length,
+            sha256: hex::encode(Sha256::digest(&bytes)),
+        };
+        Ok(Some(SessionLog {
+            path: log.to_owned(),
+            pinned,
+            observations: parse(path, &bytes)?,
+        }))
+    }
+
+    /// The path of `session`'s log and its pinned length, if this snapshot
+    /// has a log for the session.
+    fn log_of(&self, session: &SessionId) -> Option<(&str, u64)> {
+        self.manifest
+            .sessions
+            .get(session)
+            .and_then(|&number| self.manifest.logs.get_key_value(&log_path(number)))
+            .map(|(log, &length)| (log.as_str(), length))
+    }
+}
+
+/// One session's log as a snapshot pins it, read once
+/// ([`RecordSnapshot::session_log`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionLog {
+    /// The log's path in the record, such as `observations/0.jsonl`.
+    pub path: String,
+    /// The pinned length and the SHA-256 of the pinned bytes.
+    pub pinned: PinnedLog,
+    /// The observations in the pinned bytes, in append order.
+    pub observations: Vec<Observation>,
+}
+
+/// Parses the observations in `bytes`, read from the log at `path`.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Json`] naming `path` if they cannot be parsed.
+fn parse(path: PathBuf, bytes: &[u8]) -> Result<Vec<Observation>, StoreError> {
+    serde_json::Deserializer::from_slice(bytes)
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .map_err(|source| StoreError::Json { path, source })
 }
