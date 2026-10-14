@@ -24,7 +24,7 @@ use supersigil_session::checkout::Resolutions;
 
 use crate::error::CliError;
 use crate::mapping::map_edit;
-use crate::pipeline::{Gathered, PinnedRecord, path_key};
+use crate::pipeline::{Gathered, PinnedRecord, by_path_key, path_key};
 
 /// Reads how the code and the records changed since each of `related`, the
 /// earlier reviews related to `review`, the one gathered in `g`, in order.
@@ -233,9 +233,7 @@ fn new_observations(
     review: &Review,
     appended: &[&Observation],
 ) -> Vec<NewObservations> {
-    let reviewed: BTreeMap<String, &PathBytes> = reviewed_paths(review)
-        .filter_map(|path| Some((path_key(path.to_str()?, g.ignore_case).into_owned(), path)))
-        .collect();
+    let reviewed = by_path_key(reviewed_paths(review), g.ignore_case);
     let mut named: BTreeMap<String, BTreeSet<&PathBytes>> = BTreeMap::new();
     let mut name = |session: &str, path: &str| {
         if let Some(&reviewed) = reviewed.get(path_key(path, g.ignore_case).as_ref()) {

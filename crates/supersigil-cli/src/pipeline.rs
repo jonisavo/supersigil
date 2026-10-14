@@ -29,7 +29,7 @@ use supersigil_git::{
     resolve_range,
 };
 use supersigil_record::observations::Observation;
-use supersigil_record::reviews::PinnedLog;
+use supersigil_record::reviews::{self, PinnedLog};
 use supersigil_record::store::RecordSnapshot;
 use supersigil_record::{EventId, RecordId, Revision};
 use supersigil_review::mapping::lines_correspond;
@@ -184,6 +184,37 @@ pub(crate) fn path_key(path: &str, ignore_case: bool) -> Cow<'_, str> {
     }
 }
 
+/// `paths` by their keys ([`path_key`]), so the key of a mapped path finds
+/// the one [`same_path`] matches it to; of paths with one key, the last. A
+/// path that is not UTF-8 matches no mapped path and is left out.
+pub(crate) fn by_path_key<'p>(
+    paths: impl IntoIterator<Item = &'p reviews::PathBytes>,
+    ignore_case: bool,
+) -> BTreeMap<String, &'p reviews::PathBytes> {
+    paths
+        .into_iter()
+        .filter_map(|path| Some((path_key(path.to_str()?, ignore_case).into_owned(), path)))
+        .collect()
+}
+
+/// The positions in `candidates` of the sightings whose file lies in
+/// `worktree`, each found by its path as [`same_path`] matches paths,
+/// ignoring ASCII case when `ignore_case` is set.
+pub(crate) fn sightings_in(
+    candidates: &[MappedCandidate],
+    worktree: &Path,
+    ignore_case: bool,
+) -> ByPath<usize> {
+    ByPath::new(
+        candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, sighting)| sighting.candidate.worktree == worktree)
+            .map(|(position, sighting)| (position, [sighting.path.as_str()])),
+        ignore_case,
+    )
+}
+
 /// One involved record, pinned at the revision the review reads.
 #[derive(Debug)]
 pub struct PinnedRecord {
@@ -237,6 +268,10 @@ pub struct Gathered {
     pub removed_transcripts: Vec<PathBuf>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
+    /// The positions in [`Self::candidates`] of the sightings whose file
+    /// lies in the reviewed worktree, indexed by path
+    /// ([`Self::sightings_of`]).
+    reviewed_sightings: ByPath<usize>,
     /// Transcripts holding a candidate edit, an observation made in a
     /// candidate worktree, or a command the harness reported as changing a
     /// file in one, regardless of attribution success.
@@ -279,14 +314,15 @@ impl Gathered {
     }
 
     /// The sightings of recorded edits whose file is `path` in the reviewed
-    /// worktree, in every record, as [`same_path`] matches paths.
+    /// worktree, in every record, as [`same_path`] matches paths, in the
+    /// order of [`Self::candidates`].
     pub fn sightings_of<'a>(
         &'a self,
         path: &'a RepoPath,
     ) -> impl Iterator<Item = &'a MappedCandidate> {
-        self.candidates.iter().filter(move |m| {
-            m.candidate.worktree == self.worktree && same_path(&m.path, path, self.ignore_case)
-        })
+        self.reviewed_sightings
+            .touching(path)
+            .map(|&position| &self.candidates[position])
     }
 }
 
@@ -462,6 +498,7 @@ impl Prepared {
         let sightings = map_sightings(&records, &roots, evidence.resolutions(), ignore_case);
         let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
         let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
+        let reviewed_sightings = sightings_in(&candidates, &worktree, ignore_case);
         let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
         let accepted = ByPath::new(
             accepted.into_iter().map(|m| (m.accepted, [m.path])),
@@ -503,6 +540,7 @@ impl Prepared {
             unreconciled: reconciliation.unreconciled,
             removed_transcripts: reconciliation.removed,
             candidates,
+            reviewed_sightings,
             candidate_transcripts,
             accepted,
             conflicts,
@@ -1399,6 +1437,7 @@ mod tests {
             unreconciled: Vec::new(),
             removed_transcripts: Vec::new(),
             candidates: Vec::new(),
+            reviewed_sightings: ByPath::new(Vec::<(usize, [&str; 0])>::new(), false),
             candidate_transcripts: BTreeSet::new(),
             accepted: ByPath::new(accepted.into_iter().map(|edit| (edit, ["a.rs"])), false),
             conflicts: ByPath::new(conflicts.into_iter().map(|edit| (edit, ["a.rs"])), false),

@@ -3,7 +3,6 @@
 //! pinned observations, what is on disk at the paths the capture left out,
 //! and every recorded sighting of the edits the review shows.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, FileType, Metadata, OpenOptions};
 use std::io::{self, Read as _};
@@ -18,7 +17,7 @@ use supersigil_record::{EventId, SessionId};
 use supersigil_review::Review;
 use supersigil_review::gate::{Gap, GateInputs, OnDiskState, UntrackedEvidence};
 
-use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, path_key};
+use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, by_path_key, path_key};
 
 /// What `review` supplies beside it to build its gate
 /// ([`supersigil_review::gate::gate_items`]): the gaps between recorded
@@ -28,7 +27,7 @@ use crate::pipeline::{Gathered, MappedCandidate, PinnedRecord, path_key};
 /// sighting of each edit the review shows.
 #[must_use]
 pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
-    let recorded = Recorded::new(&g.records, &g.candidates, &g.worktree, g.ignore_case);
+    let recorded = Recorded::new(&g.records, &g.candidates, g.ignore_case);
     let scope = &review.scope;
     GateInputs {
         discontinuities: recorded.discontinuities(review.files.iter().map(|file| &file.path_bytes)),
@@ -36,9 +35,10 @@ pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
             .recorded_untracked()
             .map(|untracked| {
                 let path = &untracked.path_bytes;
+                let sighted = RepoPath::new(path.as_bytes().to_vec());
                 let evidence = UntrackedEvidence {
                     on_disk: on_disk_at(&g.worktree, path),
-                    edits: recorded.naming(path),
+                    edits: recorded.every_of(g.sightings_of(&sighted)),
                 };
                 (path.clone(), evidence)
             })
@@ -56,9 +56,8 @@ pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
 }
 
 /// Every recorded sighting of an edit in the involved records, indexed once:
-/// by edit id, by session, and, for the sightings in the reviewed worktree,
-/// by the file they name. Collecting the gate's inputs then never scans the
-/// records or the candidate sightings again for each file or session.
+/// by edit id and by session. Collecting the gate's inputs then never scans
+/// the records again for each file or session.
 struct Recorded<'g> {
     /// Every sighting of each edit, by id, in the order of the records and
     /// then of each record's observations: a record may hold an edit more
@@ -66,9 +65,6 @@ struct Recorded<'g> {
     by_id: BTreeMap<&'g str, Vec<&'g Edit>>,
     /// Every edit observation of each session, in the same order.
     by_session: BTreeMap<&'g SessionId, Vec<&'g Observation>>,
-    /// The ids of the edits with a sighting naming each file of the reviewed
-    /// worktree, by the file's path key ([`path_key`]).
-    naming: BTreeMap<Cow<'g, str>, BTreeSet<&'g str>>,
     /// Every sighting whose file lies in a candidate worktree
     /// ([`Gathered::candidates`]).
     candidates: &'g [MappedCandidate],
@@ -77,13 +73,11 @@ struct Recorded<'g> {
 }
 
 impl<'g> Recorded<'g> {
-    /// Indexes every observation of `records`, and the sightings among
-    /// `candidates` that lie in `worktree`, the reviewed worktree, with
+    /// Indexes every observation of `records`, beside `candidates`, with
     /// paths compared ignoring ASCII case when `ignore_case` is set.
     fn new(
         records: &'g [PinnedRecord],
         candidates: &'g [MappedCandidate],
-        worktree: &Path,
         ignore_case: bool,
     ) -> Self {
         let mut by_id: BTreeMap<&str, Vec<&Edit>> = BTreeMap::new();
@@ -97,19 +91,9 @@ impl<'g> Recorded<'g> {
                     .push(observation);
             }
         }
-        let mut naming: BTreeMap<Cow<str>, BTreeSet<&str>> = BTreeMap::new();
-        for sighting in candidates {
-            if sighting.candidate.worktree == worktree {
-                naming
-                    .entry(path_key(&sighting.path, ignore_case))
-                    .or_default()
-                    .insert(sighting.candidate.edit.id.as_str());
-            }
-        }
         Self {
             by_id,
             by_session,
-            naming,
             candidates,
             ignore_case,
         }
@@ -130,18 +114,19 @@ impl<'g> Recorded<'g> {
             .collect()
     }
 
-    /// Every sighting of each edit with a sighting naming `path`, a file of
-    /// the reviewed worktree, as [`crate::pipeline::same_path`] matches
-    /// paths, in id order: one recorded again naming another file changed
-    /// under its id. None when `path` is not UTF-8.
-    fn naming(&self, path: &PathBytes) -> Vec<&'g Edit> {
-        let ids = path
-            .to_str()
-            .and_then(|path| self.naming.get(path_key(path, self.ignore_case).as_ref()));
-        ids.into_iter()
-            .flatten()
-            .flat_map(|id| self.every(id))
-            .collect()
+    /// Every sighting, in any record, of each edit among `sightings`, in id
+    /// order, each edit once. Given the sightings naming a file
+    /// ([`Gathered::sightings_of`]), that includes those of an edit recorded
+    /// again naming another file changed under its id.
+    fn every_of<'s>(
+        &self,
+        sightings: impl IntoIterator<Item = &'s MappedCandidate>,
+    ) -> Vec<&'g Edit> {
+        let ids: BTreeSet<&str> = sightings
+            .into_iter()
+            .map(|sighting| sighting.candidate.edit.id.as_str())
+            .collect();
+        ids.into_iter().flat_map(|id| self.every(id)).collect()
     }
 
     /// The gaps between recorded edits of each of `files`, each edit with
@@ -161,13 +146,7 @@ impl<'g> Recorded<'g> {
     /// later sighting, recorded again with another payload, changes the
     /// gap's fingerprint all the same.
     fn discontinuities<'p>(&self, files: impl IntoIterator<Item = &'p PathBytes>) -> Vec<Gap<'g>> {
-        let reviewed: BTreeMap<String, &PathBytes> = files
-            .into_iter()
-            .filter_map(|file| {
-                let path = file.to_str()?;
-                Some((path_key(path, self.ignore_case).into_owned(), file))
-            })
-            .collect();
+        let reviewed = by_path_key(files, self.ignore_case);
         // Each edit id once, where its first sighting in a candidate
         // worktree maps.
         let mut keyed: BTreeMap<&EventId, (&Edit, &Path, &PathBytes)> = BTreeMap::new();
@@ -433,6 +412,7 @@ mod tests {
 
     use sha2::{Digest as _, Sha256};
     use supersigil_anchor::CandidateEdit;
+    use supersigil_git::RepoPath;
     use supersigil_record::observations::{
         Edit, EditOperation, EditOrigin, FileState, Material, Observation,
     };
@@ -444,7 +424,7 @@ mod tests {
     use super::{CHUNK, Recorded, hashed, on_disk_state, opened_state, read_failed};
     #[cfg(unix)]
     use super::{as_inspected, file_digest, still_at};
-    use crate::pipeline::{MappedCandidate, PinnedRecord};
+    use crate::pipeline::{MappedCandidate, PinnedRecord, sightings_in};
 
     /// Hex SHA-256 of `hello\n`.
     const HELLO: &str = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
@@ -536,7 +516,7 @@ mod tests {
 
         let records = [record("x", &partial), record("root", &writes)];
         let mapped = candidates(&records);
-        let recorded = Recorded::new(&records, &mapped, Path::new(WORKTREE), false);
+        let recorded = Recorded::new(&records, &mapped, false);
         let found = recorded.discontinuities(&reviewed);
         assert!(found.is_empty(), "{found:#?}");
 
@@ -544,7 +524,7 @@ mod tests {
         // with both records' sightings of its edits.
         let records = [record("x", &partial), record("root", &partial)];
         let mapped = candidates(&records);
-        let recorded = Recorded::new(&records, &mapped, Path::new(WORKTREE), false);
+        let recorded = Recorded::new(&records, &mapped, false);
         let found = recorded.discontinuities(&reviewed);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert_eq!(found[0].path, reviewed[0]);
@@ -578,17 +558,21 @@ mod tests {
             reviewed.push(PathBytes::new(path));
             let path = format!("u{k}.rs");
             edits.push(edit("s-new", &path, &path, k, "", "u\n"));
-            untracked.push(PathBytes::new(path));
+            untracked.push(RepoPath::from_utf8(&path));
         }
         let records = [record("r", &edits)];
         let candidates = candidates(&records);
 
         let started = Instant::now();
-        let recorded = Recorded::new(&records, &candidates, Path::new(WORKTREE), false);
+        let recorded = Recorded::new(&records, &candidates, false);
         let gaps = recorded.discontinuities(&reviewed);
+        let sightings = sightings_in(&candidates, Path::new(WORKTREE), false);
         let naming: Vec<usize> = untracked
             .iter()
-            .map(|path| recorded.naming(path).len())
+            .map(|path| {
+                let sighted = sightings.touching(path).map(|&at| &candidates[at]);
+                recorded.every_of(sighted).len()
+            })
             .collect();
         let elapsed = started.elapsed();
 
