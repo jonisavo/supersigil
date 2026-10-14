@@ -588,7 +588,8 @@ fn next_lines_address_the_review_shown() {
             false,
             &addressing,
             escape
-        ),
+        )
+        .0,
         [
             // The names print once; the dismissal names its own.
             format!("Next: supersigil judge acknowledge 'src/a b.rs' lines:src/c.rs {flags}"),
@@ -597,10 +598,10 @@ fn next_lines_address_the_review_shown() {
         ]
     );
     assert_eq!(
-        next_lines(&[], false, &Addressing::default(), escape),
+        next_lines(&[], false, &Addressing::default(), escape).0,
         ["Next: supersigil judge complete"]
     );
-    assert!(next_lines(&[], true, &addressing, escape).is_empty());
+    assert!(next_lines(&[], true, &addressing, escape).0.is_empty());
     assert_eq!(shell_word("it's"), r"'it'\''s'");
     assert_eq!(shell_word(""), "''");
 
@@ -620,13 +621,13 @@ fn flag_values_that_start_with_a_dash_stay_values() {
         ..Addressing::default()
     };
     assert_eq!(
-        next_lines(&[], false, &addressing, escape),
+        next_lines(&[], false, &addressing, escape).0,
         [
             "Next: supersigil judge complete --review=feaad307 --checkout=-repo --review-dir=-reviews"
         ]
     );
     assert_eq!(
-        addressing.review("--target HEAD"),
+        addressing.review("--target HEAD").to_string(),
         "supersigil review --target HEAD --checkout=-repo --review-dir=-reviews"
     );
 }
@@ -639,7 +640,7 @@ fn names_that_read_as_flags_follow_a_double_dash() {
     };
 
     assert_eq!(
-        next_lines(&["lines:src/c.rs", "-x.rs"], false, &addressing, escape),
+        next_lines(&["lines:src/c.rs", "-x.rs"], false, &addressing, escape).0,
         [
             "Next: supersigil judge acknowledge --review=feaad307 -- lines:src/c.rs -x.rs",
             "  or: supersigil judge dismiss <name>... --reason <text> --review=feaad307",
@@ -659,7 +660,7 @@ fn more_than_20_open_items_are_left_to_the_list_above() {
 
     // The command stays short enough for a command line.
     assert_eq!(
-        next_lines(&names, false, &addressing, escape),
+        next_lines(&names, false, &addressing, escape).0,
         [
             "Next: supersigil judge acknowledge <name>... --review=feaad307 (21 open items, \
              listed above)",
@@ -668,7 +669,7 @@ fn more_than_20_open_items_are_left_to_the_list_above() {
         ]
     );
     assert_eq!(
-        next_lines(&names[..20], false, &Addressing::default(), escape)[0],
+        next_lines(&names[..20], false, &Addressing::default(), escape).0[0],
         format!(
             "Next: supersigil judge acknowledge {}",
             names[..20].join(" ")
@@ -722,11 +723,16 @@ fn review_commands_repeat_the_checkout_and_the_reviews_directory() {
     };
 
     assert_eq!(
-        addressing.review("--include-untracked=src/new.rs"),
+        addressing
+            .review("--include-untracked=src/new.rs")
+            .to_string(),
         "supersigil review --include-untracked=src/new.rs --checkout='../my repo' \
          --review-dir=/tmp/reviews"
     );
-    assert_eq!(Addressing::default().review(""), "supersigil review");
+    assert_eq!(
+        Addressing::default().review("").to_string(),
+        "supersigil review"
+    );
 }
 
 #[test]
@@ -828,12 +834,13 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         checkout: Some(PathBuf::from("\u{7f}")),
         ..addressing.clone()
     };
+    let command = neither.review("");
     assert_eq!(
-        neither.review(""),
+        command.to_string(),
         "supersigil review --checkout=<as given> --review-dir=<as given>"
     );
     assert_eq!(
-        neither.note().as_deref(),
+        neither.note([&command]).as_deref(),
         Some(
             "The --checkout and --review-dir values are not valid UTF-8 or hold a control \
              character, so commands show <as given> for them: pass them as given."
@@ -843,11 +850,12 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         review_dir: Some(PathBuf::from("/tmp/r-ü")),
         ..addressing
     };
+    let command = printable.review("");
     assert_eq!(
-        printable.review(""),
+        command.to_string(),
         "supersigil review --checkout='../my repo' --review-dir=/tmp/r-ü"
     );
-    assert_eq!(printable.note(), None);
+    assert_eq!(printable.note([&command]), None);
 }
 
 /// The sample review with only `count` files, each with lines no recorded

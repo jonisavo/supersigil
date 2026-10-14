@@ -377,6 +377,17 @@ impl GateInfo {
         Self::of(gate.iter().map(|item| (item, &ItemState::Open)), names)
     }
 
+    /// The names of the items that need a judgment, those [`Self::open`]
+    /// counts, in gate order.
+    #[must_use]
+    pub fn open_names(&self) -> Vec<&str> {
+        self.items
+            .iter()
+            .filter(|item| item.state.is_open())
+            .map(|item| item.name.as_str())
+            .collect()
+    }
+
     /// `items` with their states, named as `names` names them.
     fn of<'s, 'j: 's>(
         items: impl Iterator<Item = (&'s GateItem, &'s ItemState<'j>)>,

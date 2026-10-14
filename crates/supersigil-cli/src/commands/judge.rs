@@ -36,7 +36,9 @@ use supersigil_review::judging::{
 };
 use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
-use supersigil_review::summary::{Addressing, compared, next_lines, shell_word};
+use supersigil_review::summary::{
+    Addressing, Command, closed_word, compared, next_lines, noun, shell_word,
+};
 use supersigil_session::checkout::canonical;
 
 use crate::agent::in_agent_session;
@@ -381,7 +383,8 @@ impl Recorded<'_> {
                 "Kept the reviewed snapshot as refs/supersigil/reviews/{id}…"
             ));
         }
-        let mut commands = false;
+        // Every command printed, for the note that follows them.
+        let mut commands = Vec::new();
         if verb == Verb::Dismiss {
             for (name, _) in subjects
                 .iter()
@@ -391,22 +394,16 @@ impl Recorded<'_> {
                 // its flag, a path starting with `-` is never read as one.
                 if let Parsed::Path { path, .. } = parse(name) {
                     let include = format!("--include-untracked={}", shell_word(path));
+                    let command = addressing.review(&include);
                     lines.push(format!(
-                        "The file stays outside the review; to review its content, run {}.",
-                        addressing.review(&include)
+                        "The file stays outside the review; to review its content, run {command}."
                     ));
-                    commands = true;
+                    commands.push(command);
                 }
             }
         }
         lines.extend(self.withdrawn(ledger, names));
-        let open: Vec<&str> = self
-            .gate
-            .items
-            .iter()
-            .filter(|item| item.state.is_open())
-            .map(|item| item.name.as_str())
-            .collect();
+        let open = self.gate.open_names();
         let complete = self.status.complete;
         let gate = if !open.is_empty() {
             format!("Gate: {} open: {}.", open.len(), open.join(", "))
@@ -416,12 +413,10 @@ impl Recorded<'_> {
             "Gate: 0 open. Review not yet complete.".to_owned()
         };
         lines.push(format!("Judgment {}. {gate}", self.judgment.id.short()));
-        let next = next_lines(&open, complete, addressing, str::to_owned);
-        commands |= !next.is_empty();
+        let (next, next_commands) = next_lines(&open, complete, addressing, str::to_owned);
         lines.extend(next);
-        if commands {
-            lines.extend(addressing.note());
-        }
+        commands.extend(next_commands);
+        lines.extend(addressing.note(&commands));
         lines
     }
 
@@ -468,17 +463,6 @@ fn item_name(names: &ItemNames<'_>, item: &ItemId) -> String {
     names
         .name(item)
         .map_or_else(|| format!("id:{}", item.short()), str::to_owned)
-}
-
-/// What a judgment of `kind` is called in a sentence.
-const fn noun(kind: JudgmentKind) -> &'static str {
-    match kind {
-        JudgmentKind::Acknowledge => "acknowledgment",
-        JudgmentKind::Dismiss => "dismissal",
-        JudgmentKind::Comment => "comment",
-        JudgmentKind::Complete => "completion",
-        JudgmentKind::Undo => "undo",
-    }
 }
 
 /// `names` as a sentence lists them: `a`, `a and b`, `a, b, and c`.
@@ -540,26 +524,30 @@ fn find_review(
             lines.extend(candidates.iter().map(|id| format!("  {id}")));
             refusal(lines)
         }
-        StoreError::InvalidBasisPrefix(_) => addressed_refusal(
-            addressing,
-            [format!(
-                "Name a review by at least 8 hex digits of its id, not {prefix} ({} shows \
-                 reviews).",
-                addressing.judge("list", &[], "")
-            )],
-        ),
+        StoreError::InvalidBasisPrefix(_) => {
+            let list = addressing.judge("list", &[], "");
+            addressed_refusal(
+                addressing,
+                [format!(
+                    "Name a review by at least 8 hex digits of its id, not {prefix} ({list} shows \
+                     reviews)."
+                )],
+                [&list],
+            )
+        }
         other => other.into(),
     })
 }
 
 /// The refusal when no saved review starts with `prefix`.
 fn unknown_review(prefix: &str, addressing: &Addressing) -> CliError {
+    let list = addressing.judge("list", &[], "");
     addressed_refusal(
         addressing,
         [format!(
-            "No saved review starts with {prefix} ({} shows reviews).",
-            addressing.judge("list", &[], "")
+            "No saved review starts with {prefix} ({list} shows reviews)."
         )],
+        [&list],
     )
 }
 
@@ -573,14 +561,14 @@ fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
              this worktree has no saved reviews.",
         ]);
     }
+    let (review, list) = (addressing.review(""), addressing.judge("list", &[], ""));
     addressed_refusal(
         addressing,
         [format!(
-            "No review selected in this worktree. Run {} first, or pass --review <id> ({} shows \
-             reviews).",
-            addressing.review(""),
-            addressing.judge("list", &[], "")
+            "No review selected in this worktree. Run {review} first, or pass --review <id> \
+             ({list} shows reviews)."
         )],
+        [&review, &list],
     )
 }
 
@@ -659,8 +647,9 @@ fn check(
                     id.short(),
                     open.join(", ")
                 )];
-                lines.extend(next_lines(&open, false, addressing, str::to_owned));
-                addressed_refusal(addressing, lines)
+                let (next, commands) = next_lines(&open, false, addressing, str::to_owned);
+                lines.extend(next);
+                addressed_refusal(addressing, lines, &commands)
             }
         }),
     }
@@ -680,10 +669,7 @@ fn already_closed(
     let mut lines = vec!["Already closed; undo it first:".to_owned()];
     for (closed, name) in closed.iter().zip(&typed) {
         let judgment = closed.judgment;
-        let state = match judgment.kind {
-            JudgmentKind::Dismiss => "dismissed",
-            _ => "acknowledged",
-        };
+        let state = closed_word(judgment.kind);
         let carried = if closed.carried {
             format!(" on review {}, carried", judgment.basis.short())
         } else {
@@ -696,8 +682,9 @@ fn already_closed(
             judgment.id.short()
         ));
     }
-    lines.push(format!("Next: {}", addressing.judge("undo", &typed, "")));
-    addressed_refusal(addressing, lines)
+    let undo = addressing.judge("undo", &typed, "");
+    lines.push(format!("Next: {undo}"));
+    addressed_refusal(addressing, lines, [&undo])
 }
 
 /// What `undo <items>` withdraws on the review whose gate is `states`:
@@ -745,20 +732,22 @@ fn withdraw_judgment(
     prefix: &str,
     addressing: &Addressing,
 ) -> Result<Vec<Withdrawal>, CliError> {
-    let listed = format!(
-        "{} lists each judgment's id",
-        addressing.judge("show", &[], "")
-    );
+    // Printed, with the note that follows it, only when the prefix names no
+    // judgment.
+    let show = addressing.judge("show", &[], "");
+    let listed = format!("{show} lists each judgment's id");
     let judgment = ledger.find(prefix).map_err(|error| match error {
         FindJudgmentError::TooShort => addressed_refusal(
             addressing,
             [format!(
                 "Name a judgment by at least 8 characters of its id, not {prefix} ({listed})."
             )],
+            [&show],
         ),
         FindJudgmentError::NoMatch => addressed_refusal(
             addressing,
             [format!("No judgment starts with {prefix} ({listed}).")],
+            [&show],
         ),
         FindJudgmentError::Ambiguous(judgments) => {
             let mut lines = vec![format!(
@@ -804,12 +793,13 @@ fn keep(
     let format = repo.format();
     let tree = ObjectId::parse(&basis.target.tree, format)?;
     if !retention::tree_exists(repo, &tree)? {
+        let review = addressing.review("");
         return Err(addressed_refusal(
             addressing,
             [format!(
-                "The reviewed snapshot is no longer in the repository; run {} again.",
-                addressing.review("")
+                "The reviewed snapshot is no longer in the repository; run {review} again."
             )],
+            [&review],
         ));
     }
     let parents = [&basis.base.commit, &basis.target.commit]
@@ -840,16 +830,17 @@ fn refusal<S: AsRef<str>>(rest: impl IntoIterator<Item = S>) -> CliError {
 }
 
 /// A refused call's error, as [`refusal`] makes it, whose `rest` prints
-/// commands addressed as `addressing` says, followed by its note when they
-/// show a value as given.
-fn addressed_refusal<S: AsRef<str>>(
+/// `commands`, addressed as `addressing` says, followed by its note when
+/// they show a value as given.
+fn addressed_refusal<'c, S: AsRef<str>>(
     addressing: &Addressing,
     rest: impl IntoIterator<Item = S>,
+    commands: impl IntoIterator<Item = &'c Command>,
 ) -> CliError {
     let mut lines: Vec<String> = rest
         .into_iter()
         .map(|line| line.as_ref().to_owned())
         .collect();
-    lines.extend(addressing.note());
+    lines.extend(addressing.note(commands));
     refusal(lines)
 }

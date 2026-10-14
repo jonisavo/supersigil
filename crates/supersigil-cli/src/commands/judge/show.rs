@@ -12,16 +12,17 @@ use std::path::Path;
 
 use serde::Serialize;
 use supersigil_record::reviews::{
-    BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind, PathBytes,
+    BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind,
 };
 use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation, related_bases};
 use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::ItemNames;
 use supersigil_review::summary::{
-    Addressing, NOTHING_TO_REVIEW, aligned, compared, gate_row, next_lines,
+    Addressing, NOTHING_TO_REVIEW, base_line, compared, gate_lines, gate_row, next_lines, noun,
+    review_line, shown_path, worktree_line,
 };
 
-use super::{Checkout, addressing, item_name, no_selection, noun, select, unknown_review};
+use super::{Checkout, addressing, item_name, no_selection, select, unknown_review};
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
@@ -206,31 +207,18 @@ impl Shown<'_> {
         } else {
             lines.extend(self.status());
         }
-        let items = &self.gate.items;
-        if items.is_empty() {
-            lines.push("Gate: no items.".to_owned());
-        } else {
-            let closed = items.len() - self.gate.open;
-            lines.push(format!("Gate: {} open, {closed} closed.", self.gate.open));
-            lines.push(String::new());
-            let rows = items.iter().map(|item| {
-                let [name, state, text] = gate_row(item, 0, escape_control);
-                let text = match &item.judgment {
-                    Some(judgment) => format!(
-                        "{text} (judgment {}){}",
-                        judgment.id.short(),
-                        words(judgment.reason.as_deref())
-                    ),
-                    None => text,
-                };
-                [name, state, text]
-            });
-            lines.extend(
-                aligned(rows.collect())
-                    .into_iter()
-                    .map(|row| format!("  {row}")),
-            );
-        }
+        lines.extend(gate_lines(&self.gate, |item| {
+            let [name, state, text] = gate_row(item, 0, escape_control);
+            let text = match &item.judgment {
+                Some(judgment) => format!(
+                    "{text} (judgment {}){}",
+                    judgment.id.short(),
+                    words(judgment.reason.as_deref())
+                ),
+                None => text,
+            };
+            [name, state, text]
+        }));
         if !self.comments.is_empty() {
             lines.extend([String::new(), "Comments:".to_owned()]);
             lines.extend(self.comments.iter().map(|comment| {
@@ -259,20 +247,15 @@ impl Shown<'_> {
                 )
             }));
         }
-        let open: Vec<&str> = items
-            .iter()
-            .filter(|item| item.state.is_open())
-            .map(|item| item.name.as_str())
-            .collect();
-        let next = if self.nothing_to_review {
-            Vec::new()
-        } else {
-            next_lines(&open, self.status.complete, addressing, escape_control)
-        };
-        if !next.is_empty() {
-            lines.push(String::new());
-            lines.extend(next);
-            lines.extend(addressing.note());
+        if !self.nothing_to_review {
+            let open = self.gate.open_names();
+            let (next, commands) =
+                next_lines(&open, self.status.complete, addressing, escape_control);
+            if !next.is_empty() {
+                lines.push(String::new());
+                lines.extend(next);
+                lines.extend(addressing.note(&commands));
+            }
         }
         lines
     }
@@ -281,20 +264,11 @@ impl Shown<'_> {
     /// and target, and its scope, paths as repository paths.
     fn header(&self) -> Vec<String> {
         let (base, target) = (self.base, self.target);
+        let compared = compared(target.commit.as_deref(), base.commit.as_deref());
         let mut lines = vec![
-            format!(
-                "Review {}: {}.",
-                self.review.short(),
-                compared(target.commit.as_deref(), base.commit.as_deref())
-            ),
-            format!(
-                "  worktree: {}",
-                escape_control(&self.worktree.display().to_string())
-            ),
-            match &base.commit {
-                Some(commit) => format!("  base: {commit} (tree {})", base.tree),
-                None => format!("  base: empty tree {}", base.tree),
-            },
+            review_line(self.review, &compared),
+            worktree_line(&self.worktree.display().to_string(), escape_control),
+            base_line(base.commit.as_deref(), &base.tree),
             match &target.commit {
                 Some(commit) => format!("  target: commit {commit} (tree {})", target.tree),
                 None => format!("  target: working tree (tree {})", target.tree),
@@ -305,11 +279,16 @@ impl Shown<'_> {
             lines.push("  scope: all tracked paths".to_owned());
         }
         if !scope.paths.is_empty() {
-            let paths: Vec<String> = scope.paths.iter().map(shown_path).collect();
+            let paths: Vec<String> = scope
+                .paths
+                .iter()
+                .map(|path| shown_path(path, escape_control))
+                .collect();
             lines.push(format!("  scope: limited to {}", paths.join(", ")));
         }
         for path in &scope.include_untracked {
-            lines.push(format!("  scope: untracked {} included", shown_path(path)));
+            let path = shown_path(path, escape_control);
+            lines.push(format!("  scope: untracked {path} included"));
         }
         lines
     }
@@ -371,9 +350,4 @@ fn by(judgment: &JudgmentInfo) -> String {
 /// `": <text>"`, escaped, when there is text.
 fn words(text: Option<&str>) -> String {
     text.map_or_else(String::new, |text| format!(": {}", escape_control(text)))
-}
-
-/// `path`, a repository path, as a terminal shows it.
-fn shown_path(path: &PathBytes) -> String {
-    escape_control(&String::from_utf8_lossy(path.as_bytes()))
 }
