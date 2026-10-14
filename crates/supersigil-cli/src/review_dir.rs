@@ -154,6 +154,38 @@ mod tests {
 
     use super::{begin_within, open_review_store_within};
 
+    #[cfg(unix)]
+    #[test]
+    fn a_common_directory_reached_through_a_link_names_the_store_of_its_target() {
+        use supersigil_git::retention::common_dir;
+        use supersigil_git::{Git, Repo};
+        use supersigil_session::checkout::canonical;
+
+        use super::canonical_common_dir;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = canonical(dir.path()).unwrap();
+        let root = home.join("repo");
+        std::fs::create_dir(&root).unwrap();
+        let git = Git::new(&root)
+            .with_env("GIT_CONFIG_NOSYSTEM", "1")
+            .with_env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
+            .with_env("GIT_CONFIG_COUNT", "0")
+            .with_env("GIT_CONFIG_PARAMETERS", "")
+            .with_env("HOME", &home)
+            .with_env("XDG_CONFIG_HOME", home.join("xdg"));
+        git.output(["init", "-q"]).unwrap();
+        // The git directory moved away, and reached through a link where it
+        // was: git names it through the link.
+        let target = home.join("store.git");
+        std::fs::rename(root.join(".git"), &target).unwrap();
+        std::os::unix::fs::symlink(&target, root.join(".git")).unwrap();
+        let repo = Repo::open(git).unwrap();
+        assert_ne!(common_dir(&repo).unwrap(), target);
+
+        assert_eq!(canonical_common_dir(&repo).unwrap(), target);
+    }
+
     #[test]
     fn a_store_is_found_or_created_unless_the_directory_stays_locked() {
         let dir = tempfile::tempdir().unwrap();
