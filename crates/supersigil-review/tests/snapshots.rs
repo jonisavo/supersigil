@@ -629,6 +629,23 @@ fn flag_values_that_start_with_a_dash_stay_values() {
 }
 
 #[test]
+fn names_that_read_as_flags_follow_a_double_dash() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        ..Addressing::default()
+    };
+
+    assert_eq!(
+        next_lines(&["lines:src/c.rs", "-x.rs"], false, &addressing, escape),
+        [
+            "Next: supersigil judge acknowledge --review=feaad307 -- lines:src/c.rs -x.rs",
+            "  or: supersigil judge dismiss <name>... --reason <text> --review=feaad307",
+            "  then: supersigil judge complete --review=feaad307",
+        ]
+    );
+}
+
+#[test]
 fn more_than_20_open_items_are_left_to_the_list_above() {
     let names: Vec<String> = (0..21).map(|i| format!("f{i:02}.txt")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -689,6 +706,22 @@ fn follow_up_reviews_repeat_the_checkout_and_reviews_directory() {
         )),
         "{unchanged}"
     );
+}
+
+#[test]
+fn review_commands_repeat_the_checkout_and_the_reviews_directory() {
+    let addressing = Addressing {
+        review: Some("feaad307".to_owned()),
+        checkout: Some(PathBuf::from("../my repo")),
+        review_dir: Some(PathBuf::from("/tmp/reviews")),
+    };
+
+    assert_eq!(
+        addressing.review("--include-untracked=src/new.rs"),
+        "supersigil review --include-untracked=src/new.rs --checkout='../my repo' \
+         --review-dir=/tmp/reviews"
+    );
+    assert_eq!(Addressing::default().review(""), "supersigil review");
 }
 
 #[test]

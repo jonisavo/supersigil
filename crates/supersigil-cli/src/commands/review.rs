@@ -40,6 +40,7 @@ use crate::error::CliError;
 use crate::evidence::{CandidateCommands, add_referenced_edits};
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::gate_inputs::gate_inputs;
+use crate::item_names::{associations, typed};
 use crate::pipeline::{
     BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, attribution_state,
     base_info, cause_word, claude_home, conflicts_for, display_from, evidence_info, file_kind,
@@ -174,16 +175,6 @@ fn judged(
     (StatusInfo::new(&states), GateInfo::new(&states, &names))
 }
 
-/// The paths associated with each record `basis` pinned, which
-/// `unreconciled:` names match.
-fn associations(basis: &Basis) -> BTreeMap<RecordId, Vec<PathBuf>> {
-    basis
-        .records
-        .iter()
-        .map(|record| (record.id.clone(), record.associations.clone()))
-        .collect()
-}
-
 /// The names of `basis`'s gate items as typed from the current directory
 /// `g` gathered, with `associations` naming its records.
 fn names<'b>(
@@ -192,17 +183,8 @@ fn names<'b>(
     associations: &'b BTreeMap<RecordId, Vec<PathBuf>>,
 ) -> ItemNames<'b> {
     ItemNames::new(&basis.gate, associations, g.ignore_case, |path| {
-        typed(g, path)
+        typed(&g.worktree, &g.cwd, path)
     })
-}
-
-/// `path` as a person types it from the current directory, or `None` when
-/// it cannot be typed: it is not UTF-8, or that spelling holds a control
-/// character.
-fn typed(g: &Gathered, path: &PathBytes) -> Option<String> {
-    let path = RepoPath::from_utf8(path.to_str()?);
-    Some(display_from(&g.worktree, &g.cwd, &path))
-        .filter(|typed| !typed.chars().any(char::is_control))
 }
 
 /// The basis of `review`: what it compared and the evidence it read, as

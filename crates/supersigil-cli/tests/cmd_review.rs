@@ -10,12 +10,15 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use assert_cmd::assert::OutputAssertExt;
+use common::fixture::{
+    Fixture, NEW_RS, basis_id, gate_row, review_store, slice, slice_text, write,
+};
 use predicates::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use supersigil_record::observations::{Edit, FileState, Material, Observation};
 use supersigil_record::reviews::{
-    self, Basis, BasisId, FingerprintPart, ItemId, Judgment, JudgmentKind, Who,
+    Basis, BasisId, FingerprintPart, ItemId, Judgment, JudgmentKind, Who,
 };
 use supersigil_record::store::{MANIFEST_FILE, Store};
 use supersigil_record::time::UtcTime;
@@ -25,163 +28,6 @@ use supersigil_review::summary::shell_word;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
-/// `src/lib.rs` before the slice session.
-const LIB_BASE: &str = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
-/// `src/lib.rs` after the session and the manual line it never recorded.
-const LIB_FINAL: &str = "// manual\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\npub fn greet(name: &str) -> String {\n    format!(\"Hello, {name}!\")\n}\n";
-/// `src/new.rs` as the slice session wrote it.
-const NEW_RS: &str = "pub const VERSION: &str = \"1\";\n";
-
-/// A temporary repository, Claude home, and records directory, with git
-/// isolated from the machine's configuration.
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: PathBuf,
-    repo: PathBuf,
-    claude: PathBuf,
-    records: PathBuf,
-}
-
-impl Fixture {
-    fn new() -> Self {
-        let (dir, root) = common::canonical_tempdir();
-        let repo = root.join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-        let fixture = Self {
-            claude: root.join("claude"),
-            records: root.join("records"),
-            repo,
-            root,
-            _dir: dir,
-        };
-        fixture.git(&["init", "-q", "-b", "main"]);
-        fixture.git(&["config", "core.autocrlf", "false"]);
-        fixture
-    }
-
-    /// Git isolation and the records directory. The
-    /// variables git sets for hooks are removed, as `supersigil_git::Git`
-    /// removes them: a test run from a pre-commit hook would otherwise
-    /// point git at the outer repository's index. Environment-passed
-    /// configuration is also removed, so neither git here nor git started
-    /// by supersigil reads it.
-    fn isolate(&self, command: &mut Command) {
-        for key in [
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_COMMON_DIR",
-            "GIT_CONFIG_GLOBAL",
-            "GIT_CONFIG_PARAMETERS",
-            "GIT_CONFIG_COUNT",
-        ] {
-            command.env_remove(key);
-        }
-        command
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", &self.root)
-            .env("XDG_CONFIG_HOME", self.root.join("xdg"))
-            .env("GIT_AUTHOR_NAME", "Test")
-            .env("GIT_AUTHOR_EMAIL", "test@example.com")
-            .env("GIT_COMMITTER_NAME", "Test")
-            .env("GIT_COMMITTER_EMAIL", "test@example.com")
-            .env("SUPERSIGIL_RECORD_DIR", &self.records)
-            .env_remove("XDG_DATA_HOME");
-    }
-
-    /// Runs git in `dir`; panics with its stderr on failure.
-    fn git_in(&self, dir: &Path, args: &[&str]) -> String {
-        let mut command = Command::new("git");
-        self.isolate(&mut command);
-        let output = command.current_dir(dir).args(args).output().unwrap();
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    }
-
-    fn git(&self, args: &[&str]) -> String {
-        self.git_in(&self.repo, args)
-    }
-
-    /// The default reviews directory, under the isolated `HOME`.
-    fn reviews(&self) -> PathBuf {
-        self.root.join(".local/share/supersigil/reviews")
-    }
-
-    /// Stages everything in `dir`, commits, and returns the commit id.
-    fn commit(&self, dir: &Path, message: &str) -> String {
-        self.git_in(dir, &["add", "-A"]);
-        self.git_in(dir, &["commit", "-q", "-m", message]);
-        self.git_in(dir, &["rev-parse", "HEAD"]).trim().to_owned()
-    }
-
-    /// Writes `text` as transcript `name` in the Claude Code project
-    /// directory of `cwd`, with the fixtures' `/work/repo` replaced by `cwd`
-    /// (escaped for a JSON string: a Windows path has backslashes), and
-    /// returns its path.
-    fn transcript(&self, cwd: &Path, name: &str, text: &str) -> PathBuf {
-        let quoted = serde_json::to_string(&cwd.to_string_lossy()).unwrap();
-        let text = text.replace("/work/repo", &quoted[1..quoted.len() - 1]);
-        common::project_transcript(&self.claude, cwd, name, &text)
-    }
-
-    /// Writes `text` as the transcript of agent `agent` of session `session`
-    /// in the Claude Code project directory of `cwd`, and returns its path.
-    fn agent_transcript(&self, cwd: &Path, session: &str, agent: &str, text: &str) -> PathBuf {
-        self.transcript(
-            cwd,
-            &format!("{session}/subagents/agent-{agent}.jsonl"),
-            text,
-        )
-    }
-
-    /// `supersigil <args>` in `dir`, isolated, as typed.
-    fn plain(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = common::supersigil_cmd();
-        self.isolate(&mut command);
-        command.current_dir(dir).args(args);
-        command
-    }
-
-    /// `supersigil <subcommand> --claude-home <claude> <rest>` in `dir`.
-    fn supersigil(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = common::supersigil_cmd();
-        self.isolate(&mut command);
-        command
-            .current_dir(dir)
-            .arg(args[0])
-            .arg("--claude-home")
-            .arg(&self.claude)
-            .args(&args[1..]);
-        command
-    }
-
-    /// Runs a command expected to succeed and parses its JSON output.
-    fn json(&self, dir: &Path, args: &[&str]) -> Value {
-        let output = self.supersigil(dir, args).output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        serde_json::from_slice(&output.stdout).unwrap()
-    }
-
-    /// Runs a command with `<key>=1` in supersigil's own environment, which
-    /// every git it starts inherits unless supersigil removes it. Returns
-    /// the parsed JSON output, or standard error when the command fails.
-    fn json_inheriting(&self, key: &str, dir: &Path, args: &[&str]) -> Result<Value, String> {
-        let output = self.supersigil(dir, args).env(key, "1").output().unwrap();
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-        }
-        Ok(serde_json::from_slice(&output.stdout).unwrap())
-    }
-}
-
 /// The variables that set how git reads every pathspec of a command. A
 /// parent environment can hold any of them; supersigil builds its own
 /// literal pathspecs.
@@ -219,13 +65,6 @@ fn excluded(review: &Value) -> Vec<String> {
         .iter()
         .map(|u| u["path"].as_str().unwrap().to_owned())
         .collect()
-}
-
-/// Writes `content` to `path` under `dir`, creating directories.
-fn write(dir: &Path, path: &str, content: &str) {
-    let path = dir.join(path);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
 }
 
 /// Builds the records of one generated session, each chained to the last.
@@ -422,28 +261,6 @@ fn structured_patch(before: &str, old: &str, new: &str) -> Value {
     json!([{"oldStart": start + 1, "oldLines": old_end - start,
         "newStart": start + 1, "newLines": new_changed + after_context - start,
         "lines": lines}])
-}
-
-fn slice_text() -> String {
-    std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../supersigil-session/tests/fixtures/slice.jsonl"),
-    )
-    .unwrap()
-}
-
-/// The slice fixture: the files the session found, committed,
-/// then the working tree after the session plus the manual line it never
-/// recorded. `old.txt` appears only in a command, so it is seeded here.
-fn slice(f: &Fixture) {
-    write(&f.repo, "src/lib.rs", LIB_BASE);
-    write(&f.repo, "notes.txt", "draft\n");
-    write(&f.repo, "old.txt", "obsolete\n");
-    f.commit(&f.repo, "base");
-    write(&f.repo, "src/lib.rs", LIB_FINAL);
-    write(&f.repo, "src/new.rs", NEW_RS);
-    std::fs::remove_file(f.repo.join("old.txt")).unwrap();
-    f.transcript(&f.repo, "slice.jsonl", &slice_text());
 }
 
 /// A limitations-only transcript: one `NotebookEdit` call, no edit recorded.
@@ -3088,21 +2905,6 @@ fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
 const NOT_SAVED: &str = "Review not saved: the review store is busy. Judging needs a saved \
                          review; run supersigil review again.";
 
-/// The review store of `f`'s repository in `reviews`.
-fn review_store(f: &Fixture, reviews: &Path) -> ReviewStore {
-    reviews::find(reviews, &f.repo.join(".git"))
-        .unwrap()
-        .unwrap_or_else(|| panic!("no review store in {}", reviews.display()))
-}
-
-/// The id of the basis `review` saved.
-fn basis_id(review: &Value) -> String {
-    review["basis"]["id"]
-        .as_str()
-        .unwrap_or_else(|| panic!("no saved basis in {review:#}"))
-        .to_owned()
-}
-
 /// The names of the basis files in `store`, sorted.
 fn basis_files(store: &ReviewStore) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(store.root().join("bases"))
@@ -3620,16 +3422,6 @@ fn an_unreconciled_checkout_salts_every_basis() {
     assert!(first["basis"]["document"]["salt"].is_string(), "{first:#}");
     // Same code and evidence, yet never the same saved review.
     assert_ne!(basis_id(&first), basis_id(&second));
-}
-
-/// The item of `review`'s gate named `name`.
-fn gate_row<'v>(review: &'v Value, name: &str) -> &'v Value {
-    review["gate"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["name"] == name)
-        .unwrap_or_else(|| panic!("no gate item {name} in {:#}", review["gate"]))
 }
 
 /// Each item of `review`'s gate by name, with its state, in gate order.

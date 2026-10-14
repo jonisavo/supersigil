@@ -16,6 +16,8 @@ pub mod evidence;
 pub mod format;
 /// What `review` reads beside the review to build its gate.
 pub mod gate_inputs;
+/// Gate item names as a person types them from the current directory.
+pub mod item_names;
 /// Mapping recorded edits onto git worktrees.
 pub mod mapping;
 /// The steps `review` and `why` share, and conversions to the review model.
@@ -28,8 +30,9 @@ pub mod record_dir;
 pub mod review_dir;
 
 pub use commands::{
-    Command, CompletionsArgs, ReviewArgs, SessionArgs, SessionCommand, SessionListArgs,
-    SessionShowArgs, SessionSyncArgs, WhyArgs,
+    CloseArgs, Command, CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand,
+    ReviewArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
+    WhyArgs,
 };
 pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 

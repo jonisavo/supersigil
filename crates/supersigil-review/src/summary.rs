@@ -159,21 +159,31 @@ fn header_line(review: &Review) -> String {
         };
         return format!("Review not saved{reason}. Judging needs a saved review{then}.");
     };
-    let target = match review.target.kind {
-        TargetKindInfo::WorkingTree => "working tree".to_owned(),
-        TargetKindInfo::Commit => {
-            format!(
-                "commit {}",
-                review.target.commit.as_deref().map_or("", short)
-            )
-        }
-    };
-    let base = review
-        .base
+    let target = review
+        .target
         .commit
         .as_deref()
-        .map_or("the empty tree", short);
-    format!("Review {}: {target} over {base}.", saved.id.short())
+        .filter(|_| matches!(review.target.kind, TargetKindInfo::Commit));
+    format!(
+        "Review {}: {}.",
+        saved.id.short(),
+        compared(target, review.base.commit.as_deref())
+    )
+}
+
+/// What a review compared, as its summary's first line says it: the
+/// working tree, or `commit <short id>` when `target_commit` names the
+/// reviewed commit, over the base commit's short id or the empty tree.
+#[must_use]
+pub fn compared(target_commit: Option<&str>, base_commit: Option<&str>) -> String {
+    let target = target_commit.map_or_else(
+        || "working tree".to_owned(),
+        |commit| format!("commit {}", short(commit)),
+    );
+    format!(
+        "{target} over {}",
+        base_commit.map_or("the empty tree", short)
+    )
 }
 
 /// Whether running the review again may save it: unless it names a path
@@ -366,17 +376,32 @@ pub struct Addressing {
 }
 
 impl Addressing {
-    /// `supersigil judge <words>` followed by the flags that address the
-    /// review. `words` are printed as given; quote names with
-    /// [`shell_word`].
+    /// `supersigil judge <verb>` with the items `names`, each quoted with
+    /// [`shell_word`], then `options`, printed as given, and the flags that
+    /// address the review. When a name starts with `-`, the names come
+    /// last, after `--`, so `judge` reads none of them as a flag.
     #[must_use]
-    pub fn judge(&self, words: &str) -> String {
-        let mut command = format!("supersigil judge {words}");
+    pub fn judge(&self, verb: &str, names: &[&str], options: &str) -> String {
+        let dashed = names.iter().any(|name| name.starts_with('-'));
+        let names = names
+            .iter()
+            .map(|name| shell_word(name))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut command = format!("supersigil judge {verb}");
+        if !dashed {
+            append(&mut command, &names);
+        }
+        append(&mut command, options);
         append_flags(
             &mut command,
             &[("--review", self.review.as_deref().map(OsStr::new))],
         );
         append_flags(&mut command, &self.paths());
+        if dashed {
+            append(&mut command, "--");
+            append(&mut command, &names);
+        }
         command
     }
 
@@ -480,25 +505,24 @@ pub fn next_lines(
     let lines = if complete {
         Vec::new()
     } else if open.is_empty() {
-        vec![format!("Next: {}", addressing.judge("complete"))]
+        vec![format!("Next: {}", addressing.judge("complete", &[], ""))]
     } else {
         let acknowledge = if open.len() > MOST_NAMED {
             format!(
                 "{} ({} open items, listed above)",
-                addressing.judge("acknowledge <name>..."),
+                addressing.judge("acknowledge", &[], "<name>..."),
                 open.len()
             )
         } else {
-            let names: Vec<String> = open.iter().map(|name| shell_word(name)).collect();
-            addressing.judge(&format!("acknowledge {}", names.join(" ")))
+            addressing.judge("acknowledge", open, "")
         };
         vec![
             format!("Next: {acknowledge}"),
             format!(
                 "  or: {}",
-                addressing.judge("dismiss <name>... --reason <text>")
+                addressing.judge("dismiss", &[], "<name>... --reason <text>")
             ),
-            format!("  then: {}", addressing.judge("complete")),
+            format!("  then: {}", addressing.judge("complete", &[], "")),
         ]
     };
     lines.iter().map(|line| escape(line)).collect()
