@@ -22,7 +22,7 @@ use supersigil_review::summary::{
     review_line, shown_path, worktree_line,
 };
 
-use super::{Checkout, addressing, item_name, no_selection, select, unknown_review};
+use super::{Checkout, addressing, item_name, select};
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
@@ -38,13 +38,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let mut addressing = addressing(args);
     let checkout = Checkout::open(args)?;
     let prefix = show.review.as_deref().or(args.review.as_deref());
-    let Some(store) = &checkout.store else {
-        return Err(match prefix {
-            Some(prefix) => unknown_review(prefix, &addressing),
-            None => no_selection(&checkout.worktree, &addressing),
-        });
-    };
-    let snapshot = store.snapshot()?;
+    let snapshot = checkout.store(prefix, &addressing)?.snapshot()?;
     let id = select(&snapshot, prefix, &checkout.worktree, &mut addressing)?;
     let basis = snapshot.basis(&id)?;
     let judgments = snapshot.judgments()?;

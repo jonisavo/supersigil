@@ -80,24 +80,24 @@ Omit --global to set the identity only in this repository.";
 /// written; and an I/O error when writing the output fails.
 pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
     let call = match &args.command {
-        JudgeCommand::Acknowledge(close) => Call::closing(Verb::Acknowledge, close),
-        JudgeCommand::Dismiss(close) => Call::closing(Verb::Dismiss, close),
+        JudgeCommand::Acknowledge(close) => Call::closing(JudgmentKind::Acknowledge, close),
+        JudgeCommand::Dismiss(close) => Call::closing(JudgmentKind::Dismiss, close),
         JudgeCommand::Comment(comment) => Call {
-            verb: Verb::Comment,
+            kind: JudgmentKind::Comment,
             names: comment.item.as_deref().into_iter().collect(),
             reason: None,
             text: Some(&comment.text),
             judgment: None,
         },
         JudgeCommand::Complete(complete) => Call {
-            verb: Verb::Complete,
+            kind: JudgmentKind::Complete,
             names: Vec::new(),
             reason: None,
             text: complete.text.as_deref(),
             judgment: None,
         },
         JudgeCommand::Undo(undo) => Call {
-            verb: Verb::Undo,
+            kind: JudgmentKind::Undo,
             names: undo.items.iter().map(String::as_str).collect(),
             reason: undo.reason.as_deref(),
             text: None,
@@ -112,33 +112,10 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
     })
 }
 
-/// What a writing call records.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Verb {
-    Acknowledge,
-    Dismiss,
-    Comment,
-    Complete,
-    Undo,
-}
-
-impl Verb {
-    /// The kind of judgment it records.
-    const fn kind(self) -> JudgmentKind {
-        match self {
-            Self::Acknowledge => JudgmentKind::Acknowledge,
-            Self::Dismiss => JudgmentKind::Dismiss,
-            Self::Comment => JudgmentKind::Comment,
-            Self::Complete => JudgmentKind::Complete,
-            Self::Undo => JudgmentKind::Undo,
-        }
-    }
-}
-
-/// A writing call as given: what it records, the items it names as typed,
-/// its reason or text, and the judgment an undo names by id.
+/// A writing call as given: the kind of judgment it records, the items it
+/// names as typed, its reason or text, and the judgment an undo names by id.
 struct Call<'a> {
-    verb: Verb,
+    kind: JudgmentKind,
     names: Vec<&'a str>,
     reason: Option<&'a str>,
     text: Option<&'a str>,
@@ -146,10 +123,11 @@ struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    /// The call of `verb`, an acknowledgment or a dismissal, with `args`.
-    fn closing(verb: Verb, args: &'a CloseArgs) -> Self {
+    /// The call recording `kind`, an acknowledgment or a dismissal, with
+    /// `args`.
+    fn closing(kind: JudgmentKind, args: &'a CloseArgs) -> Self {
         Self {
-            verb,
+            kind,
             names: args.items.iter().map(String::as_str).collect(),
             reason: args.reason.as_deref(),
             text: None,
@@ -196,6 +174,25 @@ impl Checkout {
         })
     }
 
+    /// The repository's review store, where the review `prefix` names, or
+    /// else the worktree's selection, would be saved.
+    ///
+    /// # Errors
+    ///
+    /// Returns a refusal when no review was saved for the repository: as
+    /// for an unknown review when there is a `prefix`, else as for no
+    /// selection. Its commands are addressed as `addressing` says.
+    fn store(
+        &self,
+        prefix: Option<&str>,
+        addressing: &Addressing,
+    ) -> Result<&ReviewStore, CliError> {
+        self.store.as_ref().ok_or_else(|| match prefix {
+            Some(prefix) => unknown_review(prefix, addressing),
+            None => no_selection(&self.worktree, addressing),
+        })
+    }
+
     /// The names of `basis`'s gate items as typed from the current
     /// directory.
     ///
@@ -230,17 +227,14 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     if in_agent_session(|name| std::env::var_os(name)) {
         return Err(refusal([AGENT_SESSION]));
     }
-    if call.verb == Verb::Dismiss && call.reason.is_none_or(|reason| reason.trim().is_empty()) {
+    if call.kind == JudgmentKind::Dismiss
+        && call.reason.is_none_or(|reason| reason.trim().is_empty())
+    {
         return Err(refusal(["A dismissal needs --reason."]));
     }
     let mut addressing = addressing(args);
     let checkout = Checkout::open(args)?;
-    let Some(store) = &checkout.store else {
-        return Err(match &args.review {
-            Some(prefix) => unknown_review(prefix, &addressing),
-            None => no_selection(&checkout.worktree, &addressing),
-        });
-    };
+    let store = checkout.store(args.review.as_deref(), &addressing)?;
     let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
         return Err(refusal(["The review store is busy; try again."]));
     };
@@ -264,10 +258,10 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&judgments);
     let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
-    let closes = check(call.verb, &id, &states, &items, &names, &addressing)?;
+    let closes = check(call.kind, &id, &states, &items, &names, &addressing)?;
     let withdraws = match call.judgment {
         Some(prefix) => withdraw_judgment(&ledger, prefix, &addressing)?,
-        None if call.verb == Verb::Undo => withdraw_items(&states, &items, &names)?,
+        None if call.kind == JudgmentKind::Undo => withdraw_items(&states, &items, &names)?,
         None => Vec::new(),
     };
     let who = retention::identity(&checkout.repo)?.ok_or_else(|| refusal(NO_IDENTITY.lines()))?;
@@ -279,7 +273,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let judgment = Judgment {
         id: JudgmentId::generate(),
         basis: id.clone(),
-        kind: call.verb.kind(),
+        kind: call.kind,
         items,
         reason: call.reason.map(str::to_owned),
         text: call.text.map(str::to_owned),
@@ -310,7 +304,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
         OutputFormat::Terminal => {
             let compared = compared(basis.target.commit.as_deref(), basis.base.commit.as_deref());
             let mut out = io::stdout().lock();
-            let lines = recorded.lines(call.verb, &compared, first, &addressing, &ledger, &names);
+            let lines = recorded.lines(&compared, first, &addressing, &ledger, &names);
             for line in lines {
                 writeln!(out, "{}", escape_control(&line))?;
             }
@@ -336,7 +330,7 @@ struct Recorded<'a> {
 }
 
 impl Recorded<'_> {
-    /// The lines a terminal shows: what the call `verb` recorded, naming the
+    /// The lines a terminal shows: what the judgment recorded, naming the
     /// items and the review, which `compared` what; the snapshot kept when
     /// the call was the review's `first` judgment; how to review the
     /// content of an untracked file dismissed; what an undo withdrew of the
@@ -346,7 +340,6 @@ impl Recorded<'_> {
     /// note once when they show a value as given.
     fn lines(
         &self,
-        verb: Verb,
         compared: &str,
         first: bool,
         addressing: &Addressing,
@@ -363,15 +356,16 @@ impl Recorded<'_> {
             .collect();
         let items = sentence_list(subjects.iter().map(|(name, _)| name));
         let review = format!("review {id} ({compared})");
-        let mut lines = vec![match verb {
-            Verb::Acknowledge => format!("Acknowledged {items} on {review}."),
-            Verb::Dismiss => format!("Dismissed {items} on {review}."),
-            Verb::Comment if subjects.is_empty() => format!("Commented on {review}."),
-            Verb::Comment => format!("Commented on {items} on {review}."),
-            Verb::Complete => format!("Completed {review}."),
+        let kind = self.judgment.kind;
+        let mut lines = vec![match kind {
+            JudgmentKind::Acknowledge => format!("Acknowledged {items} on {review}."),
+            JudgmentKind::Dismiss => format!("Dismissed {items} on {review}."),
+            JudgmentKind::Comment if subjects.is_empty() => format!("Commented on {review}."),
+            JudgmentKind::Comment => format!("Commented on {items} on {review}."),
+            JudgmentKind::Complete => format!("Completed {review}."),
             // An undo by id names no items; it withdraws that judgment
             // first.
-            Verb::Undo => match self.judgment.withdraws.first() {
+            JudgmentKind::Undo => match self.judgment.withdraws.first() {
                 Some(undone) if subjects.is_empty() => {
                     format!("Undid judgment {} on {review}.", undone.judgment.short())
                 }
@@ -385,7 +379,7 @@ impl Recorded<'_> {
         }
         // Every command printed, for the note that follows them.
         let mut commands = Vec::new();
-        if verb == Verb::Dismiss {
+        if kind == JudgmentKind::Dismiss {
             for (name, _) in subjects
                 .iter()
                 .filter(|(_, origin)| *origin == Origin::UntrackedRecorded)
@@ -602,8 +596,8 @@ fn resolve(
     Err(refusal(lines))
 }
 
-/// Checks a call of `verb` naming `items` against `states`, the gate of the
-/// review `id` as the store's judgments leave it, and returns what a
+/// Checks a call recording `kind` naming `items` against `states`, the gate
+/// of the review `id` as the store's judgments leave it, and returns what a
 /// completion closes (empty for other calls). An undo is checked as it is
 /// planned ([`withdraw_items`], [`withdraw_judgment`]).
 ///
@@ -612,20 +606,20 @@ fn resolve(
 /// Returns a refusal when an item to acknowledge or dismiss is already
 /// closed, or when a completion finds an item open or the review complete.
 fn check(
-    verb: Verb,
+    kind: JudgmentKind,
     id: &BasisId,
     states: &GateStates<'_>,
     items: &[ItemId],
     names: &ItemNames<'_>,
     addressing: &Addressing,
 ) -> Result<BTreeMap<ItemId, JudgmentId>, CliError> {
-    match verb {
-        Verb::Acknowledge | Verb::Dismiss => states
+    match kind {
+        JudgmentKind::Acknowledge | JudgmentKind::Dismiss => states
             .check_close(items)
             .map(|()| BTreeMap::new())
             .map_err(|closed| already_closed(&closed, names, addressing)),
-        Verb::Comment | Verb::Undo => Ok(BTreeMap::new()),
-        Verb::Complete => states.check_complete().map_err(|refused| match refused {
+        JudgmentKind::Comment | JudgmentKind::Undo => Ok(BTreeMap::new()),
+        JudgmentKind::Complete => states.check_complete().map_err(|refused| match refused {
             CompleteRefusal::AlreadyComplete(completion) => refusal([format!(
                 "Review {} is already complete: completed on {} by {} (judgment {}).",
                 id.short(),
