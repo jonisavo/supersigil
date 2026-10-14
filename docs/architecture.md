@@ -5,20 +5,21 @@ connections between code and observations. It must make development history
 easier to inspect without making the evidence look more certain than it is.
 
 The current CLI ingests Claude Code sessions, attributes a selected change,
-and explains individual lines. Review output is JSON or a plain terminal
-summary. Recorded prompts provide conversation context, not an explanation
-of why an edit was made.
+explains individual lines, and records a person's judgments of a saved
+review's gate. Review output is JSON or a plain terminal summary. Recorded
+prompts provide conversation context, not an explanation of why an edit was
+made.
 
 ## Modules
 
 | Crate | Responsibility |
 |---|---|
 | `supersigil-session` | Discover and parse transcripts; normalize observations; sync them into records. |
-| `supersigil-record` | Store versioned observations and derivations; publish and read pinned revisions. |
-| `supersigil-git` | Run git; resolve revisions; capture trees; read blobs and converted bytes; identify worktrees and commit origins. |
+| `supersigil-record` | Store versioned observations and derivations; publish and read pinned revisions; keep saved reviews and their judgments in a per-repository review store. |
+| `supersigil-git` | Run git; resolve revisions; capture trees; read blobs and converted bytes; identify worktrees and commit origins; keep a judged review's target under a retention ref. |
 | `supersigil-anchor` | Validate recorded transformations and combine competing chains into line provenance. |
-| `supersigil-review` | Diff blob bytes; turn provenance into review and line-explanation models; render summaries. |
-| `supersigil` | Select inputs, reconcile records, capture the target, map evidence to worktrees, and print results. |
+| `supersigil-review` | Diff blob bytes; turn provenance into review and line-explanation models; build and name gate items; decide their states, carry-forward, and completion from judgments; render summaries. |
+| `supersigil` | Select inputs, reconcile records, capture the target, map evidence to worktrees, save reviews, read changed evidence, record judgments, and print results. |
 
 Git operations belong in `supersigil-git`. Anchor and review computation are
 pure over their supplied inputs. They do not discover transcripts, open
@@ -82,15 +83,25 @@ receive after it. Relayed reports are reports, not a person's messages;
 resume messages are delegation. An edit's prompt skips relayed reports.
 
 Observations are append-only. Derivations are rebuildable findings identified
-by their inputs and algorithm version. The record format reserves separate
-layers for interpretations and human contributions; these are not a shipped
-annotation or judgment workflow.
+by their inputs and algorithm version. The record format reserves a separate
+layer for interpretations, which no shipped workflow writes. A person's
+judgments live apart from records, in the review store.
 
 A manifest pins committed log lengths and immutable document names. A reader
 uses one manifest and reads only pinned data. A record in another format is
 refused, naming its directory; there is no migration. Writers lock the store,
 write and synchronize data, then publish the manifest. Unpublished tails and
-unreferenced documents do not become part of a revision.
+unreferenced documents do not become part of a revision. A document a later
+revision replaced is deleted by the first write more than 14 days after that
+revision was published; modification times are never consulted. Only a
+derivation document neither the pending manifest nor the published one it
+replaces references, under any spelling, and named as the record names its
+documents, is ever deleted: any other
+file a manifest lists as replaced is dropped from the list and kept. While a
+manifest references a file by anything but a plain path inside the record,
+through a symbolic link, or a file that cannot be resolved on disk, or while
+the manifest, the lock, or the observations or derivations directory is
+itself a symbolic link, nothing is deleted.
 
 A review can involve several records. Its output identifies each record and
 the revision read. It must not combine observations from different revisions
@@ -109,7 +120,12 @@ Commit targets do not carry that ordering guarantee.
 
 Reconciliation uses bounded lock waits. Contention is reported as an
 unreconciled record or checkout, rather than silently claiming current
-capture. Other read and sync failures remain errors.
+capture. A transcript removed between discovery and read, or no longer a
+regular file by then (a FIFO, or a link to a device), is skipped without
+being read and reported the same way; opening one never waits for a
+writer. Its record keeps the earlier observations, and a later sync
+resumes from its cursor if the transcript returns. Other read and sync
+failures remain errors.
 
 Deduplicate edit identities across every involved record before filtering to
 candidate worktrees or partitioning by path. A conflicting sighting outside
@@ -226,8 +242,9 @@ ancestor of the target.
 
 Working-tree capture uses a temporary index with tracked on-disk changes and
 explicitly listed untracked paths. Scope filters narrow the listings, not the
-captured tree. Supersigil does not write the real index, checkout files, or a
-ref. Git filters can have their own effects, and capture writes git objects.
+captured tree. A review does not write the real index, checkout files, or a
+ref; only the first judgment on a review writes one. Git filters can have
+their own effects, and capture writes git objects.
 Unsaved editor buffers are outside the capture.
 
 Tracked changes are included. Untracked files are excluded unless listed,
@@ -256,6 +273,117 @@ Transcripts are untrusted input. Validate paths against checkout rules and
 show terminal control bytes as visible escapes. Preserve the underlying
 recorded material.
 
+## Saved reviews and judgments
+
+Every review saves its basis, including one run inside an agent session:
+the worktree, the base and target trees, the scope, each involved record's
+revision with the length and SHA-256 of every pinned log, the unreconciled
+checkouts, the derivation algorithm version, a digest of what the review
+shows about each reviewed file apart from the commands that mention it,
+with every recorded sighting of the edits it refers to, payloads included,
+the capture limitations of each candidate transcript as the review saw
+them, and the gate. The basis id hashes that content, so an identical
+review reuses the saved basis and the judgments on it. A gate item whose
+material is unknown salts its basis, so that review is never reused.
+
+A repository has one review store in the private data directory, beside
+the records: `--review-dir`, then `SUPERSIGIL_REVIEW_DIR`, then
+`$XDG_DATA_HOME/supersigil/reviews`, then `~/.local/share/supersigil/reviews`.
+The store names the repository by the canonical path of its git common
+directory, which every worktree shares. Writes follow the record protocol:
+a writer lock, immutable basis files, an append-only judgment log read only
+to its pinned length, and a manifest published by rename. Lock waits are
+bounded at 2 seconds: a review whose store stays busy is still printed,
+marked unsaved, and judging needs a saved review. A review that names a
+path that is not valid UTF-8, such as its worktree's, is printed but never
+saved, since the store's JSON cannot hold the path. Bases with no judgment
+that no worktree selects leave the manifest 14 days after they were last
+reviewed, and their files are deleted a day later, so no published manifest
+names a deleted file. Judged bases are kept. Neither store's cleanup ever
+deletes a symbolic link or anything through one, and a live basis whose
+file is a link is first rewritten as a regular file with the same bytes.
+Nor does the review store delete anything while its manifest, lock,
+judgments log, or `bases` directory is a link.
+
+The gate holds what the review leaves for a person to consider: per file,
+the lines that are unattributed, unresolved, ambiguous, changed only in
+line endings, or matched only by content; files not diffed; untracked files
+a recorded edit names; paths not captured; commits without a recorded
+origin; gaps between recorded edits of a reviewed file; and records or
+checkouts not reconciled, including one whose transcript was removed before
+it could be read. Coarse diffs, capture limitations, conflicting edits, and
+whitespace-only changes remain evidence notes. An item's identity hashes
+its origin and its subject (raw path bytes, a commit, a record, or a
+checkout), so it is stable across reviews. Its fingerprint hashes, part by
+part, the material a judgment of it saw, with every recorded sighting of
+the edits behind it, so an edit recorded again under its id with another
+payload reopens the item. Material that could not be
+established is unknown and matches nothing, not even another unknown, so
+such an item is judged again in every review. What is on disk at an
+untracked file or an uncaptured path (its kind, executable bit, and bytes
+or link target) is read from one entry, never following a link or waiting
+for a writer, so a path replaced, or a file whose length, executable bit,
+modification time, or (on Unix) status change time changed, while it is
+read is unknown, as is a file no longer at the path, unchanged, once read. On Windows
+no one can change, move, or delete a file while it is read, and a file
+another process holds for writing is unknown. A person
+names an item as the summary prints it: by its path, qualified by origin
+only when the path has several items. Commits, unreconciled evidence, and
+paths that cannot be printed have qualified names of their own. There are
+no wildcards.
+
+`judge` records acknowledgments, dismissals with a reason, comments,
+completions, and undos against a saved review: the worktree's selection,
+which each review run outside an agent session sets, unless `--review`
+names another. It never reruns the review or reads the working tree.
+Judgments are appended and never edited; an undo withdraws them. Comments
+close no item. Completion needs every gate item acknowledged or dismissed,
+and records only that the person finished this review: accepting code
+remains a git operation. Only a person judges. `judge` refuses to write
+while an agent-session marker (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`) is
+set, and its refusal never suggests unsetting one. Agents may read with
+`judge list` and `judge show`.
+
+The first judgment on a review keeps its target under
+`refs/supersigil/reviews/<basis id>`: a commit whose tree is the target
+tree and whose parents are the base and target commits, created as a
+direct ref only when the name is absent and never moved, before the
+judgment is appended. A symbolic ref at that name is refused, since what it
+keeps would move with the ref it names.
+Judging needs the person's git identity, which names who judged and
+authors that commit. A review nobody judges writes nothing into the
+repository.
+
+Each review relates the judged reviews of the same content (base tree,
+target tree, and scope, from any worktree or command) and those whose code
+changed (the same worktree, base tree, and scope, another target tree).
+An acknowledgment or dismissal carries to the current review when the item
+it closed has a matching fingerprint; otherwise the item reopens, naming
+the parts that differ. Undoing an item withdraws every judgment that closes
+it, own or carried, on every review it closes, and every completion that
+counted it.
+
+The review is complete with its own standing completion, or with a standing
+completion of the same content whose review held every current item with a
+matching fingerprint and against which no evidence changed. Evidence
+changed when what the review shows about a reviewed file differs; when an
+observation appended to a pinned log since then edits a reviewed path or is
+a command in any transcript whose change report lists one, even a command
+recorded before without that report; when a capture limitation appended
+since then belongs to a candidate transcript; or when a record the earlier
+review pinned is gone, one of its logs is shorter, or its pinned prefix
+hashes differently. Length alone never establishes an unchanged prefix.
+Each current log is
+read once per review, however many earlier reviews it is compared with,
+and only as the review pinned it: a log that changed since counts as
+rewritten.
+Commands that only mention a reviewed path, most of them reads, are shown
+but never count as changed evidence, and a transcript that became a
+candidate since brings none of its earlier capture limitations.
+Without a completion that carries, the status reports what changed since
+the most recent related completion: the changed paths, the changed evidence
+by kind, or the gate items that completion did not cover.
+
 ## Limits and product direction
 
 The [product design](research/multiverse-review-design.md) retains the intended
@@ -281,23 +409,33 @@ write only if they show other lines.
 Several hashless sessions can remain ambiguous, as can agents of one
 session that ran at once. Agents started without a recorded call, such as
 by a slash command, stay unordered, as do interrupted agents. Claude Code file-history
-backups are not read. Captured trees have no retention ref and can disappear
-under git garbage collection.
+backups are not read.
+
+Judgments and their refs stay on this machine; `refs/supersigil/` is not
+pushed by default. A moved repository starts a new review store, and the
+old one keeps its judgments. The agent check guards against accidents:
+anyone can bypass it. An unjudged review's captured tree has no retention
+ref and can be pruned by git after 14 days; judging it then needs a new
+review. Once a person deletes a judged review's ref and git prunes its
+tree, a later review of changed code reports the paths changed since it
+as unavailable. Changed evidence ignores conversation turns, and commands
+whose change report lists no reviewed path (reads among them), until
+annotations use them. A review with an unreconciled record or checkout, or
+with an uncaptured path whose on-disk state is a directory (an uncaptured
+submodule) or cannot be read, is judged again in every review. A process
+holding a review store's manifest for more than a day may find a removed
+basis gone, and a reader holding a record's manifest more than 14 days
+after a later revision replaced one of its documents may find that
+document gone.
 
 The intended product adds sourced annotations, durable human corrections,
-judgments bound to exact code and evidence revisions, a closing review gate,
-and a terminal UI with final-change and development-history views. These are
-not shipped. Their durable constraints are:
+and a terminal UI with final-change and development-history views. These
+are not shipped. Their durable constraints are:
 
 - The host agent runs annotation; Supersigil validates and stores its output.
   Inference stays distinguishable from recorded human and agent statements.
-- A judgment pins the trees, scope, and evidence revisions it addresses.
-  Changes to code, interpretation, and relevant evidence are reported separately.
+- A changed interpretation is reported apart from changed code and evidence.
 - Human corrections survive re-annotation and precede the disputed explanation.
-- Completing a review requires acknowledgment or reasoned dismissal of each
-  gate item. Accepting code remains a git operation.
-- The first judgment retains its target through a local git ref. Opening a
-  review alone does not create that ref.
 
 The record stays local. Capture, model access, and publication need separate
 policies, including paths and identifiers. These controls are not implemented.
@@ -315,6 +453,13 @@ host can read independently.
   and [change reports](../crates/supersigil-session/src/claude_code/changes.rs)
   document Bash write recognition and reports.
 - [Review outcomes](../crates/supersigil-review/src/outcome.rs) define ordered line rules.
+- [Gate items](../crates/supersigil-review/src/gate.rs) and
+  [judgment rules](../crates/supersigil-review/src/judging.rs) define item
+  identity, fingerprints, carry-forward, and completion; the
+  [review store](../crates/supersigil-record/src/reviews.rs) documents its
+  write protocol and cleanup.
 - [CLI integration tests](../crates/supersigil-cli/tests/cmd_review.rs) and
   [reconciliation tests](../crates/supersigil-cli/tests/reconcile.rs) exercise
   capture, provenance, uncertainty, and record discovery through user workflows.
+- [Review scenarios](../crates/supersigil-cli/tests/scenarios.rs) walk
+  reviewing, judging, completing, and returning to a review end to end.
