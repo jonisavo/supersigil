@@ -29,12 +29,12 @@ use supersigil_record::reviews::{
     ReviewStore, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, RecordId, StoreError};
+use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
     AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemState, Ledger,
     NotClosed, WithdrawRefusal, related_bases,
 };
-use supersigil_review::model::{GateInfo, GateItemInfo, StatusInfo};
+use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
 use supersigil_review::summary::{Addressing, compared, next_lines, shell_word};
 use supersigil_session::checkout::canonical;
@@ -43,7 +43,7 @@ use crate::agent::in_agent_session;
 use crate::commands::{CloseArgs, JudgeArgs, JudgeCommand};
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
-use crate::item_names::{associations, name, typed};
+use crate::item_names::{item_names, name};
 use crate::reconcile::LOCK_WAIT;
 use crate::record_dir::canonical_checkout;
 use crate::review_dir::{begin_within, canonical_common_dir, judged_bases, resolve_review_dir};
@@ -195,23 +195,14 @@ impl Checkout {
     }
 
     /// The names of `basis`'s gate items as typed from the current
-    /// directory, with `associations` naming its records.
+    /// directory.
     ///
     /// # Errors
     ///
     /// Returns [`CliError::Git`] when git cannot read `core.ignorecase`.
-    fn names<'g>(
-        &self,
-        basis: &'g Basis,
-        associations: &'g BTreeMap<RecordId, Vec<PathBuf>>,
-    ) -> Result<ItemNames<'g>, CliError> {
+    fn names<'g>(&self, basis: &'g Basis) -> Result<ItemNames<'g>, CliError> {
         let ignore_case = self.repo.config_bool("core.ignorecase")?.unwrap_or(false);
-        Ok(ItemNames::new(
-            &basis.gate,
-            associations,
-            ignore_case,
-            |path| typed(&self.worktree, &self.cwd, path),
-        ))
+        Ok(item_names(basis, ignore_case, &self.worktree, &self.cwd))
     }
 }
 
@@ -264,8 +255,7 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let mut judgments = tx.judgments().to_vec();
     let others = judged_bases(&snapshot, &judgments, &id)?;
     let related = related_bases(&id, &basis, &others);
-    let associations = associations(&basis);
-    let names = checkout.names(&basis, &associations)?;
+    let names = checkout.names(&basis)?;
     let items = resolve(&names, &call.names, |text| {
         name(&checkout.worktree, &checkout.cwd, text)
     })?;
@@ -318,7 +308,8 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
         OutputFormat::Terminal => {
             let compared = compared(basis.target.commit.as_deref(), basis.base.commit.as_deref());
             let mut out = io::stdout().lock();
-            for line in recorded.lines(call.verb, &compared, first, &addressing, &ledger) {
+            let lines = recorded.lines(call.verb, &compared, first, &addressing, &ledger, &names);
+            for line in lines {
                 writeln!(out, "{}", escape_control(&line))?;
             }
         }
@@ -348,8 +339,9 @@ impl Recorded<'_> {
     /// the call was the review's `first` judgment; how to review the
     /// content of an untracked file dismissed; what an undo withdrew of the
     /// judgments in `ledger`; the judgment's id and the gate; and what to
-    /// run next. Commands are addressed as `addressing` says, followed by
-    /// its note once when they show a value as given.
+    /// run next. Items are named as `names`, which named the gate, names
+    /// them. Commands are addressed as `addressing` says, followed by its
+    /// note once when they show a value as given.
     fn lines(
         &self,
         verb: Verb,
@@ -357,27 +349,28 @@ impl Recorded<'_> {
         first: bool,
         addressing: &Addressing,
         ledger: &Ledger<'_>,
+        names: &ItemNames<'_>,
     ) -> Vec<String> {
         let id = self.review.short();
-        let gate = gate_index(&self.gate);
-        let named: Vec<&GateItemInfo> = self
+        // The judgment's items the gate holds, by name, with their origins.
+        let subjects: Vec<(&str, Origin)> = self
             .judgment
             .items
             .iter()
-            .filter_map(|item| gate.get(item).copied())
+            .filter_map(|item| Some((names.name(item)?, names.item(item)?.origin())))
             .collect();
-        let items = sentence_list(named.iter().map(|item| item.name.as_str()));
+        let items = sentence_list(subjects.iter().map(|(name, _)| name));
         let review = format!("review {id} ({compared})");
         let mut lines = vec![match verb {
             Verb::Acknowledge => format!("Acknowledged {items} on {review}."),
             Verb::Dismiss => format!("Dismissed {items} on {review}."),
-            Verb::Comment if named.is_empty() => format!("Commented on {review}."),
+            Verb::Comment if subjects.is_empty() => format!("Commented on {review}."),
             Verb::Comment => format!("Commented on {items} on {review}."),
             Verb::Complete => format!("Completed {review}."),
             // An undo by id names no items; it withdraws that judgment
             // first.
             Verb::Undo => match self.judgment.withdraws.first() {
-                Some(undone) if named.is_empty() => {
+                Some(undone) if subjects.is_empty() => {
                     format!("Undid judgment {} on {review}.", undone.judgment.short())
                 }
                 _ => format!("Undid {items} on {review}."),
@@ -390,13 +383,13 @@ impl Recorded<'_> {
         }
         let mut commands = false;
         if verb == Verb::Dismiss {
-            for item in named
+            for (name, _) in subjects
                 .iter()
-                .filter(|item| item.origin == Origin::UntrackedRecorded)
+                .filter(|(_, origin)| *origin == Origin::UntrackedRecorded)
             {
                 // An item named by its id has no path to type. Joined to
                 // its flag, a path starting with `-` is never read as one.
-                if let Parsed::Path { path, .. } = parse(&item.name) {
+                if let Parsed::Path { path, .. } = parse(name) {
                     let include = format!("--include-untracked={}", shell_word(path));
                     lines.push(format!(
                         "The file stays outside the review; to review its content, run {}.",
@@ -406,7 +399,7 @@ impl Recorded<'_> {
                 }
             }
         }
-        lines.extend(self.withdrawn(ledger, &gate));
+        lines.extend(self.withdrawn(ledger, names));
         let open: Vec<&str> = self
             .gate
             .items
@@ -433,14 +426,11 @@ impl Recorded<'_> {
     }
 
     /// One line per judgment of `ledger` the recorded undo withdraws, in
-    /// the order withdrawn, naming what of it was withdrawn. A completion
-    /// withdrawn because it counted an acknowledgment or dismissal the undo
-    /// withdraws is named as also withdrawn.
-    fn withdrawn(
-        &self,
-        ledger: &Ledger<'_>,
-        gate: &BTreeMap<&ItemId, &GateItemInfo>,
-    ) -> Vec<String> {
+    /// the order withdrawn, naming what of it was withdrawn, its items named
+    /// as [`item_name`] names them in `names`. A completion withdrawn
+    /// because it counted an acknowledgment or dismissal the undo withdraws
+    /// is named as also withdrawn.
+    fn withdrawn(&self, ledger: &Ledger<'_>, names: &ItemNames<'_>) -> Vec<String> {
         let withdraws = &self.judgment.withdraws;
         let counted = withdraws.iter().any(|withdrawal| withdrawal.item.is_some());
         ledger
@@ -448,7 +438,7 @@ impl Recorded<'_> {
             .into_iter()
             .map(|(judgment, items)| {
                 let (date, review) = (judgment.at.date(), judgment.basis.short());
-                let names = sentence_list(items.iter().map(|item| item_name(gate, item)));
+                let listed = sentence_list(items.iter().map(|item| item_name(names, item)));
                 match judgment.kind {
                     JudgmentKind::Complete if counted => {
                         format!("Also withdrew the completion of review {review}.")
@@ -460,10 +450,10 @@ impl Recorded<'_> {
                         format!("Withdrew your comment on review {review} ({date}).")
                     }
                     JudgmentKind::Comment => {
-                        format!("Withdrew your comment on {names} ({date}, review {review}).")
+                        format!("Withdrew your comment on {listed} ({date}, review {review}).")
                     }
                     kind => format!(
-                        "Withdrew your {} of {names} ({date}, review {review}).",
+                        "Withdrew your {} of {listed} ({date}, review {review}).",
                         noun(kind)
                     ),
                 }
@@ -472,21 +462,12 @@ impl Recorded<'_> {
     }
 }
 
-/// The items of `gate` by id, so each lookup is one search of the index
-/// instead of a scan of the gate. The first item with an id wins.
-fn gate_index(gate: &GateInfo) -> BTreeMap<&ItemId, &GateItemInfo> {
-    gate.items
-        .iter()
-        .rev()
-        .map(|info| (&info.id, info))
-        .collect()
-}
-
-/// The name of `item` in `gate`, an index made by [`gate_index`], or `id:`
-/// and its first 8 digits when the gate does not hold it.
-fn item_name(gate: &BTreeMap<&ItemId, &GateItemInfo>, item: &ItemId) -> String {
-    gate.get(item)
-        .map_or_else(|| format!("id:{}", item.short()), |info| info.name.clone())
+/// The name of `item` in `names`, or `id:` and its first 8 digits when the
+/// gate `names` names does not hold it.
+fn item_name(names: &ItemNames<'_>, item: &ItemId) -> String {
+    names
+        .name(item)
+        .map_or_else(|| format!("id:{}", item.short()), str::to_owned)
 }
 
 /// What a judgment of `kind` is called in a sentence.

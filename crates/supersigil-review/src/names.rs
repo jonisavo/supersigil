@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 use supersigil_record::RecordId;
 use supersigil_record::reviews::{GateItem, ItemId, Origin, PathBytes, Subject};
 
+use crate::summary::printed;
+
 /// Fewest hex digits of a commit id a `commit:` name takes.
 const COMMIT_PREFIX: usize = 7;
 
@@ -175,7 +177,7 @@ impl std::error::Error for NameError {}
 #[derive(Debug, Clone)]
 pub struct ItemNames<'g> {
     items: &'g [GateItem],
-    associations: &'g BTreeMap<RecordId, Vec<PathBuf>>,
+    associations: BTreeMap<RecordId, Vec<PathBuf>>,
     ignore_case: bool,
     /// The index of every item about a path, in gate order, by the path
     /// as the repository compares paths (see [`folded`]).
@@ -210,7 +212,7 @@ impl<'g> ItemNames<'g> {
     /// repository-wide change of thousands of files is named promptly.
     pub fn new(
         items: &'g [GateItem],
-        associations: &'g BTreeMap<RecordId, Vec<PathBuf>>,
+        associations: BTreeMap<RecordId, Vec<PathBuf>>,
         ignore_case: bool,
         show: impl Fn(&PathBytes) -> Option<String>,
     ) -> Self {
@@ -233,10 +235,8 @@ impl<'g> ItemNames<'g> {
             commit_keys: keyed(items, commit_of),
             names: Vec::new(),
         };
-        let ids = sorted(items.iter().map(|item| item.id.as_str()));
-        let commits = sorted(items.iter().filter_map(commit_of));
         names.names = (0..items.len())
-            .map(|index| names.display(index, &show, &ids, &commits))
+            .map(|index| names.display(index, &show))
             .collect();
         names
     }
@@ -252,6 +252,13 @@ impl<'g> ItemNames<'g> {
     pub fn name(&self, id: &ItemId) -> Option<&str> {
         let index = self.by_id.get(id)?;
         Some(&self.names[*index])
+    }
+
+    /// The item `id`, if the gate has it.
+    #[must_use]
+    pub fn item(&self, id: &ItemId) -> Option<&'g GateItem> {
+        let index = self.by_id.get(id)?;
+        Some(&self.items[*index])
     }
 
     /// The items `names` name, in the order named, each once. Each name
@@ -366,20 +373,13 @@ impl<'g> ItemNames<'g> {
             .collect()
     }
 
-    /// The name of item `index`, given every item id and every commit,
-    /// each sorted and once.
-    fn display(
-        &self,
-        index: usize,
-        show: &impl Fn(&PathBytes) -> Option<String>,
-        ids: &[&str],
-        commits: &[&str],
-    ) -> String {
+    /// The name of item `index`.
+    fn display(&self, index: usize, show: &impl Fn(&PathBytes) -> Option<String>) -> String {
         let item = &self.items[index];
         let typed = match &item.subject {
             Subject::Path(path) => show(path).and_then(|shown| self.path_name(index, path, shown)),
             Subject::Commit(commit) => {
-                let prefix = unique_prefix(commit, commits, COMMIT_PREFIX);
+                let prefix = unique_prefix(commit, &self.commit_keys, COMMIT_PREFIX);
                 Some(format!("commit:{prefix}"))
             }
             Subject::Checkout(checkout) => self.unreconciled_name(index, checkout),
@@ -389,7 +389,10 @@ impl<'g> ItemNames<'g> {
                 .and_then(|paths| paths.first())
                 .and_then(|path| self.unreconciled_name(index, path)),
         };
-        typed.unwrap_or_else(|| format!("id:{}", unique_prefix(item.id.as_str(), ids, ID_PREFIX)))
+        typed.unwrap_or_else(|| {
+            let prefix = unique_prefix(item.id.as_str(), &self.id_keys, ID_PREFIX);
+            format!("id:{prefix}")
+        })
     }
 
     /// The name of path item `index` shown as `shown`: bare when it is its
@@ -416,9 +419,7 @@ impl<'g> ItemNames<'g> {
     /// `unreconciled:<path>` for item `index`, when the path is typeable
     /// and names that item alone.
     fn unreconciled_name(&self, index: usize, path: &Path) -> Option<String> {
-        let text = path
-            .to_str()
-            .filter(|text| !text.chars().any(char::is_control))?;
+        let text = printed(path.as_os_str())?;
         (self.unreconciled(path) == [index]).then(|| format!("unreconciled:{text}"))
     }
 
@@ -534,21 +535,16 @@ fn split(path: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
-/// `ids` sorted, each once.
-fn sorted<'i>(ids: impl Iterator<Item = &'i str>) -> Vec<&'i str> {
-    let mut ids: Vec<&str> = ids.collect();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
-/// The shortest prefix of `id`, at least `minimum` long, that no other of
-/// `ids` (sorted, each once) starts with. The other id sharing the longest
-/// prefix with `id` sorts next to it.
-fn unique_prefix<'a>(id: &'a str, ids: &[&str], minimum: usize) -> &'a str {
-    let at = ids.partition_point(|other| *other < id);
-    let before = at.checked_sub(1).map(|before| ids[before]);
-    let after = ids[at..].iter().copied().find(|other| *other != id);
+/// The shortest prefix of `id`, at least `minimum` long, that no other key
+/// of `keys` (sorted, see [`keyed`]) starts with. The other key sharing the
+/// longest prefix with `id` sorts next to it, past any equal to `id`.
+fn unique_prefix<'a>(id: &'a str, keys: &[(&str, usize)], minimum: usize) -> &'a str {
+    let at = keys.partition_point(|(other, _)| *other < id);
+    let before = at.checked_sub(1).map(|before| keys[before].0);
+    let after = keys[at..]
+        .iter()
+        .map(|(other, _)| *other)
+        .find(|other| *other != id);
     let length = before
         .into_iter()
         .chain(after)

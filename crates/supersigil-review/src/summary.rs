@@ -689,10 +689,11 @@ fn quoted(value: &str) -> String {
     printed(OsStr::new(value)).map_or_else(|| AS_GIVEN.to_owned(), shell_word)
 }
 
-/// `value` as a command prints it exactly, or `None` when it cannot be:
-/// it is not valid UTF-8, or it holds a control character, which output
-/// escapes.
-fn printed(value: &OsStr) -> Option<&str> {
+/// `value` as a command or a name prints it exactly, or `None` when it
+/// cannot be: it is not valid UTF-8, or it holds a control character, which
+/// output escapes.
+#[must_use]
+pub fn printed(value: &OsStr) -> Option<&str> {
     value
         .to_str()
         .filter(|text| !text.chars().any(char::is_control))

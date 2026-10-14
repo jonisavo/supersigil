@@ -1219,13 +1219,16 @@ fn a_judgment_is_found_by_a_unique_prefix_of_at_least_8_characters() {
     assert_eq!(ledger.find("deadbeef"), Err(FindJudgmentError::NoMatch));
 }
 
+/// The names of `gate`'s items, each path item named by its path.
+fn names(gate: &[GateItem]) -> ItemNames<'_> {
+    ItemNames::new(gate, BTreeMap::new(), false, |path| {
+        path.to_str().map(str::to_owned)
+    })
+}
+
 /// The gate `states` shows, each path item named by its path.
 fn gate_info(states: &GateStates<'_>, gate: &[GateItem]) -> GateInfo {
-    let associations = BTreeMap::new();
-    let names = ItemNames::new(gate, &associations, false, |path| {
-        path.to_str().map(str::to_owned)
-    });
-    GateInfo::new(states, &names)
+    GateInfo::new(states, &names(gate))
 }
 
 #[test]
@@ -1426,9 +1429,8 @@ fn status<'a>(
     );
     let indexes = GateIndex::of(&related);
     let states = GateStates::new(&current.0, &current.1, &related, &indexes, ledger);
-    let gate = gate_info(&states, &current.1.gate);
     let readings = related.iter().map(|related| read(*related)).collect();
-    StatusInfo::reviewed(&states, &current.1, readings, &gate)
+    StatusInfo::reviewed(&states, &current.1, readings, &names(&current.1.gate))
 }
 
 #[test]
@@ -1702,7 +1704,7 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
         let related = related_bases(&current.0, &current.1, ids.iter().map(|id| (id, &earlier)));
         let indexes = GateIndex::of(&related);
         let states = GateStates::new(&current.0, &current.1, &related, &indexes, &ledger);
-        let gate = gate_info(&states, &current.1.gate);
+        let names = names(&current.1.gate);
         let readings = related
             .iter()
             .map(|&related| RelatedReading {
@@ -1710,7 +1712,7 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
                 ..unchanged(related)
             })
             .collect();
-        StatusInfo::reviewed(&states, &current.1, readings, &gate)
+        StatusInfo::reviewed(&states, &current.1, readings, &names)
     });
 
     assert_eq!(status.related.len(), 100);

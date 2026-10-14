@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use supersigil_anchor::PathAttribution;
 use supersigil_git::bytes::{Blob, read_blobs_within};
@@ -16,7 +16,6 @@ use supersigil_git::changes::{
     Change, FileKind, MAX_DIFF_BYTES, changed_paths, classify_bytes, classify_change,
 };
 use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
-use supersigil_record::RecordId;
 use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::reviews::{
     self, Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisId, BasisRecord,
@@ -30,7 +29,6 @@ use supersigil_review::model::{
     GateInfo, NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, Unsaved,
     UntrackedInfo, file_review, unattributed_summary,
 };
-use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::Outcome;
 use supersigil_review::summary::{Addressing, render_summary};
 use supersigil_review::{REVIEW_SCHEMA, Review};
@@ -41,7 +39,7 @@ use crate::error::CliError;
 use crate::evidence::{CandidateCommands, add_referenced_edits};
 use crate::format::{OutputFormat, escape_control, write_json};
 use crate::gate_inputs::gate_inputs;
-use crate::item_names::{associations, typed};
+use crate::item_names::item_names;
 use crate::pipeline::{
     BaseChoice, Gathered, PipelineArgs, all_conflicts, attribute_path, attribution_state,
     base_info, cause_word, claude_home, conflicts_for, display_from, evidence_info, file_kind,
@@ -105,8 +103,7 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
             }
         }
         Err(_not_utf8) => {
-            let associations = associations(&document);
-            let names = names(&g, &document, &associations);
+            let names = item_names(&document, g.ignore_case, &g.worktree, &g.cwd);
             review.gate = GateInfo::unjudged(&document.gate, &names);
             review.basis_unsaved = Some(Unsaved::PathNotUtf8);
         }
@@ -217,23 +214,10 @@ fn judged(
     let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&stored.judgments);
     let states = GateStates::new(id, basis, &related, &indexes, &ledger);
-    let associations = associations(basis);
-    let names = names(g, basis, &associations);
+    let names = item_names(basis, g.ignore_case, &g.worktree, &g.cwd);
     let gate = GateInfo::new(&states, &names);
     let readings = read_changes(g, review, &related)?;
-    Ok((StatusInfo::reviewed(&states, basis, readings, &gate), gate))
-}
-
-/// The names of `basis`'s gate items as typed from the current directory
-/// `g` gathered, with `associations` naming its records.
-fn names<'b>(
-    g: &Gathered,
-    basis: &'b Basis,
-    associations: &'b BTreeMap<RecordId, Vec<PathBuf>>,
-) -> ItemNames<'b> {
-    ItemNames::new(&basis.gate, associations, g.ignore_case, |path| {
-        typed(&g.worktree, &g.cwd, path)
-    })
+    Ok((StatusInfo::reviewed(&states, basis, readings, &names), gate))
 }
 
 /// The basis of `review`: what it compared and the evidence it read, as

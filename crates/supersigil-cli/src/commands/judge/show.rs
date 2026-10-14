@@ -7,7 +7,6 @@
 //! completion of the same content is shown as related.
 
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::path::Path;
 
@@ -16,18 +15,16 @@ use supersigil_record::reviews::{
     BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind, PathBytes,
 };
 use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation, related_bases};
-use supersigil_review::model::{GateInfo, GateItemInfo, JudgmentInfo, StatusInfo};
+use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
+use supersigil_review::names::ItemNames;
 use supersigil_review::summary::{
     Addressing, NOTHING_TO_REVIEW, aligned, compared, gate_row, next_lines,
 };
 
-use super::{
-    Checkout, addressing, gate_index, item_name, no_selection, noun, select, unknown_review,
-};
+use super::{Checkout, addressing, item_name, no_selection, noun, select, unknown_review};
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, escape_control, write_json};
-use crate::item_names::associations;
 use crate::review_dir::judged_bases;
 
 /// Runs `supersigil judge show`.
@@ -55,8 +52,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let indexes = GateIndex::of(&related);
     let ledger = Ledger::new(&judgments);
     let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
-    let associations = associations(&basis);
-    let gate = GateInfo::new(&states, &checkout.names(&basis, &associations)?);
+    let names = checkout.names(&basis)?;
     let mut same_content: Vec<&Judgment> = related
         .iter()
         .filter(|related| related.relation == Relation::SameContent)
@@ -71,10 +67,10 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
         scope: &basis.scope,
         status: StatusInfo::new(&states),
         same_content_completions: same_content.into_iter().map(JudgmentInfo::new).collect(),
-        comments: comments(&id, &judgments, &ledger, &gate),
-        history: history(&id, &judgments, &ledger, &gate),
+        gate: GateInfo::new(&states, &names),
+        comments: comments(&id, &judgments, &ledger, &names),
+        history: history(&id, &judgments, &ledger, &names),
         nothing_to_review: basis.explanations.is_empty() && basis.gate.is_empty(),
-        gate,
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&shown)?,
@@ -141,14 +137,13 @@ struct Withdrawn {
 }
 
 /// The standing comments of `judgments` recorded on the review `id`, their
-/// items named as `gate` names them.
+/// items named in `names`.
 fn comments(
     id: &BasisId,
     judgments: &[Judgment],
     ledger: &Ledger<'_>,
-    gate: &GateInfo,
+    names: &ItemNames<'_>,
 ) -> Vec<Comment> {
-    let gate = gate_index(gate);
     judgments
         .iter()
         .filter(|judgment| {
@@ -158,21 +153,20 @@ fn comments(
         })
         .map(|judgment| Comment {
             judgment: JudgmentInfo::new(judgment),
-            items: names(&gate, &judgment.items),
+            items: named(names, &judgment.items),
         })
         .collect()
 }
 
 /// What every undo in `judgments` withdrew of a judgment of `ledger` on the
-/// review `id`, or withdrew while recorded on it, its items named as `gate`
-/// names them.
+/// review `id`, or withdrew while recorded on it, its items named in
+/// `names`.
 fn history(
     id: &BasisId,
     judgments: &[Judgment],
     ledger: &Ledger<'_>,
-    gate: &GateInfo,
+    names: &ItemNames<'_>,
 ) -> Vec<Withdrawn> {
-    let gate = gate_index(gate);
     judgments
         .iter()
         .filter(|judgment| judgment.kind == JudgmentKind::Undo)
@@ -183,7 +177,7 @@ fn history(
                 .filter(|(withdrawn, _)| withdrawn.basis == *id || undo.basis == *id)
                 .map(|(withdrawn, items)| Withdrawn {
                     judgment: JudgmentInfo::new(withdrawn),
-                    items: names(&gate, items),
+                    items: named(names, items),
                     undo: JudgmentInfo::new(undo),
                 })
                 .collect::<Vec<_>>()
@@ -191,14 +185,11 @@ fn history(
         .collect()
 }
 
-/// The names of `items` in `gate`.
-fn names<'i>(
-    gate: &BTreeMap<&ItemId, &GateItemInfo>,
-    items: impl IntoIterator<Item = &'i ItemId>,
-) -> Vec<String> {
+/// The names of `items` in `names`, as [`item_name`] gives them.
+fn named<'i>(names: &ItemNames<'_>, items: impl IntoIterator<Item = &'i ItemId>) -> Vec<String> {
     items
         .into_iter()
-        .map(|item| item_name(gate, item))
+        .map(|item| item_name(names, item))
         .collect()
 }
 

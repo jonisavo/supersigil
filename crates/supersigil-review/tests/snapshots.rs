@@ -396,8 +396,7 @@ fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Ju
         let ledger = Ledger::new(&judgments);
         let indexes = GateIndex::of(&[]);
         let states = GateStates::new(&id, &document, &[], &indexes, &ledger);
-        let associations = BTreeMap::new();
-        let names = ItemNames::new(&document.gate, &associations, false, |path| {
+        let names = ItemNames::new(&document.gate, BTreeMap::new(), false, |path| {
             path.to_str().map(str::to_owned)
         });
         (StatusInfo::new(&states), GateInfo::new(&states, &names))

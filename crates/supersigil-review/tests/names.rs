@@ -67,8 +67,7 @@ fn from_root(path: &PathBytes) -> Option<String> {
 
 /// Names for `items` from the repository root, with no record associations.
 fn named(items: &[GateItem], ignore_case: bool) -> ItemNames<'_> {
-    static NONE: BTreeMap<RecordId, Vec<PathBuf>> = BTreeMap::new();
-    ItemNames::new(items, &NONE, ignore_case, from_root)
+    ItemNames::new(items, BTreeMap::new(), ignore_case, from_root)
 }
 
 /// What the CLI makes of `typed` at the repository root.
@@ -226,8 +225,7 @@ fn names_show_paths_as_typed_from_the_current_directory() {
         at(Origin::Discontinuity, b"src/a.rs"),
         at(Origin::NotDiffed, b"logo.png"),
     ];
-    let associations = BTreeMap::new();
-    let names = ItemNames::new(&items, &associations, false, from_src);
+    let names = ItemNames::new(&items, BTreeMap::new(), false, from_src);
     assert_eq!(
         names.names(),
         strings(&["lines:a.rs", "gap:a.rs", "/work/repo/logo.png"])
@@ -379,7 +377,7 @@ fn unreconciled_names_a_checkout_or_any_association_of_a_record() {
         RecordId::new("rec-2"),
         vec![PathBuf::from("/work/main"), PathBuf::from("/work/side")],
     )]);
-    let names = ItemNames::new(&items, &associations, false, from_root);
+    let names = ItemNames::new(&items, associations, false, from_root);
     // A record without associations is named by its id.
     assert_eq!(
         names.names(),

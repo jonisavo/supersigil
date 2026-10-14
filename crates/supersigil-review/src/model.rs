@@ -5,7 +5,7 @@
 //! summary, then scope, origins, records, evidence, files, and the edits
 //! every other section refers to by id.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -153,9 +153,9 @@ impl StatusInfo {
     }
 
     /// The status of the review whose basis is `basis` and whose gate is
-    /// `states`, shown as `gate`, given `related`: the reviews `states`
-    /// relates it to, each with what the CLI read of how its code and
-    /// records changed since.
+    /// `states`, its items named as `names` names them, given `related`:
+    /// the reviews `states` relates it to, each with what the CLI read of
+    /// how its code and records changed since.
     ///
     /// Complete with its own standing completion; otherwise through the
     /// most recent standing completion of a related review that carries
@@ -167,19 +167,14 @@ impl StatusInfo {
         states: &GateStates<'_>,
         basis: &Basis,
         related: Vec<RelatedReading<'_>>,
-        gate: &GateInfo,
+        names: &ItemNames<'_>,
     ) -> Self {
         let ledger = states.ledger();
-        let names: HashMap<&ItemId, &str> = gate
-            .items
-            .iter()
-            .map(|info| (&info.id, info.name.as_str()))
-            .collect();
         let mut related: Vec<RelatedInfo> = related
             .into_iter()
             .map(|reading| {
                 let completion = ledger.completion(reading.related.id);
-                RelatedInfo::new(basis, reading, completion, &names)
+                RelatedInfo::new(basis, reading, completion, names)
             })
             .collect();
         let carried = ledger.latest_completion(
@@ -249,13 +244,13 @@ pub struct RelatedInfo {
 
 impl RelatedInfo {
     /// What the review whose basis is `basis`, its gate items named as
-    /// `names` gives by ID, shows of the related review `reading` read,
+    /// `names` names them, shows of the related review `reading` read,
     /// whose most recent standing completion is `completion`.
     fn new(
         basis: &Basis,
         reading: RelatedReading<'_>,
         completion: Option<&Judgment>,
-        names: &HashMap<&ItemId, &str>,
+        names: &ItemNames<'_>,
     ) -> Self {
         let earlier = reading.related.basis;
         let changed_evidence = ChangedEvidence {
@@ -272,10 +267,7 @@ impl RelatedInfo {
             .into_iter()
             .map(|uncovered| UncoveredInfo {
                 id: uncovered.item.id.clone(),
-                name: names.get(&uncovered.item.id).map_or_else(
-                    || format!("id:{}", uncovered.item.id),
-                    |&name| name.to_owned(),
-                ),
+                name: name_of(names, &uncovered.item.id),
                 reasons: match uncovered.change {
                     ItemChange::New => vec!["new"],
                     ItemChange::Changed(reasons) => reasons,
@@ -409,9 +401,7 @@ impl GateInfo {
                 };
                 GateItemInfo {
                     id: item.id.clone(),
-                    name: names
-                        .name(&item.id)
-                        .map_or_else(|| format!("id:{}", item.id), str::to_owned),
+                    name: name_of(names, &item.id),
                     origin: item.origin(),
                     subject: item.subject.clone(),
                     detail: item.detail.clone(),
@@ -427,6 +417,14 @@ impl GateInfo {
             items,
         }
     }
+}
+
+/// The name of the item `id` as `names` names it, or `id:` and its full id
+/// when `names` lacks it.
+fn name_of(names: &ItemNames<'_>, id: &ItemId) -> String {
+    names
+        .name(id)
+        .map_or_else(|| format!("id:{id}"), str::to_owned)
 }
 
 /// One gate item and its state.

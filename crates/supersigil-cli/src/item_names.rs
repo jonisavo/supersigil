@@ -2,36 +2,46 @@
 //! from the current directory, and what a typed name means there.
 //! `supersigil_review::names` does the rest.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
+use std::path::Path;
 
 use supersigil_git::RepoPath;
-use supersigil_record::RecordId;
 use supersigil_record::reviews::{Basis, PathBytes};
-use supersigil_review::names::{Name, Parsed, parse};
+use supersigil_review::names::{ItemNames, Name, Parsed, parse};
+use supersigil_review::summary::printed;
 use supersigil_session::checkout::resolve;
 
 use crate::error::CliError;
 use crate::pipeline::{display_from, repo_path};
 
-/// The paths associated with each record `basis` pinned, which
-/// `unreconciled:` names match.
+/// The names of `basis`'s gate items as typed from `cwd` in `worktree`,
+/// paths that differ only in ASCII case being one path when `ignore_case`
+/// is set, and `unreconciled:` names matching the paths associated with
+/// each record `basis` pinned.
 #[must_use]
-pub fn associations(basis: &Basis) -> BTreeMap<RecordId, Vec<PathBuf>> {
-    basis
+pub fn item_names<'b>(
+    basis: &'b Basis,
+    ignore_case: bool,
+    worktree: &Path,
+    cwd: &Path,
+) -> ItemNames<'b> {
+    let associations = basis
         .records
         .iter()
         .map(|record| (record.id.clone(), record.associations.clone()))
-        .collect()
+        .collect();
+    ItemNames::new(&basis.gate, associations, ignore_case, |path| {
+        typed(worktree, cwd, path)
+    })
 }
 
 /// `path`, a repository path in `worktree`, as a person types it from
 /// `cwd`, or `None` when it cannot be typed: it is not UTF-8, or that
 /// spelling holds a control character.
-#[must_use]
-pub fn typed(worktree: &Path, cwd: &Path, path: &PathBytes) -> Option<String> {
+fn typed(worktree: &Path, cwd: &Path, path: &PathBytes) -> Option<String> {
     let path = RepoPath::from_utf8(path.to_str()?);
-    Some(display_from(worktree, cwd, &path)).filter(|typed| !typed.chars().any(char::is_control))
+    let typed = display_from(worktree, cwd, &path);
+    printed(OsStr::new(&typed)).is_some().then_some(typed)
 }
 
 /// What `typed`, a name a person typed in `cwd`, means in `worktree`: a
