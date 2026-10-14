@@ -10,10 +10,12 @@
 //! render the terminal forms. [`gate`] builds a review's gate items, with
 //! the fingerprints that carry judgments between reviews, and the digests a
 //! saved review keeps of its evidence; [`names`] names its items and
-//! resolves typed names to them.
+//! resolves typed names to them. [`judging`] decides each gate item's state
+//! from the judgments recorded on saved reviews.
 
 pub mod diff;
 pub mod gate;
+pub mod judging;
 pub mod mapping;
 pub mod model;
 pub mod names;
