@@ -4,6 +4,8 @@
 //! different path separators. [`placement`] accounts for these differences
 //! when comparing a transcript's working directory with a checkout.
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 /// Whether a path is the checkout root, a descendant, or outside it.
@@ -60,6 +62,34 @@ pub fn resolve(checkout: &Path) -> PathBuf {
     canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
 }
 
+/// The resolution ([`resolve`]) of each checkout a review's records name,
+/// made once for the whole review, or that a sync's edits name, made once
+/// for the whole sync. Every placement of a recorded file in the review,
+/// and every location sync compares edits by, goes through it, so a
+/// symbolic link on a checkout's path that changes meanwhile never places
+/// one file two ways.
+#[derive(Debug, Clone, Default)]
+pub struct Resolutions(BTreeMap<PathBuf, PathBuf>);
+
+impl Resolutions {
+    /// Resolves `checkout` unless it already was.
+    pub fn add(&mut self, checkout: &Path) {
+        self.0
+            .entry(checkout.to_path_buf())
+            .or_insert_with(|| resolve(checkout));
+    }
+
+    /// The resolution of `checkout`: the one made once, or, for a checkout
+    /// never added, one made now.
+    #[must_use]
+    pub fn resolution(&self, checkout: &Path) -> Cow<'_, Path> {
+        self.0.get(checkout).map_or_else(
+            || Cow::Owned(resolve(checkout)),
+            |resolved| Cow::Borrowed(resolved.as_path()),
+        )
+    }
+}
+
 /// Where the file `path`, recorded relative to `checkout`, lies: `checkout`
 /// as [`resolve`] returns it, joined with `path`, then lexically normalized
 /// (`.` components removed, each `..` folded into the normal component before
@@ -73,8 +103,16 @@ pub fn resolve(checkout: &Path) -> PathBuf {
 /// to the checkout.
 #[must_use]
 pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
+    file_location_in(&resolve(checkout), path)
+}
+
+/// [`file_location`] with `checkout` already resolved ([`resolve`]): only
+/// the lexical normalization, so locating several files of one checkout
+/// resolves it once ([`Resolutions`]).
+#[must_use]
+pub fn file_location_in(checkout: &Path, path: &Path) -> PathBuf {
     let mut normal = PathBuf::new();
-    for component in resolve(checkout).join(path).components() {
+    for component in checkout.join(path).components() {
         match component {
             Component::ParentDir => match normal.components().next_back() {
                 Some(Component::Normal(_)) => {

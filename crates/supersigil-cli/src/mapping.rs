@@ -7,12 +7,10 @@
 //! `.claude/worktrees/feature/src/lib.rs` thus maps to `src/lib.rs` in
 //! `feature`.
 
-use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use supersigil_record::observations::Edit;
-use supersigil_session::checkout::{Placement, placement_as_written, resolve};
+use supersigil_session::checkout::{Placement, Resolutions, placement_as_written};
 
 /// The worktree a recorded file lies in, and the file's path inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,38 +23,34 @@ pub struct MappedEdit {
 }
 
 /// Maps `edit` to the innermost of `worktree_roots` that contains the file
-/// it edited ([`map_file`]).
+/// it edited ([`map_resolved`]), through the resolution of the edit's
+/// checkout in `resolutions` ([`Resolutions::resolution`]).
 #[must_use]
-pub fn map_edit(edit: &Edit, worktree_roots: &[PathBuf], ignore_case: bool) -> Option<MappedEdit> {
-    map_file(&edit.checkout, &edit.path, worktree_roots, ignore_case)
+pub fn map_edit(
+    resolutions: &Resolutions,
+    edit: &Edit,
+    worktree_roots: &[PathBuf],
+    ignore_case: bool,
+) -> Option<MappedEdit> {
+    let checkout = resolutions.resolution(&edit.checkout);
+    map_resolved(&checkout, &edit.path, worktree_roots, ignore_case)
 }
 
 /// Maps the file `path`, recorded relative to `checkout`, to the innermost
 /// of `worktree_roots` that contains it.
 ///
-/// The checkout directory is canonicalized when it exists and taken
-/// as written otherwise, and the already-validated relative path is
-/// appended lexically. Nothing below the checkout is resolved: containment
-/// and the remainder are both read from that one spelling
-/// ([`placement_as_written`]), so a symlinked file keeps the path the agent
-/// wrote, a symlinked directory in the relative path is never followed into
-/// another file's name, and a deleted file still maps. Roots are compared as
-/// given (callers pass them canonical); with `ignore_case` (the repository
-/// sets `core.ignorecase`), a root that does not contain the file as
-/// spelled is tried again with both sides ASCII-lowercased. Returns `None`
-/// when no root contains the file or its path is not UTF-8.
-#[must_use]
-pub fn map_file(
-    checkout: &Path,
-    path: &Path,
-    worktree_roots: &[PathBuf],
-    ignore_case: bool,
-) -> Option<MappedEdit> {
-    map_resolved(&resolve(checkout), path, worktree_roots, ignore_case)
-}
-
-/// [`map_file`] with an already resolved checkout ([`resolve`]), for
-/// callers placing several files from one checkout.
+/// The checkout directory is already resolved
+/// ([`resolve`](supersigil_session::checkout::resolve)): canonicalized
+/// when it exists and taken as written otherwise. The already-validated
+/// relative path is appended lexically. Nothing below the checkout is
+/// resolved: containment and the remainder are both read from that one
+/// spelling ([`placement_as_written`]), so a symlinked file keeps the path
+/// the agent wrote, a symlinked directory in the relative path is never
+/// followed into another file's name, and a deleted file still maps. Roots
+/// are compared as given (callers pass them canonical); with `ignore_case`
+/// (the repository sets `core.ignorecase`), a root that does not contain
+/// the file as spelled is tried again with both sides ASCII-lowercased.
+/// Returns `None` when no root contains the file or its path is not UTF-8.
 #[must_use]
 pub fn map_resolved(
     checkout: &Path,
@@ -89,45 +83,6 @@ pub fn map_resolved(
     })
 }
 
-/// The resolution ([`resolve`]) of each checkout a review's records name,
-/// made once for the whole review. Every placement of a recorded file in
-/// the review goes through it, so a symbolic link on a checkout's path that
-/// changes while the review runs never places one file two ways.
-#[derive(Debug, Clone, Default)]
-pub struct Resolutions(BTreeMap<PathBuf, PathBuf>);
-
-impl Resolutions {
-    /// Resolves `checkout` unless it already was.
-    pub fn add(&mut self, checkout: &Path) {
-        self.0
-            .entry(checkout.to_path_buf())
-            .or_insert_with(|| resolve(checkout));
-    }
-
-    /// The resolution of `checkout`: the one made for the review, or, for
-    /// a checkout its records never named, one made now.
-    #[must_use]
-    pub fn resolution(&self, checkout: &Path) -> Cow<'_, Path> {
-        self.0.get(checkout).map_or_else(
-            || Cow::Owned(resolve(checkout)),
-            |resolved| Cow::Borrowed(resolved.as_path()),
-        )
-    }
-
-    /// [`map_edit`] through the resolution of the edit's checkout
-    /// ([`Self::resolution`]).
-    #[must_use]
-    pub fn map_edit(
-        &self,
-        edit: &Edit,
-        worktree_roots: &[PathBuf],
-        ignore_case: bool,
-    ) -> Option<MappedEdit> {
-        let checkout = self.resolution(&edit.checkout);
-        map_resolved(&checkout, &edit.path, worktree_roots, ignore_case)
-    }
-}
-
 /// How many components `path` lies below `root`, as written, or `None` when
 /// it is outside.
 fn depth_below(path: &Path, root: &Path, ignore_case: bool) -> Option<usize> {
@@ -154,9 +109,9 @@ mod tests {
 
     use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Material};
     use supersigil_record::{EventId, SessionId, Timestamp, TurnId};
-    use supersigil_session::checkout::canonical;
+    use supersigil_session::checkout::{Resolutions, canonical};
 
-    use super::{MappedEdit, Resolutions, map_edit};
+    use super::{MappedEdit, map_edit};
 
     fn edit(checkout: &Path, path: &str) -> Edit {
         Edit {
@@ -196,6 +151,7 @@ mod tests {
         let (_dir, repo, nested) = dirs();
         let roots = [repo.clone(), nested.clone()];
         let mapped = map_edit(
+            &Resolutions::default(),
             &edit(&repo, ".claude/worktrees/feature/src/lib.rs"),
             &roots,
             false,
@@ -213,6 +169,7 @@ mod tests {
     fn a_subdirectory_checkout_maps_to_a_repository_path() {
         let (_dir, repo, _nested) = dirs();
         let mapped = map_edit(
+            &Resolutions::default(),
             &edit(&repo.join("src"), "lib.rs"),
             std::slice::from_ref(&repo),
             false,
@@ -224,13 +181,20 @@ mod tests {
     fn an_edit_outside_every_worktree_is_unplaced() {
         let (dir, repo, _nested) = dirs();
         let elsewhere = canonical(dir.path()).unwrap().join("elsewhere");
-        assert_eq!(map_edit(&edit(&elsewhere, "a.rs"), &[repo], false), None);
+        let mapped = map_edit(
+            &Resolutions::default(),
+            &edit(&elsewhere, "a.rs"),
+            &[repo],
+            false,
+        );
+        assert_eq!(mapped, None);
     }
 
     #[test]
     fn a_missing_checkout_is_compared_as_written() {
         let (_dir, repo, _nested) = dirs();
         let mapped = map_edit(
+            &Resolutions::default(),
             &edit(&repo.join("gone"), "a.rs"),
             std::slice::from_ref(&repo),
             false,
@@ -244,7 +208,12 @@ mod tests {
         let (_dir, repo, _nested) = dirs();
         std::fs::write(repo.join("src/real.rs"), "").unwrap();
         std::os::unix::fs::symlink(repo.join("src/real.rs"), repo.join("link.rs")).unwrap();
-        let mapped = map_edit(&edit(&repo, "link.rs"), std::slice::from_ref(&repo), false);
+        let mapped = map_edit(
+            &Resolutions::default(),
+            &edit(&repo, "link.rs"),
+            std::slice::from_ref(&repo),
+            false,
+        );
         assert_eq!(mapped.map(|m| m.path), Some("link.rs".to_owned()));
     }
 
@@ -255,6 +224,7 @@ mod tests {
         std::fs::create_dir_all(repo.join("one")).unwrap();
         std::os::unix::fs::symlink(repo.join("src"), repo.join("one/link")).unwrap();
         let mapped = map_edit(
+            &Resolutions::default(),
             &edit(&repo, "one/link/a.rs"),
             std::slice::from_ref(&repo),
             false,
@@ -268,8 +238,12 @@ mod tests {
     fn case_is_ignored_only_when_asked() {
         let roots = [PathBuf::from("/work/repo")];
         let checkout = Path::new("/work/Repo/src");
-        assert_eq!(map_edit(&edit(checkout, "a.rs"), &roots, false), None);
-        let mapped = map_edit(&edit(checkout, "a.rs"), &roots, true);
+        let resolutions = Resolutions::default();
+        assert_eq!(
+            map_edit(&resolutions, &edit(checkout, "a.rs"), &roots, false),
+            None
+        );
+        let mapped = map_edit(&resolutions, &edit(checkout, "a.rs"), &roots, true);
         assert_eq!(mapped.map(|m| m.path), Some("src/a.rs".to_owned()));
     }
 
@@ -291,8 +265,11 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, &alias).unwrap();
         let roots = std::slice::from_ref(&repo);
 
-        assert_eq!(map_edit(&edited, roots, false), None);
-        let mapped = resolutions.map_edit(&edited, roots, false);
+        assert_eq!(
+            map_edit(&Resolutions::default(), &edited, roots, false),
+            None
+        );
+        let mapped = map_edit(&resolutions, &edited, roots, false);
         assert_eq!(mapped.map(|m| m.path), Some("a.rs".to_owned()));
     }
 }

@@ -19,7 +19,7 @@ use supersigil_session::checkout::{canonical_or_written, overlaps, within};
 use supersigil_session::claude_code::parse_transcript;
 use supersigil_session::discover::{discover_transcripts, encode_project_dir, transcripts_in};
 use supersigil_session::found;
-use supersigil_session::sync::{REMOVED_BEFORE_READ, SyncError, SyncReport, read_transcript, sync};
+use supersigil_session::sync::{Skip, SyncError, SyncReport, read_transcript, sync};
 
 use crate::error::CliError;
 use crate::record_dir::{Acquired, Contention, open_or_create_record_within, poll, records_in};
@@ -326,10 +326,7 @@ fn sync_record(
         // A removed transcript is reported here, so the unowned read need
         // not find it again.
         for transcript in &report.transcripts {
-            if matches!(
-                transcript.skipped.as_deref(),
-                None | Some(REMOVED_BEFORE_READ)
-            ) {
+            if matches!(transcript.skipped, None | Some(Skip::Removed)) {
                 admitted.insert(identity(&transcript.path)?);
             }
         }
@@ -345,7 +342,7 @@ fn sync_record(
 fn note_removed(report: &SyncReport, removed: &mut BTreeSet<PathBuf>) -> Option<String> {
     let mut reason = None;
     for transcript in &report.transcripts {
-        if transcript.skipped.as_deref() == Some(REMOVED_BEFORE_READ) {
+        if matches!(transcript.skipped, Some(Skip::Removed)) {
             reason.get_or_insert_with(|| removed_reason(&transcript.path));
             removed.insert(transcript.path.clone());
         }
@@ -356,7 +353,11 @@ fn note_removed(report: &SyncReport, removed: &mut BTreeSet<PathBuf>) -> Option<
 /// Why a record or checkout with `transcript` is not reconciled when the
 /// transcript was removed before it could be read.
 fn removed_reason(transcript: &Path) -> String {
-    format!("transcript {} {REMOVED_BEFORE_READ}", transcript.display())
+    format!(
+        "transcript {} {}",
+        transcript.display(),
+        Skip::Removed.reason()
+    )
 }
 
 /// Maps each transcript path the record holds a cursor for to the checkout

@@ -11,9 +11,9 @@ use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, Edit, Observation, SessionStart, Source,
 };
 use supersigil_record::store::{Association, SourceCursor, Store, StoreError, WriteTx};
-use supersigil_record::{ContentId, Revision, SessionId, Timestamp};
+use supersigil_record::{ContentId, DerivationSet, Revision, SessionId, Timestamp};
 
-use crate::checkout::{Placement, canonical, file_location, placement, within};
+use crate::checkout::{Placement, Resolutions, canonical, file_location_in, placement, within};
 use crate::claude_code::{ParseOutcome, parse_transcript};
 
 /// Failure to read a transcript or update the record during sync.
@@ -53,10 +53,10 @@ pub struct TranscriptReport {
     pub counts: CaptureCounts,
     /// Reason the transcript was skipped, or `None` if it was accepted.
     /// Skipped transcripts name an outside checkout, have no known checkout,
-    /// or were [removed before they could be read](REMOVED_BEFORE_READ).
+    /// or were [removed before they could be read](Skip::Removed).
     /// They add no observations and leave their stored cursors unchanged.
     #[serde(default)]
-    pub skipped: Option<String>,
+    pub skipped: Option<Skip>,
     /// Transcript checkout path when it is a descendant of the requested checkout.
     /// Sync preserves this path in observations without adding a record association.
     #[serde(default)]
@@ -89,8 +89,10 @@ pub struct SyncReport {
 /// The commit, timed by the system clock, also deletes derivation documents
 /// replaced more than 14 days earlier (see [`WriteTx::commit`]).
 ///
-/// Derivations group each session's edits by [`file_location`], so edits of
-/// one file are compared whatever directory the session named it from. A
+/// Derivations group each session's edits by
+/// [`file_location`](crate::checkout::file_location), with each checkout
+/// resolved once per call ([`Resolutions`]), so edits of one file are
+/// compared whatever directory the session named it from. A
 /// commit also derives again every other session's stored set that an older
 /// [`ALGORITHM_VERSION`] produced, from the observations already recorded.
 ///
@@ -112,7 +114,7 @@ pub struct SyncReport {
 /// positions are comparable only within one transcript.
 ///
 /// A transcript that is gone, or no longer a regular file, when read is
-/// reported as skipped with the reason [`REMOVED_BEFORE_READ`], and its
+/// reported as skipped with the reason [`Skip::Removed`], and its
 /// cursor and recorded observations stay. If it reappears, a later sync
 /// resumes from that cursor once the consumed bytes still match.
 ///
@@ -156,14 +158,14 @@ pub fn sync(
         });
     }
 
-    // Edits of one file are compared however the session spelled it.
-    let key = |edit: &Edit| Some(file_location(&edit.checkout, &edit.path));
+    let mut resolutions = Resolutions::default();
     let next_revision = tx.manifest().revision.next();
     let mut sessions = Vec::with_capacity(appended.len());
     for (session, new) in appended {
         let mut observations = pinned.observations(&session)?;
         observations.extend(new);
-        tx.put_derivations(&derive(&session, &observations, next_revision, key))?;
+        let set = derive_located(&session, &observations, next_revision, &mut resolutions);
+        tx.put_derivations(&set)?;
         sessions.push(session);
     }
     // Sets an older algorithm derived are derived again from the pinned
@@ -172,11 +174,12 @@ pub fn sync(
         if sessions.contains(&session) {
             continue;
         }
-        if let Some(set) = pinned.derivations(&session)?
-            && set.algorithm_version < ALGORITHM_VERSION
+        if let Some(version) = pinned.algorithm_version(&session)?
+            && version < ALGORITHM_VERSION
         {
             let observations = pinned.observations(&session)?;
-            tx.put_derivations(&derive(&session, &observations, pinned.revision(), key))?;
+            let set = derive_located(&session, &observations, pinned.revision(), &mut resolutions);
+            tx.put_derivations(&set)?;
         }
     }
     let revision = tx.commit()?;
@@ -188,9 +191,29 @@ pub fn sync(
     })
 }
 
-/// Reason a transcript is skipped when it was listed for reading but was
-/// gone, or no longer a regular file, when read ([`read_transcript`]).
-pub const REMOVED_BEFORE_READ: &str = "removed before it could be read";
+/// Derives `session`'s set from `observations`, as of `revision`, grouping
+/// its edits by where the file each changed lies ([`file_location_in`]):
+/// edits of one file are compared however the session spelled it. Each
+/// checkout is resolved through `resolutions`, once for the whole sync.
+fn derive_located(
+    session: &SessionId,
+    observations: &[Observation],
+    revision: Revision,
+    resolutions: &mut Resolutions,
+) -> DerivationSet {
+    for observation in observations {
+        if let Observation::Edit(edit) = observation {
+            resolutions.add(&edit.checkout);
+        }
+    }
+    let resolutions = &*resolutions;
+    derive(session, observations, revision, |edit: &Edit| {
+        Some(file_location_in(
+            &resolutions.resolution(&edit.checkout),
+            &edit.path,
+        ))
+    })
+}
 
 /// Reads the transcript at `path`, or returns `None` if it was removed
 /// before it could be read: it is not found, or what is there, following a
@@ -377,10 +400,12 @@ fn transcript_key(path: &Path, resolved: std::io::Result<PathBuf>) -> Result<Str
     Ok(key.display().to_string())
 }
 
-/// Reason a transcript was not accepted for sync.
-enum Skip {
-    /// The transcript was removed before it could be read
-    /// ([`read_transcript`]).
+/// Reason a transcript was not accepted for sync. It is serialized as its
+/// text ([`Self::reason`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Skip {
+    /// The transcript was listed for reading but was gone, or no longer a
+    /// regular file, when read ([`read_transcript`]).
     Removed,
     /// The parser has no working directory for this transcript.
     Unknown,
@@ -390,6 +415,16 @@ enum Skip {
 }
 
 impl Skip {
+    /// The reason's text, as `session sync` reports it.
+    #[must_use]
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::Removed => "removed before it could be read",
+            Self::Unknown => "checkout unknown",
+            Self::Outside(reason) => reason,
+        }
+    }
+
     /// Creates a skipped-transcript report with no observations or consumed bytes.
     /// Keeps counts for an unknown checkout and clears them for an outside checkout.
     fn report(
@@ -398,10 +433,9 @@ impl Skip {
         session: Option<SessionId>,
         counts: CaptureCounts,
     ) -> TranscriptReport {
-        let (reason, counts) = match self {
-            Self::Removed => (REMOVED_BEFORE_READ.to_owned(), counts),
-            Self::Unknown => ("checkout unknown".to_owned(), counts),
-            Self::Outside(reason) => (reason, CaptureCounts::default()),
+        let counts = match self {
+            Self::Removed | Self::Unknown => counts,
+            Self::Outside(_) => CaptureCounts::default(),
         };
         TranscriptReport {
             path: path.to_path_buf(),
@@ -410,9 +444,15 @@ impl Skip {
             consumed: 0,
             trailing_partial: false,
             counts,
-            skipped: Some(reason),
+            skipped: Some(self),
             nested_checkout: None,
         }
+    }
+}
+
+impl serde::Serialize for Skip {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.reason())
     }
 }
 

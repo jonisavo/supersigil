@@ -13,7 +13,7 @@ use supersigil_record::observations::{
 use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::checkout::canonical;
-use supersigil_session::sync::{REMOVED_BEFORE_READ, sync};
+use supersigil_session::sync::{Skip, sync};
 
 struct Setup {
     dir: tempfile::TempDir,
@@ -264,7 +264,7 @@ fn a_transcript_removed_before_it_is_read_is_skipped_until_it_returns() {
 
     let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), other]).unwrap();
     let removed = &report.transcripts[0];
-    assert_eq!(removed.skipped.as_deref(), Some(REMOVED_BEFORE_READ));
+    assert_eq!(removed.skipped, Some(Skip::Removed));
     assert_eq!((removed.new_observations, removed.consumed), (0, 0));
     assert_eq!(report.sessions, vec![SessionId::new("s")]);
     assert_eq!(s.store.manifest().unwrap().cursors[&key], cursor);
@@ -459,7 +459,7 @@ fn an_empty_session_id_does_not_block_sync() {
     // the session names its checkout, so the lines are held back and read
     // again later.
     assert_eq!(
-        report.transcripts[0].skipped.as_deref(),
+        report.transcripts[0].skipped.as_ref().map(Skip::reason),
         Some("checkout unknown")
     );
     let manifest = s.store.manifest().unwrap();
@@ -626,7 +626,7 @@ fn a_transcript_from_another_checkout_is_skipped() {
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     let transcript = &report.transcripts[0];
     assert_eq!(
-        transcript.skipped.as_deref(),
+        transcript.skipped.as_ref().map(Skip::reason),
         Some("checkout /other/repo does not match /work/repo")
     );
     assert_eq!(transcript.session, None);
@@ -839,8 +839,8 @@ fn only_checkouts_inside_the_requested_tree_are_accepted() {
         let s = setup(text.as_bytes());
         let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
         assert_eq!(
-            report.transcripts[0].skipped,
-            Some(format!("checkout {outside} does not match /work/repo")),
+            report.transcripts[0].skipped.as_ref().map(Skip::reason),
+            Some(format!("checkout {outside} does not match /work/repo").as_str()),
             "{outside}"
         );
         assert_eq!(
@@ -869,7 +869,7 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     let s = setup(bytes);
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(
-        report.transcripts[0].skipped.as_deref(),
+        report.transcripts[0].skipped.as_ref().map(Skip::reason),
         Some("checkout unknown")
     );
     assert_eq!(report.revision.get(), 0);

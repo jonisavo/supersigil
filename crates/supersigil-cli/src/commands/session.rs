@@ -162,8 +162,8 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
             t.new_observations,
             Untrusted(session)
         )?;
-        if let Some(reason) = &t.skipped {
-            writeln!(out, "    skipped: {}", Untrusted(reason))?;
+        if let Some(skip) = &t.skipped {
+            writeln!(out, "    skipped: {}", Untrusted(skip.reason()))?;
         }
         if let Some(nested) = &t.nested_checkout {
             writeln!(

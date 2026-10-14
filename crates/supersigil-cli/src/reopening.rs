@@ -20,9 +20,10 @@ use supersigil_record::store::LogReading;
 use supersigil_review::Review;
 use supersigil_review::judging::{RelatedBasis, Relation};
 use supersigil_review::model::{NewObservations, RelatedReading};
+use supersigil_session::checkout::Resolutions;
 
 use crate::error::CliError;
-use crate::mapping::Resolutions;
+use crate::mapping::map_edit;
 use crate::pipeline::{Gathered, PinnedRecord, path_key};
 
 /// Reads how the code and the records changed since each of `related`, the
@@ -290,8 +291,7 @@ fn candidate_path(
     worktrees: &[PathBuf],
     ignore_case: bool,
 ) -> Option<String> {
-    resolutions
-        .map_edit(edit, roots, ignore_case)
+    map_edit(resolutions, edit, roots, ignore_case)
         .filter(|mapped| worktrees.contains(&mapped.worktree))
         .map(|mapped| mapped.path)
 }

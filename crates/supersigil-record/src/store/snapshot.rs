@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use serde::de::DeserializeOwned;
 use sha2::{Digest as _, Sha256};
 
 use super::{Manifest, StoreError, derivations_document, io_error, log_path};
@@ -52,6 +53,42 @@ impl RecordSnapshot {
     /// Returns [`StoreError::Io`] if the file cannot be read or
     /// [`StoreError::Json`] if its contents cannot be parsed as a derivation set.
     pub fn derivations(&self, session: &SessionId) -> Result<Option<DerivationSet>, StoreError> {
+        self.derivation_document(session)
+    }
+
+    /// Reads only the algorithm version of the session's derivation
+    /// document referenced by this snapshot ([`Self::derivations`]); the
+    /// rest of the document is not parsed into a derivation set.
+    ///
+    /// Returns `None` if the manifest lists no document for the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if the file cannot be read or
+    /// [`StoreError::Json`] if its contents are not a JSON object with an
+    /// algorithm version.
+    pub fn algorithm_version(&self, session: &SessionId) -> Result<Option<u32>, StoreError> {
+        /// The one field of a derivation document read.
+        #[derive(serde::Deserialize)]
+        struct Versioned {
+            algorithm_version: u32,
+        }
+        Ok(self
+            .derivation_document::<Versioned>(session)?
+            .map(|document| document.algorithm_version))
+    }
+
+    /// Reads the session's derivation document referenced by this snapshot
+    /// as a `T`, or `None` if the manifest lists none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if the file cannot be read or
+    /// [`StoreError::Json`] if its contents cannot be parsed as a `T`.
+    fn derivation_document<T: DeserializeOwned>(
+        &self,
+        session: &SessionId,
+    ) -> Result<Option<T>, StoreError> {
         let Some(rel) = self
             .manifest
             .sessions

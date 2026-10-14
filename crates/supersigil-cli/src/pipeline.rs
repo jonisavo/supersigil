@@ -39,12 +39,12 @@ use supersigil_review::model::{
     UnreconciledInfo,
 };
 use supersigil_review::outcome::AttributionState;
-use supersigil_session::checkout::{canonical, overlaps};
+use supersigil_session::checkout::{Resolutions, canonical, overlaps};
 use supersigil_session::found;
 
 use crate::error::CliError;
 use crate::evidence::Evidence;
-use crate::mapping::{MappedEdit, Resolutions};
+use crate::mapping::{MappedEdit, map_edit};
 use crate::reconcile::{InvolvedRecord, LOCK_WAIT, UnreconciledCheckout, reconcile};
 
 /// The base a pipeline run reviews against.
@@ -703,7 +703,7 @@ fn map_sightings(
             let Observation::Edit(edit) = observation else {
                 continue;
             };
-            let mapped = resolutions.map_edit(edit, roots, ignore_case);
+            let mapped = map_edit(resolutions, edit, roots, ignore_case);
             let worktree = mapped
                 .as_ref()
                 .map_or_else(|| edit.checkout.clone(), |m| m.worktree.clone());

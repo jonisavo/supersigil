@@ -24,9 +24,9 @@ use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
     CommandChange, EditInfo, EditOriginInfo, Mention, MentionResult, PromptInfo, TranscriptInfo,
 };
-use supersigil_session::checkout::{canonical, within};
+use supersigil_session::checkout::{Resolutions, canonical, within};
 
-use crate::mapping::{MappedEdit, Resolutions, map_resolved};
+use crate::mapping::{MappedEdit, map_resolved};
 
 /// Turns, commands, capture limitations, transcript locations, the
 /// delegation order, and the resolution of each checkout of every pinned
@@ -269,7 +269,7 @@ impl Evidence {
     /// presentation.
     ///
     /// Files map to the innermost registered worktree in `roots`, as edits
-    /// do ([`crate::mapping::map_file`]), through the resolution of each
+    /// do ([`crate::mapping::map_edit`]), through the resolution of each
     /// command's checkout made once ([`Self::resolutions`]). A command
     /// without a retained report contributes nothing; this says nothing
     /// about what it changed.
@@ -415,7 +415,7 @@ impl CandidateCommands<'_> {
 
 /// Files in `command`'s retained report that lie in `worktrees`, each with
 /// its report and placement in the innermost registered worktree in
-/// `roots`, as for edits ([`crate::mapping::map_file`]), through the
+/// `roots`, as for edits ([`crate::mapping::map_edit`]), through the
 /// review's resolution of the command's checkout in `resolutions`. Returns
 /// nothing without a retained report.
 fn reported_in<'c>(
