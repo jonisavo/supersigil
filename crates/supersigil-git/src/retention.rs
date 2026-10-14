@@ -3,7 +3,9 @@
 //! snapshot.
 
 use std::path::PathBuf;
+use std::slice;
 
+use crate::bytes::request;
 use crate::error::GitError;
 use crate::oid::{ObjectId, parse_output};
 use crate::path::path_from_line;
@@ -72,16 +74,42 @@ fn config_text(repo: &Repo, key: &str) -> Result<Option<String>, GitError> {
 ///
 /// # Errors
 ///
-/// Returns the errors of [`crate::Git::output_with_input`].
+/// Returns the errors of [`trees_exist`].
 pub fn tree_exists(repo: &Repo, tree: &ObjectId) -> Result<bool, GitError> {
+    Ok(trees_exist(repo, slice::from_ref(tree))? == [true])
+}
+
+/// Returns whether each of `trees`, in order, names a tree in the
+/// repository, as [`tree_exists`] tells, asking git once for all of them;
+/// git is not run when there are none.
+///
+/// # Errors
+///
+/// Returns [`GitError::Parse`] if git does not answer once for each tree,
+/// and the errors of [`crate::Git::output_with_input`].
+pub fn trees_exist(repo: &Repo, trees: &[ObjectId]) -> Result<Vec<bool>, GitError> {
+    if trees.is_empty() {
+        return Ok(Vec::new());
+    }
     // `--batch-check` answers `<id> missing` for an absent object where
     // `cat-file -t` would fail like any other error.
-    let input = format!("{tree}\n");
-    let output = repo.git().output_with_input(
-        ["cat-file", "--batch-check=%(objecttype)"],
-        input.as_bytes(),
-    )?;
-    Ok(output.trim_ascii_end() == b"tree")
+    let output = repo
+        .git()
+        .output_with_input(["cat-file", "--batch-check=%(objecttype)"], &request(trees))?;
+    let answers: Vec<bool> = output
+        .strip_suffix(b"\n")
+        .unwrap_or(&output)
+        .split(|&byte| byte == b'\n')
+        .map(|answer| answer.trim_ascii_end() == b"tree")
+        .collect();
+    if answers.len() != trees.len() {
+        return Err(GitError::Parse(format!(
+            "cat-file answered {} lines for {} objects",
+            answers.len(),
+            trees.len()
+        )));
+    }
+    Ok(answers)
 }
 
 /// What [`retain`] left the reference pointing at.

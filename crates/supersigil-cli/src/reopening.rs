@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use supersigil_git::ObjectId;
 use supersigil_git::changes::changed_paths;
-use supersigil_git::retention::tree_exists;
+use supersigil_git::retention::trees_exist;
 use supersigil_record::RecordId;
 use supersigil_record::observations::{Edit, Observation};
 use supersigil_record::reviews::{Basis, BasisRecord, PathBytes, PinnedLog};
@@ -48,46 +48,71 @@ pub fn read_changes<'a>(
         .map(|related| related.basis.records.as_slice())
         .collect();
     let logs = Logs::read(&g.records, &earlier)?;
-    related
+    let changed = code_changed(g, related)?;
+    Ok(related
         .iter()
-        .map(|&related| {
+        .zip(changed)
+        .map(|(&related, changed_paths)| {
             let since = records_since(g, related.basis, &logs);
-            Ok(RelatedReading {
+            RelatedReading {
                 related,
-                changed_paths: code_changed(g, related)?,
+                changed_paths,
                 new: new_observations(g, review, &since.appended),
                 capture: capture_changed(g, &since.appended),
                 gone_or_rewritten: since.gone_or_rewritten,
-            })
+            }
         })
-        .collect()
+        .collect())
 }
 
-/// The paths that differ, within scope, between `related`'s target tree
-/// and the one `g` reviews: none for the same content, `None` when the
-/// earlier tree is no longer in the repository.
+/// The paths that differ, within scope, between each of `related`'s target
+/// tree and the one `g` reviews, in order: none for the same content,
+/// `None` when the earlier tree is no longer in the repository. Each
+/// earlier tree is compared once, however many of `related` reviewed it,
+/// and git is asked once whether each is still there.
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Git`] if the earlier tree cannot be looked up or
+/// Returns [`CliError::Git`] if an earlier tree cannot be looked up or
 /// compared with the current one.
 fn code_changed(
     g: &Gathered,
-    related: RelatedBasis<'_>,
-) -> Result<Option<Vec<PathBytes>>, CliError> {
-    if related.relation == Relation::SameContent {
-        return Ok(Some(Vec::new()));
-    }
-    let tree = ObjectId::parse(&related.basis.target.tree, g.repo.format())?;
-    if !tree_exists(&g.repo, &tree)? {
-        return Ok(None);
-    }
-    let mut paths: Vec<PathBytes> = changed_paths(&g.repo, &tree, &g.target_tree, &g.paths)?
+    related: &[RelatedBasis<'_>],
+) -> Result<Vec<Option<Vec<PathBytes>>>, CliError> {
+    // Each earlier tree whose code changed since, once, in order.
+    let mut seen = BTreeSet::new();
+    let trees: Vec<&str> = related
         .iter()
-        .map(|change| PathBytes::new(change.path.as_bytes()))
+        .filter(|related| related.relation == Relation::CodeChanged)
+        .map(|related| related.basis.target.tree.as_str())
+        .filter(|&tree| seen.insert(tree))
         .collect();
-    paths.sort();
-    Ok(Some(paths))
+    let ids = trees
+        .iter()
+        .map(|tree| ObjectId::parse(tree, g.repo.format()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let exist = trees_exist(&g.repo, &ids)?;
+    let mut changed = BTreeMap::new();
+    for ((tree, id), exists) in trees.into_iter().zip(&ids).zip(exist) {
+        let paths = if exists {
+            let mut paths: Vec<PathBytes> = changed_paths(&g.repo, id, &g.target_tree, &g.paths)?
+                .iter()
+                .map(|change| PathBytes::new(change.path.as_bytes()))
+                .collect();
+            paths.sort();
+            Some(paths)
+        } else {
+            None
+        };
+        changed.insert(tree, paths);
+    }
+    Ok(related
+        .iter()
+        .map(|related| match related.relation {
+            Relation::SameContent => Some(Vec::new()),
+            Relation::CodeChanged => changed[related.basis.target.tree.as_str()].clone(),
+        })
+        .collect())
 }
 
 /// The current logs of a review's records, each read at most once for all

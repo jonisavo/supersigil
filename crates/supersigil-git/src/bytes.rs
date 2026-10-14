@@ -25,7 +25,7 @@ pub fn blob_sizes(repo: &Repo, ids: &[ObjectId]) -> Result<BTreeMap<ObjectId, u6
     let unique: BTreeSet<&ObjectId> = ids.iter().collect();
     let output = repo
         .git()
-        .output_with_input(["cat-file", "--batch-check"], &request(&unique))?;
+        .output_with_input(["cat-file", "--batch-check"], &request(unique))?;
     let text = String::from_utf8_lossy(&output);
     let mut sizes = BTreeMap::new();
     for line in text.lines() {
@@ -45,7 +45,7 @@ pub fn read_blobs(repo: &Repo, ids: &[ObjectId]) -> Result<BTreeMap<ObjectId, Ve
     let unique: BTreeSet<&ObjectId> = ids.iter().collect();
     let output = repo
         .git()
-        .output_with_input(["cat-file", "--batch"], &request(&unique))?;
+        .output_with_input(["cat-file", "--batch"], &request(unique))?;
     let mut blobs = BTreeMap::new();
     let mut rest: &[u8] = &output;
     while !rest.is_empty() {
@@ -119,8 +119,9 @@ pub fn read_blobs_within(
     Ok(blobs)
 }
 
-/// One object id per line.
-fn request(ids: &BTreeSet<&ObjectId>) -> Vec<u8> {
+/// One object id per line, as `cat-file --batch` and `--batch-check` read
+/// them.
+pub(crate) fn request<'i>(ids: impl IntoIterator<Item = &'i ObjectId>) -> Vec<u8> {
     let mut input = Vec::new();
     for id in ids {
         input.extend_from_slice(id.as_str().as_bytes());
