@@ -364,7 +364,11 @@ Related judged reviews either share the base tree, target tree, and scope
 (across worktrees and commands), or share the worktree, base tree, and scope
 with a different target tree. An acknowledgment or dismissal carries to
 an item with the same id and a matching fingerprint. Otherwise the item
-reopens and lists the differing fingerprint parts. Undoing an item withdraws
+reopens and lists the differing fingerprint parts. A standing completion
+counts the judgments it lists as closing their items on its own review, so
+a judgment carried into a completed review carries on from it, still under
+its original id. A completion that carries therefore never leaves an item
+open. Undoing an item withdraws
 every judgment closing it, including carried judgments, on every review
 those judgments close. It also withdraws every completion that counted them.
 

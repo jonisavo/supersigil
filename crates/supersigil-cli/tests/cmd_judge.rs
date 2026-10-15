@@ -566,6 +566,60 @@ fn a_judgment_carried_from_a_review_of_the_same_content_lets_another_complete() 
 }
 
 #[test]
+fn a_completion_carries_the_judgments_it_counted_to_another_worktree() {
+    // a.txt is acknowledged on a review of only it; b.txt on a later review
+    // of both in the same worktree, which is completed with a.txt carried.
+    // Another worktree with the same change relates to the completed review
+    // only, so a.txt carries through the completion's count.
+    let f = Fixture::new();
+    identify(&f);
+    write(&f.repo, "a.txt", "one\n");
+    write(&f.repo, "b.txt", "one\n");
+    f.commit(&f.repo, "base");
+    write(&f.repo, "a.txt", "two\n");
+    f.json(&f.repo, &["review", "--format", "json"]);
+    judged(&f, &f.repo, &["acknowledge", "a.txt"]);
+    write(&f.repo, "b.txt", "two\n");
+    f.json(&f.repo, &["review", "--format", "json"]);
+    judged(&f, &f.repo, &["acknowledge", "b.txt"]);
+    judged(&f, &f.repo, &["complete"]);
+    let [first, _, completion] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    let other = f.root.join("other");
+    f.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "--detach",
+        &other.display().to_string(),
+    ]);
+    write(&other, "a.txt", "two\n");
+    write(&other, "b.txt", "two\n");
+
+    let carried = f.json(&other, &["review", "--format", "json"]);
+    judged(&f, &other, &["undo", "a.txt"]);
+    let undone = f.json(&other, &["review", "--format", "json"]);
+
+    assert_eq!(carried["status"]["complete"], true, "{carried:#}");
+    assert_eq!(carried["gate"]["open"], 0);
+    assert_eq!(gate_row(&carried, "a.txt")["state"], "carried");
+    assert_eq!(
+        gate_row(&carried, "a.txt")["judgment"]["id"],
+        first.id.as_str()
+    );
+    let undo = recorded(&f).pop().unwrap();
+    assert_eq!(
+        undo.withdraws,
+        [
+            withdrawal(&first, Some(item(&carried, "a.txt"))),
+            withdrawal(&completion, None),
+        ]
+    );
+    assert_eq!(undone["status"]["complete"], false, "{undone:#}");
+    assert_eq!(gate_row(&undone, "a.txt")["state"], "open");
+    assert_eq!(gate_row(&undone, "b.txt")["state"], "carried");
+}
+
+#[test]
 fn names_that_read_as_flags_follow_a_double_dash_in_every_next_command() {
     let f = Fixture::new();
     identify(&f);

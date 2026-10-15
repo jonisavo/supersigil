@@ -384,6 +384,185 @@ fn only_a_related_review_holding_the_item_carries() {
     );
 }
 
+/// Three reviews of `a` and `b` over base `1`: `/work/a` at target `3`,
+/// then at target `2`, and `/work/b` at target `2`, related to the second
+/// only, with gate `current`.
+fn chain(a: &GateItem, b: &GateItem, current: Vec<GateItem>) -> [Saved; 3] {
+    [
+        saved(basis("/work/a", '1', '3', vec![a.clone()])),
+        saved(basis("/work/a", '1', '2', vec![a.clone(), b.clone()])),
+        saved(basis("/work/b", '1', '2', current)),
+    ]
+}
+
+/// `a` acknowledged on the first review of [`chain`], `b` on the second,
+/// and the second completed with `a` carried, then `extra`.
+fn chained(
+    a: &GateItem,
+    b: &GateItem,
+    reviews: &[Saved; 3],
+    extra: Vec<Judgment>,
+) -> Vec<Judgment> {
+    let mut judgments = vec![
+        ack("first", &reviews[0].0, &[a], 10),
+        ack("second", &reviews[1].0, &[b], 20),
+        complete("done", &reviews[1].0, &[(a, "first"), (b, "second")], 30),
+    ];
+    judgments.extend(extra);
+    judgments
+}
+
+#[test]
+fn a_completion_carries_the_judgments_it_counted_to_reviews_related_to_its_own() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
+    let judgments = chained(&a, &b, &reviews, Vec::new());
+    let ledger = Ledger::new(&judgments);
+    let indexes = indexes(&reviews);
+    let current = states(&reviews[2], &reviews[..2], &indexes, &ledger);
+    let completed = states(&reviews[1], &reviews[..1], &indexes, &ledger);
+
+    assert_eq!(
+        item_states(&current),
+        [
+            ItemState::Carried(&judgments[0]),
+            ItemState::Carried(&judgments[1]),
+        ]
+    );
+    // On the completed review itself, `a` stays carried, not its own.
+    assert_eq!(
+        item_states(&completed)[0],
+        ItemState::Carried(&judgments[0])
+    );
+}
+
+#[test]
+fn a_judgment_a_completion_counted_reopens_an_item_whose_fingerprint_differs() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let reviews = chain(&a, &b, vec![lines("a.rs", "y"), b.clone()]);
+    let judgments = chained(&a, &b, &reviews, Vec::new());
+    let ledger = Ledger::new(&judgments);
+    let indexes = indexes(&reviews);
+    let states = item_states(&states(&reviews[2], &reviews[..2], &indexes, &ledger));
+
+    assert!(
+        matches!(&states[0], ItemState::Reopened { judgment, .. } if *judgment == &judgments[0]),
+        "{states:?}"
+    );
+}
+
+#[test]
+fn a_withdrawn_completion_or_judgment_carries_nothing_through_it() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
+    let completion = [undo("undo", &reviews[1].0, &[("done", None)], 40)];
+    let pair = [undo("undo", &reviews[0].0, &[("first", Some(&a))], 40)];
+    for extra in [completion, pair] {
+        let judgments = chained(&a, &b, &reviews, extra.to_vec());
+        let ledger = Ledger::new(&judgments);
+        let indexes = indexes(&reviews);
+        assert_eq!(
+            item_states(&states(&reviews[2], &reviews[..2], &indexes, &ledger)),
+            [ItemState::Open, ItemState::Carried(&judgments[1])]
+        );
+    }
+}
+
+#[test]
+fn a_completion_of_the_current_review_keeps_carrying_what_it_counted() {
+    // The third review is completed with `a` carried through the second's
+    // completion, which is then withdrawn as a whole: the third's own
+    // completion still counts `first`.
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
+    let extra = vec![
+        complete(
+            "done-too",
+            &reviews[2].0,
+            &[(&a, "first"), (&b, "second")],
+            40,
+        ),
+        undo("undo", &reviews[1].0, &[("done", None)], 50),
+    ];
+    let judgments = chained(&a, &b, &reviews, extra);
+    let ledger = Ledger::new(&judgments);
+    let indexes = indexes(&reviews);
+    let states = states(&reviews[2], &reviews[..2], &indexes, &ledger);
+
+    assert_eq!(states.own_completion(), Some(&judgments[3]));
+    assert_eq!(
+        item_states(&states),
+        [
+            ItemState::Carried(&judgments[0]),
+            ItemState::Carried(&judgments[1]),
+        ]
+    );
+    assert_eq!(
+        withdrawals(&ledger, &states.plan_undo(slice::from_ref(&a.id)).unwrap()),
+        [withdrawal("first", Some(&a)), withdrawal("done-too", None)]
+    );
+}
+
+#[test]
+fn many_large_completions_are_counted_promptly() {
+    // 5 reviews of the same content from other worktrees, each with one
+    // acknowledgment of the same 20,000 items and a completion counting it.
+    // Checking that the acknowledgment names each counted item by scanning
+    // its items took about 10 s here in a debug build; an index of the
+    // standing pairs takes about 1 s.
+    let gate: Vec<GateItem> = (0..20_000)
+        .map(|k| lines(&format!("src/f{k}.rs"), "x"))
+        .collect();
+    let current = saved(basis("/work/now", '1', '2', gate.clone()));
+    let earlier: Vec<Saved> = (0..5)
+        .map(|k| saved(basis(&format!("/work/w{k}"), '1', '2', gate.clone())))
+        .collect();
+    let named: Vec<&GateItem> = gate.iter().collect();
+    let judgments: Vec<Judgment> = earlier
+        .iter()
+        .zip(0..)
+        .flat_map(|((id, _), k)| {
+            let acked = format!("ack-{k}");
+            let closes: Vec<(&GateItem, &str)> =
+                named.iter().map(|&item| (item, acked.as_str())).collect();
+            [
+                ack(&acked, id, &named, 2 * k),
+                complete(&format!("done-{k}"), id, &closes, 2 * k + 1),
+            ]
+        })
+        .collect();
+
+    let open = finishes_within(Duration::from_secs(8), move || {
+        let ledger = Ledger::new(&judgments);
+        let indexes = indexes(&earlier);
+        let states = states(&current, &earlier, &indexes, &ledger);
+        states
+            .items()
+            .iter()
+            .filter(|judged| judged.state.closing().is_none())
+            .count()
+    });
+
+    assert_eq!(open, 0);
+}
+
+#[test]
+fn undoing_an_item_carried_through_a_completion_withdraws_its_judgment_and_the_completion() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
+    let judgments = chained(&a, &b, &reviews, Vec::new());
+    let ledger = Ledger::new(&judgments);
+    let indexes = indexes(&reviews);
+    let plan = states(&reviews[2], &reviews[..2], &indexes, &ledger)
+        .plan_undo(slice::from_ref(&a.id))
+        .unwrap();
+
+    assert_eq!(
+        withdrawals(&ledger, &plan),
+        [withdrawal("first", Some(&a)), withdrawal("done", None)]
+    );
+}
+
 /// An item's subject and detail, and each fingerprint part of its origin
 /// with the reason it reopens the item.
 type ReasonCase = (Subject, GateDetail, &'static [(&'static str, &'static str)]);

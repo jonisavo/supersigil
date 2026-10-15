@@ -116,7 +116,9 @@ fn relation(current: Compared<'_>, other: Compared<'_>) -> Option<Relation> {
 ///
 /// An acknowledgment or dismissal stands for an item until an undo withdraws
 /// that judgment-item pair. A comment or completion stands until an undo
-/// withdraws the whole judgment.
+/// withdraws the whole judgment. A standing completion counts the standing
+/// judgments its `closes` names as closing those items on its review, so they
+/// carry from it as from that review's own judgments.
 #[derive(Debug)]
 pub struct Ledger<'a> {
     /// Every judgment, in the order recorded.
@@ -133,6 +135,9 @@ pub struct Ledger<'a> {
     /// grouped by basis in recorded order. Resolving a state neither scans
     /// judgment item lists nor visits reviews that never closed the item.
     closing: HashMap<&'a ItemId, HashMap<&'a BasisId, Vec<usize>>>,
+    /// Positions of each item's standing acknowledgments and dismissals
+    /// that a standing completion counts, grouped by the completion's basis.
+    counted: HashMap<&'a ItemId, HashMap<&'a BasisId, Vec<usize>>>,
 }
 
 impl<'a> Ledger<'a> {
@@ -155,6 +160,8 @@ impl<'a> Ledger<'a> {
             }
         }
         let mut closing: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
+        // Each standing acknowledgment or dismissal of an item, by position.
+        let mut standing = HashSet::new();
         for (position, judgment) in judgments.iter().enumerate() {
             let closes = matches!(
                 judgment.kind,
@@ -167,6 +174,7 @@ impl<'a> Ledger<'a> {
                 if withdrawn.contains(&(&judgment.id, Some(item))) {
                     continue;
                 }
+                standing.insert((position, item));
                 let positions = closing
                     .entry(item)
                     .or_default()
@@ -178,12 +186,34 @@ impl<'a> Ledger<'a> {
                 }
             }
         }
+        let mut counted: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
+        for completion in judgments {
+            if completion.kind != JudgmentKind::Complete
+                || withdrawn.contains(&(&completion.id, None))
+            {
+                continue;
+            }
+            for (item, id) in &completion.closes {
+                let Some(&position) = by_id.get(id) else {
+                    continue;
+                };
+                if standing.contains(&(position, item)) {
+                    counted
+                        .entry(item)
+                        .or_default()
+                        .entry(&completion.basis)
+                        .or_default()
+                        .push(position);
+                }
+            }
+        }
         Self {
             judgments,
             withdrawn,
             by_id,
             by_basis,
             closing,
+            counted,
         }
     }
 
@@ -384,18 +414,22 @@ impl<'a> Ledger<'a> {
     }
 
     /// The standing acknowledgments and dismissals of `item` on any basis,
-    /// with their positions in the log.
+    /// or counted by a standing completion on it, each with that basis and
+    /// its position in the log.
     fn closing_anywhere<'s>(
         &'s self,
         item: &'s ItemId,
-    ) -> impl Iterator<Item = (usize, &'a Judgment)> + 's {
+    ) -> impl Iterator<Item = (&'a BasisId, usize, &'a Judgment)> + 's {
         let judgments = self.judgments;
-        self.closing
-            .get(item)
+        [&self.closing, &self.counted]
             .into_iter()
-            .flat_map(HashMap::values)
+            .filter_map(move |index| index.get(item))
             .flatten()
-            .map(move |&position| (position, &judgments[position]))
+            .flat_map(move |(&basis, positions)| {
+                positions
+                    .iter()
+                    .map(move |&position| (basis, position, &judgments[position]))
+            })
     }
 }
 
@@ -659,7 +693,7 @@ impl<'a> GateStates<'a> {
     /// Resolves `item` using the most recent standing own closer, then the
     /// most recent related closer with a matching fingerprint, then the most
     /// recent differing closer to reopen it. Otherwise leaves it open.
-    fn state(&self, item: &GateItem) -> ItemState<'a> {
+    fn state(&self, item: &'a GateItem) -> ItemState<'a> {
         let own = self
             .ledger
             .closing(self.id, &item.id)
@@ -672,7 +706,7 @@ impl<'a> GateStates<'a> {
             };
         }
         let (matching, differing): (Vec<_>, Vec<_>) = self
-            .related_closing(&item.id)
+            .related_closing(item)
             .partition(|(_, _, earlier)| earlier.fingerprint.matches(&item.fingerprint));
         let latest = |judgments: Vec<(usize, &'a Judgment, &'a GateItem)>| {
             judgments
@@ -693,9 +727,9 @@ impl<'a> GateStates<'a> {
 
     /// Every standing acknowledgment or dismissal that closes `item` on the
     /// current review, its own or carried, in the order recorded.
-    fn closers(&self, item: &GateItem) -> Vec<&'a Judgment> {
+    fn closers(&self, item: &'a GateItem) -> Vec<&'a Judgment> {
         let carried = self
-            .related_closing(&item.id)
+            .related_closing(item)
             .filter(|(_, _, earlier)| earlier.fingerprint.matches(&item.fingerprint))
             .map(|(position, judgment, _)| (position, judgment));
         let mut closers: Vec<_> = self
@@ -714,17 +748,23 @@ impl<'a> GateStates<'a> {
     }
 
     /// Finds standing acknowledgments and dismissals of `item` on related
-    /// reviews whose gates hold it. Includes each judgment's log position and
-    /// the earlier item. Visits only reviews with such judgments.
+    /// reviews whose gates hold it, or counted by a standing completion on
+    /// one or on the current review, made on another review. Includes each
+    /// judgment's log position and the earlier item. Visits only reviews
+    /// with such judgments.
     fn related_closing<'s>(
         &'s self,
-        item: &'s ItemId,
+        item: &'a GateItem,
     ) -> impl Iterator<Item = (usize, &'a Judgment, &'a GateItem)> + 's {
         self.ledger
-            .closing_anywhere(item)
-            .filter_map(move |(position, judgment)| {
-                let earlier = self.related.get(&judgment.basis)?.0.get(item)?;
-                Some((position, judgment, *earlier))
+            .closing_anywhere(&item.id)
+            .filter_map(move |(basis, position, judgment)| {
+                let earlier = if basis == self.id {
+                    (judgment.basis != *self.id).then_some(item)?
+                } else {
+                    *self.related.get(basis)?.0.get(&item.id)?
+                };
+                Some((position, judgment, earlier))
             })
     }
 }
