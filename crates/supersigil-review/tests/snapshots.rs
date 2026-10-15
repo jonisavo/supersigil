@@ -731,6 +731,8 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
         review: Some("feaad307".to_owned()),
         checkout: Some(PathBuf::from("../my repo")),
         review_dir: Some(PathBuf::from("/tmp/reviews")),
+        record_dir: Some(PathBuf::from("/tmp/my records")),
+        claude_home: Some(PathBuf::from("/tmp/claude")),
         retry: vec![
             ("--base", Some("HEAD~1".to_owned())),
             ("--target", Some("HEAD".to_owned())),
@@ -746,7 +748,8 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
 
     assert!(
         given.ends_with(
-            "\n\nNext: supersigil review --base='HEAD~1' --target=HEAD --checkout='../my repo' \
+            "\n\nNext: supersigil review --base='HEAD~1' --target=HEAD \
+             --record-dir='/tmp/my records' --claude-home=/tmp/claude --checkout='../my repo' \
              --review-dir=/tmp/reviews -- src/parser.rs 'a b'\n"
         ),
         "{given}"

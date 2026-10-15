@@ -429,10 +429,11 @@ fn scenario_4_the_reviewed_working_tree_committed_is_reviewed_as_a_commit() {
     let commit = review(&f, &["--target", "HEAD"]);
 
     assert!(
-        working_tree.contains(
+        working_tree.contains(&format!(
             "\nfiles:\n  no changes in scope; to review a commit just made, run supersigil \
-             review --target HEAD\n"
-        ),
+             review --target HEAD {}\n",
+            f.claude_flag()
+        )),
         "{working_tree}"
     );
     let date = completion.at.date();

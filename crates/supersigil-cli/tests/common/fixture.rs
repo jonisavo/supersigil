@@ -7,6 +7,7 @@ use std::process::Command;
 use serde_json::Value;
 use supersigil_record::ReviewStore;
 use supersigil_record::reviews;
+use supersigil_review::summary::shell_word;
 
 /// `src/lib.rs` before the slice session.
 pub const LIB_BASE: &str = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
@@ -143,6 +144,15 @@ impl Fixture {
             .arg(&self.claude)
             .args(&args[1..]);
         command
+    }
+
+    /// The `--claude-home` flag [`Self::supersigil`] passes, as printed
+    /// `review` commands repeat it.
+    pub fn claude_flag(&self) -> String {
+        format!(
+            "--claude-home={}",
+            shell_word(&self.claude.display().to_string())
+        )
     }
 
     /// Runs a command expected to succeed and parses its JSON output.

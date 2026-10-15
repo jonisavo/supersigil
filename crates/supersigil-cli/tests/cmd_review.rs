@@ -2864,7 +2864,10 @@ fn a_busy_review_store_leaves_the_review_unsaved() {
     let summary = String::from_utf8(summary.get_output().stdout.clone()).unwrap();
     assert_eq!(summary.lines().next(), Some(NOT_SAVED), "{summary}");
     assert!(
-        summary.ends_with("\n\nNext: supersigil review\n"),
+        summary.ends_with(&format!(
+            "\n\nNext: supersigil review {}\n",
+            f.claude_flag()
+        )),
         "{summary}"
     );
     drop(held);
@@ -2894,11 +2897,47 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
     drop(held);
 
     assert!(
-        commit
-            .ends_with("\n\nNext: supersigil review --base='HEAD~1' --target=HEAD -- notes.txt\n"),
+        commit.ends_with(&format!(
+            "\n\nNext: supersigil review --base='HEAD~1' --target=HEAD {} -- notes.txt\n",
+            f.claude_flag()
+        )),
         "{commit}"
     );
     assert!(!working.contains("Next:"), "{working}");
+}
+
+#[test]
+fn a_busy_review_is_retried_with_the_evidence_it_read() {
+    let f = Fixture::new();
+    slice(&f);
+    let records = f.root.join("other records");
+    let review = |format: &str| {
+        let output = f
+            .plain(&f.repo, &["review", "--format", format, "--record-dir"])
+            .arg(&records)
+            .arg("--claude-home")
+            .arg(&f.claude)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    review("json");
+    write(&f.repo, "notes.txt", "changed while the store is busy\n");
+    let store = review_store(&f, &f.reviews());
+    let held = store.begin().unwrap();
+
+    let text = review("terminal");
+    drop(held);
+
+    assert!(
+        text.ends_with(&format!(
+            "\n\nNext: supersigil review --record-dir={} --claude-home={}\n",
+            shell_word(&records.display().to_string()),
+            shell_word(&f.claude.display().to_string())
+        )),
+        "{text}"
+    );
 }
 
 #[test]
@@ -2918,7 +2957,8 @@ fn a_busy_review_does_not_retry_an_argument_that_cannot_be_printed_as_given() {
                 so commands show <as given> for it: pass it as given.";
     assert!(
         text.ends_with(&format!(
-            "\n\nNext: supersigil review --include-untracked=<as given>\n{note}\n"
+            "\n\nNext: supersigil review --include-untracked=<as given> {}\n{note}\n",
+            f.claude_flag()
         )),
         "{text}"
     );
@@ -2931,7 +2971,8 @@ fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
     let (elsewhere, reviews) = (f.root.join("elsewhere"), f.root.join("other reviews"));
     std::fs::create_dir_all(&elsewhere).unwrap();
     let flags = format!(
-        "--checkout={} --review-dir={}",
+        "{} --checkout={} --review-dir={}",
+        f.claude_flag(),
         shell_word(&f.repo.display().to_string()),
         shell_word(&reviews.display().to_string())
     );
@@ -3763,10 +3804,11 @@ fn a_working_tree_without_changes_points_at_a_commit_just_made() {
         "{text}"
     );
     assert!(
-        text.ends_with(
+        text.ends_with(&format!(
             "\nfiles:\n  no changes in scope; to review a commit just made, run supersigil \
-             review --target HEAD\n"
-        ),
+             review --target HEAD {}\n",
+            f.claude_flag()
+        )),
         "{text}"
     );
     assert!(!text.contains("Review not complete"), "{text}");

@@ -82,6 +82,8 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
         review: None,
         checkout: args.checkout.clone(),
         review_dir: args.review_dir.clone(),
+        record_dir: args.record_dir.clone(),
+        claude_home: args.claude_home.clone(),
         retry: retry_flags(args),
         retry_paths: args.paths.clone(),
     };
@@ -117,8 +119,8 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
 }
 
 /// Builds retry flags from `args`, preserving their given values.
-/// Omits `--checkout` and `--review-dir`, which addressing supplies separately,
-/// and the output format, records directory, and Claude home.
+/// Omits the output format and the addressing and evidence flags, which
+/// addressing supplies separately.
 fn retry_flags(args: &ReviewArgs) -> Vec<(&'static str, Option<String>)> {
     let mut flags = Vec::new();
     if let Some(base) = &args.base {

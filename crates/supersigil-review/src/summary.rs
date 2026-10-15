@@ -585,7 +585,8 @@ impl fmt::Display for Command {
 
 /// Addresses printed commands. `judge` commands name the review when it
 /// differs from the worktree's selection. Every command repeats the supplied
-/// `--checkout` and `--review-dir`.
+/// `--checkout` and `--review-dir`, and `review` commands the supplied
+/// `--record-dir` and `--claude-home`, which choose the evidence read.
 ///
 /// Commands replace non-UTF-8 values or control characters with `<as given>`
 /// because lossy or escaped values could name another path. Output adds
@@ -599,8 +600,12 @@ pub struct Addressing {
     pub checkout: Option<PathBuf>,
     /// `--review-dir` as the call was given it.
     pub review_dir: Option<PathBuf>,
-    /// The flags of the `review` call other than `--checkout` and
-    /// `--review-dir`, each with the value it was given (`None` for a flag
+    /// `--record-dir` as the `review` call was given it.
+    pub record_dir: Option<PathBuf>,
+    /// `--claude-home` as the `review` call was given it.
+    pub claude_home: Option<PathBuf>,
+    /// The flags of the `review` call other than the addressing and
+    /// evidence flags, each with the value it was given (`None` for a flag
     /// without one), for the command that runs it again.
     pub retry: Vec<(&'static str, Option<String>)>,
     /// The path filters of the `review` call as it was given them.
@@ -609,9 +614,10 @@ pub struct Addressing {
 
 impl Addressing {
     /// Builds `supersigil review` with the supplied arguments. Emits
-    /// [`retry`](Self::retry) flags as `<flag>=<value>`, then `--checkout` and
-    /// `--review-dir`, then `--` and any [`retry_paths`](Self::retry_paths).
-    /// Values that cannot print exactly become `<as given>`.
+    /// [`retry`](Self::retry) flags as `<flag>=<value>`, then the evidence,
+    /// `--checkout`, and `--review-dir` flags, then `--` and any
+    /// [`retry_paths`](Self::retry_paths). Values that cannot print exactly
+    /// become `<as given>`.
     #[must_use]
     pub fn retry(&self) -> Command {
         let mut command = Command::new("supersigil review");
@@ -621,6 +627,7 @@ impl Addressing {
                 Some(value) => command.flag(flag, OsStr::new(value)),
             }
         }
+        self.evidence(&mut command);
         self.address(&mut command);
         if !self.retry_paths.is_empty() {
             command.words("--");
@@ -660,11 +667,12 @@ impl Addressing {
     }
 
     /// Builds `supersigil review <words>` with literal `words`, then the
-    /// supplied `--checkout` and `--review-dir`.
+    /// supplied evidence, `--checkout`, and `--review-dir` flags.
     #[must_use]
     pub fn review(&self, words: &str) -> Command {
         let mut command = Command::new("supersigil review");
         command.words(words);
+        self.evidence(&mut command);
         self.address(&mut command);
         command
     }
@@ -678,11 +686,12 @@ impl Addressing {
             .into_iter()
             .flat_map(|command| command.as_given.iter().copied())
             .collect();
-        // List review address flags, retry flags, then path filters.
+        // List review address flags, retry flags, evidence flags, then path
+        // filters.
         let order = ["--review", "--checkout", "--review-dir"]
             .into_iter()
             .chain(self.retry.iter().map(|&(flag, _)| flag))
-            .chain([PATH_FILTER]);
+            .chain(["--record-dir", "--claude-home", PATH_FILTER]);
         let mut flags: Vec<&str> = Vec::new();
         for flag in order {
             if shown.contains(flag) && !flags.contains(&flag) {
@@ -700,6 +709,19 @@ impl Addressing {
                  show {AS_GIVEN} for them: pass them as given.",
                 flags.join(" and ")
             )),
+        }
+    }
+
+    /// Appends supplied `--record-dir` and `--claude-home` values to `command`.
+    fn evidence(&self, command: &mut Command) {
+        let flags = [
+            ("--record-dir", &self.record_dir),
+            ("--claude-home", &self.claude_home),
+        ];
+        for (flag, value) in flags {
+            if let Some(value) = value {
+                command.flag(flag, value.as_os_str());
+            }
         }
     }
 
