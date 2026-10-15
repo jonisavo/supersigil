@@ -3832,7 +3832,9 @@ fn a_transcript_removed_before_it_could_be_read_is_noted() {
     let gone = project
         .parent()
         .unwrap()
-        .join("s-gone/subagents/agent-gone.jsonl");
+        .join("s-gone")
+        .join("subagents")
+        .join("agent-gone.jsonl");
     std::fs::create_dir_all(&gone).unwrap();
 
     let review = f.json(&f.repo, &["review", "--format", "json"]);
