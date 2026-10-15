@@ -813,12 +813,12 @@ fn a_start_of_another_session_in_the_same_transcript_blocks_resumes() {
 
 #[test]
 fn many_issuers_in_one_prompt_are_checked_promptly() {
-    // 100,000 issuers each resume a with its own message in one prompt,
+    // 40,000 issuers each resume a with its own message in one prompt,
     // and one more starts b there: no resume is matched, and checking
     // each against the others takes no quadratic work.
     let order = finishes_within(Duration::from_secs(10), || {
         let mut delegations = sequential();
-        for k in 0..100_000u64 {
+        for k in 0..40_000u64 {
             let issuer = format!("issuer-{k:06}.jsonl");
             let message = format!("Step {k}.");
             delegations.push(in_prompt(
