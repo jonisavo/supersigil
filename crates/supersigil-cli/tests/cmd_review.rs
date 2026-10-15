@@ -2940,6 +2940,8 @@ fn a_busy_review_is_retried_with_the_evidence_it_read() {
     );
 }
 
+/// Needs a filesystem that accepts a newline in a file name.
+#[cfg(unix)]
 #[test]
 fn a_busy_review_does_not_retry_an_argument_that_cannot_be_printed_as_given() {
     let f = Fixture::new();
