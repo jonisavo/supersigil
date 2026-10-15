@@ -79,6 +79,7 @@ jobs:
   test:
     name: Test (${{ matrix.name }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: ubuntu
