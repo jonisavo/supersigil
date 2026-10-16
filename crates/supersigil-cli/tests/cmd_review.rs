@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use assert_cmd::assert::OutputAssertExt;
 use common::fixture::{
-    Fixture, NEW_RS, basis_id, gate_row, review_store, slice, slice_text, write,
+    Fixture, NEW_RS, basis_id, gate_row, review_store, slice, slice_text, word, write,
 };
 use common::session::Session;
 use predicates::prelude::*;
@@ -25,7 +25,6 @@ use supersigil_record::store::{MANIFEST_FILE, Store};
 use supersigil_record::time::UtcTime;
 use supersigil_record::{ContentId, EventId, JudgmentId, ReviewStore, SessionId};
 use supersigil_review::gate::OnDiskState;
-use supersigil_review::summary::shell_word;
 
 /// Session id of the slice fixture.
 const SLICE_SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -2898,7 +2897,8 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
 
     assert!(
         commit.ends_with(&format!(
-            "\n\nNext: supersigil review --base='HEAD~1' --target=HEAD {} -- notes.txt\n",
+            "\n\nNext: supersigil review --base={} --target=HEAD {} -- notes.txt\n",
+            word("HEAD~1"),
             f.claude_flag()
         )),
         "{commit}"
@@ -2910,7 +2910,7 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
 fn a_busy_review_is_retried_with_the_evidence_it_read() {
     let f = Fixture::new();
     slice(&f);
-    let records = f.root.join("other records");
+    let records = f.root.join("other-records");
     let review = |format: &str| {
         let output = f
             .plain(&f.repo, &["review", "--format", format, "--record-dir"])
@@ -2933,8 +2933,8 @@ fn a_busy_review_is_retried_with_the_evidence_it_read() {
     assert!(
         text.ends_with(&format!(
             "\n\nNext: supersigil review --record-dir={} --claude-home={}\n",
-            shell_word(&records.display().to_string()),
-            shell_word(&f.claude.display().to_string())
+            word(&records.display().to_string()),
+            word(&f.claude.display().to_string())
         )),
         "{text}"
     );
@@ -2970,13 +2970,13 @@ fn a_busy_review_does_not_retry_an_argument_that_cannot_be_printed_as_given() {
 fn follow_up_reviews_name_the_checkout_and_reviews_directory_used() {
     let f = Fixture::new();
     slice(&f);
-    let (elsewhere, reviews) = (f.root.join("elsewhere"), f.root.join("other reviews"));
+    let (elsewhere, reviews) = (f.root.join("elsewhere"), f.root.join("other-reviews"));
     std::fs::create_dir_all(&elsewhere).unwrap();
     let flags = format!(
         "{} --checkout={} --review-dir={}",
         f.claude_flag(),
-        shell_word(&f.repo.display().to_string()),
-        shell_word(&reviews.display().to_string())
+        word(&f.repo.display().to_string()),
+        word(&reviews.display().to_string())
     );
     let summary = || {
         let output = f
@@ -3689,7 +3689,7 @@ fn next_commands_repeat_the_checkout_and_the_reviews_directory() {
         "{text}"
     );
     // Named from the current directory, outside the worktree.
-    let old = shell_word(&f.repo.join("old.txt").display().to_string());
+    let old = word(&f.repo.join("old.txt").display().to_string());
     assert!(next.contains(&format!(" {old} ")), "{text}");
     assert!(f.root.join("reviews-x").is_dir());
 }

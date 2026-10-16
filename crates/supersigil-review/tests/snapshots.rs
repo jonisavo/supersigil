@@ -38,7 +38,7 @@ use supersigil_review::model::{
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
-use supersigil_review::summary::{Addressing, next_lines, render_summary, shell_word};
+use supersigil_review::summary::{Addressing, Shell, next_lines, render_summary, shell_word};
 use supersigil_review::why::{
     OnDiskCheck, Tristate, Why, WhyTarget, line_command_changes, render_why, why_line,
 };
@@ -738,6 +738,7 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
             ("--target", Some("HEAD".to_owned())),
         ],
         retry_paths: vec!["src/parser.rs".to_owned(), "a b".to_owned()],
+        shell: Shell::Posix,
     };
     let mut unsaved = sample_review();
     unsaved.basis = None;
@@ -849,6 +850,80 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         "supersigil review --checkout='../my repo' --review-dir=/tmp/r-ü"
     );
     assert_eq!(printable.note([&command]), None);
+}
+
+/// Names that need quoting in some shell: `%` expands in cmd.exe, `&`
+/// ends a cmd.exe command, PowerShell reads curly quotes as quotes, and a
+/// leading `~` may expand.
+const AWKWARD: [&str; 5] = ["src/ok.rs", "%PATH%.rs", "a & calc.rs", "it’s.rs", "~x.rs"];
+
+#[test]
+fn windows_commands_show_values_that_need_quoting_as_given() {
+    let addressing = Addressing {
+        shell: Shell::Windows,
+        checkout: Some(PathBuf::from(r"C:\work\my repo")),
+        review_dir: Some(PathBuf::from(r"C:\reviews")),
+        retry: vec![("--base", Some("HEAD~1".to_owned()))],
+        retry_paths: vec!["src/a.rs".to_owned(), "a b".to_owned()],
+        ..Addressing::default()
+    };
+    let address = r"--checkout=<as given> --review-dir=C:\reviews";
+
+    let retry = addressing.retry();
+    let judge = addressing.judge("acknowledge", &AWKWARD, "");
+    let include = addressing.review_flag("--include-untracked", "a b.rs");
+
+    assert_eq!(
+        retry.to_string(),
+        format!("supersigil review --base=HEAD~1 {address} -- src/a.rs <as given>")
+    );
+    assert_eq!(
+        judge.to_string(),
+        format!(
+            "supersigil judge acknowledge src/ok.rs <as given> <as given> <as given> <as given> \
+             {address}"
+        )
+    );
+    assert_eq!(
+        include.to_string(),
+        format!("supersigil review --include-untracked=<as given> {address}")
+    );
+    assert_eq!(
+        addressing.note([&retry, &judge, &include]).as_deref(),
+        Some(
+            "The --checkout and --include-untracked and item name and path filter values are \
+             not valid UTF-8, hold a control character, or need quoting that Windows shells \
+             read differently, so commands show <as given> for them: pass them as given."
+        )
+    );
+    let printable = Addressing {
+        shell: Shell::Windows,
+        ..Addressing::default()
+    };
+    let command = printable.judge("undo", &["lines:src/a-b_c.rs"], "");
+    assert_eq!(
+        command.to_string(),
+        "supersigil judge undo lines:src/a-b_c.rs"
+    );
+    assert_eq!(printable.note([&command]), None);
+}
+
+#[test]
+fn posix_commands_quote_values_that_need_it() {
+    let addressing = Addressing::default();
+
+    let judge = addressing.judge("acknowledge", &AWKWARD, "");
+    let include = addressing.review_flag("--include-untracked", "a b.rs");
+
+    assert_eq!(
+        judge.to_string(),
+        "supersigil judge acknowledge src/ok.rs %PATH%.rs 'a & calc.rs' it’s.rs '~x.rs'"
+    );
+    assert_eq!(
+        include.to_string(),
+        "supersigil review --include-untracked='a b.rs'"
+    );
+    assert_eq!(addressing.note([&judge, &include]), None);
 }
 
 /// Contains `count` files with unexplained lines and no other gate items.

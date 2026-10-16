@@ -528,10 +528,74 @@ const AS_GIVEN: &str = "<as given>";
 /// What [`Command`] records for a path filter it shows as `<as given>`.
 const PATH_FILTER: &str = "path filter";
 
+/// What [`Command`] records for an item name it shows as `<as given>`.
+const ITEM_NAME: &str = "item name";
+
+/// The shells a printed command is written for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Shell {
+    /// POSIX shells, which read single-quoted values literally.
+    #[default]
+    Posix,
+    /// Windows shells. `cmd.exe` and PowerShell read quotes, `%`, and some
+    /// other characters differently, so a value that needs quoting shows as
+    /// `<as given>`: pasting a quoted file name could run part of it.
+    Windows,
+}
+
+impl Shell {
+    /// The shells of the platform this runs on.
+    #[must_use]
+    pub const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Posix
+        }
+    }
+
+    /// `word` as a command for these shells shows it: quoted with
+    /// [`shell_word`] for POSIX shells; unchanged for Windows shells when
+    /// it holds only ASCII letters, digits, and `_-./\:~+` and does not
+    /// start with `~`, else `None`.
+    #[must_use]
+    pub fn word(self, word: &str) -> Option<String> {
+        match self {
+            Self::Posix => Some(shell_word(word)),
+            Self::Windows => {
+                let plain = !word.is_empty()
+                    && !word.starts_with('~')
+                    && word
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || r"_-./\:~+".contains(c));
+                plain.then(|| word.to_owned())
+            }
+        }
+    }
+
+    /// Why a value shows as `<as given>`, for one value or several.
+    const fn reasons(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Posix => (
+                "is not valid UTF-8 or holds a control character",
+                "are not valid UTF-8 or hold a control character",
+            ),
+            Self::Windows => (
+                "is not valid UTF-8, holds a control character, or needs quoting that Windows \
+                 shells read differently",
+                "are not valid UTF-8, hold a control character, or need quoting that Windows \
+                 shells read differently",
+            ),
+        }
+    }
+}
+
 /// A command rendered by [`Addressing`], tracking values replaced by
 /// `<as given>` so output can add [`Addressing::note`] after all commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
+    /// The shells it is written for.
+    shell: Shell,
     /// The command as printed.
     text: String,
     /// The flag of each value it shows as `<as given>`, or `path filter`
@@ -540,9 +604,10 @@ pub struct Command {
 }
 
 impl Command {
-    /// `program` without arguments.
-    fn new(program: &str) -> Self {
+    /// `program` without arguments, for `shell`.
+    fn new(program: &str, shell: Shell) -> Self {
         Self {
+            shell,
             text: program.to_owned(),
             as_given: Vec::new(),
         }
@@ -564,16 +629,16 @@ impl Command {
         self.words(&format!("{flag}={value}"));
     }
 
-    /// Quotes `value` with [`shell_word`], or substitutes `<as given>` and
-    /// records `what` if [`printed`] cannot represent it exactly.
+    /// Shows `value` as its shells read it ([`Shell::word`]), or
+    /// substitutes `<as given>` and records `what` if [`printed`] cannot
+    /// represent it exactly or the shells cannot read it safely.
     fn value(&mut self, what: &'static str, value: &OsStr) -> String {
-        printed(value).map_or_else(
-            || {
+        printed(value)
+            .and_then(|text| self.shell.word(text))
+            .unwrap_or_else(|| {
                 self.as_given.push(what);
                 AS_GIVEN.to_owned()
-            },
-            shell_word,
-        )
+            })
     }
 }
 
@@ -589,8 +654,9 @@ impl fmt::Display for Command {
 /// `--record-dir` and `--claude-home`, which choose the evidence read.
 ///
 /// Commands replace non-UTF-8 values or control characters with `<as given>`
-/// because lossy or escaped values could name another path. Output adds
-/// [`Addressing::note`] once after commands containing these placeholders.
+/// because lossy or escaped values could name another path, and for Windows
+/// shells also values that need quoting. Output adds [`Addressing::note`]
+/// once after commands containing these placeholders.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Addressing {
     /// The review's first 8 ID digits for an agent session or `--review`
@@ -610,6 +676,8 @@ pub struct Addressing {
     pub retry: Vec<(&'static str, Option<String>)>,
     /// The path filters of the `review` call as it was given them.
     pub retry_paths: Vec<String>,
+    /// The shells commands are written for.
+    pub shell: Shell,
 }
 
 impl Addressing {
@@ -620,7 +688,7 @@ impl Addressing {
     /// become `<as given>`.
     #[must_use]
     pub fn retry(&self) -> Command {
-        let mut command = Command::new("supersigil review");
+        let mut command = Command::new("supersigil review", self.shell);
         for (flag, value) in &self.retry {
             match value {
                 None => command.words(flag),
@@ -629,28 +697,22 @@ impl Addressing {
         }
         self.evidence(&mut command);
         self.address(&mut command);
-        if !self.retry_paths.is_empty() {
-            command.words("--");
-            for path in &self.retry_paths {
-                let path = command.value(PATH_FILTER, OsStr::new(path));
-                command.words(&path);
-            }
-        }
+        self.paths(&mut command);
         command
     }
 
-    /// Builds `supersigil judge <verb>` with `names` quoted by [`shell_word`],
+    /// Builds `supersigil judge <verb>` with `names` as its shells read them,
     /// then literal `options` and review address flags. If any name starts
     /// with `-`, puts all names last after `--` to prevent flag parsing.
     #[must_use]
     pub fn judge(&self, verb: &str, names: &[&str], options: &str) -> Command {
         let dashed = names.iter().any(|name| name.starts_with('-'));
+        let mut command = Command::new(&format!("supersigil judge {verb}"), self.shell);
         let names = names
             .iter()
-            .map(|name| shell_word(name))
+            .map(|name| command.value(ITEM_NAME, OsStr::new(name)))
             .collect::<Vec<_>>()
             .join(" ");
-        let mut command = Command::new(&format!("supersigil judge {verb}"));
         if !dashed {
             command.words(&names);
         }
@@ -670,8 +732,18 @@ impl Addressing {
     /// supplied evidence, `--checkout`, and `--review-dir` flags.
     #[must_use]
     pub fn review(&self, words: &str) -> Command {
-        let mut command = Command::new("supersigil review");
+        let mut command = Command::new("supersigil review", self.shell);
         command.words(words);
+        self.evidence(&mut command);
+        self.address(&mut command);
+        command
+    }
+
+    /// Builds `supersigil review <flag>=<value>`, then as [`Self::review`].
+    #[must_use]
+    pub fn review_flag(&self, flag: &'static str, value: &str) -> Command {
+        let mut command = Command::new("supersigil review", self.shell);
+        command.flag(flag, OsStr::new(value));
         self.evidence(&mut command);
         self.address(&mut command);
         command
@@ -686,29 +758,47 @@ impl Addressing {
             .into_iter()
             .flat_map(|command| command.as_given.iter().copied())
             .collect();
-        // List review address flags, retry flags, evidence flags, then path
-        // filters.
+        // List review address flags, retry flags, other flags, item names,
+        // then path filters.
         let order = ["--review", "--checkout", "--review-dir"]
             .into_iter()
             .chain(self.retry.iter().map(|&(flag, _)| flag))
-            .chain(["--record-dir", "--claude-home", PATH_FILTER]);
+            .chain([
+                "--include-untracked",
+                "--record-dir",
+                "--claude-home",
+                ITEM_NAME,
+                PATH_FILTER,
+            ]);
         let mut flags: Vec<&str> = Vec::new();
         for flag in order {
             if shown.contains(flag) && !flags.contains(&flag) {
                 flags.push(flag);
             }
         }
+        let (one, several) = self.shell.reasons();
         match flags.as_slice() {
             [] => None,
             [flag] => Some(format!(
-                "The {flag} value is not valid UTF-8 or holds a control character, so commands \
-                 show {AS_GIVEN} for it: pass it as given."
+                "The {flag} value {one}, so commands show {AS_GIVEN} for it: pass it as given."
             )),
             flags => Some(format!(
-                "The {} values are not valid UTF-8 or hold a control character, so commands \
-                 show {AS_GIVEN} for them: pass them as given.",
+                "The {} values {several}, so commands show {AS_GIVEN} for them: pass them as \
+                 given.",
                 flags.join(" and ")
             )),
+        }
+    }
+
+    /// Appends `--` and the [`retry_paths`](Self::retry_paths), if any, to
+    /// `command`.
+    fn paths(&self, command: &mut Command) {
+        if !self.retry_paths.is_empty() {
+            command.words("--");
+            for path in &self.retry_paths {
+                let path = command.value(PATH_FILTER, OsStr::new(path));
+                command.words(&path);
+            }
         }
     }
 

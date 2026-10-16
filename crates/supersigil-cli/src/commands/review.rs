@@ -29,7 +29,7 @@ use supersigil_review::model::{
     UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::outcome::Outcome;
-use supersigil_review::summary::{Addressing, render_summary};
+use supersigil_review::summary::{Addressing, Shell, render_summary};
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
@@ -86,6 +86,7 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
         claude_home: args.claude_home.clone(),
         retry: retry_flags(args),
         retry_paths: args.paths.clone(),
+        shell: Shell::current(),
     };
     // The id the store saves the basis under. An unsaved review shows the
     // judgments on the same content saved before, which has the same id. A

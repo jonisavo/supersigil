@@ -35,7 +35,7 @@ use supersigil_review::judging::{
 use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
 use supersigil_review::summary::{
-    Addressing, Command, closed_word, compared, next_lines, noun, shell_word,
+    Addressing, Command, Shell, closed_word, compared, next_lines, noun,
 };
 use supersigil_session::checkout::canonical;
 
@@ -206,6 +206,7 @@ fn addressing(args: &JudgeArgs) -> Addressing {
         review: None,
         checkout: args.checkout.clone(),
         review_dir: args.review_dir.clone(),
+        shell: Shell::current(),
         ..Addressing::default()
     }
 }
@@ -377,8 +378,7 @@ impl Recorded<'_> {
                 // An item named by its id has no path to type. Joined to
                 // its flag, a path starting with `-` is never read as one.
                 if let Parsed::Path { path, .. } = parse(name) {
-                    let include = format!("--include-untracked={}", shell_word(path));
-                    let command = addressing.review(&include);
+                    let command = addressing.review_flag("--include-untracked", path);
                     lines.push(format!(
                         "The file stays outside the review; to review its content, run {command}."
                     ));

@@ -9,7 +9,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use common::fixture::{
-    Fixture, LIB_FINAL, basis_id, gate_row, review_store, slice, slice_text, write,
+    Fixture, LIB_FINAL, basis_id, gate_row, review_store, slice, slice_text, word, write,
 };
 use serde_json::{Value, json};
 use supersigil_record::JudgmentId;
@@ -18,7 +18,6 @@ use supersigil_record::reviews::{
     Withdrawal,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_review::summary::shell_word;
 
 /// The name of the person judging in every fixture.
 const NAME: &str = "Ada Lovelace";
@@ -232,7 +231,7 @@ fn names_are_typed_and_shown_from_a_subdirectory() {
              Judgment {}. Gate: 2 open: {old}, gap:lib.rs.\n{}",
             head(&f),
             judgment.id.short(),
-            next(&format!("{} gap:lib.rs", shell_word(&old)))
+            next(&format!("{} gap:lib.rs", word(&old)))
         )
     );
 }
