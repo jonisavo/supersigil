@@ -729,13 +729,15 @@ impl Addressing {
     }
 
     /// Builds `supersigil review <words>` with literal `words`, then the
-    /// supplied evidence, `--checkout`, and `--review-dir` flags.
+    /// supplied evidence, `--checkout`, and `--review-dir` flags, then `--`
+    /// and any [`retry_paths`](Self::retry_paths).
     #[must_use]
     pub fn review(&self, words: &str) -> Command {
         let mut command = Command::new("supersigil review", self.shell);
         command.words(words);
         self.evidence(&mut command);
         self.address(&mut command);
+        self.paths(&mut command);
         command
     }
 
@@ -746,6 +748,7 @@ impl Addressing {
         command.flag(flag, OsStr::new(value));
         self.evidence(&mut command);
         self.address(&mut command);
+        self.paths(&mut command);
         command
     }
 

@@ -852,6 +852,24 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
     assert_eq!(printable.note([&command]), None);
 }
 
+#[test]
+fn the_commit_hint_keeps_the_path_filters() {
+    let addressing = Addressing {
+        retry_paths: vec!["src/a.rs".to_owned(), "a b".to_owned()],
+        ..Addressing::default()
+    };
+
+    let text = render_summary(&review_of_files(0), &addressing, escape);
+
+    assert!(
+        text.contains(
+            "  no changes in scope; to review a commit just made, run supersigil review \
+             --target HEAD -- src/a.rs 'a b'\n"
+        ),
+        "{text}"
+    );
+}
+
 /// Names that need quoting in some shell: `%` expands in cmd.exe, `&`
 /// ends a cmd.exe command, PowerShell reads curly quotes as quotes, and a
 /// leading `~` may expand.
@@ -886,7 +904,9 @@ fn windows_commands_show_values_that_need_quoting_as_given() {
     );
     assert_eq!(
         include.to_string(),
-        format!("supersigil review --include-untracked=<as given> {address}")
+        format!(
+            "supersigil review --include-untracked=<as given> {address} -- src/a.rs <as given>"
+        )
     );
     assert_eq!(
         addressing.note([&retry, &judge, &include]).as_deref(),
