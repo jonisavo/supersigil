@@ -200,11 +200,14 @@ impl<'a> ReviewTx<'a> {
     /// bases with regular files containing the same bytes. Skips all deletions
     /// if any such link cannot be read or its bytes do not hash to the basis ID.
     /// Files that cannot be deleted, including open files on Windows, keep
-    /// their entries for the next write.
+    /// their entries for the next write. After deleting any file, syncs
+    /// `bases/` so the deletions are durable before the manifest that
+    /// drops them.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Io`] if `bases/` exists but cannot be listed.
+    /// Returns [`StoreError::Io`] if `bases/` exists but cannot be listed,
+    /// or cannot be synced after a deletion.
     pub fn cleanup(&mut self, now: UtcTime) -> Result<(), StoreError> {
         let root = self.store.root();
         let dir = root.join(BASES_DIR);
@@ -216,6 +219,7 @@ impl<'a> ReviewTx<'a> {
             .collect();
         let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
             && self.make_bases_regular(&dir, &kept);
+        let mut deleted = false;
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -227,6 +231,7 @@ impl<'a> ReviewTx<'a> {
             }
             if remove_regular(&dir.join(basis_file_name(id))) {
                 self.manifest.removed.remove(id);
+                deleted = true;
             }
         }
 
@@ -257,6 +262,7 @@ impl<'a> ReviewTx<'a> {
             .collect();
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
+            // Nothing was deleted from a directory that is not there.
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(io_error(&dir, e)),
         };
@@ -268,7 +274,10 @@ impl<'a> ReviewTx<'a> {
                 continue;
             }
             // Retry undeletable leftovers on the next write.
-            remove_regular(&entry.path());
+            deleted |= remove_regular(&entry.path());
+        }
+        if deleted {
+            files::sync_dir(&dir)?;
         }
         Ok(())
     }
