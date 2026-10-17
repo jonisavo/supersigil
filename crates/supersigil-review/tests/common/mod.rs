@@ -133,8 +133,9 @@ pub fn escape(text: &str) -> String {
 }
 
 /// Runs `work` on another thread and returns its result, failing the test
-/// when it takes longer than `limit`. A hang becomes a failure instead of a
-/// stuck test run; the thread is left to the process's exit.
+/// when it takes longer than `limit` times [`time_limit_scale`]. A hang
+/// becomes a failure instead of a stuck test run; the thread is left to the
+/// process's exit.
 pub fn finishes_within<T: Send + 'static>(
     limit: Duration,
     work: impl FnOnce() -> T + Send + 'static,
@@ -144,6 +145,22 @@ pub fn finishes_within<T: Send + 'static>(
         let _ = done.send(work());
     });
     result
-        .recv_timeout(limit)
+        .recv_timeout(limit * time_limit_scale())
         .expect("the work finishes within its time limit")
+}
+
+/// The whole number in `SUPERSIGIL_TIME_LIMIT_SCALE`, or 1 when it is unset,
+/// so a slow CI runner can allow more time while others keep the limits.
+///
+/// # Panics
+///
+/// Panics if the variable is set to anything but a positive whole number.
+fn time_limit_scale() -> u32 {
+    std::env::var("SUPERSIGIL_TIME_LIMIT_SCALE").map_or(1, |scale| {
+        scale
+            .parse()
+            .ok()
+            .filter(|&scale| scale > 0)
+            .expect("SUPERSIGIL_TIME_LIMIT_SCALE is a positive whole number")
+    })
 }

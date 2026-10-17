@@ -88,6 +88,8 @@ jobs:
             runner: windows-latest
           - name: x86_64-apple-darwin
             runner: macos-26-intel
+            # Intel runners vary in speed; allow timed tests 4x longer.
+            time-limit-scale: 4
           - name: aarch64-apple-darwin
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
@@ -113,6 +115,8 @@ jobs:
 
       - name: Test
         run: cargo nextest run --no-fail-fast
+        env:
+          SUPERSIGIL_TIME_LIMIT_SCALE: ${{ matrix.time-limit-scale || 1 }}
 
   test-git-minimum:
     name: Test (git 2.36.0)
