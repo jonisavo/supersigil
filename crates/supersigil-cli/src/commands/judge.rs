@@ -287,13 +287,14 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
 
     judgments.push(judgment.clone());
     let store = JudgedStore::new(&judgments, &others);
-    let after = store.review(&id, &basis).report(&names);
+    let review = store.review(&id, &basis);
+    let after = review.report(&names);
     let recorded = Recorded {
         judgment: &judgment,
         review: &id,
         target: &basis.target,
         status: after.status,
-        same_content_completions: after.same_content,
+        same_content_completions: review.same_content(),
         gate: after.gate,
     };
     match args.format.resolve() {

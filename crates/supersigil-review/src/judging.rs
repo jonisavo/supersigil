@@ -814,6 +814,21 @@ impl<'a> JudgedReview<'a> {
             })
     }
 
+    /// The most recent standing completion of each related review of the
+    /// same content, most recent first.
+    #[must_use]
+    pub fn same_content(&self) -> Vec<JudgmentInfo> {
+        let ledger = self.states.ledger;
+        let mut completions: Vec<&Judgment> = self
+            .related
+            .iter()
+            .filter(|earlier| earlier.relation == Relation::SameContent)
+            .filter_map(|earlier| ledger.completion(earlier.id))
+            .collect();
+        completions.sort_by_key(|completion| Reverse(completion.at));
+        completions.into_iter().map(JudgmentInfo::new).collect()
+    }
+
     /// Builds the report with `completion` from `source` and `related`
     /// review details.
     fn reported(
@@ -823,14 +838,6 @@ impl<'a> JudgedReview<'a> {
         related: Vec<RelatedInfo>,
         names: &ItemNames<'_>,
     ) -> Report {
-        let ledger = self.states.ledger;
-        let mut same_content: Vec<&Judgment> = self
-            .related
-            .iter()
-            .filter(|earlier| earlier.relation == Relation::SameContent)
-            .filter_map(|earlier| ledger.completion(earlier.id))
-            .collect();
-        same_content.sort_by_key(|completion| Reverse(completion.at));
         Report {
             status: StatusInfo {
                 complete: completion.is_some(),
@@ -839,7 +846,6 @@ impl<'a> JudgedReview<'a> {
                 source,
             },
             gate: GateInfo::judged(self.items(), names),
-            same_content: same_content.into_iter().map(JudgmentInfo::new).collect(),
         }
     }
 
@@ -864,9 +870,6 @@ pub struct Report {
     pub status: StatusInfo,
     /// The gate items and their states.
     pub gate: GateInfo,
-    /// The most recent standing completion of each related review of the
-    /// same content, most recent first.
-    pub same_content: Vec<JudgmentInfo>,
 }
 
 /// Every gate item of the current review with its state.

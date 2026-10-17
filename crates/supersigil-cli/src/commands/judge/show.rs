@@ -45,7 +45,8 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let store = JudgedStore::new(&judgments, &others);
     let ledger = store.ledger();
     let names = checkout.names(&basis)?;
-    let report = store.review(&id, &basis).report(&names);
+    let review = store.review(&id, &basis);
+    let report = review.report(&names);
     let shown = Shown {
         review: &id,
         worktree: &basis.worktree,
@@ -53,7 +54,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
         target: &basis.target,
         scope: &basis.scope,
         status: report.status,
-        same_content_completions: report.same_content,
+        same_content_completions: review.same_content(),
         gate: report.gate,
         comments: comments(&id, &judgments, ledger, &names),
         history: history(&id, &judgments, ledger, &names),
