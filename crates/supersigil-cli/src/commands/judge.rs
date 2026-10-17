@@ -28,10 +28,10 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
-    AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Reason,
-    Refusal, WithdrawRefusal,
+    AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Refusal,
+    WithdrawRefusal, Words,
 };
-use supersigil_review::model::{GateInfo, StatusInfo};
+use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
 use supersigil_review::printed::{Addressing, Printed, Shell};
 use supersigil_review::summary::{closed_word, compared, next_lines, noun};
@@ -90,37 +90,67 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
 ///
 /// # Errors
 ///
-/// Refuses a dismissal without a reason.
+/// Refuses a dismissal without a reason, and a blank reason or text.
 fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
     Ok(match command {
         JudgeCommand::Acknowledge(close) => Call::Acknowledge {
             items: &close.items,
-            reason: close.reason.as_deref(),
+            reason: reason(close.reason.as_deref())?,
         },
         JudgeCommand::Dismiss(close) => Call::Dismiss {
             items: &close.items,
-            reason: Reason::new(close.reason.as_deref())
+            reason: close
+                .reason
+                .as_deref()
+                .and_then(Words::new)
                 .ok_or_else(|| refusal(["A dismissal needs --reason."].into()))?,
         },
         JudgeCommand::Comment(comment) => Call::Comment {
             item: comment.item.as_ref(),
-            text: &comment.text,
+            text: Words::new(&comment.text)
+                .ok_or_else(|| refusal(["A comment's text can't be blank."].into()))?,
         },
         JudgeCommand::Complete(complete) => Call::Complete {
-            text: complete.text.as_deref(),
+            text: complete
+                .text
+                .as_deref()
+                .map(|text| {
+                    Words::new(text).ok_or_else(|| {
+                        refusal(
+                            ["A completion's text can't be blank; give some or leave out --text."]
+                                .into(),
+                        )
+                    })
+                })
+                .transpose()?,
         },
         JudgeCommand::Undo(undo) => match &undo.judgment {
             Some(prefix) => Call::UndoJudgment {
                 prefix,
-                reason: undo.reason.as_deref(),
+                reason: reason(undo.reason.as_deref())?,
             },
             None => Call::UndoItems {
                 items: &undo.items,
-                reason: undo.reason.as_deref(),
+                reason: reason(undo.reason.as_deref())?,
             },
         },
         JudgeCommand::List | JudgeCommand::Show(_) => unreachable!("not a write command"),
     })
+}
+
+/// The reason given, if any.
+///
+/// # Errors
+///
+/// Refuses a blank reason.
+fn reason(given: Option<&str>) -> Result<Option<Words<'_>>, CliError> {
+    given
+        .map(|text| {
+            Words::new(text).ok_or_else(|| {
+                refusal(["A reason can't be blank; give one or leave out --reason."].into())
+            })
+        })
+        .transpose()
 }
 
 /// The checkout a call names, with its repository's review store.
@@ -257,12 +287,14 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
 
     judgments.push(judgment.clone());
     let store = JudgedStore::new(&judgments, &others);
-    let after = store.review(&id, &basis).report(&names);
+    let review = store.review(&id, &basis);
+    let after = review.report(&names);
     let recorded = Recorded {
         judgment: &judgment,
         review: &id,
         target: &basis.target,
         status: after.status,
+        same_content_completions: review.same_content(),
         gate: after.gate,
     };
     match args.format.resolve() {
@@ -288,8 +320,11 @@ struct Recorded<'a> {
     review: &'a BasisId,
     /// What that review reviewed.
     target: &'a BasisTarget,
-    /// Whether the review is complete now.
+    /// Whether the review's own completion completes it now.
     status: StatusInfo,
+    /// The standing completions of reviews of the same content, most
+    /// recent first; `supersigil review` tells whether one carries over.
+    same_content_completions: Vec<JudgmentInfo>,
     /// The review's gate now, as `review` shows it.
     gate: GateInfo,
 }
@@ -359,14 +394,22 @@ impl Recorded<'_> {
         out.lines(self.withdrawn(ledger, names));
         let open = self.gate.open_names();
         let complete = self.status.complete;
+        // Without reading records, `judge` cannot tell whether a completion
+        // of the same content carries over, so it names them instead.
+        let same_content = &self.same_content_completions;
         let gate = if !open.is_empty() {
             format!("Gate: {} open: {}.", open.len(), open.join(", "))
         } else if complete {
             "Gate: 0 open. Review complete.".to_owned()
-        } else {
+        } else if same_content.is_empty() {
             "Gate: 0 open. Review not yet complete.".to_owned()
+        } else {
+            "Gate: 0 open.".to_owned()
         };
         out.line(format!("Judgment {}. {gate}", self.judgment.id.short()));
+        if open.is_empty() && !complete {
+            out.lines(same_content.iter().map(show::same_content));
+        }
         let next = next_lines(&open, complete, addressing, &mut out);
         out.lines(next);
         out.finish()
@@ -614,6 +657,24 @@ fn refused_call(
                 unreachable!("only an undo by judgment names a judgment");
             };
             no_judgment(error, prefix, addressing)
+        }
+        Refusal::OtherReview(judgment) => {
+            let mut out = Printed::new();
+            out.line(format!(
+                "Judgment {} was recorded on review {} and closes none of review {}'s items.",
+                judgment.id.short(),
+                judgment.basis.short(),
+                id.short()
+            ));
+            let there = Addressing {
+                review: Some(judgment.basis.short().to_owned()),
+                ..addressing.clone()
+            };
+            // The whole id, since a prefix unique here may not be.
+            let options = format!("--judgment {}", judgment.id);
+            let undo = out.command(there.judge("undo", &[], &options));
+            out.line(format!("To withdraw it there: {undo}"));
+            refusal(out)
         }
         Refusal::NotWithdrawable(judgment, WithdrawRefusal::Undo) => refusal(
             [format!(

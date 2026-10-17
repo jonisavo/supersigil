@@ -693,7 +693,9 @@ impl<'a> JudgedReview<'a> {
     /// unclosed and closes nothing else; completing needs every gate item
     /// closed and lists each item's closing judgment; undoing items
     /// withdraws what closes them, and undoing a judgment what stands of
-    /// it, each with the completions that count what it withdraws.
+    /// it, each with the completions that count what it withdraws. A
+    /// judgment undone by ID must be recorded on the current review or
+    /// close one of its items.
     /// Comments are recorded as given and close nothing. Item IDs absent
     /// from the gate pass every check and are recorded as given; callers
     /// name items by resolving names against the gate.
@@ -718,35 +720,49 @@ impl<'a> JudgedReview<'a> {
                     .check_close(items)
                     .map_err(Refusal::AlreadyClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
             Call::Dismiss { items, reason } => {
                 self.states
                     .check_close(items)
                     .map_err(Refusal::AlreadyClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = Some(reason.0.to_owned());
+                planned.reason = Some(reason.as_str().to_owned());
             }
             Call::Comment { item, text } => {
                 planned.items = item.into_iter().cloned().collect();
-                planned.text = Some(text.to_owned());
+                planned.text = Some(text.as_str().to_owned());
             }
             Call::Complete { text } => {
                 planned.closes = self.check_complete()?;
-                planned.text = text.map(str::to_owned);
+                planned.text = text.map(|text| text.as_str().to_owned());
             }
             Call::UndoItems { items, reason } => {
                 planned.withdraws = self.states.plan_undo(items).map_err(Refusal::NotClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
             Call::UndoJudgment { prefix, reason } => {
                 let ledger = self.states.ledger;
                 let judgment = ledger.find(prefix).map_err(Refusal::NoJudgment)?;
+                // Undoing items withdraws every closer of each item, so
+                // this reaches the same judgments.
+                let holds = judgment.basis == *self.states.id
+                    || judgment.items.iter().any(|item| {
+                        self.states.judged(item).is_some_and(|judged| {
+                            self.states
+                                .closers(judged.item)
+                                .iter()
+                                .any(|closer| closer.id == judgment.id)
+                        })
+                    });
+                if !holds {
+                    return Err(Refusal::OtherReview(judgment));
+                }
                 planned.withdraws = ledger
                     .plan_withdrawal(judgment)
                     .map_err(|refused| Refusal::NotWithdrawable(judgment, refused))?;
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
         }
         Ok(planned)
@@ -798,6 +814,21 @@ impl<'a> JudgedReview<'a> {
             })
     }
 
+    /// The most recent standing completion of each related review of the
+    /// same content, most recent first.
+    #[must_use]
+    pub fn same_content(&self) -> Vec<JudgmentInfo> {
+        let ledger = self.states.ledger;
+        let mut completions: Vec<&Judgment> = self
+            .related
+            .iter()
+            .filter(|earlier| earlier.relation == Relation::SameContent)
+            .filter_map(|earlier| ledger.completion(earlier.id))
+            .collect();
+        completions.sort_by_key(|completion| Reverse(completion.at));
+        completions.into_iter().map(JudgmentInfo::new).collect()
+    }
+
     /// Builds the report with `completion` from `source` and `related`
     /// review details.
     fn reported(
@@ -807,14 +838,6 @@ impl<'a> JudgedReview<'a> {
         related: Vec<RelatedInfo>,
         names: &ItemNames<'_>,
     ) -> Report {
-        let ledger = self.states.ledger;
-        let mut same_content: Vec<&Judgment> = self
-            .related
-            .iter()
-            .filter(|earlier| earlier.relation == Relation::SameContent)
-            .filter_map(|earlier| ledger.completion(earlier.id))
-            .collect();
-        same_content.sort_by_key(|completion| Reverse(completion.at));
         Report {
             status: StatusInfo {
                 complete: completion.is_some(),
@@ -823,7 +846,6 @@ impl<'a> JudgedReview<'a> {
                 source,
             },
             gate: GateInfo::judged(self.items(), names),
-            same_content: same_content.into_iter().map(JudgmentInfo::new).collect(),
         }
     }
 
@@ -848,9 +870,6 @@ pub struct Report {
     pub status: StatusInfo,
     /// The gate items and their states.
     pub gate: GateInfo,
-    /// The most recent standing completion of each related review of the
-    /// same content, most recent first.
-    pub same_content: Vec<JudgmentInfo>,
 }
 
 /// Every gate item of the current review with its state.
@@ -1116,41 +1135,41 @@ pub enum Call<'c, I = ItemId> {
         /// The items.
         items: &'c [I],
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
     /// Dismiss `items` for `reason`.
     Dismiss {
         /// The items.
         items: &'c [I],
         /// Why they need no follow-up.
-        reason: Reason<'c>,
+        reason: Words<'c>,
     },
     /// Comment on `item`, or on the review as a whole.
     Comment {
         /// The item, if any.
         item: Option<&'c I>,
         /// The note.
-        text: &'c str,
+        text: Words<'c>,
     },
     /// Complete the review.
     Complete {
         /// A note, if given.
-        text: Option<&'c str>,
+        text: Option<Words<'c>>,
     },
     /// Withdraw the judgments closing `items`.
     UndoItems {
         /// The items.
         items: &'c [I],
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
-    /// Withdraw what stands of the judgment whose ID starts with `prefix`,
-    /// on any review.
+    /// Withdraw what stands of the judgment whose ID starts with `prefix`:
+    /// one recorded on the current review, or one closing its items.
     UndoJudgment {
         /// At least 8 leading characters of its ID, in any ASCII case.
         prefix: &'c str,
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
 }
 
@@ -1209,15 +1228,22 @@ impl<'c, I> Call<'c, I> {
     }
 }
 
-/// A dismissal's reason, which is never blank.
+/// Words a person gives with a judgment, a reason or a note, which are
+/// never blank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Reason<'a>(&'a str);
+pub struct Words<'a>(&'a str);
 
-impl<'a> Reason<'a> {
-    /// `text` as a reason, unless it is missing or only whitespace.
+impl<'a> Words<'a> {
+    /// `text` as words, unless it is only whitespace.
     #[must_use]
-    pub fn new(text: Option<&'a str>) -> Option<Self> {
-        text.filter(|text| !text.trim().is_empty()).map(Self)
+    pub fn new(text: &'a str) -> Option<Self> {
+        (!text.trim().is_empty()).then_some(Self(text))
+    }
+
+    /// The words as given.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
     }
 }
 
@@ -1284,6 +1310,9 @@ pub enum Refusal<'a> {
     NotClosed(Vec<NotClosed<'a>>),
     /// An undo's prefix names no single judgment.
     NoJudgment(FindJudgmentError<'a>),
+    /// An undo names this judgment of another review, which closes none
+    /// of the current review's items.
+    OtherReview(&'a Judgment),
     /// An undo names this judgment, which cannot be withdrawn.
     NotWithdrawable(&'a Judgment, WithdrawRefusal),
 }

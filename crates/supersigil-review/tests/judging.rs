@@ -19,8 +19,8 @@ use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
     AlreadyClosed, Call, Earlier, FindJudgmentError, ItemChange, ItemState, JudgedReview,
-    JudgedStore, Ledger, NotClosed, Planned, Reason, Refusal, Relation, Report, Uncovered,
-    WithdrawRefusal, explanations_differ, uncovered_items,
+    JudgedStore, Ledger, NotClosed, Planned, Refusal, Relation, Report, Uncovered, WithdrawRefusal,
+    Words, explanations_differ, uncovered_items,
 };
 use supersigil_review::model::{
     ChangedEvidence, CompletionSource, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations,
@@ -1383,6 +1383,70 @@ fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
 }
 
 #[test]
+fn undo_by_judgment_reaches_only_what_the_review_holds() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    // The same content in another worktree, whose acknowledgment carries.
+    let related = saved(basis("/work/b", '1', '2', vec![a.clone()]));
+    let unrelated = saved(basis("/work/c", '3', '4', vec![b.clone()]));
+    let judgments = [
+        ack("carried-acknowledgment", &related.0, &[&a], 10),
+        comment("related-note", &related.0, 20),
+        ack("unrelated-acknowledgment", &unrelated.0, &[&b], 30),
+    ];
+    let earlier = [related, unrelated];
+    let store = store_of(&judgments, &earlier);
+    let review = store.review(&current.0, &current.1);
+    let undone = |prefix| {
+        review
+            .plan(undo_judgment(prefix))
+            .map(|planned| recorded(planned).withdraws)
+    };
+    assert_eq!(
+        undone("carried-acknowledgment"),
+        Ok(vec![withdrawal("carried-acknowledgment", Some(&a))])
+    );
+    assert_eq!(
+        undone("related-note"),
+        Err(Refusal::OtherReview(&judgments[1]))
+    );
+    assert_eq!(
+        undone("unrelated-acknowledgment"),
+        Err(Refusal::OtherReview(&judgments[2]))
+    );
+}
+
+#[test]
+fn undo_by_judgment_reaches_an_older_carried_closer_the_state_does_not_show() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    // An earlier review of this worktree's code, and a review of the same
+    // content in another worktree; both acknowledge `a.rs`.
+    let earlier = saved(basis("/work/1", '1', '2', vec![a.clone()]));
+    let same = saved(basis("/work/2", '1', '3', vec![a.clone(), b.clone()]));
+    let current = saved(basis("/work/1", '1', '3', vec![a.clone(), b]));
+    let judgments = [
+        ack("older-acknowledgment", &earlier.0, &[&a], 10),
+        ack("newer-acknowledgment", &same.0, &[&a], 20),
+    ];
+    let related = [earlier, same];
+    let store = store_of(&judgments, &related);
+    let review = store.review(&current.0, &current.1);
+    assert_eq!(
+        review.items()[0]
+            .state
+            .closing()
+            .map(|judgment| &judgment.id),
+        Some(&judgments[1].id)
+    );
+    assert_eq!(
+        review
+            .plan(undo_judgment("older-acknowledgment"))
+            .map(|planned| recorded(planned).withdraws),
+        Ok(vec![withdrawal("older-acknowledgment", Some(&a))])
+    );
+}
+
+#[test]
 fn undo_by_judgment_withdraws_what_stands_of_an_acknowledgment() {
     let (a, b, c) = (lines("a.rs", "x"), lines("b.rs", "x"), lines("c.rs", "x"));
     let current = saved(basis(
@@ -2069,7 +2133,7 @@ fn each_call_records_what_its_kind_needs() {
     let planned = fresh
         .plan(Call::Acknowledge {
             items: &both[..1],
-            reason: Some("seen"),
+            reason: Words::new("seen"),
         })
         .unwrap();
     assert!(planned.first());
@@ -2081,7 +2145,7 @@ fn each_call_records_what_its_kind_needs() {
             ..judgment("planned", &current.0, JudgmentKind::Acknowledge, 100)
         }
     );
-    let reason = Reason::new(Some("not ours")).unwrap();
+    let reason = Words::new("not ours").unwrap();
     assert_eq!(
         fresh
             .plan(Call::Dismiss {
@@ -2099,7 +2163,7 @@ fn each_call_records_what_its_kind_needs() {
         fresh
             .plan(Call::Comment {
                 item: Some(&a.id),
-                text: "look again",
+                text: Words::new("look again").unwrap(),
             })
             .map(recorded),
         Ok(Judgment {
@@ -2115,7 +2179,11 @@ fn each_call_records_what_its_kind_needs() {
     ];
     let store = store_of(&judgments, &[]);
     let judged = store.review(&current.0, &current.1);
-    let planned = judged.plan(Call::Complete { text: Some("done") }).unwrap();
+    let planned = judged
+        .plan(Call::Complete {
+            text: Words::new("done"),
+        })
+        .unwrap();
     assert!(!planned.first());
     assert_eq!(
         recorded(planned),
@@ -2132,7 +2200,7 @@ fn each_call_records_what_its_kind_needs() {
         judged
             .plan(Call::Comment {
                 item: None,
-                text: "for the review",
+                text: Words::new("for the review").unwrap(),
             })
             .map(|planned| recorded(planned).items),
         Ok(Vec::new())
@@ -2140,9 +2208,8 @@ fn each_call_records_what_its_kind_needs() {
 }
 
 #[test]
-fn a_dismissal_reason_is_never_blank() {
-    assert_eq!(Reason::new(None), None);
-    assert_eq!(Reason::new(Some("")), None);
-    assert_eq!(Reason::new(Some(" \t\n")), None);
-    assert!(Reason::new(Some(" why ")).is_some());
+fn given_words_are_never_blank() {
+    assert_eq!(Words::new(""), None);
+    assert_eq!(Words::new(" \t\n"), None);
+    assert_eq!(Words::new(" why ").map(Words::as_str), Some(" why "));
 }

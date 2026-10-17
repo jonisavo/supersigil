@@ -45,7 +45,8 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let store = JudgedStore::new(&judgments, &others);
     let ledger = store.ledger();
     let names = checkout.names(&basis)?;
-    let report = store.review(&id, &basis).report(&names);
+    let review = store.review(&id, &basis);
+    let report = review.report(&names);
     let shown = Shown {
         review: &id,
         worktree: &basis.worktree,
@@ -53,7 +54,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
         target: &basis.target,
         scope: &basis.scope,
         status: report.status,
-        same_content_completions: report.same_content,
+        same_content_completions: review.same_content(),
         gate: report.gate,
         comments: comments(&id, &judgments, ledger, &names),
         history: history(&id, &judgments, ledger, &names),
@@ -285,14 +286,7 @@ impl Shown<'_> {
             )];
         }
         let mut lines = vec!["Review not complete.".to_owned()];
-        lines.extend(self.same_content_completions.iter().map(|completion| {
-            format!(
-                "Completed {} for the same content as review {}; supersigil review shows \
-                 whether it carries over.",
-                completion.at.date(),
-                completion.review.short()
-            )
-        }));
+        lines.extend(self.same_content_completions.iter().map(same_content));
         lines
     }
 
@@ -329,4 +323,15 @@ fn by(judgment: &JudgmentInfo) -> String {
 /// `": <text>"` when there is text.
 fn words(text: Option<&str>) -> String {
     text.map_or_else(String::new, |text| format!(": {text}"))
+}
+
+/// Names `completion` of a review of the same content, which `judge` cannot
+/// tell carries over without reading records.
+pub(super) fn same_content(completion: &JudgmentInfo) -> String {
+    format!(
+        "Completed {} for the same content as review {}; supersigil review shows whether it \
+         carries over.",
+        completion.at.date(),
+        completion.review.short()
+    )
 }

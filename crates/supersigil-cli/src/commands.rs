@@ -243,7 +243,8 @@ pub struct UndoArgs {
         value_name = "ITEM"
     )]
     pub items: Vec<String>,
-    /// Withdraw this judgment whole instead, named by at least 8 characters of its id
+    /// Withdraw this judgment whole instead, named by at least 8 characters of its id.
+    /// It must be recorded on this review or close one of its items
     #[arg(long, value_name = "ID")]
     pub judgment: Option<String>,
     /// Why, recorded with the undo

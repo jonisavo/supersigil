@@ -964,6 +964,70 @@ fn a_dismissal_needs_a_reason() {
 }
 
 #[test]
+fn a_reason_given_is_never_blank() {
+    let (f, _) = reviewed();
+    judged(&f, &f.repo, &["acknowledge", "old.txt"]);
+    let [acknowledgment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
+
+    let calls: [&[&str]; 3] = [
+        &["acknowledge", "src/new.rs", "--reason", ""],
+        &["undo", "old.txt", "--reason", " "],
+        &[
+            "undo",
+            "--judgment",
+            acknowledgment.id.short(),
+            "--reason",
+            "\t",
+        ],
+    ];
+    for args in calls {
+        assert_eq!(
+            refused(&f, &mut judge(&f, &f.repo, args)),
+            "No judgment recorded. A reason can't be blank; give one or leave out --reason.\n",
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
+fn a_text_given_is_never_blank() {
+    let (f, _) = reviewed();
+    judged(
+        &f,
+        &f.repo,
+        &[
+            "acknowledge",
+            "old.txt",
+            "src/new.rs",
+            "lines:src/lib.rs",
+            "gap:src/lib.rs",
+        ],
+    );
+
+    let calls: [(&[&str], &str); 3] = [
+        (
+            &["comment", "--text", ""],
+            "A comment's text can't be blank.",
+        ),
+        (
+            &["comment", "old.txt", "--text", " \n"],
+            "A comment's text can't be blank.",
+        ),
+        (
+            &["complete", "--text", "\t"],
+            "A completion's text can't be blank; give some or leave out --text.",
+        ),
+    ];
+    for (args, message) in calls {
+        assert_eq!(
+            refused(&f, &mut judge(&f, &f.repo, args)),
+            format!("No judgment recorded. {message}\n"),
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn an_item_already_closed_is_not_judged_again() {
     let (f, _) = reviewed();
     judged(&f, &f.repo, &["acknowledge", "old.txt"]);
@@ -1942,6 +2006,64 @@ fn show_of_a_review_with_nothing_to_review_suggests_no_judgment() {
         json!({"complete": false, "completion": null})
     );
     assert_eq!(printed["gate"], json!({"open": 0, "items": []}));
+}
+
+#[test]
+fn a_write_names_completions_of_the_same_content_instead_of_calling_the_review_incomplete() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    let [_, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    let commented = judged(&f, &other, &["comment", "--text", "Looks right."]);
+    let output = judge(
+        &f,
+        &other,
+        &["--format", "json", "comment", "--text", "Still right."],
+    )
+    .output()
+    .unwrap();
+
+    let [.., note, _] = <[Judgment; 4]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(
+        commented,
+        format!(
+            "Commented on review {second8} (working tree over {}).\n\
+             Kept the reviewed snapshot as refs/supersigil/reviews/{second8}…\n\
+             Judgment {}. Gate: 0 open.\n\
+             Completed {} for the same content as review {first8}; supersigil review shows \
+             whether it carries over.\nNext: supersigil judge complete\n",
+            head(&f),
+            note.id.short(),
+            completion.at.date()
+        )
+    );
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["status"]["complete"], false);
+    assert_eq!(
+        printed["same_content_completions"],
+        json!([info(&completion)])
+    );
+}
+
+#[test]
+fn undoing_by_id_a_judgment_of_another_review_names_that_review() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    judged(&f, &f.repo, &["comment", "--text", "Careful work."]);
+    let [.., note] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    let note8 = note.id.short();
+
+    let message = refused(&f, &mut judge(&f, &other, &["undo", "--judgment", note8]));
+
+    assert_eq!(
+        message,
+        format!(
+            "No judgment recorded. Judgment {note8} was recorded on review {first8} and closes \
+             none of review {second8}'s items.\nTo withdraw it there: supersigil judge undo \
+             --judgment {} --review={first8}\n",
+            note.id
+        )
+    );
 }
 
 #[test]
