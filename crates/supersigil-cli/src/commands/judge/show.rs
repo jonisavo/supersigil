@@ -285,14 +285,7 @@ impl Shown<'_> {
             )];
         }
         let mut lines = vec!["Review not complete.".to_owned()];
-        lines.extend(self.same_content_completions.iter().map(|completion| {
-            format!(
-                "Completed {} for the same content as review {}; supersigil review shows \
-                 whether it carries over.",
-                completion.at.date(),
-                completion.review.short()
-            )
-        }));
+        lines.extend(self.same_content_completions.iter().map(same_content));
         lines
     }
 
@@ -329,4 +322,15 @@ fn by(judgment: &JudgmentInfo) -> String {
 /// `": <text>"` when there is text.
 fn words(text: Option<&str>) -> String {
     text.map_or_else(String::new, |text| format!(": {text}"))
+}
+
+/// Names `completion` of a review of the same content, which `judge` cannot
+/// tell carries over without reading records.
+pub(super) fn same_content(completion: &JudgmentInfo) -> String {
+    format!(
+        "Completed {} for the same content as review {}; supersigil review shows whether it \
+         carries over.",
+        completion.at.date(),
+        completion.review.short()
+    )
 }

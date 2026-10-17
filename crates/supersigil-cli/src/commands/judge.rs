@@ -31,7 +31,7 @@ use supersigil_review::judging::{
     AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Refusal,
     WithdrawRefusal, Words,
 };
-use supersigil_review::model::{GateInfo, StatusInfo};
+use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
 use supersigil_review::printed::{Addressing, Printed, Shell};
 use supersigil_review::summary::{closed_word, compared, next_lines, noun};
@@ -293,6 +293,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
         review: &id,
         target: &basis.target,
         status: after.status,
+        same_content_completions: after.same_content,
         gate: after.gate,
     };
     match args.format.resolve() {
@@ -318,8 +319,11 @@ struct Recorded<'a> {
     review: &'a BasisId,
     /// What that review reviewed.
     target: &'a BasisTarget,
-    /// Whether the review is complete now.
+    /// Whether the review's own completion completes it now.
     status: StatusInfo,
+    /// The standing completions of reviews of the same content, most
+    /// recent first; `supersigil review` tells whether one carries over.
+    same_content_completions: Vec<JudgmentInfo>,
     /// The review's gate now, as `review` shows it.
     gate: GateInfo,
 }
@@ -389,14 +393,22 @@ impl Recorded<'_> {
         out.lines(self.withdrawn(ledger, names));
         let open = self.gate.open_names();
         let complete = self.status.complete;
+        // Without reading records, `judge` cannot tell whether a completion
+        // of the same content carries over, so it names them instead.
+        let same_content = &self.same_content_completions;
         let gate = if !open.is_empty() {
             format!("Gate: {} open: {}.", open.len(), open.join(", "))
         } else if complete {
             "Gate: 0 open. Review complete.".to_owned()
-        } else {
+        } else if same_content.is_empty() {
             "Gate: 0 open. Review not yet complete.".to_owned()
+        } else {
+            "Gate: 0 open.".to_owned()
         };
         out.line(format!("Judgment {}. {gate}", self.judgment.id.short()));
+        if open.is_empty() && !complete {
+            out.lines(same_content.iter().map(show::same_content));
+        }
         let next = next_lines(&open, complete, addressing, &mut out);
         out.lines(next);
         out.finish()

@@ -2009,6 +2009,43 @@ fn show_of_a_review_with_nothing_to_review_suggests_no_judgment() {
 }
 
 #[test]
+fn a_write_names_completions_of_the_same_content_instead_of_calling_the_review_incomplete() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    let [_, completion] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+
+    let commented = judged(&f, &other, &["comment", "--text", "Looks right."]);
+    let output = judge(
+        &f,
+        &other,
+        &["--format", "json", "comment", "--text", "Still right."],
+    )
+    .output()
+    .unwrap();
+
+    let [.., note, _] = <[Judgment; 4]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(
+        commented,
+        format!(
+            "Commented on review {second8} (working tree over {}).\n\
+             Kept the reviewed snapshot as refs/supersigil/reviews/{second8}…\n\
+             Judgment {}. Gate: 0 open.\n\
+             Completed {} for the same content as review {first8}; supersigil review shows \
+             whether it carries over.\nNext: supersigil judge complete\n",
+            head(&f),
+            note.id.short(),
+            completion.at.date()
+        )
+    );
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["status"]["complete"], false);
+    assert_eq!(
+        printed["same_content_completions"],
+        json!([info(&completion)])
+    );
+}
+
+#[test]
 fn undoing_by_id_a_judgment_of_another_review_names_that_review() {
     let (f, other, first, second) = carried();
     let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
