@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Write as _};
 
 use supersigil_anchor::ChainClass;
+use supersigil_record::RecordId;
 use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
 use supersigil_record::reviews::{BasisId, GateDetail, JudgmentKind, PathBytes, Subject};
 
@@ -272,7 +273,7 @@ fn evidence_lines(evidence: &ChangedEvidence) -> Vec<String> {
         let records: Vec<&str> = evidence
             .gone_or_rewritten
             .iter()
-            .map(supersigil_record::RecordId::as_str)
+            .map(RecordId::as_str)
             .collect();
         lines.push(format!("  gone or rewritten: {}", records.join(", ")));
     }
@@ -730,11 +731,7 @@ fn notes(review: &Review) -> Vec<String> {
     }
     notes.extend(capture_lines(evidence));
     for conflict in &evidence.conflicting_edits {
-        let records: Vec<&str> = conflict
-            .records
-            .iter()
-            .map(supersigil_record::RecordId::as_str)
-            .collect();
+        let records: Vec<&str> = conflict.records.iter().map(RecordId::as_str).collect();
         notes.push(format!(
             "edit {} excluded: its sightings in records {} disagree",
             conflict.edit.as_str(),

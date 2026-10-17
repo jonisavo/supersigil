@@ -803,15 +803,15 @@ impl<'a> JudgedReview<'a> {
     /// stands for it.
     fn counts(&self, completion: &Judgment) -> bool {
         let ledger = self.states.ledger;
-        self.open() == 0
-            && self.items().iter().all(|judged| {
-                completion
+        self.items().iter().all(|judged| {
+            judged.state.closing().is_some()
+                && completion
                     .closes
                     .get(&judged.item.id)
                     .is_some_and(|closer| {
                         ledger.standing_position(closer, &judged.item.id).is_some()
                     })
-            })
+        })
     }
 
     /// The most recent standing completion of each related review of the
