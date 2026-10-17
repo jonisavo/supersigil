@@ -7,10 +7,11 @@
 //! maps line for line onto that diff. [`outcome`] turns each diff line's
 //! provenance into one outer outcome by its ordered rules, and
 //! [`model::file_review`] assembles hunks and spans. [`summary`] and [`why`]
-//! render terminal forms. [`gate`] builds gate items, fingerprints for
-//! carrying judgments, and saved evidence digests. [`names`] names gate items
-//! and resolves typed names. [`judging`] resolves item states from judgments
-//! recorded on saved reviews.
+//! render terminal forms through [`printed`], which escapes them and
+//! addresses the commands they print. [`gate`] builds gate items,
+//! fingerprints for carrying judgments, and saved evidence digests.
+//! [`names`] names gate items and resolves typed names. [`judging`] resolves
+//! item states from judgments recorded on saved reviews.
 
 pub mod diff;
 pub mod gate;
@@ -19,6 +20,7 @@ pub mod mapping;
 pub mod model;
 pub mod names;
 pub mod outcome;
+pub mod printed;
 
 pub use model::{REVIEW_SCHEMA, Review, WHY_SCHEMA};
 pub mod summary;

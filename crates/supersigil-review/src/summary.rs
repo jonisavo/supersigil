@@ -5,15 +5,12 @@
 //! failed, worktree, base, target, and completion status or changes since the
 //! most recent related completion. Diff text remains in JSON.
 //!
-//! Every string that comes from outside the tool (paths, ids, reasons,
-//! names, transcript text) uses the caller's `escape` function. The CLI
-//! supplies `format::escape_control` so path escape sequences cannot rewrite
-//! the terminal.
+//! Lines are built from untrusted text (paths, ids, reasons, names,
+//! transcript text) as is; [`Printed`] escapes each line once, so a path's
+//! escape sequences cannot rewrite the terminal.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsStr;
-use std::fmt::{self, Display, Write as _};
-use std::path::PathBuf;
+use std::fmt::{Display, Write as _};
 
 use supersigil_anchor::ChainClass;
 use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
@@ -26,6 +23,7 @@ use crate::model::{
     TargetKindInfo, Unsaved,
 };
 use crate::outcome::{Outcome, Relation, UnattributedReason};
+use crate::printed::{Addressing, Printed, aligned};
 
 /// Maximum gate rows before the summary suggests a pager.
 const LONG_GATE: usize = 20;
@@ -34,23 +32,16 @@ const LONG_GATE: usize = 20;
 /// nothing to judge or complete.
 pub const NOTHING_TO_REVIEW: &str = "Nothing to review: no changes in scope.";
 
-/// Renders `review` as the terminal summary, escaping untrusted text with
-/// `escape`. Addresses commands using `addressing` and adds
-/// [`Addressing::note`] after the last. With no changed files and no gate
-/// items, prints [`NOTHING_TO_REVIEW`] and suggests no judgment.
+/// Renders `review` as the terminal summary. Addresses commands using
+/// `addressing` and adds the note on values shown as `<as given>` after the
+/// last. With no changed files and no gate items, prints
+/// [`NOTHING_TO_REVIEW`] and suggests no judgment.
 #[must_use]
-pub fn render_summary(
-    review: &Review,
-    addressing: &Addressing,
-    escape: fn(&str) -> String,
-) -> String {
-    let mut out = String::new();
-    push(&mut out, &header_line(review));
-    push(&mut out, &worktree_line(&review.worktree, escape));
-    push(
-        &mut out,
-        &base_line(review.base.commit.as_deref(), &review.base.tree),
-    );
+pub fn render_summary(review: &Review, addressing: &Addressing) -> String {
+    let mut out = Printed::new();
+    out.line(header_line(review));
+    out.line(worktree_line(&review.worktree));
+    out.line(base_line(review.base.commit.as_deref(), &review.base.tree));
     let target = match (review.target.kind, &review.target.commit) {
         (TargetKindInfo::Commit, Some(commit)) => format!("  target: commit {commit}"),
         (TargetKindInfo::WorkingTree, Some(commit)) => {
@@ -58,61 +49,46 @@ pub fn render_summary(
         }
         (_, None) => "  target: working tree over an unborn HEAD".to_owned(),
     };
-    push(&mut out, &format!("{target} (tree {})", review.target.tree));
+    out.line(format!("{target} (tree {})", review.target.tree));
     let nothing = review.files.is_empty() && review.gate.items.is_empty();
     if nothing {
-        push(&mut out, NOTHING_TO_REVIEW);
+        out.line(NOTHING_TO_REVIEW);
     } else {
-        for line in status_lines(&review.status, review.gate.open, escape) {
-            push(&mut out, &line);
-        }
+        out.lines(status_lines(&review.status, review.gate.open));
     }
 
-    for line in gate(review, escape) {
-        push(&mut out, &line);
-    }
+    out.lines(gate(review));
 
-    // Collect commands for the note after the last.
-    let mut commands = Vec::new();
-    push(&mut out, "");
-    push(&mut out, "files:");
+    out.lines(["", "files:"]);
     if review.files.is_empty() {
-        let (line, command) = no_changes_line(review.target.kind, addressing);
-        push(&mut out, &escape(&line));
-        commands.extend(command);
+        let line = no_changes_line(review.target.kind, addressing, &mut out);
+        out.line(line);
     }
     for file in &review.files {
-        push(&mut out, &format!("  {}", file_line(review, file, escape)));
+        out.line(format!("  {}", file_line(review, file)));
     }
 
-    let notes = notes(review, escape);
+    let notes = notes(review);
     if !notes.is_empty() {
-        push(&mut out, "");
-        push(&mut out, "Not gate items:");
-        for note in notes {
-            push(&mut out, &format!("  {note}"));
-        }
+        out.lines(["", "Not gate items:"]);
+        out.lines(notes.into_iter().map(|note| format!("  {note}")));
     }
 
     let mut last = if nothing {
         Vec::new()
     } else if review.basis.is_none() {
         if saves_later(review) {
-            let retry = addressing.retry();
-            let line = escape(&format!("Next: {retry}"));
-            commands.push(retry);
-            vec![line]
+            let retry = out.command(addressing.retry());
+            vec![format!("Next: {retry}")]
         } else {
             Vec::new()
         }
     } else {
         let open = review.gate.open_names();
-        let (next, next_commands) = next_lines(&open, review.status.complete, addressing, escape);
-        commands.extend(next_commands);
-        next
+        next_lines(&open, review.status.complete, addressing, &mut out)
     };
-    // Add the note after all commands, including the file list's commit review.
-    last.extend(addressing.note(&commands));
+    // The note follows all commands, including the file list's commit review.
+    last.extend(out.take_note());
     if review.gate.items.len() > LONG_GATE {
         last.push(
             "Long output: run the same review command with --format terminal and pipe it to \
@@ -121,12 +97,10 @@ pub fn render_summary(
         );
     }
     if !last.is_empty() {
-        push(&mut out, "");
-        for line in last {
-            push(&mut out, &line);
-        }
+        out.line("");
+        out.lines(last);
     }
-    out
+    out.text()
 }
 
 fn header_line(review: &Review) -> String {
@@ -156,10 +130,10 @@ pub fn review_line(id: &BasisId, compared: &str) -> String {
     format!("Review {}: {compared}.", id.short())
 }
 
-/// Builds the worktree header line, escaping `worktree` with `escape`.
+/// Builds the worktree header line.
 #[must_use]
-pub fn worktree_line(worktree: &str, escape: fn(&str) -> String) -> String {
-    format!("  worktree: {}", escape(worktree))
+pub fn worktree_line(worktree: &str) -> String {
+    format!("  worktree: {worktree}")
 }
 
 /// Builds the base header line with `commit` and `tree`, or the empty tree.
@@ -198,12 +172,12 @@ fn short(commit: &str) -> &str {
 /// Shows who completed the review and when, naming the earlier review if
 /// completion carries. Otherwise shows changes since the first related
 /// review's standing completion, if any, and reports an empty open gate.
-fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) -> Vec<String> {
+fn status_lines(status: &StatusInfo, open: usize) -> Vec<String> {
     if let Some(completion) = &status.completion {
         let by = format!(
             "Review complete: completed on {} by {}",
             completion.at.date(),
-            escape(&completion.who.name)
+            completion.who.name
         );
         return vec![if matches!(status.source, CompletionSource::Carried(_)) {
             format!(
@@ -232,11 +206,7 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
         lines.push(format!("Code changed {since}:"));
         match &related.changed_paths {
             Some(paths) => {
-                lines.extend(
-                    paths
-                        .iter()
-                        .map(|path| format!("  {}", shown_path(path, escape))),
-                );
+                lines.extend(paths.iter().map(|path| format!("  {}", shown_path(path))));
             }
             None => lines.push(
                 "  changed paths unavailable: the reviewed snapshot is no longer in the \
@@ -245,7 +215,7 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
             ),
         }
     }
-    let evidence = evidence_lines(&related.changed_evidence, escape);
+    let evidence = evidence_lines(&related.changed_evidence);
     if !evidence.is_empty() {
         lines.push(format!("Evidence changed {since}:"));
         lines.extend(evidence);
@@ -259,7 +229,7 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
             related
                 .uncovered
                 .iter()
-                .map(|item| format!("  {}: {}", escape(&item.name), item.reasons.join("; "))),
+                .map(|item| format!("  {}: {}", item.name, item.reasons.join("; "))),
         );
     }
     match lines.first_mut() {
@@ -275,14 +245,8 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
 /// Lists changed file explanations, new observations by session and path,
 /// changed transcript capture limitations, and gone or rewritten records,
 /// one line per kind.
-fn evidence_lines(evidence: &ChangedEvidence, escape: fn(&str) -> String) -> Vec<String> {
-    let paths = |paths: &[PathBytes]| {
-        paths
-            .iter()
-            .map(|path| shown_path(path, escape))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+fn evidence_lines(evidence: &ChangedEvidence) -> Vec<String> {
+    let paths = |paths: &[PathBytes]| paths.iter().map(shown_path).collect::<Vec<_>>().join(", ");
     let mut lines = Vec::new();
     if !evidence.explanations.is_empty() {
         lines.push(format!(
@@ -294,35 +258,34 @@ fn evidence_lines(evidence: &ChangedEvidence, escape: fn(&str) -> String) -> Vec
         let sessions: Vec<String> = evidence
             .new
             .iter()
-            .map(|new| format!("session {}: {}", escape(&new.session), paths(&new.paths)))
+            .map(|new| format!("session {}: {}", new.session, paths(&new.paths)))
             .collect();
         lines.push(format!("  new: {}", sessions.join("; ")));
     }
     if !evidence.capture.is_empty() {
-        let transcripts: Vec<String> = evidence.capture.iter().map(|t| escape(t)).collect();
         lines.push(format!(
             "  capture limitations changed: {}",
-            transcripts.join(", ")
+            evidence.capture.join(", ")
         ));
     }
     if !evidence.gone_or_rewritten.is_empty() {
-        let records: Vec<String> = evidence
+        let records: Vec<&str> = evidence
             .gone_or_rewritten
             .iter()
-            .map(|record| escape(record.as_str()))
+            .map(supersigil_record::RecordId::as_str)
             .collect();
         lines.push(format!("  gone or rewritten: {}", records.join(", ")));
     }
     lines
 }
 
-/// Displays repository `path` with lossy UTF-8 conversion and `escape`.
+/// Displays repository `path` with lossy UTF-8 conversion.
 #[must_use]
-pub fn shown_path(path: &PathBytes, escape: fn(&str) -> String) -> String {
-    escape(&String::from_utf8_lossy(path.as_bytes()))
+pub fn shown_path(path: &PathBytes) -> String {
+    String::from_utf8_lossy(path.as_bytes()).into_owned()
 }
 
-fn gate(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
+fn gate(review: &Review) -> Vec<String> {
     let incomplete: BTreeMap<&PathBytes, usize> = review
         .files
         .iter()
@@ -333,7 +296,7 @@ fn gate(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
             Subject::Path(path) => incomplete.get(path).copied().unwrap_or_default(),
             _ => 0,
         };
-        gate_row(item, incomplete, escape)
+        gate_row(item, incomplete)
     })
 }
 
@@ -357,40 +320,13 @@ pub fn gate_lines(gate: &GateInfo, row: impl Fn(&GateItemInfo) -> [String; 3]) -
 
 /// Builds `item`'s name, state, and attention or closing-judgment columns.
 /// `incomplete` counts content-matched lines whose search did not complete.
-/// Escapes untrusted text with `escape`.
 #[must_use]
-pub fn gate_row(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String) -> [String; 3] {
+pub fn gate_row(item: &GateItemInfo, incomplete: usize) -> [String; 3] {
     [
-        escape(&item.name),
+        item.name.clone(),
         state_word(item).to_owned(),
-        attention(item, incomplete, escape),
+        attention(item, incomplete),
     ]
-}
-
-/// Formats `rows` as lines with two spaces between columns. Pads each
-/// column except the last to its widest cell and trims trailing spaces.
-#[must_use]
-pub fn aligned<const N: usize>(rows: Vec<[String; N]>) -> Vec<String> {
-    let mut widths = [0; N];
-    for row in &rows {
-        for (width, cell) in widths.iter_mut().zip(row) {
-            *width = (*width).max(cell.chars().count());
-        }
-    }
-    rows.into_iter()
-        .map(|row| {
-            let mut line = String::new();
-            for (index, (cell, width)) in row.iter().zip(widths).enumerate() {
-                if index + 1 == N {
-                    line.push_str(cell);
-                } else {
-                    let _ = write!(line, "{cell:<width$}  ");
-                }
-            }
-            line.truncate(line.trim_end().len());
-            line
-        })
-        .collect()
 }
 
 /// Carried items show the carried judgment's closing kind.
@@ -432,15 +368,11 @@ pub const fn closed_word(kind: JudgmentKind) -> &'static str {
 /// Builds the text after a row's state, describing needed attention, who
 /// closed it and when, or why it reopened. `incomplete` counts the item's
 /// content-matched lines whose search did not complete.
-fn attention(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String) -> String {
+fn attention(item: &GateItemInfo, incomplete: usize) -> String {
     let Some(judgment) = &item.judgment else {
-        return needs(&item.detail, incomplete as u64, escape);
+        return needs(&item.detail, incomplete as u64);
     };
-    let by = format!(
-        "by {} on {}",
-        escape(&judgment.who.name),
-        judgment.at.date()
-    );
+    let by = format!("by {} on {}", judgment.who.name, judgment.at.date());
     match item.state {
         ItemStateInfo::Carried => {
             format!("carried from review {}, {by}", judgment.review.short())
@@ -456,7 +388,7 @@ fn attention(item: &GateItemInfo, incomplete: usize, escape: fn(&str) -> String)
 }
 
 /// `incomplete` counts content-matched lines whose search did not complete.
-fn needs(detail: &GateDetail, incomplete: u64, escape: fn(&str) -> String) -> String {
+fn needs(detail: &GateDetail, incomplete: u64) -> String {
     match detail {
         GateDetail::UnexplainedLines {
             unattributed,
@@ -488,453 +420,102 @@ fn needs(detail: &GateDetail, incomplete: u64, escape: fn(&str) -> String) -> St
             let lines = if total == 1 { "line" } else { "lines" };
             format!("{total} unexplained {lines}: {}", parts.join(", "))
         }
-        GateDetail::NotDiffed { kind } => format!("not diffed: {}", escape(kind)),
+        GateDetail::NotDiffed { kind } => format!("not diffed: {kind}"),
         GateDetail::UntrackedRecorded { .. } => {
             "untracked, a recorded edit names it; not included".to_owned()
         }
         GateDetail::NotCaptured { cause, .. } => {
-            format!("on-disk state not captured: {}", escape(cause))
+            format!("on-disk state not captured: {cause}")
         }
         GateDetail::CommitWithoutOrigin => "commit has no recorded origin".to_owned(),
         GateDetail::Discontinuity { gaps } => {
             let gaps_word = if *gaps == 1 { "gap" } else { "gaps" };
             format!("{gaps} {gaps_word} between recorded edits")
         }
-        GateDetail::Unreconciled { reason } => format!("evidence not read: {}", escape(reason)),
+        GateDetail::Unreconciled { reason } => format!("evidence not read: {reason}"),
     }
 }
 
-/// Builds the empty file-list text and optional command. For a working
-/// tree, suggests reviewing a commit just made, using `addressing`.
-fn no_changes_line(target: TargetKindInfo, addressing: &Addressing) -> (String, Option<Command>) {
+/// Builds the empty file-list text. For a working tree, suggests reviewing
+/// a commit just made, using `addressing`, and records that command in
+/// `out`.
+fn no_changes_line(target: TargetKindInfo, addressing: &Addressing, out: &mut Printed) -> String {
     match target {
         TargetKindInfo::WorkingTree => {
-            let command = addressing.review("--target HEAD");
-            let line =
-                format!("  no changes in scope; to review a commit just made, run {command}");
-            (line, Some(command))
+            let command = out.command(addressing.review("--target HEAD"));
+            format!("  no changes in scope; to review a commit just made, run {command}")
         }
-        TargetKindInfo::Commit => ("  no changes in scope".to_owned(), None),
+        TargetKindInfo::Commit => "  no changes in scope".to_owned(),
     }
-}
-
-/// What a printed command shows in place of a flag value that cannot be
-/// printed exactly.
-const AS_GIVEN: &str = "<as given>";
-
-/// What [`Command`] records for a path filter it shows as `<as given>`.
-const PATH_FILTER: &str = "path filter";
-
-/// What [`Command`] records for an item name it shows as `<as given>`.
-const ITEM_NAME: &str = "item name";
-
-/// The shells a printed command is written for.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Shell {
-    /// POSIX shells, which read single-quoted values literally.
-    #[default]
-    Posix,
-    /// Windows shells. `cmd.exe` and PowerShell read quotes, `%`, and some
-    /// other characters differently, so a value that needs quoting shows as
-    /// `<as given>`: pasting a quoted file name could run part of it.
-    Windows,
-}
-
-impl Shell {
-    /// The shells of the platform this runs on.
-    #[must_use]
-    pub const fn current() -> Self {
-        if cfg!(windows) {
-            Self::Windows
-        } else {
-            Self::Posix
-        }
-    }
-
-    /// `word` as a command for these shells shows it: quoted with
-    /// [`shell_word`] for POSIX shells; unchanged for Windows shells when
-    /// it holds only ASCII letters, digits, and `_-./\:~+` and does not
-    /// start with `~`, else `None`.
-    #[must_use]
-    pub fn word(self, word: &str) -> Option<String> {
-        match self {
-            Self::Posix => Some(shell_word(word)),
-            Self::Windows => {
-                let plain = !word.is_empty()
-                    && !word.starts_with('~')
-                    && word
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || r"_-./\:~+".contains(c));
-                plain.then(|| word.to_owned())
-            }
-        }
-    }
-
-    /// Why a value shows as `<as given>`, for one value or several.
-    const fn reasons(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Posix => (
-                "is not valid UTF-8 or holds a control character",
-                "are not valid UTF-8 or hold a control character",
-            ),
-            Self::Windows => (
-                "is not valid UTF-8, holds a control character, or needs quoting that Windows \
-                 shells read differently",
-                "are not valid UTF-8, hold a control character, or need quoting that Windows \
-                 shells read differently",
-            ),
-        }
-    }
-}
-
-/// A command rendered by [`Addressing`], tracking values replaced by
-/// `<as given>` so output can add [`Addressing::note`] after all commands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Command {
-    /// The shells it is written for.
-    shell: Shell,
-    /// The command as printed.
-    text: String,
-    /// The flag of each value it shows as `<as given>`, or `path filter`
-    /// for a path filter, in the order shown.
-    as_given: Vec<&'static str>,
-}
-
-impl Command {
-    /// `program` without arguments, for `shell`.
-    fn new(program: &str, shell: Shell) -> Self {
-        Self {
-            shell,
-            text: program.to_owned(),
-            as_given: Vec::new(),
-        }
-    }
-
-    /// Appends a space and `words`, printed as given, unless `words` is
-    /// empty.
-    fn words(&mut self, words: &str) {
-        if !words.is_empty() {
-            self.text.push(' ');
-            self.text.push_str(words);
-        }
-    }
-
-    /// Appends `<flag>=<value>` using [`Self::value`] so leading `-` in a
-    /// value cannot parse as a flag.
-    fn flag(&mut self, flag: &'static str, value: &OsStr) {
-        let value = self.value(flag, value);
-        self.words(&format!("{flag}={value}"));
-    }
-
-    /// Shows `value` as its shells read it ([`Shell::word`]), or
-    /// substitutes `<as given>` and records `what` if [`printed`] cannot
-    /// represent it exactly or the shells cannot read it safely.
-    fn value(&mut self, what: &'static str, value: &OsStr) -> String {
-        printed(value)
-            .and_then(|text| self.shell.word(text))
-            .unwrap_or_else(|| {
-                self.as_given.push(what);
-                AS_GIVEN.to_owned()
-            })
-    }
-}
-
-impl fmt::Display for Command {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.text)
-    }
-}
-
-/// Addresses printed commands. `judge` commands name the review when it
-/// differs from the worktree's selection. Every command repeats the supplied
-/// `--checkout` and `--review-dir`, and `review` commands the supplied
-/// `--record-dir` and `--claude-home`, which choose the evidence read.
-///
-/// Commands replace non-UTF-8 values or control characters with `<as given>`
-/// because lossy or escaped values could name another path, and for Windows
-/// shells also values that need quoting. Output adds [`Addressing::note`]
-/// once after commands containing these placeholders.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Addressing {
-    /// The review's first 8 ID digits for an agent session or `--review`
-    /// override, when `judge` would otherwise apply to another review.
-    pub review: Option<String>,
-    /// `--checkout` as the call was given it.
-    pub checkout: Option<PathBuf>,
-    /// `--review-dir` as the call was given it.
-    pub review_dir: Option<PathBuf>,
-    /// `--record-dir` as the `review` call was given it.
-    pub record_dir: Option<PathBuf>,
-    /// `--claude-home` as the `review` call was given it.
-    pub claude_home: Option<PathBuf>,
-    /// The flags of the `review` call other than the addressing and
-    /// evidence flags, each with the value it was given (`None` for a flag
-    /// without one), for the command that runs it again.
-    pub retry: Vec<(&'static str, Option<String>)>,
-    /// The path filters of the `review` call as it was given them.
-    pub retry_paths: Vec<String>,
-    /// The shells commands are written for.
-    pub shell: Shell,
-}
-
-impl Addressing {
-    /// Builds `supersigil review` with the supplied arguments. Emits
-    /// [`retry`](Self::retry) flags as `<flag>=<value>`, then the evidence,
-    /// `--checkout`, and `--review-dir` flags, then `--` and any
-    /// [`retry_paths`](Self::retry_paths). Values that cannot print exactly
-    /// become `<as given>`.
-    #[must_use]
-    pub fn retry(&self) -> Command {
-        let mut command = Command::new("supersigil review", self.shell);
-        for (flag, value) in &self.retry {
-            match value {
-                None => command.words(flag),
-                Some(value) => command.flag(flag, OsStr::new(value)),
-            }
-        }
-        self.evidence(&mut command);
-        self.address(&mut command);
-        self.paths(&mut command);
-        command
-    }
-
-    /// Builds `supersigil judge <verb>` with `names` as its shells read them,
-    /// then literal `options` and review address flags. If any name starts
-    /// with `-`, puts all names last after `--` to prevent flag parsing.
-    #[must_use]
-    pub fn judge(&self, verb: &str, names: &[&str], options: &str) -> Command {
-        let dashed = names.iter().any(|name| name.starts_with('-'));
-        let mut command = Command::new(&format!("supersigil judge {verb}"), self.shell);
-        let names = names
-            .iter()
-            .map(|name| command.value(ITEM_NAME, OsStr::new(name)))
-            .collect::<Vec<_>>()
-            .join(" ");
-        if !dashed {
-            command.words(&names);
-        }
-        command.words(options);
-        if let Some(review) = &self.review {
-            command.flag("--review", OsStr::new(review));
-        }
-        self.address(&mut command);
-        if dashed {
-            command.words("--");
-            command.words(&names);
-        }
-        command
-    }
-
-    /// Builds `supersigil review <words>` with literal `words`, then the
-    /// supplied evidence, `--checkout`, and `--review-dir` flags, then `--`
-    /// and any [`retry_paths`](Self::retry_paths).
-    #[must_use]
-    pub fn review(&self, words: &str) -> Command {
-        let mut command = Command::new("supersigil review", self.shell);
-        command.words(words);
-        self.evidence(&mut command);
-        self.address(&mut command);
-        self.paths(&mut command);
-        command
-    }
-
-    /// Builds `supersigil review <flag>=<value>`, then as [`Self::review`].
-    #[must_use]
-    pub fn review_flag(&self, flag: &'static str, value: &str) -> Command {
-        let mut command = Command::new("supersigil review", self.shell);
-        command.flag(flag, OsStr::new(value));
-        self.evidence(&mut command);
-        self.address(&mut command);
-        self.paths(&mut command);
-        command
-    }
-
-    /// Builds the note after printed `commands`, naming values shown as
-    /// `<as given>` and telling the reader to pass them unchanged. Returns
-    /// `None` when every value prints exactly.
-    #[must_use]
-    pub fn note<'c>(&self, commands: impl IntoIterator<Item = &'c Command>) -> Option<String> {
-        let shown: BTreeSet<&str> = commands
-            .into_iter()
-            .flat_map(|command| command.as_given.iter().copied())
-            .collect();
-        // List review address flags, retry flags, other flags, item names,
-        // then path filters.
-        let order = ["--review", "--checkout", "--review-dir"]
-            .into_iter()
-            .chain(self.retry.iter().map(|&(flag, _)| flag))
-            .chain([
-                "--include-untracked",
-                "--record-dir",
-                "--claude-home",
-                ITEM_NAME,
-                PATH_FILTER,
-            ]);
-        let mut flags: Vec<&str> = Vec::new();
-        for flag in order {
-            if shown.contains(flag) && !flags.contains(&flag) {
-                flags.push(flag);
-            }
-        }
-        let (one, several) = self.shell.reasons();
-        match flags.as_slice() {
-            [] => None,
-            [flag] => Some(format!(
-                "The {flag} value {one}, so commands show {AS_GIVEN} for it: pass it as given."
-            )),
-            flags => Some(format!(
-                "The {} values {several}, so commands show {AS_GIVEN} for them: pass them as \
-                 given.",
-                flags.join(" and ")
-            )),
-        }
-    }
-
-    /// Appends `--` and the [`retry_paths`](Self::retry_paths), if any, to
-    /// `command`.
-    fn paths(&self, command: &mut Command) {
-        if !self.retry_paths.is_empty() {
-            command.words("--");
-            for path in &self.retry_paths {
-                let path = command.value(PATH_FILTER, OsStr::new(path));
-                command.words(&path);
-            }
-        }
-    }
-
-    /// Appends supplied `--record-dir` and `--claude-home` values to `command`.
-    fn evidence(&self, command: &mut Command) {
-        let flags = [
-            ("--record-dir", &self.record_dir),
-            ("--claude-home", &self.claude_home),
-        ];
-        for (flag, value) in flags {
-            if let Some(value) = value {
-                command.flag(flag, value.as_os_str());
-            }
-        }
-    }
-
-    /// Appends supplied `--checkout` and `--review-dir` values to `command`.
-    fn address(&self, command: &mut Command) {
-        let flags = [
-            ("--checkout", &self.checkout),
-            ("--review-dir", &self.review_dir),
-        ];
-        for (flag, value) in flags {
-            if let Some(value) = value {
-                command.flag(flag, value.as_os_str());
-            }
-        }
-    }
-}
-
-/// Returns `value`'s exact text for commands or names, or `None` for
-/// non-UTF-8 values or control characters that output would escape.
-#[must_use]
-pub fn printed(value: &OsStr) -> Option<&str> {
-    value
-        .to_str()
-        .filter(|text| !text.chars().any(char::is_control))
 }
 
 /// Maximum open items named in a `Next:` command before using a placeholder
 /// that refers to the item list above.
 const MOST_NAMED: usize = 20;
 
-/// Builds next-step lines and their commands for a saved review, escaping
-/// lines with `escape`. Suggests acknowledging `open` items or dismissing
-/// placeholder names, then completing; suggests only completion with no open
-/// items; emits nothing for a complete review. Prints item names once to keep
-/// long gates readable. Above 20 open items, acknowledgment also uses a
+/// Builds next-step lines for a saved review, recording their commands in
+/// `out`. Suggests acknowledging `open` items or dismissing placeholder
+/// names, then completing; suggests only completion with no open items;
+/// emits nothing for a complete review. Prints item names once to keep long
+/// gates readable. Above 20 open items, acknowledgment also uses a
 /// placeholder and refers to the item list above.
 #[must_use]
 pub fn next_lines(
     open: &[&str],
     complete: bool,
     addressing: &Addressing,
-    escape: fn(&str) -> String,
-) -> (Vec<String>, Vec<Command>) {
-    let (lines, commands) = if complete {
-        (Vec::new(), Vec::new())
-    } else if open.is_empty() {
-        let complete = addressing.judge("complete", &[], "");
-        (vec![format!("Next: {complete}")], vec![complete])
-    } else {
-        let (acknowledge, shown) = if open.len() > MOST_NAMED {
-            let acknowledge = addressing.judge("acknowledge", &[], "<name>...");
-            let shown = format!("{acknowledge} ({} open items, listed above)", open.len());
-            (acknowledge, shown)
-        } else {
-            let acknowledge = addressing.judge("acknowledge", open, "");
-            let shown = acknowledge.to_string();
-            (acknowledge, shown)
-        };
-        let dismiss = addressing.judge("dismiss", &[], "<name>... --reason <text>");
-        let complete = addressing.judge("complete", &[], "");
-        let lines = vec![
-            format!("Next: {shown}"),
-            format!("  or: {dismiss}"),
-            format!("  then: {complete}"),
-        ];
-        (lines, vec![acknowledge, dismiss, complete])
-    };
-    (lines.iter().map(|line| escape(line)).collect(), commands)
-}
-
-/// Quotes `word` for a POSIX shell, leaving safe nonempty words unchanged
-/// and single-quoting the rest.
-#[must_use]
-pub fn shell_word(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .chars()
-            .all(|c| !c.is_ascii() || c.is_ascii_alphanumeric() || "_-./:@%+=,".contains(c));
-    if plain {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
+    out: &mut Printed,
+) -> Vec<String> {
+    if complete {
+        return Vec::new();
     }
+    if open.is_empty() {
+        let complete = out.command(addressing.judge("complete", &[], ""));
+        return vec![format!("Next: {complete}")];
+    }
+    let acknowledge = if open.len() > MOST_NAMED {
+        let acknowledge = out.command(addressing.judge("acknowledge", &[], "<name>..."));
+        format!("{acknowledge} ({} open items, listed above)", open.len())
+    } else {
+        out.command(addressing.judge("acknowledge", open, ""))
+    };
+    let dismiss = out.command(addressing.judge("dismiss", &[], "<name>... --reason <text>"));
+    let complete = out.command(addressing.judge("complete", &[], ""));
+    vec![
+        format!("Next: {acknowledge}"),
+        format!("  or: {dismiss}"),
+        format!("  then: {complete}"),
+    ]
 }
 
 /// Header lines shared with `why`: records and checkouts not reconciled,
 /// then one line per candidate transcript with capture limitations.
-pub(crate) fn context_lines(
-    records: &[RecordInfo],
-    evidence: &EvidenceInfo,
-    escape: fn(&str) -> String,
-) -> Vec<String> {
-    let mut lines = unreconciled_lines(records, evidence, escape);
-    lines.extend(capture_lines(evidence, escape));
+pub(crate) fn context_lines(records: &[RecordInfo], evidence: &EvidenceInfo) -> Vec<String> {
+    let mut lines = unreconciled_lines(records, evidence);
+    lines.extend(capture_lines(evidence));
     lines
 }
 
 /// One line per record and per checkout not reconciled, with why.
-fn unreconciled_lines(
-    records: &[RecordInfo],
-    evidence: &EvidenceInfo,
-    escape: fn(&str) -> String,
-) -> Vec<String> {
+fn unreconciled_lines(records: &[RecordInfo], evidence: &EvidenceInfo) -> Vec<String> {
     let mut lines = Vec::new();
     for record in records.iter().filter(|record| !record.reconciled) {
         lines.push(format!(
             "record {} not reconciled: {}",
-            escape(&record.id),
-            escape(record.reason.as_deref().unwrap_or("unknown reason"))
+            record.id,
+            record.reason.as_deref().unwrap_or("unknown reason")
         ));
     }
     for checkout in &evidence.unreconciled_checkouts {
         lines.push(format!(
             "checkout {} not reconciled ({} transcripts): {}",
-            escape(&checkout.checkout),
-            checkout.transcripts,
-            escape(&checkout.reason)
+            checkout.checkout, checkout.transcripts, checkout.reason
         ));
     }
     lines
 }
 
-fn capture_lines(evidence: &EvidenceInfo, escape: fn(&str) -> String) -> Vec<String> {
+fn capture_lines(evidence: &EvidenceInfo) -> Vec<String> {
     let mut lines = Vec::new();
     for transcript in &evidence.candidate_transcripts {
         let counts = total_counts(&transcript.capture_limitations);
@@ -942,8 +523,8 @@ fn capture_lines(evidence: &EvidenceInfo, escape: fn(&str) -> String) -> Vec<Str
         if !words.is_empty() {
             lines.push(format!(
                 "capture limitations in {} (session {}): {}; not localized to a path",
-                escape(&transcript.transcript),
-                escape(&transcript.session),
+                transcript.transcript,
+                transcript.session,
                 words.join(", ")
             ));
         }
@@ -971,8 +552,8 @@ fn incomplete_content_matches(file: &FileReview) -> usize {
 }
 
 /// One line per file: status, path, line counts, and attribution in words.
-fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> String {
-    let path = escape(&file.path);
+fn file_line(review: &Review, file: &FileReview) -> String {
+    let path = &file.path;
     let letter = file.status.letter();
     if file.kind != FileKindInfo::Text {
         return format!("{letter} {path}  not diffed: {}", file.kind.as_str());
@@ -1016,7 +597,7 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
             if count == 1 { "session" } else { "sessions" }
         ));
     }
-    parts.extend(other.words(escape));
+    parts.extend(other.words());
     if other.unattributed > 0 && !file.command_changes.is_empty() {
         let commands = file.command_changes.iter().map(|c| c.command.as_str());
         parts.push(format!("changed by {}", recorded_commands(commands)));
@@ -1026,7 +607,7 @@ fn file_line(review: &Review, file: &FileReview, escape: fn(&str) -> String) -> 
         .as_ref()
         .and_then(|a| a.unavailable.as_ref())
     {
-        parts.push(format!("attribution unavailable: {}", escape(info)));
+        parts.push(format!("attribution unavailable: {info}"));
     }
     if file.coarse {
         parts.push("coarse diff".to_owned());
@@ -1053,14 +634,14 @@ pub(crate) fn recorded_commands<'a>(commands: impl IntoIterator<Item = &'a str>)
 
 /// The first line of a command's text, cut to 100 characters, with how many
 /// lines follow it.
-pub(crate) fn command_line(text: &str, escape: fn(&str) -> String) -> String {
+pub(crate) fn command_line(text: &str) -> String {
     let mut lines = text.lines();
     let first = lines.next().unwrap_or_default();
     let mut shown: String = first.chars().take(100).collect();
     if shown.len() < first.len() {
         shown.push('…');
     }
-    let mut line = escape(&shown);
+    let mut line = shown;
     match lines.count() {
         0 => {}
         1 => line.push_str(" … (1 more line)"),
@@ -1110,7 +691,7 @@ impl Tally {
         }
     }
 
-    fn words(&self, escape: fn(&str) -> String) -> Vec<String> {
+    fn words(&self) -> Vec<String> {
         let mut words = count_phrases([
             (self.whitespace, "whitespace-only"),
             (self.realigned, "realigned"),
@@ -1124,9 +705,10 @@ impl Tally {
             (self.unresolved, "unresolved (search incomplete)"),
         ]);
         if self.unattributed > 0 {
-            let reason = self.reason.as_ref().map_or_else(String::new, |reason| {
-                format!(": {}", reason_words(reason, escape))
-            });
+            let reason = self
+                .reason
+                .as_ref()
+                .map_or_else(String::new, |reason| format!(": {}", reason_words(reason)));
             words.push(format!("{} unattributed{reason}", self.unattributed));
         }
         words
@@ -1136,53 +718,51 @@ impl Tally {
 /// Builds evidence notes outside gate items for coarse diffs, unavailable
 /// attribution, capture limitations, conflicting edits, removed transcripts,
 /// scope, origins, and unreconciled evidence.
-fn notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
+fn notes(review: &Review) -> Vec<String> {
     let summary = &review.unattributed;
     let evidence = &review.evidence;
     let mut notes = Vec::new();
     for path in &summary.coarse {
-        notes.push(format!("{}: coarse diff, too large to align", escape(path)));
+        notes.push(format!("{path}: coarse diff, too large to align"));
     }
     for path in &summary.attribution_unavailable {
-        notes.push(format!("{}: attribution unavailable", escape(path)));
+        notes.push(format!("{path}: attribution unavailable"));
     }
-    notes.extend(capture_lines(evidence, escape));
+    notes.extend(capture_lines(evidence));
     for conflict in &evidence.conflicting_edits {
-        let records: Vec<String> = conflict
+        let records: Vec<&str> = conflict
             .records
             .iter()
-            .map(|record| escape(record.as_str()))
+            .map(supersigil_record::RecordId::as_str)
             .collect();
         notes.push(format!(
             "edit {} excluded: its sightings in records {} disagree",
-            escape(conflict.edit.as_str()),
+            conflict.edit.as_str(),
             records.join(", ")
         ));
     }
     for transcript in &evidence.removed_transcripts {
         notes.push(format!(
-            "transcript {} removed before it could be read",
-            escape(transcript)
+            "transcript {transcript} removed before it could be read"
         ));
     }
-    notes.extend(scope_notes(review, escape));
-    notes.extend(unreconciled_lines(&review.records, evidence, escape));
+    notes.extend(scope_notes(review));
+    notes.extend(unreconciled_lines(&review.records, evidence));
     notes
 }
 
 /// Notes on the review's scope and on the origins of its commits.
-fn scope_notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
+fn scope_notes(review: &Review) -> Vec<String> {
     let scope = &review.scope;
     let mut notes = Vec::new();
     if !scope.paths.is_empty() {
-        let paths: Vec<String> = scope.paths.iter().map(|p| escape(p)).collect();
-        notes.push(format!("scope: limited to {}", paths.join(", ")));
+        notes.push(format!("scope: limited to {}", scope.paths.join(", ")));
     }
     if let Some(note) = &scope.path_note {
-        notes.push(format!("scope: {}", escape(note)));
+        notes.push(format!("scope: {note}"));
     }
     for path in &scope.include_untracked {
-        notes.push(format!("scope: untracked {} included", escape(path)));
+        notes.push(format!("scope: untracked {path} included"));
     }
     let excluded = scope.untracked_excluded.len();
     if excluded > 0 {
@@ -1191,9 +771,7 @@ fn scope_notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     for entry in &scope.not_captured {
         notes.push(format!(
             "scope: {} not captured ({}, {} on disk)",
-            escape(&entry.path),
-            entry.cause,
-            entry.on_disk
+            entry.path, entry.cause, entry.on_disk
         ));
     }
     if scope.skip_worktree_absent > 0 {
@@ -1203,13 +781,10 @@ fn scope_notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
         ));
     }
     for path in &scope.unmerged {
-        notes.push(format!(
-            "scope: {} unmerged, taken as on disk",
-            escape(path)
-        ));
+        notes.push(format!("scope: {path} unmerged, taken as on disk"));
     }
     if let Some(note) = &scope.ancestry_note {
-        notes.push(format!("scope: {}", escape(note)));
+        notes.push(format!("scope: {note}"));
     } else if review.base.ancestry == AncestryInfo::NotAncestor {
         notes.push(format!("scope: {ANCESTRY_NOTE}"));
     }
@@ -1224,8 +799,7 @@ fn scope_notes(review: &Review, escape: fn(&str) -> String) -> Vec<String> {
     for unavailable in &origins.unavailable {
         notes.push(format!(
             "origins: {}: origin evidence unavailable: {}",
-            escape(&unavailable.worktree),
-            escape(&unavailable.reason)
+            unavailable.worktree, unavailable.reason
         ));
     }
     notes
@@ -1249,7 +823,7 @@ pub(crate) const fn content_match_words(search_complete: bool) -> &'static str {
     }
 }
 
-pub(crate) fn reason_words(reason: &UnattributedReason, escape: fn(&str) -> String) -> String {
+pub(crate) fn reason_words(reason: &UnattributedReason) -> String {
     match reason {
         UnattributedReason::NoSurvivingChain { .. } => "no surviving chain".to_owned(),
         UnattributedReason::GapBeforeChain => "gap before the chain's start".to_owned(),
@@ -1257,7 +831,7 @@ pub(crate) fn reason_words(reason: &UnattributedReason, escape: fn(&str) -> Stri
             "content matching ran out of budget; a covering edit may exist".to_owned()
         }
         UnattributedReason::AttributionUnavailable { reason } => {
-            format!("attribution unavailable: {}", escape(reason))
+            format!("attribution unavailable: {reason}")
         }
     }
 }
@@ -1308,9 +882,4 @@ pub(crate) fn count_phrases<'a, T: Display + Default + PartialEq>(
         .filter(|(count, _)| *count != T::default())
         .map(|(count, label)| format!("{count} {label}"))
         .collect()
-}
-
-/// Appends `line` and a newline to `out`.
-pub(crate) fn push(out: &mut String, line: &str) {
-    let _ = writeln!(out, "{line}");
 }

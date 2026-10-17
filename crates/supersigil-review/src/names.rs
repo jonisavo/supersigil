@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use supersigil_record::RecordId;
 use supersigil_record::reviews::{GateItem, ItemId, Origin, PathBytes, Subject};
 
-use crate::summary::printed;
+use crate::printed::printed;
 
 /// Minimum hex digits in a `commit:` prefix.
 const COMMIT_PREFIX: usize = 7;

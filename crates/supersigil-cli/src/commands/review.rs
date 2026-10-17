@@ -29,14 +29,15 @@ use supersigil_review::model::{
     UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::outcome::Outcome;
-use supersigil_review::summary::{Addressing, Shell, render_summary};
+use supersigil_review::printed::{Addressing, Shell};
+use supersigil_review::summary::render_summary;
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
 use crate::commands::ReviewArgs;
 use crate::error::CliError;
 use crate::evidence::{CandidateCommands, add_referenced_edits};
-use crate::format::{OutputFormat, escape_control, write_json};
+use crate::format::{OutputFormat, write_json};
 use crate::gate_inputs::gate_inputs;
 use crate::item_names::item_names;
 use crate::pipeline::{
@@ -114,7 +115,7 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
         OutputFormat::Json => write_json(&review)?,
         OutputFormat::Terminal => io::stdout()
             .lock()
-            .write_all(render_summary(&review, &addressing, escape_control).as_bytes())?,
+            .write_all(render_summary(&review, &addressing).as_bytes())?,
     }
     Ok(())
 }

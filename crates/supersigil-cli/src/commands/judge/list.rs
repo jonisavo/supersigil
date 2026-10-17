@@ -9,12 +9,13 @@ use serde::Serialize;
 use supersigil_record::reviews::{BasisBase, BasisId, BasisTarget, ReviewSnapshot};
 use supersigil_review::judging::JudgedStore;
 use supersigil_review::model::JudgmentInfo;
-use supersigil_review::summary::{aligned, compared};
+use supersigil_review::printed::aligned;
+use supersigil_review::summary::compared;
 
 use super::Checkout;
 use crate::commands::JudgeArgs;
 use crate::error::CliError;
-use crate::format::{OutputFormat, escape_control, write_json};
+use crate::format::{OutputFormat, write_json};
 use crate::review_dir::load_bases;
 
 /// Runs `supersigil judge list`.
@@ -131,14 +132,14 @@ fn lines(reviews: &[Listed]) -> Vec<String> {
                 review.target.commit.as_deref(),
                 review.base.commit.as_deref(),
             ),
-            escape_control(&review.worktree.display().to_string()),
+            review.worktree.display().to_string(),
             last.map_or_else(|| "not judged".to_owned(), |judgment| judgment.at.date()),
             if review.complete {
                 "complete".to_owned()
             } else {
                 format!("{} open", review.open)
             },
-            last.map_or_else(String::new, |judgment| escape_control(&judgment.who.name)),
+            last.map_or_else(String::new, |judgment| judgment.who.name.clone()),
         ]
     }));
     aligned(rows)

@@ -21,7 +21,7 @@ use supersigil_review::why::{
 use crate::commands::WhyArgs;
 use crate::error::CliError;
 use crate::evidence::add_referenced_edits;
-use crate::format::{OutputFormat, escape_control, write_json};
+use crate::format::{OutputFormat, write_json};
 use crate::pipeline::{
     BaseChoice, Gathered, PipelineArgs, Prepared, attribute_path, attribution_state, claude_home,
     conflicts_for, evidence_info, not_captured_reason, path_bytes, prepare, records_info,
@@ -131,9 +131,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&why)?,
-        OutputFormat::Terminal => io::stdout()
-            .lock()
-            .write_all(render_why(&why, escape_control).as_bytes())?,
+        OutputFormat::Terminal => io::stdout().lock().write_all(render_why(&why).as_bytes())?,
     }
     Ok(())
 }

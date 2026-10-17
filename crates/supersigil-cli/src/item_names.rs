@@ -7,7 +7,7 @@ use std::path::Path;
 use supersigil_git::RepoPath;
 use supersigil_record::reviews::{Basis, PathBytes};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
-use supersigil_review::summary::printed;
+use supersigil_review::printed::printed;
 use supersigil_session::checkout::resolve;
 
 use crate::error::CliError;

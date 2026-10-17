@@ -1,7 +1,7 @@
 //! CLI error types.
 
 /// Top-level CLI error type. Messages are not escaped; see
-/// [`Untrusted`](crate::format::Untrusted).
+/// [`Untrusted`](supersigil_review::printed::Untrusted).
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     /// Record store error.

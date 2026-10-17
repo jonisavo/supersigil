@@ -9,8 +9,8 @@ use std::slice;
 use std::time::Duration;
 
 use common::{
-    attribution, base_line, chain, eid, escape, finishes_within, introduced, kept, no_fate,
-    replaced, unexplained,
+    attribution, base_line, chain, eid, finishes_within, introduced, kept, no_fate, replaced,
+    unexplained,
 };
 use serde_json::{Value, json};
 use supersigil_anchor::lines::split_lines;
@@ -39,7 +39,8 @@ use supersigil_review::model::{
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
-use supersigil_review::summary::{Addressing, Shell, next_lines, render_summary, shell_word};
+use supersigil_review::printed::{Addressing, Command, Printed, Shell, shell_word};
+use supersigil_review::summary::{next_lines, render_summary};
 use supersigil_review::why::{
     OnDiskCheck, Tristate, Why, WhyTarget, line_command_changes, render_why, why_line,
 };
@@ -448,7 +449,7 @@ fn row<'t>(text: &'t str, name: &str) -> (&'t str, &'t str) {
 }
 
 fn summary(review: &Review) -> String {
-    render_summary(review, &Addressing::default(), escape)
+    render_summary(review, &Addressing::default())
 }
 
 #[test]
@@ -585,9 +586,8 @@ fn next_lines_address_the_review_shown() {
             &["src/a b.rs", "lines:src/c.rs"],
             false,
             &addressing,
-            escape
-        )
-        .0,
+            &mut Printed::new()
+        ),
         [
             // Print names once; dismissal uses a name placeholder.
             format!("Next: supersigil judge acknowledge 'src/a b.rs' lines:src/c.rs {flags}"),
@@ -596,14 +596,14 @@ fn next_lines_address_the_review_shown() {
         ]
     );
     assert_eq!(
-        next_lines(&[], false, &Addressing::default(), escape).0,
+        next_lines(&[], false, &Addressing::default(), &mut Printed::new()),
         ["Next: supersigil judge complete"]
     );
-    assert!(next_lines(&[], true, &addressing, escape).0.is_empty());
+    assert!(next_lines(&[], true, &addressing, &mut Printed::new()).is_empty());
     assert_eq!(shell_word("it's"), r"'it'\''s'");
     assert_eq!(shell_word(""), "''");
 
-    let text = render_summary(&sample_review(), &addressing, escape);
+    let text = render_summary(&sample_review(), &addressing);
     assert!(
         text.contains(&format!("\n  then: supersigil judge complete {flags}\n")),
         "{text}"
@@ -619,7 +619,7 @@ fn flag_values_that_start_with_a_dash_stay_values() {
         ..Addressing::default()
     };
     assert_eq!(
-        next_lines(&[], false, &addressing, escape).0,
+        next_lines(&[], false, &addressing, &mut Printed::new()),
         [
             "Next: supersigil judge complete --review=feaad307 --checkout=-repo --review-dir=-reviews"
         ]
@@ -638,7 +638,12 @@ fn names_that_read_as_flags_follow_a_double_dash() {
     };
 
     assert_eq!(
-        next_lines(&["lines:src/c.rs", "-x.rs"], false, &addressing, escape).0,
+        next_lines(
+            &["lines:src/c.rs", "-x.rs"],
+            false,
+            &addressing,
+            &mut Printed::new()
+        ),
         [
             "Next: supersigil judge acknowledge --review=feaad307 -- lines:src/c.rs -x.rs",
             "  or: supersigil judge dismiss <name>... --reason <text> --review=feaad307",
@@ -658,7 +663,7 @@ fn more_than_20_open_items_are_left_to_the_list_above() {
 
     // Replace the 21 names with a placeholder to keep the command short.
     assert_eq!(
-        next_lines(&names, false, &addressing, escape).0,
+        next_lines(&names, false, &addressing, &mut Printed::new()),
         [
             "Next: supersigil judge acknowledge <name>... --review=feaad307 (21 open items, \
              listed above)",
@@ -667,7 +672,12 @@ fn more_than_20_open_items_are_left_to_the_list_above() {
         ]
     );
     assert_eq!(
-        next_lines(&names[..20], false, &Addressing::default(), escape).0[0],
+        next_lines(
+            &names[..20],
+            false,
+            &Addressing::default(),
+            &mut Printed::new()
+        )[0],
         format!(
             "Next: supersigil judge acknowledge {}",
             names[..20].join(" ")
@@ -695,8 +705,8 @@ fn follow_up_reviews_repeat_the_checkout_and_reviews_directory() {
     unsaved.basis = None;
     unsaved.basis_unsaved = Some(Unsaved::Busy);
 
-    let unsaved = render_summary(&unsaved, &addressing, escape);
-    let unchanged = render_summary(&review_of_files(0), &addressing, escape);
+    let unsaved = render_summary(&unsaved, &addressing);
+    let unchanged = render_summary(&review_of_files(0), &addressing);
 
     assert!(
         unsaved.ends_with(&format!("\n\nNext: supersigil review {flags}\n")),
@@ -752,7 +762,7 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
     unsaved.basis = None;
     unsaved.basis_unsaved = Some(Unsaved::Busy);
 
-    let given = render_summary(&unsaved, &addressing, escape);
+    let given = render_summary(&unsaved, &addressing);
     let plain = summary(&unsaved);
 
     assert!(
@@ -777,8 +787,8 @@ fn a_retried_argument_that_cannot_be_printed_as_given_shows_as_given() {
     unsaved.basis = None;
     unsaved.basis_unsaved = Some(Unsaved::Busy);
 
-    let text = render_summary(&unsaved, &addressing, escape);
-    let saved = render_summary(&sample_review(), &addressing, escape);
+    let text = render_summary(&unsaved, &addressing);
+    let saved = render_summary(&sample_review(), &addressing);
 
     assert!(
         text.ends_with(
@@ -808,9 +818,9 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
     unsaved.basis = None;
     unsaved.basis_unsaved = Some(Unsaved::Busy);
 
-    let saved = render_summary(&sample_review(), &addressing, escape);
-    let unsaved = render_summary(&unsaved, &addressing, escape);
-    let unchanged = render_summary(&review_of_files(0), &addressing, escape);
+    let saved = render_summary(&sample_review(), &addressing);
+    let unsaved = render_summary(&unsaved, &addressing);
+    let unchanged = render_summary(&review_of_files(0), &addressing);
 
     // The note follows the commands, once.
     assert!(
@@ -842,7 +852,7 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         "supersigil review --checkout=<as given> --review-dir=<as given>"
     );
     assert_eq!(
-        neither.note([&command]).as_deref(),
+        note_after([command]).as_deref(),
         Some(
             "The --checkout and --review-dir values are not valid UTF-8 or hold a control \
              character, so commands show <as given> for them: pass them as given."
@@ -857,7 +867,7 @@ fn commands_show_a_flag_value_that_cannot_be_printed_as_given() {
         command.to_string(),
         "supersigil review --checkout='../my repo' --review-dir=/tmp/r-ü"
     );
-    assert_eq!(printable.note([&command]), None);
+    assert_eq!(note_after([command]), None);
 }
 
 #[test]
@@ -867,7 +877,7 @@ fn the_commit_hint_keeps_the_path_filters() {
         ..Addressing::default()
     };
 
-    let text = render_summary(&review_of_files(0), &addressing, escape);
+    let text = render_summary(&review_of_files(0), &addressing);
 
     assert!(
         text.contains(
@@ -917,7 +927,7 @@ fn windows_commands_show_values_that_need_quoting_as_given() {
         )
     );
     assert_eq!(
-        addressing.note([&retry, &judge, &include]).as_deref(),
+        note_after([retry, judge, include]).as_deref(),
         Some(
             "The --checkout and --include-untracked and item name and path filter values are \
              not valid UTF-8, hold a control character, or need quoting that Windows shells \
@@ -933,7 +943,7 @@ fn windows_commands_show_values_that_need_quoting_as_given() {
         command.to_string(),
         "supersigil judge undo lines:src/a-b_c.rs"
     );
-    assert_eq!(printable.note([&command]), None);
+    assert_eq!(note_after([command]), None);
 }
 
 #[test]
@@ -951,7 +961,16 @@ fn posix_commands_quote_values_that_need_it() {
         include.to_string(),
         "supersigil review --include-untracked='a b.rs'"
     );
-    assert_eq!(addressing.note([&judge, &include]), None);
+    assert_eq!(note_after([judge, include]), None);
+}
+
+/// The note `Printed` adds after `commands`.
+fn note_after(commands: impl IntoIterator<Item = Command>) -> Option<String> {
+    let mut out = Printed::new();
+    for command in commands {
+        out.command(command);
+    }
+    out.take_note()
 }
 
 /// Contains `count` files with unexplained lines and no other gate items.
@@ -1315,7 +1334,7 @@ fn why_command_changes() -> Vec<CommandChange> {
 fn why_json_and_terminal_are_stable() {
     let why = sample_why(OnDiskCheck::Captured);
     insta::assert_yaml_snapshot!(why);
-    insta::assert_snapshot!(render_why(&why, escape));
+    insta::assert_snapshot!(render_why(&why));
 }
 
 #[test]
@@ -1352,7 +1371,7 @@ fn why_says_why_differs_from_head_is_unknown() {
     );
     let mut why = sample_why(OnDiskCheck::Captured);
     why.line = Some(line);
-    assert!(render_why(&why, escape).contains("\n  differs from HEAD: unknown (coarse diff)\n"));
+    assert!(render_why(&why).contains("\n  differs from HEAD: unknown (coarse diff)\n"));
 }
 
 #[test]
@@ -1361,7 +1380,7 @@ fn why_not_captured_keeps_the_evidence_context() {
         reason: "assume-unchanged".to_owned(),
     });
     assert_eq!(why.line, None);
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(text.starts_with("src/lib.rs: not captured: assume-unchanged"));
     assert!(text.contains("record rec-2 not reconciled: locked by another writer"));
     assert!(text.contains("capture limitations in"));
@@ -1382,7 +1401,7 @@ fn why_prints_only_the_lines_contributors() {
     let mut why = sample_why(OnDiskCheck::Captured);
     why.edits
         .insert("e2".to_owned(), other_edit("2026-09-28T10:00:02.000Z"));
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(text.contains("\n  edit e1 (introduced) at "), "{text}");
     assert!(!text.contains("edit e2"), "{text}");
 }
@@ -1401,7 +1420,7 @@ fn why_prints_no_contributors_for_an_unattributed_line() {
         &split_lines(b"fn greet() {}\nfn other() {}\n"),
         Ok(b""),
     ));
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(text.contains("not attributed"), "{text}");
     assert!(!text.contains("  edit "), "{text}");
 }
@@ -1441,7 +1460,7 @@ fn why_on_first_line(attr: &PathAttribution, ids: &[&str]) -> String {
             ((*id).to_owned(), other_edit(&time))
         })
         .collect();
-    render_why(&why, escape)
+    render_why(&why)
 }
 
 #[test]
@@ -1761,8 +1780,8 @@ fn why_keeps_whether_a_content_match_search_completed() {
         assert_eq!(line["status"], json!({"kind": "composed"}));
     }
 
-    let complete = render_why(&why(false), escape);
-    let partial = render_why(&why(true), escape);
+    let complete = render_why(&why(false));
+    let partial = render_why(&why(true));
     assert!(
         complete
             .contains("\n  matches the text of edit e1 (content match, not a composed chain)\n"),
@@ -1838,7 +1857,7 @@ fn why_marks_the_commands_whose_reported_diff_adds_an_unexplained_line() {
         .map(|c| c.adds_line_text)
         .collect();
     assert_eq!(flags, vec![true, false]);
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     let expected = "\
   changed by 2 recorded commands (observed by the harness, not attribution):
     2026-09-28T10:00:08.000Z  command:3  session s1  modified
@@ -1857,7 +1876,7 @@ fn why_lists_commands_without_markers_under_an_attributed_line() {
     // The flag is computed for every line, but shown in the terminal
     // only when no chain explains it.
     assert!(why.command_changes[0].adds_line_text);
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(text.contains("  changed by 2 recorded commands"), "{text}");
     assert!(!text.contains("its reported diff"), "{text}");
     assert!(!text.contains("reported diff not retained"), "{text}");
@@ -1914,7 +1933,7 @@ fn one_command_listed_in_two_worktrees_is_counted_once_by_why() {
     let mut elsewhere = why.command_changes[0].clone();
     elsewhere.change.worktree = "/work/repo/.claude/worktrees/x".to_owned();
     why.command_changes.push(elsewhere);
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     // Three entries, two commands.
     assert!(
         text.contains("  changed by 2 recorded commands (observed"),
@@ -1946,12 +1965,12 @@ fn why_says_what_a_listed_commands_report_leaves_open() {
     // Flagged reports and unnamed counted files limit what the report
     // shows. The listing states this.
     let mut why = sample_why(OnDiskCheck::Captured);
-    assert!(!render_why(&why, escape).contains("its report"));
+    assert!(!render_why(&why).contains("its report"));
     let change = &mut why.command_changes[0].change;
     change.flags = BTreeSet::from(["shared".to_owned(), "un\u{1b}available".to_owned()]);
     change.unlisted = 3;
     change.outside = 1;
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(
         text.contains(
             "\n      its report: flagged shared, un\\x1bavailable; 3 changed files it does not \
@@ -1964,7 +1983,7 @@ fn why_says_what_a_listed_commands_report_leaves_open() {
     change.flags.clear();
     change.unlisted = 1;
     change.outside = 0;
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(
         text.contains("\n      its report: 1 changed file it does not name\n"),
         "{text}"
@@ -1979,7 +1998,7 @@ fn why_shows_the_command_behind_a_shell_edit() {
         command: "command:7".to_owned(),
         text: Some("cat > src/lib.rs <<'EOF'\nfn greet() {}\nEOF\n".to_owned()),
     };
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(
         text.contains(
             "\n    read from a heredoc in command command:7: cat > src/lib.rs <<'EOF' … (2 more lines)\n    \
@@ -1992,7 +2011,7 @@ fn why_shows_the_command_behind_a_shell_edit() {
         command: "command:7".to_owned(),
         text: None,
     };
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(
         text.contains("read from a heredoc in command command:7: command text not recorded"),
         "{text}"
@@ -2007,7 +2026,7 @@ fn why_escapes_and_shortens_command_text() {
     why.command_changes[1].change.patch = Material::Withheld {
         policy: "capture.\u{1b}diff".to_owned(),
     };
-    let text = render_why(&why, escape);
+    let text = render_why(&why);
     assert!(!text.contains('\u{1b}'), "{text}");
     let shown = format!("      echo \\x1b[2K{}… … (1 more line)\n", "x".repeat(91));
     assert!(text.contains(&shown), "{text}");

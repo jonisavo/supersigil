@@ -4,7 +4,6 @@
 #![allow(dead_code, reason = "each test binary uses a different subset")]
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -115,21 +114,6 @@ pub fn attribution(
         target,
         base,
     }
-}
-
-/// The same escaping as the CLI's `format::escape_control`: control
-/// characters other than tab become `\xNN`.
-pub fn escape(text: &str) -> String {
-    let mut out = String::new();
-    for c in text.chars() {
-        let code = u32::from(c);
-        if (code <= 0x1f && c != '\t') || (0x7f..=0x9f).contains(&code) {
-            let _ = write!(out, "\\x{code:02x}");
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 /// Runs `work` on another thread and returns its result, failing the test

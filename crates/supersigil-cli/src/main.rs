@@ -4,8 +4,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use supersigil_cli::error::CliError;
-use supersigil_cli::format::escape_control;
 use supersigil_cli::{Cli, ColorConfig, Command};
+use supersigil_review::printed::escape_control;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
