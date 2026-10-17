@@ -964,6 +964,32 @@ fn a_dismissal_needs_a_reason() {
 }
 
 #[test]
+fn a_reason_given_is_never_blank() {
+    let (f, _) = reviewed();
+    judged(&f, &f.repo, &["acknowledge", "old.txt"]);
+    let [acknowledgment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
+
+    let calls: [&[&str]; 3] = [
+        &["acknowledge", "src/new.rs", "--reason", ""],
+        &["undo", "old.txt", "--reason", " "],
+        &[
+            "undo",
+            "--judgment",
+            acknowledgment.id.short(),
+            "--reason",
+            "\t",
+        ],
+    ];
+    for args in calls {
+        assert_eq!(
+            refused(&f, &mut judge(&f, &f.repo, args)),
+            "No judgment recorded. A reason can't be blank; give one or leave out --reason.\n",
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn an_item_already_closed_is_not_judged_again() {
     let (f, _) = reviewed();
     judged(&f, &f.repo, &["acknowledge", "old.txt"]);

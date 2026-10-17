@@ -28,8 +28,8 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
-    AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Reason,
-    Refusal, WithdrawRefusal,
+    AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Refusal,
+    WithdrawRefusal, Words,
 };
 use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
@@ -90,16 +90,19 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
 ///
 /// # Errors
 ///
-/// Refuses a dismissal without a reason.
+/// Refuses a dismissal without a reason, and a blank reason.
 fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
     Ok(match command {
         JudgeCommand::Acknowledge(close) => Call::Acknowledge {
             items: &close.items,
-            reason: close.reason.as_deref(),
+            reason: reason(close.reason.as_deref())?,
         },
         JudgeCommand::Dismiss(close) => Call::Dismiss {
             items: &close.items,
-            reason: Reason::new(close.reason.as_deref())
+            reason: close
+                .reason
+                .as_deref()
+                .and_then(Words::new)
                 .ok_or_else(|| refusal(["A dismissal needs --reason."].into()))?,
         },
         JudgeCommand::Comment(comment) => Call::Comment {
@@ -112,15 +115,30 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
         JudgeCommand::Undo(undo) => match &undo.judgment {
             Some(prefix) => Call::UndoJudgment {
                 prefix,
-                reason: undo.reason.as_deref(),
+                reason: reason(undo.reason.as_deref())?,
             },
             None => Call::UndoItems {
                 items: &undo.items,
-                reason: undo.reason.as_deref(),
+                reason: reason(undo.reason.as_deref())?,
             },
         },
         JudgeCommand::List | JudgeCommand::Show(_) => unreachable!("not a write command"),
     })
+}
+
+/// The reason given, if any.
+///
+/// # Errors
+///
+/// Refuses a blank reason.
+fn reason(given: Option<&str>) -> Result<Option<Words<'_>>, CliError> {
+    given
+        .map(|text| {
+            Words::new(text).ok_or_else(|| {
+                refusal(["A reason can't be blank; give one or leave out --reason."].into())
+            })
+        })
+        .transpose()
 }
 
 /// The checkout a call names, with its repository's review store.

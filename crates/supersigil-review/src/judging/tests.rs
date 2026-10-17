@@ -12,7 +12,7 @@ use supersigil_record::reviews::{
 };
 use supersigil_record::time::UtcTime;
 
-use super::{Call, JudgedStore, Reason};
+use super::{Call, JudgedStore, Words};
 use crate::model::RelatedReading;
 use crate::names::ItemNames;
 
@@ -159,7 +159,7 @@ fn record(step: &Step, reviews: &[(BasisId, Basis)], judgments: &[Judgment]) -> 
         },
         Step::Close { dismiss: true, .. } => Call::Dismiss {
             items: &items,
-            reason: Reason::new(Some("generated"))?,
+            reason: Words::new("generated")?,
         },
         Step::Complete { .. } => Call::Complete { text: None },
         Step::UndoItems { .. } => Call::UndoItems {

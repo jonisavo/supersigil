@@ -720,14 +720,14 @@ impl<'a> JudgedReview<'a> {
                     .check_close(items)
                     .map_err(Refusal::AlreadyClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
             Call::Dismiss { items, reason } => {
                 self.states
                     .check_close(items)
                     .map_err(Refusal::AlreadyClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = Some(reason.0.to_owned());
+                planned.reason = Some(reason.as_str().to_owned());
             }
             Call::Comment { item, text } => {
                 planned.items = item.into_iter().cloned().collect();
@@ -740,7 +740,7 @@ impl<'a> JudgedReview<'a> {
             Call::UndoItems { items, reason } => {
                 planned.withdraws = self.states.plan_undo(items).map_err(Refusal::NotClosed)?;
                 planned.items = items.to_vec();
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
             Call::UndoJudgment { prefix, reason } => {
                 let ledger = self.states.ledger;
@@ -762,7 +762,7 @@ impl<'a> JudgedReview<'a> {
                 planned.withdraws = ledger
                     .plan_withdrawal(judgment)
                     .map_err(|refused| Refusal::NotWithdrawable(judgment, refused))?;
-                planned.reason = reason.map(str::to_owned);
+                planned.reason = reason.map(|reason| reason.as_str().to_owned());
             }
         }
         Ok(planned)
@@ -1132,14 +1132,14 @@ pub enum Call<'c, I = ItemId> {
         /// The items.
         items: &'c [I],
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
     /// Dismiss `items` for `reason`.
     Dismiss {
         /// The items.
         items: &'c [I],
         /// Why they need no follow-up.
-        reason: Reason<'c>,
+        reason: Words<'c>,
     },
     /// Comment on `item`, or on the review as a whole.
     Comment {
@@ -1158,7 +1158,7 @@ pub enum Call<'c, I = ItemId> {
         /// The items.
         items: &'c [I],
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
     /// Withdraw what stands of the judgment whose ID starts with `prefix`:
     /// one recorded on the current review, or one closing its items.
@@ -1166,7 +1166,7 @@ pub enum Call<'c, I = ItemId> {
         /// At least 8 leading characters of its ID, in any ASCII case.
         prefix: &'c str,
         /// Why, if given.
-        reason: Option<&'c str>,
+        reason: Option<Words<'c>>,
     },
 }
 
@@ -1225,15 +1225,22 @@ impl<'c, I> Call<'c, I> {
     }
 }
 
-/// A dismissal's reason, which is never blank.
+/// Words a person gives with a judgment, such as a reason, which are
+/// never blank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Reason<'a>(&'a str);
+pub struct Words<'a>(&'a str);
 
-impl<'a> Reason<'a> {
-    /// `text` as a reason, unless it is missing or only whitespace.
+impl<'a> Words<'a> {
+    /// `text` as words, unless it is only whitespace.
     #[must_use]
-    pub fn new(text: Option<&'a str>) -> Option<Self> {
-        text.filter(|text| !text.trim().is_empty()).map(Self)
+    pub fn new(text: &'a str) -> Option<Self> {
+        (!text.trim().is_empty()).then_some(Self(text))
+    }
+
+    /// The words as given.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
     }
 }
 

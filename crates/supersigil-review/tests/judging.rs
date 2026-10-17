@@ -19,8 +19,8 @@ use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
     AlreadyClosed, Call, Earlier, FindJudgmentError, ItemChange, ItemState, JudgedReview,
-    JudgedStore, Ledger, NotClosed, Planned, Reason, Refusal, Relation, Report, Uncovered,
-    WithdrawRefusal, explanations_differ, uncovered_items,
+    JudgedStore, Ledger, NotClosed, Planned, Refusal, Relation, Report, Uncovered, WithdrawRefusal,
+    Words, explanations_differ, uncovered_items,
 };
 use supersigil_review::model::{
     ChangedEvidence, CompletionSource, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations,
@@ -2133,7 +2133,7 @@ fn each_call_records_what_its_kind_needs() {
     let planned = fresh
         .plan(Call::Acknowledge {
             items: &both[..1],
-            reason: Some("seen"),
+            reason: Words::new("seen"),
         })
         .unwrap();
     assert!(planned.first());
@@ -2145,7 +2145,7 @@ fn each_call_records_what_its_kind_needs() {
             ..judgment("planned", &current.0, JudgmentKind::Acknowledge, 100)
         }
     );
-    let reason = Reason::new(Some("not ours")).unwrap();
+    let reason = Words::new("not ours").unwrap();
     assert_eq!(
         fresh
             .plan(Call::Dismiss {
@@ -2204,9 +2204,8 @@ fn each_call_records_what_its_kind_needs() {
 }
 
 #[test]
-fn a_dismissal_reason_is_never_blank() {
-    assert_eq!(Reason::new(None), None);
-    assert_eq!(Reason::new(Some("")), None);
-    assert_eq!(Reason::new(Some(" \t\n")), None);
-    assert!(Reason::new(Some(" why ")).is_some());
+fn given_words_are_never_blank() {
+    assert_eq!(Words::new(""), None);
+    assert_eq!(Words::new(" \t\n"), None);
+    assert_eq!(Words::new(" why ").map(Words::as_str), Some(" why "));
 }
