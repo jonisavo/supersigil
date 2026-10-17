@@ -245,6 +245,7 @@ impl<'a> ReviewTx<'a> {
             .collect();
         let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
             && make_bases_regular(&self.manifest, &dir, &kept, &mut self.publication);
+        let bases = fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.is_dir());
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -257,7 +258,10 @@ impl<'a> ReviewTx<'a> {
             let path = dir.join(basis_file_name(id));
             match remove_regular(&path) {
                 Removal::Deleted => self.publication.deleted(path),
-                Removal::Absent => {}
+                // An earlier write may have deleted it and stopped before
+                // syncing `bases/`, which a missing directory no longer needs.
+                Removal::Missing if bases => self.publication.deleted(path),
+                Removal::Missing | Removal::Kept => {}
                 Removal::Failed => continue,
             }
             self.manifest.removed.remove(id);
@@ -364,9 +368,10 @@ fn make_regular(dir: &Path, id: &BasisId) -> Result<Option<PathBuf>, StoreError>
 enum Removal {
     /// Deleted a regular file.
     Deleted,
-    /// Found nothing to delete: the path is missing, or is a symbolic link
-    /// that cleanup must keep.
-    Absent,
+    /// Found nothing at the path.
+    Missing,
+    /// Found a symbolic link, which cleanup keeps.
+    Kept,
     /// Could not delete what is there.
     Failed,
 }
@@ -374,14 +379,14 @@ enum Removal {
 /// Deletes `path` only if it is a regular file, without following links.
 fn remove_regular(path: &Path) -> Removal {
     let removed = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_symlink() => return Removal::Absent,
+        Ok(metadata) if metadata.is_symlink() => return Removal::Kept,
         Ok(metadata) if metadata.is_file() => fs::remove_file(path),
         Ok(_) => return Removal::Failed,
         Err(e) => Err(e),
     };
     match removed {
         Ok(()) => Removal::Deleted,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Removal::Absent,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Removal::Missing,
         Err(_) => Removal::Failed,
     }
 }

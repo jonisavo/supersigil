@@ -129,6 +129,32 @@ fn a_cleanup_deletion_syncs_the_bases_directory() {
 }
 
 #[test]
+fn a_removed_basis_whose_file_is_already_gone_syncs_the_bases_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let mut tx = store.begin().unwrap();
+    let id = tx.save_basis(&basis(), at(0)).unwrap();
+    tx.commit(at(0)).unwrap();
+    store
+        .begin()
+        .unwrap()
+        .commit(at(GRACE_SECONDS + 1))
+        .unwrap();
+    // An earlier write may have deleted it and stopped before syncing.
+    let root = store.root();
+    fs::remove_file(root.join(BASES_DIR).join(basis_file_name(&id))).unwrap();
+
+    let mut tx = store.begin().unwrap();
+    tx.cleanup(at(GRACE_SECONDS + 2 + REMOVAL_DELAY_SECONDS))
+        .unwrap();
+    assert!(tx.manifest().removed.is_empty());
+    assert_eq!(
+        tx.publication.syncs(),
+        [Step::Dir(root), Step::Dir(&root.join(BASES_DIR))]
+    );
+}
+
+#[test]
 fn a_write_with_nothing_on_disk_to_change_syncs_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
