@@ -8,9 +8,22 @@ use std::process::Command;
 use supersigil_session::checkout::canonical;
 use supersigil_session::discover::encode_project_dir;
 
-/// The `supersigil` binary under test.
+pub mod fixture;
+pub mod session;
+
+/// Builds a command for the `supersigil` binary under test, clearing agent session
+/// markers and the reviews directory override. Tests may run inside Claude Code
+/// and choose their own reviews directory.
 pub fn supersigil_cmd() -> Command {
-    Command::new(assert_cmd::cargo::cargo_bin("supersigil"))
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin("supersigil"));
+    for key in [
+        "CLAUDECODE",
+        "CLAUDE_CODE_SESSION_ID",
+        "SUPERSIGIL_REVIEW_DIR",
+    ] {
+        command.env_remove(key);
+    }
+    command
 }
 
 /// A fresh temporary directory and its canonical path, the spelling records

@@ -8,7 +8,7 @@ use supersigil_record::observations::{Observation, session_start};
 use supersigil_record::store::Store;
 use supersigil_record::{DerivationSet, Revision, SessionId};
 use supersigil_session::discover::discover_transcripts;
-use supersigil_session::sync::{SyncReport, sync};
+use supersigil_session::sync::{SyncError, SyncReport, sync};
 
 use crate::commands::{
     SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
@@ -81,6 +81,7 @@ fn run_sync(
             None => Vec::new(),
         }
     } else {
+        check_named(&args.transcripts)?;
         args.transcripts.clone()
     };
     if transcripts.is_empty() {
@@ -114,6 +115,31 @@ fn run_sync(
     Ok(())
 }
 
+/// Checks that every transcript named with `--transcript` is a regular file.
+/// Sync skips removed transcripts found through discovery. A missing explicitly
+/// named transcript is an error.
+///
+/// # Errors
+///
+/// Returns [`SyncError::Io`] naming the first transcript that is missing,
+/// cannot be inspected, or is not a regular file.
+fn check_named(transcripts: &[PathBuf]) -> Result<(), SyncError> {
+    for path in transcripts {
+        let checked = std::fs::metadata(path).and_then(|metadata| {
+            if metadata.is_file() {
+                Ok(())
+            } else {
+                Err(io::Error::other("not a regular file"))
+            }
+        });
+        checked.map_err(|source| SyncError::Io {
+            path: path.clone(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
 /// Prints a sync report.
 fn print_sync_report(report: &SyncReport) -> io::Result<()> {
     let mut out = io::stdout().lock();
@@ -136,8 +162,8 @@ fn print_sync_report(report: &SyncReport) -> io::Result<()> {
             t.new_observations,
             Untrusted(session)
         )?;
-        if let Some(reason) = &t.skipped {
-            writeln!(out, "    skipped: {}", Untrusted(reason))?;
+        if let Some(skip) = &t.skipped {
+            writeln!(out, "    skipped: {}", Untrusted(skip.reason()))?;
         }
         if let Some(nested) = &t.nested_checkout {
             writeln!(

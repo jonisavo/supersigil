@@ -79,6 +79,7 @@ jobs:
   test:
     name: Test (${{ matrix.name }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: ubuntu
@@ -111,7 +112,7 @@ jobs:
         run: git --version
 
       - name: Test
-        run: cargo nextest run
+        run: cargo nextest run --no-fail-fast
 
   test-git-minimum:
     name: Test (git 2.36.0)
@@ -155,4 +156,4 @@ jobs:
           export PATH="$HOME/git-${GIT_MINIMUM}/bin:$PATH"
           git --version
           test "$(git version)" = "git version ${GIT_MINIMUM}"
-          cargo nextest run -p supersigil-git
+          cargo nextest run --no-fail-fast -p supersigil-git

@@ -8,14 +8,23 @@
 //! [`Store`] saves these records as JSON files. A [`RecordSnapshot`] reads the
 //! log lengths and document names listed in one manifest, so later writes do
 //! not change what that snapshot returns.
+//!
+//! [`ReviewStore`] uses the same protocol to save each review's
+//! [`reviews::Basis`] and each worktree's selected review.
 
 pub mod derivations;
 pub mod derive;
+mod files;
 pub mod ids;
 pub mod observations;
+pub mod reviews;
 pub mod store;
+pub mod time;
 
 pub use derivations::DerivationSet;
-pub use ids::{ContentId, EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
+pub use ids::{
+    ContentId, EventId, JudgmentId, RecordId, Revision, SessionId, StoreId, Timestamp, TurnId,
+};
 pub use observations::Observation;
+pub use reviews::{ReviewSnapshot, ReviewStore, ReviewTx};
 pub use store::{RecordSnapshot, Store, StoreError, WriteTx};

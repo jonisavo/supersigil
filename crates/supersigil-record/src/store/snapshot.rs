@@ -1,13 +1,18 @@
 //! Reads the log bytes and document files listed in one manifest.
 
-use std::fs::{self, File};
-use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::PathBuf;
+
+use serde::de::DeserializeOwned;
+use sha2::{Digest as _, Sha256};
 
 use super::{Manifest, StoreError, derivations_document, io_error, log_path};
 use crate::derivations::DerivationSet;
+use crate::files;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
+use crate::reviews::PinnedLog;
 
 /// Reads a record at the revision captured by its manifest.
 ///
@@ -48,6 +53,41 @@ impl RecordSnapshot {
     /// Returns [`StoreError::Io`] if the file cannot be read or
     /// [`StoreError::Json`] if its contents cannot be parsed as a derivation set.
     pub fn derivations(&self, session: &SessionId) -> Result<Option<DerivationSet>, StoreError> {
+        self.derivation_document(session)
+    }
+
+    /// Reads the algorithm version from the session's pinned derivation
+    /// document ([`Self::derivations`]) without constructing a derivation set.
+    ///
+    /// Returns `None` if the manifest lists no document for the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if the file cannot be read or
+    /// [`StoreError::Json`] if its contents are not a JSON object with an
+    /// algorithm version.
+    pub fn algorithm_version(&self, session: &SessionId) -> Result<Option<u32>, StoreError> {
+        /// The one field of a derivation document read.
+        #[derive(serde::Deserialize)]
+        struct Versioned {
+            algorithm_version: u32,
+        }
+        Ok(self
+            .derivation_document::<Versioned>(session)?
+            .map(|document| document.algorithm_version))
+    }
+
+    /// Parses the session's pinned derivation document as `T`, returning
+    /// `None` if the manifest lists none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if the file cannot be read or
+    /// [`StoreError::Json`] if its contents cannot be parsed as a `T`.
+    fn derivation_document<T: DeserializeOwned>(
+        &self,
+        session: &SessionId,
+    ) -> Result<Option<T>, StoreError> {
         let Some(rel) = self
             .manifest
             .sessions
@@ -80,41 +120,161 @@ impl RecordSnapshot {
     /// length, [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`]
     /// if its contents cannot be parsed as observations.
     pub fn observations(&self, session: &SessionId) -> Result<Vec<Observation>, StoreError> {
-        let Some((log, &pinned)) = self
-            .manifest
+        let Some((log, length)) = self.log_of(session) else {
+            return Ok(Vec::new());
+        };
+        files::read_log(&self.root.join(log), length)
+    }
+
+    /// Reads a session's pinned log bytes once and returns the observations
+    /// ([`Self::observations`]), log path, pinned length, and SHA-256 digest.
+    /// Later readers can use the digest to detect changes to those bytes.
+    ///
+    /// Returns `None` if this snapshot has no log for the session.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::observations`].
+    pub fn session_log(&self, session: &SessionId) -> Result<Option<SessionLog>, StoreError> {
+        let Some((log, length)) = self.log_of(session) else {
+            return Ok(None);
+        };
+        let path = self.root.join(log);
+        let bytes = files::read_prefix(&path, length)?;
+        let pinned = PinnedLog {
+            length,
+            sha256: hex::encode(Sha256::digest(&bytes)),
+        };
+        Ok(Some(SessionLog {
+            path: log.to_owned(),
+            pinned,
+            observations: files::parse_log(&path, &bytes)?,
+        }))
+    }
+
+    /// Reads the pinned bytes of `log`, a path in the record such as
+    /// `observations/0.jsonl`. Hashes prefixes for requested `lengths` within
+    /// the pinned length in one pass, producing hex SHA-256 digests.
+    ///
+    /// Parses observations from the shortest requested length at a line boundary
+    /// and records their end offsets. [`LogReading::since`] returns slices of
+    /// observations appended after earlier pins.
+    ///
+    /// Returns `None` if this snapshot pins no log at `log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the log is shorter than its pinned
+    /// length, [`StoreError::Io`] if it cannot be read, or
+    /// [`StoreError::Json`] if the observations read cannot be parsed.
+    pub fn read_log(
+        &self,
+        log: &str,
+        lengths: &BTreeSet<u64>,
+    ) -> Result<Option<LogReading>, StoreError> {
+        let Some(&length) = self.manifest.logs.get(log) else {
+            return Ok(None);
+        };
+        let path = self.root.join(log);
+        let bytes = files::read_prefix(&path, length)?;
+        // Keep requested lengths within the bytes read, with their end indexes.
+        let within: Vec<(u64, usize)> = lengths
+            .iter()
+            .filter_map(|&asked| {
+                let end = usize::try_from(asked).ok()?;
+                (end <= bytes.len()).then_some((asked, end))
+            })
+            .collect();
+        let mut digests = BTreeMap::new();
+        let mut prefix = Sha256::new();
+        let mut hashed = 0;
+        for &(asked, end) in &within {
+            prefix.update(&bytes[hashed..end]);
+            hashed = end;
+            digests.insert(asked, hex::encode(prefix.clone().finalize()));
+        }
+        // Each observation occupies one line, with no raw newline inside its JSON.
+        let from = within
+            .iter()
+            .map(|&(_, end)| end)
+            .find(|&end| end == 0 || bytes[end - 1] == b'\n')
+            .unwrap_or(bytes.len());
+        let mut ends = Vec::new();
+        let mut observations = Vec::new();
+        let mut stream = serde_json::Deserializer::from_slice(&bytes[from..]).into_iter();
+        while let Some(observation) = stream.next() {
+            observations.push(observation.map_err(|source| StoreError::Json {
+                path: path.clone(),
+                source,
+            })?);
+            ends.push((from + stream.byte_offset()) as u64);
+        }
+        Ok(Some(LogReading {
+            length,
+            digests,
+            from: from as u64,
+            ends,
+            observations,
+        }))
+    }
+
+    /// The path of `session`'s log and its pinned length, if this snapshot
+    /// has a log for the session.
+    fn log_of(&self, session: &SessionId) -> Option<(&str, u64)> {
+        self.manifest
             .sessions
             .get(session)
             .and_then(|&number| self.manifest.logs.get_key_value(&log_path(number)))
-        else {
-            return Ok(Vec::new());
-        };
-        let path = self.root.join(log);
-        let bytes = read_prefix(&path, pinned)?;
-        serde_json::Deserializer::from_slice(&bytes)
-            .into_iter()
-            .collect::<Result<_, _>>()
-            .map_err(|source| StoreError::Json { path, source })
+            .map(|(log, &length)| (log.as_str(), length))
     }
 }
 
-/// Reads exactly the first `len` bytes of a file.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Corrupt`] if the file is too short or
-/// [`StoreError::Io`] if opening or reading it fails.
-fn read_prefix(path: &Path, len: u64) -> Result<Vec<u8>, StoreError> {
-    let file = File::open(path).map_err(|e| io_error(path, e))?;
-    let mut bytes = Vec::new();
-    file.take(len)
-        .read_to_end(&mut bytes)
-        .map_err(|e| io_error(path, e))?;
-    if bytes.len() as u64 != len {
-        return Err(StoreError::Corrupt(format!(
-            "{} is shorter ({} bytes) than its pinned length ({len})",
-            path.display(),
-            bytes.len()
-        )));
+/// One session's log as a snapshot pins it, read once
+/// ([`RecordSnapshot::session_log`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionLog {
+    /// The log's path in the record, such as `observations/0.jsonl`.
+    pub path: String,
+    /// The pinned length and the SHA-256 of the pinned bytes.
+    pub pinned: PinnedLog,
+    /// The observations in the pinned bytes, in append order.
+    pub observations: Vec<Observation>,
+}
+
+/// A log as a snapshot pins it, read once to compare with what earlier
+/// revisions pinned of it ([`RecordSnapshot::read_log`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogReading {
+    /// The pinned length.
+    length: u64,
+    /// For each length asked for within the pinned length, the hex SHA-256
+    /// of the log's first that many bytes.
+    digests: BTreeMap<u64, String>,
+    /// Where the observations read begin.
+    from: u64,
+    /// The offset where each observation's JSON ends, in append order.
+    ends: Vec<u64>,
+    /// The observations from `from` up to the pinned length, in append
+    /// order.
+    observations: Vec<Observation>,
+}
+
+impl LogReading {
+    /// Returns the hex SHA-256 of the first `length` bytes if that length
+    /// was requested and lies within the pinned length.
+    #[must_use]
+    pub fn digest(&self, length: u64) -> Option<&str> {
+        self.digests.get(&length).map(String::as_str)
     }
-    Ok(bytes)
+
+    /// Returns observations whose JSON ends after an earlier pin's `length`,
+    /// in append order. Returns `None` if `length` precedes the parsed portion
+    /// or exceeds the pinned length.
+    #[must_use]
+    pub fn since(&self, length: u64) -> Option<&[Observation]> {
+        (self.from..=self.length).contains(&length).then(|| {
+            let first = self.ends.partition_point(|&end| end <= length);
+            &self.observations[first..]
+        })
+    }
 }

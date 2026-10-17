@@ -1,13 +1,20 @@
-//! Tests snapshot isolation, atomic publication, writer locking, and crash recovery.
+//! Tests snapshot isolation, atomic publication, writer locking, crash
+//! recovery, and the removal of replaced documents.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
 
-use serde_json::Value;
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
 use supersigil_record::observations::{EndReason, Observation, SessionEnd};
-use supersigil_record::store::{Association, SourceCursor, Store, StoreError};
+use supersigil_record::reviews::PinnedLog;
+use supersigil_record::store::{
+    Association, RecordSnapshot, SessionLog, SourceCursor, Store, StoreError,
+};
+use supersigil_record::time::{GRACE_SECONDS, UtcTime};
 use supersigil_record::{ContentId, RecordId, Revision, SessionId, Timestamp};
 
 fn assoc() -> Association {
@@ -189,6 +196,152 @@ fn reader_stays_pinned_to_its_manifest_while_writer_appends() {
 }
 
 #[test]
+fn a_session_log_is_read_with_its_pinned_length_and_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 1), observation("s2", 2)])
+        .unwrap();
+    tx.commit().unwrap();
+    let pinned = store.snapshot().unwrap();
+    let mut tx = store.begin().unwrap();
+    tx.append_observations(&[observation("s1", 3)]).unwrap();
+    tx.commit().unwrap();
+
+    // The first log grew after the pin; the pinned snapshot still reads and
+    // hashes only the bytes it pinned.
+    for (session, log) in [
+        ("s1", "observations/0.jsonl"),
+        ("s2", "observations/1.jsonl"),
+    ] {
+        let session = SessionId::new(session);
+        let length = pinned.manifest().logs[log];
+        let bytes = fs::read(dir.path().join(log)).unwrap();
+        let sha256 = hex::encode(Sha256::digest(&bytes[..usize::try_from(length).unwrap()]));
+        assert_eq!(
+            pinned.session_log(&session).unwrap(),
+            Some(SessionLog {
+                path: log.to_owned(),
+                pinned: PinnedLog { length, sha256 },
+                observations: pinned.observations(&session).unwrap(),
+            })
+        );
+    }
+    let read = |snapshot: &RecordSnapshot, session: &str| {
+        snapshot
+            .session_log(&SessionId::new(session))
+            .unwrap()
+            .unwrap()
+    };
+    let grown = store.snapshot().unwrap();
+    assert!(read(&grown, "s1").pinned.length > read(&pinned, "s1").pinned.length);
+    assert_ne!(
+        read(&grown, "s1").pinned.sha256,
+        read(&pinned, "s1").pinned.sha256
+    );
+    assert_eq!(read(&grown, "s1").observations.len(), 2);
+    assert_eq!(read(&grown, "s2"), read(&pinned, "s2"));
+    assert_eq!(pinned.session_log(&SessionId::new("s3")).unwrap(), None);
+}
+
+/// The log of session `s1`, the only one in its record.
+const LOG: &str = "observations/0.jsonl";
+
+/// Creates a record with four observations for `s1`. Returns its directory
+/// and snapshots pinning one and three observations. Commits the fourth
+/// after both snapshots.
+fn grown_log() -> (tempfile::TempDir, RecordSnapshot, RecordSnapshot) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let append = |seconds: &[u32]| {
+        let observations: Vec<Observation> =
+            seconds.iter().map(|&s| observation("s1", s)).collect();
+        let mut tx = store.begin().unwrap();
+        tx.append_observations(&observations).unwrap();
+        tx.commit().unwrap();
+        store.snapshot().unwrap()
+    };
+    let earlier = append(&[1]);
+    let pinned = append(&[2, 3]);
+    append(&[4]);
+    (dir, earlier, pinned)
+}
+
+/// The hex SHA-256 of the log `snapshot` pins for session `s1`.
+fn pinned_digest(snapshot: &RecordSnapshot) -> String {
+    snapshot
+        .session_log(&session())
+        .unwrap()
+        .unwrap()
+        .pinned
+        .sha256
+}
+
+#[test]
+fn a_log_is_read_once_for_every_length_earlier_revisions_pinned() {
+    let (_dir, earlier, pinned) = grown_log();
+    let (start, end) = (earlier.manifest().logs[LOG], pinned.manifest().logs[LOG]);
+
+    // Read from the start, after the first observation, after all three,
+    // and beyond what the snapshot pins.
+    let lengths = BTreeSet::from([0, start, end, end + 1]);
+    let reading = pinned.read_log(LOG, &lengths).unwrap().unwrap();
+
+    let nothing = hex::encode(Sha256::digest(b""));
+    assert_eq!(reading.digest(0), Some(nothing.as_str()));
+    assert_eq!(
+        reading.digest(start),
+        Some(pinned_digest(&earlier).as_str())
+    );
+    assert_eq!(reading.digest(end), Some(pinned_digest(&pinned).as_str()));
+    assert_eq!(reading.digest(end + 1), None);
+    assert_eq!(
+        reading.since(0),
+        Some(pinned.observations(&session()).unwrap().as_slice())
+    );
+    assert_eq!(
+        reading.since(start),
+        Some([observation("s1", 2), observation("s1", 3)].as_slice())
+    );
+    assert_eq!(reading.since(end), Some([].as_slice()));
+    assert_eq!(reading.since(end + 1), None);
+    // A log the snapshot does not pin.
+    assert_eq!(
+        pinned
+            .read_log("observations/1.jsonl", &BTreeSet::from([0]))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_log_is_parsed_from_the_first_length_where_an_observation_begins() {
+    let (dir, earlier, pinned) = grown_log();
+    let start = earlier.manifest().logs[LOG];
+    let first = pinned_digest(&earlier);
+    // The first observation rewritten at the same length, so it no longer
+    // parses; no observation begins 3 bytes in.
+    let path = dir.path().join(LOG);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[0] = b' ';
+    fs::write(&path, &bytes).unwrap();
+
+    let reading = pinned
+        .read_log(LOG, &BTreeSet::from([3, start]))
+        .unwrap()
+        .unwrap();
+
+    let three = hex::encode(Sha256::digest(&bytes[..3]));
+    assert_eq!(reading.digest(3), Some(three.as_str()));
+    assert_ne!(reading.digest(start), Some(first.as_str()));
+    assert_eq!(reading.since(3), None);
+    assert_eq!(
+        reading.since(start),
+        Some([observation("s1", 2), observation("s1", 3)].as_slice())
+    );
+}
+
+#[test]
 fn tail_beyond_pinned_length_is_ignored_and_truncated() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
@@ -284,6 +437,603 @@ fn documents_are_immutable_per_revision() {
     );
     assert!(dir.path().join("derivations/0.r1.json").exists());
     assert_eq!(first.derivations(&SessionId::new("missing")).unwrap(), None);
+}
+
+/// 2026-10-13T00:00:00Z plus `seconds`.
+fn at(seconds: i64) -> UtcTime {
+    UtcTime::from_unix(1_791_849_600 + seconds)
+}
+
+/// Writes session `s1`'s derivations in a transaction timed `now` and
+/// commits it.
+fn put_derivations_at(store: &Store, now: UtcTime) {
+    let mut tx = store.begin_at(now).unwrap();
+    tx.put_derivations(&derivation_set("s1", Revision::ZERO))
+        .unwrap();
+    tx.commit().unwrap();
+}
+
+/// Commits a transaction timed `now` that changes nothing.
+fn commit_at(store: &Store, now: UtcTime) {
+    store.begin_at(now).unwrap().commit().unwrap();
+}
+
+fn read_manifest_json(dir: &std::path::Path) -> Value {
+    serde_json::from_slice(&fs::read(dir.join("manifest.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn a_replaced_document_is_listed_with_the_time_of_the_commit_that_replaced_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    let first = store.snapshot().unwrap();
+    assert!(first.manifest().superseded.is_empty());
+
+    // Writing the session twice in one transaction replaces the committed
+    // document once; the pending one is not listed.
+    let mut tx = store.begin_at(at(60)).unwrap();
+    for revision in [Revision::ZERO, Revision::ZERO.next()] {
+        tx.put_derivations(&derivation_set("s1", revision)).unwrap();
+    }
+    tx.commit().unwrap();
+    let manifest = store.manifest().unwrap();
+    assert_eq!(manifest.documents["derivations/0"], "derivations/0.r2.json");
+    assert_eq!(
+        manifest.superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+    assert_eq!(
+        read_manifest_json(dir.path())["superseded"],
+        json!({"derivations/0.r1.json": "2026-10-13T00:01:00Z"})
+    );
+    // Readers of the earlier revision still find its document.
+    assert_eq!(
+        first.derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO))
+    );
+}
+
+#[test]
+fn a_replaced_document_is_deleted_by_the_first_commit_more_than_14_days_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    put_derivations_at(&store, at(60));
+    let replaced = dir.path().join("derivations/0.r1.json");
+
+    // Exactly 14 days after the replacement: kept.
+    commit_at(&store, at(60 + GRACE_SECONDS));
+    assert!(replaced.exists());
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+
+    // A second later: deleted, while the current document stays.
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert!(!replaced.exists());
+    assert!(store.manifest().unwrap().superseded.is_empty());
+    assert_eq!(
+        files_under(&dir.path().join("derivations")),
+        vec!["0.r2.json".to_owned()]
+    );
+    assert_eq!(
+        store.snapshot().unwrap().derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO))
+    );
+}
+
+#[test]
+fn a_current_document_is_kept_however_long_ago_it_was_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+
+    // Nothing replaced it, so its age does not matter.
+    commit_at(&store, at(10 * GRACE_SECONDS));
+    assert_eq!(
+        files_under(&dir.path().join("derivations")),
+        vec!["0.r1.json".to_owned()]
+    );
+    assert_eq!(
+        store.snapshot().unwrap().derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO))
+    );
+}
+
+#[test]
+fn a_replaced_document_that_cannot_be_deleted_is_tried_again_by_the_next_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    put_derivations_at(&store, at(60));
+    // Use a non-empty directory to simulate an undeletable replacement target.
+    let replaced = dir.path().join("derivations/0.r1.json");
+    fs::remove_file(&replaced).unwrap();
+    fs::create_dir(&replaced).unwrap();
+    fs::write(replaced.join("held"), b"").unwrap();
+
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert!(replaced.is_dir());
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+
+    // Once nothing is in its place, the next commit drops the entry.
+    fs::remove_dir_all(&replaced).unwrap();
+    commit_at(&store, at(62 + GRACE_SECONDS));
+    assert!(store.manifest().unwrap().superseded.is_empty());
+}
+
+#[test]
+fn a_manifest_without_superseded_documents_omits_the_field_and_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    let json = read_manifest_json(dir.path());
+    assert_eq!(json["documents"]["derivations/0"], "derivations/0.r1.json");
+    assert!(json.get("superseded").is_none(), "{json}");
+    assert!(store.manifest().unwrap().superseded.is_empty());
+}
+
+/// Marks `files` superseded at `replaced` in `root`'s manifest to simulate
+/// malformed entries.
+fn list_as_superseded(root: &std::path::Path, files: &[&str], replaced: UtcTime) {
+    let mut json = read_manifest_json(root);
+    for file in files {
+        json["superseded"][*file] = serde_json::to_value(replaced).unwrap();
+    }
+    fs::write(
+        root.join("manifest.json"),
+        serde_json::to_vec_pretty(&json).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_superseded_entry_naming_a_file_the_manifest_references_is_dropped_never_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    let mut tx = store.begin_at(at(0)).unwrap();
+    tx.append_observations(&[observation("s1", 1)]).unwrap();
+    tx.put_derivations(&derivation_set("s1", Revision::ZERO))
+        .unwrap();
+    tx.commit().unwrap();
+    // Mark the live log, current document with both case spellings, manifest,
+    // and lock as replaced long ago.
+    list_as_superseded(
+        dir.path(),
+        &[
+            "observations/0.jsonl",
+            "derivations/0.r1.json",
+            "derivations/0.R1.JSON",
+            "manifest.json",
+            "write.lock",
+        ],
+        at(-2 * GRACE_SECONDS),
+    );
+
+    // The next sync appends to the log.
+    let mut tx = store.begin_at(at(60)).unwrap();
+    tx.append_observations(&[observation("s1", 2)]).unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(
+        files_under(dir.path()),
+        vec![
+            "derivations/0.r1.json".to_owned(),
+            "manifest.json".to_owned(),
+            "observations/0.jsonl".to_owned(),
+            "write.lock".to_owned(),
+        ]
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert!(snapshot.manifest().superseded.is_empty());
+    assert_eq!(
+        snapshot.observations(&session()).unwrap(),
+        vec![observation("s1", 1), observation("s1", 2)]
+    );
+    assert_eq!(
+        snapshot.derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO))
+    );
+}
+
+#[test]
+fn a_superseded_entry_outside_the_derivations_directory_is_dropped_never_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("record");
+    let store = Store::create(&root, assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    let outside = dir.path().join("outside.txt");
+    fs::write(&outside, b"kept").unwrap();
+    fs::write(root.join("notes.json"), b"kept").unwrap();
+    fs::create_dir(root.join("derivations/nested")).unwrap();
+    fs::write(root.join("derivations/nested/0.r1.json"), b"kept").unwrap();
+    list_as_superseded(
+        &root,
+        &[
+            outside.to_str().unwrap(),
+            "../outside.txt",
+            "derivations/../../outside.txt",
+            "derivations/nested/0.r1.json",
+        ],
+        at(-2 * GRACE_SECONDS),
+    );
+    // Dropped however recently it was listed.
+    list_as_superseded(&root, &["notes.json"], at(0));
+
+    commit_at(&store, at(60));
+    assert_eq!(fs::read(&outside).unwrap(), b"kept");
+    assert_eq!(
+        files_under(&root),
+        vec![
+            "derivations/0.r1.json".to_owned(),
+            "derivations/nested/0.r1.json".to_owned(),
+            "manifest.json".to_owned(),
+            "notes.json".to_owned(),
+            "write.lock".to_owned(),
+        ]
+    );
+    assert!(store.manifest().unwrap().superseded.is_empty());
+}
+
+/// Changes `root`'s manifest to reference `s1`'s current document as `file`.
+fn reference_as_current(root: &std::path::Path, file: &str) {
+    let mut json = read_manifest_json(root);
+    json["documents"]["derivations/0"] = json!(file);
+    fs::write(
+        root.join("manifest.json"),
+        serde_json::to_vec_pretty(&json).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_document_the_manifest_references_under_another_spelling_is_never_deleted() {
+    for spelling in [
+        "./derivations/0.r1.json",
+        "derivations/./0.r1.json",
+        "derivations//0.r1.json",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(dir.path(), assoc()).unwrap();
+        put_derivations_at(&store, at(0));
+        // Reference the current document under an equivalent path and mark
+        // its original spelling as replaced long ago.
+        reference_as_current(dir.path(), spelling);
+        list_as_superseded(
+            dir.path(),
+            &["derivations/0.r1.json"],
+            at(-2 * GRACE_SECONDS),
+        );
+
+        // The next sync writes another session's derivations.
+        let mut tx = store.begin_at(at(60)).unwrap();
+        tx.put_derivations(&derivation_set("s2", Revision::ZERO))
+            .unwrap();
+        tx.commit().unwrap();
+
+        assert!(
+            dir.path().join("derivations/0.r1.json").exists(),
+            "{spelling}"
+        );
+        assert_eq!(
+            store.snapshot().unwrap().derivations(&session()).unwrap(),
+            Some(derivation_set("s1", Revision::ZERO)),
+            "{spelling}"
+        );
+    }
+}
+
+#[test]
+fn a_document_the_published_manifest_references_survives_its_own_replacement() {
+    for spelling in [
+        "./derivations/0.r1.json",
+        "derivations/./0.r1.json",
+        "derivations//0.r1.json",
+        "derivations/../derivations/0.r1.json",
+        "Derivations/0.R1.json",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(dir.path(), assoc()).unwrap();
+        put_derivations_at(&store, at(0));
+        // Reference the current document under another spelling and mark its
+        // original path as replaced long ago. On case-sensitive file systems,
+        // `Derivations/0.R1.json` does not exist.
+        reference_as_current(dir.path(), spelling);
+        list_as_superseded(
+            dir.path(),
+            &["derivations/0.r1.json"],
+            at(-2 * GRACE_SECONDS),
+        );
+        let readable = dir.path().join(spelling).is_file();
+        let pinned = store.snapshot().unwrap();
+
+        // Replace the same session's derivations. Earlier readers still need
+        // the old document, which starts a full grace period that the next
+        // commit must preserve.
+        let replaced = at(60);
+        put_derivations_at(&store, replaced);
+        commit_at(&store, at(61));
+
+        assert!(
+            dir.path().join("derivations/0.r1.json").exists(),
+            "{spelling}"
+        );
+        if readable {
+            assert_eq!(
+                pinned.derivations(&session()).unwrap(),
+                Some(derivation_set("s1", Revision::ZERO)),
+                "{spelling}"
+            );
+        }
+        assert_eq!(
+            store.manifest().unwrap().superseded,
+            BTreeMap::from([("derivations/0.r1.json".to_owned(), replaced)]),
+            "{spelling}"
+        );
+    }
+}
+
+/// Replaces `s1`'s document using the path `reference` supplies, then commits
+/// again one second later. Checks that its full grace period survives both
+/// writes for a reader pinned before them.
+fn replaced_through(reference: impl Fn(&std::path::Path) -> String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    let spelling = reference(dir.path());
+    reference_as_current(dir.path(), &spelling);
+    list_as_superseded(
+        dir.path(),
+        &["derivations/0.r1.json"],
+        at(-2 * GRACE_SECONDS),
+    );
+    let pinned = store.snapshot().unwrap();
+
+    put_derivations_at(&store, at(60));
+    commit_at(&store, at(61));
+
+    assert!(
+        dir.path().join("derivations/0.r1.json").exists(),
+        "{spelling}"
+    );
+    assert_eq!(
+        pinned.derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO)),
+        "{spelling}"
+    );
+    assert_eq!(
+        store
+            .manifest()
+            .unwrap()
+            .superseded
+            .get("derivations/0.r1.json"),
+        Some(&at(60)),
+        "{spelling}"
+    );
+}
+
+#[test]
+fn a_document_replaced_through_an_absolute_reference_keeps_its_grace_period() {
+    replaced_through(|root| {
+        root.join("derivations/0.r1.json")
+            .to_str()
+            .unwrap()
+            .to_owned()
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn a_document_replaced_through_a_linked_reference_keeps_its_grace_period() {
+    replaced_through(|root| {
+        std::os::unix::fs::symlink("0.r1.json", root.join("derivations/current")).unwrap();
+        "derivations/current".to_owned()
+    });
+}
+
+#[test]
+fn a_reference_that_is_not_a_plain_path_in_the_record_keeps_every_replaced_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    put_derivations_at(&store, at(60));
+    // Reference the replaced document through `..`, which cleanup refuses to compare.
+    reference_as_current(dir.path(), "derivations/../derivations/0.r1.json");
+
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert!(dir.path().join("derivations/0.r1.json").exists());
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+    assert_eq!(
+        store.snapshot().unwrap().derivations(&session()).unwrap(),
+        Some(derivation_set("s1", Revision::ZERO))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn nothing_is_deleted_while_the_manifest_references_a_document_through_a_symlink() {
+    // Mark the current document replaced and reference it through a file
+    // link, a directory link, or both.
+    let replaced = "derivations/0.r1.json";
+    for (links, reference) in [
+        (&[("current", "0.r1.json")][..], "derivations/current"),
+        (&[("here", ".")], "derivations/here/0.r1.json"),
+        (
+            &[("live/current", "../0.r1.json"), ("route", "live")],
+            "derivations/route/current",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(dir.path(), assoc()).unwrap();
+        put_derivations_at(&store, at(0));
+        for (link, target) in links {
+            let link = dir.path().join("derivations").join(link);
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(target, link).unwrap();
+        }
+        reference_as_current(dir.path(), reference);
+        list_as_superseded(dir.path(), &[replaced], at(-2 * GRACE_SECONDS));
+
+        // The next sync appends another session's observations.
+        let mut tx = store.begin_at(at(60)).unwrap();
+        tx.append_observations(&[observation("s2", 1)]).unwrap();
+        tx.commit().unwrap();
+
+        assert!(
+            dir.path().join(replaced).symlink_metadata().is_ok(),
+            "{reference}"
+        );
+        assert_eq!(
+            store.manifest().unwrap().superseded,
+            BTreeMap::from([(replaced.to_owned(), at(-2 * GRACE_SECONDS))]),
+            "{reference}"
+        );
+        assert_eq!(
+            store.snapshot().unwrap().derivations(&session()).unwrap(),
+            Some(derivation_set("s1", Revision::ZERO)),
+            "{reference}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn nothing_is_deleted_through_a_derivations_directory_that_is_a_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("record");
+    let store = Store::create(&root, assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    put_derivations_at(&store, at(60));
+    // Move the directory outside the record, link to it, and clear the
+    // manifest's document references.
+    let elsewhere = dir.path().join("elsewhere");
+    fs::rename(root.join("derivations"), &elsewhere).unwrap();
+    std::os::unix::fs::symlink("../elsewhere", root.join("derivations")).unwrap();
+    let mut json = read_manifest_json(&root);
+    json["documents"] = json!({});
+    fs::write(
+        root.join("manifest.json"),
+        serde_json::to_vec_pretty(&json).unwrap(),
+    )
+    .unwrap();
+
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert!(elsewhere.join("0.r1.json").exists());
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+}
+
+#[test]
+fn a_reference_that_cannot_be_resolved_on_disk_keeps_every_replaced_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    put_derivations_at(&store, at(60));
+    // Reference a missing file. Cleanup cannot prove that an unresolved path
+    // does not reach a replaced document, so it must keep every document.
+    reference_as_current(dir.path(), "derivations/0.r9.json");
+
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert!(dir.path().join("derivations/0.r1.json").exists());
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))])
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_replaced_document_that_is_a_symlink_is_dropped_never_deleted() {
+    // Replace the document with a self-referencing link or a link outside the record.
+    for target in ["0.r1.json", "../../outside.txt"] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("record");
+        let store = Store::create(&root, assoc()).unwrap();
+        put_derivations_at(&store, at(0));
+        put_derivations_at(&store, at(60));
+        let outside = dir.path().join("outside.txt");
+        fs::write(&outside, b"kept").unwrap();
+        let replaced = root.join("derivations/0.r1.json");
+        fs::remove_file(&replaced).unwrap();
+        std::os::unix::fs::symlink(target, &replaced).unwrap();
+
+        commit_at(&store, at(61 + GRACE_SECONDS));
+        assert!(
+            replaced.symlink_metadata().unwrap().is_symlink(),
+            "{target}"
+        );
+        assert_eq!(fs::read(&outside).unwrap(), b"kept", "{target}");
+        assert!(store.manifest().unwrap().superseded.is_empty(), "{target}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn nothing_is_deleted_while_the_manifest_the_lock_or_the_observations_directory_is_a_symlink() {
+    for entry in ["manifest.json", "write.lock", "observations"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(dir.path(), assoc()).unwrap();
+        put_derivations_at(&store, at(0));
+        put_derivations_at(&store, at(60));
+        let replaced = dir.path().join("derivations/0.r1.json");
+        if entry == "observations" {
+            // No log yet, and logs would go to the derivations directory.
+            std::os::unix::fs::symlink("derivations", dir.path().join(entry)).unwrap();
+        } else {
+            // Move the entry over the due document and link its old path to it.
+            fs::rename(dir.path().join(entry), &replaced).unwrap();
+            std::os::unix::fs::symlink("derivations/0.r1.json", dir.path().join(entry)).unwrap();
+        }
+
+        commit_at(&store, at(61 + GRACE_SECONDS));
+        assert!(replaced.is_file(), "{entry}");
+        assert_eq!(
+            store.manifest().unwrap().superseded,
+            BTreeMap::from([("derivations/0.r1.json".to_owned(), at(60))]),
+            "{entry}"
+        );
+    }
+}
+
+#[test]
+fn a_superseded_entry_under_a_name_the_record_never_writes_is_dropped_never_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    put_derivations_at(&store, at(0));
+    // Mark files with unsupported derivation document names as replaced long ago.
+    let names = [
+        "notes.json",
+        "0.json",
+        "x.r1.json",
+        "0.r.json",
+        "0.r1.json.tmp",
+        "0.r1.JSON",
+    ];
+    for name in names {
+        fs::write(dir.path().join("derivations").join(name), b"kept").unwrap();
+    }
+    let listed: Vec<String> = names
+        .iter()
+        .map(|name| format!("derivations/{name}"))
+        .collect();
+    let listed: Vec<&str> = listed.iter().map(String::as_str).collect();
+    list_as_superseded(dir.path(), &listed, at(-2 * GRACE_SECONDS));
+
+    commit_at(&store, at(60));
+    for name in names {
+        assert!(dir.path().join("derivations").join(name).exists(), "{name}");
+    }
+    assert!(store.manifest().unwrap().superseded.is_empty());
 }
 
 #[test]
@@ -434,6 +1184,52 @@ fn derivations_round_trip_through_the_store() {
     );
 }
 
+/// Writes `s1`'s derivations in the store's first write, at the path
+/// `derivations/0.r1.json`, and checks that they read back.
+fn put_first_derivations(store: &Store) {
+    let set = derivation_set("s1", Revision::ZERO.next());
+    let mut tx = store.begin().unwrap();
+    tx.put_derivations(&set).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().derivations(&session()).unwrap(),
+        Some(set)
+    );
+}
+
+#[test]
+fn a_derivations_document_never_writes_through_a_file_at_its_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    // A file at the next document's path, with a second name that shows
+    // whether its content changes.
+    fs::create_dir(dir.path().join("derivations")).unwrap();
+    let document = dir.path().join("derivations/0.r1.json");
+    fs::write(&document, b"held").unwrap();
+    let held = dir.path().join("held");
+    fs::hard_link(&document, &held).unwrap();
+
+    put_first_derivations(&store);
+    assert_eq!(fs::read(&held).unwrap(), b"held");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_derivations_document_never_writes_through_a_link_at_its_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(&dir.path().join("record"), assoc()).unwrap();
+    let target = dir.path().join("target");
+    fs::write(&target, b"held").unwrap();
+    fs::create_dir(store.root().join("derivations")).unwrap();
+    let document = store.root().join("derivations/0.r1.json");
+    std::os::unix::fs::symlink(&target, &document).unwrap();
+
+    put_first_derivations(&store);
+    // The link is replaced, never followed.
+    assert!(document.symlink_metadata().unwrap().is_file());
+    assert_eq!(fs::read(&target).unwrap(), b"held");
+}
+
 #[test]
 fn open_rejects_a_manifest_that_is_not_a_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -518,6 +1314,21 @@ fn a_leftover_temporary_link_cannot_truncate_the_manifest() {
         tmp_names(dir.path()),
         vec![stale.file_name().unwrap().to_string_lossy().into_owned()]
     );
+}
+
+#[test]
+fn publishing_never_opens_a_file_at_the_former_temporary_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    // A file at the fixed name the manifest was once written through.
+    let held = dir.path().join("manifest.json.tmp");
+    fs::write(&held, b"held").unwrap();
+
+    let rev = store.begin().unwrap().commit().unwrap();
+    assert_eq!(store.snapshot().unwrap().revision(), rev);
+    assert_eq!(fs::read(&held).unwrap(), b"held");
+    // The write's own temporary file is renamed into place.
+    assert_eq!(tmp_names(dir.path()), ["manifest.json.tmp"]);
 }
 
 #[test]

@@ -13,6 +13,10 @@ fn main() -> ExitCode {
 
     match run(&cli, color) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(CliError::Refused(message)) => {
+            eprintln!("{message}");
+            ExitCode::from(1)
+        }
         Err(e) => {
             if is_broken_pipe(&e) {
                 return ExitCode::SUCCESS;
@@ -30,6 +34,7 @@ fn is_broken_pipe(err: &CliError) -> bool {
 fn run(cli: &Cli, color: ColorConfig) -> Result<(), CliError> {
     match cli.command {
         Command::Completions(ref args) => supersigil_cli::commands::completions::run(args),
+        Command::Judge(ref args) => supersigil_cli::commands::judge::run(args),
         Command::Review(ref args) => supersigil_cli::commands::review::run(args),
         Command::Session(ref args) => supersigil_cli::commands::session::run(args, color),
         Command::Why(ref args) => supersigil_cli::commands::why::run(args),

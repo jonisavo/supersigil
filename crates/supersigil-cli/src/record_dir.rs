@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use supersigil_record::RecordId;
-use supersigil_record::store::{Association, Store, StoreError, WriteTx};
+use supersigil_record::store::{Association, Store, StoreError, WriteTx, stores_in};
 use supersigil_session::checkout::{self, Placement, placement};
-use supersigil_session::found;
 
 use crate::error::CliError;
 
@@ -20,21 +19,39 @@ use crate::error::CliError;
 /// Returns [`CliError::CommandFailed`] if neither `XDG_DATA_HOME` nor `HOME`
 /// is set and no flag was given.
 pub fn resolve_record_dir(flag: Option<&Path>) -> Result<PathBuf, CliError> {
+    resolve_data_dir(flag, "SUPERSIGIL_RECORD_DIR", "records")
+}
+
+/// Resolves a directory of supersigil's private data: the flag, then the
+/// variable `var`, then `$XDG_DATA_HOME/supersigil/<name>`, then
+/// `$HOME/.local/share/supersigil/<name>`.
+///
+/// # Errors
+///
+/// Returns [`CliError::CommandFailed`] if neither `XDG_DATA_HOME` nor `HOME`
+/// is set and neither the flag nor `var` was given.
+pub(crate) fn resolve_data_dir(
+    flag: Option<&Path>,
+    var: &str,
+    name: &str,
+) -> Result<PathBuf, CliError> {
     if let Some(dir) = flag {
         return Ok(dir.to_path_buf());
     }
-    if let Some(dir) = std::env::var_os("SUPERSIGIL_RECORD_DIR") {
+    if let Some(dir) = std::env::var_os(var) {
         return Ok(PathBuf::from(dir));
     }
     if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
-        return Ok(PathBuf::from(xdg).join("supersigil").join("records"));
+        return Ok(PathBuf::from(xdg).join("supersigil").join(name));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".local/share/supersigil/records"));
+        return Ok(PathBuf::from(home)
+            .join(".local/share/supersigil")
+            .join(name));
     }
-    Err(CliError::CommandFailed(
-        "cannot locate the records directory: set SUPERSIGIL_RECORD_DIR or HOME".to_owned(),
-    ))
+    Err(CliError::CommandFailed(format!(
+        "cannot locate the {name} directory: set {var} or HOME"
+    )))
 }
 
 /// The checkout to operate on, in its [`checkout::canonical`] spelling,
@@ -115,23 +132,7 @@ fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usiz
 /// Returns [`CliError::Io`] if `records_dir` exists but cannot be read, or a
 /// store error if a record's manifest cannot be accessed.
 pub fn records_in(records_dir: &Path) -> Result<Vec<Store>, CliError> {
-    let Some(entries) = found(std::fs::read_dir(records_dir))? else {
-        return Ok(Vec::new());
-    };
-    let mut candidates = Vec::new();
-    for entry in entries {
-        candidates.push(entry?.path());
-    }
-    candidates.sort();
-    let mut stores = Vec::new();
-    for candidate in candidates {
-        match Store::open(&candidate) {
-            Ok(store) => stores.push(store),
-            Err(StoreError::NotARecord(_)) => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(stores)
+    Ok(stores_in(records_dir, Store::open)?.collect::<Result<_, _>>()?)
 }
 
 /// How many components `association` lies above `checkout`: zero when it is
@@ -158,7 +159,7 @@ fn rank(association: &Path, checkout: &Path) -> Option<usize> {
 /// Returns a store error if the record cannot be created, read, or written,
 /// or an I/O error if the records directory or its lock cannot be created.
 pub fn open_or_create_record(records_dir: &Path, checkout: &Path) -> Result<Store, CliError> {
-    let guard = records_lock_file(records_dir)?;
+    let guard = lock_file(records_dir)?;
     guard.lock()?;
     let store = match find_owner(records_dir, checkout)? {
         Some((store, 0)) => store,
@@ -214,15 +215,9 @@ pub fn open_or_create_record_within(
     wait: Duration,
 ) -> Result<Acquired<Store>, CliError> {
     let deadline = Instant::now() + wait;
-    let guard = records_lock_file(records_dir)?;
-    let locked = poll(deadline, || match guard.try_lock() {
-        Ok(()) => Ok(Some(())),
-        Err(TryLockError::WouldBlock) => Ok(None),
-        Err(TryLockError::Error(e)) => Err(CliError::from(e)),
-    })?;
-    if locked.is_none() {
+    let Some(guard) = lock_dir_within(records_dir, deadline)? else {
         return Ok(Acquired::Busy(Contention::Directory));
-    }
+    };
     let acquired = match find_owner(records_dir, checkout)? {
         Some((store, 0)) => Acquired::Ready(store),
         Some((store, _)) => {
@@ -284,18 +279,36 @@ fn add_association(mut tx: WriteTx<'_>, checkout: &Path) -> Result<(), StoreErro
     Ok(())
 }
 
-/// Opens `<records_dir>/.lock`, creating the directory and the file if needed.
+/// Takes the lock on `<dir>/.lock`, creating both if needed, trying every
+/// [`RETRY`] until `deadline` passes. Returns the locked file, which holds
+/// the lock until it is dropped, or `None` when the deadline passes first.
+///
+/// # Errors
+///
+/// Returns an I/O error if the directory or the file cannot be created or
+/// opened, or the lock cannot be tried.
+pub(crate) fn lock_dir_within(dir: &Path, deadline: Instant) -> Result<Option<File>, CliError> {
+    let guard = lock_file(dir)?;
+    let locked = poll(deadline, || match guard.try_lock() {
+        Ok(()) => Ok(Some(())),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(e)) => Err(CliError::from(e)),
+    })?;
+    Ok(locked.map(|()| guard))
+}
+
+/// Opens `<dir>/.lock`, creating the directory and the file if needed.
 ///
 /// # Errors
 ///
 /// Returns an I/O error if either cannot be created or opened.
-fn records_lock_file(records_dir: &Path) -> Result<File, CliError> {
-    std::fs::create_dir_all(records_dir)?;
+fn lock_file(dir: &Path) -> Result<File, CliError> {
+    std::fs::create_dir_all(dir)?;
     Ok(OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
-        .open(records_dir.join(".lock"))?)
+        .open(dir.join(".lock"))?)
 }
 
 /// Creates a record at `<records_dir>/<new id>` associated with `checkout`.

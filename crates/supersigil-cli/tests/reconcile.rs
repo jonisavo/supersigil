@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use common::{canonical_tempdir, project_transcript};
-use supersigil_cli::reconcile::{LOCK_WAIT, involved_records, reconcile, transcripts_below};
+use supersigil_cli::reconcile::{
+    LOCK_WAIT, UnreconciledCheckout, involved_records, reconcile, transcripts_below,
+};
 use supersigil_cli::record_dir::open_or_create_record;
 use supersigil_record::store::{Association, Store};
 use supersigil_session::checkout::canonical;
@@ -461,6 +463,86 @@ fn skipped_transcript_stays_available_to_unowned_discovery() {
     let associations = owner.store.manifest().unwrap().associations;
     assert_eq!(associations.len(), 1);
     assert_eq!(associations[0].checkout, nested);
+}
+
+/// Creates a directory at a subagent transcript path in `cwd`'s project directory
+/// under `home` and returns its path. Discovery lists `agent-*.jsonl` entries
+/// without checking types. Reading rejects this non-file as removed, simulating
+/// a transcript removed between discovery and read.
+fn removed_transcript(home: &Path, cwd: &Path) -> PathBuf {
+    let path = home
+        .join("projects")
+        .join(encode_project_dir(cwd))
+        .join("s-gone")
+        .join("subagents")
+        .join("agent-gone.jsonl");
+    std::fs::create_dir_all(&path).unwrap();
+    path
+}
+
+/// The reason reconcile gives for a transcript removed before it was read.
+fn removed_reason(transcript: &Path) -> String {
+    format!(
+        "transcript {} removed before it could be read",
+        transcript.display()
+    )
+}
+
+#[test]
+fn a_transcript_removed_before_a_record_reads_it_leaves_the_record_unreconciled() {
+    let f = fixture();
+    let store = open_or_create_record(&f.records, &f.repo).unwrap();
+    project_transcript(&f.home, &f.repo, "t.jsonl", &transcript("s-kept", &f.repo));
+    let gone = removed_transcript(&f.home, &f.repo);
+
+    let result = reconcile(
+        &f.records,
+        Some(&f.home),
+        std::slice::from_ref(&f.repo),
+        &f.repo,
+        LOCK_WAIT,
+    )
+    .unwrap();
+
+    assert_eq!(result.records.len(), 1);
+    assert_eq!(result.records[0].store.root(), store.root());
+    assert_eq!(
+        result.records[0].not_reconciled,
+        Some(removed_reason(&gone))
+    );
+    assert_eq!(sessions(&store), vec!["s-kept"]);
+    assert_eq!(result.removed, vec![gone]);
+    // Reported once, for the record that listed it.
+    assert!(result.unreconciled.is_empty());
+}
+
+#[test]
+fn a_transcript_removed_before_the_unowned_read_leaves_its_checkout_unreconciled() {
+    let f = fixture();
+    project_transcript(&f.home, &f.repo, "t.jsonl", &transcript("s-new", &f.repo));
+    let gone = removed_transcript(&f.home, &f.repo);
+
+    let result = reconcile(
+        &f.records,
+        Some(&f.home),
+        std::slice::from_ref(&f.repo),
+        &f.repo,
+        LOCK_WAIT,
+    )
+    .unwrap();
+
+    assert_eq!(result.records.len(), 1);
+    assert_eq!(result.records[0].not_reconciled, None);
+    assert_eq!(sessions(&result.records[0].store), vec!["s-new"]);
+    assert_eq!(
+        result.unreconciled,
+        vec![UnreconciledCheckout {
+            checkout: f.repo.clone(),
+            transcripts: 1,
+            reason: removed_reason(&gone),
+        }]
+    );
+    assert_eq!(result.removed, vec![gone]);
 }
 
 #[test]

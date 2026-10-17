@@ -44,6 +44,7 @@ evidence:
     - checkout: /work/repo/.claude/worktrees/x
       transcripts: 2
       reason: records directory locked
+  removed_transcripts: []
   conflicting_edits: []
 on_disk:
   state: captured

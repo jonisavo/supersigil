@@ -29,6 +29,8 @@ use supersigil_git::{
     resolve_range,
 };
 use supersigil_record::observations::Observation;
+use supersigil_record::reviews::{self, PinnedLog};
+use supersigil_record::store::RecordSnapshot;
 use supersigil_record::{EventId, RecordId, Revision};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
@@ -37,7 +39,7 @@ use supersigil_review::model::{
     UnreconciledInfo,
 };
 use supersigil_review::outcome::AttributionState;
-use supersigil_session::checkout::{canonical, overlaps};
+use supersigil_session::checkout::{Resolutions, canonical, overlaps};
 use supersigil_session::found;
 
 use crate::error::CliError;
@@ -74,6 +76,9 @@ pub struct PipelineArgs {
     pub include_untracked: Vec<String>,
     /// Path filters, as typed.
     pub paths: Vec<String>,
+    /// Whether to hash each record's pinned logs ([`PinnedRecord::logs`]),
+    /// which only a review that saves its basis needs.
+    pub hash_logs: bool,
 }
 
 /// An edit whose file lies in a candidate worktree.
@@ -171,12 +176,43 @@ impl<T> ByPath<T> {
 /// The key [`ByPath`] finds `path` by: as written, or ASCII-lowercased when
 /// paths are compared ignoring case. Two paths have the same key exactly
 /// when [`same_path`] matches them.
-fn path_key(path: &str, ignore_case: bool) -> Cow<'_, str> {
+pub(crate) fn path_key(path: &str, ignore_case: bool) -> Cow<'_, str> {
     if ignore_case {
         Cow::Owned(path.to_ascii_lowercase())
     } else {
         Cow::Borrowed(path)
     }
+}
+
+/// Indexes `paths` by [`path_key`], using the last path for duplicate keys.
+/// A mapped path's key finds its [`same_path`] match. Omits non-UTF-8 paths,
+/// which cannot match mapped paths.
+pub(crate) fn by_path_key<'p>(
+    paths: impl IntoIterator<Item = &'p reviews::PathBytes>,
+    ignore_case: bool,
+) -> BTreeMap<String, &'p reviews::PathBytes> {
+    paths
+        .into_iter()
+        .filter_map(|path| Some((path_key(path.to_str()?, ignore_case).into_owned(), path)))
+        .collect()
+}
+
+/// The positions in `candidates` of the sightings whose file lies in
+/// `worktree`, each found by its path as [`same_path`] matches paths,
+/// ignoring ASCII case when `ignore_case` is set.
+pub(crate) fn sightings_in(
+    candidates: &[MappedCandidate],
+    worktree: &Path,
+    ignore_case: bool,
+) -> ByPath<usize> {
+    ByPath::new(
+        candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, sighting)| sighting.candidate.worktree == worktree)
+            .map(|(position, sighting)| (position, [sighting.path.as_str()])),
+        ignore_case,
+    )
 }
 
 /// One involved record, pinned at the revision the review reads.
@@ -190,8 +226,13 @@ pub struct PinnedRecord {
     pub not_reconciled: Option<String>,
     /// The record's checkout associations at the pinned revision.
     pub associations: Vec<PathBuf>,
+    /// Each log's pinned length and the SHA-256 of its pinned bytes, by
+    /// log path; empty unless [`PipelineArgs::hash_logs`] asked for them.
+    pub logs: BTreeMap<String, PinnedLog>,
     /// Every session's observations at the pinned revision.
     pub observations: Vec<Observation>,
+    /// The snapshot pinned, for later reads at the same revision.
+    pub snapshot: RecordSnapshot,
 }
 
 /// Everything `review` and `why` need after the shared steps.
@@ -213,14 +254,24 @@ pub struct Gathered {
     /// every worktree or record checkout whose origin evidence is
     /// unavailable.
     pub origins: Origins,
+    /// The registered worktrees' roots, canonical where they exist:
+    /// recorded files map onto the innermost one holding them.
+    pub roots: Vec<PathBuf>,
     /// Origin worktrees, plus the reviewed worktree for a working-tree target.
     pub candidate_worktrees: Vec<PathBuf>,
     /// Every involved record, pinned.
     pub records: Vec<PinnedRecord>,
     /// Checkouts whose transcripts no record could take.
     pub unreconciled: Vec<UnreconciledCheckout>,
+    /// Transcripts listed for reading that were removed before they could
+    /// be read, sorted.
+    pub removed_transcripts: Vec<PathBuf>,
     /// Every sighting of an edit whose file lies in a candidate worktree.
     pub candidates: Vec<MappedCandidate>,
+    /// The positions in [`Self::candidates`] of the sightings whose file
+    /// lies in the reviewed worktree, indexed by path
+    /// ([`Self::sightings_of`]).
+    reviewed_sightings: ByPath<usize>,
     /// Transcripts holding a candidate edit, an observation made in a
     /// candidate worktree, or a command the harness reported as changing a
     /// file in one, regardless of attribution success.
@@ -260,6 +311,17 @@ impl Gathered {
     #[must_use]
     pub fn observed_worktrees(&self) -> Vec<PathBuf> {
         observed_worktrees(&self.range, &self.worktree, &self.candidate_worktrees)
+    }
+
+    /// Returns edit sightings from every record matching `path` in the reviewed
+    /// worktree, using [`same_path`], in [`Self::candidates`] order.
+    pub fn sightings_of<'a>(
+        &'a self,
+        path: &'a RepoPath,
+    ) -> impl Iterator<Item = &'a MappedCandidate> {
+        self.reviewed_sightings
+            .touching(path)
+            .map(|&position| &self.candidates[position])
     }
 }
 
@@ -301,6 +363,8 @@ pub struct Prepared {
     paths: Vec<RepoPath>,
     /// Whether a path selector named the worktree root.
     whole_worktree: bool,
+    /// Whether to hash each record's pinned logs.
+    hash_logs: bool,
 }
 
 /// Runs the first shared step: opens the repository, converts the typed
@@ -330,6 +394,7 @@ pub fn prepare(args: &PipelineArgs) -> Result<Prepared, CliError> {
         include_untracked,
         paths,
         whole_worktree,
+        hash_logs: args.hash_logs,
     })
 }
 
@@ -382,6 +447,7 @@ impl Prepared {
             include_untracked,
             paths,
             whole_worktree,
+            hash_logs,
         } = self;
 
         // 2. The commits in range and the worktrees that originated them.
@@ -407,35 +473,31 @@ impl Prepared {
 
         // 5. One pinned snapshot per record. Their checkouts that no
         //    registered worktree holds have no origin evidence either.
-        let records = pin(reconciliation.records)?;
-        origins
-            .unavailable
-            .extend(unavailable_associations(&records, &worktrees)?);
+        let records = pin(reconciliation.records, hash_logs)?;
+        let unavailable = unavailable_associations(&records, &worktrees)?;
+        origins.unavailable.extend(unavailable);
 
         // 6. The working tree, captured after the pin, so every pinned
         //    observation predates it.
-        let (target_tree, snapshot) = match &range.target {
-            ResolvedTarget::WorkingTree { .. } => {
-                let options = SnapshotOptions {
-                    include_untracked: include_untracked.clone(),
-                    pathspecs: paths.clone(),
-                };
-                let snapshot = snapshot_working_tree(&repo, &options)?;
-                (snapshot.tree.clone(), Some(snapshot))
-            }
-            ResolvedTarget::Commit { tree, .. } => (tree.clone(), None),
-        };
+        let (target_tree, snapshot) = capture(&repo, &range, &include_untracked, &paths)?;
 
         // 7. Every recorded edit, mapped onto the registered worktrees and
         //    deduplicated once across all of them, before anything is
         //    filtered to candidate worktrees or partitioned by path: an edit
         //    id whose sightings disagree is excluded from every path, even
         //    when only one of its sightings lies in a candidate worktree.
+        //    Indexing the evidence resolves each recorded checkout once.
+        let evidence = Evidence::index(
+            records
+                .iter()
+                .map(|r| (&r.record_id, r.observations.as_slice())),
+        );
         let ignore_case = repo.config_bool("core.ignorecase")?.unwrap_or(false);
         let roots: Vec<PathBuf> = worktrees.iter().map(|w| w.path.clone()).collect();
-        let sightings = map_sightings(&records, &roots, ignore_case);
+        let sightings = map_sightings(&records, &roots, evidence.resolutions(), ignore_case);
         let unplaced_edits = sightings.iter().filter(|s| s.mapped.is_none()).count();
         let candidates = in_candidate_worktrees(&sightings, &candidate_worktrees);
+        let reviewed_sightings = sightings_in(&candidates, &worktree, ignore_case);
         let (accepted, conflicts) = deduplicate(&sightings, &candidate_worktrees);
         let accepted = ByPath::new(
             accepted.into_iter().map(|m| (m.accepted, [m.path])),
@@ -444,11 +506,6 @@ impl Prepared {
         let conflicts = ByPath::new(
             conflicts.into_iter().map(|c| (c.conflict, c.paths)),
             ignore_case,
-        );
-        let evidence = Evidence::index(
-            records
-                .iter()
-                .map(|r| (&r.record_id, r.observations.as_slice())),
         );
         let candidate_transcripts = evidence.candidate_transcripts(
             candidates.iter().map(|m| &m.candidate.edit),
@@ -476,10 +533,13 @@ impl Prepared {
             target_tree,
             snapshot,
             origins,
+            roots,
             candidate_worktrees,
             records,
             unreconciled: reconciliation.unreconciled,
+            removed_transcripts: reconciliation.removed,
             candidates,
+            reviewed_sightings,
             candidate_transcripts,
             accepted,
             conflicts,
@@ -491,6 +551,31 @@ impl Prepared {
             evidence,
             command_changes,
         })
+    }
+}
+
+/// The target tree, and for a working-tree target the snapshot that
+/// captured it with `include_untracked` within `paths`.
+///
+/// # Errors
+///
+/// Returns the git errors of [`snapshot_working_tree`].
+fn capture(
+    repo: &Repo,
+    range: &ResolvedRange,
+    include_untracked: &[RepoPath],
+    paths: &[RepoPath],
+) -> Result<(ObjectId, Option<WorkingTreeSnapshot>), CliError> {
+    match &range.target {
+        ResolvedTarget::WorkingTree { .. } => {
+            let options = SnapshotOptions {
+                include_untracked: include_untracked.to_vec(),
+                pathspecs: paths.to_vec(),
+            };
+            let snapshot = snapshot_working_tree(repo, &options)?;
+            Ok((snapshot.tree.clone(), Some(snapshot)))
+        }
+        ResolvedTarget::Commit { tree, .. } => Ok((tree.clone(), None)),
     }
 }
 
@@ -592,17 +677,24 @@ fn candidates_for(range: &ResolvedRange, origins: &Origins, reviewed: &Path) -> 
 }
 
 /// Pins one snapshot per involved record and reads every session from it.
+/// With `hash_logs`, hashes each log from the same bytes used to read observations.
 ///
 /// # Errors
 ///
 /// Returns a store error if a snapshot cannot be read.
-fn pin(involved: Vec<InvolvedRecord>) -> Result<Vec<PinnedRecord>, CliError> {
+fn pin(involved: Vec<InvolvedRecord>, hash_logs: bool) -> Result<Vec<PinnedRecord>, CliError> {
     let mut records = Vec::new();
     for record in involved {
         let snapshot = record.store.snapshot()?;
         let mut observations = Vec::new();
+        let mut logs = BTreeMap::new();
         for session in snapshot.sessions() {
-            observations.extend(snapshot.observations(&session)?);
+            if !hash_logs {
+                observations.extend(snapshot.observations(&session)?);
+            } else if let Some(log) = snapshot.session_log(&session)? {
+                logs.insert(log.path, log.pinned);
+                observations.extend(log.observations);
+            }
         }
         records.push(PinnedRecord {
             record_id: record.record_id,
@@ -614,7 +706,9 @@ fn pin(involved: Vec<InvolvedRecord>) -> Result<Vec<PinnedRecord>, CliError> {
                 .iter()
                 .map(|a| a.checkout.clone())
                 .collect(),
+            logs,
             observations,
+            snapshot,
         });
     }
     Ok(records)
@@ -630,17 +724,22 @@ struct Sighting {
     mapped: Option<MappedEdit>,
 }
 
-/// Maps every pinned record's edits to registered worktrees in `roots`.
-/// Keeps every sighting, including those in noncandidate worktrees or no
-/// worktree.
-fn map_sightings(records: &[PinnedRecord], roots: &[PathBuf], ignore_case: bool) -> Vec<Sighting> {
+/// Maps every pinned record's edits to registered worktrees in `roots`,
+/// through the review's resolution of each edit's checkout. Keeps every
+/// sighting, including those in noncandidate worktrees or no worktree.
+fn map_sightings(
+    records: &[PinnedRecord],
+    roots: &[PathBuf],
+    resolutions: &Resolutions,
+    ignore_case: bool,
+) -> Vec<Sighting> {
     let mut sightings = Vec::new();
     for record in records {
         for observation in &record.observations {
             let Observation::Edit(edit) = observation else {
                 continue;
             };
-            let mapped = map_edit(edit, roots, ignore_case);
+            let mapped = map_edit(resolutions, edit, roots, ignore_case);
             let worktree = mapped
                 .as_ref()
                 .map_or_else(|| edit.checkout.clone(), |m| m.worktree.clone());
@@ -1124,7 +1223,8 @@ pub fn records_info(g: &Gathered) -> Vec<RecordInfo> {
 }
 
 /// The evidence block: candidate transcripts with every capture limitation,
-/// unplaced edits, unreconciled checkouts, and `conflicting_edits`.
+/// unplaced edits, unreconciled checkouts, transcripts removed before they
+/// could be read, and `conflicting_edits`.
 #[must_use]
 pub fn evidence_info(g: &Gathered, conflicting_edits: Vec<Conflict>) -> EvidenceInfo {
     EvidenceInfo {
@@ -1138,6 +1238,11 @@ pub fn evidence_info(g: &Gathered, conflicting_edits: Vec<Conflict>) -> Evidence
                 transcripts: u.transcripts,
                 reason: u.reason.clone(),
             })
+            .collect(),
+        removed_transcripts: g
+            .removed_transcripts
+            .iter()
+            .map(|path| path.display().to_string())
             .collect(),
         conflicting_edits,
     }
@@ -1208,21 +1313,25 @@ pub fn not_captured_reason(entry: &NotCaptured) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use supersigil_anchor::CandidateEdit;
     use supersigil_git::RepoPath;
     use supersigil_git::changes::Mode;
     use supersigil_git::worktree::Worktree;
-    use supersigil_record::observations::{Edit, EditOperation, EditOrigin, FileState, Material};
+    use supersigil_record::observations::{
+        Edit, EditOperation, EditOrigin, FileState, Material, Observation,
+    };
+    use supersigil_record::store::{Association, Store};
     use supersigil_record::{EventId, RecordId, Revision, SessionId, Timestamp, TurnId};
     use supersigil_session::checkout::canonical;
 
     use super::{
         ByPath, PinnedRecord, Sighting, conversion_failure, deduplicate, display_from, mode_text,
-        path_filters, repo_path, same_path, unavailable_associations,
+        path_filters, pin, repo_path, same_path, unavailable_associations,
     };
     use crate::mapping::MappedEdit;
+    use crate::reconcile::InvolvedRecord;
 
     /// Record `record`'s sighting of edit `id` writing `path` in the
     /// worktree `/work/repo`.
@@ -1320,10 +1429,13 @@ mod tests {
             cwd: root,
             snapshot: None,
             origins: supersigil_git::origin::Origins::default(),
+            roots: Vec::new(),
             candidate_worktrees: Vec::new(),
             records: Vec::new(),
             unreconciled: Vec::new(),
+            removed_transcripts: Vec::new(),
             candidates: Vec::new(),
+            reviewed_sightings: ByPath::new(Vec::<(usize, [&str; 0])>::new(), false),
             candidate_transcripts: BTreeSet::new(),
             accepted: ByPath::new(accepted.into_iter().map(|edit| (edit, ["a.rs"])), false),
             conflicts: ByPath::new(conflicts.into_iter().map(|edit| (edit, ["a.rs"])), false),
@@ -1353,13 +1465,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_record_is_pinned_with_its_log_hashes_only_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(
+            dir.path(),
+            Association {
+                checkout: PathBuf::from("/work/repo"),
+            },
+        )
+        .unwrap();
+        let edit = Observation::Edit(sighting("r1", "e1", "a.rs").candidate.edit);
+        let mut tx = store.begin().unwrap();
+        tx.append_observations(std::slice::from_ref(&edit)).unwrap();
+        tx.commit().unwrap();
+        let involved = || {
+            vec![InvolvedRecord {
+                store: store.clone(),
+                record_id: RecordId::new("r1"),
+                not_reconciled: None,
+            }]
+        };
+
+        let plain = pin(involved(), false).unwrap();
+        let hashed = pin(involved(), true).unwrap();
+
+        assert_eq!(plain[0].observations, [edit]);
+        assert!(plain[0].logs.is_empty());
+        assert_eq!(hashed[0].observations, plain[0].observations);
+        let log = store
+            .snapshot()
+            .unwrap()
+            .session_log(&SessionId::new("s1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hashed[0].logs, BTreeMap::from([(log.path, log.pinned)]));
+    }
+
     fn pinned(associations: Vec<PathBuf>) -> PinnedRecord {
+        // An empty record's snapshot, which nothing here reads.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::create(
+            dir.path(),
+            Association {
+                checkout: PathBuf::from("/work/repo"),
+            },
+        )
+        .unwrap();
         PinnedRecord {
             record_id: RecordId::new("r1"),
             revision: Revision::ZERO,
             not_reconciled: None,
             associations,
+            logs: BTreeMap::new(),
             observations: Vec::new(),
+            snapshot: store.snapshot().unwrap(),
         }
     }
 

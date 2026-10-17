@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 
 use common::{SESSION, fixture, line_starts};
 
+use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::observations::{
     CaptureLimitation, EditOrigin, Observation, Role, SessionStart, Source, session_start,
 };
 use supersigil_record::store::{Association, Store};
 use supersigil_record::{ContentId, DerivationSet, EventId, SessionId};
 use supersigil_session::checkout::canonical;
-use supersigil_session::sync::sync;
+use supersigil_session::sync::{Skip, sync};
 
 struct Setup {
     dir: tempfile::TempDir,
@@ -250,13 +251,35 @@ fn rewritten_shorter_transcript_is_read_from_the_start() {
 }
 
 #[test]
-fn missing_transcript_is_an_io_error() {
-    let s = setup(&fixture());
-    let missing = s.transcript.with_file_name("missing.jsonl");
-    assert!(matches!(
-        sync(&s.store, &s.checkout, &[missing]),
-        Err(supersigil_session::sync::SyncError::Io { .. })
-    ));
+fn a_transcript_removed_before_it_is_read_is_skipped_until_it_returns() {
+    let bytes = fixture();
+    let starts = line_starts(&bytes);
+    let s = setup(&bytes[..starts[18]]);
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let key = cursor_key(&s.transcript);
+    let cursor = s.store.manifest().unwrap().cursors[&key].clone();
+    std::fs::remove_file(&s.transcript).unwrap();
+    let other = s.transcript.with_file_name("other.jsonl");
+    std::fs::write(&other, joined(&heredoc_writes())).unwrap();
+
+    let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), other]).unwrap();
+    let removed = &report.transcripts[0];
+    assert_eq!(removed.skipped, Some(Skip::Removed));
+    assert_eq!((removed.new_observations, removed.consumed), (0, 0));
+    assert_eq!(report.sessions, vec![SessionId::new("s")]);
+    assert_eq!(s.store.manifest().unwrap().cursors[&key], cursor);
+
+    // Back with more lines: reading resumes at the cursor.
+    std::fs::write(&s.transcript, &bytes).unwrap();
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.transcripts[0].skipped, None);
+    assert_eq!(
+        report.transcripts[0].consumed,
+        (bytes.len() - starts[18]) as u64
+    );
+    let ids = turn_ids(&s.store);
+    let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+    assert_eq!((ids.len(), unique.len()), (17, 17));
 }
 
 #[test]
@@ -436,7 +459,7 @@ fn an_empty_session_id_does_not_block_sync() {
     // the session names its checkout, so the lines are held back and read
     // again later.
     assert_eq!(
-        report.transcripts[0].skipped.as_deref(),
+        report.transcripts[0].skipped.as_ref().map(Skip::reason),
         Some("checkout unknown")
     );
     let manifest = s.store.manifest().unwrap();
@@ -603,7 +626,7 @@ fn a_transcript_from_another_checkout_is_skipped() {
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     let transcript = &report.transcripts[0];
     assert_eq!(
-        transcript.skipped.as_deref(),
+        transcript.skipped.as_ref().map(Skip::reason),
         Some("checkout /other/repo does not match /work/repo")
     );
     assert_eq!(transcript.session, None);
@@ -816,8 +839,8 @@ fn only_checkouts_inside_the_requested_tree_are_accepted() {
         let s = setup(text.as_bytes());
         let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
         assert_eq!(
-            report.transcripts[0].skipped,
-            Some(format!("checkout {outside} does not match /work/repo")),
+            report.transcripts[0].skipped.as_ref().map(Skip::reason),
+            Some(format!("checkout {outside} does not match /work/repo").as_str()),
             "{outside}"
         );
         assert_eq!(
@@ -846,7 +869,7 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     let s = setup(bytes);
     let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert_eq!(
-        report.transcripts[0].skipped.as_deref(),
+        report.transcripts[0].skipped.as_ref().map(Skip::reason),
         Some("checkout unknown")
     );
     assert_eq!(report.revision.get(), 0);
@@ -1163,6 +1186,57 @@ fn a_session_moving_into_a_nested_worktree_keeps_its_edits() {
         })
         .unwrap();
     assert_eq!(edit.checkout, Path::new(worktree));
+}
+
+#[test]
+fn a_file_edited_before_and_after_a_change_of_directory_is_compared() {
+    // The fixture creates `src/new.rs` from `/work/repo`; the session then
+    // moves to `src` and creates `new.rs` again, over the content it left.
+    let lines = fixture_and(write_from("/work/repo/src", "new.rs"));
+    let s = setup(joined(&lines).as_bytes());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let session = SessionId::new(SESSION);
+    let gap = derivations(&s.store)
+        .discontinuities
+        .into_iter()
+        .find(|d| d.next == EventId::derive("edit", &session, "toolu_x"))
+        .expect("the two spellings are compared");
+    assert_eq!(gap.prev, EventId::derive("edit", &session, "toolu_02"));
+    assert_eq!(gap.checkout, PathBuf::from("/work/repo/src"));
+    assert_eq!(gap.path, PathBuf::from("new.rs"));
+}
+
+#[test]
+fn a_set_from_an_older_algorithm_is_derived_again_when_sync_writes() {
+    let s = setup(&fixture());
+    sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    let current = derivations(&s.store);
+    let stale = DerivationSet {
+        algorithm_version: 1,
+        restores: Vec::new(),
+        discontinuities: Vec::new(),
+        ..current.clone()
+    };
+    let mut tx = s.store.begin().unwrap();
+    tx.put_derivations(&stale).unwrap();
+    let stale_revision = tx.commit().unwrap();
+
+    // Nothing to read: nothing is written, and the stale set stays.
+    let report = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
+    assert_eq!(report.revision, stale_revision);
+    assert_eq!(derivations(&s.store), stale);
+
+    // Another session's transcript is written, and the stale set is derived
+    // again from the observations already recorded.
+    let other = s.transcript.with_file_name("other.jsonl");
+    std::fs::write(&other, joined(&heredoc_writes())).unwrap();
+    let report = sync(&s.store, &s.checkout, &[s.transcript.clone(), other]).unwrap();
+    assert_eq!(report.sessions, vec![SessionId::new("s")]);
+    let rederived = derivations(&s.store);
+    assert_eq!(rederived.algorithm_version, ALGORITHM_VERSION);
+    assert_eq!(rederived.observation_revision, stale_revision);
+    assert_eq!(rederived.restores, current.restores);
+    assert_eq!(rederived.discontinuities, current.discontinuities);
 }
 
 #[test]

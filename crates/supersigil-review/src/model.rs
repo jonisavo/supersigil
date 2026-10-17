@@ -1,8 +1,8 @@
 //! The JSON review model and the per-file assembly of hunks and spans.
 //!
-//! JSON field order puts identity first, followed by the prominent
-//! unattributed summary, then scope, origins, records, evidence, files, and
-//! the edits every other section refers to by id.
+//! JSON fields start with the saved basis, worktree, base, and target, then
+//! status, gate, and unattributed summary. Scope, origins, records, evidence,
+//! and files follow. Edits come last, keyed by the IDs other sections use.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,19 +10,28 @@ use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
-use supersigil_record::EventId;
 use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
+use supersigil_record::reviews::{
+    Basis, BasisId, Fingerprint, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, Origin,
+    PathBytes, Subject, Who,
+};
+use supersigil_record::time::UtcTime;
+use supersigil_record::{EventId, JudgmentId, RecordId};
 
 use crate::diff::{DiffHunk, diff_lines};
+use crate::judging::{
+    GateStates, ItemChange, ItemState, RelatedBasis, Relation, explanations_differ, uncovered_items,
+};
+use crate::names::ItemNames;
 use crate::outcome::{
     AttributionState, Outcome, UnattributedReason, Verdict, base_line_verdict, target_line_verdict,
 };
 
 /// Schema string of the review JSON; a version marker, not a promise, while
 /// the pivot is unreleased.
-pub const REVIEW_SCHEMA: &str = "supersigil.review/1";
+pub const REVIEW_SCHEMA: &str = "supersigil.review/2";
 /// Schema string of the `why` JSON.
 pub const WHY_SCHEMA: &str = "supersigil.why/1";
 
@@ -31,14 +40,23 @@ pub const WHY_SCHEMA: &str = "supersigil.why/1";
 pub struct Review {
     /// [`REVIEW_SCHEMA`].
     pub schema: &'static str,
+    /// The saved basis judgments bind to, or `None` if saving failed.
+    pub basis: Option<SavedBasis>,
+    /// Why saving the basis failed, serialized as the reason text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basis_unsaved: Option<Unsaved>,
     /// The reviewed worktree.
     pub worktree: String,
     /// The base snapshot.
     pub base: BaseInfo,
     /// The target snapshot.
     pub target: TargetInfo,
-    /// Everything no recorded edit explains, first so a reader meets it
-    /// before any detail.
+    /// Whether the review is complete.
+    pub status: StatusInfo,
+    /// Gate items and states, placed after status so readers see what needs
+    /// judgment before review details.
+    pub gate: GateInfo,
+    /// Everything no recorded edit explains, by kind.
     pub unattributed: UnattributedSummary,
     /// The options used and the snapshot's full listing.
     pub scope: ScopeInfo,
@@ -52,6 +70,442 @@ pub struct Review {
     pub files: Vec<FileReview>,
     /// Every accepted edit referenced above, keyed by edit id.
     pub edits: BTreeMap<String, EditInfo>,
+}
+
+/// A review's basis as the review store saved it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SavedBasis {
+    /// The basis's id, which names the saved review.
+    pub id: BasisId,
+    /// The basis.
+    pub document: Basis,
+}
+
+/// Why a review's basis was not saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unsaved {
+    /// The review store stayed busy; running the review again may save it.
+    Busy,
+    /// A basis path, such as the worktree, is not valid UTF-8. The store's
+    /// JSON cannot hold it, so rerunning cannot save this review.
+    PathNotUtf8,
+}
+
+impl Unsaved {
+    /// Returns the reason text used by the summary and JSON.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::Busy => "the review store is busy",
+            Self::PathNotUtf8 => {
+                "it names a path that is not valid UTF-8, which the review store cannot hold"
+            }
+        }
+    }
+
+    /// Whether running the review again may save it.
+    #[must_use]
+    pub const fn may_save_later(self) -> bool {
+        matches!(self, Self::Busy)
+    }
+}
+
+impl Serialize for Unsaved {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.reason())
+    }
+}
+
+/// Whether the review is complete, and what changed since the earlier
+/// judged reviews related to it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct StatusInfo {
+    /// Whether a standing completion covers the review.
+    pub complete: bool,
+    /// The review's own standing completion or one carried from a review of
+    /// the same content.
+    pub completion: Option<JudgmentInfo>,
+    /// Related judged reviews in caller order, except the review with the
+    /// most recent carried completion comes first. If none carries, the most
+    /// recent standing completion comes first. Omitted when empty, including
+    /// for `judge`, which reads no records and relates no reviews here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related: Vec<RelatedInfo>,
+}
+
+impl StatusInfo {
+    /// Builds status from `states`, complete only with its own standing
+    /// completion. Relates no other reviews.
+    #[must_use]
+    pub fn new(states: &GateStates<'_>) -> Self {
+        let completion = states.own_completion().map(JudgmentInfo::new);
+        Self {
+            complete: completion.is_some(),
+            completion,
+            related: Vec::new(),
+        }
+    }
+
+    /// Builds status for `basis` and `states`, naming items with `names`.
+    /// `related` contains the reviews related by `states` and the code and
+    /// record changes the CLI read for each.
+    ///
+    /// Uses the review's own standing completion first, then the most recent
+    /// related completion that carries. Carrying requires the same content,
+    /// every current gate item in the earlier gate with a matching
+    /// fingerprint, and no evidence changes since that review.
+    #[must_use]
+    pub fn reviewed(
+        states: &GateStates<'_>,
+        basis: &Basis,
+        related: Vec<RelatedReading<'_>>,
+        names: &ItemNames<'_>,
+    ) -> Self {
+        let ledger = states.ledger();
+        let mut related: Vec<RelatedInfo> = related
+            .into_iter()
+            .map(|reading| {
+                let completion = ledger.completion(reading.related.id);
+                RelatedInfo::new(basis, reading, completion, names)
+            })
+            .collect();
+        let carried = ledger.latest_completion(
+            related
+                .iter()
+                .filter(|info| info.carries())
+                .map(|info| &info.review),
+        );
+        let about =
+            carried.or_else(|| ledger.latest_completion(related.iter().map(|info| &info.review)));
+        // Put the relevant completion first; preserve the others' order.
+        related.sort_by_key(|info| about.is_none_or(|about| about.basis != info.review));
+        let completion = states.own_completion().or(carried).map(JudgmentInfo::new);
+        Self {
+            complete: completion.is_some(),
+            completion,
+            related,
+        }
+    }
+}
+
+/// Code and record changes since a related review, read by the CLI beyond
+/// its basis.
+#[derive(Debug, Clone)]
+pub struct RelatedReading<'a> {
+    /// The related review.
+    pub related: RelatedBasis<'a>,
+    /// Sorted paths that differ between its target tree and the current one,
+    /// within scope. `None` if the earlier tree is unavailable, for example
+    /// after deleting its retention ref and pruning it with git.
+    pub changed_paths: Option<Vec<PathBytes>>,
+    /// The observations recorded since it that edit or change a reviewed
+    /// path, by session.
+    pub new: Vec<NewObservations>,
+    /// The candidate transcripts with a capture limitation recorded since
+    /// it, sorted.
+    pub capture: Vec<String>,
+    /// Sorted records no longer involved, whose logs no longer start with
+    /// the earlier bytes, or whose logs changed during this review's read.
+    pub gone_or_rewritten: Vec<RecordId>,
+}
+
+/// An earlier judged review related to this one, and what changed since.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelatedInfo {
+    /// The related review's id.
+    pub review: BasisId,
+    /// How it relates: the same content, or another target tree of the
+    /// same worktree.
+    pub relation: Relation,
+    /// Its most recent standing completion, if any.
+    pub completion: Option<JudgmentInfo>,
+    /// The paths that differ between its target tree and this one's,
+    /// within the scope; null when its target tree is no longer in the
+    /// repository.
+    pub changed_paths: Option<Vec<PathBytes>>,
+    /// Evidence changes since the earlier review. Omits explanation changes
+    /// when changed paths are unavailable, since code changes also change
+    /// explanations.
+    pub changed_evidence: ChangedEvidence,
+    /// Current gate items absent from its gate or with changed fingerprints,
+    /// in gate order.
+    pub uncovered: Vec<UncoveredInfo>,
+}
+
+impl RelatedInfo {
+    /// Builds related-review details from `reading` and its most recent
+    /// standing `completion`, using current `basis` and item `names`.
+    fn new(
+        basis: &Basis,
+        reading: RelatedReading<'_>,
+        completion: Option<&Judgment>,
+        names: &ItemNames<'_>,
+    ) -> Self {
+        let earlier = reading.related.basis;
+        let changed_evidence = ChangedEvidence {
+            explanations: reading
+                .changed_paths
+                .as_ref()
+                .map(|changed| explanations_differ(basis, earlier, changed))
+                .unwrap_or_default(),
+            new: reading.new,
+            capture: reading.capture,
+            gone_or_rewritten: reading.gone_or_rewritten,
+        };
+        let uncovered = uncovered_items(&basis.gate, &earlier.gate)
+            .into_iter()
+            .map(|uncovered| UncoveredInfo {
+                id: uncovered.item.id.clone(),
+                name: name_of(names, &uncovered.item.id),
+                reasons: match uncovered.change {
+                    ItemChange::New => vec!["new"],
+                    ItemChange::Changed(reasons) => reasons,
+                },
+            })
+            .collect();
+        Self {
+            review: reading.related.id.clone(),
+            relation: reading.related.relation,
+            completion: completion.map(JudgmentInfo::new),
+            changed_paths: reading.changed_paths,
+            changed_evidence,
+            uncovered,
+        }
+    }
+
+    /// Checks for a completion of the same content whose gate covers the
+    /// current gate, with no evidence changes since.
+    fn carries(&self) -> bool {
+        self.completion.is_some()
+            && self.relation == Relation::SameContent
+            && self.uncovered.is_empty()
+            && self.changed_evidence.is_empty()
+    }
+}
+
+/// Evidence changes since an earlier review. Excludes conversation turns,
+/// commands whose change reports list no reviewed paths, including mentions,
+/// and capture limitations recorded before that review.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ChangedEvidence {
+    /// Reviewed files whose explanation differs while their content does
+    /// not.
+    pub explanations: Vec<PathBytes>,
+    /// The observations recorded since that edit or change a reviewed
+    /// path, by session.
+    pub new: Vec<NewObservations>,
+    /// Candidate transcripts with a capture limitation recorded since.
+    pub capture: Vec<String>,
+    /// Records it read that are gone or rewritten.
+    pub gone_or_rewritten: Vec<RecordId>,
+}
+
+impl ChangedEvidence {
+    /// Whether nothing changed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.explanations.is_empty()
+            && self.new.is_empty()
+            && self.capture.is_empty()
+            && self.gone_or_rewritten.is_empty()
+    }
+}
+
+/// A session's observations since an earlier review that affect reviewed
+/// paths. Includes edits mapping to those paths and commands whose change
+/// reports list them. Command text that only names a path does not count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NewObservations {
+    /// The session.
+    pub session: String,
+    /// The reviewed paths they edit or change, sorted.
+    pub paths: Vec<PathBytes>,
+}
+
+/// A current gate item absent from an earlier gate or with a changed fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UncoveredInfo {
+    /// The item's id.
+    pub id: ItemId,
+    /// Its name, as the gate shows it.
+    pub name: String,
+    /// The reopen reason of each fingerprint part that differs, or `new`
+    /// when the earlier gate did not hold the item.
+    pub reasons: Vec<&'static str>,
+}
+
+/// Gate items a person judges before completing the review and their states.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct GateInfo {
+    /// How many items need a judgment: those open or reopened.
+    pub open: usize,
+    /// Every item, in gate order.
+    pub items: Vec<GateItemInfo>,
+}
+
+impl GateInfo {
+    /// Builds gate items from `states` with their names and states. Items
+    /// absent from `names` use their full IDs.
+    #[must_use]
+    pub fn new(states: &GateStates<'_>, names: &ItemNames<'_>) -> Self {
+        Self::of(
+            states
+                .items()
+                .iter()
+                .map(|judged| (judged.item, &judged.state)),
+            names,
+        )
+    }
+
+    /// Builds an open gate using `names` for an unsaved review that no
+    /// judgment can apply to.
+    #[must_use]
+    pub fn unjudged(gate: &[GateItem], names: &ItemNames<'_>) -> Self {
+        Self::of(gate.iter().map(|item| (item, &ItemState::Open)), names)
+    }
+
+    /// Returns names of items counted by [`Self::open`], in gate order.
+    #[must_use]
+    pub fn open_names(&self) -> Vec<&str> {
+        self.items
+            .iter()
+            .filter(|item| item.state.is_open())
+            .map(|item| item.name.as_str())
+            .collect()
+    }
+
+    fn of<'s, 'j: 's>(
+        items: impl Iterator<Item = (&'s GateItem, &'s ItemState<'j>)>,
+        names: &ItemNames<'_>,
+    ) -> Self {
+        let items: Vec<GateItemInfo> = items
+            .map(|(item, state)| {
+                let (state, judgment, reopen_reasons) = match state {
+                    ItemState::Acknowledged(judgment) => {
+                        (ItemStateInfo::Acknowledged, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Dismissed(judgment) => {
+                        (ItemStateInfo::Dismissed, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Carried(judgment) => {
+                        (ItemStateInfo::Carried, Some(*judgment), Vec::new())
+                    }
+                    ItemState::Reopened { judgment, reasons } => {
+                        (ItemStateInfo::Reopened, Some(*judgment), reasons.clone())
+                    }
+                    ItemState::Open => (ItemStateInfo::Open, None, Vec::new()),
+                };
+                GateItemInfo {
+                    id: item.id.clone(),
+                    name: name_of(names, &item.id),
+                    origin: item.origin(),
+                    subject: item.subject.clone(),
+                    detail: item.detail.clone(),
+                    fingerprint: item.fingerprint.clone(),
+                    state,
+                    judgment: judgment.map(JudgmentInfo::new),
+                    reopen_reasons,
+                }
+            })
+            .collect();
+        Self {
+            open: items.iter().filter(|item| item.state.is_open()).count(),
+            items,
+        }
+    }
+}
+
+fn name_of(names: &ItemNames<'_>, id: &ItemId) -> String {
+    names
+        .name(id)
+        .map_or_else(|| format!("id:{id}"), str::to_owned)
+}
+
+/// One gate item and its state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GateItemInfo {
+    /// The item's id, the same in every review that has the item.
+    pub id: ItemId,
+    /// The name a person types for it from the current directory.
+    pub name: String,
+    /// Its origin.
+    pub origin: Origin,
+    /// What it is about.
+    pub subject: Subject,
+    /// What its row says, by origin.
+    pub detail: GateDetail,
+    /// What a judgment of it saw.
+    pub fingerprint: Fingerprint,
+    /// Whether a judgment closes it.
+    pub state: ItemStateInfo,
+    /// Its own or carried closing judgment, or the earlier judgment whose
+    /// fingerprint differs for a reopened item. Null when open.
+    pub judgment: Option<JudgmentInfo>,
+    /// Reopen reasons for fingerprint parts that differ from the earlier
+    /// judgment's evidence.
+    pub reopen_reasons: Vec<&'static str>,
+}
+
+/// Whether a gate item is closed, and how.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemStateInfo {
+    /// No standing acknowledgment or dismissal closes or reopens it.
+    Open,
+    /// Acknowledged on this review.
+    Acknowledged,
+    /// Dismissed on this review.
+    Dismissed,
+    /// Closed by a related review's judgment of the same evidence.
+    Carried,
+    /// A related review's judgment names it, but its evidence changed
+    /// since.
+    Reopened,
+}
+
+impl ItemStateInfo {
+    /// Whether the item needs a judgment: it is open or reopened.
+    #[must_use]
+    pub const fn is_open(self) -> bool {
+        matches!(self, Self::Open | Self::Reopened)
+    }
+}
+
+/// A recorded judgment, as the review shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JudgmentInfo {
+    /// The judgment's id.
+    pub id: JudgmentId,
+    /// What it records.
+    pub kind: JudgmentKind,
+    /// The full id of the review it was made on.
+    pub review: BasisId,
+    /// The reason given with it, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Optional note text from a comment or completion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Who recorded it.
+    pub who: Who,
+    /// When, in UTC.
+    pub at: UtcTime,
+}
+
+impl JudgmentInfo {
+    /// Builds the review's displayed details for `judgment`.
+    #[must_use]
+    pub fn new(judgment: &Judgment) -> Self {
+        Self {
+            id: judgment.id.clone(),
+            kind: judgment.kind,
+            review: judgment.basis.clone(),
+            reason: judgment.reason.clone(),
+            text: judgment.text.clone(),
+            who: judgment.who.clone(),
+            at: judgment.at,
+        }
+    }
 }
 
 /// The base snapshot.
@@ -206,16 +660,37 @@ pub struct FileCounts {
 }
 
 impl FileCounts {
-    fn empty(path: String) -> Self {
-        Self {
-            path,
+    /// Counts `file`'s lines and returns their spans, excluding attributed,
+    /// whitespace-only, and realigned lines.
+    pub(crate) fn of(file: &FileReview) -> (Self, Vec<&Span>) {
+        let mut counts = Self {
+            path: file.path.clone(),
             unattributed: 0,
             content_match_incomplete: 0,
             unresolved: 0,
             ambiguous: 0,
             line_ending: 0,
             content_match_only: 0,
+        };
+        let mut counted = Vec::new();
+        for span in file.hunks.iter().flat_map(|hunk| &hunk.spans) {
+            let slot = match span.outcome {
+                Outcome::Unattributed {
+                    reason: UnattributedReason::ContentMatchIncomplete,
+                } => &mut counts.content_match_incomplete,
+                Outcome::Unattributed { .. } => &mut counts.unattributed,
+                Outcome::Unresolved { .. } => &mut counts.unresolved,
+                Outcome::Ambiguous { .. } => &mut counts.ambiguous,
+                Outcome::LineEndingChanged => &mut counts.line_ending,
+                Outcome::ContentMatch { .. } => &mut counts.content_match_only,
+                Outcome::Attributed { .. }
+                | Outcome::WhitespaceOnly { .. }
+                | Outcome::Realigned { .. } => continue,
+            };
+            *slot += span.count;
+            counted.push(span);
         }
+        (counts, counted)
     }
 
     const fn total(&self) -> usize {
@@ -264,11 +739,26 @@ pub struct ScopeInfo {
     pub path_note: Option<String>,
 }
 
+impl ScopeInfo {
+    /// Returns excluded untracked files named by recorded edits, each a
+    /// gate item, in listed order.
+    pub fn recorded_untracked(&self) -> impl Iterator<Item = &UntrackedInfo> {
+        self.untracked_excluded
+            .iter()
+            .filter(|untracked| untracked.recorded_edit)
+    }
+}
+
 /// An untracked file the scope excluded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UntrackedInfo {
-    /// The file.
+    /// The file, lossy when not UTF-8.
     pub path: String,
+    /// Reversible escaped form, present only when the path is not UTF-8.
+    pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate item.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// Whether a candidate edit in the reviewed worktree names this path.
     /// A shell-inferred edit does not establish that its statement ran.
     pub recorded_edit: bool,
@@ -279,8 +769,13 @@ pub struct UntrackedInfo {
 /// A path whose on-disk state the snapshot did not capture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NotCapturedInfo {
-    /// The path.
+    /// The path, lossy when not UTF-8.
     pub path: String,
+    /// Reversible escaped form, present only when the path is not UTF-8.
+    pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate item.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// `present` or `missing`.
     pub on_disk: String,
     /// `assume_unchanged`, `skip_worktree`, or `not_staged`.
@@ -338,6 +833,9 @@ pub struct EvidenceInfo {
     pub unplaced_edits: usize,
     /// Checkouts whose discovered transcripts were not reconciled.
     pub unreconciled_checkouts: Vec<UnreconciledInfo>,
+    /// Sorted transcripts removed after discovery but before reading. Each
+    /// leaves its record or checkout unreconciled.
+    pub removed_transcripts: Vec<String>,
     /// Edits excluded because their sightings in several records disagree.
     pub conflicting_edits: Vec<Conflict>,
 }
@@ -376,6 +874,9 @@ pub struct FileReview {
     pub path: String,
     /// Reversible escaped form, present only when the path is not UTF-8.
     pub path_escaped: Option<String>,
+    /// The path's raw bytes, which name its gate items.
+    #[serde(skip)]
+    pub path_bytes: PathBytes,
     /// Git status.
     pub status: FileStatus,
     /// Base mode as octal text, `000000` when absent.
@@ -673,13 +1174,15 @@ pub struct PromptInfo {
     pub excerpt: Material<String>,
 }
 
-/// A changed path's display forms.
+/// A changed path's display forms and raw bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoPathInfo {
     /// Lossy display name.
     pub display: String,
     /// Reversible escaped form when the path is not UTF-8.
     pub escaped: Option<String>,
+    /// The raw bytes.
+    pub bytes: PathBytes,
 }
 
 /// Everything [`file_review`] needs for one changed path.
@@ -754,6 +1257,7 @@ pub fn file_review(mut input: FileInput<'_>) -> FileReview {
     FileReview {
         path: input.path.display.clone(),
         path_escaped: input.path.escaped.clone(),
+        path_bytes: input.path.bytes.clone(),
         status: input.status,
         old_mode: input.old_mode,
         new_mode: input.new_mode,
@@ -775,23 +1279,7 @@ pub fn file_review(mut input: FileInput<'_>) -> FileReview {
 pub fn unattributed_summary(files: &[FileReview], scope: &ScopeInfo) -> UnattributedSummary {
     let mut summary = UnattributedSummary::default();
     for file in files {
-        let mut counts = FileCounts::empty(file.path.clone());
-        for span in file.hunks.iter().flat_map(|hunk| &hunk.spans) {
-            let slot = match span.outcome {
-                Outcome::Unattributed {
-                    reason: UnattributedReason::ContentMatchIncomplete,
-                } => &mut counts.content_match_incomplete,
-                Outcome::Unattributed { .. } => &mut counts.unattributed,
-                Outcome::Unresolved { .. } => &mut counts.unresolved,
-                Outcome::Ambiguous { .. } => &mut counts.ambiguous,
-                Outcome::LineEndingChanged => &mut counts.line_ending,
-                Outcome::ContentMatch { .. } => &mut counts.content_match_only,
-                Outcome::Attributed { .. }
-                | Outcome::WhitespaceOnly { .. }
-                | Outcome::Realigned { .. } => continue,
-            };
-            *slot += span.count;
-        }
+        let (counts, _) = FileCounts::of(file);
         if counts.total() > 0 {
             summary.files.push(counts);
         }
@@ -813,9 +1301,7 @@ pub fn unattributed_summary(files: &[FileReview], scope: &ScopeInfo) -> Unattrib
         }
     }
     summary.untracked_with_recorded_edits = scope
-        .untracked_excluded
-        .iter()
-        .filter(|untracked| untracked.recorded_edit)
+        .recorded_untracked()
         .map(|untracked| untracked.path.clone())
         .collect();
     summary.not_captured = scope

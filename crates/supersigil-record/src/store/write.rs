@@ -1,17 +1,20 @@
 //! Writes record data under an exclusive lock and commits it through the manifest.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Seek as _, SeekFrom, Write as _};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs::{self, File};
+use std::path::{Component, Path, PathBuf};
+use std::{io, iter};
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    LOCK_FILE, RecordSnapshot, Store, StoreError, derivations_document, io_error, log_path,
+    DERIVATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR, RecordSnapshot, Store, StoreError,
+    derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
+use crate::files;
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
+use crate::time::{GRACE_SECONDS, UtcTime};
 
 /// Holds the writer lock while adding data for the next record revision.
 ///
@@ -29,39 +32,30 @@ pub struct WriteTx<'a> {
     manifest: Manifest,
     /// Manifest read after acquiring the writer lock.
     starting: Manifest,
+    /// Time the commit is published at.
+    now: UtcTime,
     _lock: File,
     /// Files to sync at commit, with duplicate paths removed.
     touched: BTreeSet<PathBuf>,
 }
 
 impl<'a> WriteTx<'a> {
-    /// Acquires the writer lock and reads the starting manifest.
+    /// Acquires the writer lock and reads the starting manifest, using `now`
+    /// as this transaction's publication time.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Locked`] if another writer holds the lock,
     /// [`StoreError::Io`] if a lock operation fails, or an error from reading
     /// and validating the manifest.
-    pub(super) fn begin(store: &'a Store) -> Result<Self, StoreError> {
-        let lock_path = store.root().join(LOCK_FILE);
-        let lock = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(&lock_path)
-            .map_err(|e| io_error(&lock_path, e))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(std::fs::TryLockError::WouldBlock) => {
-                return Err(StoreError::Locked(store.root().to_path_buf()));
-            }
-            Err(std::fs::TryLockError::Error(e)) => return Err(io_error(&lock_path, e)),
-        }
+    pub(super) fn begin(store: &'a Store, now: UtcTime) -> Result<Self, StoreError> {
+        let lock = files::lock(store.root(), LOCK_FILE)?;
         let manifest = manifest::read(store.root())?;
         Ok(Self {
             store,
             starting: manifest.clone(),
             manifest,
+            now,
             _lock: lock,
             touched: BTreeSet::new(),
         })
@@ -124,23 +118,7 @@ impl<'a> WriteTx<'a> {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
         let pinned = self.manifest.logs.get(log).copied().unwrap_or(0);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|e| io_error(&path, e))?;
-        let len = file.metadata().map_err(|e| io_error(&path, e))?.len();
-        if len < pinned {
-            return Err(StoreError::Corrupt(format!(
-                "{} is shorter ({len} bytes) than its pinned length ({pinned})",
-                path.display()
-            )));
-        }
-        file.set_len(pinned).map_err(|e| io_error(&path, e))?;
-        file.seek(SeekFrom::Start(pinned))
-            .map_err(|e| io_error(&path, e))?;
-        file.write_all(bytes).map_err(|e| io_error(&path, e))?;
+        files::append_at(&path, pinned, bytes)?;
         self.manifest
             .logs
             .insert(log.to_owned(), pinned + bytes.len() as u64);
@@ -150,9 +128,14 @@ impl<'a> WriteTx<'a> {
 
     /// Writes a session's derivations to a file named for the next store revision.
     ///
-    /// Assigns a number to a new session. Calling this again for the same
-    /// session in this transaction replaces the pending document. Previously
-    /// committed documents remain unchanged.
+    /// Assigns a number to a new session. Repeated calls for the same session
+    /// replace the pending document. Keeps replaced committed documents for
+    /// earlier readers and lists them in `superseded` at the transaction's
+    /// time; see [`Self::commit`].
+    ///
+    /// Writes a new temporary file and renames it into place, replacing any
+    /// existing target, including uncommitted files and symbolic links,
+    /// without writing through them.
     ///
     /// # Errors
     ///
@@ -163,18 +146,32 @@ impl<'a> WriteTx<'a> {
     ///
     /// Panics if the starting revision is [`u64::MAX`].
     pub fn put_derivations(&mut self, set: &DerivationSet) -> Result<(), StoreError> {
-        let logical = derivations_document(self.session_number(&set.session));
-        let rel = format!("{logical}.r{}.json", self.starting.revision.next().get());
-        let path = self.store.root().join(&rel);
+        let number = self.session_number(&set.session);
+        let logical = derivations_document(number);
+        let name = format!("{number}.r{}.json", self.starting.revision.next().get());
+        let rel = format!("{DERIVATIONS_DIR}/{name}");
+        let dir = self.store.root().join(DERIVATIONS_DIR);
+        let path = dir.join(&name);
         let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
             path: path.clone(),
             source,
         })?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
+        files::replace(&dir, &name, &bytes)?;
+        // Repeated writes replace only the unpublished pending file. List a
+        // replaced committed document by its cleanup name ([`listed`]) and
+        // keep the later replacement time to preserve its full grace period.
+        if let Some(replaced) = self.manifest.documents.insert(logical, rel.clone())
+            && replaced != rel
+        {
+            let listed = listed(self.store.root(), &replaced);
+            let now = self.now;
+            self.manifest
+                .superseded
+                .entry(listed)
+                .and_modify(|time| *time = (*time).max(now))
+                .or_insert(now);
         }
-        fs::write(&path, bytes).map_err(|e| io_error(&path, e))?;
-        self.manifest.documents.insert(logical, rel);
         self.touched.insert(path);
         Ok(())
     }
@@ -211,6 +208,18 @@ impl<'a> WriteTx<'a> {
 
     /// Publishes this transaction's changes and returns the new revision number.
     ///
+    /// First deletes documents superseded more than [`GRACE_SECONDS`] before
+    /// the transaction's time and drops their entries. Keeps undeletable files,
+    /// including open files on Windows, listed for the next commit. Only
+    /// manifests published before the replacement name these documents.
+    ///
+    /// Drops entries for still-referenced files, unsupported document names,
+    /// and symbolic links without deleting them. Deletes only regular files,
+    /// without following symbolic links. Skips deletion if the manifest, lock,
+    /// observations directory, or derivations directory is a link, or a referenced
+    /// path is not plain and inside the record, crosses a link, or cannot be
+    /// resolved on disk. Ignores file modification times.
+    ///
     /// Syncs changed files and their parent directories up to the record root,
     /// then checks that the on-disk revision still matches the starting one.
     /// Increments the revision and publishes the manifest by atomic rename.
@@ -230,16 +239,10 @@ impl<'a> WriteTx<'a> {
     ///
     /// Panics if the starting revision is [`u64::MAX`].
     pub fn commit(mut self) -> Result<Revision, StoreError> {
+        let mut dirs = self.delete_superseded();
         let root = self.store.root();
-        let mut dirs = BTreeSet::new();
         for path in &self.touched {
-            // Write access: Windows flushes through `FlushFileBuffers`, which
-            // needs it.
-            OpenOptions::new()
-                .write(true)
-                .open(path)
-                .and_then(|f| f.sync_all())
-                .map_err(|e| io_error(path, e))?;
+            files::sync_file(path)?;
             for dir in path.ancestors().skip(1) {
                 dirs.insert(dir.to_path_buf());
                 if dir == root {
@@ -248,18 +251,197 @@ impl<'a> WriteTx<'a> {
             }
         }
         for dir in &dirs {
-            manifest::sync_dir(dir)?;
+            files::sync_dir(dir)?;
         }
         let on_disk = manifest::read(self.store.root())?;
-        let expected = self.starting.revision;
-        if on_disk.revision != expected {
-            return Err(StoreError::Conflict {
-                expected: expected.get(),
-                found: on_disk.revision.get(),
-            });
-        }
-        self.manifest.revision = expected.next();
-        manifest::publish(self.store.root(), &self.manifest)?;
+        self.manifest.revision = files::next_revision(self.starting.revision, on_disk.revision)?;
+        files::publish_manifest(self.store.root(), &self.manifest)?;
         Ok(self.manifest.revision)
     }
+
+    /// Deletes documents superseded more than [`GRACE_SECONDS`] before the
+    /// transaction's time and drops their entries. Treats missing files as
+    /// deleted and keeps undeletable files listed. Drops unsupported entries
+    /// ([`replaced_document`]) without deleting anything. If a referenced
+    /// document or log has a non-plain path or leaves the record ([`location`]),
+    /// skips deletion and keeps every entry.
+    ///
+    /// For due entries, skips deletion if the manifest, lock, or observations
+    /// directory is linked or unreadable ([`files::unlinked_entries`]), if the
+    /// derivations directory or any referenced path component is missing or
+    /// linked ([`unlinked`]), or if a referenced file cannot be resolved.
+    /// Keeps entries that passed the earlier name check.
+    ///
+    /// Drops due symbolic-link entries without deleting their links. Keeps
+    /// non-regular files listed. Drops regular-file entries without deletion
+    /// if their resolved target is still referenced by the pending manifest.
+    /// Keeps targets referenced by the starting manifest for a later commit,
+    /// since that manifest stays current until publication and readers may
+    /// hold it. Deletes other due regular files. Returns their parent directories
+    /// for [`Self::commit`] to sync before publishing.
+    fn delete_superseded(&mut self) -> BTreeSet<PathBuf> {
+        let root = self.store.root();
+        let now = self.now;
+        let starting = &self.starting;
+        let Manifest {
+            logs,
+            documents,
+            superseded,
+            ..
+        } = &mut self.manifest;
+        let pending: BTreeSet<&str> = documents
+            .values()
+            .chain(logs.keys())
+            .map(String::as_str)
+            .collect();
+        let published: BTreeSet<&str> = starting
+            .documents
+            .values()
+            .chain(starting.logs.keys())
+            .map(String::as_str)
+            .collect();
+        // Check each path referenced by either manifest once.
+        let referenced = || pending.union(&published).copied();
+        let mut named = HashSet::new();
+        for file in referenced() {
+            let Some(spelled) = location(file) else {
+                return BTreeSet::new();
+            };
+            if pending.contains(file) {
+                named.insert(spelled);
+            }
+        }
+        superseded.retain(|file, _| replaced_document(file, &named));
+        let due = |replaced: &UtcTime| now.unix() - replaced.unix() > GRACE_SECONDS;
+        if !superseded.values().any(due) {
+            return BTreeSet::new();
+        }
+        if !files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, OBSERVATIONS_DIR])
+            || !iter::once(DERIVATIONS_DIR)
+                .chain(referenced())
+                .all(|file| unlinked(root, file))
+        {
+            return BTreeSet::new();
+        }
+        let mut current = HashSet::new();
+        let mut held = HashSet::new();
+        for file in referenced() {
+            let Ok(target) = fs::canonicalize(root.join(file)) else {
+                return BTreeSet::new();
+            };
+            if published.contains(file) {
+                held.insert(target.clone());
+            }
+            if pending.contains(file) {
+                current.insert(target);
+            }
+        }
+        let mut changed = BTreeSet::new();
+        superseded.retain(|file, replaced| {
+            if !due(replaced) {
+                return true;
+            }
+            let entry = root.join(file);
+            let deleted = match fs::symlink_metadata(&entry) {
+                Ok(metadata) if metadata.is_symlink() => return false,
+                Ok(metadata) if !metadata.is_file() => return true,
+                Ok(_) => match fs::canonicalize(&entry) {
+                    Ok(target) if current.contains(&target) => return false,
+                    Ok(target) if held.contains(&target) => return true,
+                    Ok(_) => fs::remove_file(&entry).inspect(|()| {
+                        changed.extend(entry.parent().map(Path::to_path_buf));
+                    }),
+                    Err(e) => Err(e),
+                },
+                Err(e) => Err(e),
+            };
+            match deleted {
+                Ok(()) => false,
+                Err(e) => e.kind() != io::ErrorKind::NotFound,
+            }
+        });
+        changed
+    }
+}
+
+/// Checks that every component of the plain record-relative `file` exists
+/// and is not a symbolic link.
+fn unlinked(root: &Path, file: &str) -> bool {
+    let mut path = root.to_path_buf();
+    Path::new(file).components().all(|component| {
+        path.push(component);
+        fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_symlink())
+    })
+}
+
+/// Checks that `file` names a derivation document directly in the derivations
+/// directory ([`document_name`]) and its [`location`] is absent from the
+/// manifest's referenced documents and logs. Rejects absolute paths, `..`,
+/// other directories, and unsupported names.
+fn replaced_document(file: &str, referenced: &HashSet<String>) -> bool {
+    file.strip_prefix(DERIVATIONS_DIR)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(document_name)
+        && location(file).is_some_and(|location| !referenced.contains(&location))
+}
+
+/// Checks whether `name` has the `<number>.r<revision>.json` document form,
+/// with non-empty decimal numbers.
+fn document_name(name: &str) -> bool {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    name.strip_suffix(".json")
+        .and_then(|stem| stem.split_once(".r"))
+        .is_some_and(|(number, revision)| digits(number) && digits(revision))
+}
+
+/// Normalizes record-relative `file` ([`normalized`]) and lowercases ASCII
+/// letters for comparison on file systems that may ignore case. Returns
+/// `None` unless the path is plain and stays inside the record.
+fn location(file: &str) -> Option<String> {
+    normalized(file).map(|plain| plain.to_ascii_lowercase())
+}
+
+/// Resolves record-relative `file` as [`resolved`] does, but rejects any
+/// `..` component to require a plain path inside the record.
+fn normalized(file: &str) -> Option<String> {
+    let parent = Path::new(&file.replace('\\', "/"))
+        .components()
+        .any(|component| component == Component::ParentDir);
+    if parent { None } else { resolved(file) }
+}
+
+/// Finds the cleanup name for `replaced`. First resolves it on disk, including
+/// absolute paths and links. If the target is directly in the record's
+/// derivations directory, returns `derivations/<name>` in ASCII lowercase.
+/// Otherwise returns its lexically resolved record-relative path ([`resolved`])
+/// in ASCII lowercase, or the original spelling if resolution fails.
+fn listed(root: &Path, replaced: &str) -> String {
+    let on_disk = || {
+        let dir = fs::canonicalize(root.join(DERIVATIONS_DIR)).ok()?;
+        let file = fs::canonicalize(root.join(replaced)).ok()?;
+        let name = file.file_name()?.to_str()?.to_ascii_lowercase();
+        (file.parent() == Some(dir.as_path())).then(|| format!("{DERIVATIONS_DIR}/{name}"))
+    };
+    on_disk()
+        .or_else(|| resolved(replaced).map(|file| file.to_ascii_lowercase()))
+        .unwrap_or_else(|| replaced.to_owned())
+}
+
+/// Resolves record-relative `file` lexically. Joins names with `/`, treats
+/// `\` as a separator, drops `.`, and removes the preceding name for each
+/// `..`. Returns `None` for empty or absolute paths, or paths that leave the record.
+fn resolved(file: &str) -> Option<String> {
+    let unified = file.replace('\\', "/");
+    let mut names = Vec::new();
+    for component in Path::new(&unified).components() {
+        match component {
+            Component::Normal(name) => names.push(name.to_str()?),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                names.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!names.is_empty()).then(|| names.join("/"))
 }

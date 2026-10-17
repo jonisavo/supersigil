@@ -24,13 +24,12 @@ use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
     CommandChange, EditInfo, EditOriginInfo, Mention, MentionResult, PromptInfo, TranscriptInfo,
 };
-use supersigil_session::checkout::{canonical, within};
+use supersigil_session::checkout::{Resolutions, canonical, within};
 
-use crate::mapping::{MappedEdit, map_resolved, resolve};
+use crate::mapping::{MappedEdit, map_resolved};
 
-/// Turns, commands, capture limitations, transcript locations, and the
-/// delegation order of every pinned record, indexed for the lookups a
-/// review makes.
+/// Indexes pinned records' turns, commands, capture limitations, transcript
+/// locations, delegation order, and checkout resolutions for review lookups.
 #[derive(Debug, Default)]
 pub struct Evidence {
     /// Every turn by session and id; the first occurrence wins.
@@ -46,6 +45,8 @@ pub struct Evidence {
     /// The order between each session's transcripts that the records'
     /// delegation steps establish.
     order: Arc<Order>,
+    /// The checkout of every edit and command, each resolved once.
+    resolutions: Resolutions,
 }
 
 impl Evidence {
@@ -53,7 +54,9 @@ impl Evidence {
     /// occurrence of each turn and command, and which record each capture
     /// limitation came from. Orders each session's transcripts by the
     /// delegation steps of all records ([`Order::new`]): a step seen
-    /// differently in two places leaves its session unordered.
+    /// differently in two places leaves its session unordered. Resolves the
+    /// checkout of every edit and command once, for every placement of a
+    /// recorded file in the review ([`Self::resolutions`]).
     #[must_use]
     pub fn index<'a>(records: impl IntoIterator<Item = (&'a RecordId, &'a [Observation])>) -> Self {
         let mut evidence = Self::default();
@@ -76,6 +79,13 @@ impl Evidence {
         &self.order
     }
 
+    /// Returns checkout resolutions made once per edit and command checkout for the
+    /// review.
+    #[must_use]
+    pub fn resolutions(&self) -> &Resolutions {
+        &self.resolutions
+    }
+
     /// Indexes one observation of `record`.
     fn add(&mut self, record: &RecordId, observation: &Observation) {
         match observation {
@@ -90,11 +100,13 @@ impl Evidence {
                     .or_insert_with(|| turn.clone());
             }
             Observation::Edit(edit) => {
+                self.resolutions.add(&edit.checkout);
                 if let Some(transcript) = &edit.transcript {
                     self.locate(transcript, &edit.session, &edit.checkout);
                 }
             }
             Observation::Command(command) => {
+                self.resolutions.add(&command.checkout);
                 if let Some(transcript) = &command.transcript {
                     self.locate(transcript, &command.session, &command.checkout);
                 }
@@ -164,7 +176,7 @@ impl Evidence {
             if transcripts.contains(transcript) {
                 continue;
             }
-            if reported_in(command, roots, worktrees, ignore_case)
+            if reported_in(command, roots, &self.resolutions, worktrees, ignore_case)
                 .next()
                 .is_some()
             {
@@ -256,8 +268,10 @@ impl Evidence {
     /// presentation.
     ///
     /// Files map to the innermost registered worktree in `roots`, as edits
-    /// do ([`crate::mapping::map_file`]). A command without a retained
-    /// report contributes nothing; this says nothing about what it changed.
+    /// do ([`crate::mapping::map_edit`]), through the resolution of each
+    /// command's checkout made once ([`Self::resolutions`]). A command
+    /// without a retained report contributes nothing; this says nothing
+    /// about what it changed.
     ///
     /// A command is listed once per reported file, per worktree. With
     /// `ignore_case`, two spellings of one file give two entries for the
@@ -279,7 +293,8 @@ impl Evidence {
             {
                 continue;
             }
-            for (report, file, mapped) in reported_in(command, roots, worktrees, ignore_case) {
+            let reported = reported_in(command, roots, &self.resolutions, worktrees, ignore_case);
+            for (report, file, mapped) in reported {
                 changes.push((
                     CommandChange {
                         command: command.id.as_str().to_owned(),
@@ -304,6 +319,22 @@ impl Evidence {
             (Reverse(&a.time), &a.command).cmp(&(Reverse(&b.time), &b.command))
         });
         changes
+    }
+
+    /// Returns paths from `command`'s retained change report in `worktrees`.
+    /// Makes each path relative to the innermost containing worktree in `roots`,
+    /// as [`Self::command_changes`] does. Reads the given sighting, while
+    /// [`Self::index`] keeps the first sighting. Later sightings may add change
+    /// reports absent from the first.
+    pub fn reported_paths<'c>(
+        &'c self,
+        command: &'c Command,
+        roots: &'c [PathBuf],
+        worktrees: &'c [PathBuf],
+        ignore_case: bool,
+    ) -> impl Iterator<Item = String> + 'c {
+        reported_in(command, roots, &self.resolutions, worktrees, ignore_case)
+            .map(|(_, _, mapped)| mapped.path)
     }
 
     /// The nearest recorded ancestor of `edit`'s turn, following parent
@@ -382,11 +413,13 @@ impl CandidateCommands<'_> {
 
 /// Files in `command`'s retained report that lie in `worktrees`, each with
 /// its report and placement in the innermost registered worktree in
-/// `roots`, as for edits ([`crate::mapping::map_file`]). Returns nothing
-/// without a retained report.
+/// `roots`, as for edits ([`crate::mapping::map_edit`]), through the
+/// review's resolution of the command's checkout in `resolutions`. Returns
+/// nothing without a retained report.
 fn reported_in<'c>(
     command: &'c Command,
     roots: &'c [PathBuf],
+    resolutions: &'c Resolutions,
     worktrees: &'c [PathBuf],
     ignore_case: bool,
 ) -> impl Iterator<Item = (&'c ChangeReport, &'c FileChange, MappedEdit)> {
@@ -395,8 +428,7 @@ fn reported_in<'c>(
         .retained()
         .into_iter()
         .flat_map(move |report| {
-            // Resolved once for every file of the command.
-            let checkout = resolve(&command.checkout);
+            let checkout = resolutions.resolution(&command.checkout);
             report.files.iter().filter_map(move |file| {
                 let mapped = map_resolved(&checkout, &file.path, roots, ignore_case)?;
                 worktrees

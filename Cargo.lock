@@ -787,9 +787,12 @@ dependencies = [
  "assert_cmd",
  "clap",
  "clap_complete",
+ "hex",
+ "libc",
  "predicates",
  "serde",
  "serde_json",
+ "sha2",
  "supersigil-anchor",
  "supersigil-git",
  "supersigil-record",
@@ -797,6 +800,7 @@ dependencies = [
  "supersigil-session",
  "tempfile",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -836,9 +840,11 @@ dependencies = [
 name = "supersigil-review"
 version = "0.14.0"
 dependencies = [
+ "hex",
  "insta",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "supersigil-anchor",
  "supersigil-record",
@@ -849,6 +855,7 @@ name = "supersigil-session"
 version = "0.14.0"
 dependencies = [
  "insta",
+ "libc",
  "serde",
  "serde_json",
  "supersigil-record",

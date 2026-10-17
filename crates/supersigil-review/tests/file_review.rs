@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use supersigil_anchor::{ChainClass, ChainEnd, Conflict, PathStatus, StopReason};
 use supersigil_record::RecordId;
+use supersigil_record::reviews::PathBytes;
 use supersigil_review::model::{
     BytesStatus, FileInput, FileKindInfo, FileStatus, Mention, NotCapturedInfo, RepoPathInfo,
     ScopeInfo, SpanSide, UntrackedInfo, file_review, unattributed_summary,
@@ -21,6 +22,7 @@ fn path(display: &str) -> RepoPathInfo {
     RepoPathInfo {
         display: display.to_owned(),
         escaped: None,
+        bytes: PathBytes::new(display),
     }
 }
 
@@ -411,17 +413,23 @@ fn unattributed_summary_counts_lines_and_lists_scope_items() {
         untracked_excluded: vec![
             UntrackedInfo {
                 path: "src/new.rs".to_owned(),
+                path_escaped: None,
+                path_bytes: PathBytes::new("src/new.rs"),
                 recorded_edit: true,
                 include_flag: "--include-untracked src/new.rs".to_owned(),
             },
             UntrackedInfo {
                 path: "scratch.txt".to_owned(),
+                path_escaped: None,
+                path_bytes: PathBytes::new("scratch.txt"),
                 recorded_edit: false,
                 include_flag: "--include-untracked scratch.txt".to_owned(),
             },
         ],
         not_captured: vec![NotCapturedInfo {
             path: "config.toml".to_owned(),
+            path_escaped: None,
+            path_bytes: PathBytes::new("config.toml"),
             on_disk: "present".to_owned(),
             cause: "assume_unchanged".to_owned(),
         }],

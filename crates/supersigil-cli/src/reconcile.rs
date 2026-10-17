@@ -19,7 +19,7 @@ use supersigil_session::checkout::{canonical_or_written, overlaps, within};
 use supersigil_session::claude_code::parse_transcript;
 use supersigil_session::discover::{discover_transcripts, encode_project_dir, transcripts_in};
 use supersigil_session::found;
-use supersigil_session::sync::{SyncError, SyncReport, sync};
+use supersigil_session::sync::{Skip, SyncError, SyncReport, read_transcript, sync};
 
 use crate::error::CliError;
 use crate::record_dir::{Acquired, Contention, open_or_create_record_within, poll, records_in};
@@ -45,14 +45,17 @@ pub struct InvolvedRecord {
 }
 
 /// A checkout whose discovered transcripts have no record yet and could not
-/// get one.
+/// get one, or whose project directory listed a transcript that was removed
+/// before it could be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnreconciledCheckout {
-    /// Working directory the transcripts recorded.
+    /// Working directory the transcripts recorded, or the worktree or
+    /// ancestor whose project directory listed the removed transcript.
     pub checkout: PathBuf,
-    /// Number of transcripts discovered for it.
+    /// Number of transcripts discovered for it: one for a removed transcript.
     pub transcripts: usize,
-    /// Why no record was created or associated.
+    /// Why no record was created or associated, or which transcript was
+    /// removed.
     pub reason: String,
 }
 
@@ -63,6 +66,9 @@ pub struct Reconciliation {
     pub records: Vec<InvolvedRecord>,
     /// Checkouts with discovered transcripts that no record could take.
     pub unreconciled: Vec<UnreconciledCheckout>,
+    /// Transcripts listed for reading that were removed before they could be
+    /// read, sorted. Each leaves its record or checkout not reconciled.
+    pub removed: Vec<PathBuf>,
 }
 
 /// Finds every record with an association equal to, inside, or containing
@@ -172,11 +178,20 @@ pub fn transcripts_below(claude_home: &Path, worktree: &Path) -> std::io::Result
 /// records-directory lock stays held is returned in
 /// [`Reconciliation::unreconciled`] with its transcript count.
 ///
+/// A transcript listed in either step but gone, or no longer a regular
+/// file, when read is skipped and listed in [`Reconciliation::removed`].
+/// The record whose sync skipped it is not reconciled, with the reason
+/// `transcript <path> removed before it could be read` unless a held lock
+/// gives another; one skipped by step 2's read for the working directory
+/// makes the worktree or ancestor whose project directory listed it an
+/// unreconciled checkout with that reason.
+///
 /// # Errors
 ///
-/// Returns [`CliError::Io`] if a directory or transcript cannot be read, a
-/// store error if a record cannot be read or written for a reason other
-/// than a held lock, or a sync error if a transcript cannot be synced.
+/// Returns [`CliError::Io`] if a directory cannot be read, or a transcript
+/// cannot be read for a reason other than its removal, a store error if a
+/// record cannot be read or written for a reason other than a held lock, or
+/// a sync error if a transcript cannot be synced.
 ///
 /// # Panics
 ///
@@ -192,9 +207,10 @@ pub fn reconcile(
 ) -> Result<Reconciliation, CliError> {
     let mut reasons: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut admitted: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut removed: BTreeSet<PathBuf> = BTreeSet::new();
     let mut involved = involved_records(records_dir, worktrees)?;
     for store in &involved {
-        if let Some(reason) = sync_record(store, claude_home, wait, &mut admitted)? {
+        if let Some(reason) = sync_record(store, claude_home, wait, &mut admitted, &mut removed)? {
             reasons.insert(store.root().to_path_buf(), reason);
         }
     }
@@ -206,13 +222,28 @@ pub fn reconcile(
 
     let mut unreconciled = Vec::new();
     if let Some(home) = claude_home {
-        for (checkout, transcripts) in
-            unowned_transcripts(home, worktrees, main_worktree, &admitted)?
-        {
+        let unowned = unowned_transcripts(home, worktrees, main_worktree, &admitted)?;
+        for (checkout, transcript) in unowned.removed {
+            unreconciled.push(UnreconciledCheckout {
+                checkout,
+                transcripts: 1,
+                reason: removed_reason(&transcript),
+            });
+            removed.insert(transcript);
+        }
+        for (checkout, transcripts) in unowned.groups {
             match open_or_create_record_within(records_dir, &checkout, wait)? {
                 Acquired::Ready(store) => {
-                    if sync_within(&store, &checkout, &transcripts, wait)?.is_none() {
-                        reasons.insert(store.root().to_path_buf(), WRITER_LOCKED.to_owned());
+                    let root = store.root().to_path_buf();
+                    match sync_within(&store, &checkout, &transcripts, wait)? {
+                        None => {
+                            reasons.insert(root, WRITER_LOCKED.to_owned());
+                        }
+                        Some(report) => {
+                            if let Some(reason) = note_removed(&report, &mut removed) {
+                                reasons.entry(root).or_insert(reason);
+                            }
+                        }
                     }
                     touched.push(store);
                 }
@@ -248,11 +279,15 @@ pub fn reconcile(
     Ok(Reconciliation {
         records,
         unreconciled,
+        removed: removed.into_iter().collect(),
     })
 }
 
-/// Syncs one record per association, adding every transcript sync admits (not one it skips) to
-/// `admitted`. Returns the reason it stopped early, if a lock stayed held.
+/// Syncs one record per association. Adds every transcript sync admits or
+/// finds removed (not one it skips for its checkout) to `admitted`, and
+/// every one it finds removed to `removed`. Returns why the record is not
+/// reconciled: a lock that stayed held, or else the first transcript
+/// removed before it could be read.
 ///
 /// # Errors
 ///
@@ -262,10 +297,12 @@ fn sync_record(
     claude_home: Option<&Path>,
     wait: Duration,
     admitted: &mut BTreeSet<PathBuf>,
+    removed: &mut BTreeSet<PathBuf>,
 ) -> Result<Option<String>, CliError> {
     let snapshot = store.snapshot()?;
     let recorded = recorded_checkouts(&snapshot)?;
     let manifest = snapshot.manifest();
+    let mut reason = None;
     for association in &manifest.associations {
         let mut transcripts: Vec<PathBuf> = Vec::new();
         if let Some(home) = claude_home {
@@ -286,11 +323,41 @@ fn sync_record(
         let Some(report) = sync_within(store, &association.checkout, &transcripts, wait)? else {
             return Ok(Some(WRITER_LOCKED.to_owned()));
         };
-        for transcript in report.transcripts.iter().filter(|t| t.skipped.is_none()) {
-            admitted.insert(identity(&transcript.path)?);
+        // A removed transcript is reported here, so the unowned read need
+        // not find it again.
+        for transcript in &report.transcripts {
+            if matches!(transcript.skipped, None | Some(Skip::Removed)) {
+                admitted.insert(identity(&transcript.path)?);
+            }
+        }
+        if let Some(first) = note_removed(&report, removed) {
+            reason.get_or_insert(first);
         }
     }
-    Ok(None)
+    Ok(reason)
+}
+
+/// Adds transcripts skipped as removed in `report` to `removed`.
+/// Returns the reason naming the first such transcript, if any.
+fn note_removed(report: &SyncReport, removed: &mut BTreeSet<PathBuf>) -> Option<String> {
+    let mut reason = None;
+    for transcript in &report.transcripts {
+        if matches!(transcript.skipped, Some(Skip::Removed)) {
+            reason.get_or_insert_with(|| removed_reason(&transcript.path));
+            removed.insert(transcript.path.clone());
+        }
+    }
+    reason
+}
+
+/// Explains that a record or checkout is unreconciled because `transcript`
+/// was removed before it could be read.
+fn removed_reason(transcript: &Path) -> String {
+    format!(
+        "transcript {} {}",
+        transcript.display(),
+        Skip::Removed.reason()
+    )
 }
 
 /// Maps each transcript path the record holds a cursor for to the checkout
@@ -313,22 +380,35 @@ fn recorded_checkouts(snapshot: &RecordSnapshot) -> Result<BTreeMap<String, Path
     Ok(checkouts)
 }
 
+/// Transcripts that no involved record read, from [`unowned_transcripts`].
+struct Unowned {
+    /// Admitted transcripts, grouped by the canonical working directory
+    /// they record.
+    groups: BTreeMap<PathBuf, Vec<PathBuf>>,
+    /// Removed transcripts ([`read_transcript`]), each paired once with the worktree
+    /// or ancestor whose project directory first listed it.
+    removed: Vec<(PathBuf, PathBuf)>,
+}
+
 /// Transcripts that no involved record read, grouped by the canonical
 /// working directory they record: those below each worktree whose working
 /// directory lies inside it, and those in the project directory of each of
 /// the worktree's ancestors up to `main_worktree` whose working directory
-/// lies at or below that ancestor.
+/// lies at or below that ancestor. Those removed before they could be read
+/// are returned apart.
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Io`] if a directory or transcript cannot be read.
+/// Returns [`CliError::Io`] if a directory cannot be read, or a transcript
+/// cannot be read for a reason other than its removal.
 fn unowned_transcripts(
     claude_home: &Path,
     worktrees: &[PathBuf],
     main_worktree: &Path,
     admitted: &BTreeSet<PathBuf>,
-) -> Result<BTreeMap<PathBuf, Vec<PathBuf>>, CliError> {
+) -> Result<Unowned, CliError> {
     let mut groups: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    let mut removed = Vec::new();
     // The working directory each transcript records, parsed once per run
     // however many worktrees reach it. Always the whole transcript: the
     // working directory can appear anywhere in it.
@@ -354,7 +434,13 @@ fn unowned_transcripts(
             let cwd = match checkouts.entry(transcript_id) {
                 Entry::Occupied(known) => known.get().clone(),
                 Entry::Vacant(slot) => {
-                    let bytes = std::fs::read(&transcript)?;
+                    let Some(bytes) = read_transcript(&transcript)? else {
+                        // Remembered without a working directory, so it is
+                        // reported once.
+                        slot.insert(None);
+                        removed.push((admit_under, transcript));
+                        continue;
+                    };
                     slot.insert(parse_transcript(&bytes, 0).checkout).clone()
                 }
             };
@@ -371,7 +457,7 @@ fn unowned_transcripts(
             }
         }
     }
-    Ok(groups)
+    Ok(Unowned { groups, removed })
 }
 
 /// The proper ancestors of `worktree` that lie at or below `main_worktree`,

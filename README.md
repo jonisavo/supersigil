@@ -26,20 +26,28 @@ not maintained.
 ## Status
 
 The current CLI imports Claude Code sessions, reviews working-tree or commit
-changes, and explains individual lines. It prints JSON or a plain terminal
-summary. Sourced annotations, human judgments, and an interactive terminal
-review remain planned.
+changes, explains individual lines, and saves human review judgments. It
+prints JSON or a plain terminal summary. Sourced annotations,
+corrections, and an interactive terminal review remain planned.
 
 ```sh
 supersigil session sync
 supersigil review --format terminal
 supersigil review --base main --target HEAD --format json
 supersigil why src/lib.rs:12 --format terminal
+supersigil judge acknowledge src/lib.rs --reason "read with the transcript"
+supersigil judge complete
+supersigil judge show
 ```
 
 `review` and `why` reconcile relevant records before reading the change.
 Untracked files are excluded from a review unless named with
 `--include-untracked PATH`. Unattributed lines remain visible.
+
+Each review attempts to save a basis and lists gate items for a person to judge.
+`judge` acknowledges or dismisses items and completes the worktree's selected
+review. It refuses to write inside an agent session. Later reviews report
+code and evidence changes since completion.
 
 ## Development
 

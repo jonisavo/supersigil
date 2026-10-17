@@ -4,7 +4,9 @@
 //! different path separators. [`placement`] accounts for these differences
 //! when comparing a transcript's working directory with a checkout.
 
-use std::path::{Path, PathBuf};
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
 
 /// Whether a path is the checkout root, a descendant, or outside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +53,71 @@ pub fn overlaps(a: &Path, b: &Path) -> bool {
 /// Returns any I/O error other than [`std::io::ErrorKind::NotFound`].
 pub fn canonical_or_written(path: &Path) -> std::io::Result<PathBuf> {
     Ok(crate::found(canonical(path))?.unwrap_or_else(|| path.to_path_buf()))
+}
+
+/// Returns [`canonical`] if `checkout` can be resolved, or `checkout` as
+/// written otherwise.
+#[must_use]
+pub fn resolve(checkout: &Path) -> PathBuf {
+    canonical(checkout).unwrap_or_else(|_| checkout.to_path_buf())
+}
+
+/// Cached [`resolve`] paths, once per checkout for a review or sync.
+/// Review places recorded files and sync compares edit locations through
+/// this cache, so a changing checkout symlink cannot place one file two ways.
+#[derive(Debug, Clone, Default)]
+pub struct Resolutions(BTreeMap<PathBuf, PathBuf>);
+
+impl Resolutions {
+    /// Caches [`resolve`] for `checkout` unless already cached.
+    pub fn add(&mut self, checkout: &Path) {
+        self.0
+            .entry(checkout.to_path_buf())
+            .or_insert_with(|| resolve(checkout));
+    }
+
+    /// Borrows the cached path, or calls [`resolve`] if `checkout` was never added.
+    #[must_use]
+    pub fn resolution(&self, checkout: &Path) -> Cow<'_, Path> {
+        self.0.get(checkout).map_or_else(
+            || Cow::Owned(resolve(checkout)),
+            |resolved| Cow::Borrowed(resolved.as_path()),
+        )
+    }
+}
+
+/// Joins [`resolve`] of `checkout` with `path` and normalizes components,
+/// preserving letter case. Removes `.`, folds `..` into a preceding normal
+/// component, and drops `..` at a root. Keeps `..` without a preceding normal
+/// component or root, including after `C:`, the Windows drive's current directory.
+///
+/// Reads nothing below the checkout. Sync groups edits by this location to
+/// compare one file named from different subdirectories or checkout symlinks.
+#[must_use]
+pub fn file_location(checkout: &Path, path: &Path) -> PathBuf {
+    file_location_in(&resolve(checkout), path)
+}
+
+/// [`file_location`] for an already resolved `checkout`.
+/// Normalizes components without resolving the checkout again, allowing
+/// [`Resolutions`] to cache one resolution for several files.
+#[must_use]
+pub fn file_location_in(checkout: &Path, path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in checkout.join(path).components() {
+        match component {
+            Component::ParentDir => match normal.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normal.pop();
+                }
+                Some(Component::RootDir) => {}
+                _ => normal.push(Component::ParentDir),
+            },
+            Component::CurDir => {}
+            other => normal.push(other),
+        }
+    }
+    normal
 }
 
 /// Returns an absolute path with symlinks resolved and no Windows verbatim prefix.
@@ -232,6 +299,78 @@ mod tests {
         assert_eq!(
             without_verbatim_prefix(PathBuf::from("/work/repo")),
             PathBuf::from("/work/repo")
+        );
+    }
+
+    #[test]
+    fn a_missing_checkout_locates_files_by_its_normalized_spelling() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        assert_eq!(location("/r", "sub/a.rs"), location("/r/sub", "a.rs"));
+        assert_eq!(
+            location("/r/./x/../sub", "./a.rs"),
+            PathBuf::from("/r/sub/a.rs")
+        );
+        assert_eq!(location("/r/sub", "../a.rs"), PathBuf::from("/r/a.rs"));
+        assert_ne!(location("/R", "a.rs"), location("/r", "a.rs"));
+    }
+
+    #[test]
+    fn an_unresolved_parent_component_is_kept_in_a_location() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        assert_eq!(
+            location("../missing", "a.rs"),
+            PathBuf::from("../missing/a.rs")
+        );
+        assert_ne!(location("../missing", "a.rs"), location("missing", "a.rs"));
+        assert_eq!(location("missing", "../../a.rs"), PathBuf::from("../a.rs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_component_above_the_root_is_dropped() {
+        assert_eq!(
+            file_location(Path::new("/r/sub"), Path::new("../../../a.rs")),
+            PathBuf::from("/a.rs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_parent_component_after_a_drive_without_a_root_is_kept() {
+        let location =
+            |checkout: &str, path: &str| file_location(Path::new(checkout), Path::new(path));
+        // A drive alone names its current directory, whose parent is
+        // unresolved.
+        assert_eq!(
+            location("C:../supersigil-missing", "a.rs"),
+            PathBuf::from(r"C:..\supersigil-missing\a.rs")
+        );
+        assert_ne!(
+            location("C:../supersigil-missing", "a.rs"),
+            location("C:supersigil-missing", "a.rs")
+        );
+        // Above a drive's root directory there is nothing.
+        assert_eq!(
+            location(r"C:\supersigil-missing", r"..\..\a.rs"),
+            PathBuf::from(r"C:\a.rs")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_checkout_and_its_real_path_locate_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let file = Path::new("a.rs");
+        assert_eq!(file_location(&link, file), file_location(&real, file));
+        assert_eq!(
+            file_location(&link, file),
+            canonical(&real).unwrap().join(file)
         );
     }
 

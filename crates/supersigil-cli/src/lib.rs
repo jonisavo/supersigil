@@ -3,6 +3,8 @@
 //! This crate provides the `supersigil` binary and its command
 //! implementations, and exports the argument types for integration tests.
 
+/// Whether a command runs inside an agent session.
+pub mod agent;
 /// CLI command definitions and argument types.
 pub mod commands;
 /// CLI error types.
@@ -12,6 +14,10 @@ pub mod error;
 pub mod evidence;
 /// Terminal formatting, color configuration, and output helpers.
 pub mod format;
+/// What `review` reads beside the review to build its gate.
+pub mod gate_inputs;
+/// Gate item names as a person types them from the current directory.
+pub mod item_names;
 /// Mapping recorded edits onto git worktrees.
 pub mod mapping;
 /// The steps `review` and `why` share, and conversions to the review model.
@@ -20,10 +26,15 @@ pub mod pipeline;
 pub mod reconcile;
 /// Records directory resolution and record lookup.
 pub mod record_dir;
+/// Reads code and record changes since an earlier judged review.
+pub mod reopening;
+/// Resolves review directories, finds review stores, and loads related judged reviews.
+pub mod review_dir;
 
 pub use commands::{
-    Command, CompletionsArgs, ReviewArgs, SessionArgs, SessionCommand, SessionListArgs,
-    SessionShowArgs, SessionSyncArgs, WhyArgs,
+    CloseArgs, Command, CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand,
+    ReviewArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
+    ShowArgs, UndoArgs, WhyArgs,
 };
 pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 
