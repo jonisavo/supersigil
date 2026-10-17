@@ -3,17 +3,19 @@
 //!
 //! [`JudgedStore`] takes the judgments and bases the CLI loads from the
 //! review store, and [`JudgedReview`] is one review's judged view: its item
-//! states, its completion, and its status and gate for output.
+//! states, its completion, its status and gate for output, and the
+//! judgment a [`Call`] would record on it, or why it is refused.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
+use std::slice;
 
 use serde::Serialize;
 use supersigil_record::JudgmentId;
 use supersigil_record::reviews::{
     Basis, BasisHeader, BasisId, BasisScope, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind,
-    Origin, PathBytes, Withdrawal,
+    Origin, PathBytes, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 
@@ -378,7 +380,7 @@ impl<'a> Ledger<'a> {
     /// characters, [`FindJudgmentError::NoMatch`] when no judgment's ID
     /// starts with it, or [`FindJudgmentError::Ambiguous`] when several
     /// do.
-    pub fn find(&self, prefix: &str) -> Result<&'a Judgment, FindJudgmentError<'a>> {
+    fn find(&self, prefix: &str) -> Result<&'a Judgment, FindJudgmentError<'a>> {
         if prefix.chars().count() < 8 {
             return Err(FindJudgmentError::TooShort);
         }
@@ -405,7 +407,7 @@ impl<'a> Ledger<'a> {
     /// Returns [`WithdrawRefusal::Undo`] for an undo and
     /// [`WithdrawRefusal::Withdrawn`] for a judgment of which nothing
     /// stands.
-    pub fn plan_withdrawal(&self, judgment: &Judgment) -> Result<Vec<Withdrawal>, WithdrawRefusal> {
+    fn plan_withdrawal(&self, judgment: &Judgment) -> Result<Vec<Withdrawal>, WithdrawRefusal> {
         match judgment.kind {
             JudgmentKind::Undo => Err(WithdrawRefusal::Undo),
             _ if !self.stands(judgment) => Err(WithdrawRefusal::Withdrawn),
@@ -686,17 +688,81 @@ impl<'a> JudgedReview<'a> {
         Ok(self.reported(completion, source, related, names))
     }
 
+    /// Plans `call` on the current review: the judgment it records, or why
+    /// it is refused. Acknowledging or dismissing needs every named item
+    /// unclosed and closes nothing else; completing needs every gate item
+    /// closed and lists each item's closing judgment; undoing items
+    /// withdraws what closes them, and undoing a judgment what stands of
+    /// it, each with the completions that count what it withdraws.
+    /// Comments are recorded as given and close nothing. Item IDs absent
+    /// from the gate pass every check and are recorded as given; callers
+    /// name items by resolving names against the gate.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Refusal`] for the call's kind.
+    pub fn plan(&self, call: Call<'_>) -> Result<Planned, Refusal<'a>> {
+        let mut planned = Planned {
+            basis: self.states.id.clone(),
+            kind: call.kind(),
+            items: Vec::new(),
+            reason: None,
+            text: None,
+            closes: BTreeMap::new(),
+            withdraws: Vec::new(),
+            first: self.states.ledger.on(self.states.id).next().is_none(),
+        };
+        match call {
+            Call::Acknowledge { items, reason } => {
+                self.states
+                    .check_close(items)
+                    .map_err(Refusal::AlreadyClosed)?;
+                planned.items = items.to_vec();
+                planned.reason = reason.map(str::to_owned);
+            }
+            Call::Dismiss { items, reason } => {
+                self.states
+                    .check_close(items)
+                    .map_err(Refusal::AlreadyClosed)?;
+                planned.items = items.to_vec();
+                planned.reason = Some(reason.0.to_owned());
+            }
+            Call::Comment { item, text } => {
+                planned.items = item.into_iter().cloned().collect();
+                planned.text = Some(text.to_owned());
+            }
+            Call::Complete { text } => {
+                planned.closes = self.check_complete()?;
+                planned.text = text.map(str::to_owned);
+            }
+            Call::UndoItems { items, reason } => {
+                planned.withdraws = self.states.plan_undo(items).map_err(Refusal::NotClosed)?;
+                planned.items = items.to_vec();
+                planned.reason = reason.map(str::to_owned);
+            }
+            Call::UndoJudgment { prefix, reason } => {
+                let ledger = self.states.ledger;
+                let judgment = ledger.find(prefix).map_err(Refusal::NoJudgment)?;
+                planned.withdraws = ledger
+                    .plan_withdrawal(judgment)
+                    .map_err(|refused| Refusal::NotWithdrawable(judgment, refused))?;
+                planned.reason = reason.map(str::to_owned);
+            }
+        }
+        Ok(planned)
+    }
+
     /// Builds the `closes` map for a new completion of the current review,
     /// mapping each gate item to its closing judgment.
     ///
     /// # Errors
     ///
-    /// Returns [`CompleteRefusal::AlreadyComplete`] with the current
-    /// review's own completion, or [`CompleteRefusal::Unclosed`] with the
-    /// items that are open or reopened.
-    pub fn check_complete(&self) -> Result<BTreeMap<ItemId, JudgmentId>, CompleteRefusal<'a>> {
+    /// Returns [`Refusal::AlreadyComplete`] with the current review's own
+    /// completion, or [`Refusal::Unclosed`] with the items that are open
+    /// or reopened.
+    fn check_complete(&self) -> Result<BTreeMap<ItemId, JudgmentId>, Refusal<'a>> {
         if let Some(completion) = self.completion() {
-            return Err(CompleteRefusal::AlreadyComplete(completion));
+            return Err(Refusal::AlreadyComplete(completion));
         }
         let items = self.items();
         let unclosed: Vec<_> = items
@@ -705,7 +771,7 @@ impl<'a> JudgedReview<'a> {
             .map(|judged| judged.item)
             .collect();
         if !unclosed.is_empty() {
-            return Err(CompleteRefusal::Unclosed(unclosed));
+            return Err(Refusal::Unclosed(unclosed));
         }
         Ok(items
             .iter()
@@ -714,31 +780,6 @@ impl<'a> JudgedReview<'a> {
                 Some((judged.item.id.clone(), closing.id.clone()))
             })
             .collect())
-    }
-
-    /// Checks whether a new acknowledgment or dismissal may name `items`.
-    /// Ignores IDs absent from the current review's gate.
-    ///
-    /// # Errors
-    ///
-    /// Returns every named item that a judgment already closes, in the
-    /// order named.
-    pub fn check_close(&self, items: &[ItemId]) -> Result<(), Vec<AlreadyClosed<'a>>> {
-        self.states.check_close(items)
-    }
-
-    /// Plans `undo <items>` on the current review, ignoring IDs absent from
-    /// its gate. Withdraws every standing acknowledgment or dismissal that
-    /// closes each item, own or carried, including older closers. Then
-    /// withdraws every standing completion on any review that counts one of
-    /// those judgment-item pairs.
-    ///
-    /// # Errors
-    ///
-    /// Returns every named item that nothing closes, with its state, in
-    /// the order named.
-    pub fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
-        self.states.plan_undo(items)
     }
 
     /// Checks whether `completion` counts for this review: every gate item
@@ -931,7 +972,13 @@ impl<'a> GateStates<'a> {
         &self.items
     }
 
-    /// As [`JudgedReview::check_close`].
+    /// Checks whether a new acknowledgment or dismissal may name `items`.
+    /// Ignores IDs absent from the current review's gate.
+    ///
+    /// # Errors
+    ///
+    /// Returns every named item that a judgment already closes, in the
+    /// order named.
     fn check_close(&self, items: &[ItemId]) -> Result<(), Vec<AlreadyClosed<'a>>> {
         let closed: Vec<_> = items
             .iter()
@@ -951,7 +998,16 @@ impl<'a> GateStates<'a> {
         }
     }
 
-    /// As [`JudgedReview::plan_undo`].
+    /// Plans `undo <items>` on the current review, ignoring IDs absent from
+    /// its gate. Withdraws every standing acknowledgment or dismissal that
+    /// closes each item, own or carried, including older closers. Then
+    /// withdraws every standing completion on any review that counts one of
+    /// those judgment-item pairs.
+    ///
+    /// # Errors
+    ///
+    /// Returns every named item that nothing closes, with its state, in
+    /// the order named.
     fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
         let named: Vec<_> = items.iter().filter_map(|id| self.judged(id)).collect();
         let unclosed: Vec<_> = named
@@ -1051,13 +1107,185 @@ impl<'a> GateStates<'a> {
     }
 }
 
-/// Why a completion of the current review is refused.
+/// A judgment someone asks to record on the current review, naming its
+/// items as `I`: gate item IDs once resolved, or the names as typed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Call<'c, I = ItemId> {
+    /// Acknowledge `items`, with an optional reason.
+    Acknowledge {
+        /// The items.
+        items: &'c [I],
+        /// Why, if given.
+        reason: Option<&'c str>,
+    },
+    /// Dismiss `items` for `reason`.
+    Dismiss {
+        /// The items.
+        items: &'c [I],
+        /// Why they need no follow-up.
+        reason: Reason<'c>,
+    },
+    /// Comment on `item`, or on the review as a whole.
+    Comment {
+        /// The item, if any.
+        item: Option<&'c I>,
+        /// The note.
+        text: &'c str,
+    },
+    /// Complete the review.
+    Complete {
+        /// A note, if given.
+        text: Option<&'c str>,
+    },
+    /// Withdraw the judgments closing `items`.
+    UndoItems {
+        /// The items.
+        items: &'c [I],
+        /// Why, if given.
+        reason: Option<&'c str>,
+    },
+    /// Withdraw what stands of the judgment whose ID starts with `prefix`,
+    /// on any review.
+    UndoJudgment {
+        /// At least 8 leading characters of its ID, in any ASCII case.
+        prefix: &'c str,
+        /// Why, if given.
+        reason: Option<&'c str>,
+    },
+}
+
+// Derived `Clone` and `Copy` would require `I: Copy`.
+impl<I> Clone for Call<'_, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I> Copy for Call<'_, I> {}
+
+impl<'c, I> Call<'c, I> {
+    /// The items it names, none for a completion or an undo by judgment.
+    #[must_use]
+    pub fn items(self) -> &'c [I] {
+        match self {
+            Self::Acknowledge { items, .. }
+            | Self::Dismiss { items, .. }
+            | Self::UndoItems { items, .. } => items,
+            Self::Comment { item, .. } => item.map_or(&[], slice::from_ref),
+            Self::Complete { .. } | Self::UndoJudgment { .. } => &[],
+        }
+    }
+
+    /// The same call naming `items` instead, the first of them for a
+    /// comment.
+    #[must_use]
+    pub fn naming<'d, J>(self, items: &'d [J]) -> Call<'d, J>
+    where
+        'c: 'd,
+    {
+        match self {
+            Self::Acknowledge { reason, .. } => Call::Acknowledge { items, reason },
+            Self::Dismiss { reason, .. } => Call::Dismiss { items, reason },
+            Self::Comment { text, .. } => Call::Comment {
+                item: items.first(),
+                text,
+            },
+            Self::Complete { text } => Call::Complete { text },
+            Self::UndoItems { reason, .. } => Call::UndoItems { items, reason },
+            Self::UndoJudgment { prefix, reason } => Call::UndoJudgment { prefix, reason },
+        }
+    }
+
+    /// The kind of judgment it records.
+    #[must_use]
+    pub const fn kind(&self) -> JudgmentKind {
+        match self {
+            Self::Acknowledge { .. } => JudgmentKind::Acknowledge,
+            Self::Dismiss { .. } => JudgmentKind::Dismiss,
+            Self::Comment { .. } => JudgmentKind::Comment,
+            Self::Complete { .. } => JudgmentKind::Complete,
+            Self::UndoItems { .. } | Self::UndoJudgment { .. } => JudgmentKind::Undo,
+        }
+    }
+}
+
+/// A dismissal's reason, which is never blank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reason<'a>(&'a str);
+
+impl<'a> Reason<'a> {
+    /// `text` as a reason, unless it is missing or only whitespace.
+    #[must_use]
+    pub fn new(text: Option<&'a str>) -> Option<Self> {
+        text.filter(|text| !text.trim().is_empty()).map(Self)
+    }
+}
+
+/// The judgment a [`Call`] records, without the ID, author, and time
+/// recording gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CompleteRefusal<'a> {
-    /// The current review already has this standing completion.
+pub struct Planned {
+    /// The review it is recorded on.
+    basis: BasisId,
+    /// Its kind.
+    kind: JudgmentKind,
+    /// The gate items it names.
+    items: Vec<ItemId>,
+    /// The reason given.
+    reason: Option<String>,
+    /// The note given.
+    text: Option<String>,
+    /// A completion's closing judgment of each gate item.
+    closes: BTreeMap<ItemId, JudgmentId>,
+    /// What an undo withdraws.
+    withdraws: Vec<Withdrawal>,
+    /// Whether the review has no judgment yet.
+    first: bool,
+}
+
+impl Planned {
+    /// Whether it is the review's first judgment, before which the
+    /// reviewed snapshot must be kept.
+    #[must_use]
+    pub const fn first(&self) -> bool {
+        self.first
+    }
+
+    /// The judgment as recorded with `id` by `who` at `at`.
+    #[must_use]
+    pub fn record(self, id: JudgmentId, who: Who, at: UtcTime) -> Judgment {
+        Judgment {
+            id,
+            basis: self.basis,
+            kind: self.kind,
+            items: self.items,
+            reason: self.reason,
+            text: self.text,
+            closes: self.closes,
+            withdraws: self.withdraws,
+            who,
+            at,
+        }
+    }
+}
+
+/// Why a [`Call`] is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal<'a> {
+    /// An acknowledgment or dismissal names items a judgment already
+    /// closes, in the order named.
+    AlreadyClosed(Vec<AlreadyClosed<'a>>),
+    /// A completion of a review that already has this standing completion.
     AlreadyComplete(&'a Judgment),
-    /// These gate items are open or reopened, in gate order.
+    /// A completion while these gate items are open or reopened, in gate
+    /// order.
     Unclosed(Vec<&'a GateItem>),
+    /// An undo names items nothing closes, in the order named.
+    NotClosed(Vec<NotClosed<'a>>),
+    /// An undo's prefix names no single judgment.
+    NoJudgment(FindJudgmentError<'a>),
+    /// An undo names this judgment, which cannot be withdrawn.
+    NotWithdrawable(&'a Judgment, WithdrawRefusal),
 }
 
 /// An item that already has a closing judgment, refusing a new

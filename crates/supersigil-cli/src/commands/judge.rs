@@ -15,7 +15,6 @@
 mod list;
 mod show;
 
-use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -24,13 +23,13 @@ use supersigil_git::retention::{self, Identity};
 use supersigil_git::{Git, ObjectId, Repo};
 use supersigil_record::reviews::{
     self, Basis, BasisId, BasisTarget, ItemId, Judgment, JudgmentKind, Origin, ReviewSnapshot,
-    ReviewStore, Who, Withdrawal,
+    ReviewStore, Who,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
-    AlreadyClosed, CompleteRefusal, FindJudgmentError, ItemState, JudgedReview, JudgedStore,
-    Ledger, NotClosed, WithdrawRefusal,
+    AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Reason,
+    Refusal, WithdrawRefusal,
 };
 use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
@@ -39,7 +38,7 @@ use supersigil_review::summary::{closed_word, compared, next_lines, noun};
 use supersigil_session::checkout::canonical;
 
 use crate::agent::in_agent_session;
-use crate::commands::{CloseArgs, JudgeArgs, JudgeCommand};
+use crate::commands::{JudgeArgs, JudgeCommand};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
 use crate::item_names::{item_names, name};
@@ -75,60 +74,53 @@ Omit --global to set the identity only in this repository.";
 /// fails; [`CliError::Record`] when the review store cannot be read or
 /// written; and an I/O error when writing the output fails.
 pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
-    let call = match &args.command {
-        JudgeCommand::Acknowledge(close) => Call::closing(JudgmentKind::Acknowledge, close),
-        JudgeCommand::Dismiss(close) => Call::closing(JudgmentKind::Dismiss, close),
-        JudgeCommand::Comment(comment) => Call {
-            kind: JudgmentKind::Comment,
-            names: comment.item.as_deref().into_iter().collect(),
-            reason: None,
-            text: Some(&comment.text),
-            judgment: None,
-        },
-        JudgeCommand::Complete(complete) => Call {
-            kind: JudgmentKind::Complete,
-            names: Vec::new(),
-            reason: None,
-            text: complete.text.as_deref(),
-            judgment: None,
-        },
-        JudgeCommand::Undo(undo) => Call {
-            kind: JudgmentKind::Undo,
-            names: undo.items.iter().map(String::as_str).collect(),
-            reason: undo.reason.as_deref(),
-            text: None,
-            judgment: undo.judgment.as_deref(),
-        },
-        JudgeCommand::List => return list::run(args),
-        JudgeCommand::Show(show) => return show::run(args, show),
-    };
-    write(args, &call).map_err(|error| match error {
-        CliError::Refused(message) => CliError::Refused(format!("No judgment recorded. {message}")),
-        error => error,
-    })
-}
-
-/// A write command's judgment kind, typed item names, reason or text,
-/// and judgment id for an undo.
-struct Call<'a> {
-    kind: JudgmentKind,
-    names: Vec<&'a str>,
-    reason: Option<&'a str>,
-    text: Option<&'a str>,
-    judgment: Option<&'a str>,
-}
-
-impl<'a> Call<'a> {
-    /// Builds an acknowledgment or dismissal of `kind` from `args`.
-    fn closing(kind: JudgmentKind, args: &'a CloseArgs) -> Self {
-        Self {
-            kind,
-            names: args.items.iter().map(String::as_str).collect(),
-            reason: args.reason.as_deref(),
-            text: None,
-            judgment: None,
-        }
+    match &args.command {
+        JudgeCommand::List => list::run(args),
+        JudgeCommand::Show(show) => show::run(args, show),
+        command => write(args, command).map_err(|error| match error {
+            CliError::Refused(message) => {
+                CliError::Refused(format!("No judgment recorded. {message}"))
+            }
+            error => error,
+        }),
     }
+}
+
+/// The call `command` makes, its items named as typed.
+///
+/// # Errors
+///
+/// Refuses a dismissal without a reason.
+fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
+    Ok(match command {
+        JudgeCommand::Acknowledge(close) => Call::Acknowledge {
+            items: &close.items,
+            reason: close.reason.as_deref(),
+        },
+        JudgeCommand::Dismiss(close) => Call::Dismiss {
+            items: &close.items,
+            reason: Reason::new(close.reason.as_deref())
+                .ok_or_else(|| refusal(["A dismissal needs --reason."].into()))?,
+        },
+        JudgeCommand::Comment(comment) => Call::Comment {
+            item: comment.item.as_ref(),
+            text: &comment.text,
+        },
+        JudgeCommand::Complete(complete) => Call::Complete {
+            text: complete.text.as_deref(),
+        },
+        JudgeCommand::Undo(undo) => match &undo.judgment {
+            Some(prefix) => Call::UndoJudgment {
+                prefix,
+                reason: undo.reason.as_deref(),
+            },
+            None => Call::UndoItems {
+                items: &undo.items,
+                reason: undo.reason.as_deref(),
+            },
+        },
+        JudgeCommand::List | JudgeCommand::Show(_) => unreachable!("not a write command"),
+    })
 }
 
 /// The checkout a call names, with its repository's review store.
@@ -210,21 +202,17 @@ fn addressing(args: &JudgeArgs) -> Addressing {
     }
 }
 
-/// Records `call` on the review `args` selects, then prints what it
-/// recorded, the gate it leaves, and what to run next.
+/// Records the judgment `command` makes on the review `args` selects,
+/// then prints what it recorded, the gate it leaves, and what to run next.
 ///
 /// # Errors
 ///
 /// As [`run`]; a refusal's message here lacks its "No judgment recorded."
-fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
+fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     if in_agent_session(|name| std::env::var_os(name)) {
         return Err(refusal([AGENT_SESSION].into()));
     }
-    if call.kind == JudgmentKind::Dismiss
-        && call.reason.is_none_or(|reason| reason.trim().is_empty())
-    {
-        return Err(refusal(["A dismissal needs --reason."].into()));
-    }
+    let call = call(command)?;
     let mut addressing = addressing(args);
     let checkout = Checkout::open(args)?;
     let store = checkout.store(args.review.as_deref(), &addressing)?;
@@ -244,39 +232,26 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let mut judgments = tx.judgments().to_vec();
     let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
     let names = checkout.names(&basis)?;
-    let items = resolve(&names, &call.names, |text| {
+    let items = resolve(&names, call.items(), |text| {
         name(&checkout.worktree, &checkout.cwd, text)
     })?;
     let store = JudgedStore::new(&judgments, &others);
-    let review = store.review(&id, &basis);
-    let closes = check(call.kind, &id, &review, &items, &names, &addressing)?;
-    let withdraws = match call.judgment {
-        Some(prefix) => withdraw_judgment(store.ledger(), prefix, &addressing)?,
-        None if call.kind == JudgmentKind::Undo => withdraw_items(&review, &items, &names)?,
-        None => Vec::new(),
-    };
+    let planned = store
+        .review(&id, &basis)
+        .plan(call.naming(&items))
+        .map_err(|refused| refused_call(&refused, call, &id, &names, &addressing))?;
     let who = retention::identity(&checkout.repo)?
         .ok_or_else(|| refusal(NO_IDENTITY.lines().collect()))?;
-    let first = store.ledger().on(&id).next().is_none();
+    let first = planned.first();
     if first {
         keep(&checkout.repo, &id, &basis, &who, &addressing)?;
     }
     let now = UtcTime::now();
-    let judgment = Judgment {
-        id: JudgmentId::generate(),
-        basis: id.clone(),
-        kind: call.kind,
-        items,
-        reason: call.reason.map(str::to_owned),
-        text: call.text.map(str::to_owned),
-        closes,
-        withdraws,
-        who: Who {
-            name: who.name,
-            email: who.email,
-        },
-        at: now,
+    let who = Who {
+        name: who.name,
+        email: who.email,
     };
+    let judgment = planned.record(JudgmentId::generate(), who, now);
     tx.append_judgment(&judgment)?;
     tx.cleanup(now)?;
     tx.commit()?;
@@ -555,14 +530,14 @@ fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
 /// Returns a refusal explaining each name that fails to resolve to exactly one item.
 fn resolve(
     names: &ItemNames<'_>,
-    typed: &[&str],
+    typed: &[String],
     name: impl Fn(&str) -> Result<Name, CliError>,
 ) -> Result<Vec<ItemId>, CliError> {
     let mut errors = Vec::new();
     let mut meanings = Vec::new();
     for text in typed {
         match name(text) {
-            Ok(name) => meanings.push((*text, name)),
+            Ok(name) => meanings.push((text.as_str(), name)),
             Err(error) => errors.push(error.to_string()),
         }
     }
@@ -577,60 +552,84 @@ fn resolve(
     Err(refusal(out))
 }
 
-/// Checks `kind` and `items` against review `id`'s gate `states` after judgments.
-/// Returns the items and judgments a completion closes, or an empty map for
-/// other calls. [`withdraw_items`] and [`withdraw_judgment`] check undos
-/// while planning them.
-///
-/// # Errors
-///
-/// Returns a refusal when an item to acknowledge or dismiss is already closed,
-/// or when a completion finds an open item or an already completed review.
-fn check(
-    kind: JudgmentKind,
+/// The refusal of `call` on review `id` for `refused`, naming items with
+/// `names` and addressing commands with `addressing`.
+fn refused_call(
+    refused: &Refusal<'_>,
+    call: Call<'_, String>,
     id: &BasisId,
-    review: &JudgedReview<'_>,
-    items: &[ItemId],
     names: &ItemNames<'_>,
     addressing: &Addressing,
-) -> Result<BTreeMap<ItemId, JudgmentId>, CliError> {
-    match kind {
-        JudgmentKind::Acknowledge | JudgmentKind::Dismiss => review
-            .check_close(items)
-            .map(|()| BTreeMap::new())
-            .map_err(|closed| already_closed(&closed, names, addressing)),
-        JudgmentKind::Comment | JudgmentKind::Undo => Ok(BTreeMap::new()),
-        JudgmentKind::Complete => review.check_complete().map_err(|refused| match refused {
-            CompleteRefusal::AlreadyComplete(completion) => refusal(
-                [format!(
-                    "Review {} is already complete: completed on {} by {} (judgment {}).",
-                    id.short(),
-                    completion.at.date(),
-                    completion.who.name,
-                    completion.id.short()
-                )]
-                .into(),
-            ),
-            CompleteRefusal::Unclosed(open) => {
-                let open: Vec<&str> = open
-                    .iter()
-                    .map(|item| names.name(&item.id).unwrap_or_default())
-                    .collect();
-                let count = match open.len() {
-                    1 => "1 open item".to_owned(),
-                    count => format!("{count} open items"),
-                };
-                let mut out = Printed::new();
-                out.line(format!(
-                    "Review {} has {count}: {}. Comments do not close items.",
-                    id.short(),
-                    open.join(", ")
-                ));
-                let next = next_lines(&open, false, addressing, &mut out);
-                out.lines(next);
-                refusal(out)
+) -> CliError {
+    match refused {
+        Refusal::AlreadyClosed(closed) => already_closed(closed, names, addressing),
+        Refusal::AlreadyComplete(completion) => refusal(
+            [format!(
+                "Review {} is already complete: completed on {} by {} (judgment {}).",
+                id.short(),
+                completion.at.date(),
+                completion.who.name,
+                completion.id.short()
+            )]
+            .into(),
+        ),
+        Refusal::Unclosed(open) => {
+            let open: Vec<&str> = open
+                .iter()
+                .map(|item| names.name(&item.id).unwrap_or_default())
+                .collect();
+            let count = match open.len() {
+                1 => "1 open item".to_owned(),
+                count => format!("{count} open items"),
+            };
+            let mut out = Printed::new();
+            out.line(format!(
+                "Review {} has {count}: {}. Comments do not close items.",
+                id.short(),
+                open.join(", ")
+            ));
+            let next = next_lines(&open, false, addressing, &mut out);
+            out.lines(next);
+            refusal(out)
+        }
+        Refusal::NotClosed(unclosed) => {
+            let mut out = Printed::new();
+            out.line("Nothing closes these items, so there is nothing to undo:");
+            for NotClosed { item, state } in unclosed {
+                let name = names.name(&item.id).unwrap_or_default();
+                out.line(match state {
+                    ItemState::Reopened { judgment, reasons } => format!(
+                        "  {name}: reopened: {} since your {} (judgment {}, review {})",
+                        reasons.join("; "),
+                        noun(judgment.kind),
+                        judgment.id.short(),
+                        judgment.basis.short()
+                    ),
+                    _ => format!("  {name}: open"),
+                });
             }
-        }),
+            refusal(out)
+        }
+        Refusal::NoJudgment(error) => {
+            let Call::UndoJudgment { prefix, .. } = call else {
+                unreachable!("only an undo by judgment names a judgment");
+            };
+            no_judgment(error, prefix, addressing)
+        }
+        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Undo) => refusal(
+            [format!(
+                "Judgment {} is an undo; an undo cannot be withdrawn.",
+                judgment.id.short()
+            )]
+            .into(),
+        ),
+        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Withdrawn) => refusal(
+            [format!(
+                "Judgment {} is already withdrawn.",
+                judgment.id.short()
+            )]
+            .into(),
+        ),
     }
 }
 
@@ -667,51 +666,9 @@ fn already_closed(
     refusal(out)
 }
 
-/// Plans `undo <items>` against gate `states`. Withdraws every own or carried
-/// judgment closing an item in `items`, and standing completions counting
-/// those judgments.
-///
-/// # Errors
-///
-/// Refuses items without closing judgments. Lists their states as open or
-/// reopened, with the judgment each reopened item no longer matches.
-fn withdraw_items(
-    review: &JudgedReview<'_>,
-    items: &[ItemId],
-    names: &ItemNames<'_>,
-) -> Result<Vec<Withdrawal>, CliError> {
-    review.plan_undo(items).map_err(|unclosed| {
-        let mut out = Printed::new();
-        out.line("Nothing closes these items, so there is nothing to undo:");
-        for NotClosed { item, state } in &unclosed {
-            let name = names.name(&item.id).unwrap_or_default();
-            out.line(match state {
-                ItemState::Reopened { judgment, reasons } => format!(
-                    "  {name}: reopened: {} since your {} (judgment {}, review {})",
-                    reasons.join("; "),
-                    noun(judgment.kind),
-                    judgment.id.short(),
-                    judgment.basis.short()
-                ),
-                _ => format!("  {name}: open"),
-            });
-        }
-        refusal(out)
-    })
-}
-
-/// Plans withdrawal of the whole judgment named by `prefix` in `ledger`,
-/// and every standing completion counting it.
-///
-/// # Errors
-///
-/// Refuses prefixes shorter than 8 characters, unknown or ambiguous prefixes,
-/// and judgments that are undos or already withdrawn.
-fn withdraw_judgment(
-    ledger: &Ledger<'_>,
-    prefix: &str,
-    addressing: &Addressing,
-) -> Result<Vec<Withdrawal>, CliError> {
+/// The refusal of an undo whose `prefix` names no single judgment, for
+/// `error`.
+fn no_judgment(error: &FindJudgmentError<'_>, prefix: &str, addressing: &Addressing) -> CliError {
     // A refusal of `prefix` that says where `judge show` lists each
     // judgment's id.
     let listed = |line: fn(&str, &str) -> String| {
@@ -720,7 +677,7 @@ fn withdraw_judgment(
         out.line(line(prefix, &format!("{show} lists each judgment's id")));
         refusal(out)
     };
-    let judgment = ledger.find(prefix).map_err(|error| match error {
+    match error {
         FindJudgmentError::TooShort => listed(|prefix, listed| {
             format!("Name a judgment by at least 8 characters of its id, not {prefix} ({listed}).")
         }),
@@ -739,25 +696,7 @@ fn withdraw_judgment(
             );
             refusal(out)
         }
-    })?;
-    ledger
-        .plan_withdrawal(judgment)
-        .map_err(|refused| match refused {
-            WithdrawRefusal::Undo => refusal(
-                [format!(
-                    "Judgment {} is an undo; an undo cannot be withdrawn.",
-                    judgment.id.short()
-                )]
-                .into(),
-            ),
-            WithdrawRefusal::Withdrawn => refusal(
-                [format!(
-                    "Judgment {} is already withdrawn.",
-                    judgment.id.short()
-                )]
-                .into(),
-            ),
-        })
+    }
 }
 
 /// Keeps the snapshot `basis` reviewed reachable under
