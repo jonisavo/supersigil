@@ -1,6 +1,8 @@
 //! File operations shared by the record and review stores: the writer lock,
 //! the manifest, pinned logs, and durable publication.
 
+mod publication;
+
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
@@ -8,8 +10,11 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::ids::Revision;
 use crate::store::{MANIFEST_FILE, StoreError, io_error};
+
+#[cfg(test)]
+pub(crate) use publication::Step;
+pub(crate) use publication::{Publication, Published};
 
 /// Checks that `root/manifest.json` is a file, reading metadata only.
 ///
@@ -88,16 +93,6 @@ pub(crate) fn create_manifest(root: &Path, manifest: &impl Serialize) -> Result<
     create_new(root, MANIFEST_FILE, &manifest_json(root, manifest)?)
 }
 
-/// Replaces the manifest by rename (see [`replace`]).
-///
-/// # Errors
-///
-/// Returns [`StoreError::Json`] if serialization fails or [`StoreError::Io`]
-/// if writing, renaming, or syncing fails.
-pub(crate) fn publish_manifest(root: &Path, manifest: &impl Serialize) -> Result<(), StoreError> {
-    replace(root, MANIFEST_FILE, &manifest_json(root, manifest)?)
-}
-
 /// Serializes a manifest as pretty JSON.
 ///
 /// # Errors
@@ -108,25 +103,6 @@ fn manifest_json(root: &Path, manifest: &impl Serialize) -> Result<Vec<u8>, Stor
         path: root.join(MANIFEST_FILE),
         source,
     })
-}
-
-/// Checks that `found` equals `expected` and returns the next revision.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Conflict`] if `found` differs from `expected`.
-///
-/// # Panics
-///
-/// Panics if `expected` is [`u64::MAX`].
-pub(crate) fn next_revision(expected: Revision, found: Revision) -> Result<Revision, StoreError> {
-    if found != expected {
-        return Err(StoreError::Conflict {
-            expected: expected.get(),
-            found: found.get(),
-        });
-    }
-    Ok(expected.next())
 }
 
 /// Takes the operating-system lock on `dir/name` without waiting, creating

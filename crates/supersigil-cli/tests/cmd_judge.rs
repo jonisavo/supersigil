@@ -1391,7 +1391,7 @@ fn a_judgment_id_prefix_must_name_one_judgment() {
         })
         .unwrap();
     }
-    tx.commit().unwrap();
+    tx.commit(UtcTime::now()).unwrap();
     let undo = |prefix: &str| refused(&f, &mut judge(&f, &f.repo, &["undo", "--judgment", prefix]));
 
     assert_eq!(
@@ -1617,7 +1617,7 @@ fn list_indexes_each_gate_once_however_many_reviews_are_related() {
         })
         .unwrap();
     }
-    tx.commit().unwrap();
+    tx.commit(UtcTime::now()).unwrap();
 
     // Indexing every related review's gate again for each listed review
     // took about 6 s here in a debug build; indexing each gate once takes
@@ -1656,7 +1656,7 @@ fn a_judgment_naming_every_item_of_a_large_gate_lists_each_by_name() {
     let store = review_store(&f, &f.reviews());
     let mut tx = store.begin().unwrap();
     let id = tx.save_basis(&basis, UtcTime::now()).unwrap();
-    tx.commit().unwrap();
+    tx.commit(UtcTime::now()).unwrap();
     let names: Vec<String> = (0..500).map(|k| format!("src/f{k}.rs")).collect();
     let mut args = vec!["acknowledge", "--review", &id.as_str()[..8]];
     args.extend(names.iter().map(String::as_str));

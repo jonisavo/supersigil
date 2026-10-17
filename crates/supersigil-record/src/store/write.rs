@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::{io, iter};
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
@@ -11,7 +11,7 @@ use super::{
     derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
-use crate::files;
+use crate::files::{self, Publication};
 use crate::ids::{Revision, SessionId};
 use crate::observations::Observation;
 use crate::time::{GRACE_SECONDS, UtcTime};
@@ -35,8 +35,8 @@ pub struct WriteTx<'a> {
     /// Time the commit is published at.
     now: UtcTime,
     _lock: File,
-    /// Files to sync at commit, with duplicate paths removed.
-    touched: BTreeSet<PathBuf>,
+    /// What this transaction changed, synced at commit.
+    publication: Publication,
 }
 
 impl<'a> WriteTx<'a> {
@@ -53,11 +53,11 @@ impl<'a> WriteTx<'a> {
         let manifest = manifest::read(store.root())?;
         Ok(Self {
             store,
+            publication: Publication::new(store.root(), manifest.revision),
             starting: manifest.clone(),
             manifest,
             now,
             _lock: lock,
-            touched: BTreeSet::new(),
         })
     }
 
@@ -122,7 +122,7 @@ impl<'a> WriteTx<'a> {
         self.manifest
             .logs
             .insert(log.to_owned(), pinned + bytes.len() as u64);
-        self.touched.insert(path);
+        self.publication.touched(path);
         Ok(())
     }
 
@@ -172,7 +172,7 @@ impl<'a> WriteTx<'a> {
                 .and_modify(|time| *time = (*time).max(now))
                 .or_insert(now);
         }
-        self.touched.insert(path);
+        self.publication.touched(path);
         Ok(())
     }
 
@@ -220,9 +220,10 @@ impl<'a> WriteTx<'a> {
     /// path is not plain and inside the record, crosses a link, or cannot be
     /// resolved on disk. Ignores file modification times.
     ///
-    /// Syncs changed files and their parent directories up to the record root,
-    /// then checks that the on-disk revision still matches the starting one.
-    /// Increments the revision and publishes the manifest by atomic rename.
+    /// Then syncs changed files and the directories of changed and deleted
+    /// files up to the record root, checks that the on-disk revision still
+    /// matches the starting one, increments it, and publishes the manifest by
+    /// atomic rename.
     ///
     /// On Windows, directories that cannot be opened are not synced. Their
     /// entries then rely on the file system's durability guarantees.
@@ -239,24 +240,8 @@ impl<'a> WriteTx<'a> {
     ///
     /// Panics if the starting revision is [`u64::MAX`].
     pub fn commit(mut self) -> Result<Revision, StoreError> {
-        let mut dirs = self.delete_superseded();
-        let root = self.store.root();
-        for path in &self.touched {
-            files::sync_file(path)?;
-            for dir in path.ancestors().skip(1) {
-                dirs.insert(dir.to_path_buf());
-                if dir == root {
-                    break;
-                }
-            }
-        }
-        for dir in &dirs {
-            files::sync_dir(dir)?;
-        }
-        let on_disk = manifest::read(self.store.root())?;
-        self.manifest.revision = files::next_revision(self.starting.revision, on_disk.revision)?;
-        files::publish_manifest(self.store.root(), &self.manifest)?;
-        Ok(self.manifest.revision)
+        self.delete_superseded();
+        self.publication.commit(&mut self.manifest)
     }
 
     /// Deletes documents superseded more than [`GRACE_SECONDS`] before the
@@ -277,9 +262,9 @@ impl<'a> WriteTx<'a> {
     /// if their resolved target is still referenced by the pending manifest.
     /// Keeps targets referenced by the starting manifest for a later commit,
     /// since that manifest stays current until publication and readers may
-    /// hold it. Deletes other due regular files. Returns their parent directories
-    /// for [`Self::commit`] to sync before publishing.
-    fn delete_superseded(&mut self) -> BTreeSet<PathBuf> {
+    /// hold it. Deletes other due regular files and records them for
+    /// [`Self::commit`] to sync before publishing.
+    fn delete_superseded(&mut self) {
         let root = self.store.root();
         let now = self.now;
         let starting = &self.starting;
@@ -289,6 +274,7 @@ impl<'a> WriteTx<'a> {
             superseded,
             ..
         } = &mut self.manifest;
+        let publication = &mut self.publication;
         let pending: BTreeSet<&str> = documents
             .values()
             .chain(logs.keys())
@@ -305,7 +291,7 @@ impl<'a> WriteTx<'a> {
         let mut named = HashSet::new();
         for file in referenced() {
             let Some(spelled) = location(file) else {
-                return BTreeSet::new();
+                return;
             };
             if pending.contains(file) {
                 named.insert(spelled);
@@ -314,20 +300,20 @@ impl<'a> WriteTx<'a> {
         superseded.retain(|file, _| replaced_document(file, &named));
         let due = |replaced: &UtcTime| now.unix() - replaced.unix() > GRACE_SECONDS;
         if !superseded.values().any(due) {
-            return BTreeSet::new();
+            return;
         }
         if !files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, OBSERVATIONS_DIR])
             || !iter::once(DERIVATIONS_DIR)
                 .chain(referenced())
                 .all(|file| unlinked(root, file))
         {
-            return BTreeSet::new();
+            return;
         }
         let mut current = HashSet::new();
         let mut held = HashSet::new();
         for file in referenced() {
             let Ok(target) = fs::canonicalize(root.join(file)) else {
-                return BTreeSet::new();
+                return;
             };
             if published.contains(file) {
                 held.insert(target.clone());
@@ -336,7 +322,6 @@ impl<'a> WriteTx<'a> {
                 current.insert(target);
             }
         }
-        let mut changed = BTreeSet::new();
         superseded.retain(|file, replaced| {
             if !due(replaced) {
                 return true;
@@ -349,7 +334,7 @@ impl<'a> WriteTx<'a> {
                     Ok(target) if current.contains(&target) => return false,
                     Ok(target) if held.contains(&target) => return true,
                     Ok(_) => fs::remove_file(&entry).inspect(|()| {
-                        changed.extend(entry.parent().map(Path::to_path_buf));
+                        publication.deleted(entry.clone());
                     }),
                     Err(e) => Err(e),
                 },
@@ -360,7 +345,6 @@ impl<'a> WriteTx<'a> {
                 Err(e) => e.kind() != io::ErrorKind::NotFound,
             }
         });
-        changed
     }
 }
 
@@ -445,3 +429,6 @@ fn resolved(file: &str) -> Option<String> {
     }
     (!names.is_empty()).then(|| names.join("/"))
 }
+
+#[cfg(test)]
+mod tests;

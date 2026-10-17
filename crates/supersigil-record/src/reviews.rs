@@ -21,7 +21,7 @@
 //! new files and appended bytes, then publishes the manifest with the next
 //! revision by rename. A reader uses one manifest and reads only what it
 //! pins. Cleanup removes an unused basis in two writes, so no published
-//! manifest names a deleted file (see [`ReviewTx::cleanup`]).
+//! manifest names a deleted file (see [`ReviewTx::commit`]).
 
 /// Defines a newtype over the 64 lowercase hexadecimal digits of a SHA-256
 /// hash, which refuses any other string when deserialized.

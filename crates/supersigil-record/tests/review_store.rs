@@ -59,15 +59,14 @@ fn new_store(dir: &Path) -> ReviewStore {
 fn save(store: &ReviewStore, basis: &Basis, now: UtcTime) -> BasisId {
     let mut tx = store.begin().unwrap();
     let id = tx.save_basis(basis, now).unwrap();
-    tx.commit().unwrap();
+    tx.commit(now).unwrap();
     id
 }
 
-/// Runs cleanup at `now` in its own transaction and commits it.
+/// Commits a transaction at `now` that changes nothing but what cleanup
+/// does.
 fn clean(store: &ReviewStore, now: UtcTime) {
-    let mut tx = store.begin().unwrap();
-    tx.cleanup(now).unwrap();
-    tx.commit().unwrap();
+    store.begin().unwrap().commit(now).unwrap();
 }
 
 fn basis_file(store: &ReviewStore, id: &BasisId) -> PathBuf {
@@ -383,8 +382,7 @@ fn a_write_never_opens_a_file_at_a_former_temporary_name() {
 
     let mut tx = store.begin().unwrap();
     tx.save_basis(&original, at(0)).unwrap();
-    tx.cleanup(at(0)).unwrap();
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
 
     assert_eq!(store.snapshot().unwrap().basis(&id).unwrap(), original);
     for path in &held {
@@ -411,12 +409,12 @@ fn a_live_basis_file_that_is_a_symlink_is_made_regular_before_anything_is_delete
     let mut tx = store.begin().unwrap();
     let id = tx.save_basis(&original, at(0)).unwrap();
     tx.select(Path::new("/work/repo"), &id);
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
     let path = basis_file(&store, &id);
     let current = store.root().join("bases").join(stray("json"));
 
-    // Exercise review writes, save-only writes, and cleanup-only judgment writes.
-    for (k, saves, cleans) in [(1, true, true), (2, true, false), (3, false, true)] {
+    // Exercise review writes, which save, and judgment writes, which do not.
+    for (k, saves) in [(1, true), (2, false)] {
         // Copy the live basis to a leftover name and link its file to the copy.
         fs::copy(&path, &current).unwrap();
         link_basis(&store, &id, &stray("json"));
@@ -425,16 +423,12 @@ fn a_live_basis_file_that_is_a_symlink_is_made_regular_before_anything_is_delete
         if saves {
             tx.save_basis(&original, at(k)).unwrap();
         }
-        if cleans {
-            tx.cleanup(at(k)).unwrap();
-        }
-        tx.commit().unwrap();
+        tx.commit(at(k)).unwrap();
 
         assert!(path.symlink_metadata().unwrap().is_file(), "{k}");
         assert_eq!(store.snapshot().unwrap().basis(&id).unwrap(), original);
-        // What the link led to is deleted only once the basis no longer
-        // needs it.
-        assert_eq!(current.exists(), !cleans, "{k}");
+        // What the link led to is deleted once the basis no longer needs it.
+        assert!(!current.exists(), "{k}");
     }
 }
 
@@ -448,7 +442,7 @@ fn making_a_basis_file_regular_never_overwrites_what_another_one_leads_to() {
         tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap(),
         tx.save_basis(&basis("/work/repo", 'c'), at(0)).unwrap(),
     ];
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
     // Cleanup makes the smaller ID's file regular first.
     ids.sort();
     let [first, second] = ids;
@@ -468,8 +462,7 @@ fn making_a_basis_file_regular_never_overwrites_what_another_one_leads_to() {
     // A review of a third basis: its write saves, cleans, and commits.
     let mut tx = store.begin().unwrap();
     tx.save_basis(&basis("/work/repo", 'b'), at(1)).unwrap();
-    tx.cleanup(at(1)).unwrap();
-    tx.commit().unwrap();
+    tx.commit(at(1)).unwrap();
 
     let snapshot = store.snapshot().unwrap();
     for (id, bytes) in [&first, &second].into_iter().zip(&bytes) {
@@ -491,7 +484,7 @@ fn nothing_is_deleted_while_a_live_basis_file_links_to_bytes_of_another_id() {
         let live = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
         let unused = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
         tx.select(Path::new("/work/repo"), &live);
-        tx.commit().unwrap();
+        tx.commit(at(0)).unwrap();
         clean(&store, at(GRACE_SECONDS + 1));
         let bases = store.root().join("bases");
         if let Some(content) = content {
@@ -537,7 +530,7 @@ fn cleanup_never_deletes_a_symlink_or_through_one() {
     let live = tx.save_basis(&original, at(0)).unwrap();
     let unused = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
     tx.select(Path::new("/work/repo"), &live);
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
     clean(&store, at(GRACE_SECONDS + 1));
     // A removed basis whose file is a link to a file outside the store,
     // and a leftover link.
@@ -585,8 +578,7 @@ fn nothing_is_deleted_while_the_manifest_or_the_lock_is_a_symlink() {
         // Another review: its write saves, cleans, and commits.
         let mut tx = store.begin().unwrap();
         let other = tx.save_basis(&basis("/work/repo", 'b'), at(1)).unwrap();
-        tx.cleanup(at(1)).unwrap();
-        tx.commit().unwrap();
+        tx.commit(at(1)).unwrap();
 
         assert!(moved.exists(), "{entry}");
         assert!(
@@ -612,7 +604,7 @@ fn selections_are_persisted_per_worktree() {
     tx.select(Path::new("/work/wt"), &first);
     tx.select(Path::new("/work/wt"), &second);
     assert_eq!(tx.manifest().selections.len(), 2);
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
 
     let manifest = store.snapshot().unwrap().manifest().clone();
     assert_eq!(manifest.selections[Path::new("/work/repo")], first);
@@ -653,17 +645,33 @@ fn an_unused_basis_is_removed_after_14_days_and_deleted_a_day_later() {
 }
 
 #[test]
+fn a_removed_basis_whose_file_is_already_gone_is_dropped_by_the_next_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = new_store(dir.path());
+    save(&store, &basis("/work/repo", 'a'), at(0));
+    clean(&store, at(GRACE_SECONDS + 1));
+    fs::remove_dir_all(store.root().join("bases")).unwrap();
+
+    clean(&store, at(GRACE_SECONDS + 2 + REMOVAL_DELAY_SECONDS));
+    assert!(store.snapshot().unwrap().manifest().removed.is_empty());
+}
+
+#[test]
 fn a_removal_is_never_deleted_by_the_write_that_publishes_it() {
     let dir = tempfile::tempdir().unwrap();
     let store = new_store(dir.path());
     let id = save(&store, &basis("/work/repo", 'a'), at(0));
 
-    let mut tx = store.begin().unwrap();
-    tx.cleanup(at(GRACE_SECONDS + 1)).unwrap();
-    tx.cleanup(at(GRACE_SECONDS + 10 * REMOVAL_DELAY_SECONDS))
-        .unwrap();
-    assert!(tx.manifest().removed.contains_key(&id));
-    tx.commit().unwrap();
+    // Long after both the grace period and the removal delay.
+    clean(&store, at(GRACE_SECONDS + 10 * REMOVAL_DELAY_SECONDS));
+    assert!(
+        store
+            .snapshot()
+            .unwrap()
+            .manifest()
+            .removed
+            .contains_key(&id)
+    );
     assert!(basis_file(&store, &id).exists());
 }
 
@@ -674,7 +682,7 @@ fn a_selected_basis_is_kept_until_another_review_is_selected() {
     let mut tx = store.begin().unwrap();
     let old = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
     tx.select(Path::new("/work/repo"), &old);
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
 
     let later = at(30 * 86_400);
     clean(&store, later);
@@ -690,8 +698,7 @@ fn a_selected_basis_is_kept_until_another_review_is_selected() {
     let mut tx = store.begin().unwrap();
     let new = tx.save_basis(&basis("/work/repo", 'b'), later).unwrap();
     tx.select(Path::new("/work/repo"), &new);
-    tx.cleanup(later).unwrap();
-    tx.commit().unwrap();
+    tx.commit(later).unwrap();
     let manifest = store.snapshot().unwrap().manifest().clone();
     assert_eq!(manifest.removed[&old], later);
     assert!(manifest.bases.contains_key(&new));
@@ -706,7 +713,7 @@ fn a_basis_listed_live_is_never_deleted_whatever_removed_says() {
     let mut tx = store.begin().unwrap();
     let live = tx.save_basis(&original, reviewed).unwrap();
     tx.select(Path::new("/work/repo"), &live);
-    tx.commit().unwrap();
+    tx.commit(reviewed).unwrap();
     // Add an invalid removal entry dated ten days before the live basis's review.
     edit_manifest(&store, |m| {
         m["removed"][live.as_str()] = json!("2026-10-13T00:00:00Z");
@@ -717,8 +724,7 @@ fn a_basis_listed_live_is_never_deleted_whatever_removed_says() {
     let mut tx = store.begin().unwrap();
     let other = tx.save_basis(&basis("/work/repo", 'b'), now).unwrap();
     tx.select(Path::new("/work/repo"), &other);
-    tx.cleanup(now).unwrap();
-    tx.commit().unwrap();
+    tx.commit(now).unwrap();
 
     let snapshot = store.snapshot().unwrap();
     assert_eq!(snapshot.manifest().bases[&live].last_reviewed, reviewed);
@@ -740,8 +746,7 @@ fn saving_a_removed_basis_revives_it_before_and_after_its_file_is_deleted() {
     let revived = at(GRACE_SECONDS + 3_600);
     let mut tx = store.begin().unwrap();
     tx.save_basis(&original, revived).unwrap();
-    tx.cleanup(revived).unwrap();
-    tx.commit().unwrap();
+    tx.commit(revived).unwrap();
     let manifest = store.snapshot().unwrap().manifest().clone();
     assert!(manifest.removed.is_empty());
     assert_eq!(
@@ -874,7 +879,7 @@ fn acknowledgment(basis: &BasisId, now: UtcTime) -> Judgment {
 fn judge(store: &ReviewStore, judgment: &Judgment) {
     let mut tx = store.begin().unwrap();
     tx.append_judgment(judgment).unwrap();
-    tx.commit().unwrap();
+    tx.commit(judgment.at).unwrap();
 }
 
 #[test]
@@ -904,7 +909,7 @@ fn judgments_are_appended_and_read_back_at_the_pinned_length() {
     // see the appended ones before the commit.
     assert_eq!(tx.judgments(), only_first);
     assert_eq!(store.snapshot().unwrap().judgments().unwrap(), only_first);
-    tx.commit().unwrap();
+    tx.commit(at(3)).unwrap();
 
     assert_eq!(pinned.judgments().unwrap(), only_first);
     let all = store.snapshot().unwrap().judgments().unwrap();
@@ -985,15 +990,14 @@ fn cleanup_keeps_a_judged_basis() {
     let unjudged = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
     let judged_later = tx.save_basis(&basis("/work/repo", 'c'), at(0)).unwrap();
     tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
 
     // A judgment appended in the same write counts too.
     let later = at(100 * 86_400);
     let mut tx = store.begin().unwrap();
     tx.append_judgment(&acknowledgment(&judged_later, later))
         .unwrap();
-    tx.cleanup(later).unwrap();
-    tx.commit().unwrap();
+    tx.commit(later).unwrap();
     clean(&store, at(200 * 86_400));
 
     let manifest = store.snapshot().unwrap().manifest().clone();
@@ -1012,7 +1016,7 @@ fn a_removed_basis_named_by_a_judgment_or_selection_is_not_deleted() {
     let judged = tx.save_basis(&basis("/work/repo", 'a'), at(0)).unwrap();
     let selected = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
     tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
     // Simulate an invalid manifest with judged and selected bases marked removed.
     edit_manifest(&store, |m| {
         let bases = m["bases"].as_object_mut().unwrap();
@@ -1039,7 +1043,7 @@ fn referenced_but_unlisted(store: &ReviewStore) -> (BasisId, BasisId) {
     let selected = tx.save_basis(&basis("/work/repo", 'b'), at(0)).unwrap();
     tx.append_judgment(&acknowledgment(&judged, at(0))).unwrap();
     tx.select(Path::new("/work/repo"), &selected);
-    tx.commit().unwrap();
+    tx.commit(at(0)).unwrap();
     edit_manifest(store, |m| {
         m["bases"].as_object_mut().unwrap().clear();
         m["removed"].as_object_mut().unwrap().clear();
@@ -1101,7 +1105,7 @@ fn nothing_is_deleted_while_the_judgments_log_is_a_symlink() {
         tx.select(Path::new("/work/repo"), &live);
         let judgment = acknowledgment(&live, at(0));
         tx.append_judgment(&judgment).unwrap();
-        tx.commit().unwrap();
+        tx.commit(at(0)).unwrap();
         clean(&store, at(GRACE_SECONDS + 1));
         // The log moved into `bases/`, with a link to it in its place.
         let log = store.root().join("judgments.jsonl");
