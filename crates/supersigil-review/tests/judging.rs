@@ -12,15 +12,15 @@ use std::time::Duration;
 use common::finishes_within;
 use supersigil_record::reviews::{
     Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, Explanation,
-    Fingerprint, FingerprintPart, GateDetail, GateItem, Judgment, JudgmentKind, PathBytes, Subject,
-    TargetKind, Who, Withdrawal,
+    Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, PathBytes,
+    Subject, TargetKind, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
-    AlreadyClosed, CompleteRefusal, Earlier, FindJudgmentError, ItemChange, ItemState,
-    JudgedReview, JudgedStore, Ledger, NotClosed, Relation, Report, Uncovered, WithdrawRefusal,
-    explanations_differ, uncovered_items,
+    AlreadyClosed, Call, Earlier, FindJudgmentError, ItemChange, ItemState, JudgedReview,
+    JudgedStore, Ledger, NotClosed, Planned, Reason, Refusal, Relation, Report, Uncovered,
+    WithdrawRefusal, explanations_differ, uncovered_items,
 };
 use supersigil_review::model::{
     ChangedEvidence, CompletionSource, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations,
@@ -162,6 +162,42 @@ fn withdrawals(ledger: &Ledger<'_>, plan: &[Withdrawal]) -> Vec<Withdrawal> {
     }
     plan.to_vec()
 }
+
+/// The judgment `planned` records as `planned` by Joni at time 100.
+fn recorded(planned: Planned) -> Judgment {
+    let who = Who {
+        name: "Joni Savolainen".to_owned(),
+        email: "joni@example.com".to_owned(),
+    };
+    planned.record(JudgmentId::new("planned"), who, UtcTime::from_unix(100))
+}
+
+/// Acknowledging `items` without a reason.
+fn acknowledge(items: &[ItemId]) -> Call<'_> {
+    Call::Acknowledge {
+        items,
+        reason: None,
+    }
+}
+
+/// Undoing `items` without a reason.
+fn undo_items(items: &[ItemId]) -> Call<'_> {
+    Call::UndoItems {
+        items,
+        reason: None,
+    }
+}
+
+/// Undoing the judgment whose ID starts with `prefix`, without a reason.
+fn undo_judgment(prefix: &str) -> Call<'_> {
+    Call::UndoJudgment {
+        prefix,
+        reason: None,
+    }
+}
+
+/// Completing without a note.
+const COMPLETE: Call<'static> = Call::Complete { text: None };
 
 /// A store of `judgments` relating reviews to the `earlier` ones.
 fn store_of<'a>(judgments: &'a [Judgment], earlier: &'a [Saved]) -> JudgedStore<'a> {
@@ -483,7 +519,10 @@ fn a_completion_of_the_current_review_keeps_carrying_what_it_counted() {
     assert_eq!(
         withdrawals(
             store.ledger(),
-            &states.plan_undo(slice::from_ref(&a.id)).unwrap()
+            &states
+                .plan(undo_items(slice::from_ref(&a.id)))
+                .map(|planned| recorded(planned).withdraws)
+                .unwrap()
         ),
         [withdrawal("first", Some(&a)), withdrawal("done-too", None)]
     );
@@ -539,7 +578,8 @@ fn undoing_an_item_carried_through_a_completion_withdraws_its_judgment_and_the_c
     let store = store_of(&judgments, &reviews[..2]);
     let plan = store
         .review(&reviews[2].0, &reviews[2].1)
-        .plan_undo(slice::from_ref(&a.id))
+        .plan(undo_items(slice::from_ref(&a.id)))
+        .map(|planned| recorded(planned).withdraws)
         .unwrap();
 
     assert_eq!(
@@ -836,8 +876,15 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
     let (closed, withdrawn) = finishes_within(Duration::from_secs(20), move || {
         let store = store_of(&judgments, &[]);
         let states = store.review(&current.0, &current.1);
-        let closed = states.check_close(&named).unwrap_err().len();
-        let withdrawn = states.plan_undo(&named).unwrap().len();
+        let Err(Refusal::AlreadyClosed(closed)) = states.plan(acknowledge(&named)) else {
+            panic!("every named item is closed");
+        };
+        let closed = closed.len();
+        let withdrawn = states
+            .plan(undo_items(&named))
+            .map(|planned| recorded(planned).withdraws)
+            .unwrap()
+            .len();
         (closed, withdrawn)
     });
 
@@ -853,20 +900,25 @@ fn undoing_a_judgment_of_every_item_of_a_large_gate_is_planned_promptly() {
         .collect();
     let current = saved(basis("/work/now", '1', '2', gate));
     let named: Vec<&GateItem> = current.1.gate.iter().collect();
-    let standing = vec![ack("all", &current.0, &named, 10)];
-    let pairs: Vec<_> = named.iter().map(|&item| ("all", Some(item))).collect();
+    let standing = vec![ack("acknowledged-all", &current.0, &named, 10)];
+    let pairs: Vec<_> = named
+        .iter()
+        .map(|&item| ("acknowledged-all", Some(item)))
+        .collect();
     let mut withdrawn = standing.clone();
     withdrawn.push(undo("undo-all", &current.0, &pairs, 20));
 
     let started = std::time::Instant::now();
     let (planned, refused) = finishes_within(Duration::from_secs(20), move || {
-        let planned = Ledger::new(&standing)
-            .plan_withdrawal(&standing[0])
-            .map(|plan| plan.len());
-        let refused = Ledger::new(&withdrawn)
-            .plan_withdrawal(&withdrawn[0])
-            .map(|plan| plan.len());
-        (planned, refused)
+        let withdrawn_count = |judgments: &[Judgment]| match store_of(judgments, &[])
+            .review(&current.0, &current.1)
+            .plan(undo_judgment("acknowledged-all"))
+        {
+            Ok(planned) => Ok(recorded(planned).withdraws.len()),
+            Err(Refusal::NotWithdrawable(_, refused)) => Err(refused),
+            Err(other) => panic!("{other:?}"),
+        };
+        (withdrawn_count(&standing), withdrawn_count(&withdrawn))
     });
     eprintln!("planned in {:?}", started.elapsed());
 
@@ -976,7 +1028,9 @@ fn a_completion_covers_only_items_its_gate_held_as_they_are_now() {
     let states = store.review(&current.0, &current.1);
     assert_eq!(item_states(&states), [ItemState::Carried(&judgments[0])]);
     assert_eq!(
-        states.check_complete(),
+        states
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
         Ok(BTreeMap::from([(x.id.clone(), JudgmentId::new("as-x"))]))
     );
     assert_eq!(
@@ -1037,8 +1091,9 @@ fn complete_is_refused_while_an_item_is_open_or_reopened() {
     assert_eq!(
         store_of(&judgments, &earlier)
             .review(&current.0, &current.1)
-            .check_complete(),
-        Err(CompleteRefusal::Unclosed(vec![
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
+        Err(Refusal::Unclosed(vec![
             &current.1.gate[1],
             &current.1.gate[2],
         ]))
@@ -1056,15 +1111,17 @@ fn complete_is_refused_on_a_review_with_a_standing_completion() {
     assert_eq!(
         store_of(&judgments, &[])
             .review(&current.0, &current.1)
-            .check_complete(),
-        Err(CompleteRefusal::AlreadyComplete(&judgments[1]))
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
+        Err(Refusal::AlreadyComplete(&judgments[1]))
     );
 
     judgments.push(undo("undo", &current.0, &[("done", None)], 30));
     assert_eq!(
         store_of(&judgments, &[])
             .review(&current.0, &current.1)
-            .check_complete(),
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
         Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("ack"))]))
     );
 }
@@ -1081,7 +1138,8 @@ fn a_completion_counts_own_and_carried_judgments() {
     assert_eq!(
         store_of(&judgments, &earlier)
             .review(&current.0, &current.1)
-            .check_complete(),
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
         Ok(BTreeMap::from([
             (a.id.clone(), JudgmentId::new("own")),
             (b.id.clone(), JudgmentId::new("carried")),
@@ -1117,10 +1175,17 @@ fn acknowledging_a_closed_item_is_refused() {
     ];
     let store = store_of(&judgments, &earlier);
     let states = store.review(&current.0, &current.1);
-    assert_eq!(states.check_close(&[c.id.clone(), d.id.clone()]), Ok(()));
     assert_eq!(
-        states.check_close(&[b.id.clone(), c.id.clone(), a.id.clone()]),
-        Err(vec![
+        states
+            .plan(acknowledge(&[c.id.clone(), d.id.clone()]))
+            .map(drop),
+        Ok(())
+    );
+    assert_eq!(
+        states
+            .plan(acknowledge(&[b.id.clone(), c.id.clone(), a.id.clone()]))
+            .map(drop),
+        Err(Refusal::AlreadyClosed(vec![
             AlreadyClosed {
                 item: &current.1.gate[1],
                 judgment: &judgments[1],
@@ -1131,7 +1196,7 @@ fn acknowledging_a_closed_item_is_refused() {
                 judgment: &judgments[0],
                 carried: false,
             },
-        ])
+        ]))
     );
 }
 
@@ -1163,7 +1228,8 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
     let store = store_of(&judgments, &earlier);
     let plan = store
         .review(&current.0, &current.1)
-        .plan_undo(&[a.id.clone(), a.id.clone()])
+        .plan(undo_items(&[a.id.clone(), a.id.clone()]))
+        .map(|planned| recorded(planned).withdraws)
         .unwrap();
     assert_eq!(
         withdrawals(store.ledger(), &plan),
@@ -1216,7 +1282,8 @@ fn undoing_a_carried_judgment_withdraws_the_earlier_reviews_completion() {
     let store = store_of(&judgments, &earlier);
     let plan = store
         .review(&current.0, &current.1)
-        .plan_undo(slice::from_ref(&a.id))
+        .plan(undo_items(slice::from_ref(&a.id)))
+        .map(|planned| recorded(planned).withdraws)
         .unwrap();
     assert_eq!(
         withdrawals(store.ledger(), &plan),
@@ -1247,8 +1314,13 @@ fn undo_of_an_item_nothing_closes_is_refused() {
     assert_eq!(
         store_of(&judgments, &earlier)
             .review(&current.0, &current.1)
-            .plan_undo(&[gate[0].id.clone(), b.id.clone(), c.id.clone(),]),
-        Err(vec![
+            .plan(undo_items(&[
+                gate[0].id.clone(),
+                b.id.clone(),
+                c.id.clone(),
+            ]))
+            .map(|planned| recorded(planned).withdraws),
+        Err(Refusal::NotClosed(vec![
             NotClosed {
                 item: &gate[0],
                 state: ItemState::Open,
@@ -1264,7 +1336,7 @@ fn undo_of_an_item_nothing_closes_is_refused() {
                     ],
                 },
             },
-        ])
+        ]))
     );
 }
 
@@ -1273,22 +1345,41 @@ fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
     let a = lines("a.rs", "x");
     let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
     let judgments = [
-        comment("note", &current.0, 10),
-        ack("ack", &current.0, &[&a], 20),
-        complete("done", &current.0, &[(&a, "ack")], 30),
+        comment("standing-note", &current.0, 10),
+        ack("acknowledgment", &current.0, &[&a], 20),
+        complete("completion", &current.0, &[(&a, "acknowledgment")], 30),
         comment("withdrawn-note", &current.0, 40),
-        undo("undo", &current.0, &[("withdrawn-note", None)], 50),
+        undo("undo-of-note", &current.0, &[("withdrawn-note", None)], 50),
     ];
-    let ledger = Ledger::new(&judgments);
-    let plan = |judgment| {
-        ledger
-            .plan_withdrawal(judgment)
-            .map(|plan| withdrawals(&ledger, &plan))
+    let store = store_of(&judgments, &[]);
+    let review = store.review(&current.0, &current.1);
+    let undone = |prefix| {
+        review
+            .plan(undo_judgment(prefix))
+            .map(|planned| withdrawals(store.ledger(), &recorded(planned).withdraws))
     };
-    assert_eq!(plan(&judgments[0]), Ok(vec![withdrawal("note", None)]));
-    assert_eq!(plan(&judgments[2]), Ok(vec![withdrawal("done", None)]));
-    assert_eq!(plan(&judgments[3]), Err(WithdrawRefusal::Withdrawn));
-    assert_eq!(plan(&judgments[4]), Err(WithdrawRefusal::Undo));
+    assert_eq!(
+        undone("standing-note"),
+        Ok(vec![withdrawal("standing-note", None)])
+    );
+    assert_eq!(
+        undone("completion"),
+        Ok(vec![withdrawal("completion", None)])
+    );
+    assert_eq!(
+        undone("withdrawn-note"),
+        Err(Refusal::NotWithdrawable(
+            &judgments[3],
+            WithdrawRefusal::Withdrawn
+        ))
+    );
+    assert_eq!(
+        undone("undo-of-note"),
+        Err(Refusal::NotWithdrawable(
+            &judgments[4],
+            WithdrawRefusal::Undo
+        ))
+    );
 }
 
 #[test]
@@ -1301,65 +1392,83 @@ fn undo_by_judgment_withdraws_what_stands_of_an_acknowledgment() {
         vec![a.clone(), b.clone(), c.clone()],
     ));
     let mut judgments = vec![
-        ack("ack", &current.0, &[&a, &b, &c], 10),
-        undo("undo-c", &current.0, &[("ack", Some(&c))], 20),
-        dismiss("other", &current.0, &[&c], 30),
+        ack("acknowledgment", &current.0, &[&a, &b, &c], 10),
+        undo("undo-of-c", &current.0, &[("acknowledgment", Some(&c))], 20),
+        dismiss("dismissal", &current.0, &[&c], 30),
         complete(
-            "done",
+            "completion",
             &current.0,
-            &[(&a, "ack"), (&b, "ack"), (&c, "other")],
+            &[
+                (&a, "acknowledgment"),
+                (&b, "acknowledgment"),
+                (&c, "dismissal"),
+            ],
             40,
         ),
-        complete("counts-other", &current.0, &[(&c, "other")], 50),
+        complete("counts-the-dismissal", &current.0, &[(&c, "dismissal")], 50),
     ];
-    let ledger = Ledger::new(&judgments);
+    let store = store_of(&judgments, &[]);
     assert_eq!(
-        withdrawals(&ledger, &ledger.plan_withdrawal(&judgments[0]).unwrap()),
-        [
-            withdrawal("ack", Some(&a)),
-            withdrawal("ack", Some(&b)),
-            withdrawal("done", None),
-        ]
+        store
+            .review(&current.0, &current.1)
+            .plan(undo_judgment("acknowledgment"))
+            .map(|planned| withdrawals(store.ledger(), &recorded(planned).withdraws)),
+        Ok(vec![
+            withdrawal("acknowledgment", Some(&a)),
+            withdrawal("acknowledgment", Some(&b)),
+            withdrawal("completion", None),
+        ])
     );
 
     judgments.push(undo(
-        "undo-rest",
+        "undo-of-the-rest",
         &current.0,
-        &[("ack", Some(&a)), ("ack", Some(&b))],
+        &[("acknowledgment", Some(&a)), ("acknowledgment", Some(&b))],
         60,
     ));
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        ledger.plan_withdrawal(&judgments[0]),
-        Err(WithdrawRefusal::Withdrawn)
+        store_of(&judgments, &[])
+            .review(&current.0, &current.1)
+            .plan(undo_judgment("acknowledgment"))
+            .map(drop),
+        Err(Refusal::NotWithdrawable(
+            &judgments[0],
+            WithdrawRefusal::Withdrawn
+        ))
     );
 }
 
 #[test]
 fn a_judgment_is_found_by_a_unique_prefix_of_at_least_8_characters() {
-    let review = saved(basis("/work/a", '1', '2', Vec::new())).0;
+    let current = saved(basis("/work/a", '1', '2', Vec::new()));
     let judgments = [
-        comment("4f1c9a2e-0001-4000-8000-000000000000", &review, 10),
-        comment("4f1c9a2e-0002-4000-8000-000000000000", &review, 20),
-        comment("77d0e5b1-0003-4000-8000-000000000000", &review, 30),
+        comment("4f1c9a2e-0001-4000-8000-000000000000", &current.0, 10),
+        comment("4f1c9a2e-0002-4000-8000-000000000000", &current.0, 20),
+        comment("77d0e5b1-0003-4000-8000-000000000000", &current.0, 30),
     ];
-    let ledger = Ledger::new(&judgments);
-    assert_eq!(ledger.find("77d0e5b1"), Ok(&judgments[2]));
-    assert_eq!(ledger.find("77D0E5B1"), Ok(&judgments[2]));
-    assert_eq!(ledger.find("4f1c9a2e-0002"), Ok(&judgments[1]));
+    let store = store_of(&judgments, &[]);
+    let review = store.review(&current.0, &current.1);
+    let found = |prefix| match review.plan(undo_judgment(prefix)) {
+        Ok(planned) => Ok(recorded(planned).withdraws[0].judgment.clone()),
+        Err(Refusal::NoJudgment(error)) => Err(error),
+        Err(other) => panic!("{other:?}"),
+    };
+    assert_eq!(found("77d0e5b1"), Ok(judgments[2].id.clone()));
+    assert_eq!(found("77D0E5B1"), Ok(judgments[2].id.clone()));
+    assert_eq!(found("4f1c9a2e-0002"), Ok(judgments[1].id.clone()));
     assert_eq!(
-        ledger.find("4f1c9a2e-0001-4000-8000-000000000000"),
-        Ok(&judgments[0])
+        found("4f1c9a2e-0001-4000-8000-000000000000"),
+        Ok(judgments[0].id.clone())
     );
     assert_eq!(
-        ledger.find("4f1c9a2e"),
+        found("4f1c9a2e"),
         Err(FindJudgmentError::Ambiguous(vec![
             &judgments[0],
             &judgments[1],
         ]))
     );
-    assert_eq!(ledger.find("77d0e5b"), Err(FindJudgmentError::TooShort));
-    assert_eq!(ledger.find("deadbeef"), Err(FindJudgmentError::NoMatch));
+    assert_eq!(found("77d0e5b"), Err(FindJudgmentError::TooShort));
+    assert_eq!(found("deadbeef"), Err(FindJudgmentError::NoMatch));
 }
 
 fn names(gate: &[GateItem]) -> ItemNames<'_> {
@@ -1888,15 +1997,20 @@ fn a_completion_whose_closing_judgment_no_longer_stands_does_not_count() {
     assert!(!status.complete);
     assert_eq!(status.source, CompletionSource::NotChecked);
     assert_eq!(
-        review.check_complete(),
-        Err(CompleteRefusal::Unclosed(vec![&current.1.gate[0]]))
+        review
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
+        Err(Refusal::Unclosed(vec![&current.1.gate[0]]))
     );
 
     // Once the item closes again, a new completion is allowed.
     judgments.push(ack("again", &current.0, &[&a], 40));
     let store = store_of(&judgments, &[]);
     assert_eq!(
-        store.review(&current.0, &current.1).check_complete(),
+        store
+            .review(&current.0, &current.1)
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
         Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("again"))]))
     );
 }
@@ -1914,7 +2028,9 @@ fn a_completion_closing_too_little_does_not_count() {
 
     assert_eq!(review.completion(), None);
     assert_eq!(
-        review.check_complete(),
+        review
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
         Ok(BTreeMap::from([
             (a.id.clone(), JudgmentId::new("ack")),
             (b.id.clone(), JudgmentId::new("ack")),
@@ -1939,4 +2055,94 @@ fn a_completion_that_does_not_count_does_not_carry() {
     assert!(!status.complete);
     assert_eq!(status.completion, None);
     assert_eq!(status.source, CompletionSource::Absent);
+}
+
+#[test]
+fn each_call_records_what_its_kind_needs() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone(), b.clone()]));
+    let both = [a.id.clone(), b.id.clone()];
+    let none: [Judgment; 0] = [];
+    let store = store_of(&none, &[]);
+    let fresh = store.review(&current.0, &current.1);
+
+    let planned = fresh
+        .plan(Call::Acknowledge {
+            items: &both[..1],
+            reason: Some("seen"),
+        })
+        .unwrap();
+    assert!(planned.first());
+    assert_eq!(
+        recorded(planned),
+        Judgment {
+            items: vec![a.id.clone()],
+            reason: Some("seen".to_owned()),
+            ..judgment("planned", &current.0, JudgmentKind::Acknowledge, 100)
+        }
+    );
+    let reason = Reason::new(Some("not ours")).unwrap();
+    assert_eq!(
+        fresh
+            .plan(Call::Dismiss {
+                items: &both[1..],
+                reason,
+            })
+            .map(recorded),
+        Ok(Judgment {
+            items: vec![b.id.clone()],
+            reason: Some("not ours".to_owned()),
+            ..judgment("planned", &current.0, JudgmentKind::Dismiss, 100)
+        })
+    );
+    assert_eq!(
+        fresh
+            .plan(Call::Comment {
+                item: Some(&a.id),
+                text: "look again",
+            })
+            .map(recorded),
+        Ok(Judgment {
+            items: vec![a.id.clone()],
+            text: Some("look again".to_owned()),
+            ..judgment("planned", &current.0, JudgmentKind::Comment, 100)
+        })
+    );
+
+    let judgments = [
+        ack("ack-a", &current.0, &[&a], 10),
+        dismiss("dismiss-b", &current.0, &[&b], 20),
+    ];
+    let store = store_of(&judgments, &[]);
+    let judged = store.review(&current.0, &current.1);
+    let planned = judged.plan(Call::Complete { text: Some("done") }).unwrap();
+    assert!(!planned.first());
+    assert_eq!(
+        recorded(planned),
+        Judgment {
+            text: Some("done".to_owned()),
+            closes: BTreeMap::from([
+                (a.id.clone(), JudgmentId::new("ack-a")),
+                (b.id.clone(), JudgmentId::new("dismiss-b")),
+            ]),
+            ..judgment("planned", &current.0, JudgmentKind::Complete, 100)
+        }
+    );
+    assert_eq!(
+        judged
+            .plan(Call::Comment {
+                item: None,
+                text: "for the review",
+            })
+            .map(|planned| recorded(planned).items),
+        Ok(Vec::new())
+    );
+}
+
+#[test]
+fn a_dismissal_reason_is_never_blank() {
+    assert_eq!(Reason::new(None), None);
+    assert_eq!(Reason::new(Some("")), None);
+    assert_eq!(Reason::new(Some(" \t\n")), None);
+    assert!(Reason::new(Some(" why ")).is_some());
 }

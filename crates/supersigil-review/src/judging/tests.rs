@@ -8,12 +8,11 @@ use proptest::prelude::*;
 use supersigil_record::JudgmentId;
 use supersigil_record::reviews::{
     Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, Fingerprint,
-    FingerprintPart, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, PathBytes, Subject,
-    TargetKind, Who, Withdrawal,
+    FingerprintPart, GateDetail, GateItem, ItemId, Judgment, PathBytes, Subject, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
 
-use super::JudgedStore;
+use super::{Call, JudgedStore, Reason};
 use crate::model::RelatedReading;
 use crate::names::ItemNames;
 
@@ -122,35 +121,19 @@ fn step() -> impl Strategy<Value = Step> {
     ]
 }
 
-/// A judgment of `kind` on `basis`, the `n`th recorded.
-fn judgment(n: usize, basis: &BasisId, kind: JudgmentKind) -> Judgment {
-    Judgment {
-        id: JudgmentId::new(format!("j{n}")),
-        basis: basis.clone(),
-        kind,
-        items: Vec::new(),
-        reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
-        text: None,
-        closes: BTreeMap::new(),
-        withdraws: Vec::new(),
-        who: Who {
-            name: "Joni Savolainen".to_owned(),
-            email: "joni@example.com".to_owned(),
-        },
-        at: UtcTime::from_unix(i64::try_from(n).unwrap()),
-    }
+/// The ID of the `n`th judgment recorded. No ID is a prefix of another.
+fn judgment_id(n: usize) -> JudgmentId {
+    JudgmentId::new(format!("judgment-{n:04}"))
 }
 
 /// The judgment `step` records after `judgments` on `reviews`, if the
 /// judging rules allow it.
 fn record(step: &Step, reviews: &[(BasisId, Basis)], judgments: &[Judgment]) -> Option<Judgment> {
     let store = JudgedStore::new(judgments, reviews.iter().map(|(id, basis)| (id, basis)));
-    let review_of = |index: usize| {
-        let (id, basis) = &reviews[index];
-        (id, basis, store.review(id, basis))
-    };
-    let named = |basis: &Basis, files: u8| -> Vec<ItemId> {
-        basis
+    // The gate items of review `review` about the files in `files`.
+    let named = |review: usize, files: u8| -> Vec<ItemId> {
+        reviews[review]
+            .1
             .gate
             .iter()
             .filter(|item| {
@@ -161,61 +144,45 @@ fn record(step: &Step, reviews: &[(BasisId, Basis)], judgments: &[Judgment]) -> 
             .map(|item| item.id.clone())
             .collect()
     };
+    let (review, items) = match *step {
+        Step::Close { review, files, .. } | Step::UndoItems { review, files } => {
+            (review, named(review, files))
+        }
+        Step::Complete { review } | Step::UndoJudgment { review, .. } => (review, Vec::new()),
+    };
+    let call = match *step {
+        // Typed names always name an item.
+        Step::Close { .. } | Step::UndoItems { .. } if items.is_empty() => return None,
+        Step::Close { dismiss: false, .. } => Call::Acknowledge {
+            items: &items,
+            reason: None,
+        },
+        Step::Close { dismiss: true, .. } => Call::Dismiss {
+            items: &items,
+            reason: Reason::new(Some("generated"))?,
+        },
+        Step::Complete { .. } => Call::Complete { text: None },
+        Step::UndoItems { .. } => Call::UndoItems {
+            items: &items,
+            reason: None,
+        },
+        Step::UndoJudgment { judgment, .. } => Call::UndoJudgment {
+            prefix: judgments
+                .get(judgment.checked_rem(judgments.len())?)?
+                .id
+                .as_str(),
+            reason: None,
+        },
+    };
+    let (id, basis) = &reviews[review];
+    let planned = store.review(id, basis).plan(call).ok()?;
     let n = judgments.len();
-    match *step {
-        Step::Close {
-            review,
-            files,
-            dismiss,
-        } => {
-            let (id, basis, judged) = review_of(review);
-            let items = named(basis, files);
-            if items.is_empty() || judged.check_close(&items).is_err() {
-                return None;
-            }
-            let kind = if dismiss {
-                JudgmentKind::Dismiss
-            } else {
-                JudgmentKind::Acknowledge
-            };
-            Some(Judgment {
-                items,
-                ..judgment(n, id, kind)
-            })
-        }
-        Step::Complete { review } => {
-            let (id, _, judged) = review_of(review);
-            let closes = judged.check_complete().ok()?;
-            Some(Judgment {
-                closes,
-                ..judgment(n, id, JudgmentKind::Complete)
-            })
-        }
-        Step::UndoItems { review, files } => {
-            let (id, basis, judged) = review_of(review);
-            let items = named(basis, files);
-            if items.is_empty() {
-                return None;
-            }
-            let withdraws = judged.plan_undo(&items).ok()?;
-            Some(undo(n, id, withdraws))
-        }
-        Step::UndoJudgment { review, judgment } => {
-            if judgments.is_empty() {
-                return None;
-            }
-            let target = &judgments[judgment % judgments.len()];
-            let withdraws = store.ledger().plan_withdrawal(target).ok()?;
-            Some(undo(n, &reviews[review].0, withdraws))
-        }
-    }
-}
-
-fn undo(n: usize, basis: &BasisId, withdraws: Vec<Withdrawal>) -> Judgment {
-    Judgment {
-        withdraws,
-        ..judgment(n, basis, JudgmentKind::Undo)
-    }
+    let who = Who {
+        name: "Joni Savolainen".to_owned(),
+        email: "joni@example.com".to_owned(),
+    };
+    let at = UtcTime::from_unix(i64::try_from(n).unwrap());
+    Some(planned.record(judgment_id(n), who, at))
 }
 
 proptest! {
