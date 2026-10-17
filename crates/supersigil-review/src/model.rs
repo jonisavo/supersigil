@@ -22,7 +22,7 @@ use supersigil_record::{EventId, JudgmentId, RecordId};
 
 use crate::diff::{DiffHunk, diff_lines};
 use crate::judging::{
-    GateStates, ItemChange, ItemState, RelatedBasis, Relation, explanations_differ, uncovered_items,
+    Earlier, ItemChange, ItemState, JudgedItem, Relation, explanations_differ, uncovered_items,
 };
 use crate::names::ItemNames;
 use crate::outcome::{
@@ -125,75 +125,38 @@ pub struct StatusInfo {
     /// The review's own standing completion or one carried from a review of
     /// the same content.
     pub completion: Option<JudgmentInfo>,
-    /// Related judged reviews in caller order, except the review with the
+    /// Related judged reviews in store order, except the review with the
     /// most recent carried completion comes first. If none carries, the most
     /// recent standing completion comes first. Omitted when empty, including
     /// for `judge`, which reads no records and relates no reviews here.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<RelatedInfo>,
+    /// Where the completion comes from. Not in the JSON, where
+    /// `completion.review` names the review it was recorded on.
+    #[serde(skip)]
+    pub source: CompletionSource,
 }
 
-impl StatusInfo {
-    /// Builds status from `states`, complete only with its own standing
-    /// completion. Relates no other reviews.
-    #[must_use]
-    pub fn new(states: &GateStates<'_>) -> Self {
-        let completion = states.own_completion().map(JudgmentInfo::new);
-        Self {
-            complete: completion.is_some(),
-            completion,
-            related: Vec::new(),
-        }
-    }
-
-    /// Builds status for `basis` and `states`, naming items with `names`.
-    /// `related` contains the reviews related by `states` and the code and
-    /// record changes the CLI read for each.
-    ///
-    /// Uses the review's own standing completion first, then the most recent
-    /// related completion that carries. Carrying requires the same content,
-    /// every current gate item in the earlier gate with a matching
-    /// fingerprint, and no evidence changes since that review.
-    #[must_use]
-    pub fn reviewed(
-        states: &GateStates<'_>,
-        basis: &Basis,
-        related: Vec<RelatedReading<'_>>,
-        names: &ItemNames<'_>,
-    ) -> Self {
-        let ledger = states.ledger();
-        let mut related: Vec<RelatedInfo> = related
-            .into_iter()
-            .map(|reading| {
-                let completion = ledger.completion(reading.related.id);
-                RelatedInfo::new(basis, reading, completion, names)
-            })
-            .collect();
-        let carried = ledger.latest_completion(
-            related
-                .iter()
-                .filter(|info| info.carries())
-                .map(|info| &info.review),
-        );
-        let about =
-            carried.or_else(|| ledger.latest_completion(related.iter().map(|info| &info.review)));
-        // Put the relevant completion first; preserve the others' order.
-        related.sort_by_key(|info| about.is_none_or(|about| about.basis != info.review));
-        let completion = states.own_completion().or(carried).map(JudgmentInfo::new);
-        Self {
-            complete: completion.is_some(),
-            completion,
-            related,
-        }
-    }
+/// Where a review's completion comes from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum CompletionSource {
+    /// Nothing completes the review, with the changes since related reviews
+    /// read, or no judgment applies to it.
+    #[default]
+    Absent,
+    /// The review's own completion.
+    Own,
+    /// A completion carried from this related review of the same content.
+    Carried(BasisId),
+    /// No own completion counts, and whether one carries was not checked,
+    /// since the changes since related reviews were not read.
+    NotChecked,
 }
 
 /// Code and record changes since a related review, read by the CLI beyond
 /// its basis.
-#[derive(Debug, Clone)]
-pub struct RelatedReading<'a> {
-    /// The related review.
-    pub related: RelatedBasis<'a>,
+#[derive(Debug, Clone, Default)]
+pub struct RelatedReading {
     /// Sorted paths that differ between its target tree and the current one,
     /// within scope. `None` if the earlier tree is unavailable, for example
     /// after deleting its retention ref and pruning it with git.
@@ -233,15 +196,17 @@ pub struct RelatedInfo {
 }
 
 impl RelatedInfo {
-    /// Builds related-review details from `reading` and its most recent
-    /// standing `completion`, using current `basis` and item `names`.
-    fn new(
+    /// Builds details of related review `related` from `reading` and its
+    /// most recent standing `completion`, using current `basis` and item
+    /// `names`.
+    pub(crate) fn new(
         basis: &Basis,
-        reading: RelatedReading<'_>,
+        related: Earlier<'_>,
+        reading: RelatedReading,
         completion: Option<&Judgment>,
         names: &ItemNames<'_>,
     ) -> Self {
-        let earlier = reading.related.basis;
+        let earlier = related.basis();
         let changed_evidence = ChangedEvidence {
             explanations: reading
                 .changed_paths
@@ -264,8 +229,8 @@ impl RelatedInfo {
             })
             .collect();
         Self {
-            review: reading.related.id.clone(),
-            relation: reading.related.relation,
+            review: related.id().clone(),
+            relation: related.relation(),
             completion: completion.map(JudgmentInfo::new),
             changed_paths: reading.changed_paths,
             changed_evidence,
@@ -275,7 +240,7 @@ impl RelatedInfo {
 
     /// Checks for a completion of the same content whose gate covers the
     /// current gate, with no evidence changes since.
-    fn carries(&self) -> bool {
+    pub(crate) fn carries(&self) -> bool {
         self.completion.is_some()
             && self.relation == Relation::SameContent
             && self.uncovered.is_empty()
@@ -344,15 +309,11 @@ pub struct GateInfo {
 }
 
 impl GateInfo {
-    /// Builds gate items from `states` with their names and states. Items
-    /// absent from `names` use their full IDs.
-    #[must_use]
-    pub fn new(states: &GateStates<'_>, names: &ItemNames<'_>) -> Self {
+    /// Builds gate items from judged `items` with their names and states.
+    /// Items absent from `names` use their full IDs.
+    pub(crate) fn judged(items: &[JudgedItem<'_>], names: &ItemNames<'_>) -> Self {
         Self::of(
-            states
-                .items()
-                .iter()
-                .map(|judged| (judged.item, &judged.state)),
+            items.iter().map(|judged| (judged.item, &judged.state)),
             names,
         )
     }

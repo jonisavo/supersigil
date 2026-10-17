@@ -21,8 +21,9 @@ use supersigil_record::reviews::{BasisId, GateDetail, JudgmentKind, PathBytes, S
 
 use crate::judging::Relation as ReviewRelation;
 use crate::model::{
-    ANCESTRY_NOTE, AncestryInfo, ChangedEvidence, EvidenceInfo, FileKindInfo, FileReview, GateInfo,
-    GateItemInfo, ItemStateInfo, RecordInfo, Review, SpanSide, StatusInfo, TargetKindInfo, Unsaved,
+    ANCESTRY_NOTE, AncestryInfo, ChangedEvidence, CompletionSource, EvidenceInfo, FileKindInfo,
+    FileReview, GateInfo, GateItemInfo, ItemStateInfo, RecordInfo, Review, SpanSide, StatusInfo,
+    TargetKindInfo, Unsaved,
 };
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 
@@ -204,11 +205,7 @@ fn status_lines(status: &StatusInfo, open: usize, escape: fn(&str) -> String) ->
             completion.at.date(),
             escape(&completion.who.name)
         );
-        let carried = status
-            .related
-            .iter()
-            .any(|related| related.review == completion.review);
-        return vec![if carried {
+        return vec![if matches!(status.source, CompletionSource::Carried(_)) {
             format!(
                 "{by} for the same content (review {}).",
                 completion.review.short()

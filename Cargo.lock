@@ -842,6 +842,7 @@ version = "0.14.0"
 dependencies = [
  "hex",
  "insta",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

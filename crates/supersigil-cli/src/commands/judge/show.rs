@@ -5,7 +5,6 @@
 //! complete only with its own standing completion, and lists completions of the
 //! same content as related.
 
-use std::cmp::Reverse;
 use std::io::{self, Write as _};
 use std::path::Path;
 
@@ -13,7 +12,7 @@ use serde::Serialize;
 use supersigil_record::reviews::{
     BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind,
 };
-use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation, related_bases};
+use supersigil_review::judging::{JudgedStore, Ledger};
 use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::ItemNames;
 use supersigil_review::summary::{
@@ -42,28 +41,21 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let basis = snapshot.basis(&id)?;
     let judgments = snapshot.judgments()?;
     let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
-    let related = related_bases(&id, &basis, &others);
-    let indexes = GateIndex::of(&related);
-    let ledger = Ledger::new(&judgments);
-    let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
+    let store = JudgedStore::new(&judgments, &others);
+    let ledger = store.ledger();
     let names = checkout.names(&basis)?;
-    let mut same_content: Vec<&Judgment> = related
-        .iter()
-        .filter(|related| related.relation == Relation::SameContent)
-        .filter_map(|related| ledger.completion(related.id))
-        .collect();
-    same_content.sort_by_key(|completion| Reverse(completion.at));
+    let report = store.review(&id, &basis).report(&names);
     let shown = Shown {
         review: &id,
         worktree: &basis.worktree,
         base: &basis.base,
         target: &basis.target,
         scope: &basis.scope,
-        status: StatusInfo::new(&states),
-        same_content_completions: same_content.into_iter().map(JudgmentInfo::new).collect(),
-        gate: GateInfo::new(&states, &names),
-        comments: comments(&id, &judgments, &ledger, &names),
-        history: history(&id, &judgments, &ledger, &names),
+        status: report.status,
+        same_content_completions: report.same_content,
+        gate: report.gate,
+        comments: comments(&id, &judgments, ledger, &names),
+        history: history(&id, &judgments, ledger, &names),
         nothing_to_review: basis.explanations.is_empty() && basis.gate.is_empty(),
     };
     match args.format.resolve() {

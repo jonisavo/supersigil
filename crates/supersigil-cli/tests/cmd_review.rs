@@ -18,9 +18,7 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use supersigil_record::observations::{Edit, FileState, Material, Observation};
-use supersigil_record::reviews::{
-    Basis, BasisId, FingerprintPart, ItemId, Judgment, JudgmentKind, Who,
-};
+use supersigil_record::reviews::{Basis, FingerprintPart, Judgment, JudgmentKind, Who};
 use supersigil_record::store::{MANIFEST_FILE, Store};
 use supersigil_record::time::UtcTime;
 use supersigil_record::{ContentId, EventId, JudgmentId, ReviewStore, SessionId};
@@ -3420,16 +3418,53 @@ fn record_judgment(
     kind: JudgmentKind,
     items: &[&str],
 ) -> String {
-    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
-    let items: Vec<ItemId> = items
+    let items = items
         .iter()
         .map(|name| serde_json::from_value(gate_row(review, name)["id"].clone()).unwrap())
         .collect();
-    let judgment = Judgment {
+    append(
+        store,
+        &Judgment {
+            items,
+            ..judgment_on(review, kind)
+        },
+    )
+}
+
+/// Records a completion of the review `f` now shows in its repository,
+/// closing each gate item with the judgment shown closing it, as
+/// `supersigil judge complete` does, and returns its ID.
+fn record_completion(f: &Fixture, store: &ReviewStore) -> String {
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let closes = review["gate"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            let id = serde_json::from_value(item["id"].clone()).unwrap();
+            (
+                id,
+                JudgmentId::new(item["judgment"]["id"].as_str().unwrap()),
+            )
+        })
+        .collect();
+    append(
+        store,
+        &Judgment {
+            closes,
+            ..judgment_on(&review, JudgmentKind::Complete)
+        },
+    )
+}
+
+/// A judgment of `kind` on the saved `review` as `Test` on 2026-10-13,
+/// naming no items, closes or withdrawals.
+fn judgment_on(review: &Value, kind: JudgmentKind) -> Judgment {
+    Judgment {
         id: JudgmentId::generate(),
-        basis,
+        basis: serde_json::from_value(review["basis"]["id"].clone()).unwrap(),
         kind,
-        items,
+        items: Vec::new(),
         reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
         text: None,
         closes: BTreeMap::new(),
@@ -3439,9 +3474,13 @@ fn record_judgment(
             email: "test@example.com".to_owned(),
         },
         at: "2026-10-13T12:00:00Z".parse::<UtcTime>().unwrap(),
-    };
+    }
+}
+
+/// Appends `judgment` to `store` and returns its ID.
+fn append(store: &ReviewStore, judgment: &Judgment) -> String {
     let mut tx = store.begin().unwrap();
-    tx.append_judgment(&judgment).unwrap();
+    tx.append_judgment(judgment).unwrap();
     tx.commit().unwrap();
     judgment.id.as_str().to_owned()
 }
@@ -3531,7 +3570,7 @@ fn a_review_shows_its_gate_with_the_judgments_recorded_on_it() {
         JudgmentKind::Acknowledge,
         &["src/new.rs", "gap:src/lib.rs"],
     );
-    let completion = record_judgment(&store, &open, JudgmentKind::Complete, &[]);
+    let completion = record_completion(&f, &store);
     let complete = f.json(&f.repo, &["review", "--format", "json"]);
 
     assert_eq!(complete["gate"]["open"], 0);
@@ -3616,7 +3655,7 @@ fn the_summary_shows_the_gate_and_what_to_run_next() {
         "{closed}"
     );
 
-    record_judgment(&store, &review, JudgmentKind::Complete, &[]);
+    record_completion(&f, &store);
     let complete = summary(&f, &f.repo, &[]);
 
     assert!(

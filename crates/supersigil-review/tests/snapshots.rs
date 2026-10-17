@@ -3,6 +3,7 @@
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
 use std::path::PathBuf;
 use std::slice;
 use std::time::Duration;
@@ -27,14 +28,14 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::gate::{GateInputs, gate_items};
-use supersigil_review::judging::{GateIndex, GateStates, Ledger, Relation};
+use supersigil_review::judging::{JudgedStore, Relation};
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, EditInfo, EditOriginInfo,
-    EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus, GateInfo, JudgmentInfo, Mention,
-    MentionResult, NewObservations, NotCapturedInfo, OriginsInfo, PromptInfo, RecordInfo,
-    RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, TargetInfo, TargetKindInfo,
-    TranscriptInfo, UncoveredInfo, UnreconciledInfo, Unsaved, UntrackedInfo, file_review,
-    unattributed_summary,
+    AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, CompletionSource,
+    EditInfo, EditOriginInfo, EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus,
+    GateInfo, JudgmentInfo, Mention, MentionResult, NewObservations, NotCapturedInfo, OriginsInfo,
+    PromptInfo, RecordInfo, RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo,
+    TargetInfo, TargetKindInfo, TranscriptInfo, UncoveredInfo, UnreconciledInfo, Unsaved,
+    UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
@@ -390,13 +391,13 @@ fn gated(mut review: Review, judge: impl FnOnce(&BasisId, &[GateItem]) -> Vec<Ju
     let id = document.basis_id().unwrap();
     (review.status, review.gate) = {
         let judgments = judge(&id, &document.gate);
-        let ledger = Ledger::new(&judgments);
-        let indexes = GateIndex::of(&[]);
-        let states = GateStates::new(&id, &document, &[], &indexes, &ledger);
         let names = ItemNames::new(&document.gate, BTreeMap::new(), false, |path| {
             path.to_str().map(str::to_owned)
         });
-        (StatusInfo::new(&states), GateInfo::new(&states, &names))
+        let report = JudgedStore::new(&judgments, iter::empty())
+            .review(&id, &document)
+            .report(&names);
+        (report.status, report.gate)
     };
     if review.basis.is_some() {
         review.basis = Some(SavedBasis { id, document });
@@ -491,7 +492,14 @@ fn a_complete_review_says_when_and_by_whom_and_needs_nothing_next() {
         vec![
             judgment("ack", id, JudgmentKind::Acknowledge, rest),
             judgment("dismiss", id, JudgmentKind::Dismiss, slice::from_ref(last)),
-            judgment("done", id, JudgmentKind::Complete, &[]),
+            Judgment {
+                closes: rest
+                    .iter()
+                    .map(|item| (item.id.clone(), JudgmentId::new("ack")))
+                    .chain([(last.id.clone(), JudgmentId::new("dismiss"))])
+                    .collect(),
+                ..judgment("done", id, JudgmentKind::Complete, &[])
+            },
         ]
     });
 
@@ -1056,6 +1064,7 @@ fn a_completion_carried_over_names_its_review() {
     review.status = StatusInfo {
         complete: true,
         completion: carried.completion.clone(),
+        source: CompletionSource::Carried(carried.review.clone()),
         related: vec![carried],
     };
 
