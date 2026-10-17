@@ -265,8 +265,8 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     let items = resolve(&names, call.items(), |text| {
         name(&checkout.worktree, &checkout.cwd, text)
     })?;
-    let store = JudgedStore::new(&judgments, &others);
-    let planned = store
+    let judged = JudgedStore::new(&judgments, &others);
+    let planned = judged
         .review(&id, &basis)
         .plan(call.naming(&items))
         .map_err(|refused| refused_call(&refused, call, &id, &names, &addressing))?;
@@ -286,8 +286,8 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     tx.commit(now)?;
 
     judgments.push(judgment.clone());
-    let store = JudgedStore::new(&judgments, &others);
-    let review = store.review(&id, &basis);
+    let judged = JudgedStore::new(&judgments, &others);
+    let review = judged.review(&id, &basis);
     let after = review.report(&names);
     let recorded = Recorded {
         judgment: &judgment,
@@ -302,7 +302,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
         OutputFormat::Terminal => {
             let compared = compared(basis.target.commit.as_deref(), basis.base.commit.as_deref());
             let mut out = io::stdout().lock();
-            let lines = recorded.lines(&compared, first, &addressing, store.ledger(), &names);
+            let lines = recorded.lines(&compared, first, &addressing, judged.ledger(), &names);
             for line in lines {
                 writeln!(out, "{line}")?;
             }

@@ -245,7 +245,6 @@ impl<'a> ReviewTx<'a> {
             .collect();
         let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
             && make_bases_regular(&self.manifest, &dir, &kept, &mut self.publication);
-        let bases = fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.is_dir());
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -260,7 +259,11 @@ impl<'a> ReviewTx<'a> {
                 Removal::Deleted => self.publication.deleted(path),
                 // An earlier write may have deleted it and stopped before
                 // syncing `bases/`, which a missing directory no longer needs.
-                Removal::Missing if bases => self.publication.deleted(path),
+                Removal::Missing
+                    if fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.is_dir()) =>
+                {
+                    self.publication.deleted(path);
+                }
                 Removal::Missing | Removal::Kept => {}
                 Removal::Failed => continue,
             }
