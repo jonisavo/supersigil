@@ -90,7 +90,7 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
 ///
 /// # Errors
 ///
-/// Refuses a dismissal without a reason, and a blank reason.
+/// Refuses a dismissal without a reason, and a blank reason or text.
 fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
     Ok(match command {
         JudgeCommand::Acknowledge(close) => Call::Acknowledge {
@@ -107,10 +107,22 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
         },
         JudgeCommand::Comment(comment) => Call::Comment {
             item: comment.item.as_ref(),
-            text: &comment.text,
+            text: Words::new(&comment.text)
+                .ok_or_else(|| refusal(["A comment's text can't be blank."].into()))?,
         },
         JudgeCommand::Complete(complete) => Call::Complete {
-            text: complete.text.as_deref(),
+            text: complete
+                .text
+                .as_deref()
+                .map(|text| {
+                    Words::new(text).ok_or_else(|| {
+                        refusal(
+                            ["A completion's text can't be blank; give some or leave out --text."]
+                                .into(),
+                        )
+                    })
+                })
+                .transpose()?,
         },
         JudgeCommand::Undo(undo) => match &undo.judgment {
             Some(prefix) => Call::UndoJudgment {

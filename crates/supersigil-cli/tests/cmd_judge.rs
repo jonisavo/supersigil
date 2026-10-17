@@ -990,6 +990,44 @@ fn a_reason_given_is_never_blank() {
 }
 
 #[test]
+fn a_text_given_is_never_blank() {
+    let (f, _) = reviewed();
+    judged(
+        &f,
+        &f.repo,
+        &[
+            "acknowledge",
+            "old.txt",
+            "src/new.rs",
+            "lines:src/lib.rs",
+            "gap:src/lib.rs",
+        ],
+    );
+
+    let calls: [(&[&str], &str); 3] = [
+        (
+            &["comment", "--text", ""],
+            "A comment's text can't be blank.",
+        ),
+        (
+            &["comment", "old.txt", "--text", " \n"],
+            "A comment's text can't be blank.",
+        ),
+        (
+            &["complete", "--text", "\t"],
+            "A completion's text can't be blank; give some or leave out --text.",
+        ),
+    ];
+    for (args, message) in calls {
+        assert_eq!(
+            refused(&f, &mut judge(&f, &f.repo, args)),
+            format!("No judgment recorded. {message}\n"),
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn an_item_already_closed_is_not_judged_again() {
     let (f, _) = reviewed();
     judged(&f, &f.repo, &["acknowledge", "old.txt"]);

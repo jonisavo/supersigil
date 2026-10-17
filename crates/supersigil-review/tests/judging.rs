@@ -2163,7 +2163,7 @@ fn each_call_records_what_its_kind_needs() {
         fresh
             .plan(Call::Comment {
                 item: Some(&a.id),
-                text: "look again",
+                text: Words::new("look again").unwrap(),
             })
             .map(recorded),
         Ok(Judgment {
@@ -2179,7 +2179,11 @@ fn each_call_records_what_its_kind_needs() {
     ];
     let store = store_of(&judgments, &[]);
     let judged = store.review(&current.0, &current.1);
-    let planned = judged.plan(Call::Complete { text: Some("done") }).unwrap();
+    let planned = judged
+        .plan(Call::Complete {
+            text: Words::new("done"),
+        })
+        .unwrap();
     assert!(!planned.first());
     assert_eq!(
         recorded(planned),
@@ -2196,7 +2200,7 @@ fn each_call_records_what_its_kind_needs() {
         judged
             .plan(Call::Comment {
                 item: None,
-                text: "for the review",
+                text: Words::new("for the review").unwrap(),
             })
             .map(|planned| recorded(planned).items),
         Ok(Vec::new())

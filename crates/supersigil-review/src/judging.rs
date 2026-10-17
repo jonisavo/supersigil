@@ -731,11 +731,11 @@ impl<'a> JudgedReview<'a> {
             }
             Call::Comment { item, text } => {
                 planned.items = item.into_iter().cloned().collect();
-                planned.text = Some(text.to_owned());
+                planned.text = Some(text.as_str().to_owned());
             }
             Call::Complete { text } => {
                 planned.closes = self.check_complete()?;
-                planned.text = text.map(str::to_owned);
+                planned.text = text.map(|text| text.as_str().to_owned());
             }
             Call::UndoItems { items, reason } => {
                 planned.withdraws = self.states.plan_undo(items).map_err(Refusal::NotClosed)?;
@@ -1146,12 +1146,12 @@ pub enum Call<'c, I = ItemId> {
         /// The item, if any.
         item: Option<&'c I>,
         /// The note.
-        text: &'c str,
+        text: Words<'c>,
     },
     /// Complete the review.
     Complete {
         /// A note, if given.
-        text: Option<&'c str>,
+        text: Option<Words<'c>>,
     },
     /// Withdraw the judgments closing `items`.
     UndoItems {
@@ -1225,7 +1225,7 @@ impl<'c, I> Call<'c, I> {
     }
 }
 
-/// Words a person gives with a judgment, such as a reason, which are
+/// Words a person gives with a judgment, a reason or a note, which are
 /// never blank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Words<'a>(&'a str);

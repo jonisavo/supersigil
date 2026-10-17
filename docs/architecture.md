@@ -343,10 +343,10 @@ unprintable paths have their own qualified names. There are no wildcards.
 completions, and undos on a saved basis. Each review outside an agent session
 selects its basis for the worktree; `--review` overrides that selection.
 `judge` never reruns the review or reads the working tree. Judgments are
-append-only; an undo withdraws them. A reason, when given, is never blank.
-Comments close no item. Completion
-requires every gate item acknowledged or dismissed. It records that the
-person finished reviewing; accepting code remains a git operation.
+append-only; an undo withdraws them. A reason or text, when given, is never
+blank. Comments close no item. Completion requires every gate item
+acknowledged or dismissed. It records that the person finished reviewing;
+accepting code remains a git operation.
 
 `judge` refuses to write while either agent marker, `CLAUDECODE` or
 `CLAUDE_CODE_SESSION_ID`, is set and non-empty. Its refusal never suggests
