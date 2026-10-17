@@ -375,6 +375,10 @@ those judgments close. It also withdraws every completion that counted them.
 A review is complete with its own standing completion. A completion from a
 review of the same content carries only if it covered every current item
 with a matching fingerprint and no evidence changed against that review.
+Either counts only while the judgment it lists for each current item still
+stands for that item. Undo keeps this true by withdrawing the completions
+that count what it withdraws; a completion that would leave an item open is
+never counted, and a new one may be recorded once the items close.
 Evidence changes include:
 
 - Different output about a reviewed file.

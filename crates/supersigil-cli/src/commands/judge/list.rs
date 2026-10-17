@@ -2,13 +2,12 @@
 //! judgment or are a worktree's selection, most recently judged first.
 
 use std::cmp::Reverse;
-use std::collections::HashMap;
 use std::io::{self, Write as _};
 use std::path::PathBuf;
 
 use serde::Serialize;
 use supersigil_record::reviews::{BasisBase, BasisId, BasisTarget, ReviewSnapshot};
-use supersigil_review::judging::{GateIndex, GateStates, Ledger, related_bases};
+use supersigil_review::judging::JudgedStore;
 use supersigil_review::model::JudgmentInfo;
 use supersigil_review::summary::{aligned, compared};
 
@@ -85,29 +84,20 @@ fn listed(snapshot: &ReviewSnapshot) -> Result<Vec<Listed>, CliError> {
             .map(|judgment| &judgment.basis)
             .chain(selections.values()),
     )?;
-    let ledger = Ledger::new(&judgments);
-    let indexes: HashMap<_, _> = bases
-        .iter()
-        .map(|(id, basis)| (id, GateIndex::new(&basis.gate)))
-        .collect();
+    let store = JudgedStore::new(&judgments, &bases);
     let mut listed: Vec<(Option<usize>, Listed)> = bases
         .iter()
         .map(|(id, basis)| {
-            let related = related_bases(id, basis, &bases);
-            let states = GateStates::new(id, basis, &related, &indexes, &ledger);
-            let last = ledger.on(id).last();
+            let review = store.review(id, basis);
+            let last = store.ledger().on(id).last();
             let listed = Listed {
                 review: id.clone(),
                 selected: selections.values().any(|selected| selected == id),
                 worktree: basis.worktree.clone(),
                 base: basis.base.clone(),
                 target: basis.target.clone(),
-                complete: states.own_completion().is_some(),
-                open: states
-                    .items()
-                    .iter()
-                    .filter(|judged| judged.state.closing().is_none())
-                    .count(),
+                complete: review.completion().is_some(),
+                open: review.open(),
                 last_judgment: last.map(|(_, judgment)| JudgmentInfo::new(judgment)),
             };
             (last.map(|(position, _)| position), listed)

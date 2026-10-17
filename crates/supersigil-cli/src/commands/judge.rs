@@ -29,8 +29,8 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
-    AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemState, Ledger,
-    NotClosed, WithdrawRefusal, related_bases,
+    AlreadyClosed, CompleteRefusal, FindJudgmentError, ItemState, JudgedReview, JudgedStore,
+    Ledger, NotClosed, WithdrawRefusal,
 };
 use supersigil_review::model::{GateInfo, StatusInfo};
 use supersigil_review::names::{ItemNames, Name, Parsed, parse};
@@ -244,22 +244,20 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     let basis = snapshot.basis(&id)?;
     let mut judgments = tx.judgments().to_vec();
     let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
-    let related = related_bases(&id, &basis, &others);
     let names = checkout.names(&basis)?;
     let items = resolve(&names, &call.names, |text| {
         name(&checkout.worktree, &checkout.cwd, text)
     })?;
-    let indexes = GateIndex::of(&related);
-    let ledger = Ledger::new(&judgments);
-    let states = GateStates::new(&id, &basis, &related, &indexes, &ledger);
-    let closes = check(call.kind, &id, &states, &items, &names, &addressing)?;
+    let store = JudgedStore::new(&judgments, &others);
+    let review = store.review(&id, &basis);
+    let closes = check(call.kind, &id, &review, &items, &names, &addressing)?;
     let withdraws = match call.judgment {
-        Some(prefix) => withdraw_judgment(&ledger, prefix, &addressing)?,
-        None if call.kind == JudgmentKind::Undo => withdraw_items(&states, &items, &names)?,
+        Some(prefix) => withdraw_judgment(store.ledger(), prefix, &addressing)?,
+        None if call.kind == JudgmentKind::Undo => withdraw_items(&review, &items, &names)?,
         None => Vec::new(),
     };
     let who = retention::identity(&checkout.repo)?.ok_or_else(|| refusal(NO_IDENTITY.lines()))?;
-    let first = ledger.on(&id).next().is_none();
+    let first = store.ledger().on(&id).next().is_none();
     if first {
         keep(&checkout.repo, &id, &basis, &who, &addressing)?;
     }
@@ -284,21 +282,21 @@ fn write(args: &JudgeArgs, call: &Call<'_>) -> Result<(), CliError> {
     tx.commit()?;
 
     judgments.push(judgment.clone());
-    let ledger = Ledger::new(&judgments);
-    let after = GateStates::new(&id, &basis, &related, &indexes, &ledger);
+    let store = JudgedStore::new(&judgments, &others);
+    let after = store.review(&id, &basis).report(&names);
     let recorded = Recorded {
         judgment: &judgment,
         review: &id,
         target: &basis.target,
-        status: StatusInfo::new(&after),
-        gate: GateInfo::new(&after, &names),
+        status: after.status,
+        gate: after.gate,
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&recorded)?,
         OutputFormat::Terminal => {
             let compared = compared(basis.target.commit.as_deref(), basis.base.commit.as_deref());
             let mut out = io::stdout().lock();
-            let lines = recorded.lines(&compared, first, &addressing, &ledger, &names);
+            let lines = recorded.lines(&compared, first, &addressing, store.ledger(), &names);
             for line in lines {
                 writeln!(out, "{}", escape_control(&line))?;
             }
@@ -595,18 +593,18 @@ fn resolve(
 fn check(
     kind: JudgmentKind,
     id: &BasisId,
-    states: &GateStates<'_>,
+    review: &JudgedReview<'_>,
     items: &[ItemId],
     names: &ItemNames<'_>,
     addressing: &Addressing,
 ) -> Result<BTreeMap<ItemId, JudgmentId>, CliError> {
     match kind {
-        JudgmentKind::Acknowledge | JudgmentKind::Dismiss => states
+        JudgmentKind::Acknowledge | JudgmentKind::Dismiss => review
             .check_close(items)
             .map(|()| BTreeMap::new())
             .map_err(|closed| already_closed(&closed, names, addressing)),
         JudgmentKind::Comment | JudgmentKind::Undo => Ok(BTreeMap::new()),
-        JudgmentKind::Complete => states.check_complete().map_err(|refused| match refused {
+        JudgmentKind::Complete => review.check_complete().map_err(|refused| match refused {
             CompleteRefusal::AlreadyComplete(completion) => refusal([format!(
                 "Review {} is already complete: completed on {} by {} (judgment {}).",
                 id.short(),
@@ -677,11 +675,11 @@ fn already_closed(
 /// Refuses items without closing judgments. Lists their states as open or
 /// reopened, with the judgment each reopened item no longer matches.
 fn withdraw_items(
-    states: &GateStates<'_>,
+    review: &JudgedReview<'_>,
     items: &[ItemId],
     names: &ItemNames<'_>,
 ) -> Result<Vec<Withdrawal>, CliError> {
-    states.plan_undo(items).map_err(|unclosed| {
+    review.plan_undo(items).map_err(|unclosed| {
         let mut lines = vec!["Nothing closes these items, so there is nothing to undo:".to_owned()];
         for NotClosed { item, state } in &unclosed {
             let name = names.name(&item.id).unwrap_or_default();

@@ -1,9 +1,11 @@
 //! Rules for related reviews, standing judgments, gate states, completion,
 //! and undo withdrawals.
 //!
-//! Uses only the current basis, judged bases, and judgments the CLI loads
-//! from the review store.
+//! [`JudgedStore`] takes the judgments and bases the CLI loads from the
+//! review store, and [`JudgedReview`] is one review's judged view: its item
+//! states, its completion, and its status and gate for output.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
@@ -14,6 +16,11 @@ use supersigil_record::reviews::{
     Origin, PathBytes, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
+
+use crate::model::{
+    CompletionSource, GateInfo, JudgmentInfo, RelatedInfo, RelatedReading, StatusInfo,
+};
+use crate::names::ItemNames;
 
 /// How an earlier saved review relates to the current one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -26,30 +33,50 @@ pub enum Relation {
     CodeChanged,
 }
 
-/// A saved review related to the current one.
+/// A saved review related to the current one, as [`JudgedReview`] hands it
+/// out for reading the changes since.
 #[derive(Debug, Clone, Copy)]
-pub struct RelatedBasis<'a> {
+pub struct Earlier<'a> {
     /// The related review's basis ID.
-    pub id: &'a BasisId,
+    id: &'a BasisId,
     /// Its basis.
-    pub basis: &'a Basis,
+    basis: &'a Basis,
     /// How it relates to the current review.
-    pub relation: Relation,
+    relation: Relation,
+}
+
+impl<'a> Earlier<'a> {
+    /// The related review's basis ID.
+    #[must_use]
+    pub const fn id(self) -> &'a BasisId {
+        self.id
+    }
+
+    /// Its basis.
+    #[must_use]
+    pub const fn basis(self) -> &'a Basis {
+        self.basis
+    }
+
+    /// How it relates to the current review.
+    #[must_use]
+    pub const fn relation(self) -> Relation {
+        self.relation
+    }
 }
 
 /// Finds reviews in `others` related to review `id` with `basis`, preserving
 /// input order and excluding the current review itself.
-#[must_use]
-pub fn related_bases<'a>(
+fn related_bases<'a>(
     id: &BasisId,
     basis: &Basis,
     others: impl IntoIterator<Item = (&'a BasisId, &'a Basis)>,
-) -> Vec<RelatedBasis<'a>> {
+) -> Vec<Earlier<'a>> {
     others
         .into_iter()
         .filter(|(other_id, _)| *other_id != id)
         .filter_map(|(other_id, other)| {
-            relation(basis.into(), other.into()).map(|relation| RelatedBasis {
+            relation(basis.into(), other.into()).map(|relation| Earlier {
                 id: other_id,
                 basis: other,
                 relation,
@@ -58,8 +85,9 @@ pub fn related_bases<'a>(
         .collect()
 }
 
-/// Checks whether `other` relates to `current` by the [`related_bases`]
-/// rules. If not, the caller can skip reading the rest of `other`'s basis.
+/// Checks whether `other` relates to `current` by the rules
+/// [`JudgedStore::review`] relates reviews by. If not, the caller can skip
+/// reading the rest of `other`'s basis.
 #[must_use]
 pub fn relates(current: &Basis, other: &BasisHeader) -> bool {
     relation(current.into(), other.into()).is_some()
@@ -138,6 +166,8 @@ pub struct Ledger<'a> {
     /// Positions of each item's standing acknowledgments and dismissals
     /// that a standing completion counts, grouped by the completion's basis.
     counted: HashMap<&'a ItemId, HashMap<&'a BasisId, Vec<usize>>>,
+    /// Each standing acknowledgment or dismissal of an item, by position.
+    standing: HashSet<(usize, &'a ItemId)>,
 }
 
 impl<'a> Ledger<'a> {
@@ -160,7 +190,6 @@ impl<'a> Ledger<'a> {
             }
         }
         let mut closing: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
-        // Each standing acknowledgment or dismissal of an item, by position.
         let mut standing = HashSet::new();
         for (position, judgment) in judgments.iter().enumerate() {
             let closes = matches!(
@@ -186,18 +215,22 @@ impl<'a> Ledger<'a> {
                 }
             }
         }
+        let mut ledger = Self {
+            judgments,
+            withdrawn,
+            by_id,
+            by_basis,
+            closing,
+            counted: HashMap::new(),
+            standing,
+        };
         let mut counted: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
         for completion in judgments {
-            if completion.kind != JudgmentKind::Complete
-                || withdrawn.contains(&(&completion.id, None))
-            {
+            if completion.kind != JudgmentKind::Complete || !ledger.stands(completion) {
                 continue;
             }
             for (item, id) in &completion.closes {
-                let Some(&position) = by_id.get(id) else {
-                    continue;
-                };
-                if standing.contains(&(position, item)) {
+                if let Some(position) = ledger.standing_position(id, item) {
                     counted
                         .entry(item)
                         .or_default()
@@ -207,14 +240,8 @@ impl<'a> Ledger<'a> {
                 }
             }
         }
-        Self {
-            judgments,
-            withdrawn,
-            by_id,
-            by_basis,
-            closing,
-            counted,
-        }
+        ledger.counted = counted;
+        ledger
     }
 
     /// Finds judgment `id`, if present. Returns the first recorded judgment
@@ -303,14 +330,43 @@ impl<'a> Ledger<'a> {
         &self,
         bases: impl IntoIterator<Item = &'b BasisId>,
     ) -> Option<&'a Judgment> {
+        self.latest_completion_where(bases, |_| true)
+    }
+
+    /// The most recent standing completion recorded on any of `bases` that
+    /// `counts` accepts.
+    fn latest_completion_where<'b>(
+        &self,
+        bases: impl IntoIterator<Item = &'b BasisId>,
+        counts: impl Fn(&Judgment) -> bool,
+    ) -> Option<&'a Judgment> {
+        self.standing_completions(bases)
+            .filter(|&(_, judgment)| counts(judgment))
+            .max_by_key(|&(position, judgment)| recency(position, judgment))
+            .map(|(_, judgment)| judgment)
+    }
+
+    /// The standing completions recorded on any of `bases`, with their
+    /// positions.
+    fn standing_completions<'b>(
+        &self,
+        bases: impl IntoIterator<Item = &'b BasisId>,
+    ) -> impl Iterator<Item = (usize, &'a Judgment)> {
         bases
             .into_iter()
             .flat_map(|basis| self.on(basis))
             .filter(|(_, judgment)| {
                 judgment.kind == JudgmentKind::Complete && self.stands(judgment)
             })
-            .max_by_key(|&(position, judgment)| recency(position, judgment))
-            .map(|(_, judgment)| judgment)
+    }
+
+    /// The position of judgment `id` if it is an acknowledgment or
+    /// dismissal that still stands for `item`.
+    fn standing_position(&self, id: &JudgmentId, item: &ItemId) -> Option<usize> {
+        self.by_id
+            .get(id)
+            .copied()
+            .filter(|&position| self.standing.contains(&(position, item)))
     }
 
     /// Resolves `prefix` against all judgments. Accepts a full ID or at least
@@ -459,9 +515,306 @@ fn recency(position: usize, judgment: &Judgment) -> (UtcTime, usize) {
     (judgment.at, position)
 }
 
+/// Every judgment of a review store, with the saved reviews judged views
+/// relate to. Built once and asked about one review at a time.
+#[derive(Debug)]
+pub struct JudgedStore<'a> {
+    /// Every judgment in the store.
+    ledger: Ledger<'a>,
+    /// The saved reviews that may relate, in the order given.
+    bases: Vec<(&'a BasisId, &'a Basis)>,
+    /// Each of their gates, by basis ID.
+    indexes: HashMap<&'a BasisId, GateIndex<'a>>,
+}
+
+impl<'a> JudgedStore<'a> {
+    /// Builds a store view from all store `judgments` in recorded order and
+    /// the loaded `bases` of saved reviews that may relate to the reviews
+    /// asked about. Only reviews in `bases` relate to a review or carry
+    /// judgments and completions to it; a review in `bases` is never related
+    /// to itself. Their order is the order of related reviews in status.
+    #[must_use]
+    pub fn new(
+        judgments: &'a [Judgment],
+        bases: impl IntoIterator<Item = (&'a BasisId, &'a Basis)>,
+    ) -> Self {
+        let bases: Vec<_> = bases.into_iter().collect();
+        let indexes = bases
+            .iter()
+            .map(|&(id, basis)| (id, GateIndex::new(&basis.gate)))
+            .collect();
+        Self {
+            ledger: Ledger::new(judgments),
+            bases,
+            indexes,
+        }
+    }
+
+    /// The judged view of review `id` with `basis`, which need not be in
+    /// the store's bases.
+    #[must_use]
+    pub fn review<'s>(&'s self, id: &'s BasisId, basis: &'s Basis) -> JudgedReview<'s> {
+        let related = related_bases(id, basis, self.bases.iter().copied());
+        let states = GateStates::new(id, basis, &related, &self.indexes, &self.ledger);
+        JudgedReview {
+            basis,
+            related,
+            states,
+        }
+    }
+
+    /// Every judgment in the store.
+    #[must_use]
+    pub const fn ledger(&self) -> &Ledger<'a> {
+        &self.ledger
+    }
+}
+
+/// One review's judged view: its gate items' states, the related reviews,
+/// and its completion.
+///
+/// A standing completion counts only if every gate item is closed and, for
+/// each item, the judgment its `closes` names still stands for that item.
+/// The same rule decides the review's own completion, a completion carried
+/// from a review of the same content, and whether a new completion is
+/// refused as already complete.
+#[derive(Debug)]
+pub struct JudgedReview<'a> {
+    /// The review's basis.
+    basis: &'a Basis,
+    /// The related reviews, in store order.
+    related: Vec<Earlier<'a>>,
+    /// The gate items' states.
+    states: GateStates<'a>,
+}
+
+impl<'a> JudgedReview<'a> {
+    /// Every gate item with its state, in gate order.
+    #[must_use]
+    pub fn items(&self) -> &[JudgedItem<'a>] {
+        self.states.items()
+    }
+
+    /// How many gate items need a judgment: those open or reopened.
+    #[must_use]
+    pub fn open(&self) -> usize {
+        self.items()
+            .iter()
+            .filter(|judged| judged.state.closing().is_none())
+            .count()
+    }
+
+    /// The review's own most recent standing completion that counts.
+    #[must_use]
+    pub fn completion(&self) -> Option<&'a Judgment> {
+        self.states
+            .ledger
+            .latest_completion_where([self.states.id], |completion| self.counts(completion))
+    }
+
+    /// Builds the status and gate without reading the changes since related
+    /// reviews, naming items with `names`. Only the review's own completion
+    /// can complete it, and the status relates no reviews.
+    #[must_use]
+    pub fn report(&self, names: &ItemNames<'_>) -> Report {
+        let completion = self.completion();
+        let source = if completion.is_some() {
+            CompletionSource::Own
+        } else {
+            CompletionSource::NotChecked
+        };
+        self.reported(completion, source, Vec::new(), names)
+    }
+
+    /// Builds the status and gate with the changes since related reviews,
+    /// naming items with `names`. `read` gets every related review, in store
+    /// order, and returns one reading for each, in the same order.
+    ///
+    /// Uses the review's own completion first, then the most recent
+    /// related completion that carries. Carrying requires the same content,
+    /// every current gate item in the earlier gate with a matching
+    /// fingerprint, and no evidence changes since that review.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of `read`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `read` returns a different number of readings than related
+    /// reviews.
+    pub fn report_reading<E>(
+        &self,
+        names: &ItemNames<'_>,
+        read: impl FnOnce(&[Earlier<'a>]) -> Result<Vec<RelatedReading>, E>,
+    ) -> Result<Report, E> {
+        let readings = read(&self.related)?;
+        assert_eq!(
+            readings.len(),
+            self.related.len(),
+            "one reading per related review"
+        );
+        let ledger = self.states.ledger;
+        let mut related: Vec<RelatedInfo> = self
+            .related
+            .iter()
+            .zip(readings)
+            .map(|(&earlier, reading)| {
+                let completion = ledger.completion(earlier.id);
+                RelatedInfo::new(self.basis, earlier, reading, completion, names)
+            })
+            .collect();
+        let carried = ledger.latest_completion_where(
+            related
+                .iter()
+                .filter(|info| info.carries())
+                .map(|info| &info.review),
+            |completion| self.counts(completion),
+        );
+        let about =
+            carried.or_else(|| ledger.latest_completion(related.iter().map(|info| &info.review)));
+        // Put the relevant completion first; preserve the others' order.
+        related.sort_by_key(|info| about.is_none_or(|about| about.basis != info.review));
+        let (completion, source) = match (self.completion(), carried) {
+            (Some(own), _) => (Some(own), CompletionSource::Own),
+            (None, Some(carried)) => (
+                Some(carried),
+                CompletionSource::Carried(carried.basis.clone()),
+            ),
+            (None, None) => (None, CompletionSource::Absent),
+        };
+        Ok(self.reported(completion, source, related, names))
+    }
+
+    /// Builds the `closes` map for a new completion of the current review,
+    /// mapping each gate item to its closing judgment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompleteRefusal::AlreadyComplete`] with the current
+    /// review's own completion, or [`CompleteRefusal::Unclosed`] with the
+    /// items that are open or reopened.
+    pub fn check_complete(&self) -> Result<BTreeMap<ItemId, JudgmentId>, CompleteRefusal<'a>> {
+        if let Some(completion) = self.completion() {
+            return Err(CompleteRefusal::AlreadyComplete(completion));
+        }
+        let items = self.items();
+        let unclosed: Vec<_> = items
+            .iter()
+            .filter(|judged| judged.state.closing().is_none())
+            .map(|judged| judged.item)
+            .collect();
+        if !unclosed.is_empty() {
+            return Err(CompleteRefusal::Unclosed(unclosed));
+        }
+        Ok(items
+            .iter()
+            .filter_map(|judged| {
+                let closing = judged.state.closing()?;
+                Some((judged.item.id.clone(), closing.id.clone()))
+            })
+            .collect())
+    }
+
+    /// Checks whether a new acknowledgment or dismissal may name `items`.
+    /// Ignores IDs absent from the current review's gate.
+    ///
+    /// # Errors
+    ///
+    /// Returns every named item that a judgment already closes, in the
+    /// order named.
+    pub fn check_close(&self, items: &[ItemId]) -> Result<(), Vec<AlreadyClosed<'a>>> {
+        self.states.check_close(items)
+    }
+
+    /// Plans `undo <items>` on the current review, ignoring IDs absent from
+    /// its gate. Withdraws every standing acknowledgment or dismissal that
+    /// closes each item, own or carried, including older closers. Then
+    /// withdraws every standing completion on any review that counts one of
+    /// those judgment-item pairs.
+    ///
+    /// # Errors
+    ///
+    /// Returns every named item that nothing closes, with its state, in
+    /// the order named.
+    pub fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
+        self.states.plan_undo(items)
+    }
+
+    /// Checks whether `completion` counts for this review: every gate item
+    /// is closed, and the judgment `completion` names for each item still
+    /// stands for it.
+    fn counts(&self, completion: &Judgment) -> bool {
+        let ledger = self.states.ledger;
+        self.open() == 0
+            && self.items().iter().all(|judged| {
+                completion
+                    .closes
+                    .get(&judged.item.id)
+                    .is_some_and(|closer| {
+                        ledger.standing_position(closer, &judged.item.id).is_some()
+                    })
+            })
+    }
+
+    /// Builds the report with `completion` from `source` and `related`
+    /// review details.
+    fn reported(
+        &self,
+        completion: Option<&Judgment>,
+        source: CompletionSource,
+        related: Vec<RelatedInfo>,
+        names: &ItemNames<'_>,
+    ) -> Report {
+        let ledger = self.states.ledger;
+        let mut same_content: Vec<&Judgment> = self
+            .related
+            .iter()
+            .filter(|earlier| earlier.relation == Relation::SameContent)
+            .filter_map(|earlier| ledger.completion(earlier.id))
+            .collect();
+        same_content.sort_by_key(|completion| Reverse(completion.at));
+        Report {
+            status: StatusInfo {
+                complete: completion.is_some(),
+                completion: completion.map(JudgmentInfo::new),
+                related,
+                source,
+            },
+            gate: GateInfo::judged(self.items(), names),
+            same_content: same_content.into_iter().map(JudgmentInfo::new).collect(),
+        }
+    }
+
+    /// The standing completions of this review that do not count, which
+    /// every reachable history avoids.
+    #[cfg(test)]
+    fn uncounted(&self) -> Vec<&'a Judgment> {
+        self.states
+            .ledger
+            .standing_completions([self.states.id])
+            .map(|(_, judgment)| judgment)
+            .filter(|judgment| !self.counts(judgment))
+            .collect()
+    }
+}
+
+/// A judged review's status and gate, as output shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    /// Whether the review is complete, and what changed since related
+    /// reviews when they were read.
+    pub status: StatusInfo,
+    /// The gate items and their states.
+    pub gate: GateInfo,
+    /// The most recent standing completion of each related review of the
+    /// same content, most recent first.
+    pub same_content: Vec<JudgmentInfo>,
+}
+
 /// Every gate item of the current review with its state.
 #[derive(Debug)]
-pub struct GateStates<'a> {
+struct GateStates<'a> {
     /// The current review's basis ID.
     id: &'a BasisId,
     /// Every judgment in the store.
@@ -477,22 +830,12 @@ pub struct GateStates<'a> {
 /// Indexes a saved review's gate by ID for reuse across related reviews'
 /// [`GateStates`].
 #[derive(Debug, Clone)]
-pub struct GateIndex<'a>(HashMap<&'a ItemId, &'a GateItem>);
+struct GateIndex<'a>(HashMap<&'a ItemId, &'a GateItem>);
 
 impl<'a> GateIndex<'a> {
     /// Indexes `gate`, a saved review's gate items.
-    #[must_use]
-    pub fn new(gate: &'a [GateItem]) -> Self {
+    fn new(gate: &'a [GateItem]) -> Self {
         Self(gate.iter().map(|item| (&item.id, item)).collect())
-    }
-
-    /// Indexes each gate in `related` by basis ID for [`GateStates::new`].
-    #[must_use]
-    pub fn of(related: &[RelatedBasis<'a>]) -> HashMap<&'a BasisId, Self> {
-        related
-            .iter()
-            .map(|related| (related.id, Self::new(&related.basis.gate)))
-            .collect()
     }
 }
 
@@ -547,14 +890,12 @@ impl<'a> ItemState<'a> {
 impl<'a> GateStates<'a> {
     /// Resolves gate states for review `id` and `basis` using `related`
     /// reviews and `ledger` judgments. `indexes` maps related basis IDs to
-    /// gates ([`GateIndex::of`]) and may contain other reviews. Callers can
-    /// index each gate once for reuse. Related reviews missing from `indexes`
-    /// cannot close items here.
-    #[must_use]
-    pub fn new(
+    /// gates and may contain other reviews. Related reviews missing from
+    /// `indexes` cannot close items here.
+    fn new(
         id: &'a BasisId,
         basis: &'a Basis,
-        related: &[RelatedBasis<'a>],
+        related: &[Earlier<'a>],
         indexes: &'a HashMap<&'a BasisId, GateIndex<'a>>,
         ledger: &'a Ledger<'a>,
     ) -> Self {
@@ -586,62 +927,12 @@ impl<'a> GateStates<'a> {
     }
 
     /// Every gate item with its state, in gate order.
-    #[must_use]
-    pub fn items(&self) -> &[JudgedItem<'a>] {
+    fn items(&self) -> &[JudgedItem<'a>] {
         &self.items
     }
 
-    /// The current review's own standing completion, if any.
-    #[must_use]
-    pub fn own_completion(&self) -> Option<&'a Judgment> {
-        self.ledger.completion(self.id)
-    }
-
-    /// Every judgment the states come from.
-    #[must_use]
-    pub const fn ledger(&self) -> &'a Ledger<'a> {
-        self.ledger
-    }
-
-    /// Builds the `closes` map for a new completion of the current review,
-    /// mapping each gate item to its closing judgment.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CompleteRefusal::AlreadyComplete`] with the current
-    /// review's own standing completion, or [`CompleteRefusal::Unclosed`]
-    /// with the items that are open or reopened.
-    pub fn check_complete(&self) -> Result<BTreeMap<ItemId, JudgmentId>, CompleteRefusal<'a>> {
-        if let Some(completion) = self.own_completion() {
-            return Err(CompleteRefusal::AlreadyComplete(completion));
-        }
-        let unclosed: Vec<_> = self
-            .items
-            .iter()
-            .filter(|judged| judged.state.closing().is_none())
-            .map(|judged| judged.item)
-            .collect();
-        if !unclosed.is_empty() {
-            return Err(CompleteRefusal::Unclosed(unclosed));
-        }
-        Ok(self
-            .items
-            .iter()
-            .filter_map(|judged| {
-                let closing = judged.state.closing()?;
-                Some((judged.item.id.clone(), closing.id.clone()))
-            })
-            .collect())
-    }
-
-    /// Checks whether a new acknowledgment or dismissal may name `items`.
-    /// Ignores IDs absent from the current review's gate.
-    ///
-    /// # Errors
-    ///
-    /// Returns every named item that a judgment already closes, in the
-    /// order named.
-    pub fn check_close(&self, items: &[ItemId]) -> Result<(), Vec<AlreadyClosed<'a>>> {
+    /// As [`JudgedReview::check_close`].
+    fn check_close(&self, items: &[ItemId]) -> Result<(), Vec<AlreadyClosed<'a>>> {
         let closed: Vec<_> = items
             .iter()
             .filter_map(|id| {
@@ -660,17 +951,8 @@ impl<'a> GateStates<'a> {
         }
     }
 
-    /// Plans `undo <items>` on the current review, ignoring IDs absent from
-    /// its gate. Withdraws every standing acknowledgment or dismissal that
-    /// closes each item, own or carried, including older closers. Then
-    /// withdraws every standing completion on any review that counts one of
-    /// those judgment-item pairs.
-    ///
-    /// # Errors
-    ///
-    /// Returns every named item that nothing closes, with its state, in
-    /// the order named.
-    pub fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
+    /// As [`JudgedReview::plan_undo`].
+    fn plan_undo(&self, items: &[ItemId]) -> Result<Vec<Withdrawal>, Vec<NotClosed<'a>>> {
         let named: Vec<_> = items.iter().filter_map(|id| self.judged(id)).collect();
         let unclosed: Vec<_> = named
             .iter()
@@ -895,3 +1177,6 @@ fn reopen_reason(origin: Origin, part: &str) -> &'static str {
         _ => "gate item changed",
     }
 }
+
+#[cfg(test)]
+mod tests;

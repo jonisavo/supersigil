@@ -3,7 +3,8 @@
 
 mod common;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
 use std::path::PathBuf;
 use std::slice;
 use std::time::Duration;
@@ -17,13 +18,13 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId};
 use supersigil_review::judging::{
-    AlreadyClosed, CompleteRefusal, FindJudgmentError, GateIndex, GateStates, ItemChange,
-    ItemState, Ledger, NotClosed, RelatedBasis, Relation, Uncovered, WithdrawRefusal,
-    explanations_differ, related_bases, uncovered_items,
+    AlreadyClosed, CompleteRefusal, Earlier, FindJudgmentError, ItemChange, ItemState,
+    JudgedReview, JudgedStore, Ledger, NotClosed, Relation, Report, Uncovered, WithdrawRefusal,
+    explanations_differ, uncovered_items,
 };
 use supersigil_review::model::{
-    ChangedEvidence, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations, RelatedInfo,
-    RelatedReading, StatusInfo, UncoveredInfo,
+    ChangedEvidence, CompletionSource, GateInfo, ItemStateInfo, JudgmentInfo, NewObservations,
+    RelatedInfo, RelatedReading, StatusInfo, UncoveredInfo,
 };
 use supersigil_review::names::ItemNames;
 
@@ -162,29 +163,13 @@ fn withdrawals(ledger: &Ledger<'_>, plan: &[Withdrawal]) -> Vec<Withdrawal> {
     plan.to_vec()
 }
 
-fn indexes(reviews: &[Saved]) -> HashMap<&BasisId, GateIndex<'_>> {
-    reviews
-        .iter()
-        .map(|(id, basis)| (id, GateIndex::new(&basis.gate)))
-        .collect()
+/// A store of `judgments` relating reviews to the `earlier` ones.
+fn store_of<'a>(judgments: &'a [Judgment], earlier: &'a [Saved]) -> JudgedStore<'a> {
+    JudgedStore::new(judgments, earlier.iter().map(|(id, basis)| (id, basis)))
 }
 
-fn states<'a>(
-    current: &'a Saved,
-    earlier: &'a [Saved],
-    indexes: &'a HashMap<&'a BasisId, GateIndex<'a>>,
-    ledger: &'a Ledger<'a>,
-) -> GateStates<'a> {
-    let related = related_bases(
-        &current.0,
-        &current.1,
-        earlier.iter().map(|(id, b)| (id, b)),
-    );
-    GateStates::new(&current.0, &current.1, &related, indexes, ledger)
-}
-
-fn item_states<'a>(states: &GateStates<'a>) -> Vec<ItemState<'a>> {
-    states
+fn item_states<'a>(review: &JudgedReview<'a>) -> Vec<ItemState<'a>> {
+    review
         .items()
         .iter()
         .map(|judged| judged.state.clone())
@@ -229,18 +214,25 @@ fn as_commit(mut basis: Basis, commit: char) -> Basis {
 }
 
 fn relations(current: &Saved, earlier: &[Saved]) -> Vec<Option<Relation>> {
-    let related = related_bases(
-        &current.0,
-        &current.1,
-        earlier.iter().map(|(id, b)| (id, b)),
-    );
+    let store = store_of(&[], earlier);
+    let mut related = Vec::new();
+    store
+        .review(&current.0, &current.1)
+        .report_reading(&names(&current.1.gate), |earlier| {
+            related = earlier
+                .iter()
+                .map(|earlier| (earlier.id().clone(), earlier.relation()))
+                .collect::<Vec<_>>();
+            Ok::<_, Infallible>(vec![RelatedReading::default(); earlier.len()])
+        })
+        .unwrap();
     earlier
         .iter()
         .map(|(id, _)| {
             related
                 .iter()
-                .find(|related| related.id == id)
-                .map(|related| related.relation)
+                .find(|(related, _)| related == id)
+                .map(|&(_, relation)| relation)
         })
         .collect()
 }
@@ -313,9 +305,8 @@ fn own_judgments_close_their_items() {
         ack("ack-a", &current.0, &[&a], 10),
         dismiss("dismiss-b", &current.0, &[&b], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &[], &indexes(&[]), &ledger)),
+        item_states(&store_of(&judgments, &[]).review(&current.0, &current.1)),
         [
             ItemState::Acknowledged(&judgments[0]),
             ItemState::Dismissed(&judgments[1]),
@@ -333,9 +324,8 @@ fn own_beats_carried() {
         dismiss("own", &current.0, &[&a], 10),
         ack("carried", &earlier[0].0, &[&a], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [ItemState::Dismissed(&judgments[0])]
     );
 }
@@ -352,9 +342,8 @@ fn a_related_review_carries_with_a_matching_fingerprint() {
         dismiss("same-content", &earlier[0].0, &[&a], 10),
         ack("code-changed", &earlier[1].0, &[&b], 20),
     ];
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&earlier);
-    let states = states(&current, &earlier, &indexes, &ledger);
+    let store = store_of(&judgments, &earlier);
+    let states = store.review(&current.0, &current.1);
     assert_eq!(
         item_states(&states),
         [
@@ -377,9 +366,8 @@ fn only_a_related_review_holding_the_item_carries() {
         ack("unrelated", &earlier[0].0, &[&a], 10),
         ack("not-in-its-gate", &earlier[1].0, &[&a], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [ItemState::Open]
     );
 }
@@ -417,10 +405,9 @@ fn a_completion_carries_the_judgments_it_counted_to_reviews_related_to_its_own()
     let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
     let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
     let judgments = chained(&a, &b, &reviews, Vec::new());
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&reviews);
-    let current = states(&reviews[2], &reviews[..2], &indexes, &ledger);
-    let completed = states(&reviews[1], &reviews[..1], &indexes, &ledger);
+    let store = store_of(&judgments, &reviews[..2]);
+    let current = store.review(&reviews[2].0, &reviews[2].1);
+    let completed = store.review(&reviews[1].0, &reviews[1].1);
 
     assert_eq!(
         item_states(&current),
@@ -441,9 +428,8 @@ fn a_judgment_a_completion_counted_reopens_an_item_whose_fingerprint_differs() {
     let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
     let reviews = chain(&a, &b, vec![lines("a.rs", "y"), b.clone()]);
     let judgments = chained(&a, &b, &reviews, Vec::new());
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&reviews);
-    let states = item_states(&states(&reviews[2], &reviews[..2], &indexes, &ledger));
+    let store = store_of(&judgments, &reviews[..2]);
+    let states = item_states(&store.review(&reviews[2].0, &reviews[2].1));
 
     assert!(
         matches!(&states[0], ItemState::Reopened { judgment, .. } if *judgment == &judgments[0]),
@@ -459,10 +445,8 @@ fn a_withdrawn_completion_or_judgment_carries_nothing_through_it() {
     let pair = [undo("undo", &reviews[0].0, &[("first", Some(&a))], 40)];
     for extra in [completion, pair] {
         let judgments = chained(&a, &b, &reviews, extra.to_vec());
-        let ledger = Ledger::new(&judgments);
-        let indexes = indexes(&reviews);
         assert_eq!(
-            item_states(&states(&reviews[2], &reviews[..2], &indexes, &ledger)),
+            item_states(&store_of(&judgments, &reviews[..2]).review(&reviews[2].0, &reviews[2].1)),
             [ItemState::Open, ItemState::Carried(&judgments[1])]
         );
     }
@@ -485,11 +469,10 @@ fn a_completion_of_the_current_review_keeps_carrying_what_it_counted() {
         undo("undo", &reviews[1].0, &[("done", None)], 50),
     ];
     let judgments = chained(&a, &b, &reviews, extra);
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&reviews);
-    let states = states(&reviews[2], &reviews[..2], &indexes, &ledger);
+    let store = store_of(&judgments, &reviews[..2]);
+    let states = store.review(&reviews[2].0, &reviews[2].1);
 
-    assert_eq!(states.own_completion(), Some(&judgments[3]));
+    assert_eq!(states.completion(), Some(&judgments[3]));
     assert_eq!(
         item_states(&states),
         [
@@ -498,7 +481,10 @@ fn a_completion_of_the_current_review_keeps_carrying_what_it_counted() {
         ]
     );
     assert_eq!(
-        withdrawals(&ledger, &states.plan_undo(slice::from_ref(&a.id)).unwrap()),
+        withdrawals(
+            store.ledger(),
+            &states.plan_undo(slice::from_ref(&a.id)).unwrap()
+        ),
         [withdrawal("first", Some(&a)), withdrawal("done-too", None)]
     );
 }
@@ -533,9 +519,8 @@ fn many_large_completions_are_counted_promptly() {
         .collect();
 
     let open = finishes_within(Duration::from_secs(8), move || {
-        let ledger = Ledger::new(&judgments);
-        let indexes = indexes(&earlier);
-        let states = states(&current, &earlier, &indexes, &ledger);
+        let store = store_of(&judgments, &earlier);
+        let states = store.review(&current.0, &current.1);
         states
             .items()
             .iter()
@@ -551,14 +536,14 @@ fn undoing_an_item_carried_through_a_completion_withdraws_its_judgment_and_the_c
     let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
     let reviews = chain(&a, &b, vec![a.clone(), b.clone()]);
     let judgments = chained(&a, &b, &reviews, Vec::new());
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&reviews);
-    let plan = states(&reviews[2], &reviews[..2], &indexes, &ledger)
+    let store = store_of(&judgments, &reviews[..2]);
+    let plan = store
+        .review(&reviews[2].0, &reviews[2].1)
         .plan_undo(slice::from_ref(&a.id))
         .unwrap();
 
     assert_eq!(
-        withdrawals(&ledger, &plan),
+        withdrawals(store.ledger(), &plan),
         [withdrawal("first", Some(&a)), withdrawal("done", None)]
     );
 }
@@ -630,7 +615,6 @@ fn each_differing_part_reopens_with_its_reason() {
         let before = with_changed(None);
         let earlier = [saved(basis("/work/b", '1', '2', vec![before.clone()]))];
         let judgments = [ack("earlier", &earlier[0].0, &[&before], 10)];
-        let ledger = Ledger::new(&judgments);
         for (changed, reason) in parts {
             let current = saved(basis(
                 "/work/a",
@@ -639,7 +623,7 @@ fn each_differing_part_reopens_with_its_reason() {
                 vec![with_changed(Some(changed))],
             ));
             assert_eq!(
-                item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+                item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
                 [ItemState::Reopened {
                     judgment: &judgments[0],
                     reasons: vec![*reason],
@@ -656,9 +640,8 @@ fn every_differing_part_gives_its_reason_in_part_order() {
     let before = lines("a.rs", "x");
     let earlier = [saved(basis("/work/a", '1', '3', vec![before.clone()]))];
     let judgments = [ack("earlier", &earlier[0].0, &[&before], 10)];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [ItemState::Reopened {
             judgment: &judgments[0],
             reasons: vec![
@@ -678,9 +661,8 @@ fn an_unknown_part_never_carries() {
     let current = saved(basis("/work/a", '1', '2', gate.clone()));
     let earlier = [saved(basis("/work/b", '1', '2', gate))];
     let judgments = [ack("earlier", &earlier[0].0, &[&directory, &record], 10)];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [
             ItemState::Reopened {
                 judgment: &judgments[0],
@@ -723,9 +705,8 @@ fn the_most_recent_judgment_wins() {
         ack("own-later", &current.0, &[&d], 30),
         dismiss("own-earlier", &current.0, &[&d], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [
             ItemState::Carried(&judgments[0]),
             ItemState::Carried(&judgments[3]),
@@ -763,9 +744,8 @@ fn many_large_judgments_on_related_reviews_decide_the_states_promptly() {
     // Checking each item against each judgment's whole list of items took
     // about 5 s here in a debug build; an index by item takes milliseconds.
     let latest = finishes_within(Duration::from_secs(20), move || {
-        let ledger = Ledger::new(&judgments);
-        let indexes = indexes(&earlier);
-        let states = states(&current, &earlier, &indexes, &ledger);
+        let store = store_of(&judgments, &earlier);
+        let states = store.review(&current.0, &current.1);
         let closing: BTreeSet<&str> = states
             .items()
             .iter()
@@ -811,15 +791,12 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
     // about 8 s here in a debug build. Shared gate indexes and visiting only
     // reviews with a judgment of the item take milliseconds.
     let (closing, same_as_alone) = finishes_within(Duration::from_secs(20), move || {
-        let ledger = Ledger::new(&judgments);
-        let indexes = indexes(&reviews);
-        let others = || reviews.iter().map(|(id, basis)| (id, basis));
+        let store = store_of(&judgments, &reviews);
         let closing: BTreeSet<Option<String>> = reviews
             .iter()
             .flat_map(|(id, basis)| {
-                let related = related_bases(id, basis, others());
-                let states = GateStates::new(id, basis, &related, &indexes, &ledger);
-                let closing: Vec<_> = states
+                let closing: Vec<_> = store
+                    .review(id, basis)
                     .items()
                     .iter()
                     .map(|judged| judged.state.closing().map(|j| j.id.as_str().to_owned()))
@@ -827,11 +804,11 @@ fn the_states_of_many_related_reviews_are_decided_promptly_from_shared_indexes()
                 closing
             })
             .collect();
+        // A store of only the review holding the acknowledgment gives the
+        // same states.
         let (id, basis) = &reviews[1];
-        let related = related_bases(id, basis, others());
-        let alone = GateIndex::of(&related);
-        let same_as_alone = item_states(&GateStates::new(id, basis, &related, &alone, &ledger))
-            == item_states(&GateStates::new(id, basis, &related, &indexes, &ledger));
+        let same_as_alone = item_states(&store_of(&judgments, &reviews[..1]).review(id, basis))
+            == item_states(&store.review(id, basis));
         (closing, same_as_alone)
     });
 
@@ -857,9 +834,8 @@ fn naming_every_item_of_a_large_gate_is_checked_promptly() {
     // Finding each named item by scanning the gate took about 5 s here in
     // a debug build; an index by ID takes milliseconds.
     let (closed, withdrawn) = finishes_within(Duration::from_secs(20), move || {
-        let ledger = Ledger::new(&judgments);
-        let indexes = indexes(&[]);
-        let states = states(&current, &[], &indexes, &ledger);
+        let store = store_of(&judgments, &[]);
+        let states = store.review(&current.0, &current.1);
         let closed = states.check_close(&named).unwrap_err().len();
         let withdrawn = states.plan_undo(&named).unwrap().len();
         (closed, withdrawn)
@@ -912,7 +888,7 @@ fn withdrawing_a_pair_leaves_the_judgments_other_items_standing() {
     // The acknowledgment no longer closes `a`, which the carried one does,
     // but still closes `b`.
     assert_eq!(
-        item_states(&states(&current, &earlier, &indexes(&earlier), &ledger)),
+        item_states(&store_of(&judgments, &earlier).review(&current.0, &current.1)),
         [
             ItemState::Carried(&judgments[1]),
             ItemState::Acknowledged(&judgments[0]),
@@ -937,7 +913,7 @@ fn withdrawing_a_whole_judgment_withdraws_every_item() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        item_states(&states(&current, &[], &indexes(&[]), &ledger)),
+        item_states(&store_of(&judgments, &[]).review(&current.0, &current.1)),
         [ItemState::Open, ItemState::Open]
     );
     assert!(!ledger.stands(&judgments[0]));
@@ -960,7 +936,9 @@ fn the_own_completion_is_the_most_recent_standing_one_on_the_review() {
     ];
     let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &indexes(&earlier), &ledger).own_completion(),
+        store_of(&judgments, &earlier)
+            .review(&current.0, &current.1)
+            .completion(),
         Some(&judgments[1])
     );
     assert_eq!(ledger.completion(&earlier[0].0), Some(&judgments[4]));
@@ -970,9 +948,10 @@ fn the_own_completion_is_the_most_recent_standing_one_on_the_review() {
         judgments[2].clone(),
         judgments[3].clone(),
     ];
-    let ledger = Ledger::new(&withdrawn);
     assert_eq!(
-        states(&current, &earlier, &indexes(&earlier), &ledger).own_completion(),
+        store_of(&withdrawn, &earlier)
+            .review(&current.0, &current.1)
+            .completion(),
         None
     );
 }
@@ -993,9 +972,8 @@ fn a_completion_covers_only_items_its_gate_held_as_they_are_now() {
         ack("as-y", &earlier[1].0, &[&y], 20),
         complete("done-as-y", &earlier[1].0, &[(&y, "as-y")], 30),
     ];
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&earlier);
-    let states = states(&current, &earlier, &indexes, &ledger);
+    let store = store_of(&judgments, &earlier);
+    let states = store.review(&current.0, &current.1);
     assert_eq!(item_states(&states), [ItemState::Carried(&judgments[0])]);
     assert_eq!(
         states.check_complete(),
@@ -1056,9 +1034,10 @@ fn complete_is_refused_while_an_item_is_open_or_reopened() {
         },
         ack("before", &earlier[0].0, &[&before], 30),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &indexes(&earlier), &ledger).check_complete(),
+        store_of(&judgments, &earlier)
+            .review(&current.0, &current.1)
+            .check_complete(),
         Err(CompleteRefusal::Unclosed(vec![
             &current.1.gate[1],
             &current.1.gate[2],
@@ -1074,16 +1053,18 @@ fn complete_is_refused_on_a_review_with_a_standing_completion() {
         ack("ack", &current.0, &[&a], 10),
         complete("done", &current.0, &[(&a, "ack")], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &[], &indexes(&[]), &ledger).check_complete(),
+        store_of(&judgments, &[])
+            .review(&current.0, &current.1)
+            .check_complete(),
         Err(CompleteRefusal::AlreadyComplete(&judgments[1]))
     );
 
     judgments.push(undo("undo", &current.0, &[("done", None)], 30));
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &[], &indexes(&[]), &ledger).check_complete(),
+        store_of(&judgments, &[])
+            .review(&current.0, &current.1)
+            .check_complete(),
         Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("ack"))]))
     );
 }
@@ -1097,9 +1078,10 @@ fn a_completion_counts_own_and_carried_judgments() {
         ack("own", &current.0, &[&a], 10),
         dismiss("carried", &earlier[0].0, &[&b], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     assert_eq!(
-        states(&current, &earlier, &indexes(&earlier), &ledger).check_complete(),
+        store_of(&judgments, &earlier)
+            .review(&current.0, &current.1)
+            .check_complete(),
         Ok(BTreeMap::from([
             (a.id.clone(), JudgmentId::new("own")),
             (b.id.clone(), JudgmentId::new("carried")),
@@ -1133,9 +1115,8 @@ fn acknowledging_a_closed_item_is_refused() {
         dismiss("carried", &earlier[0].0, &[&b], 20),
         ack("reopened", &earlier[0].0, &[&before], 30),
     ];
-    let ledger = Ledger::new(&judgments);
-    let indexes = indexes(&earlier);
-    let states = states(&current, &earlier, &indexes, &ledger);
+    let store = store_of(&judgments, &earlier);
+    let states = store.review(&current.0, &current.1);
     assert_eq!(states.check_close(&[c.id.clone(), d.id.clone()]), Ok(()));
     assert_eq!(
         states.check_close(&[b.id.clone(), c.id.clone(), a.id.clone()]),
@@ -1179,12 +1160,13 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
         complete("done-here", &current.0, &[(&a, "own"), (&b, "own")], 60),
         complete("done-b", &earlier[3].0, &[(&b, "own")], 70),
     ];
-    let ledger = Ledger::new(&judgments);
-    let plan = states(&current, &earlier, &indexes(&earlier), &ledger)
+    let store = store_of(&judgments, &earlier);
+    let plan = store
+        .review(&current.0, &current.1)
         .plan_undo(&[a.id.clone(), a.id.clone()])
         .unwrap();
     assert_eq!(
-        withdrawals(&ledger, &plan),
+        withdrawals(store.ledger(), &plan),
         [
             withdrawal("own", Some(&a)),
             withdrawal("same-content", Some(&a)),
@@ -1201,8 +1183,8 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
         ..judgment("undo", &current.0, JudgmentKind::Undo, 80)
     });
     let ledger = Ledger::new(&after);
-    let indexes = indexes(&earlier);
-    let states = states(&current, &earlier, &indexes, &ledger);
+    let store = store_of(&after, &earlier);
+    let states = store.review(&current.0, &current.1);
     assert_eq!(
         item_states(&states),
         [
@@ -1217,7 +1199,7 @@ fn undo_withdraws_every_judgment_closing_the_item_and_the_completions_counting_t
             ItemState::Acknowledged(&after[0]),
         ]
     );
-    assert_eq!(states.own_completion(), None);
+    assert_eq!(states.completion(), None);
     assert_eq!(ledger.completion(&earlier[3].0), Some(&after[6]));
 }
 
@@ -1231,11 +1213,13 @@ fn undoing_a_carried_judgment_withdraws_the_earlier_reviews_completion() {
         complete("done-earlier", &earlier[0].0, &[(&a, "earlier")], 20),
     ];
     let ledger = Ledger::new(&judgments);
-    let plan = states(&current, &earlier, &indexes(&earlier), &ledger)
+    let store = store_of(&judgments, &earlier);
+    let plan = store
+        .review(&current.0, &current.1)
         .plan_undo(slice::from_ref(&a.id))
         .unwrap();
     assert_eq!(
-        withdrawals(&ledger, &plan),
+        withdrawals(store.ledger(), &plan),
         [
             withdrawal("earlier", Some(&a)),
             withdrawal("done-earlier", None),
@@ -1259,14 +1243,11 @@ fn undo_of_an_item_nothing_closes_is_refused() {
         ack("before", &earlier[0].0, &[&before], 10),
         ack("own", &current.0, &[&c], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     let gate = &current.1.gate;
     assert_eq!(
-        states(&current, &earlier, &indexes(&earlier), &ledger).plan_undo(&[
-            gate[0].id.clone(),
-            b.id.clone(),
-            c.id.clone(),
-        ]),
+        store_of(&judgments, &earlier)
+            .review(&current.0, &current.1)
+            .plan_undo(&[gate[0].id.clone(), b.id.clone(), c.id.clone(),]),
         Err(vec![
             NotClosed {
                 item: &gate[0],
@@ -1387,8 +1368,8 @@ fn names(gate: &[GateItem]) -> ItemNames<'_> {
     })
 }
 
-fn gate_info(states: &GateStates<'_>, gate: &[GateItem]) -> GateInfo {
-    GateInfo::new(states, &names(gate))
+fn gate_info(review: &JudgedReview<'_>, gate: &[GateItem]) -> GateInfo {
+    review.report(&names(gate)).gate
 }
 
 #[test]
@@ -1403,10 +1384,9 @@ fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
         dismiss("dismiss-b", &current.0, &[&b], 20),
         ack("ack-c", &earlier[0].0, &[&then], 5),
     ];
-    let ledger = Ledger::new(&judgments);
 
     let gate = gate_info(
-        &states(&current, &earlier, &indexes(&earlier), &ledger),
+        &store_of(&judgments, &earlier).review(&current.0, &current.1),
         &current.1.gate,
     );
 
@@ -1476,9 +1456,12 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
         undo("undo", &current.0, &[("done", None)], 30),
     ];
 
-    let ledger = Ledger::new(&judgments[..2]);
-    let status = StatusInfo::new(&states(&current, &[], &indexes(&[]), &ledger));
+    let status = store_of(&judgments[..2], &[])
+        .review(&current.0, &current.1)
+        .report(&names(&current.1.gate))
+        .status;
     assert!(status.complete);
+    assert_eq!(status.source, CompletionSource::Own);
     assert_eq!(
         status.completion,
         Some(JudgmentInfo {
@@ -1492,10 +1475,13 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
         })
     );
 
-    let ledger = Ledger::new(&judgments);
-    let status = StatusInfo::new(&states(&current, &[], &indexes(&[]), &ledger));
+    let status = store_of(&judgments, &[])
+        .review(&current.0, &current.1)
+        .report(&names(&current.1.gate))
+        .status;
     assert!(!status.complete);
     assert_eq!(status.completion, None);
+    assert_eq!(status.source, CompletionSource::NotChecked);
 }
 
 #[test]
@@ -1561,31 +1547,36 @@ fn explanations_differ_only_where_the_content_did_not_change() {
     assert_eq!(explanations_differ(&current, &current, &[]), []);
 }
 
-fn unchanged(related: RelatedBasis<'_>) -> RelatedReading<'_> {
+fn unchanged(_: Earlier<'_>) -> RelatedReading {
     RelatedReading {
-        related,
         changed_paths: Some(Vec::new()),
-        new: Vec::new(),
-        capture: Vec::new(),
-        gone_or_rewritten: Vec::new(),
+        ..RelatedReading::default()
     }
 }
 
-fn status<'a>(
-    current: &'a Saved,
-    earlier: &'a [Saved],
-    ledger: &'a Ledger<'a>,
-    read: impl Fn(RelatedBasis<'a>) -> RelatedReading<'a>,
+/// The report on `current` with `judgments`, reading each of the related
+/// `earlier` reviews with `read`.
+fn reported(
+    current: &Saved,
+    earlier: &[Saved],
+    judgments: &[Judgment],
+    read: impl Fn(Earlier<'_>) -> RelatedReading,
+) -> Report {
+    store_of(judgments, earlier)
+        .review(&current.0, &current.1)
+        .report_reading(&names(&current.1.gate), |related| {
+            Ok::<_, Infallible>(related.iter().map(|&related| read(related)).collect())
+        })
+        .unwrap()
+}
+
+fn status(
+    current: &Saved,
+    earlier: &[Saved],
+    judgments: &[Judgment],
+    read: impl Fn(Earlier<'_>) -> RelatedReading,
 ) -> StatusInfo {
-    let related = related_bases(
-        &current.0,
-        &current.1,
-        earlier.iter().map(|(id, b)| (id, b)),
-    );
-    let indexes = GateIndex::of(&related);
-    let states = GateStates::new(&current.0, &current.1, &related, &indexes, ledger);
-    let readings = related.iter().map(|related| read(*related)).collect();
-    StatusInfo::reviewed(&states, &current.1, readings, &names(&current.1.gate))
+    reported(current, earlier, judgments, read).status
 }
 
 #[test]
@@ -1600,13 +1591,16 @@ fn a_completion_of_the_same_content_carries_over_when_nothing_changed() {
         ack("ack", &earlier[0].0, &[&a], 10),
         complete("done", &earlier[0].0, &[(&a, "ack")], 20),
     ];
-    let ledger = Ledger::new(&judgments);
 
-    let status = status(&current, &earlier, &ledger, unchanged);
+    let status = status(&current, &earlier, &judgments, unchanged);
 
     assert!(status.complete);
     let done = JudgmentInfo::new(&judgments[1]);
     assert_eq!(status.completion, Some(done.clone()));
+    assert_eq!(
+        status.source,
+        CompletionSource::Carried(earlier[0].0.clone())
+    );
     assert_eq!(
         status.related,
         [RelatedInfo {
@@ -1634,7 +1628,6 @@ fn a_completion_does_not_carry_over_once_evidence_changed() {
         ack("ack", &earlier[0].0, &[&a], 10),
         complete("done", &earlier[0].0, &[(&a, "ack")], 20),
     ];
-    let ledger = Ledger::new(&judgments);
     let new = vec![NewObservations {
         session: "s1".to_owned(),
         paths: paths(&["a.rs"]),
@@ -1642,7 +1635,7 @@ fn a_completion_does_not_carry_over_once_evidence_changed() {
     let capture = vec!["t1".to_owned()];
     let gone = vec![RecordId::new("r1")];
 
-    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+    let status = status(&current, &earlier, &judgments, |related| RelatedReading {
         new: new.clone(),
         capture: capture.clone(),
         gone_or_rewritten: gone.clone(),
@@ -1680,9 +1673,8 @@ fn a_completion_does_not_carry_over_to_a_gate_it_did_not_cover() {
         ack("as-y", &earlier[1].0, &[&y], 20),
         complete("done-as-y", &earlier[1].0, &[(&y, "as-y")], 30),
     ];
-    let ledger = Ledger::new(&judgments);
 
-    let status = status(&current, &earlier, &ledger, unchanged);
+    let status = status(&current, &earlier, &judgments, unchanged);
 
     assert!(!status.complete);
     // The review the status is about comes first.
@@ -1719,9 +1711,8 @@ fn a_completion_of_earlier_code_never_carries_over() {
         ack("ack", &earlier[0].0, &[&a], 10),
         complete("done", &earlier[0].0, &[(&a, "ack")], 20),
     ];
-    let ledger = Ledger::new(&judgments);
 
-    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+    let status = status(&current, &earlier, &judgments, |related| RelatedReading {
         changed_paths: Some(paths(&["b.rs"])),
         ..unchanged(related)
     });
@@ -1741,13 +1732,12 @@ fn without_the_changed_paths_no_explanation_is_said_to_differ() {
     earlier.explanations = vec![explanation("a.rs", 'x')];
     let (current, earlier) = (saved(current), [saved(earlier)]);
     let judgments = [complete("done", &earlier[0].0, &[], 20)];
-    let ledger = Ledger::new(&judgments);
 
-    let unknown = status(&current, &earlier, &ledger, |related| RelatedReading {
+    let unknown = status(&current, &earlier, &judgments, |related| RelatedReading {
         changed_paths: None,
         ..unchanged(related)
     });
-    let known = status(&current, &earlier, &ledger, unchanged);
+    let known = status(&current, &earlier, &judgments, unchanged);
 
     assert_eq!(unknown.related[0].changed_paths, None);
     assert_eq!(
@@ -1776,9 +1766,8 @@ fn any_completion_that_carries_over_completes_the_review_whatever_was_completed_
         complete("newer", &earlier[1].0, &[(&a, "ack")], 30),
         complete("code-changed", &earlier[2].0, &[(&a, "ack")], 40),
     ];
-    let ledger = Ledger::new(&judgments);
 
-    let status = status(&current, &earlier, &ledger, unchanged);
+    let status = status(&current, &earlier, &judgments, unchanged);
 
     // Through the most recent completion that carries over, listed first.
     assert!(status.complete);
@@ -1801,17 +1790,17 @@ fn without_a_completion_that_carries_over_the_status_is_about_the_most_recent() 
         complete("same-content", &earlier[0].0, &[(&a, "ack")], 20),
         complete("code-changed", &earlier[1].0, &[(&a, "ack")], 30),
     ];
-    let ledger = Ledger::new(&judgments);
     let gone = vec![RecordId::new("r1")];
 
     // Evidence changed since both.
-    let status = status(&current, &earlier, &ledger, |related| RelatedReading {
+    let status = status(&current, &earlier, &judgments, |related| RelatedReading {
         gone_or_rewritten: gone.clone(),
         ..unchanged(related)
     });
 
     assert!(!status.complete);
     assert_eq!(status.completion, None);
+    assert_eq!(status.source, CompletionSource::Absent);
     assert_eq!(status.related[0].review, earlier[1].0);
     assert_eq!(status.related[1].review, earlier[0].0);
 }
@@ -1826,12 +1815,12 @@ fn the_reviews_own_completion_completes_it_whatever_changed_since_others() {
         complete("own", &current.0, &[(&a, "ack")], 20),
         complete("earlier", &earlier[0].0, &[(&a, "ack")], 30),
     ];
-    let ledger = Ledger::new(&judgments);
 
-    let status = status(&current, &earlier, &ledger, unchanged);
+    let status = status(&current, &earlier, &judgments, unchanged);
 
     assert!(status.complete);
     assert_eq!(status.completion, Some(JudgmentInfo::new(&judgments[1])));
+    assert_eq!(status.source, CompletionSource::Own);
     assert_eq!(status.related.len(), 1);
 }
 
@@ -1855,19 +1844,21 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
     // every explanation took about 15 s here in a debug build. Indexes reduce
     // this to under 2 s.
     let status = finishes_within(Duration::from_secs(10), move || {
-        let ledger = Ledger::new(&[]);
-        let related = related_bases(&current.0, &current.1, ids.iter().map(|id| (id, &earlier)));
-        let indexes = GateIndex::of(&related);
-        let states = GateStates::new(&current.0, &current.1, &related, &indexes, &ledger);
-        let names = names(&current.1.gate);
-        let readings = related
-            .iter()
-            .map(|&related| RelatedReading {
-                changed_paths: Some(changed.clone()),
-                ..unchanged(related)
+        let store = JudgedStore::new(&[], ids.iter().map(|id| (id, &earlier)));
+        store
+            .review(&current.0, &current.1)
+            .report_reading(&names(&current.1.gate), |related| {
+                let readings = related
+                    .iter()
+                    .map(|&related| RelatedReading {
+                        changed_paths: Some(changed.clone()),
+                        ..unchanged(related)
+                    })
+                    .collect();
+                Ok::<_, Infallible>(readings)
             })
-            .collect();
-        StatusInfo::reviewed(&states, &current.1, readings, &names)
+            .unwrap()
+            .status
     });
 
     assert_eq!(status.related.len(), 100);
@@ -1876,4 +1867,76 @@ fn many_related_reviews_of_other_code_give_the_status_promptly() {
             related.uncovered.len() == 5000 && related.changed_evidence.is_empty()
         })
     );
+}
+
+#[test]
+fn a_completion_whose_closing_judgment_no_longer_stands_does_not_count() {
+    // An undo always withdraws the completions counting a pair it
+    // withdraws; this history skips that.
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let mut judgments = vec![
+        ack("ack", &current.0, &[&a], 10),
+        complete("done", &current.0, &[(&a, "ack")], 20),
+        undo("undo", &current.0, &[("ack", Some(&a))], 30),
+    ];
+    let store = store_of(&judgments, &[]);
+    let review = store.review(&current.0, &current.1);
+
+    assert_eq!(review.completion(), None);
+    let status = review.report(&names(&current.1.gate)).status;
+    assert!(!status.complete);
+    assert_eq!(status.source, CompletionSource::NotChecked);
+    assert_eq!(
+        review.check_complete(),
+        Err(CompleteRefusal::Unclosed(vec![&current.1.gate[0]]))
+    );
+
+    // Once the item closes again, a new completion is allowed.
+    judgments.push(ack("again", &current.0, &[&a], 40));
+    let store = store_of(&judgments, &[]);
+    assert_eq!(
+        store.review(&current.0, &current.1).check_complete(),
+        Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("again"))]))
+    );
+}
+
+#[test]
+fn a_completion_closing_too_little_does_not_count() {
+    let (a, b) = (lines("a.rs", "x"), lines("b.rs", "x"));
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone(), b.clone()]));
+    let judgments = [
+        ack("ack", &current.0, &[&a, &b], 10),
+        complete("done", &current.0, &[(&a, "ack")], 20),
+    ];
+    let store = store_of(&judgments, &[]);
+    let review = store.review(&current.0, &current.1);
+
+    assert_eq!(review.completion(), None);
+    assert_eq!(
+        review.check_complete(),
+        Ok(BTreeMap::from([
+            (a.id.clone(), JudgmentId::new("ack")),
+            (b.id.clone(), JudgmentId::new("ack")),
+        ]))
+    );
+}
+
+#[test]
+fn a_completion_that_does_not_count_does_not_carry() {
+    let a = lines("a.rs", "x");
+    let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
+    let earlier = [saved(basis("/work/b", '1', '2', vec![a.clone()]))];
+    let judgments = [
+        ack("ack", &current.0, &[&a], 10),
+        ack("earlier", &earlier[0].0, &[&a], 10),
+        complete("done", &earlier[0].0, &[(&a, "earlier")], 20),
+        undo("undo", &earlier[0].0, &[("earlier", Some(&a))], 30),
+    ];
+
+    let status = status(&current, &earlier, &judgments, unchanged);
+
+    assert!(!status.complete);
+    assert_eq!(status.completion, None);
+    assert_eq!(status.source, CompletionSource::Absent);
 }

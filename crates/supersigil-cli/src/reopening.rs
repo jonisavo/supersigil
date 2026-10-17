@@ -3,7 +3,7 @@
 //! or changing reviewed paths, new capture limitations in candidate transcripts,
 //! and previously read records now gone or rewritten.
 //! The review model compares explanations and gate items from the two bases
-//! ([`StatusInfo::reviewed`](supersigil_review::model::StatusInfo::reviewed)).
+//! ([`JudgedReview::report_reading`](supersigil_review::judging::JudgedReview::report_reading)).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use supersigil_record::observations::{Edit, Observation};
 use supersigil_record::reviews::{Basis, BasisRecord, PathBytes, PinnedLog};
 use supersigil_record::store::LogReading;
 use supersigil_review::Review;
-use supersigil_review::judging::{RelatedBasis, Relation};
+use supersigil_review::judging::{Earlier, Relation};
 use supersigil_review::model::{NewObservations, RelatedReading};
 use supersigil_session::checkout::Resolutions;
 
@@ -33,14 +33,14 @@ use crate::pipeline::{Gathered, PinnedRecord, by_path_key, path_key};
 ///
 /// Returns [`CliError::Git`] if an earlier target tree cannot be looked up
 /// or compared with the current one, and the store errors of reading a pinned log.
-pub fn read_changes<'a>(
+pub fn read_changes(
     g: &Gathered,
     review: &Review,
-    related: &[RelatedBasis<'a>],
-) -> Result<Vec<RelatedReading<'a>>, CliError> {
+    related: &[Earlier<'_>],
+) -> Result<Vec<RelatedReading>, CliError> {
     let earlier: Vec<&[BasisRecord]> = related
         .iter()
-        .map(|related| related.basis.records.as_slice())
+        .map(|related| related.basis().records.as_slice())
         .collect();
     let logs = Logs::read(&g.records, &earlier)?;
     let changed = code_changed(g, related)?;
@@ -48,9 +48,8 @@ pub fn read_changes<'a>(
         .iter()
         .zip(changed)
         .map(|(&related, changed_paths)| {
-            let since = records_since(g, related.basis, &logs);
+            let since = records_since(g, related.basis(), &logs);
             RelatedReading {
-                related,
                 changed_paths,
                 new: new_observations(g, review, &since.appended),
                 capture: capture_changed(g, &since.appended),
@@ -72,14 +71,14 @@ pub fn read_changes<'a>(
 /// compared with the current one.
 fn code_changed(
     g: &Gathered,
-    related: &[RelatedBasis<'_>],
+    related: &[Earlier<'_>],
 ) -> Result<Vec<Option<Vec<PathBytes>>>, CliError> {
     // Each earlier tree whose code changed since, once, in order.
     let mut seen = BTreeSet::new();
     let trees: Vec<&str> = related
         .iter()
-        .filter(|related| related.relation == Relation::CodeChanged)
-        .map(|related| related.basis.target.tree.as_str())
+        .filter(|related| related.relation() == Relation::CodeChanged)
+        .map(|related| related.basis().target.tree.as_str())
         .filter(|&tree| seen.insert(tree))
         .collect();
     let ids = trees
@@ -103,9 +102,9 @@ fn code_changed(
     }
     Ok(related
         .iter()
-        .map(|related| match related.relation {
+        .map(|related| match related.relation() {
             Relation::SameContent => Some(Vec::new()),
-            Relation::CodeChanged => changed[related.basis.target.tree.as_str()].clone(),
+            Relation::CodeChanged => changed[related.basis().target.tree.as_str()].clone(),
         })
         .collect())
 }
