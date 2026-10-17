@@ -959,7 +959,7 @@ fn many_judged_reviews_of_the_worktree_keep_review_prompt() {
         };
         tx.append_judgment(&judgment).unwrap();
     }
-    tx.commit().unwrap();
+    tx.commit(UtcTime::now()).unwrap();
     write(
         &f.repo,
         "src/lib.rs",

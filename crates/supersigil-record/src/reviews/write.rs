@@ -4,14 +4,14 @@
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::manifest::{self, BasisTimes, ReviewManifest};
 use super::{
     BASES_DIR, Basis, BasisId, JUDGMENTS_FILE, Judgment, LOCK_FILE, ReviewStore, basis_file_name,
     judgment, read_basis_file, written_in_bases,
 };
-use crate::files;
+use crate::files::{self, Publication};
 use crate::ids::Revision;
 use crate::store::{MANIFEST_FILE, StoreError, io_error};
 use crate::time::{GRACE_SECONDS, REMOVAL_DELAY_SECONDS, UtcTime};
@@ -22,7 +22,7 @@ use crate::time::{GRACE_SECONDS, REMOVAL_DELAY_SECONDS, UtcTime};
 /// but readers see them only once the published manifest lists them.
 /// Dropping the transaction without committing leaves the manifest unchanged
 /// and releases the lock. The next append truncates uncommitted judgment bytes.
-/// Later cleanup deletes unlisted basis files this transaction wrote.
+/// The next commit deletes unlisted basis files this transaction wrote.
 #[derive(Debug)]
 pub struct ReviewTx<'a> {
     store: &'a ReviewStore,
@@ -34,8 +34,8 @@ pub struct ReviewTx<'a> {
     judgments: Vec<Judgment>,
     /// Bases named by any judgment, including this transaction's.
     judged: BTreeSet<BasisId>,
-    /// Whether this transaction appended to the judgments log.
-    appended: bool,
+    /// What this transaction changed, synced at commit.
+    publication: Publication,
     _lock: File,
 }
 
@@ -63,11 +63,11 @@ impl<'a> ReviewTx<'a> {
         )?;
         Ok(Self {
             store,
+            publication: Publication::new(store.root(), manifest.revision),
             starting: manifest.clone(),
             manifest,
             judged: judgments.iter().map(|j| j.basis.clone()).collect(),
             judgments,
-            appended: false,
             _lock: lock,
         })
     }
@@ -113,15 +113,17 @@ impl<'a> ReviewTx<'a> {
         files::append_at(&path, self.manifest.judgments_length, &line)?;
         self.manifest.judgments_length += line.len() as u64;
         self.judged.insert(judgment.basis.clone());
-        self.appended = true;
+        self.publication.touched(path);
         Ok(())
     }
 
     /// Saves `basis` as reviewed at `now` and returns its ID.
     ///
     /// Reuses an existing regular `bases/<id>.json` if its bytes hash to the
-    /// ID, syncing it and `bases/` first. Otherwise writes through a temporary
-    /// file in `bases/` and replaces the target, including symbolic links.
+    /// ID. Otherwise writes through a temporary file in `bases/` and replaces
+    /// the target, including symbolic links. Either way, [`Self::commit`]
+    /// syncs the file, since a crash may have left a reused one renamed into
+    /// place but not durable.
     /// Sets `last_reviewed` to `now` and sets `first_written` for a new basis.
     /// Removes the basis from `removed`; a previously removed basis is new again.
     ///
@@ -146,15 +148,11 @@ impl<'a> ReviewTx<'a> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => false,
             Err(e) => return Err(io_error(&path, e)),
         };
-        if intact {
-            // A crash may have left it renamed into place but not durable.
-            files::sync_file(&path)?;
-            files::sync_dir(&dir)?;
-        } else {
+        if !intact {
             fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
-            files::sync_dir(root)?;
             files::replace(&dir, &name, &bytes)?;
         }
+        self.publication.touched(path);
         self.manifest.removed.remove(&id);
         self.manifest
             .bases
@@ -174,9 +172,12 @@ impl<'a> ReviewTx<'a> {
             .insert(worktree.to_path_buf(), basis.clone());
     }
 
-    /// Removes unused bases in two phases. Keeps bases named by a selection
-    /// or any judgment, so judged bases stay forever. Publishes each removal
-    /// before a later write deletes its file.
+    /// Removes unused bases at `now`, then publishes this transaction's
+    /// changes and returns the new revision.
+    ///
+    /// Bases are removed in two phases. Bases named by a selection or any
+    /// judgment are kept, so judged bases stay forever. Each removal is
+    /// published before a later write deletes its file.
     ///
     /// - Deletes the files of bases whose removal a published manifest
     ///   recorded more than [`REMOVAL_DELAY_SECONDS`] before `now`, after
@@ -185,7 +186,7 @@ impl<'a> ReviewTx<'a> {
     ///   deleted here.
     /// - Moves bases that nothing names and that were last reviewed more
     ///   than [`GRACE_SECONDS`] before `now` from `bases` to `removed` with
-    ///   the time `now`. Committing publishes that removal; a later write
+    ///   the time `now`. This commit publishes that removal; a later write
     ///   deletes the files.
     /// - Deletes leftover files in `bases/` that no manifest entry, selection,
     ///   or judgment names. Deletes only basis files and their temporary files
@@ -200,15 +201,40 @@ impl<'a> ReviewTx<'a> {
     /// bases with regular files containing the same bytes. Skips all deletions
     /// if any such link cannot be read or its bytes do not hash to the basis ID.
     /// Files that cannot be deleted, including open files on Windows, keep
-    /// their entries for the next write. After deleting any file, syncs
-    /// `bases/` so the deletions are durable before the manifest that
-    /// drops them.
+    /// their entries for the next write.
+    ///
+    /// Publishing then syncs written files and the directories of written
+    /// and deleted files up to the store directory, checks that the on-disk
+    /// revision still matches the starting one, increments it, and
+    /// publishes the manifest by atomic rename.
+    ///
+    /// On Windows, skips directory syncing if the directory cannot be opened.
+    /// Its entries then rely on the file system's durability guarantees.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Io`] if `bases/` exists but cannot be listed,
-    /// or cannot be synced after a deletion.
-    pub fn cleanup(&mut self, now: UtcTime) -> Result<(), StoreError> {
+    /// [`StoreError::Conflict`] if the on-disk revision changed, errors from
+    /// reading or validating the current manifest, or [`StoreError::Json`]
+    /// or [`StoreError::Io`] if syncing or publishing fails. An error
+    /// syncing the store directory after the rename can occur after the new
+    /// manifest is already visible.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting revision is [`u64::MAX`].
+    pub fn commit(mut self, now: UtcTime) -> Result<Revision, StoreError> {
+        self.cleanup(now)?;
+        self.publication.commit(&mut self.manifest)
+    }
+
+    /// Removes unused bases at `now` as [`Self::commit`] describes, recording
+    /// each deletion and replacement for it to sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if `bases/` exists but cannot be listed.
+    fn cleanup(&mut self, now: UtcTime) -> Result<(), StoreError> {
         let root = self.store.root();
         let dir = root.join(BASES_DIR);
         let kept: BTreeSet<&BasisId> = self
@@ -218,8 +244,7 @@ impl<'a> ReviewTx<'a> {
             .chain(&self.judged)
             .collect();
         let deletable = files::unlinked_entries(root, &[MANIFEST_FILE, LOCK_FILE, JUDGMENTS_FILE])
-            && self.make_bases_regular(&dir, &kept);
-        let mut deleted = false;
+            && make_bases_regular(&self.manifest, &dir, &kept, &mut self.publication);
         for (id, removed) in &self.starting.removed {
             let due = now.unix() - removed.unix() > REMOVAL_DELAY_SECONDS;
             if !deletable
@@ -229,10 +254,13 @@ impl<'a> ReviewTx<'a> {
             {
                 continue;
             }
-            if remove_regular(&dir.join(basis_file_name(id))) {
-                self.manifest.removed.remove(id);
-                deleted = true;
+            let path = dir.join(basis_file_name(id));
+            match remove_regular(&path) {
+                Removal::Deleted => self.publication.deleted(path),
+                Removal::Absent => {}
+                Removal::Failed => continue,
             }
+            self.manifest.removed.remove(id);
         }
 
         let unused: Vec<BasisId> = self
@@ -274,98 +302,89 @@ impl<'a> ReviewTx<'a> {
                 continue;
             }
             // Retry undeletable leftovers on the next write.
-            deleted |= remove_regular(&entry.path());
-        }
-        if deleted {
-            files::sync_dir(&dir)?;
+            let path = entry.path();
+            if remove_regular(&path) == Removal::Deleted {
+                self.publication.deleted(path);
+            }
         }
         Ok(())
     }
+}
 
-    /// Replaces linked files of bases in `bases` or `kept` with regular files,
-    /// in ID order (see [`make_regular`]). `kept` contains selected or judged bases.
-    /// Allows deletion only if `dir` is missing, or is an unlinked directory
-    /// where every required replacement succeeded.
-    fn make_bases_regular(&self, dir: &Path, kept: &BTreeSet<&BasisId>) -> bool {
-        match fs::symlink_metadata(dir) {
-            Ok(metadata) if metadata.is_dir() => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return true,
-            _ => return false,
-        }
-        let live: BTreeSet<&BasisId> = self
-            .manifest
-            .bases
-            .keys()
-            .chain(kept.iter().copied())
-            .collect();
-        live.into_iter().all(|id| make_regular(dir, id).is_ok())
+/// Replaces linked files of bases in `manifest`'s `bases` or `kept` with
+/// regular files, in ID order (see [`make_regular`]), recording each
+/// replacement in `publication`. `kept` contains selected or judged bases.
+/// Allows deletion only if `dir` is missing, or is an unlinked directory
+/// where every required replacement succeeded.
+fn make_bases_regular(
+    manifest: &ReviewManifest,
+    dir: &Path,
+    kept: &BTreeSet<&BasisId>,
+    publication: &mut Publication,
+) -> bool {
+    match fs::symlink_metadata(dir) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return true,
+        _ => return false,
     }
-
-    /// Publishes this transaction's changes and returns the new revision.
-    ///
-    /// Syncs the appended judgments and the store directory, then checks
-    /// that the on-disk revision still matches the starting one, increments
-    /// it, and publishes the manifest by atomic rename. Basis files were
-    /// synced when they were written.
-    ///
-    /// On Windows, skips directory syncing if the directory cannot be opened.
-    /// Its entries then rely on the file system's durability guarantees.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Conflict`] if the on-disk revision changed,
-    /// errors from reading or validating the current manifest, or
-    /// [`StoreError::Json`] or [`StoreError::Io`] if syncing or publishing
-    /// fails. An error syncing the store directory after the rename can
-    /// occur after the new manifest is already visible.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the starting revision is [`u64::MAX`].
-    pub fn commit(mut self) -> Result<Revision, StoreError> {
-        let root = self.store.root();
-        if self.appended {
-            files::sync_file(&root.join(JUDGMENTS_FILE))?;
-            files::sync_dir(root)?;
+    let live: BTreeSet<&BasisId> = manifest.bases.keys().chain(kept.iter().copied()).collect();
+    live.into_iter().all(|id| match make_regular(dir, id) {
+        Ok(Some(path)) => {
+            publication.touched(path);
+            true
         }
-        let on_disk = manifest::read(root)?;
-        self.manifest.revision = files::next_revision(self.starting.revision, on_disk.revision)?;
-        files::publish_manifest(root, &self.manifest)?;
-        Ok(self.manifest.revision)
-    }
+        Ok(None) => true,
+        Err(_) => false,
+    })
 }
 
 /// Replaces a symbolic link for basis `id` in `dir` with its target's bytes,
-/// written as [`ReviewTx::save_basis`] writes. Leaves other entries unchanged.
+/// written as [`ReviewTx::save_basis`] writes, and returns the replaced
+/// path. Leaves other entries unchanged and returns `None` for them.
 ///
 /// # Errors
 ///
 /// Returns [`StoreError::Corrupt`] if what the link leads to does not hash
 /// to `id`, or [`StoreError::Io`] if reading or replacing the file fails.
-fn make_regular(dir: &Path, id: &BasisId) -> Result<(), StoreError> {
+fn make_regular(dir: &Path, id: &BasisId) -> Result<Option<PathBuf>, StoreError> {
     let name = basis_file_name(id);
     let path = dir.join(&name);
     match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_symlink() => {}
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(io_error(&path, e)),
-        _ => return Ok(()),
+        _ => return Ok(None),
     }
     let bytes = read_basis_file(&path, id)?;
-    files::replace(dir, &name, &bytes)
+    files::replace(dir, &name, &bytes)?;
+    Ok(Some(path))
+}
+
+/// What [`remove_regular`] did with a path.
+#[derive(Debug, PartialEq, Eq)]
+enum Removal {
+    /// Deleted a regular file.
+    Deleted,
+    /// Found nothing to delete: the path is missing, or is a symbolic link
+    /// that cleanup must keep.
+    Absent,
+    /// Could not delete what is there.
+    Failed,
 }
 
 /// Deletes `path` only if it is a regular file, without following links.
-/// Returns `true` if it was deleted, is missing, or is a symbolic link that
-/// cleanup must keep.
-fn remove_regular(path: &Path) -> bool {
+fn remove_regular(path: &Path) -> Removal {
     let removed = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_symlink() => return true,
+        Ok(metadata) if metadata.is_symlink() => return Removal::Absent,
         Ok(metadata) if metadata.is_file() => fs::remove_file(path),
-        Ok(_) => return false,
+        Ok(_) => return Removal::Failed,
         Err(e) => Err(e),
     };
     match removed {
-        Ok(()) => true,
-        Err(e) => e.kind() == io::ErrorKind::NotFound,
+        Ok(()) => Removal::Deleted,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Removal::Absent,
+        Err(_) => Removal::Failed,
     }
 }
+
+#[cfg(test)]
+mod tests;

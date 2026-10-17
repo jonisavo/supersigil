@@ -84,3 +84,13 @@ pub(super) fn read(root: &Path) -> Result<ReviewManifest, StoreError> {
         }
     })
 }
+
+impl files::Published for ReviewManifest {
+    fn read(root: &Path) -> Result<Self, StoreError> {
+        read(root)
+    }
+
+    fn revision(&mut self) -> &mut Revision {
+        &mut self.revision
+    }
+}

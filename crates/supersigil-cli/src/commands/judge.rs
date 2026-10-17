@@ -253,8 +253,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     };
     let judgment = planned.record(JudgmentId::generate(), who, now);
     tx.append_judgment(&judgment)?;
-    tx.cleanup(now)?;
-    tx.commit()?;
+    tx.commit(now)?;
 
     judgments.push(judgment.clone());
     let store = JudgedStore::new(&judgments, &others);

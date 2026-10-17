@@ -3481,7 +3481,7 @@ fn judgment_on(review: &Value, kind: JudgmentKind) -> Judgment {
 fn append(store: &ReviewStore, judgment: &Judgment) -> String {
     let mut tx = store.begin().unwrap();
     tx.append_judgment(judgment).unwrap();
-    tx.commit().unwrap();
+    tx.commit(UtcTime::now()).unwrap();
     judgment.id.as_str().to_owned()
 }
 

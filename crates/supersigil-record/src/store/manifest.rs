@@ -109,3 +109,13 @@ pub(super) fn read(root: &Path) -> Result<Manifest, StoreError> {
         }
     })
 }
+
+impl files::Published for Manifest {
+    fn read(root: &Path) -> Result<Self, StoreError> {
+        read(root)
+    }
+
+    fn revision(&mut self) -> &mut Revision {
+        &mut self.revision
+    }
+}

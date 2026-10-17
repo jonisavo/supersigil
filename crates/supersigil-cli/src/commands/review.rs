@@ -306,8 +306,7 @@ fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<bool, CliErr
     if !in_agent_session(|name| std::env::var_os(name)) {
         tx.select(&g.worktree, &id);
     }
-    tx.cleanup(now)?;
-    tx.commit()?;
+    tx.commit(now)?;
     Ok(true)
 }
 
