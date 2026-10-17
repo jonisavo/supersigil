@@ -371,6 +371,9 @@ its original id. A completion that carries therefore never leaves an item
 open. Undoing an item withdraws
 every judgment closing it, including carried judgments, on every review
 those judgments close. It also withdraws every completion that counted them.
+Undoing a judgment by id withdraws what stands of it, with the completions
+that counted it; the judgment must be recorded on the selected review or
+close one of its items.
 
 A review is complete with its own standing completion. A completion from a
 review of the same content carries only if it covered every current item

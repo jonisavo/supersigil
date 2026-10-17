@@ -615,6 +615,24 @@ fn refused_call(
             };
             no_judgment(error, prefix, addressing)
         }
+        Refusal::OtherReview(judgment) => {
+            let mut out = Printed::new();
+            out.line(format!(
+                "Judgment {} was recorded on review {} and closes none of review {}'s items.",
+                judgment.id.short(),
+                judgment.basis.short(),
+                id.short()
+            ));
+            let there = Addressing {
+                review: Some(judgment.basis.short().to_owned()),
+                ..addressing.clone()
+            };
+            // The whole id, since a prefix unique here may not be.
+            let options = format!("--judgment {}", judgment.id);
+            let undo = out.command(there.judge("undo", &[], &options));
+            out.line(format!("To withdraw it there: {undo}"));
+            refusal(out)
+        }
         Refusal::NotWithdrawable(judgment, WithdrawRefusal::Undo) => refusal(
             [format!(
                 "Judgment {} is an undo; an undo cannot be withdrawn.",

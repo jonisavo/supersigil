@@ -1945,6 +1945,27 @@ fn show_of_a_review_with_nothing_to_review_suggests_no_judgment() {
 }
 
 #[test]
+fn undoing_by_id_a_judgment_of_another_review_names_that_review() {
+    let (f, other, first, second) = carried();
+    let (first8, second8) = (&basis_id(&first)[..8], &basis_id(&second)[..8]);
+    judged(&f, &f.repo, &["comment", "--text", "Careful work."]);
+    let [.., note] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    let note8 = note.id.short();
+
+    let message = refused(&f, &mut judge(&f, &other, &["undo", "--judgment", note8]));
+
+    assert_eq!(
+        message,
+        format!(
+            "No judgment recorded. Judgment {note8} was recorded on review {first8} and closes \
+             none of review {second8}'s items.\nTo withdraw it there: supersigil judge undo \
+             --judgment {} --review={first8}\n",
+            note.id
+        )
+    );
+}
+
+#[test]
 fn an_undo_and_a_judgment_already_withdrawn_cannot_be_undone() {
     let (f, _) = reviewed();
     judged(&f, &f.repo, &["acknowledge", "old.txt"]);

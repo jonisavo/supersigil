@@ -693,7 +693,9 @@ impl<'a> JudgedReview<'a> {
     /// unclosed and closes nothing else; completing needs every gate item
     /// closed and lists each item's closing judgment; undoing items
     /// withdraws what closes them, and undoing a judgment what stands of
-    /// it, each with the completions that count what it withdraws.
+    /// it, each with the completions that count what it withdraws. A
+    /// judgment undone by ID must be recorded on the current review or
+    /// close one of its items.
     /// Comments are recorded as given and close nothing. Item IDs absent
     /// from the gate pass every check and are recorded as given; callers
     /// name items by resolving names against the gate.
@@ -743,6 +745,20 @@ impl<'a> JudgedReview<'a> {
             Call::UndoJudgment { prefix, reason } => {
                 let ledger = self.states.ledger;
                 let judgment = ledger.find(prefix).map_err(Refusal::NoJudgment)?;
+                // Undoing items withdraws every closer of each item, so
+                // this reaches the same judgments.
+                let holds = judgment.basis == *self.states.id
+                    || judgment.items.iter().any(|item| {
+                        self.states.judged(item).is_some_and(|judged| {
+                            self.states
+                                .closers(judged.item)
+                                .iter()
+                                .any(|closer| closer.id == judgment.id)
+                        })
+                    });
+                if !holds {
+                    return Err(Refusal::OtherReview(judgment));
+                }
                 planned.withdraws = ledger
                     .plan_withdrawal(judgment)
                     .map_err(|refused| Refusal::NotWithdrawable(judgment, refused))?;
@@ -1144,8 +1160,8 @@ pub enum Call<'c, I = ItemId> {
         /// Why, if given.
         reason: Option<&'c str>,
     },
-    /// Withdraw what stands of the judgment whose ID starts with `prefix`,
-    /// on any review.
+    /// Withdraw what stands of the judgment whose ID starts with `prefix`:
+    /// one recorded on the current review, or one closing its items.
     UndoJudgment {
         /// At least 8 leading characters of its ID, in any ASCII case.
         prefix: &'c str,
@@ -1284,6 +1300,9 @@ pub enum Refusal<'a> {
     NotClosed(Vec<NotClosed<'a>>),
     /// An undo's prefix names no single judgment.
     NoJudgment(FindJudgmentError<'a>),
+    /// An undo names this judgment of another review, which closes none
+    /// of the current review's items.
+    OtherReview(&'a Judgment),
     /// An undo names this judgment, which cannot be withdrawn.
     NotWithdrawable(&'a Judgment, WithdrawRefusal),
 }
