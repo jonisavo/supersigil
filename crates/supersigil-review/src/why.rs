@@ -21,9 +21,10 @@ use crate::model::{
     outcome_edits, text,
 };
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
+use crate::printed::Printed;
 use crate::summary::{
-    class_words, command_line, content_match_words, context_lines, push, reason_words,
-    recorded_commands, relation_words,
+    class_words, command_line, content_match_words, context_lines, reason_words, recorded_commands,
+    relation_words,
 };
 
 /// The `why` result.
@@ -341,58 +342,43 @@ fn contributors(
     contributors
 }
 
-/// Renders `why` for a terminal, escaping untrusted text with `escape`.
+/// Renders `why` for a terminal, escaping untrusted text.
 #[must_use]
-pub fn render_why(why: &Why, escape: fn(&str) -> String) -> String {
-    let mut out = String::new();
-    let path = escape(&why.path);
+pub fn render_why(why: &Why) -> String {
+    let mut out = Printed::new();
+    let path = &why.path;
     match (&why.on_disk, &why.line) {
         (OnDiskCheck::NotCaptured { reason }, _) => {
-            push(
-                &mut out,
-                &format!(
-                    "{path}: not captured: {}; no line explained",
-                    escape(reason)
-                ),
-            );
+            out.line(format!("{path}: not captured: {reason}; no line explained"));
         }
-        (OnDiskCheck::Captured, None) => push(&mut out, &format!("{path}: no line analyzed")),
+        (OnDiskCheck::Captured, None) => out.line(format!("{path}: no line analyzed")),
         (OnDiskCheck::Captured, Some(line)) => {
             let content = line.text.trim_end_matches(['\n', '\r']);
-            push(
-                &mut out,
-                &format!("{path}:{}: {}", line.number, escape(content)),
-            );
-            push(
-                &mut out,
-                &format!("  {}", outcome_sentence(&line.outcome, escape)),
-            );
+            out.line(format!("{path}:{}: {}", line.number, content));
+            out.line(format!("  {}", outcome_sentence(&line.outcome)));
             let differs = match line.differs_from_head {
                 Tristate::Yes => "yes",
                 Tristate::No => "no",
                 Tristate::Unknown => "unknown",
             };
             match &line.differs_from_head_reason {
-                Some(reason) => push(
-                    &mut out,
-                    &format!("  differs from HEAD: {differs} ({})", escape(reason)),
-                ),
-                None => push(&mut out, &format!("  differs from HEAD: {differs}")),
+                Some(reason) => out.line(format!("  differs from HEAD: {differs} ({reason})")),
+                None => out.line(format!("  differs from HEAD: {differs}")),
             }
         }
     }
-    push_contributors(&mut out, why, escape);
-    push_command_changes(&mut out, why, escape);
-    for line in context_lines(&why.records, &why.evidence, escape) {
-        push(&mut out, &format!("  {line}"));
+    push_contributors(&mut out, why);
+    push_command_changes(&mut out, why);
+    for line in context_lines(&why.records, &why.evidence) {
+        out.line(format!("  {line}"));
     }
-    out
+    out.text()
 }
 
 /// Lists edits named by the line's provenance and their roles. Unexplained,
 /// ambiguous, unresolved, or unanalyzed lines have none. Other edits
 /// referenced by the analysis stay in the JSON map.
-fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
+fn push_contributors(out: &mut Printed, why: &Why) {
     let mut edits: Vec<(&EventId, String, Option<&EditInfo>)> = why
         .line
         .iter()
@@ -408,13 +394,10 @@ fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
     });
     for (id, how, edit) in edits {
         let Some(edit) = edit else {
-            push(
-                out,
-                &format!(
-                    "  edit {} ({how}): no details recorded",
-                    escape(id.as_str())
-                ),
-            );
+            out.line(format!(
+                "  edit {} ({how}): no details recorded",
+                id.as_str()
+            ));
             continue;
         };
         let prompt = edit.prompt.as_ref().map_or_else(
@@ -423,41 +406,32 @@ fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
                 Material::Retained(excerpt) => {
                     let first = excerpt.lines().next().unwrap_or_default();
                     let short: String = first.chars().take(80).collect();
-                    format!("after \"{}\"", escape(&short))
+                    format!("after \"{short}\"")
                 }
                 Material::Withheld { policy } => {
-                    format!("preceding message withheld ({})", escape(policy))
+                    format!("preceding message withheld ({policy})")
                 }
                 Material::Unavailable { reason } => {
-                    format!("preceding message unavailable ({})", escape(reason))
+                    format!("preceding message unavailable ({reason})")
                 }
             },
         );
-        push(
-            out,
-            &format!(
-                "  edit {} ({how}) at {}, session {}: {prompt}",
-                escape(id.as_str()),
-                escape(&edit.time),
-                escape(&edit.session)
-            ),
-        );
+        out.line(format!(
+            "  edit {} ({how}) at {}, session {}: {prompt}",
+            id.as_str(),
+            edit.time,
+            edit.session
+        ));
         if let EditOriginInfo::Shell { command, text } = &edit.origin {
-            let shown = text.as_deref().map_or_else(
-                || "command text not recorded".to_owned(),
-                |text| command_line(text, escape),
-            );
+            let shown = text
+                .as_deref()
+                .map_or_else(|| "command text not recorded".to_owned(), command_line);
             // The edit is inferred: its text is the command's, and the
             // harness confirmed the command, not the statement.
-            push(
-                out,
-                &format!(
-                    "    read from a heredoc in command {}: {shown}",
-                    escape(command)
-                ),
-            );
-            push(
-                out,
+            out.line(format!(
+                "    read from a heredoc in command {command}: {shown}"
+            ));
+            out.line(
                 "    the harness reported that the command changed the file, not that this \
                  statement ran",
             );
@@ -468,11 +442,11 @@ fn push_contributors(out: &mut String, why: &Why, escape: fn(&str) -> String) {
 /// Report uncertainty for `change`, or `None` if none: flags with
 /// unestablished meanings, counted but unnamed changed files, and files named
 /// outside the command's checkout.
-fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<String> {
+fn report_limits(change: &CommandChange) -> Option<String> {
     let files = |count: u64| if count == 1 { "file" } else { "files" };
     let mut limits = Vec::new();
     if !change.flags.is_empty() {
-        let flags: Vec<String> = change.flags.iter().map(|flag| escape(flag)).collect();
+        let flags: Vec<&str> = change.flags.iter().map(String::as_str).collect();
         limits.push(format!("flagged {}", flags.join(", ")));
     }
     if change.unlisted > 0 {
@@ -489,21 +463,18 @@ fn report_limits(change: &CommandChange, escape: fn(&str) -> String) -> Option<S
 /// Lists the commands reported as changing the file, with what each report
 /// leaves open. Under an unexplained line, marks commands whose diffs add
 /// its text, or says why no diff can be compared.
-fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String) {
+fn push_command_changes(out: &mut Printed, why: &Why) {
     if why.command_changes.is_empty() {
         return;
     }
-    push(
-        out,
-        &format!(
-            "  changed by {} (observed by the harness, not attribution):",
-            recorded_commands(
-                why.command_changes
-                    .iter()
-                    .map(|entry| entry.change.command.as_str())
-            )
-        ),
-    );
+    out.line(format!(
+        "  changed by {} (observed by the harness, not attribution):",
+        recorded_commands(
+            why.command_changes
+                .iter()
+                .map(|entry| entry.change.command.as_str())
+        )
+    ));
     let unexplained = why
         .line
         .as_ref()
@@ -516,52 +487,36 @@ fn push_command_changes(out: &mut String, why: &Why, escape: fn(&str) -> String)
             ChangeKind::Modified => "modified",
             ChangeKind::NotStated => "change not stated",
         };
-        push(
-            out,
-            &format!(
-                "    {}  {}  session {}  {kind}",
-                escape(&change.time),
-                escape(&change.command),
-                escape(&change.session)
-            ),
-        );
-        push(
-            out,
-            &format!("      {}", command_line(&change.text, escape)),
-        );
-        if let Some(limits) = report_limits(change, escape) {
-            push(out, &format!("      its report: {limits}"));
+        out.line(format!(
+            "    {}  {}  session {}  {kind}",
+            change.time, change.command, change.session
+        ));
+        out.line(format!("      {}", command_line(&change.text)));
+        if let Some(limits) = report_limits(change) {
+            out.line(format!("      its report: {limits}"));
         }
         if !unexplained {
             continue;
         }
         if entry.adds_line_text {
-            push(
-                out,
-                "      its reported diff adds a line with this text (display match)",
-            );
+            out.line("      its reported diff adds a line with this text (display match)");
             continue;
         }
         match &change.patch {
             Material::Retained(_) => {}
-            Material::Withheld { policy } => push(
-                out,
-                &format!("      reported diff withheld: {}", escape(policy)),
-            ),
-            Material::Unavailable { reason } => push(
-                out,
-                &format!("      reported diff not retained: {}", escape(reason)),
-            ),
+            Material::Withheld { policy } => {
+                out.line(format!("      reported diff withheld: {policy}"));
+            }
+            Material::Unavailable { reason } => {
+                out.line(format!("      reported diff not retained: {reason}"));
+            }
         }
     }
 }
 
-fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {
+fn outcome_sentence(outcome: &Outcome) -> String {
     let ids = |edits: &mut dyn Iterator<Item = String>| -> String {
-        edits
-            .map(|id| escape(&id))
-            .collect::<Vec<_>>()
-            .join(" and ")
+        edits.collect::<Vec<_>>().join(" and ")
     };
     match outcome {
         Outcome::Attributed { edits } => {
@@ -576,7 +531,7 @@ fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {
                     format!(
                         "{} by edit {} ({class})",
                         relation_words(edit.relation),
-                        escape(edit.edit.as_str())
+                        edit.edit.as_str()
                     )
                 })
                 .collect();
@@ -596,7 +551,7 @@ fn outcome_sentence(outcome: &Outcome, escape: fn(&str) -> String) -> String {
             ids(&mut edits.iter().map(|e| e.as_str().to_owned()))
         ),
         Outcome::Unattributed { reason } => {
-            format!("not attributed: {}", reason_words(reason, escape))
+            format!("not attributed: {}", reason_words(reason))
         }
         Outcome::Ambiguous { .. } => {
             "ambiguous: the recorded edits allow more than one history for this line".to_owned()

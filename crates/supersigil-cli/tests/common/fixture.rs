@@ -7,7 +7,7 @@ use std::process::Command;
 use serde_json::Value;
 use supersigil_record::ReviewStore;
 use supersigil_record::reviews;
-use supersigil_review::summary::Shell;
+use supersigil_review::printed::Shell;
 
 /// `src/lib.rs` before the slice session.
 pub const LIB_BASE: &str = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";

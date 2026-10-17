@@ -1,4 +1,3 @@
-use std::fmt::{self, Write as _};
 use std::io::{self, IsTerminal, Write};
 
 use anstyle::{Effects, Style};
@@ -67,48 +66,6 @@ pub fn hint(color: ColorConfig, msg: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Escaping
-// ---------------------------------------------------------------------------
-
-/// Makes control characters in `text` visible for terminal output.
-///
-/// Every character in `U+0000..=U+001F` except tab, plus `U+007F` and the C1
-/// range `U+0080..=U+009F`, becomes `\x` and two lowercase hex digits, for
-/// example `\x1b`. Everything else passes through. See [`Untrusted`] for
-/// which values need it.
-#[must_use]
-pub fn escape_control(text: &str) -> String {
-    Untrusted(text).to_string()
-}
-
-/// Text from outside the tool that displays with its control characters made
-/// visible as [`escape_control`] describes, so an escape sequence in it
-/// cannot erase or forge the lines around it.
-///
-/// Every such value goes through it before it reaches a terminal: session
-/// ids, times, branches, record type names, and skip reasons from
-/// transcripts; transcript, checkout, and record paths from the file system;
-/// and command-line arguments. Error messages may carry any of these
-/// unescaped, so the binary escapes each rendered error message once, as a
-/// whole, when it prints it.
-#[derive(Debug, Clone, Copy)]
-pub struct Untrusted<'a>(pub &'a str);
-
-impl fmt::Display for Untrusted<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for c in self.0.chars() {
-            let code = u32::from(c);
-            if (code <= 0x1f && c != '\t') || (0x7f..=0x9f).contains(&code) {
-                write!(f, "\\x{code:02x}")?;
-            } else {
-                f.write_char(c)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
 // OutputFormat
 // ---------------------------------------------------------------------------
 
@@ -161,17 +118,6 @@ pub fn write_json<T: Serialize>(value: &T) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn escape_control_makes_control_characters_visible() {
-        assert_eq!(escape_control("a\u{1b}[2Kb"), r"a\x1b[2Kb");
-        assert_eq!(escape_control("bell\u{7}"), r"bell\x07");
-        assert_eq!(escape_control("line\nbreak\r"), r"line\x0abreak\x0d");
-        assert_eq!(escape_control("nul\u{0}del\u{7f}"), r"nul\x00del\x7f");
-        assert_eq!(escape_control("c1\u{9b}31m"), r"c1\x9b31m");
-        assert_eq!(escape_control("tab\tstays"), "tab\tstays");
-        assert_eq!(escape_control("ünïcode ✔ \u{a0}"), "ünïcode ✔ \u{a0}");
-    }
 
     #[test]
     fn explicit_formats_resolve_to_themselves() {

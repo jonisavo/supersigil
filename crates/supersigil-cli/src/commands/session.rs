@@ -7,6 +7,7 @@ use serde::Serialize;
 use supersigil_record::observations::{Observation, session_start};
 use supersigil_record::store::Store;
 use supersigil_record::{DerivationSet, Revision, SessionId};
+use supersigil_review::printed::Untrusted;
 use supersigil_session::discover::discover_transcripts;
 use supersigil_session::sync::{SyncError, SyncReport, sync};
 
@@ -14,7 +15,7 @@ use crate::commands::{
     SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
 };
 use crate::error::CliError;
-use crate::format::{ColorConfig, OutputFormat, Untrusted, hint, write_json};
+use crate::format::{ColorConfig, OutputFormat, hint, write_json};
 use crate::record_dir;
 
 /// One row of `session list`; `started`, `branch`, and `checkout` come from

@@ -15,15 +15,16 @@ use supersigil_record::reviews::{
 use supersigil_review::judging::{JudgedStore, Ledger};
 use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::ItemNames;
+use supersigil_review::printed::{Addressing, Printed};
 use supersigil_review::summary::{
-    Addressing, NOTHING_TO_REVIEW, base_line, compared, gate_lines, gate_row, next_lines, noun,
-    review_line, shown_path, worktree_line,
+    NOTHING_TO_REVIEW, base_line, compared, gate_lines, gate_row, next_lines, noun, review_line,
+    shown_path, worktree_line,
 };
 
 use super::{Checkout, addressing, item_name, select};
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
-use crate::format::{OutputFormat, escape_control, write_json};
+use crate::format::{OutputFormat, write_json};
 use crate::review_dir::judged_bases;
 
 /// Runs `supersigil judge show`.
@@ -180,18 +181,19 @@ fn named<'i>(names: &ItemNames<'_>, items: impl IntoIterator<Item = &'i ItemId>)
 
 impl Shown<'_> {
     /// Renders the header, status, gate rows, comments, history, and next commands,
-    /// escaping untrusted text. Uses `addressing` for commands and appends its note
+    /// escaping untrusted text. Uses `addressing` for commands and appends the note
     /// when they show a value as given. Replaces status with an empty-review message
     /// and suggests no command when there is nothing to review.
     fn lines(&self, addressing: &Addressing) -> Vec<String> {
-        let mut lines = self.header();
+        let mut out = Printed::new();
+        out.lines(self.header());
         if self.nothing_to_review {
-            lines.push(NOTHING_TO_REVIEW.to_owned());
+            out.line(NOTHING_TO_REVIEW);
         } else {
-            lines.extend(self.status());
+            out.lines(self.status());
         }
-        lines.extend(gate_lines(&self.gate, |item| {
-            let [name, state, text] = gate_row(item, 0, escape_control);
+        out.lines(gate_lines(&self.gate, |item| {
+            let [name, state, text] = gate_row(item, 0);
             let text = match &item.judgment {
                 Some(judgment) => format!(
                     "{text} (judgment {}){}",
@@ -203,12 +205,12 @@ impl Shown<'_> {
             [name, state, text]
         }));
         if !self.comments.is_empty() {
-            lines.extend([String::new(), "Comments:".to_owned()]);
-            lines.extend(self.comments.iter().map(|comment| {
+            out.lines(["", "Comments:"]);
+            out.lines(self.comments.iter().map(|comment| {
                 let on = if comment.items.is_empty() {
                     "the review".to_owned()
                 } else {
-                    escape_control(&comment.items.join(", "))
+                    comment.items.join(", ")
                 };
                 let judgment = &comment.judgment;
                 format!(
@@ -219,8 +221,8 @@ impl Shown<'_> {
             }));
         }
         if !self.history.is_empty() {
-            lines.extend([String::new(), "History:".to_owned()]);
-            lines.extend(self.history.iter().map(|withdrawn| {
+            out.lines(["", "History:"]);
+            out.lines(self.history.iter().map(|withdrawn| {
                 format!(
                     "  {} {}, withdrawn {}{}",
                     self.what(withdrawn),
@@ -232,15 +234,13 @@ impl Shown<'_> {
         }
         if !self.nothing_to_review {
             let open = self.gate.open_names();
-            let (next, commands) =
-                next_lines(&open, self.status.complete, addressing, escape_control);
+            let next = next_lines(&open, self.status.complete, addressing, &mut out);
             if !next.is_empty() {
-                lines.push(String::new());
-                lines.extend(next);
-                lines.extend(addressing.note(&commands));
+                out.line("");
+                out.lines(next);
             }
         }
-        lines
+        out.finish()
     }
 
     /// The header: the review, what it compared, its worktree, its base
@@ -250,7 +250,7 @@ impl Shown<'_> {
         let compared = compared(target.commit.as_deref(), base.commit.as_deref());
         let mut lines = vec![
             review_line(self.review, &compared),
-            worktree_line(&self.worktree.display().to_string(), escape_control),
+            worktree_line(&self.worktree.display().to_string()),
             base_line(base.commit.as_deref(), &base.tree),
             match &target.commit {
                 Some(commit) => format!("  target: commit {commit} (tree {})", target.tree),
@@ -262,15 +262,11 @@ impl Shown<'_> {
             lines.push("  scope: all tracked paths".to_owned());
         }
         if !scope.paths.is_empty() {
-            let paths: Vec<String> = scope
-                .paths
-                .iter()
-                .map(|path| shown_path(path, escape_control))
-                .collect();
+            let paths: Vec<String> = scope.paths.iter().map(shown_path).collect();
             lines.push(format!("  scope: limited to {}", paths.join(", ")));
         }
         for path in &scope.include_untracked {
-            let path = shown_path(path, escape_control);
+            let path = shown_path(path);
             lines.push(format!("  scope: untracked {path} included"));
         }
         lines
@@ -283,7 +279,7 @@ impl Shown<'_> {
             return vec![format!(
                 "Review complete: completed on {} by {} (judgment {}){}.",
                 completion.at.date(),
-                escape_control(&completion.who.name),
+                completion.who.name,
                 completion.id.short(),
                 words(completion.text.as_deref())
             )];
@@ -304,7 +300,7 @@ impl Shown<'_> {
     /// and its review when it is not this one.
     fn what(&self, withdrawn: &Withdrawn) -> String {
         let judgment = &withdrawn.judgment;
-        let items = escape_control(&withdrawn.items.join(", "));
+        let items = withdrawn.items.join(", ");
         let what = match judgment.kind {
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss => {
                 format!("{} of {items}", noun(judgment.kind))
@@ -324,13 +320,13 @@ impl Shown<'_> {
 fn by(judgment: &JudgmentInfo) -> String {
     format!(
         "by {} on {} (judgment {})",
-        escape_control(&judgment.who.name),
+        judgment.who.name,
         judgment.at.date(),
         judgment.id.short()
     )
 }
 
-/// `": <text>"`, escaped, when there is text.
+/// `": <text>"` when there is text.
 fn words(text: Option<&str>) -> String {
-    text.map_or_else(String::new, |text| format!(": {}", escape_control(text)))
+    text.map_or_else(String::new, |text| format!(": {text}"))
 }
