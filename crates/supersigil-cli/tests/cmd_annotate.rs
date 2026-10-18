@@ -2083,7 +2083,8 @@ fn prepare_reconciles_the_records_a_review_from_the_checkout_reconciles() {
     write(&f.repo, "README.md", "readme\n");
     f.commit(&f.repo, "base");
     f.git(&["worktree", "add", "-q", "-b", "x", ".claude/worktrees/x"]);
-    let worktree = f.repo.join(".claude/worktrees/x");
+    // Joined by component, as the brief prints the canonical path.
+    let worktree = f.repo.join(".claude").join("worktrees").join("x");
     let own = Session::new("s-own", &worktree).prompt("Hello.").text();
     f.transcript(&worktree, "own.jsonl", &own);
     sync_into(&f, &worktree, &[]);

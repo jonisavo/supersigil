@@ -2570,8 +2570,8 @@ fn correct_help_explains_each_kind_of_correction() {
     for text in [
         "Record that its explanation is wrong (--wrong), that its edits do not belong together \
          (--not-together), or what the actual constraint was (--constraint).",
-        "Usage: supersigil judge correct [OPTIONS] <--wrong|--not-together|--constraint <TEXT>> \
-         <DECISION>",
+        // After the binary's name, which Windows prints with its extension.
+        " judge correct [OPTIONS] <--wrong|--not-together|--constraint <TEXT>> <DECISION>",
         "<DECISION>\n          The decision's name as `supersigil review` prints it",
         "--wrong\n          Its explanation is wrong: the rationale given is not why it was done",
         "--not-together\n          The edits it cites do not belong together",

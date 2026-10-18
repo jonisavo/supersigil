@@ -86,6 +86,9 @@ jobs:
             runner: ubuntu-latest
           - name: windows
             runner: windows-latest
+            # Process spawning and file I/O are several times slower on the
+            # Windows runner; allow timed tests 4x longer.
+            time-limit-scale: 4
           - name: x86_64-apple-darwin
             runner: macos-26-intel
             # Intel runners vary in speed; allow timed tests 4x longer.
