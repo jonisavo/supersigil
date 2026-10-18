@@ -11,8 +11,11 @@
 //! addresses the commands they print. [`gate`] builds gate items,
 //! fingerprints for carrying judgments, and saved evidence digests.
 //! [`names`] names gate items and resolves typed names. [`judging`] resolves
-//! item states from judgments recorded on saved reviews.
+//! item states from judgments recorded on saved reviews. [`annotating`]
+//! checks an annotation document against its session's observations before
+//! the record stores it.
 
+pub mod annotating;
 pub mod diff;
 pub mod gate;
 pub mod judging;
