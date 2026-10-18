@@ -93,7 +93,7 @@ edits:
     prompt:
       turn: u1
       role: human
-      excerpt:
+      text:
         state: retained
         value: Add a greeting function and clean up.
 conflicting_edits: []

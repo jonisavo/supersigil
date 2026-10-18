@@ -338,9 +338,10 @@ impl Evidence {
     }
 
     /// The nearest recorded ancestor of `edit`'s turn, following parent
-    /// pointers within its session, whose role is Human or Delegation;
-    /// `None` when the chain breaks first. It is the message that preceded
-    /// the edit in the conversation, not its cause or its rationale.
+    /// pointers within its session, whose role is Human, Delegation or
+    /// Summary (a compaction summary, whose text is never retained); `None`
+    /// when the chain breaks first. It is the message that preceded the edit
+    /// in the conversation, not its cause or its rationale.
     #[must_use]
     pub fn prompt(&self, edit: &Edit) -> Option<PromptInfo> {
         let mut parent = self
@@ -355,11 +356,11 @@ impl Evidence {
                 return None;
             }
             let turn = self.turns.get(&(edit.session.clone(), id.clone()))?;
-            if matches!(turn.role, Role::Human | Role::Delegation) {
+            if matches!(turn.role, Role::Human | Role::Delegation | Role::Summary) {
                 return Some(PromptInfo {
                     turn: turn.id.as_str().to_owned(),
                     role: turn.role,
-                    excerpt: turn.excerpt.clone(),
+                    text: turn.text.clone(),
                 });
             }
             parent = turn.parent.as_ref();
@@ -650,7 +651,7 @@ mod tests {
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             sidechain: false,
             agent_id: None,
-            excerpt: Material::Retained(format!("text of {id}")),
+            text: Material::Retained(format!("text of {id}")),
             source_ordinal: 0,
             transcript: Some("t.jsonl".to_owned()),
         })
@@ -712,7 +713,21 @@ mod tests {
         let prompt = evidence.prompt(&edit_in_turn("a2")).unwrap();
         assert_eq!(prompt.turn, "u1");
         assert_eq!(prompt.role, Role::Human);
-        assert_eq!(prompt.excerpt, Material::Retained("text of u1".to_owned()));
+        assert_eq!(prompt.text, Material::Retained("text of u1".to_owned()));
+    }
+
+    #[test]
+    fn a_compaction_summary_is_the_message_before_the_edits_after_it() {
+        let observations = [
+            turn("u1", None, Role::Human),
+            turn("a1", Some("u1"), Role::Agent),
+            turn("c1", Some("a1"), Role::Summary),
+            turn("a2", Some("c1"), Role::Agent),
+        ];
+        let evidence = index(&observations);
+        let prompt = evidence.prompt(&edit_in_turn("a2")).unwrap();
+        assert_eq!(prompt.turn, "c1");
+        assert_eq!(prompt.role, Role::Summary);
     }
 
     #[test]

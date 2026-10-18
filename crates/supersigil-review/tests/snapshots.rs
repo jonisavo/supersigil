@@ -122,7 +122,7 @@ fn edits() -> BTreeMap<String, EditInfo> {
             prompt: Some(PromptInfo {
                 turn: "u1".to_owned(),
                 role: Role::Human,
-                excerpt: Material::Retained("Add a greeting function and clean up.".to_owned()),
+                text: Material::Retained("Add a greeting function and clean up.".to_owned()),
             }),
         },
     )])

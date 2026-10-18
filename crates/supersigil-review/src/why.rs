@@ -402,9 +402,9 @@ fn push_contributors(out: &mut Printed, why: &Why) {
         };
         let prompt = edit.prompt.as_ref().map_or_else(
             || "no preceding message recorded".to_owned(),
-            |prompt| match &prompt.excerpt {
-                Material::Retained(excerpt) => {
-                    let first = excerpt.lines().next().unwrap_or_default();
+            |prompt| match &prompt.text {
+                Material::Retained(text) => {
+                    let first = text.lines().next().unwrap_or_default();
                     let short: String = first.chars().take(80).collect();
                     format!("after \"{short}\"")
                 }

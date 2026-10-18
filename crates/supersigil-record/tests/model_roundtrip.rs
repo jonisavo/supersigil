@@ -58,7 +58,7 @@ fn sample() -> Vec<Observation> {
             time: Timestamp::new("2026-09-28T10:00:00.000Z"),
             sidechain: false,
             agent_id: None,
-            excerpt: Material::Retained("Add a greeting function and clean up.".to_owned()),
+            text: Material::Retained("Add a greeting function and clean up.".to_owned()),
             source_ordinal: 0,
             transcript: None,
         }),

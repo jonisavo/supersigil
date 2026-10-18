@@ -1119,7 +1119,8 @@ pub struct EditInfo {
     pub operation: EditOperation,
     /// How the edit reached the record.
     pub origin: EditOriginInfo,
-    /// The nearest recorded ancestor message that is Human or Delegation.
+    /// The nearest recorded ancestor message that is Human, Delegation or
+    /// Summary.
     pub prompt: Option<PromptInfo>,
 }
 
@@ -1129,10 +1130,10 @@ pub struct EditInfo {
 pub struct PromptInfo {
     /// Turn id of the message.
     pub turn: String,
-    /// Human or Delegation.
+    /// Human, Delegation, or Summary for a compaction summary.
     pub role: Role,
-    /// The retained excerpt, or why it is not retained.
-    pub excerpt: Material<String>,
+    /// The message text, or why it is not retained.
+    pub text: Material<String>,
 }
 
 /// A changed path's display forms and raw bytes.

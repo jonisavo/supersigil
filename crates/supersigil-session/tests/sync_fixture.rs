@@ -400,7 +400,7 @@ fn same_length_rewrite_is_read_from_the_start() {
         .unwrap()
         .into_iter()
         .filter_map(|o| match o {
-            Observation::Turn(t) if t.role == Role::Human => t.excerpt.retained().cloned(),
+            Observation::Turn(t) if t.role == Role::Human => t.text.retained().cloned(),
             _ => None,
         })
         .collect();

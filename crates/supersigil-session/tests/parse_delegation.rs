@@ -305,7 +305,7 @@ fn agent_notification_record(agent: &str, uuid: &str, text: &str) -> Value {
 }
 
 #[test]
-fn relayed_reports_are_report_turns_with_truncated_excerpts() {
+fn relayed_reports_are_report_turns_with_their_whole_text() {
     let text = lines(&[
         main_record("user", "u0", json!("Start.")),
         delivered_notification("n1", "a1", Some("toolu_a"), "completed"),
@@ -314,19 +314,15 @@ fn relayed_reports_are_report_turns_with_truncated_excerpts() {
     let outcome = parse_transcript(text.as_bytes(), 0);
     let roles: Vec<Role> = turns(&outcome).iter().map(|t| t.role).collect();
     assert_eq!(roles, vec![Role::Human, Role::Report, Role::Report]);
-    let report = turns(&outcome)[1];
-    let Material::Retained(excerpt) = &report.excerpt else {
-        panic!("a report keeps its text: {:?}", report.excerpt);
-    };
-    assert!(excerpt.starts_with("<task-notification>"), "{excerpt}");
+    assert_eq!(
+        turns(&outcome)[1].text,
+        Material::Retained(notification_text("a1", Some("toolu_a"), "completed"))
+    );
     let long = "x".repeat(500);
     let mut record = main_record("user", "n2", json!(long));
     record["origin"] = json!({"kind": "task-notification"});
     let outcome = parse_transcript(lines(&[record]).as_bytes(), 0);
-    assert_eq!(
-        turns(&outcome)[0].excerpt,
-        Material::Retained("x".repeat(240))
-    );
+    assert_eq!(turns(&outcome)[0].text, Material::Retained(long));
 }
 
 #[test]
@@ -354,7 +350,7 @@ fn a_notification_in_an_agent_transcript_is_a_report() {
 }
 
 #[test]
-fn a_resume_message_is_a_delegation_turn_with_its_excerpt() {
+fn a_resume_message_is_a_delegation_turn_with_its_text() {
     let text = lines(&[
         agent_record("a1", "user", "p0", json!("Do the task.")),
         agent_record(
@@ -369,7 +365,7 @@ fn a_resume_message_is_a_delegation_turn_with_its_excerpt() {
     let resume = turns(&outcome)[2];
     assert_eq!(resume.role, Role::Delegation);
     assert_eq!(
-        resume.excerpt,
+        resume.text,
         Material::Retained(coordinator_text("Fix round 1."))
     );
 }

@@ -1849,7 +1849,7 @@ fn creation_edits(f: &Fixture, transcript: &Path, id: &str) -> Value {
             "prompt": {
                 "turn": "s-create-0",
                 "role": "human",
-                "excerpt": {"state": "retained", "value": "Write the file."},
+                "text": {"state": "retained", "value": "Write the file."},
             },
         },
     })

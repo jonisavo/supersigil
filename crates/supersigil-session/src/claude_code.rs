@@ -14,7 +14,8 @@
 //! become delegation observations; relayed reports are
 //! report turns.
 //!
-//! A new human or delegation turn marks pending calls as abandoned. Calls
+//! A new human, delegation or compaction-summary turn marks pending calls
+//! as abandoned. Calls
 //! still awaiting results at the end of the input are left for the next parse.
 //! Unknown record types and malformed lines are counted without stopping the parse.
 
@@ -35,8 +36,6 @@ use supersigil_record::observations::{
 };
 use supersigil_record::{ContentId, EventId, SessionId, Timestamp, TurnId};
 
-/// Maximum Unicode characters retained from the start of agent and delegation text.
-const AGENT_EXCERPT_CHARS: usize = 240;
 /// Maximum Unicode characters retained from the end of each command output stream.
 const OUTPUT_TAIL_CHARS: usize = 2000;
 /// Recognized record types that do not produce turn, edit, or command observations.
@@ -141,6 +140,10 @@ struct RawRecord {
     is_sidechain: bool,
     #[serde(default)]
     is_meta: bool,
+    /// Set on the `user` record holding the summary a compaction wrote,
+    /// which carries neither `isMeta` nor an origin.
+    #[serde(default)]
+    is_compact_summary: bool,
     #[serde(default)]
     agent_id: Option<String>,
     #[serde(default)]
@@ -417,9 +420,7 @@ impl Walk {
         if foreign == Some(true) {
             self.count(index, Count::SessionMismatch);
             let content = raw.message.as_ref().map(|m| &m.content);
-            if raw.kind == "user"
-                && matches!(classify_role(&raw, content), Role::Human | Role::Delegation)
-            {
+            if raw.kind == "user" && abandons(classify_role(&raw, content)) {
                 self.abandon_pending(&session_id);
             }
             return;
@@ -453,7 +454,7 @@ impl Walk {
                 time: time.clone(),
                 sidechain: raw.is_sidechain,
                 agent_id: raw.agent_id.clone(),
-                excerpt: excerpt_for(role, content),
+                text: text_for(role, content),
                 source_ordinal: ordinal,
                 transcript: None,
             }),
@@ -463,13 +464,13 @@ impl Walk {
             self.queue_tool_uses(index, &mut raw, &turn_id, &time);
         } else {
             // A typed message, from a person or a delegating parent agent,
-            // abandons what is still unresolved, but only after its own tool
-            // results are matched: a typed message can share a record with
-            // the results it follows. Tool results and meta records never
-            // abandon, since parallel tool calls get one user record per
-            // result.
+            // or a compaction summary ([`abandons`]) abandons what is still
+            // unresolved, but only after its own tool results are matched:
+            // a typed message can share a record with the results it
+            // follows. Tool results and meta records never abandon, since
+            // parallel tool calls get one user record per result.
             self.resolve_results(index, &raw, &session_id);
-            if matches!(role, Role::Human | Role::Delegation) {
+            if abandons(role) {
                 self.abandon_pending(&session_id);
             }
         }
@@ -636,7 +637,8 @@ impl Walk {
         }
     }
 
-    /// Marks pending tool calls as abandoned when a human or delegation turn arrives.
+    /// Marks pending tool calls as abandoned when a turn that
+    /// [abandons](abandons) them arrives.
     /// Records pending shell commands with unavailable results, counts
     /// their heredoc writes as unconfirmed, then clears the queue.
     fn abandon_pending(&mut self, session: &SessionId) {
@@ -898,16 +900,22 @@ fn is_tool_output(content: Option<&Value>) -> bool {
 /// Classifies the record as agent text, metadata, tool output, delegation,
 /// a relayed report, or human text.
 ///
-/// Assistant records are agent text. The harness's stated origin decides
-/// first: a `coordinator` message (one resuming an agent) is delegation,
-/// and a `task-notification` or `peer` message (another agent's or a
-/// background task's output) is a report. Otherwise user records are
-/// metadata when marked `isMeta`, or tool output when their non-empty
-/// content contains only tool results. Remaining user records are
-/// delegation in subagent transcripts and human text in main transcripts.
+/// Assistant records are agent text. A user record marked
+/// `isCompactSummary` is a compaction summary: the harness wrote it, so it
+/// is never a person's or a delegating agent's words. The harness's stated
+/// origin decides next: a `coordinator` message (one resuming an agent) is
+/// delegation, and a `task-notification` or `peer` message (another
+/// agent's or a background task's output) is a report. Otherwise user
+/// records are metadata when marked `isMeta`, or tool output when their
+/// non-empty content contains only tool results. Remaining user records
+/// are delegation in subagent transcripts and human text in main
+/// transcripts.
 fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
     if raw.kind == "assistant" {
         return Role::Agent;
+    }
+    if raw.is_compact_summary {
+        return Role::Summary;
     }
     match raw.origin_kind() {
         Some("coordinator") => return Role::Delegation,
@@ -924,6 +932,13 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
         return Role::Delegation;
     }
     Role::Human
+}
+
+/// Whether a `user` turn of `role` abandons the tool uses still pending: a
+/// typed message, from a person or a delegating agent, or a compaction
+/// summary, which follows the context those tool uses ran in.
+fn abandons(role: Role) -> bool {
+    matches!(role, Role::Human | Role::Delegation | Role::Summary)
 }
 
 /// Extracts message text, returning an empty string when there is none.
@@ -948,20 +963,18 @@ fn content_text(content: Option<&Value>) -> Option<String> {
     }
 }
 
-fn excerpt_for(role: Role, content: Option<&Value>) -> Material<String> {
+/// The text a turn of `role` retains: the message's text whole, never its
+/// thinking blocks. Tool results, harness metadata, and compaction
+/// summaries are unavailable.
+fn text_for(role: Role, content: Option<&Value>) -> Material<String> {
     match role {
-        Role::Human => Material::Retained(text_of(content)),
-        Role::Agent | Role::Delegation | Role::Report => {
-            Material::Retained(truncate_chars(&text_of(content), AGENT_EXCERPT_CHARS))
+        Role::Human | Role::Agent | Role::Delegation | Role::Report => {
+            Material::Retained(text_of(content))
         }
         Role::Tool => Material::unavailable("tool result"),
         Role::Meta => Material::unavailable("harness metadata"),
         Role::Summary => Material::unavailable("compaction summary"),
     }
-}
-
-fn truncate_chars(text: &str, max: usize) -> String {
-    text.chars().take(max).collect()
 }
 
 fn tail_chars(text: &str, max: usize) -> String {
@@ -1840,4 +1853,28 @@ fn summary_has_failures(line: &str) -> bool {
     tokens
         .windows(2)
         .any(|w| w[1] == "failed" && w[0].parse::<u64>().is_ok_and(|n| n > 0))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn tool_meta_and_summary_turns_retain_no_text() {
+        // No record is classified as a summary yet, so its reason is pinned
+        // here rather than through the parser.
+        let content = json!([{"type": "text", "text": "Text."}]);
+        for (role, reason) in [
+            (Role::Tool, "tool result"),
+            (Role::Meta, "harness metadata"),
+            (Role::Summary, "compaction summary"),
+        ] {
+            assert_eq!(
+                text_for(role, Some(&content)),
+                Material::unavailable(reason)
+            );
+        }
+    }
 }

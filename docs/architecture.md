@@ -32,10 +32,13 @@ separate records. Matching content or nearby timestamps do not establish
 that they share a lineage.
 
 Observations retain provider identities, transcript ordering, turns, edits,
-commands, and capture limitations. An edit distinguishes its operation,
-before and after states, retained replacement text, and display patch.
-Absent content, unknown content, withheld material, and unavailable material
-are different states. A missing transcript does not erase retained history.
+commands, and capture limitations. Human, agent, delegation, and report
+turns retain their text whole. Thinking is never read; tool results,
+harness metadata, and compaction summaries are unavailable. An edit
+distinguishes its operation, before and after states, retained replacement
+text, and display patch. Absent content, unknown content, withheld
+material, and unavailable material are different states. A missing
+transcript does not erase retained history.
 
 Edits come from editing-tool results or one narrow shell form: a top-level
 `cat` redirecting a wholly quoted heredoc to a literal path. The call's
