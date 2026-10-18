@@ -26,9 +26,9 @@ not maintained.
 ## Status
 
 The current CLI imports Claude Code sessions, reviews working-tree or commit
-changes, explains individual lines, and saves human review judgments. It
-prints JSON or a plain terminal summary. Sourced annotations,
-corrections, and an interactive terminal review remain planned.
+changes, explains individual lines, shows the annotated decisions behind
+them, and saves human review judgments and corrections. It prints JSON or a
+plain terminal summary. An interactive terminal review remains planned.
 
 ```sh
 supersigil session sync
@@ -48,6 +48,13 @@ Each review attempts to save a basis and lists gate items for a person to judge.
 `judge` acknowledges or dismisses items and completes the worktree's selected
 review. It refuses to write inside an agent session. Later reviews report
 code and evidence changes since completion.
+
+In Claude Code, `/supersigil-annotate <session>` runs the repository's
+annotate skill: it reads the brief `supersigil annotate prepare` writes and
+imports the session's decisions, each with its rationale labelled by who
+gave it. `review` shows them on the lines they explain, and
+`supersigil judge correct <decision> --wrong --reason <text>` records that an
+explanation is wrong.
 
 ## Development
 

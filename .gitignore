@@ -1,7 +1,9 @@
 /target
 /.planning/
 
-.claude
+# Local Claude Code state; the repository's skills are tracked.
+.claude/*
+!.claude/skills/
 .idea
 .junie
 .superpowers

@@ -5,7 +5,8 @@ connections between code and observations. It must make development history
 easier to inspect without making the evidence look more certain than it is.
 
 The current CLI ingests Claude Code sessions, attributes a selected change,
-explains individual lines, and saves human judgments of review gate items.
+explains individual lines, shows the annotated decisions behind them, and
+saves human judgments of review gate items and corrections of annotations.
 Review output is JSON or a plain terminal summary. Recorded
 prompts provide conversation context, not an explanation of why an edit was
 made.
@@ -15,11 +16,11 @@ made.
 | Crate | Responsibility |
 |---|---|
 | `supersigil-session` | Discover and parse transcripts; normalize observations; sync them into records. |
-| `supersigil-record` | Store versioned observations and derivations; publish and read pinned revisions; save reviews and judgments per repository. |
+| `supersigil-record` | Store versioned observations, derivations, and annotation revisions; publish and read pinned revisions; save reviews, judgments, and corrections per repository. |
 | `supersigil-git` | Run git; resolve revisions; capture trees; read blobs and converted bytes; identify worktrees and commit origins; retain judged target trees under git refs. |
 | `supersigil-anchor` | Validate recorded transformations and combine competing chains into line provenance. |
-| `supersigil-review` | Diff blob bytes; turn provenance into review and line-explanation models; name gate items; apply judgments and carry them to later reviews; determine completion; render summaries. |
-| `supersigil` | Select inputs, reconcile records, capture the target, map evidence to worktrees, save reviews, read changed evidence, record judgments, and print results. |
+| `supersigil-review` | Diff blob bytes; turn provenance into review and line-explanation models; validate annotations; attach decisions to the lines they explain and anchor corrections to them; name gate items; apply judgments and carry them to later reviews; determine completion; render summaries. |
+| `supersigil` | Select inputs, reconcile records, capture the target, map evidence to worktrees, prepare and import annotations (`annotate`), save reviews, read changed evidence and annotations, record judgments and corrections, and print results. |
 
 Git operations belong in `supersigil-git`. Anchor and review computation are
 pure over their supplied inputs. They do not discover transcripts, open
@@ -86,9 +87,11 @@ receive after it. Relayed reports are reports, not a person's messages;
 resume messages are delegation. An edit's prompt skips relayed reports.
 
 Observations are append-only. Derivations are rebuildable findings identified
-by their inputs and algorithm version. The record format reserves a separate
-layer for interpretations, which no shipped workflow writes. Human judgments
-live in the review store, separate from records.
+by their inputs and algorithm version. Interpretations are a separate layer:
+one immutable document per annotation revision of a session, listed by the
+manifest and never cleaned up. Only `annotate import` writes them. Human
+judgments, corrections included, live in the review store, separate from
+records.
 
 A manifest pins committed log lengths and immutable document names. A reader
 uses one manifest and reads only pinned data. A record in another format is
@@ -286,6 +289,7 @@ Every review, including one run by an agent, attempts to save a basis containing
 - A digest of each reviewed file's output, excluding commands that mention
   it, and every recorded sighting of its referenced edits, including payloads.
 - Each candidate transcript's capture limitations and the gate.
+- Each candidate session's annotation pin and the decisions in view.
 
 The basis id hashes this content. Identical reviews reuse the saved basis
 and its judgments. Unknown gate material adds a salt, preventing reuse.
@@ -297,7 +301,8 @@ records. Its root comes from
 The repository key is its canonical git common directory, shared by all
 worktrees. Writers lock `write.lock`, write immutable `bases/<id>.json`
 files, append to `judgments.jsonl`, then publish `manifest.json` by rename.
-Readers stop at the manifest's pinned judgment-log length.
+Readers stop at the manifest's pinned judgment-log length. A review store in
+another format is refused, naming its directory.
 
 Lock waits stop after 2 seconds. A busy store leaves the review printed but
 unsaved; judging requires a saved basis. A basis containing a non-UTF-8 path
@@ -321,6 +326,7 @@ The gate lists items for a person to consider:
 - Files not diffed, untracked files named by recorded edits, and uncaptured paths.
 - Commits without recorded origins and gaps between recorded edits of a reviewed file.
 - Unreconciled records and checkouts, including transcripts removed before reading.
+- Open questions of the annotations read, about the change.
 
 Coarse diffs, capture limitations, conflicting edits, and whitespace-only
 changes remain evidence notes. An item's id hashes its origin and subject
@@ -343,8 +349,9 @@ only when they have several items. Commits, unreconciled evidence, and
 unprintable paths have their own qualified names. There are no wildcards.
 
 `judge` records acknowledgments, dismissals with a reason, comments,
-completions, and undos on a saved basis. Each review outside an agent session
-selects its basis for the worktree; `--review` overrides that selection.
+corrections, completions, and undos on a saved basis. Each review outside an
+agent session selects its basis for the worktree; `--review` overrides that
+selection.
 `judge` never reruns the review or reads the working tree. Judgments are
 append-only; an undo withdraws them. A reason or text, when given, is never
 blank. Comments close no item. Completion requires every gate item
@@ -406,6 +413,168 @@ If no completion carries, the status reports changes since the most recent
 related completion: changed paths, changed evidence by kind, or gate items
 that completion did not cover.
 
+## Interpretations and annotations
+
+An annotation interprets one session: the decisions it made, each citing the
+edits and commands that carried it out, with rationale, alternatives,
+implications, and open questions. Each rationale line names its speaker:
+`human`, `agent`, or `annotator` for an inference. An explicit line quotes
+the turn that states it. The host agent writes annotations; Supersigil
+validates and stores them, and runs no model.
+
+`annotate prepare <session>` reconciles the checkout's records as a review
+from the checkout does, with the usual bounded wait, and finds the session
+among the records a review from the checkout reads through it: the
+checkout's own record, then its ancestor checkouts' records, nearest first.
+A prefix matching sessions in several of them is refused, and a session
+several of them hold is read from the nearest. The annotator's brief comes
+from one snapshot of that record: the session's transcripts, main first,
+each listing its turns in source order with the edits and commands recorded
+under them; its delegation observations and derivations; its current
+annotation; and the standing corrections naming it, from the review store of
+the checkout's repository. A turn id sighted more than once appears once per
+retained sighting. No order across transcripts is given, since a worker's
+ordinals start at zero.
+The brief's record, revision, and the session's observation count and last
+observation time are copied into the document as `prepared`, which pins what
+the annotator saw. Coverage counts from that pin, never from import time.
+The records are reconciled before the session is resolved, so a refused
+prefix may follow a sync, which is idempotent and what `review` does before
+it can fail.
+
+The `supersigil-annotate` skill in `.claude/skills/` is the annotator. A
+person runs it on demand in Claude Code: the host model reads the brief in
+parts, writes the document, and imports it. A review names each candidate
+session without an annotation and prints the skill command with the
+session's whole id, since the skill resolves a prefix among every session
+of the checkout's records, and with the review's store options. When the
+checkout the review found the session's record through is not the one the
+review ran in, the command names it as `--checkout`. That checkout is a
+candidate worktree that is or lies in one of the record's associations, so
+the record is the checkout's own or an ancestor checkout's, among which
+`prepare` finds the session; a nearer record of the checkout holding the
+session too is read instead. The reviewed worktree comes first, so the skill
+reads the review's own repository and review store. Without one, it is the
+record's most specific association lying in a candidate worktree, the
+record of a checkout nested in the one reviewed, else the record's first
+association. A repository nested in another is thus read through its own
+checkout and review store even when only the outer one's record holds the
+session.
+
+`annotate import` reads a document of at most 16 MiB and writes to the
+record its `prepared.record` names, which must be the checkout's own record
+or an ancestor checkout's; a document naming any other, or a record that
+does not exist, is refused. It checks the document against one snapshot of
+that record, and refuses it whole on any problem, listing up to 100 by JSON
+path. Unknown fields are refused. A document not
+of the document's shape, such as one with an unknown field or a wrong type,
+is refused at the first structural problem, with its path, so structural
+problems are reported one at a time. `based_on` must
+be the current revision, so of two imports built from one brief the second
+is refused as stale. `prepared` must name this record, a revision no later
+than the current one, and no more observations than the session has. Ids are
+1 to 64 characters of `A-Z`, `a-z`, `0-9`, `_` and `-`, unique within their
+list. Cites, an attempted alternative's edits, and a question's `about` name
+edits or commands of the session. An explicit statement needs a source: a
+turn of the session and a quote of 1 to 2,000 characters found verbatim in
+one retained sighting of that turn whose role fits the speaker. `human`
+needs a human sighting, and `agent` an agent or delegation sighting. A
+report sighting is harness-relayed text, not known to be the agent's, so it
+backs no explicit statement; an annotator's inference may cite it. A source
+is checked whether or not its line is explicit. Titles hold at most 200
+characters and texts 2,000. A document holds at most 10,000 decisions,
+10,000 questions, and 1,000 entries in any list within a decision.
+
+Revisions count from 1 per session and record, each stored as
+`interpretations/<n>.a<revision>.json` with its import time beside the
+document unchanged. The highest listed is current. Bases and corrections pin
+revisions, so none is ever superseded. `annotate list` shows each session of
+the checkout's own record with its current revision and the standing
+corrections it has not seen.
+
+A review reads each candidate session's current annotation from one record.
+When several involved records hold the session, one with an annotation beats
+one without, then the one whose pinned logs of the session are longest, then
+the smallest id. The choice is per session, while capture limitations are
+chosen per transcript. Notes say which record was used when several annotate
+the session, and how many observations were recorded since the annotation's
+pin.
+
+Decisions reach lines only through the edits they cite. A decision is in
+view when an edit it cites contributes to a line of the change. It explains
+each span such an edit contributes to and says how: attributed,
+whitespace-only, or content match, the last with whether its search
+completed. A content match is never shown as attribution, since no chain
+explains the line and several decisions can match one span. A decision
+citing nothing in the change is not shown. An attempted alternative is
+marked restored when the derivations show each of its edits restored.
+Decision names per edit live in a separate `edit_decisions` map, so
+`EditInfo` is unchanged.
+
+A decision is named by its id, qualified as `<session short>:<id>` when
+another annotated session of the review has a decision with that id. The
+short form is the shortest prefix of at least 8 characters unique among
+those sessions. Quotes, titles, and texts print through the escaping
+builder, cut to one line of 200 characters; the JSON holds them whole.
+
+An open question is a gate item when its `about` is empty or names an edit
+contributing to the change. It is named `question:<id>`, qualified by
+session only when another question item of the gate has the same id. Its
+fingerprint hashes the text and the sorted ids apart, so rewording reopens
+it naming `text` and a changed `about` reopens it naming `about`. It leaves
+the gate when the current revision drops it.
+
+The basis pins each candidate session's chosen record and revision
+(`annotations`) and each decision in view (`decisions`), so a re-annotation
+makes a new basis for the same content, related as same-content. No
+interpretation enters an evidence fingerprint: explanation digests and
+existing gate fingerprints hash the same evidence as before. A re-annotation
+therefore reopens no item, and a completion carries when the items match. A
+new open question is a new item and blocks carry-over on its own.
+
+When the annotation a review reads differs from the one the most recent
+related completion read, the status says so after the code and evidence
+lines: `Interpretation changed since completion on <date>: session <short>
+revision 1 → 2`, `newly annotated`, or `annotation removed`. Revisions are
+numbered per record, so the same number in another record reads `revision
+1 → 1 in another record`. The line blocks nothing.
+
+`judge correct <decision>` records a correction: `--wrong` or
+`--not-together` with `--reason`, or `--constraint` with the constraint. It
+takes the decision's name as the review printed it and resolves it from the
+basis alone, since `judge` reads no records; an unknown or ambiguous name is
+refused in one line listing the names. The correction references the
+decision by record, session, revision, and id. It closes no item and never
+keeps a review from completing. Like every `judge` write, it refuses inside
+an agent session; agents may run all three `annotate` commands. `judge show`
+lists a review's corrections by decision name with their judgment ids.
+
+A review shows the standing corrections naming a candidate session, in any
+record and revision, and those recorded on related reviews. A correction
+anchors directly to the decision its full reference names when the review
+shows exactly that revision from that record. When the review shows another
+revision, or one from another record, the correction anchors to each
+decision citing an edit the corrected decision cited, as read from the named
+record, and says which revision it addressed. A correction whose record the
+review does not involve, whose revision cannot be read, or whose exact
+revision is shown without the decision in view anchors to nothing. It is
+listed under `Corrections with no decision in view:`, never dropped.
+
+On a decision, corrections come before the rationale, oldest first.
+`--wrong` and `--not-together` corrections mark it `[disputed]`. A
+constraint is also the first rationale line, as the person's statement with
+no transcript source. Each correction says whether the shown revision lists
+it in `corrections_seen`.
+The next brief gives the annotator each standing correction of the session,
+with the decision it addressed and the current decisions it anchors to. A
+re-annotation clears no mark. Only `judge undo --judgment`, on the review the
+correction was recorded on, withdraws one.
+
+`why` takes the store options, `--review-dir` included. It reads the
+annotations of every candidate session and the corrections naming them, and
+shows the decisions behind its line, saying when the line is only a content
+match. To choose records as `review` does, it hashes every pinned log.
+
 ## Limits and product direction
 
 The [product design](research/multiverse-review-design.md) retains the intended
@@ -443,9 +612,10 @@ has no retention ref. Judging then requires a new review. If a person deletes
 a judged review's ref and git prunes its tree, later reviews of changed code
 report changed paths as unavailable. Changed evidence excludes conversation
 turns and commands whose change reports list no reviewed path, including
-reads, until annotations use them. Unreconciled records or checkouts require
-new judgments on each review, as do uncaptured paths whose on-disk state is
-unreadable or a directory, such as a submodule.
+reads; an annotation citing them changes only the interpretation.
+Unreconciled records or checkouts require new judgments on each review, as
+do uncaptured paths whose on-disk state is unreadable or a directory, such
+as a submodule.
 
 A reader holding a review manifest for more than a day may find a removed
 basis file gone. A reader holding a record manifest more than 14 days after
@@ -467,14 +637,24 @@ deleting data a current reference needs. Other manual changes may make a
 command fail or wait. Working-tree, git, transcript, and sync-written record
 changes remain in scope.
 
-The intended product adds sourced annotations, durable human corrections,
-and a terminal UI with final-change and development-history views. These
-are not shipped. Their durable constraints are:
+Records keep agent, delegation, and report text whole, and the brief hands
+it to the annotator through no model-access filter; the host can read the
+raw transcript regardless. Thinking is never read. Import checks structure
+and that each quote occurs in a fitting sighting of the cited turn. It never
+checks that a quote explains the cited edits or that a decision is real, so
+a faithful-looking annotation can be wrong. An agent
+can import any document that validates; only people correct one. Records
+written before agent text was kept whole use an older format and are
+refused; once one is moved away, the next sync rebuilds it from the
+transcripts still on disk. A session held by two records can be annotated
+in each, and a review uses one and says which. A long session makes a large
+brief, which the skill reads in parts. The skill runs only when a person
+starts it, ships only in this repository's `.claude/skills/`, and needs
+`supersigil` on `PATH`.
 
-- The host agent runs annotation; Supersigil validates and stores its output.
-  Inference stays distinguishable from recorded human and agent statements.
-- A changed interpretation is reported apart from changed code and evidence.
-- Human corrections survive re-annotation and precede the disputed explanation.
+The intended product adds a terminal UI with final-change and
+development-history views, which is not shipped. Until then, a decision
+citing nothing in the reviewed change appears in no output.
 
 The record stays local. Capture, model access, and publication need separate
 policies, including paths and identifiers. These controls are not implemented.
@@ -497,8 +677,18 @@ host can read independently.
   identity, fingerprints, carry-forward, and completion; the
   [review store](../crates/supersigil-record/src/reviews.rs) documents its
   write protocol and cleanup.
+- [Annotation validation](../crates/supersigil-review/src/annotating.rs)
+  states every rule an imported document meets.
+- [Decisions](../crates/supersigil-review/src/decisions.rs) and
+  [their corrections](../crates/supersigil-review/src/decisions/corrections.rs)
+  define record choice, names, the decisions in view, question items, and
+  correction anchoring.
+- [The `annotate` command](../crates/supersigil-cli/src/commands/annotate.rs)
+  prepares the brief, imports documents, and lists annotations; the
+  [annotate skill](../.claude/skills/supersigil-annotate/SKILL.md) writes them.
 - [CLI integration tests](../crates/supersigil-cli/tests/cmd_review.rs) and
   [reconciliation tests](../crates/supersigil-cli/tests/reconcile.rs) exercise
   capture, provenance, uncertainty, and record discovery through user workflows.
 - [Review scenarios](../crates/supersigil-cli/tests/scenarios.rs) walk
-  reviewing, judging, completing, and returning to a review end to end.
+  reviewing, judging, completing, and returning to a review end to end, and
+  annotating, correcting, and re-annotating a session.
