@@ -28,7 +28,8 @@ const ID_PREFIX: usize = 8;
 /// Maximum nearby names in a refusal.
 const NEARBY: usize = 5;
 
-/// Every origin, each with its qualifier.
+/// The origins whose qualifiers [`parse`] reads. Open-question items have
+/// no typed name yet and are named by `id:`.
 const ORIGINS: [Origin; 7] = [
     Origin::UnexplainedLines,
     Origin::NotDiffed,
@@ -360,7 +361,7 @@ impl<'g> ItemNames<'g> {
                     .associations
                     .get(record)
                     .is_some_and(|paths| paths.iter().any(|associated| associated == path)),
-                Subject::Path(_) | Subject::Commit(_) => false,
+                Subject::Path(_) | Subject::Commit(_) | Subject::Question { .. } => false,
             })
             .map(|(index, _)| index)
             .collect()
@@ -380,6 +381,7 @@ impl<'g> ItemNames<'g> {
                 .get(record)
                 .and_then(|paths| paths.first())
                 .and_then(|path| self.unreconciled_name(index, path)),
+            Subject::Question { .. } => None,
         };
         typed.unwrap_or_else(|| {
             let prefix = unique_prefix(item.id.as_str(), &self.id_keys, ID_PREFIX);

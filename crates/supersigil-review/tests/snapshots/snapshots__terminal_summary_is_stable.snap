@@ -2,7 +2,7 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: summary(&sample_review())
 ---
-Review 050e4244: working tree over aaaaaaa.
+Review 7d84fc14: working tree over aaaaaaa.
   worktree: /work/repo
   base: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
   target: working tree over aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree cccccccccccccccccccccccccccccccccccccccc)

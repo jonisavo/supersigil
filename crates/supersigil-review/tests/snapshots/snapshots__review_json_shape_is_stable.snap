@@ -4,9 +4,9 @@ expression: sample_review()
 ---
 schema: supersigil.review/2
 basis:
-  id: 050e42447b4103dbea051c1e55677e5f5bb7db94570bff8ee82251e92a31666b
+  id: 7d84fc1460938fd345404ead26637a70f5d8b35a334a27323f424a2f5d5e58a0
   document:
-    schema: supersigil.basis/1
+    schema: supersigil.basis/2
     worktree: /work/repo
     base:
       commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -24,6 +24,8 @@ basis:
       derivation: 2
     explanations: []
     capture: []
+    annotations: []
+    decisions: []
     gate:
       - id: d503d8b458721eaf7ead5168d6d1888d41924cecf5634ba53bf81c5f47c4675f
         subject:

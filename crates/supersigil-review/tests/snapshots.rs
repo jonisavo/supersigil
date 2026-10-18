@@ -340,6 +340,8 @@ fn sample_basis() -> SavedBasis {
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate: Vec::new(),
         salt: None,
     };
@@ -414,6 +416,8 @@ fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, items: &[GateItem]) -
         items: items.iter().map(|item| item.id.clone()).collect(),
         reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {

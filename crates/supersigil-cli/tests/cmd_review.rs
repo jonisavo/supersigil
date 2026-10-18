@@ -3467,6 +3467,8 @@ fn judgment_on(review: &Value, kind: JudgmentKind) -> Judgment {
         items: Vec::new(),
         reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {

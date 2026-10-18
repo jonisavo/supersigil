@@ -299,8 +299,8 @@ impl<'a> Ledger<'a> {
     }
 
     /// Checks whether `judgment` still stands for any item if it acknowledges
-    /// or dismisses, or as a whole if it comments or completes. Undos always
-    /// stand because nothing withdraws them.
+    /// or dismisses, or as a whole if it comments, corrects, or completes.
+    /// Undos always stand because nothing withdraws them.
     #[must_use]
     pub fn stands(&self, judgment: &Judgment) -> bool {
         match judgment.kind {
@@ -308,7 +308,7 @@ impl<'a> Ledger<'a> {
                 .items
                 .iter()
                 .any(|item| self.not_withdrawn(judgment, item)),
-            JudgmentKind::Comment | JudgmentKind::Complete => {
+            JudgmentKind::Comment | JudgmentKind::Correct | JudgmentKind::Complete => {
                 !self.withdrawn.contains(&(&judgment.id, None))
             }
             JudgmentKind::Undo => true,
@@ -397,10 +397,10 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// Plans `undo --judgment` for `judgment`. Withdraws a standing comment or
-    /// completion as a whole. For an acknowledgment or dismissal, withdraws
-    /// each standing item pair, then every standing completion that counts
-    /// one of those pairs.
+    /// Plans `undo --judgment` for `judgment`. Withdraws a standing comment,
+    /// correction, or completion as a whole. For an acknowledgment or
+    /// dismissal, withdraws each standing item pair, then every standing
+    /// completion that counts one of those pairs.
     ///
     /// # Errors
     ///
@@ -411,10 +411,12 @@ impl<'a> Ledger<'a> {
         match judgment.kind {
             JudgmentKind::Undo => Err(WithdrawRefusal::Undo),
             _ if !self.stands(judgment) => Err(WithdrawRefusal::Withdrawn),
-            JudgmentKind::Comment | JudgmentKind::Complete => Ok(vec![Withdrawal {
-                judgment: judgment.id.clone(),
-                item: None,
-            }]),
+            JudgmentKind::Comment | JudgmentKind::Correct | JudgmentKind::Complete => {
+                Ok(vec![Withdrawal {
+                    judgment: judgment.id.clone(),
+                    item: None,
+                }])
+            }
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss => Ok(self.withdraw_pairs(
                 judgment
                     .items
@@ -1287,6 +1289,8 @@ impl Planned {
             items: self.items,
             reason: self.reason,
             text: self.text,
+            decision: None,
+            correction: None,
             closes: self.closes,
             withdraws: self.withdraws,
             who,

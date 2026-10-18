@@ -351,6 +351,7 @@ pub const fn noun(kind: JudgmentKind) -> &'static str {
         JudgmentKind::Acknowledge => "acknowledgment",
         JudgmentKind::Dismiss => "dismissal",
         JudgmentKind::Comment => "comment",
+        JudgmentKind::Correct => "correction",
         JudgmentKind::Complete => "completion",
         JudgmentKind::Undo => "undo",
     }
@@ -434,6 +435,7 @@ fn needs(detail: &GateDetail, incomplete: u64) -> String {
             format!("{gaps} {gaps_word} between recorded edits")
         }
         GateDetail::Unreconciled { reason } => format!("evidence not read: {reason}"),
+        GateDetail::OpenQuestion { .. } => "left open by the annotator".to_owned(),
     }
 }
 

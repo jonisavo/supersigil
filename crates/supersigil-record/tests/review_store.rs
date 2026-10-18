@@ -46,6 +46,8 @@ fn basis(worktree: &str, tree: char) -> Basis {
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate: Vec::new(),
         salt: None,
     }
@@ -116,7 +118,7 @@ fn a_store_is_created_opened_and_found_by_its_repository() {
         store.root().file_name().unwrap().to_str(),
         Some(manifest.store_id.as_str())
     );
-    assert_eq!(manifest.schema_version, 1);
+    assert_eq!(manifest.schema_version, 2);
     assert_eq!(manifest.revision, Revision::ZERO);
     assert_eq!(manifest.repository, Path::new(REPOSITORY));
     assert_eq!(manifest.judgments_length, 0);
@@ -209,26 +211,36 @@ fn the_writer_lock_admits_one_writer() {
 }
 
 #[test]
-fn another_review_store_format_is_refused() {
+fn another_review_store_format_is_refused_naming_its_directory() {
     let dir = tempfile::tempdir().unwrap();
     let store = new_store(dir.path());
-    edit_manifest(&store, |m| m["schema_version"] = json!(2));
-    let error = store.snapshot().unwrap_err();
-    assert!(
-        matches!(
-            error,
-            StoreError::UnsupportedReviewStore {
-                found: 2,
-                supported: 1,
-                ..
-            }
-        ),
-        "{error:?}"
-    );
-    assert!(matches!(
-        store.begin(),
-        Err(StoreError::UnsupportedReviewStore { .. })
-    ));
+    for found in [1, 3] {
+        edit_manifest(&store, |m| m["schema_version"] = json!(found));
+        let error = store.snapshot().unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                StoreError::UnsupportedReviewStore { root, found: f, supported: 2 }
+                    if root == store.root() && *f == found
+            ),
+            "{error:?}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains(&store.root().display().to_string()),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!(
+                "uses review store format {found}; this build reads format 2"
+            )),
+            "{message}"
+        );
+        assert!(matches!(
+            store.begin(),
+            Err(StoreError::UnsupportedReviewStore { .. })
+        ));
+    }
 }
 
 #[test]
@@ -865,6 +877,8 @@ fn acknowledgment(basis: &BasisId, now: UtcTime) -> Judgment {
         items: Vec::new(),
         reason: None,
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {

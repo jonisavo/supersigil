@@ -1445,6 +1445,8 @@ fn a_judgment_id_prefix_must_name_one_judgment() {
             items: Vec::new(),
             reason: None,
             text: Some("Twin.".to_owned()),
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             who: Who {
@@ -1671,6 +1673,8 @@ fn list_indexes_each_gate_once_however_many_reviews_are_related() {
             items: Vec::new(),
             reason: None,
             text: Some("Again.".to_owned()),
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             who: Who {

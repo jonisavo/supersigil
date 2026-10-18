@@ -37,8 +37,10 @@ impl AnnotationRevision {
     /// A session's first annotation.
     pub const FIRST: Self = Self(1);
 
-    /// Wraps a revision number read from a manifest key.
-    pub(crate) const fn new(number: u32) -> Self {
+    /// Wraps a revision number, such as one read from a manifest key or
+    /// another document that names a revision.
+    #[must_use]
+    pub const fn new(number: u32) -> Self {
         Self(number)
     }
 

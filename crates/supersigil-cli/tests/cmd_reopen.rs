@@ -952,6 +952,8 @@ fn many_judged_reviews_of_the_worktree_keep_review_prompt() {
             items: basis.gate.iter().map(|item| item.id.clone()).collect(),
             reason: None,
             text: None,
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             who: completion.who.clone(),

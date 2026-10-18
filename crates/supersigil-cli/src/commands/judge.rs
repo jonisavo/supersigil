@@ -361,6 +361,7 @@ impl Recorded<'_> {
             JudgmentKind::Dismiss => format!("Dismissed {items} on {review}."),
             JudgmentKind::Comment if subjects.is_empty() => format!("Commented on {review}."),
             JudgmentKind::Comment => format!("Commented on {items} on {review}."),
+            JudgmentKind::Correct => format!("Corrected a decision on {review}."),
             JudgmentKind::Complete => format!("Completed {review}."),
             // An undo by id names no items; it withdraws that judgment
             // first.

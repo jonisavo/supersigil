@@ -10,13 +10,14 @@ use std::slice;
 use std::time::Duration;
 
 use common::finishes_within;
+use supersigil_record::interpretations::AnnotationRevision;
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, Explanation,
-    Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, PathBytes,
-    Subject, TargetKind, Who, Withdrawal,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, CorrectionKind,
+    DecisionRef, Explanation, Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Judgment,
+    JudgmentKind, PathBytes, Subject, TargetKind, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, RecordId};
+use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::judging::{
     AlreadyClosed, Call, Earlier, FindJudgmentError, ItemChange, ItemState, JudgedReview,
     JudgedStore, Ledger, NotClosed, Planned, Refusal, Relation, Report, Uncovered, WithdrawRefusal,
@@ -92,6 +93,8 @@ fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, at: i64) -> Judgment 
         items: Vec::new(),
         reason: None,
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {
@@ -121,6 +124,20 @@ fn comment(id: &str, basis: &BasisId, at: i64) -> Judgment {
     Judgment {
         text: Some("looks fine".to_owned()),
         ..judgment(id, basis, JudgmentKind::Comment, at)
+    }
+}
+
+fn correction(id: &str, basis: &BasisId, at: i64) -> Judgment {
+    Judgment {
+        reason: Some("the plan came from the reviewer".to_owned()),
+        decision: Some(DecisionRef {
+            record: RecordId::new("r1"),
+            session: SessionId::new("s1"),
+            revision: AnnotationRevision::FIRST,
+            id: "d1".to_owned(),
+        }),
+        correction: Some(CorrectionKind::Wrong),
+        ..judgment(id, basis, JudgmentKind::Correct, at)
     }
 }
 
@@ -234,6 +251,8 @@ fn basis(worktree: &str, base: char, target: char, gate: Vec<GateItem>) -> Basis
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate,
         salt: None,
     }
@@ -1341,7 +1360,7 @@ fn undo_of_an_item_nothing_closes_is_refused() {
 }
 
 #[test]
-fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
+fn undo_by_judgment_withdraws_a_whole_comment_correction_or_completion() {
     let a = lines("a.rs", "x");
     let current = saved(basis("/work/a", '1', '2', vec![a.clone()]));
     let judgments = [
@@ -1350,6 +1369,14 @@ fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
         complete("completion", &current.0, &[(&a, "acknowledgment")], 30),
         comment("withdrawn-note", &current.0, 40),
         undo("undo-of-note", &current.0, &[("withdrawn-note", None)], 50),
+        correction("standing-correction", &current.0, 60),
+        correction("withdrawn-correction", &current.0, 70),
+        undo(
+            "undo-of-correction",
+            &current.0,
+            &[("withdrawn-correction", None)],
+            80,
+        ),
     ];
     let store = store_of(&judgments, &[]);
     let review = store.review(&current.0, &current.1);
@@ -1378,6 +1405,20 @@ fn undo_by_judgment_withdraws_a_whole_comment_or_completion() {
         Err(Refusal::NotWithdrawable(
             &judgments[4],
             WithdrawRefusal::Undo
+        ))
+    );
+    // A correction names no items, so it stands and is withdrawn whole.
+    assert!(store.ledger().stands(&judgments[5]));
+    assert_eq!(
+        undone("standing-correction"),
+        Ok(vec![withdrawal("standing-correction", None)])
+    );
+    assert!(!store.ledger().stands(&judgments[6]));
+    assert_eq!(
+        undone("withdrawn-correction"),
+        Err(Refusal::NotWithdrawable(
+            &judgments[6],
+            WithdrawRefusal::Withdrawn
         ))
     );
 }

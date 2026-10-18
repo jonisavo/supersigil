@@ -38,6 +38,8 @@ fn basis() -> Basis {
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate: Vec::new(),
         salt: None,
     }
@@ -93,6 +95,8 @@ fn an_appended_judgment_syncs_the_log_and_the_store() {
         items: Vec::new(),
         reason: None,
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {

@@ -5,15 +5,17 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde_json::json;
+use sha2::{Digest as _, Sha256};
+use supersigil_record::interpretations::AnnotationRevision;
 use supersigil_record::observations::CaptureCounts;
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisRecord, BasisScope,
-    BasisTarget, CaptureEntry, Explanation, Fingerprint, FingerprintPart, GateDetail, GateItem,
-    ItemId, Judgment, JudgmentKind, Origin, PathBytes, PinnedLog, Subject, TargetKind, Who,
-    Withdrawal,
+    Algorithms, BASIS_SCHEMA, Basis, BasisAnnotation, BasisBase, BasisCheckout, BasisDecision,
+    BasisRecord, BasisScope, BasisTarget, CaptureEntry, CorrectionKind, DecisionRef, Explanation,
+    Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, Origin,
+    PathBytes, PinnedLog, Subject, TargetKind, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, RecordId, Revision};
+use supersigil_record::{JudgmentId, RecordId, Revision, SessionId};
 
 fn known(material: &str) -> FingerprintPart {
     FingerprintPart::of(material.as_bytes())
@@ -95,8 +97,25 @@ fn basis() -> Basis {
                 ..CaptureCounts::default()
             },
         }],
+        annotations: vec![pin("s1", Some(AnnotationRevision::new(2)))],
+        decisions: vec![BasisDecision {
+            record: RecordId::new("r1"),
+            session: SessionId::new("s1"),
+            revision: AnnotationRevision::new(2),
+            id: "d1".to_owned(),
+            name: "d1".to_owned(),
+        }],
         gate: vec![lines_item("src/a.rs")],
         salt: None,
+    }
+}
+
+/// Record `r1`'s annotation pin for `session`.
+fn pin(session: &str, revision: Option<AnnotationRevision>) -> BasisAnnotation {
+    BasisAnnotation {
+        record: RecordId::new("r1"),
+        session: SessionId::new(session),
+        revision,
     }
 }
 
@@ -119,8 +138,8 @@ fn a_basis_id_is_stable_across_serializations() {
 #[test]
 fn a_basis_id_changes_with_every_field() {
     let id = basis().basis_id().unwrap();
-    let mutations: [fn(&mut Basis); 22] = [
-        |b| b.schema = "supersigil.basis/2".to_owned(),
+    let mutations: [fn(&mut Basis); 31] = [
+        |b| b.schema = "supersigil.basis/1".to_owned(),
         |b| b.worktree.push("sub"),
         |b| b.base.commit = None,
         |b| b.base.tree = "6".repeat(40),
@@ -144,6 +163,15 @@ fn a_basis_id_changes_with_every_field() {
         |b| b.algorithms.derivation = 1,
         |b| b.explanations[0].digest = "9".repeat(64),
         |b| b.capture[0].counts.malformed_lines = 2,
+        |b| b.annotations[0].record = RecordId::new("r2"),
+        |b| b.annotations[0].session = SessionId::new("s2"),
+        |b| b.annotations[0].revision = None,
+        |b| b.annotations[0].revision = Some(AnnotationRevision::new(3)),
+        |b| b.decisions[0].record = RecordId::new("r2"),
+        |b| b.decisions[0].session = SessionId::new("s2"),
+        |b| b.decisions[0].revision = AnnotationRevision::FIRST,
+        |b| b.decisions[0].id = "d2".to_owned(),
+        |b| b.decisions[0].name = "s1:d1".to_owned(),
         |b| b.gate.push(lines_item("src/b.rs")),
         |b| {
             b.gate[0]
@@ -190,16 +218,63 @@ fn a_basis_lists_its_fields_in_declaration_order() {
             "algorithms",
             "explanations",
             "capture",
+            "annotations",
+            "decisions",
             "gate"
         ]
     );
     assert_eq!(value["target"]["kind"], "working_tree");
-    assert_eq!(value["schema"], "supersigil.basis/1");
+    assert_eq!(BASIS_SCHEMA, "supersigil.basis/2");
+    assert_eq!(value["schema"], "supersigil.basis/2");
+    assert_eq!(
+        value["annotations"],
+        json!([{"record": "r1", "session": "s1", "revision": 2}])
+    );
+    assert_eq!(
+        value["decisions"],
+        json!([{"record": "r1", "session": "s1", "revision": 2, "id": "d1", "name": "d1"}])
+    );
     // The salt is written only when present.
     let mut salted = basis();
     salted.salt = Some("ab".repeat(16));
     let value = serde_json::to_value(&salted).unwrap();
     assert_eq!(value["salt"], "ab".repeat(16));
+}
+
+#[test]
+fn annotation_pins_and_decisions_are_hashed_even_when_empty() {
+    let mut empty = basis();
+    empty.annotations.clear();
+    empty.decisions.clear();
+    let value = serde_json::to_value(&empty).unwrap();
+    assert_eq!(value["annotations"], json!([]));
+    assert_eq!(value["decisions"], json!([]));
+
+    // Pinning a session without an annotation, then annotating it, gives a
+    // new review each time.
+    let mut unannotated = empty.clone();
+    unannotated.annotations.push(pin("s1", None));
+    assert_eq!(
+        serde_json::to_value(&unannotated).unwrap()["annotations"],
+        json!([{"record": "r1", "session": "s1", "revision": null}])
+    );
+    let mut annotated = unannotated.clone();
+    annotated.annotations[0].revision = Some(AnnotationRevision::FIRST);
+    let empty_id = empty.basis_id().unwrap();
+    let unannotated_id = unannotated.basis_id().unwrap();
+    let annotated_id = annotated.basis_id().unwrap();
+    assert_ne!(empty_id, unannotated_id);
+    assert_ne!(unannotated_id, annotated_id);
+
+    // The same lists in the same order give the same id; callers sort, since
+    // another order gives another.
+    let mut two = basis();
+    two.annotations.push(pin("s2", None));
+    let mut again = basis();
+    again.annotations.push(pin("s2", None));
+    assert_eq!(again.basis_id().unwrap(), two.basis_id().unwrap());
+    again.annotations.reverse();
+    assert_ne!(again.basis_id().unwrap(), two.basis_id().unwrap());
 }
 
 #[test]
@@ -257,6 +332,24 @@ fn an_item_id_hashes_origin_nul_and_subject_bytes() {
     assert_eq!(lines_item("src/a.rs").origin(), Origin::UnexplainedLines);
 }
 
+fn question(session: &str, id: &str) -> Subject {
+    Subject::Question {
+        session: SessionId::new(session),
+        id: id.to_owned(),
+    }
+}
+
+#[test]
+fn an_open_question_item_id_hashes_its_session_and_question_id() {
+    let id = ItemId::new(Origin::OpenQuestion, &question("s1", "q1"));
+    assert_eq!(
+        id.as_str(),
+        hex::encode(Sha256::digest(b"open_question\0question:s1:q1"))
+    );
+    assert_ne!(ItemId::new(Origin::OpenQuestion, &question("s2", "q1")), id);
+    assert_ne!(ItemId::new(Origin::OpenQuestion, &question("s1", "q2")), id);
+}
+
 #[test]
 fn item_ids_differ_per_origin_and_subject() {
     let path = Subject::Path(PathBytes::new("src/a.rs"));
@@ -268,6 +361,7 @@ fn item_ids_differ_per_origin_and_subject() {
         Origin::CommitWithoutOrigin,
         Origin::Discontinuity,
         Origin::Unreconciled,
+        Origin::OpenQuestion,
     ];
     let mut ids: Vec<ItemId> = origins.iter().map(|o| ItemId::new(*o, &path)).collect();
     ids.push(ItemId::new(
@@ -293,6 +387,7 @@ fn origins_sort_in_gate_order_with_their_qualifiers() {
         ),
         (Origin::Discontinuity, "discontinuity", "gap"),
         (Origin::Unreconciled, "unreconciled", "unreconciled"),
+        (Origin::OpenQuestion, "open_question", "question"),
     ];
     for pair in origins.windows(2) {
         assert!(pair[0].0 < pair[1].0);
@@ -386,6 +481,13 @@ fn every_origin_has_its_own_detail_and_subject() {
                 "reason": "records directory locked by another writer"
             }),
         ),
+        (
+            question("s1", "q1"),
+            GateDetail::OpenQuestion {
+                text: "Why keep the old reader?".to_owned(),
+            },
+            json!({"origin": "open_question", "text": "Why keep the old reader?"}),
+        ),
     ];
     for (subject, detail, expected) in details {
         let origin = detail.origin();
@@ -406,6 +508,7 @@ fn every_origin_has_its_own_detail_and_subject() {
         Subject::Record(RecordId::new("r1")),
         Subject::Checkout(PathBuf::from("/work/other")),
         Subject::Path(PathBytes::new(vec![0xff])),
+        question("s1", "q1"),
     ]);
     assert_eq!(
         subjects,
@@ -413,7 +516,8 @@ fn every_origin_has_its_own_detail_and_subject() {
             {"commit": "a".repeat(40)},
             {"record": "r1"},
             {"checkout": "/work/other"},
-            {"path": {"hex": "ff"}}
+            {"path": {"hex": "ff"}},
+            {"question": {"session": "s1", "id": "q1"}}
         ])
     );
 }
@@ -486,7 +590,7 @@ fn a_known_part_is_the_hex_sha256_of_its_material() {
 }
 
 /// Creates a judgment of `kind` on the example basis with no items, reason,
-/// text, closing judgments, or withdrawals.
+/// text, decision, correction, closing judgments, or withdrawals.
 fn judgment(kind: JudgmentKind) -> Judgment {
     Judgment {
         id: JudgmentId::new("4f1c9a2e-0000-4000-8000-000000000001"),
@@ -495,6 +599,8 @@ fn judgment(kind: JudgmentKind) -> Judgment {
         items: Vec::new(),
         reason: None,
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {
@@ -507,18 +613,26 @@ fn judgment(kind: JudgmentKind) -> Judgment {
 
 #[test]
 fn a_judgment_line_omits_what_its_kind_leaves_empty() {
-    let comment = judgment(JudgmentKind::Comment);
-    let value = serde_json::to_value(&comment).unwrap();
-    assert_eq!(
-        value,
-        json!({
-            "id": "4f1c9a2e-0000-4000-8000-000000000001",
-            "basis": basis().basis_id().unwrap(),
-            "kind": "comment",
-            "who": {"name": "Ada Lovelace", "email": "ada@example.com"},
-            "at": "2026-10-13T12:34:56Z"
-        })
-    );
+    for (kind, name) in [
+        (JudgmentKind::Comment, "comment"),
+        (JudgmentKind::Correct, "correct"),
+    ] {
+        let value = serde_json::to_value(judgment(kind)).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "id": "4f1c9a2e-0000-4000-8000-000000000001",
+                "basis": basis().basis_id().unwrap(),
+                "kind": name,
+                "who": {"name": "Ada Lovelace", "email": "ada@example.com"},
+                "at": "2026-10-13T12:34:56Z"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<Judgment>(value).unwrap(),
+            judgment(kind)
+        );
+    }
 }
 
 #[test]
@@ -549,6 +663,15 @@ fn a_judgment_line_round_trips_with_each_kind() {
             item: None,
         },
     ];
+    let mut correct = judgment(JudgmentKind::Correct);
+    correct.reason = Some("the plan came from the reviewer".to_owned());
+    correct.decision = Some(DecisionRef {
+        record: RecordId::new("r1"),
+        session: SessionId::new("s1"),
+        revision: AnnotationRevision::new(2),
+        id: "d1".to_owned(),
+    });
+    correct.correction = Some(CorrectionKind::Wrong);
 
     let expected = [
         ("acknowledge", json!({"items": [item]})),
@@ -574,8 +697,16 @@ fn a_judgment_line_round_trips_with_each_kind() {
                 ]
             }),
         ),
+        (
+            "correct",
+            json!({
+                "reason": "the plan came from the reviewer",
+                "decision": {"record": "r1", "session": "s1", "revision": 2, "id": "d1"},
+                "correction": "wrong"
+            }),
+        ),
     ];
-    for (judgment, (kind, fields)) in [acknowledge, dismiss, comment, complete, undo]
+    for (judgment, (kind, fields)) in [acknowledge, dismiss, comment, complete, undo, correct]
         .into_iter()
         .zip(expected)
     {
@@ -593,6 +724,22 @@ fn a_judgment_line_round_trips_with_each_kind() {
             "{line}"
         );
         assert_eq!(serde_json::from_str::<Judgment>(&line).unwrap(), judgment);
+    }
+}
+
+#[test]
+fn correction_kinds_are_written_as_they_print() {
+    for (kind, name) in [
+        (CorrectionKind::Wrong, "wrong"),
+        (CorrectionKind::NotTogether, "not_together"),
+        (CorrectionKind::Constraint, "constraint"),
+    ] {
+        assert_eq!(kind.as_str(), name);
+        assert_eq!(serde_json::to_value(kind).unwrap(), json!(name));
+        assert_eq!(
+            serde_json::from_value::<CorrectionKind>(json!(name)).unwrap(),
+            kind
+        );
     }
 }
 

@@ -36,6 +36,9 @@ fn detail(origin: Origin) -> GateDetail {
         Origin::Unreconciled => GateDetail::Unreconciled {
             reason: "locked".to_owned(),
         },
+        Origin::OpenQuestion => GateDetail::OpenQuestion {
+            text: "why?".to_owned(),
+        },
     }
 }
 

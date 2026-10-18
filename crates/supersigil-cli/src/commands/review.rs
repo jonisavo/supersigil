@@ -279,6 +279,8 @@ fn basis(g: &Gathered, review: &Review) -> Basis {
         },
         explanations: explanations(review, &inputs.edits),
         capture: capture(review),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate,
         salt,
     }
