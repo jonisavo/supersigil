@@ -1823,6 +1823,7 @@ fn a_completion_of_the_same_content_carries_over_when_nothing_changed() {
             completion: Some(done),
             changed_paths: Some(Vec::new()),
             changed_evidence: ChangedEvidence::default(),
+            interpretation: Vec::new(),
             uncovered: Vec::new(),
         }]
     );

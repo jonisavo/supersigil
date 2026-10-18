@@ -845,7 +845,7 @@ fn review_format_auto_prints_json_when_piped() {
     let f = Fixture::new();
     slice(&f);
     let review = f.json(&f.repo, &["review"]);
-    assert_eq!(review["schema"], "supersigil.review/2");
+    assert_eq!(review["schema"], "supersigil.review/3");
 }
 
 #[test]

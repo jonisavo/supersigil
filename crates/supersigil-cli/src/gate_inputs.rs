@@ -49,6 +49,7 @@ pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
             })
             .collect(),
         edits: recorded.sightings(review.edits.keys().map(String::as_str)),
+        questions: Vec::new(),
     }
 }
 

@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use common::finishes_within;
-use supersigil_record::RecordId;
 use supersigil_record::reviews::{
     Fingerprint, GateDetail, GateItem, ItemId, Origin, PathBytes, Subject,
 };
+use supersigil_record::{RecordId, SessionId};
 use supersigil_review::names::{ItemNames, Name, NameError, Parsed, parse};
 
 fn detail(origin: Origin) -> GateDetail {
@@ -79,8 +79,26 @@ fn name(typed: &str) -> Name {
         Parsed::Commit(prefix) => Name::Commit(prefix.to_owned()),
         Parsed::Unreconciled(path) => Name::Unreconciled(PathBuf::from(path)),
         Parsed::Id(prefix) => Name::Id(prefix.to_owned()),
+        Parsed::Question { session, id } => Name::Question {
+            session: session.map(str::to_owned),
+            id: id.to_owned(),
+        },
     }
 }
+
+fn question(session: &str, id: &str) -> GateItem {
+    item(
+        Origin::OpenQuestion,
+        Subject::Question {
+            session: SessionId::new(session),
+            id: id.to_owned(),
+        },
+    )
+}
+
+const S1: &str = "3f2a9c1e-0000-4000-8000-000000000001";
+const S2: &str = "3f2a9c1e-7777-4000-8000-000000000002";
+const S3: &str = "9c0d1e2f-0000-4000-8000-000000000003";
 
 fn resolve(
     names: &ItemNames<'_>,
@@ -137,6 +155,29 @@ fn parsing_splits_a_known_qualifier_from_the_rest() {
         Parsed::Unreconciled("/work/x")
     );
     assert_eq!(parse("id:4f1c9a2e"), Parsed::Id("4f1c9a2e"));
+    assert_eq!(
+        parse("question:q1"),
+        Parsed::Question {
+            session: None,
+            id: "q1"
+        }
+    );
+    // A question id holds no colon, so the session prefix is all before the
+    // last one.
+    assert_eq!(
+        parse("question:3f2a9c1e:q1"),
+        Parsed::Question {
+            session: Some("3f2a9c1e"),
+            id: "q1"
+        }
+    );
+    assert_eq!(
+        parse("question:a:b:q1"),
+        Parsed::Question {
+            session: Some("a:b"),
+            id: "q1"
+        }
+    );
     // Split one known qualifier; keep other colons in the path.
     assert_eq!(
         parse("gap:lines:x"),
@@ -235,6 +276,106 @@ fn a_path_that_reads_as_qualified_is_named_with_its_qualifier() {
     let names = named(&items, false);
     assert_eq!(names.names(), strings(&["notdiffed:gap:x"]));
     assert_eq!(resolve(&names, &["notdiffed:gap:x"]), Ok(ids(&[&items[0]])));
+}
+
+#[test]
+fn a_question_is_named_by_its_id_and_by_its_session_when_the_id_repeats() {
+    // Sessions 1 and 2 share 8 characters, so their prefixes are longer.
+    let items = [
+        question(S1, "q1"),
+        question(S2, "q1"),
+        question(S3, "q1"),
+        question(S1, "q2"),
+        lines("question:q2"),
+    ];
+    let names = named(&items, false);
+    assert_eq!(
+        names.names(),
+        strings(&[
+            "question:3f2a9c1e-0:q1",
+            "question:3f2a9c1e-7:q1",
+            "question:9c0d1e2f:q1",
+            "question:q2",
+            "lines:question:q2",
+        ])
+    );
+    for (item, typed) in items.iter().zip(names.names()) {
+        assert_eq!(resolve(&names, &[typed]), Ok(ids(&[item])));
+    }
+}
+
+#[test]
+fn a_question_resolves_by_any_unique_session_prefix() {
+    let items = [question(S1, "q1"), question(S3, "q1"), question(S1, "q2")];
+    let names = named(&items, false);
+    assert_eq!(resolve(&names, &["question:9c:q1"]), Ok(ids(&[&items[1]])));
+    assert_eq!(
+        resolve(&names, &[&format!("question:{S1}:q1")]),
+        Ok(ids(&[&items[0]]))
+    );
+    assert_eq!(resolve(&names, &["question:3f:q2"]), Ok(ids(&[&items[2]])));
+    assert_eq!(
+        refusal(&names, "question:q1"),
+        NameError::Several {
+            name: "question:q1".to_owned(),
+            choices: strings(&["question:3f2a9c1e:q1", "question:9c0d1e2f:q1"]),
+        }
+    );
+    for typed in ["question:q7", "question:ab:q1", "question:9c:q2"] {
+        assert_eq!(
+            refusal(&names, typed),
+            NameError::NoMatch {
+                name: typed.to_owned(),
+                nearby: Vec::new(),
+            }
+        );
+    }
+}
+
+#[test]
+fn a_question_whose_qualified_name_cannot_be_typed_is_named_by_its_id() {
+    // A control character in the session prefix, and a whole session id
+    // that another session's id starts with, give no name to type.
+    let items = [
+        question("3f2a\u{1b}[31m9c1e", "q1"),
+        question("short", "q1"),
+        question("shortened", "q1"),
+    ];
+    let names = named(&items, false);
+    for (item, name) in items[..2].iter().zip(names.names()) {
+        let prefix = format!("id:{}", &item.id.as_str()[..8]);
+        assert!(name.starts_with(&prefix), "{name}");
+    }
+    assert_eq!(names.names()[2], "question:shortene:q1");
+}
+
+#[test]
+fn a_session_with_many_questions_qualifies_them_as_it_would_one() {
+    let items = [
+        question(S1, "q1"),
+        question(S1, "q2"),
+        question(S1, "q3"),
+        question(S2, "q1"),
+        question(S2, "q2"),
+        question(S2, "q4"),
+        question(S3, "q2"),
+    ];
+    let names = named(&items, false);
+    assert_eq!(
+        names.names(),
+        strings(&[
+            "question:3f2a9c1e-0:q1",
+            "question:3f2a9c1e-0:q2",
+            "question:q3",
+            "question:3f2a9c1e-7:q1",
+            "question:3f2a9c1e-7:q2",
+            "question:q4",
+            "question:9c0d1e2f:q2",
+        ])
+    );
+    for (item, typed) in items.iter().zip(names.names()) {
+        assert_eq!(resolve(&names, &[typed]), Ok(ids(&[item])));
+    }
 }
 
 #[test]
@@ -535,6 +676,28 @@ fn thousands_of_id_names_resolve_in_one_batch_promptly() {
     });
     eprintln!("resolved 5,000 id names in {:?}", started.elapsed());
 
+    assert_eq!(resolved, Ok(every));
+}
+
+#[test]
+fn ten_thousand_questions_in_each_of_two_sessions_are_named_promptly() {
+    // Every id repeats across the two sessions, so every name is qualified.
+    let items: Vec<GateItem> = [S1, S2]
+        .into_iter()
+        .flat_map(|session| (0..10_000).map(move |k| question(session, &format!("q{k}"))))
+        .collect();
+    let every = ids(&items.iter().collect::<Vec<_>>());
+
+    let started = std::time::Instant::now();
+    let (shown, resolved) = finishes_within(Duration::from_secs(20), move || {
+        let names = named(&items, false);
+        (names.names().to_vec(), resolve(&names, names.names()))
+    });
+    eprintln!("named 20,000 questions in {:?}", started.elapsed());
+
+    assert_eq!(shown.len(), 20_000);
+    assert_eq!(shown[0], "question:3f2a9c1e-0:q0");
+    assert_eq!(shown[19_999], "question:3f2a9c1e-7:q9999");
     assert_eq!(resolved, Ok(every));
 }
 

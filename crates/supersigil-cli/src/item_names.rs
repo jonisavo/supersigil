@@ -61,5 +61,9 @@ pub fn name(worktree: &Path, cwd: &Path, typed: &str) -> Result<Name, CliError> 
         Parsed::Commit(prefix) => Name::Commit(prefix.to_owned()),
         Parsed::Unreconciled(path) => Name::Unreconciled(resolve(&cwd.join(path))),
         Parsed::Id(prefix) => Name::Id(prefix.to_owned()),
+        Parsed::Question { session, id } => Name::Question {
+            session: session.map(str::to_owned),
+            id: id.to_owned(),
+        },
     })
 }

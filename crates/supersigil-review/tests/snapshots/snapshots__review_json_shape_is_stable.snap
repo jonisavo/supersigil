@@ -2,7 +2,7 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: sample_review()
 ---
-schema: supersigil.review/2
+schema: supersigil.review/3
 basis:
   id: 7d84fc1460938fd345404ead26637a70f5d8b35a334a27323f424a2f5d5e58a0
   document:
@@ -574,3 +574,85 @@ edits:
       text:
         state: retained
         value: Add a greeting function and clean up.
+decisions:
+  - name: d1
+    session: s1
+    record: rec-1
+    revision: 1
+    id: d1
+    title: Rename the old function to new
+    disputed: false
+    corrections: []
+    rationale:
+      - text: Add a greeting function and clean up.
+        speaker: human
+        explicit: true
+        source:
+          turn: u1
+          quote: Add a greeting function and clean up.
+        correction: ~
+      - text: the old name no longer described it
+        speaker: annotator
+        explicit: false
+        source: ~
+        correction: ~
+    alternatives:
+      - title: keep both functions
+        status: attempted
+        edits:
+          - e3
+        restored: true
+        reason:
+          text: Two names is one too many.
+          speaker: agent
+          explicit: true
+          source:
+            turn: a2
+            quote: Two names is one too many.
+          correction: ~
+      - title: a deprecation alias
+        status: proposed
+        edits: []
+        restored: false
+        reason: ~
+    implications:
+      - text: callers of old must move to new
+        explicit: false
+        source: ~
+    open_questions: []
+    cites:
+      in_change:
+        - e1
+      elsewhere:
+        - "command:1"
+    explains:
+      - path: src/lib.rs
+        side: base
+        start: 2
+        count: 1
+        association: attributed
+      - path: src/lib.rs
+        side: target
+        start: 2
+        count: 1
+        association: attributed
+edit_decisions:
+  e1:
+    - d1
+annotations:
+  - session: s1
+    record: rec-1
+    checkout: /work/repo
+    revision: 1
+    observed:
+      count: 9
+      last: "2026-10-13T10:59:00Z"
+    observations_now: 12
+    annotated_records: 1
+  - session: s2
+    record: ~
+    checkout: ~
+    revision: ~
+    observed: ~
+    observations_now: 0
+    annotated_records: 0

@@ -18,6 +18,11 @@ use supersigil_anchor::{
     ChainClass, ChainEnd, Conflict, LineOutcome, Origin, PathAttribution, PathStatus, Provenance,
     Reading, StopReason,
 };
+use supersigil_record::derivations::Restore;
+use supersigil_record::interpretations::{
+    ANNOTATION_SCHEMA, Alternative, AlternativeStatus, Annotation, AnnotationDocument,
+    AnnotationRevision, Decision, Implication, Observed, Prepared, Rationale, Source, Speaker,
+};
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
@@ -26,16 +31,17 @@ use supersigil_record::reviews::{
     Judgment, JudgmentKind, PathBytes, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, RecordId, SessionId};
+use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, TurnId};
+use supersigil_review::decisions::{Annotated, in_view, names};
 use supersigil_review::gate::{GateInputs, gate_items};
 use supersigil_review::judging::{JudgedStore, Relation};
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, CompletionSource,
-    EditInfo, EditOriginInfo, EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus,
-    GateInfo, JudgmentInfo, Mention, MentionResult, NewObservations, NotCapturedInfo, OriginsInfo,
-    PromptInfo, RecordInfo, RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo,
-    TargetInfo, TargetKindInfo, TranscriptInfo, UncoveredInfo, UnreconciledInfo, Unsaved,
-    UntrackedInfo, file_review, unattributed_summary,
+    AncestryInfo, AnnotationInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange,
+    CompletionSource, EditInfo, EditOriginInfo, EvidenceInfo, FileInput, FileKindInfo, FileReview,
+    FileStatus, GateInfo, JudgmentInfo, Mention, MentionResult, NewObservations, NotCapturedInfo,
+    OriginsInfo, PromptInfo, RecordInfo, RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo,
+    StatusInfo, TargetInfo, TargetKindInfo, TranscriptInfo, UncoveredInfo, UnreconciledInfo,
+    Unsaved, UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
@@ -351,6 +357,120 @@ fn sample_basis() -> SavedBasis {
     }
 }
 
+/// Session `s1`'s first annotation: one decision behind `e1`, with an
+/// attempt the derivations show undone and a proposal.
+fn sample_annotation() -> Annotation {
+    let stated = |speaker, turn: &str, quote: &str| Rationale {
+        text: quote.to_owned(),
+        speaker,
+        explicit: true,
+        source: Some(Source {
+            turn: TurnId::new(turn),
+            quote: quote.to_owned(),
+        }),
+    };
+    let decision = Decision {
+        id: "d1".to_owned(),
+        title: "Rename the old function to new".to_owned(),
+        cites: vec![eid("e1"), eid("command:1")],
+        rationale: vec![
+            stated(
+                Speaker::Human,
+                "u1",
+                "Add a greeting function and clean up.",
+            ),
+            Rationale {
+                text: "the old name no longer described it".to_owned(),
+                speaker: Speaker::Annotator,
+                explicit: false,
+                source: None,
+            },
+        ],
+        alternatives: vec![
+            Alternative {
+                title: "keep both functions".to_owned(),
+                status: AlternativeStatus::Attempted,
+                edits: vec![eid("e3")],
+                reason: Some(stated(Speaker::Agent, "a2", "Two names is one too many.")),
+            },
+            Alternative {
+                title: "a deprecation alias".to_owned(),
+                status: AlternativeStatus::Proposed,
+                edits: Vec::new(),
+                reason: None,
+            },
+        ],
+        implications: vec![Implication {
+            text: "callers of old must move to new".to_owned(),
+            explicit: false,
+            source: None,
+        }],
+    };
+    Annotation {
+        revision: AnnotationRevision::FIRST,
+        at: "2026-10-13T11:00:00Z".parse::<UtcTime>().unwrap(),
+        document: AnnotationDocument {
+            schema: ANNOTATION_SCHEMA.to_owned(),
+            session: SessionId::new("s1"),
+            based_on: None,
+            prepared: Prepared {
+                record: RecordId::new("rec-1"),
+                observation_revision: Revision::ZERO.next(),
+                observed: Observed {
+                    count: 9,
+                    last: Some("2026-10-13T10:59:00Z".parse::<UtcTime>().unwrap()),
+                },
+            },
+            produced_by: "claude-code/supersigil-annotate".to_owned(),
+            corrections_seen: Vec::new(),
+            decisions: vec![decision],
+            open_questions: Vec::new(),
+        },
+    }
+}
+
+/// Adds the decisions behind `review`'s files from [`sample_annotation`],
+/// and the annotation's coverage.
+fn with_decisions(mut review: Review) -> Review {
+    let annotation = sample_annotation();
+    let (session, record) = (SessionId::new("s1"), RecordId::new("rec-1"));
+    let restores = [Restore {
+        edit: eid("e4"),
+        restores: vec![eid("e3")],
+    }];
+    let annotated = [Annotated {
+        session: &session,
+        record: &record,
+        annotation: &annotation,
+        restores: &restores,
+    }];
+    let view = in_view(&annotated, &names(&annotated), &review.files);
+    review.decisions = view.decisions;
+    review.edit_decisions = view.edit_decisions;
+    review.annotations = vec![
+        AnnotationInfo {
+            session,
+            record: Some(record),
+            checkout: Some(PathBuf::from("/work/repo")),
+            revision: Some(annotation.revision),
+            observed: Some(annotation.document.prepared.observed),
+            observations_now: 12,
+            annotated_records: 1,
+        },
+        // A candidate session no involved record holds.
+        AnnotationInfo {
+            session: SessionId::new("s2"),
+            record: None,
+            checkout: None,
+            revision: None,
+            observed: None,
+            observations_now: 0,
+            annotated_records: 0,
+        },
+    ];
+    review
+}
+
 fn sample_review() -> Review {
     let files = sample_files();
     let scope = sample_scope();
@@ -381,8 +501,11 @@ fn sample_review() -> Review {
         },
         files,
         edits: edits(),
+        decisions: Vec::new(),
+        edit_decisions: BTreeMap::new(),
+        annotations: Vec::new(),
     };
-    gated(review, |_, _| Vec::new())
+    gated(with_decisions(review), |_, _| Vec::new())
 }
 
 /// Builds `review`'s gate and status from judgments `judge` supplies for its
@@ -459,6 +582,20 @@ fn summary(review: &Review) -> String {
 #[test]
 fn review_json_shape_is_stable() {
     insta::assert_yaml_snapshot!(sample_review());
+}
+
+#[test]
+fn a_review_without_decisions_lists_none_and_omits_the_edit_map() {
+    let mut review = sample_review();
+    review.decisions = Vec::new();
+    review.edit_decisions = BTreeMap::new();
+    review.annotations = Vec::new();
+
+    let json = serde_json::to_value(&review).unwrap();
+
+    assert_eq!(json["decisions"], json!([]));
+    assert_eq!(json["annotations"], json!([]));
+    assert!(json.get("edit_decisions").is_none(), "{json}");
 }
 
 #[test]
@@ -1069,6 +1206,7 @@ fn related(relation: Relation, completed: bool) -> RelatedInfo {
         relation,
         changed_paths: Some(Vec::new()),
         changed_evidence: ChangedEvidence::default(),
+        interpretation: Vec::new(),
         uncovered: Vec::new(),
     }
 }

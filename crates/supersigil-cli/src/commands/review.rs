@@ -358,6 +358,9 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
         evidence: evidence_info(g, all_conflicts(g)),
         files,
         edits,
+        decisions: Vec::new(),
+        edit_decisions: BTreeMap::new(),
+        annotations: Vec::new(),
     })
 }
 

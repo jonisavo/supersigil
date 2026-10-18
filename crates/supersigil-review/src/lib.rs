@@ -13,9 +13,12 @@
 //! [`names`] names gate items and resolves typed names. [`judging`] resolves
 //! item states from judgments recorded on saved reviews. [`annotating`]
 //! checks an annotation document against its session's observations before
-//! the record stores it.
+//! the record stores it. [`decisions`] finds the annotated decisions that
+//! explain the change, turns open questions into gate items, and pins what
+//! a basis read of annotations.
 
 pub mod annotating;
+pub mod decisions;
 pub mod diff;
 pub mod gate;
 pub mod judging;

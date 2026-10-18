@@ -12,7 +12,8 @@
 //! match.
 //!
 //! A basis keeps [`explanations`] to detect changes in each file's evidence
-//! and [`capture`] to retain the review's capture limitations.
+//! and [`capture`] to retain the review's capture limitations. Neither
+//! hashes an annotation, so a re-annotation never changes evidence.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -120,6 +121,9 @@ pub struct GateInputs<'g> {
     /// Every sighting of each edit in the review's `edits` map, by ID, in any
     /// order. Supplies the payloads and states those entries omit.
     pub edits: BTreeMap<String, Vec<&'g Edit>>,
+    /// The open-question items of the annotations the review read, from
+    /// [`question_items`](crate::decisions::question_items), in any order.
+    pub questions: Vec<GateItem>,
 }
 
 /// Builds gate items sorted by origin, then subject.
@@ -127,7 +131,8 @@ pub struct GateInputs<'g> {
 /// Creates one item per file with unexplained lines, using the unattributed
 /// summary's counts; per file not diffed; per untracked file with recorded
 /// edits; per uncaptured path; per commit without an origin; per reviewed
-/// file with edit gaps; and per unreconciled record or checkout.
+/// file with edit gaps; and per unreconciled record or checkout. Adds the
+/// open-question items of `inputs`.
 ///
 /// Missing inputs for untracked or uncaptured paths or edits behind counted
 /// lines produce unknown parts. Directories also have unknown on-disk states.
@@ -166,6 +171,7 @@ pub fn gate_items(review: &Review, inputs: &GateInputs<'_>) -> Vec<GateItem> {
     }));
     items.extend(discontinuities(&inputs.discontinuities));
     items.extend(unreconciled(review));
+    items.extend(inputs.questions.iter().cloned());
     items.sort_by(|a, b| (a.origin(), &a.subject).cmp(&(b.origin(), &b.subject)));
     items
 }
