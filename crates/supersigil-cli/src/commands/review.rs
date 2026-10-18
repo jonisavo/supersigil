@@ -63,8 +63,9 @@ use crate::review_dir::{
 /// the output fails.
 pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     let reviews_dir = resolve_review_dir(args.review_dir.as_deref())?;
+    let checkout = record_dir::canonical_checkout(args.checkout.as_deref())?;
     let g = gather(&PipelineArgs {
-        checkout: record_dir::canonical_checkout(args.checkout.as_deref())?,
+        checkout: checkout.clone(),
         cwd: record_dir::canonical_checkout(None)?,
         records_dir: record_dir::resolve_record_dir(args.record_dir.as_deref())?,
         claude_home: claude_home(args.claude_home.as_deref()),
@@ -82,6 +83,7 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     let mut addressing = Addressing {
         review: None,
         checkout: args.checkout.clone(),
+        resolved_checkout: Some(checkout),
         review_dir: args.review_dir.clone(),
         record_dir: args.record_dir.clone(),
         claude_home: args.claude_home.clone(),

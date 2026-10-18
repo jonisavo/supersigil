@@ -40,7 +40,7 @@ use crate::outcome::{
 /// the pivot is unreleased.
 pub const REVIEW_SCHEMA: &str = "supersigil.review/3";
 /// Schema string of the `why` JSON.
-pub const WHY_SCHEMA: &str = "supersigil.why/1";
+pub const WHY_SCHEMA: &str = "supersigil.why/2";
 
 /// A review of the change between a base and a target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

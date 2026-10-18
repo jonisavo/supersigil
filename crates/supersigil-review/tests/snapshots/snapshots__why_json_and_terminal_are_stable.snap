@@ -2,7 +2,7 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: why
 ---
-schema: supersigil.why/1
+schema: supersigil.why/2
 path: src/lib.rs
 target:
   worktree: /work/repo

@@ -1,28 +1,46 @@
 //! The plain terminal summary of a review.
 //!
-//! Deterministic text with a header, gate rows, file rows, evidence notes,
-//! and next commands. The header identifies the saved review or why saving
-//! failed, worktree, base, target, and completion status or changes since the
-//! most recent related completion. Diff text remains in JSON.
+//! Deterministic text with a header, gate rows, file rows, the decisions
+//! behind the change, evidence notes, and next commands. The header
+//! identifies the saved review or why saving failed, worktree, base, target,
+//! and completion status or changes since the most recent related
+//! completion, including a changed interpretation. Diff text remains in
+//! JSON.
+//!
+//! Each decision says how it explains its lines: attributed and
+//! whitespace-only spans are listed apart from content matches, which are
+//! never attribution. Corrections precede the rationale they address, and
+//! each rationale line is labelled by who gave it: an explicit line shows
+//! the quote import verified, a correction's constraint says it is one, and
+//! any other line is an inference.
 //!
 //! Lines are built from untrusted text (paths, ids, reasons, names,
 //! transcript text) as is; [`Printed`] escapes each line once, so a path's
-//! escape sequences cannot rewrite the terminal.
+//! escape sequences cannot rewrite the terminal. Annotation text is cut to
+//! its first line and at most 200 characters, marked with `…`; the JSON
+//! holds it whole.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Write as _};
+use std::iter;
 
 use supersigil_anchor::ChainClass;
-use supersigil_record::RecordId;
+use supersigil_record::interpretations::{AlternativeStatus, AnnotationRevision, Speaker};
 use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
-use supersigil_record::reviews::{BasisId, GateDetail, JudgmentKind, PathBytes, Subject};
+use supersigil_record::reviews::{
+    BasisId, CorrectionKind, GateDetail, JudgmentKind, PathBytes, Subject,
+};
+use supersigil_record::time::UtcTime;
+use supersigil_record::{EventId, RecordId, SessionId};
 
 use crate::judging::Relation as ReviewRelation;
 use crate::model::{
-    ANCESTRY_NOTE, AncestryInfo, ChangedEvidence, CompletionSource, EvidenceInfo, FileKindInfo,
-    FileReview, GateInfo, GateItemInfo, ItemStateInfo, RecordInfo, Review, SpanSide, StatusInfo,
-    TargetKindInfo, Unsaved,
+    ANCESTRY_NOTE, AlternativeInfo, AncestryInfo, AnnotationInfo, Association, ChangedEvidence,
+    CompletionSource, CorrectionInfo, DecisionInfo, EvidenceInfo, ExplainedSpan, FileKindInfo,
+    FileReview, GateInfo, GateItemInfo, ImplicationInfo, ItemStateInfo, RationaleInfo, RecordInfo,
+    RelatedInfo, Review, SpanSide, StatusInfo, TargetKindInfo, Unsaved,
 };
+use crate::names::{SESSION_PREFIX, unique_prefix};
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 use crate::printed::{Addressing, Printed, aligned};
 
@@ -51,11 +69,12 @@ pub fn render_summary(review: &Review, addressing: &Addressing) -> String {
         (_, None) => "  target: working tree over an unborn HEAD".to_owned(),
     };
     out.line(format!("{target} (tree {})", review.target.tree));
+    let shorts = Shorts::new(review);
     let nothing = review.files.is_empty() && review.gate.items.is_empty();
     if nothing {
         out.line(NOTHING_TO_REVIEW);
     } else {
-        out.lines(status_lines(&review.status, review.gate.open));
+        out.lines(status_lines(&review.status, review.gate.open, &shorts));
     }
 
     out.lines(gate(review));
@@ -65,11 +84,17 @@ pub fn render_summary(review: &Review, addressing: &Addressing) -> String {
         let line = no_changes_line(review.target.kind, addressing, &mut out);
         out.line(line);
     }
+    let explaining = file_decisions(&review.decisions);
     for file in &review.files {
         out.line(format!("  {}", file_line(review, file)));
+        if let Some(names) = explaining.get(&file.path_bytes) {
+            out.lines(file_decision_lines(names));
+        }
     }
+    out.lines(decisions_section(&review.decisions));
+    out.lines(unanchored_section(review, &shorts));
 
-    let notes = notes(review);
+    let notes = notes(review, &shorts, addressing, &mut out);
     if !notes.is_empty() {
         out.lines(["", "Not gate items:"]);
         out.lines(notes.into_iter().map(|note| format!("  {note}")));
@@ -173,21 +198,30 @@ fn short(commit: &str) -> &str {
 /// Shows who completed the review and when, naming the earlier review if
 /// completion carries. Otherwise shows changes since the first related
 /// review's standing completion, if any, and reports an empty open gate.
-fn status_lines(status: &StatusInfo, open: usize) -> Vec<String> {
+/// Either way, says how the interpretation changed since the completion
+/// counted, which blocks nothing.
+fn status_lines(status: &StatusInfo, open: usize, shorts: &Shorts<'_>) -> Vec<String> {
     if let Some(completion) = &status.completion {
         let by = format!(
             "Review complete: completed on {} by {}",
             completion.at.date(),
             completion.who.name
         );
-        return vec![if matches!(status.source, CompletionSource::Carried(_)) {
-            format!(
-                "{by} for the same content (review {}).",
-                completion.review.short()
-            )
-        } else {
-            format!("{by}.")
-        }];
+        let CompletionSource::Carried(carried) = &status.source else {
+            return vec![format!("{by}.")];
+        };
+        let mut lines = vec![format!(
+            "{by} for the same content (review {}).",
+            completion.review.short()
+        )];
+        lines.extend(
+            status
+                .related
+                .iter()
+                .find(|related| related.review == *carried)
+                .and_then(|related| interpretation_line(related, shorts)),
+        );
+        return lines;
     }
     let not_complete = "Review not complete.";
     let Some((related, completion)) = status
@@ -221,6 +255,7 @@ fn status_lines(status: &StatusInfo, open: usize) -> Vec<String> {
         lines.push(format!("Evidence changed {since}:"));
         lines.extend(evidence);
     }
+    lines.extend(interpretation_line(related, shorts));
     if related.relation == ReviewRelation::SameContent && !related.uncovered.is_empty() {
         lines.push(format!(
             "Completed on {} for the same content, but these gate items differ from that review:",
@@ -241,6 +276,37 @@ fn status_lines(status: &StatusInfo, open: usize) -> Vec<String> {
         lines.push("No open gate items. This snapshot has not been marked complete.".to_owned());
     }
     lines
+}
+
+/// Says, per session, how the annotation this review reads differs from the
+/// one `related` read, or `None` when none differs or `related` has no
+/// completion. Revisions are numbered per record, so an equal number means
+/// another record.
+fn interpretation_line(related: &RelatedInfo, shorts: &Shorts<'_>) -> Option<String> {
+    let completion = related.completion.as_ref()?;
+    let changes: Vec<String> = related
+        .interpretation
+        .iter()
+        .filter_map(|change| {
+            let how = match (change.from, change.to) {
+                (Some(from), Some(to)) if from == to => {
+                    format!("revision {from} → {to} in another record")
+                }
+                (Some(from), Some(to)) => format!("revision {from} → {to}"),
+                (None, Some(_)) => "newly annotated".to_owned(),
+                (Some(_), None) => "annotation removed".to_owned(),
+                (None, None) => return None,
+            };
+            Some(format!("session {} {how}", shorts.of(&change.session)))
+        })
+        .collect();
+    (!changes.is_empty()).then(|| {
+        format!(
+            "Interpretation changed since completion on {}: {}.",
+            completion.at.date(),
+            changes.join("; ")
+        )
+    })
 }
 
 /// Lists changed file explanations, new observations by session and path,
@@ -435,7 +501,7 @@ fn needs(detail: &GateDetail, incomplete: u64) -> String {
             format!("{gaps} {gaps_word} between recorded edits")
         }
         GateDetail::Unreconciled { reason } => format!("evidence not read: {reason}"),
-        GateDetail::OpenQuestion { .. } => "left open by the annotator".to_owned(),
+        GateDetail::OpenQuestion { text } => one_line(text),
     }
 }
 
@@ -720,8 +786,14 @@ impl Tally {
 
 /// Builds evidence notes outside gate items for coarse diffs, unavailable
 /// attribution, capture limitations, conflicting edits, removed transcripts,
-/// scope, origins, and unreconciled evidence.
-fn notes(review: &Review) -> Vec<String> {
+/// scope, origins, unreconciled evidence, and annotations, recording the
+/// commands they print in `out`.
+fn notes(
+    review: &Review,
+    shorts: &Shorts<'_>,
+    addressing: &Addressing,
+    out: &mut Printed,
+) -> Vec<String> {
     let summary = &review.unattributed;
     let evidence = &review.evidence;
     let mut notes = Vec::new();
@@ -747,7 +819,475 @@ fn notes(review: &Review) -> Vec<String> {
     }
     notes.extend(scope_notes(review));
     notes.extend(unreconciled_lines(&review.records, evidence));
+    for annotation in &review.annotations {
+        notes.extend(annotation_notes(annotation, shorts, addressing, out));
+    }
     notes
+}
+
+/// Notes on a candidate session's annotation, which is optional: that it has
+/// none, with the command that adds one, naming the checkout of the record
+/// read when that is not the review's; that observations followed what it
+/// covers; that several records annotate the session, naming the one used.
+/// A session no involved record holds has none.
+///
+/// The command names the session by its whole id, not its short one: the
+/// skill resolves a prefix among every session of the record, where a
+/// prefix unique among the review's sessions can match another.
+fn annotation_notes(
+    annotation: &AnnotationInfo,
+    shorts: &Shorts<'_>,
+    addressing: &Addressing,
+    out: &mut Printed,
+) -> Vec<String> {
+    let Some(record) = &annotation.record else {
+        return Vec::new();
+    };
+    let session = shorts.of(&annotation.session);
+    let mut notes = Vec::new();
+    match (annotation.revision, &annotation.observed) {
+        (None, _) => {
+            let command = out.command(
+                addressing.annotate(annotation.session.as_str(), annotation.checkout.as_deref()),
+            );
+            notes.push(format!(
+                "session {session} not annotated; in Claude Code run {command}"
+            ));
+        }
+        (Some(_), Some(observed)) if annotation.observations_now > observed.count => {
+            let covered = observed.last.map_or_else(
+                || format!("after {}", counted(observed.count, "observation")),
+                |last| format!("through {}", minute(last)),
+            );
+            let since = annotation.observations_now - observed.count;
+            notes.push(format!(
+                "session {session} annotated {covered}; {} since",
+                counted(since, "observation")
+            ));
+        }
+        (Some(_), _) => {}
+    }
+    if annotation.annotated_records > 1 {
+        notes.push(format!(
+            "session {session} annotated in {} records; using {}",
+            annotation.annotated_records,
+            record_short(record)
+        ));
+    }
+    notes
+}
+
+/// `"1 {noun}"` or `"{count} {noun}s"`.
+fn counted(count: u64, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+/// `time` as `YYYY-MM-DD HH:MM`.
+fn minute(time: UtcTime) -> String {
+    let text = time.to_string();
+    format!("{} {}", time.date(), text.get(11..16).unwrap_or_default())
+}
+
+/// A record's first 8 characters for display, or its whole id when shorter.
+fn record_short(record: &RecordId) -> &str {
+    record.as_str().get(..8).unwrap_or(record.as_str())
+}
+
+/// The sessions a summary names, each shown as its shortest prefix of at
+/// least 8 characters unique among them.
+struct Shorts<'r> {
+    /// The sessions, sorted, as [`unique_prefix`] reads them.
+    sessions: Vec<(&'r str, usize)>,
+}
+
+impl<'r> Shorts<'r> {
+    /// The candidate sessions of `review`, the sessions its corrections with
+    /// no decision in view name, and those whose interpretation changed
+    /// since a related review.
+    fn new(review: &'r Review) -> Self {
+        let mut sessions: Vec<(&str, usize)> = review
+            .annotations
+            .iter()
+            .map(|annotation| &annotation.session)
+            .chain(
+                review
+                    .unanchored_corrections
+                    .iter()
+                    .map(|correction| &correction.decision.session),
+            )
+            .chain(
+                review
+                    .status
+                    .related
+                    .iter()
+                    .flat_map(|related| &related.interpretation)
+                    .map(|change| &change.session),
+            )
+            .map(|session| (session.as_str(), 0))
+            .collect();
+        sessions.sort_unstable();
+        sessions.dedup();
+        Self { sessions }
+    }
+
+    /// `session` as the summary shows it.
+    fn of<'s>(&self, session: &'s SessionId) -> &'s str {
+        unique_prefix(session.as_str(), &self.sessions, SESSION_PREFIX)
+    }
+}
+
+/// Per file, the names of the decisions explaining a span of it, sorted,
+/// each with whether one of its spans there is attributed or
+/// whitespace-only rather than only a content match.
+fn file_decisions(decisions: &[DecisionInfo]) -> BTreeMap<&PathBytes, BTreeMap<&str, bool>> {
+    let mut files: BTreeMap<&PathBytes, BTreeMap<&str, bool>> = BTreeMap::new();
+    for decision in decisions {
+        for span in &decision.explains {
+            let explains = files
+                .entry(&span.path)
+                .or_default()
+                .entry(&decision.name)
+                .or_default();
+            *explains |= span.association != Association::ContentMatch;
+        }
+    }
+    files
+}
+
+/// The lines under a file naming the decisions that explain its lines,
+/// then those that only match their content.
+fn file_decision_lines(names: &BTreeMap<&str, bool>) -> Vec<String> {
+    [
+        (true, "decisions"),
+        (false, "decisions by content match only"),
+    ]
+    .into_iter()
+    .filter_map(|(explains, label)| {
+        let listed: Vec<&str> = names
+            .iter()
+            .filter(|(_, other)| **other == explains)
+            .map(|(name, _)| *name)
+            .collect();
+        (!listed.is_empty()).then(|| format!("    {label}: {}", listed.join(", ")))
+    })
+    .collect()
+}
+
+/// The decisions section, empty without decisions: each decision's name and
+/// title, then, indented, the lines it explains and how, its corrections
+/// and rationale, alternatives, implications, open questions, and the ids
+/// it cites outside the change.
+fn decisions_section(decisions: &[DecisionInfo]) -> Vec<String> {
+    if decisions.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![String::new(), "Decisions:".to_owned()];
+    for decision in decisions {
+        lines.push(format!("  {}  {}", decision.name, titled(decision)));
+        lines.extend(
+            decision_details(decision)
+                .into_iter()
+                .map(|line| format!("      {line}")),
+        );
+    }
+    lines
+}
+
+/// `decision`'s title, marked when a correction disputes it.
+pub(crate) fn titled(decision: &DecisionInfo) -> String {
+    let disputed = if decision.disputed {
+        "  [disputed]"
+    } else {
+        ""
+    };
+    format!("{}{disputed}", one_line(&decision.title))
+}
+
+fn decision_details(decision: &DecisionInfo) -> Vec<String> {
+    let (matched, explained): (Vec<&ExplainedSpan>, Vec<&ExplainedSpan>) = decision
+        .explains
+        .iter()
+        .partition(|span| span.association == Association::ContentMatch);
+    let mut lines = Vec::new();
+    if !explained.is_empty() {
+        lines.push(format!("explains {}", spans_text(&explained)));
+    }
+    if !matched.is_empty() {
+        lines.push(format!("content match only: {}", spans_text(&matched)));
+    }
+    lines.extend(reasons(decision));
+    lines.extend(decision.alternatives.iter().flat_map(alternative_lines));
+    lines.extend(decision.implications.iter().flat_map(implication_lines));
+    lines.extend(
+        decision
+            .open_questions
+            .iter()
+            .map(|name| format!("open question: {name}")),
+    );
+    if !decision.cites.elsewhere.is_empty() {
+        lines.push(format!(
+            "cites elsewhere: {}",
+            ids(&decision.cites.elsewhere)
+        ));
+    }
+    lines
+}
+
+/// Consecutive lines on one side of a file that a decision explains the
+/// same way.
+struct Run {
+    side: SpanSide,
+    start: usize,
+    /// The last line.
+    end: usize,
+    /// How, when not by attribution or a complete content match.
+    how: Option<&'static str>,
+}
+
+impl Run {
+    fn text(&self) -> String {
+        let removed = match self.side {
+            SpanSide::Base => "(removed) ",
+            SpanSide::Target => "",
+        };
+        let lines = if self.start == self.end {
+            self.start.to_string()
+        } else {
+            format!("{}-{}", self.start, self.end)
+        };
+        let how = self.how.map_or_else(String::new, |how| format!(" ({how})"));
+        format!("{removed}{lines}{how}")
+    }
+}
+
+/// `spans` by file, in their order, each file as its path and its runs of
+/// lines: added lines, then removed lines marked `(removed)`. Adjacent spans
+/// on one side explained the same way merge into one run; a whitespace-only
+/// run and a content match whose search did not complete say so.
+fn spans_text(spans: &[&ExplainedSpan]) -> String {
+    let mut files: Vec<(&PathBytes, Vec<Run>)> = Vec::new();
+    for span in spans {
+        let how = match (span.association, span.search_complete) {
+            (Association::WhitespaceOnly, _) => Some("whitespace only"),
+            (Association::ContentMatch, Some(false)) => Some("search incomplete"),
+            _ => None,
+        };
+        let end = span.start + span.count.saturating_sub(1);
+        if files.last().is_none_or(|(path, _)| *path != &span.path) {
+            files.push((&span.path, Vec::new()));
+        }
+        let Some((_, runs)) = files.last_mut() else {
+            continue;
+        };
+        match runs.iter_mut().rev().find(|run| run.side == span.side) {
+            Some(run) if run.how == how && run.end + 1 == span.start => run.end = end,
+            _ => runs.push(Run {
+                side: span.side,
+                start: span.start,
+                end,
+                how,
+            }),
+        }
+    }
+    files
+        .iter()
+        .map(|(path, runs)| {
+            let side = |side| runs.iter().filter(move |run: &&Run| run.side == side);
+            let runs: Vec<String> = side(SpanSide::Target)
+                .chain(side(SpanSide::Base))
+                .map(Run::text)
+                .collect();
+            format!("{} {}", shown_path(path), runs.join(", "))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `decision`'s corrections, oldest first, then its rationale lines, as the
+/// summary and `why` show them under it. A line continuing the one before
+/// starts with two spaces.
+pub(crate) fn reasons(decision: &DecisionInfo) -> Vec<String> {
+    let mut lines: Vec<String> = decision
+        .corrections
+        .iter()
+        .map(|correction| correction_line(correction, Some(decision.revision)))
+        .collect();
+    lines.extend(decision.rationale.iter().flat_map(rationale_lines));
+    lines
+}
+
+/// `correction (<kind>), <date>, <who>: "<words>"`, then the revision it
+/// addressed when it anchors through cited edits, and whether `shown`, the
+/// revision shown of its session, saw it.
+fn correction_line(correction: &CorrectionInfo, shown: Option<AnnotationRevision>) -> String {
+    let mut line = format!(
+        "correction ({}), {}, {}{}",
+        correction_words(correction.kind),
+        correction.at.date(),
+        one_line(&correction.who.name),
+        correction_text(correction)
+    );
+    if let Some(revision) = correction.addressed {
+        let _ = write!(line, " (addressed revision {revision})");
+    }
+    line.push_str(&seen_words(correction.seen, shown));
+    line
+}
+
+/// `: "<words>"` for a correction's reason or constraint, or nothing
+/// without either.
+fn correction_text(correction: &CorrectionInfo) -> String {
+    correction
+        .reason
+        .as_deref()
+        .or(correction.text.as_deref())
+        .map_or_else(String::new, |words| format!(": \"{}\"", one_line(words)))
+}
+
+/// Whether the `shown` revision of a correction's session lists it among
+/// the corrections its annotator saw.
+fn seen_words(seen: bool, shown: Option<AnnotationRevision>) -> String {
+    match (seen, shown) {
+        (true, Some(revision)) => format!(" (seen by revision {revision})"),
+        (true, None) => " (seen by an annotation)".to_owned(),
+        (false, _) => " (not yet seen by an annotation)".to_owned(),
+    }
+}
+
+const fn correction_words(kind: CorrectionKind) -> &'static str {
+    match kind {
+        CorrectionKind::Wrong => "wrong",
+        CorrectionKind::NotTogether => "not together",
+        CorrectionKind::Constraint => "constraint",
+    }
+}
+
+const fn speaker_words(speaker: Speaker) -> &'static str {
+    match speaker {
+        Speaker::Human => "human",
+        Speaker::Agent => "agent",
+        Speaker::Annotator => "annotator",
+    }
+}
+
+/// A rationale line labelled by who gave it: a correction's constraint as
+/// such, never as a verified quote; an explicit line with a source by the
+/// quote import verified, then the annotator's wording when it differs; any
+/// other line as an inference, even one marked explicit without a source.
+fn rationale_lines(rationale: &RationaleInfo) -> Vec<String> {
+    let speaker = speaker_words(rationale.speaker);
+    if rationale.correction.is_some() {
+        return vec![format!(
+            "{speaker}, explicit, correction: \"{}\"",
+            one_line(&rationale.text)
+        )];
+    }
+    match rationale.source.as_ref().filter(|_| rationale.explicit) {
+        Some(source) => stated_lines(speaker, &rationale.text, &source.quote),
+        None if rationale.speaker == Speaker::Annotator => {
+            vec![format!("annotator: {}", one_line(&rationale.text))]
+        }
+        None => vec![format!(
+            "{speaker}, inferred: {}",
+            one_line(&rationale.text)
+        )],
+    }
+}
+
+/// `<label>, explicit: "<quote>"`, then `  as: <text>` when the annotator's
+/// `text` differs from the quote.
+fn stated_lines(label: &str, text: &str, quote: &str) -> Vec<String> {
+    let mut lines = vec![format!("{label}, explicit: \"{}\"", one_line(quote))];
+    if text != quote {
+        lines.push(format!("  as: {}", one_line(text)));
+    }
+    lines
+}
+
+/// An alternative with how far it went and its edits, then its reason
+/// indented under it.
+fn alternative_lines(alternative: &AlternativeInfo) -> Vec<String> {
+    let status = match (alternative.status, alternative.restored) {
+        (AlternativeStatus::Attempted, true) => "attempted and restored",
+        (AlternativeStatus::Attempted, false) => "attempted",
+        (AlternativeStatus::Proposed, _) => "proposed",
+    };
+    let mut line = format!("alternative, {status}: {}", one_line(&alternative.title));
+    if !alternative.edits.is_empty() {
+        let _ = write!(line, " ({})", ids(&alternative.edits));
+    }
+    let reason = alternative.reason.iter().flat_map(rationale_lines);
+    iter::once(line)
+        .chain(reason.map(|line| format!("  {line}")))
+        .collect()
+}
+
+/// An implication: by the quote import verified when a turn states it, else
+/// the annotator's.
+fn implication_lines(implication: &ImplicationInfo) -> Vec<String> {
+    match implication.source.as_ref().filter(|_| implication.explicit) {
+        Some(source) => stated_lines("implication", &implication.text, &source.quote),
+        None => vec![format!("implication: {}", one_line(&implication.text))],
+    }
+}
+
+fn ids(ids: &[EventId]) -> String {
+    ids.iter()
+        .map(EventId::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The corrections in scope that anchor to no decision in view, each with
+/// the decision it names, its kind, date, author and words, and whether the
+/// shown revision of its session saw it; empty without any.
+fn unanchored_section(review: &Review, shorts: &Shorts<'_>) -> Vec<String> {
+    if review.unanchored_corrections.is_empty() {
+        return Vec::new();
+    }
+    let shown: BTreeMap<&SessionId, AnnotationRevision> = review
+        .annotations
+        .iter()
+        .filter_map(|annotation| Some((&annotation.session, annotation.revision?)))
+        .collect();
+    let mut lines = vec![
+        String::new(),
+        "Corrections with no decision in view:".to_owned(),
+    ];
+    for correction in &review.unanchored_corrections {
+        let decision = &correction.decision;
+        lines.push(format!(
+            "  {}:{} (revision {}, {})  {}  {}  {}{}{}",
+            shorts.of(&decision.session),
+            decision.id,
+            decision.revision,
+            record_short(&decision.record),
+            correction_words(correction.kind),
+            correction.at.date(),
+            one_line(&correction.who.name),
+            correction_text(correction),
+            seen_words(correction.seen, shown.get(&decision.session).copied())
+        ));
+    }
+    lines
+}
+
+/// The most characters of annotation text a terminal line shows.
+const SHOWN_CHARS: usize = 200;
+
+/// The first 200 characters of `text`'s first line, followed by `…` when
+/// any text is left out.
+pub(crate) fn one_line(text: &str) -> String {
+    let first = text.lines().next().unwrap_or_default();
+    let mut shown: String = first.chars().take(SHOWN_CHARS).collect();
+    if shown.len() < text.trim_end().len() {
+        shown.push('…');
+    }
+    shown
 }
 
 /// Notes on the review's scope and on the origins of its commits.

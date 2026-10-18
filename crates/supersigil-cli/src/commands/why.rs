@@ -128,6 +128,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         edits,
         conflicting_edits: conflicts,
         command_changes,
+        decisions: Vec::new(),
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&why)?,

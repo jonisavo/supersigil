@@ -1,0 +1,60 @@
+---
+source: crates/supersigil-review/tests/summary.rs
+expression: summary(&review())
+---
+Review 32b230f5: working tree over aaaaaaa.
+  worktree: /work/repo
+  base: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
+  target: working tree over aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree cccccccccccccccccccccccccccccccccccccccc)
+Review not complete. Interpretation changed since completion on 2026-10-15: session 3f2a9c1e revision 1 → 2; session 9c0d1e2f newly annotated; session c4d5e6f7 annotation removed.
+Gate: 1 open, 0 closed.
+
+  question:q1  open  Should the plan also cover the judgments log?
+
+files:
+  M src/files.rs  +2 -0  2 content match (search incomplete)
+    decisions by content match only: d1, d3
+  M src/files/publication.rs  +30 -3  29 introduced, 3 replaced, 1 whitespace-only
+    decisions: d1
+  M src/reviews/write.rs  +35 -0  35 introduced
+    decisions: d1, d3
+
+Decisions:
+  d1  Publish both stores through one sync plan  [disputed]
+      explains src/files/publication.rs 12-40, 41 (whitespace only), (removed) 12-14, src/reviews/write.rs 226-260
+      content match only: src/files.rs 3-4 (search incomplete)
+      correction (wrong), 2026-10-15, Joni Savolainen: "the plan exists for crash safety, not inspection" (addressed revision 1) (not yet seen by an annotation)
+      correction (constraint), 2026-10-16, Joni Savolainen: "both stores must reach disk before the manifest" (seen by revision 2)
+      human, explicit, correction: "both stores must reach disk before the manifest"
+      human, explicit: "make the sync plan inspectable"
+      agent, explicit: "Syncing the directory after each file costs a full fsync per file."
+        as: syncing per file was too slow
+      annotator: the author preferred one plan over per-store syncs
+      agent, inferred: one plan keeps the stores in step
+      alternative, attempted and restored: per-store syncs (edit:3)
+        agent, explicit: "Two sync passes would double the fsyncs."
+      alternative, attempted: a sync thread (edit:4, edit:5)
+      alternative, proposed: no directory sync at all
+        annotator: the author never asked for it
+      implication: every new file kind needs a step in the plan
+      implication, explicit: "new stores join the plan"
+      open question: question:q1
+      cites elsewhere: command:1, edit:9
+  d3  Write reviews through the same plan
+      explains src/reviews/write.rs 226-260
+      content match only: src/files.rs 3-4 (search incomplete)
+      annotator: reviews are one more store
+
+Corrections with no decision in view:
+  3f2a9c1e:d7 (revision 1, 0a1b2c3d)  wrong  2026-10-14  Joni Savolainen: "d7 was never needed" (seen by revision 2)
+  c4d5e6f7:d2 (revision 1, 9f8e7d6c)  not together  2026-10-15  Joni Savolainen: "two unrelated fixes" (not yet seen by an annotation)
+
+Not gate items:
+  session 3f2a9c1e annotated through 2026-10-15 14:02; 12 observations since
+  session 3f2a9c1e annotated in 2 records; using 0a1b2c3d
+  session 7b1e44d0 not annotated; in Claude Code run /supersigil-annotate 7b1e44d0-2c3d-4e5f-a6b7-c8d9e0f1a2b3
+  session 9c0d1e2f annotated after 40 observations; 1 observation since
+
+Next: supersigil judge acknowledge question:q1
+  or: supersigil judge dismiss <name>... --reason <text>
+  then: supersigil judge complete

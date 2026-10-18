@@ -953,6 +953,7 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
         ],
         retry_paths: vec!["src/parser.rs".to_owned(), "a b".to_owned()],
         shell: Shell::Posix,
+        ..Addressing::default()
     };
     let mut unsaved = sample_review();
     unsaved.basis = None;
@@ -1169,7 +1170,8 @@ fn note_after(commands: impl IntoIterator<Item = Command>) -> Option<String> {
     out.take_note()
 }
 
-/// Contains `count` files with unexplained lines and no other gate items.
+/// Contains `count` files with unexplained lines, no other gate items, and
+/// no annotations.
 fn review_of_files(count: usize) -> Review {
     let unexplained = attribution(vec![], vec![unexplained()], vec![no_fate()]);
     let mut review = sample_review();
@@ -1190,6 +1192,10 @@ fn review_of_files(count: usize) -> Review {
     review.records = Vec::new();
     review.evidence = EvidenceInfo::default();
     review.unattributed = unattributed_summary(&review.files, &review.scope);
+    review.decisions = Vec::new();
+    review.unanchored_corrections = Vec::new();
+    review.edit_decisions = BTreeMap::new();
+    review.annotations = Vec::new();
     gated(review, |_, _| Vec::new())
 }
 
@@ -1505,6 +1511,7 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
         line,
         edits: edits(),
         conflicting_edits: Vec::new(),
+        decisions: Vec::new(),
     }
 }
 

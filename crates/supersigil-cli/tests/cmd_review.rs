@@ -1768,7 +1768,7 @@ fn expected_why(
     (on_disk, line, edits): (Value, Value, Value),
 ) -> Value {
     json!({
-        "schema": "supersigil.why/1",
+        "schema": "supersigil.why/2",
         "path": path,
         "target": {
             "worktree": f.repo.to_string_lossy(),
