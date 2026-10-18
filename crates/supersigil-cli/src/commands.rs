@@ -58,10 +58,11 @@ pub enum Command {
 /// Where a command finds the checkout's record and its repository's review
 /// store: the options `review` takes, with the same defaults.
 ///
-/// Every `annotate` command takes all four, so one set of options serves
-/// each. `prepare` reconciles the checkout's records first, discovering
-/// transcripts under `--claude-home`; `import` and `list` read the record
-/// without syncing it and ignore that option.
+/// Every `annotate` command and `why` take all four, so one set of options
+/// serves each. `prepare` and `why` reconcile the checkout's records first,
+/// discovering transcripts under `--claude-home`; `import` and `list` read
+/// the record without syncing it and ignore that option. `why` reads the
+/// corrections of the decisions behind its line from the review store.
 #[derive(Debug, clap::Args)]
 pub struct StoreArgs {
     /// Checkout whose record to use (default: current directory)
@@ -237,15 +238,9 @@ pub struct WhyArgs {
     /// Output format: `auto` prints text on a terminal and JSON otherwise
     #[arg(long, default_value = "auto")]
     pub format: AutoFormat,
-    /// Checkout the file belongs to (default: current directory)
-    #[arg(long)]
-    pub checkout: Option<PathBuf>,
-    /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
-    #[arg(long)]
-    pub record_dir: Option<PathBuf>,
-    /// Claude home directory used for discovery (default: ~/.claude)
-    #[arg(long)]
-    pub claude_home: Option<PathBuf>,
+    /// Where to find the records and the review store
+    #[command(flatten)]
+    pub store: StoreArgs,
 }
 
 /// Arguments for the `judge` command group.

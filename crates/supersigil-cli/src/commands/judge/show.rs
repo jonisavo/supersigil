@@ -41,7 +41,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let id = select(&snapshot, prefix, &checkout.worktree, &mut addressing)?;
     let basis = snapshot.basis(&id)?;
     let judgments = snapshot.judgments()?;
-    let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
+    let others = judged_bases(&snapshot, &judgments, Some(&id), &basis)?;
     let store = JudgedStore::new(&judgments, &others);
     let ledger = store.ledger();
     let names = checkout.names(&basis)?;

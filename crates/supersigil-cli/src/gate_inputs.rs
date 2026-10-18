@@ -456,6 +456,7 @@ mod tests {
             not_reconciled: None,
             associations: vec![PathBuf::from(WORKTREE)],
             logs: BTreeMap::new(),
+            sessions: BTreeMap::new(),
             observations: edits.iter().cloned().map(Observation::Edit).collect(),
             snapshot: store.snapshot().unwrap(),
         }

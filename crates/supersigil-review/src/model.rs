@@ -1337,9 +1337,13 @@ pub struct AnnotationInfo {
     /// The record chosen for the session, or `None` when no involved record
     /// holds it.
     pub record: Option<RecordId>,
-    /// The checkout through which the review found that record, one of its
-    /// associations, so a command naming it reads the same record; `None`
-    /// without a record.
+    /// The checkout through which the review found that record: one whose
+    /// review reads it, among whose records `annotate prepare` finds the
+    /// session. It is a candidate worktree that is or lies in one of the
+    /// record's associations, the reviewed one first, so a command naming
+    /// it reads the review's own repository; else the most specific
+    /// association lying in a candidate worktree; else the record's first
+    /// association. `None` without a record.
     pub checkout: Option<PathBuf>,
     /// The session's current annotation revision in that record, or `None`
     /// when it has none.

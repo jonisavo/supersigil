@@ -12,7 +12,8 @@ use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::printed::aligned;
 
-use super::{CheckoutRecord, checkout_record, corrections};
+use super::{CheckoutRecord, checkout_record};
+use crate::annotations::standing_corrections;
 use crate::commands::{AnnotateListArgs, StoreArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
@@ -59,7 +60,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateListArgs) -> Result<(), Cl
         checkout, store, ..
     } = checkout_record(options)?;
     let snapshot = store.snapshot()?;
-    let standing = corrections(options, &checkout)?;
+    let standing = standing_corrections(options, &checkout)?;
     let mut corrections: BTreeMap<&SessionId, Vec<&JudgmentId>> = BTreeMap::new();
     for judgment in standing.iter().flat_map(|standing| &standing.judgments) {
         if let Some(decision) = &judgment.decision {

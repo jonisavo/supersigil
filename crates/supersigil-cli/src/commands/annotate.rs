@@ -37,18 +37,14 @@ mod import;
 mod list;
 mod prepare;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use supersigil_git::{Git, GitError, Repo};
-use supersigil_record::reviews::{self, Judgment, JudgmentKind};
 use supersigil_record::store::Store;
-use supersigil_review::judging::Ledger;
 
 use crate::commands::session::no_record_message;
 use crate::commands::{AnnotateArgs, AnnotateCommand, StoreArgs};
 use crate::error::CliError;
 use crate::record_dir;
-use crate::review_dir::{canonical_common_dir, resolve_review_dir};
 
 /// Runs `supersigil annotate`.
 ///
@@ -108,55 +104,4 @@ fn checkout_record(options: &StoreArgs) -> Result<CheckoutRecord, CliError> {
     let store = record_dir::find_record(&records_dir, &checkout)?
         .ok_or_else(|| CliError::CommandFailed(no_record_message(&checkout)))?;
     Ok(CheckoutRecord { checkout, store })
-}
-
-/// The standing corrections in the review store of a checkout's
-/// repository.
-#[derive(Debug)]
-struct Corrections {
-    /// The repository's canonical git common directory, which names its
-    /// review store.
-    repository: PathBuf,
-    /// Every correction judgment in the store that names a decision and a
-    /// correction kind and is not withdrawn, in the order recorded.
-    judgments: Vec<Judgment>,
-}
-
-/// The standing corrections in the review store of `checkout`'s
-/// repository, in the reviews directory `options` names. `None` when the
-/// checkout is outside a git worktree or its repository has no review
-/// store.
-///
-/// # Errors
-///
-/// Returns [`CliError::Git`] when git fails for another reason,
-/// [`CliError::CommandFailed`] when no reviews directory can be resolved,
-/// and the store errors of finding the store and reading its judgments.
-fn corrections(options: &StoreArgs, checkout: &Path) -> Result<Option<Corrections>, CliError> {
-    let repo = match Repo::open(Git::new(checkout)) {
-        Ok(repo) => repo,
-        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    let reviews_dir = resolve_review_dir(options.review_dir.as_deref())?;
-    let repository = canonical_common_dir(&repo)?;
-    let Some(store) = reviews::find(&reviews_dir, &repository)? else {
-        return Ok(None);
-    };
-    let judgments = store.snapshot()?.judgments()?;
-    let ledger = Ledger::new(&judgments);
-    let standing = judgments
-        .iter()
-        .filter(|judgment| {
-            judgment.kind == JudgmentKind::Correct
-                && judgment.decision.is_some()
-                && judgment.correction.is_some()
-                && ledger.stands(judgment)
-        })
-        .cloned()
-        .collect();
-    Ok(Some(Corrections {
-        repository,
-        judgments: standing,
-    }))
 }

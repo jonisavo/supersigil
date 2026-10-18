@@ -260,7 +260,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     )?;
     let basis = snapshot.basis(&id)?;
     let mut judgments = tx.judgments().to_vec();
-    let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
+    let others = judged_bases(&snapshot, &judgments, Some(&id), &basis)?;
     let names = checkout.names(&basis)?;
     let items = resolve(&names, call.items(), |text| {
         name(&checkout.worktree, &checkout.cwd, text)

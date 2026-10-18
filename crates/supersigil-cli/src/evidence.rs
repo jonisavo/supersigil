@@ -38,8 +38,10 @@ pub struct Evidence {
     commands: BTreeMap<EventId, Command>,
     /// Capture limitations by transcript, then by the record holding them.
     limitations: BTreeMap<String, BTreeMap<RecordId, Vec<CaptureLimitation>>>,
-    /// The session each transcript belongs to.
-    sessions: BTreeMap<String, SessionId>,
+    /// The sessions each transcript belongs to: every session with an
+    /// observation recorded under it, more than one when a later session
+    /// reused the transcript's path.
+    sessions: BTreeMap<String, BTreeSet<SessionId>>,
     /// Working directories each transcript's observations name.
     checkouts: BTreeMap<String, Vec<PathBuf>>,
     /// The order between each session's transcripts that the records'
@@ -115,9 +117,7 @@ impl Evidence {
                     .or_insert_with(|| command.clone());
             }
             Observation::CaptureLimitation(limitation) => {
-                self.sessions
-                    .entry(limitation.transcript.clone())
-                    .or_insert_with(|| limitation.session.clone());
+                self.belongs(&limitation.transcript, &limitation.session);
                 self.limitations
                     .entry(limitation.transcript.clone())
                     .or_default()
@@ -131,12 +131,19 @@ impl Evidence {
 
     /// Records that `transcript` belongs to `session` and names `checkout`.
     fn locate(&mut self, transcript: &str, session: &SessionId, checkout: &Path) {
-        self.sessions
-            .entry(transcript.to_owned())
-            .or_insert_with(|| session.clone());
+        self.belongs(transcript, session);
         let checkouts = self.checkouts.entry(transcript.to_owned()).or_default();
         if !checkouts.iter().any(|known| known == checkout) {
             checkouts.push(checkout.to_path_buf());
+        }
+    }
+
+    /// Records that `transcript` belongs to `session`, among any other
+    /// sessions it belongs to.
+    fn belongs(&mut self, transcript: &str, session: &SessionId) {
+        let sessions = self.sessions.entry(transcript.to_owned()).or_default();
+        if !sessions.contains(session) {
+            sessions.insert(session.clone());
         }
     }
 
@@ -186,9 +193,25 @@ impl Evidence {
         transcripts
     }
 
+    /// The sessions `transcripts` belong to: every session with an
+    /// observation recorded under one of them, so a transcript a later
+    /// session reused brings both sessions.
+    #[must_use]
+    pub fn sessions_of(&self, transcripts: &BTreeSet<String>) -> BTreeSet<&SessionId> {
+        transcripts
+            .iter()
+            .filter_map(|transcript| self.sessions.get(transcript))
+            .flatten()
+            .collect()
+    }
+
     /// One entry per transcript in `transcripts`, with its session and the
     /// capture limitations of the record whose reports reach furthest into
     /// it, never localized to a path.
+    ///
+    /// An entry names one session. Of a transcript a later session reused,
+    /// it names the smallest session id, which does not depend on the order
+    /// the records were read in; [`Self::sessions_of`] gives them all.
     ///
     /// A record reports a transcript's capture limitations once per sync
     /// that had any, over the lines that sync read, so one record's reports
@@ -205,6 +228,7 @@ impl Evidence {
                 session: self
                     .sessions
                     .get(transcript)
+                    .and_then(BTreeSet::first)
                     .map(|s| s.as_str().to_owned())
                     .unwrap_or_default(),
                 capture_limitations: self
@@ -736,6 +760,26 @@ mod tests {
         let evidence = index(&observations);
         assert_eq!(evidence.prompt(&edit_in_turn("a2")), None);
         assert_eq!(evidence.prompt(&edit_in_turn("unknown")), None);
+    }
+
+    #[test]
+    fn a_transcript_a_later_session_reused_belongs_to_both_sessions() {
+        let mut later = edit_in_turn("b1");
+        later.id = EventId::new("e2");
+        later.session = SessionId::new("s2");
+        let evidence = index(&[
+            Observation::Edit(later),
+            Observation::Edit(edit_in_turn("a1")),
+        ]);
+        let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
+
+        let (s1, s2) = (SessionId::new("s1"), SessionId::new("s2"));
+        assert_eq!(
+            evidence.sessions_of(&transcripts),
+            BTreeSet::from([&s1, &s2])
+        );
+        // Its one entry names the smallest id, whatever the order read.
+        assert_eq!(evidence.transcripts(&transcripts)[0].session, "s1");
     }
 
     #[test]

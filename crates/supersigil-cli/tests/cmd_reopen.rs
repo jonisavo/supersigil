@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::time::{Duration, Instant};
 
+use common::annotation::{annotate, decision, edit_of, record_of, synced};
 use common::fixture::{Fixture, LIB_FINAL, NEW_RS, basis_id, gate_row, slice, slice_text, write};
 use common::session::Session;
 use serde_json::{Value, json};
@@ -986,4 +987,296 @@ fn many_judged_reviews_of_the_worktree_keep_review_prompt() {
         ),
         "{text}"
     );
+}
+
+/// The id of the slice session's edit that capitalised the greeting, the
+/// one edit its review attributes.
+fn greet() -> String {
+    edit_of(SLICE_SESSION, "toolu_05")
+}
+
+/// A decision of the slice session capitalising the greeting, with
+/// `rationale` as its one inferred line.
+fn capitalise(rationale: &str) -> Value {
+    let mut capitalise = decision("d1", "Capitalise the greeting", &[&greet()]);
+    capitalise["rationale"][0]["text"] = json!(rationale);
+    capitalise
+}
+
+#[test]
+fn an_open_question_is_judged_as_an_item_and_reopens_when_reworded() {
+    let f = Fixture::new();
+    slice(&f);
+    f.git(&["config", "user.name", NAME]);
+    f.git(&["config", "user.email", "ada@example.com"]);
+    let record = synced(&f, &f.repo, &[]);
+    let question = |text: &str| json!({"id": "q1", "text": text, "about": [greet()]});
+    // q2 is about an edit the change does not hold: no item here.
+    let elsewhere = json!({"id": "q2", "text": "Why revert the notes?",
+        "about": [edit_of(SLICE_SESSION, "toolu_03")]});
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise("asked")],
+            "open_questions": [question("Should greet shout?"), elsewhere]}),
+    );
+
+    let open = review(&f, &[]);
+    judge(&f, &["acknowledge", "question:q1"]);
+    let acknowledged = review(&f, &[]);
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise("asked")],
+            "open_questions": [question("Should greet capitalise?")]}),
+    );
+    let reworded = review(&f, &[]);
+    let text = summary(&f, &[]);
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise("asked")]}),
+    );
+    let dropped = review(&f, &[]);
+
+    let item = gate_row(&open, "question:q1");
+    assert_eq!(item["state"], "open");
+    assert_eq!(item["origin"], "open_question");
+    assert_eq!(item["detail"]["text"], "Should greet shout?");
+    assert!(
+        gate_states(&open)
+            .iter()
+            .all(|(name, _)| *name != "question:q2"),
+        "{:#}",
+        open["gate"]
+    );
+    assert_eq!(
+        decision_of(&open, "d1")["open_questions"],
+        json!(["question:q1"])
+    );
+    assert_eq!(
+        gate_row(&acknowledged, "question:q1")["state"],
+        "acknowledged"
+    );
+    let item = gate_row(&reworded, "question:q1");
+    assert_eq!(item["state"], "reopened");
+    assert_eq!(item["reopen_reasons"], json!(["question reworded"]));
+    assert!(
+        text.contains(
+            "\n  question:q1       reopened  question reworded since your acknowledgment\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        gate_states(&dropped)
+            .iter()
+            .all(|(name, _)| !name.starts_with("question:")),
+        "{:#}",
+        dropped["gate"]
+    );
+}
+
+/// The decision named `name` in `review`.
+fn decision_of<'v>(review: &'v Value, name: &str) -> &'v Value {
+    review["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|decision| decision["name"] == name)
+        .unwrap_or_else(|| panic!("no decision {name} in {:#}", review["decisions"]))
+}
+
+#[test]
+fn a_completion_carries_across_a_re_annotation_until_a_new_question_is_asked() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    f.git(&["config", "user.name", NAME]);
+    f.git(&["config", "user.email", "ada@example.com"]);
+    // The first line of matched.rs matches the recorded write by content
+    // alone, so its item counts a content match.
+    let text = Session::new("s-match", &f.repo)
+        .prompt("Write matched.rs.")
+        .create("toolu_write", &f.repo.join("src/matched.rs"), "first\n")
+        .text();
+    f.transcript(&f.repo, "match.jsonl", &text);
+    write(&f.repo, "src/matched.rs", "first\nsecond\n");
+    let record = synced(&f, &f.repo, &[]);
+    let write = edit_of("s-match", "toolu_write");
+    let mut matched = decision("d1", "Write matched.rs", &[&write]);
+    annotate(&record, "s-match", &json!({"decisions": [matched]}));
+    let args = ["--include-untracked", "src/matched.rs"];
+    let completed = review(&f, &args);
+    assert_eq!(
+        gate_row(&completed, "src/matched.rs")["detail"]["content_match_only"],
+        1
+    );
+    let names: Vec<&str> = gate_states(&completed)
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    judge(&f, &[&["acknowledge"][..], &names].concat());
+    judge(&f, &["complete"]);
+    let completion = last_judgment(&f);
+    // Revision 2 rewords the rationale and asks nothing new.
+    matched["rationale"][0]["text"] = json!("the person asked for a first line");
+    annotate(&record, "s-match", &json!({"decisions": [matched]}));
+
+    let reworded = review(&f, &args);
+    let text = summary(&f, &args);
+    // Revision 3 asks a question about the write.
+    annotate(
+        &record,
+        "s-match",
+        &json!({"decisions": [matched],
+            "open_questions": [{"id": "q1", "text": "Is a second line meant?", "about": [write]}]}),
+    );
+    let asked = review(&f, &args);
+
+    assert_ne!(basis_id(&reworded), basis_id(&completed));
+    assert_eq!(reworded["status"]["complete"], true);
+    assert_eq!(
+        reworded["status"]["completion"]["id"],
+        completion.id.as_str()
+    );
+    let interpretation = &reworded["status"]["related"][0]["interpretation"];
+    assert_eq!(
+        *interpretation,
+        json!([{"session": "s-match", "from": 1, "to": 2}])
+    );
+    assert_eq!(
+        status_lines(&text),
+        [
+            format!(
+                "Review complete: completed on {} by {NAME} for the same content (review {}).",
+                completion.at.date(),
+                &basis_id(&completed)[..8]
+            ),
+            format!(
+                "Interpretation changed since completion on {}: session s-match revision 1 → 2.",
+                completion.at.date()
+            ),
+        ],
+        "{text}"
+    );
+    assert!(
+        gate_states(&reworded)
+            .iter()
+            .all(|(_, state)| *state == "carried"),
+        "{:?}",
+        gate_states(&reworded)
+    );
+    assert_eq!(asked["status"]["complete"], false);
+    assert_eq!(gate_row(&asked, "question:q1")["state"], "open");
+}
+
+#[test]
+fn an_annotation_made_since_completion_is_said_and_the_completion_carries() {
+    let (f, completed, completion) = completed();
+    annotate(
+        &record_of(&f.records, &f.repo),
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise("asked")]}),
+    );
+
+    let annotated = review(&f, &[]);
+    let text = summary(&f, &[]);
+
+    assert_eq!(annotated["status"]["complete"], true);
+    assert_eq!(
+        status_lines(&text),
+        [
+            format!(
+                "Review complete: completed on {} by {NAME} for the same content (review {}).",
+                completion.at.date(),
+                &basis_id(&completed)[..8]
+            ),
+            format!(
+                "Interpretation changed since completion on {}: session 11111111 newly annotated.",
+                completion.at.date()
+            ),
+        ],
+        "{text}"
+    );
+}
+
+#[test]
+fn an_annotation_gone_with_its_record_since_completion_is_said() {
+    let f = Fixture::new();
+    slice(&f);
+    f.git(&["config", "user.name", NAME]);
+    f.git(&["config", "user.email", "ada@example.com"]);
+    let record = synced(&f, &f.repo, &[]);
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise("asked")]}),
+    );
+    review(&f, &[]);
+    judge(&f, &[&["acknowledge"][..], &SLICE_ITEMS].concat());
+    judge(&f, &["complete"]);
+    let completion = last_judgment(&f);
+    // The record is deleted: the next review syncs the transcript into a
+    // new record, which holds no annotation.
+    std::fs::remove_dir_all(record.root()).unwrap();
+
+    let text = summary(&f, &[]);
+
+    assert!(
+        status_lines(&text).contains(&format!(
+            "Interpretation changed since completion on {}: session 11111111 annotation removed.",
+            completion.at.date()
+        )
+        .as_str()),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_later_session_of_a_reused_transcript_brings_its_questions_to_the_review() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    f.git(&["config", "user.name", NAME]);
+    f.git(&["config", "user.email", "ada@example.com"]);
+    // Session s-1 is synced from t.jsonl; s-2 then replaces the file with
+    // its own transcript, and the record keeps both sessions.
+    let first = Session::new("s-1", &f.repo).prompt("Look around.").text();
+    f.transcript(&f.repo, "t.jsonl", &first);
+    let record = synced(&f, &f.repo, &[]);
+    let second = Session::new("s-2", &f.repo)
+        .prompt("Write matched.rs.")
+        .create("toolu_write", &f.repo.join("src/matched.rs"), "first\n")
+        .text();
+    f.transcript(&f.repo, "t.jsonl", &second);
+    // The second line is unexplained, so the gate holds the file.
+    write(&f.repo, "src/matched.rs", "first\nsecond\n");
+    synced(&f, &f.repo, &[]);
+    let args = ["--include-untracked", "src/matched.rs"];
+    let completed = review(&f, &args);
+    let names: Vec<&str> = gate_states(&completed)
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    judge(&f, &[&["acknowledge"][..], &names].concat());
+    judge(&f, &["complete"]);
+    let write = edit_of("s-2", "toolu_write");
+    annotate(
+        &record,
+        "s-2",
+        &json!({"decisions": [decision("d1", "Write matched.rs", &[&write])],
+            "open_questions": [{"id": "q1", "text": "Is a second line meant?", "about": [write]}]}),
+    );
+
+    let asked = review(&f, &args);
+
+    let sessions: Vec<&Value> = completed["annotations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|annotation| &annotation["session"])
+        .collect();
+    assert_eq!(sessions, [&json!("s-1"), &json!("s-2")]);
+    assert_eq!(gate_row(&asked, "question:q1")["state"], "open");
+    assert_eq!(asked["status"]["complete"], false);
 }

@@ -10,6 +10,7 @@ use std::time::Duration;
 use supersigil_session::checkout::canonical;
 use supersigil_session::discover::encode_project_dir;
 
+pub mod annotation;
 pub mod fixture;
 pub mod session;
 

@@ -80,9 +80,10 @@ pub fn open_review_store_within(
     Ok(Some(store))
 }
 
-/// Loads judged reviews related to `basis`, excluding its own review `id`,
-/// for carry-forward ([`relates`]). Reads and checks each basis once,
-/// and parses the full basis only when it relates.
+/// Loads judged reviews related to `basis`, excluding its own review `id`
+/// when it has one, for carry-forward ([`relates`]). A basis that cannot be
+/// saved has no id, and relates to saved reviews all the same. Reads and
+/// checks each basis once, and parses the full basis only when it relates.
 ///
 /// # Errors
 ///
@@ -90,13 +91,13 @@ pub fn open_review_store_within(
 pub fn judged_bases(
     snapshot: &ReviewSnapshot,
     judgments: &[Judgment],
-    id: &BasisId,
+    id: Option<&BasisId>,
     basis: &Basis,
 ) -> Result<BTreeMap<BasisId, Basis>, CliError> {
     let mut read = BTreeSet::new();
     let mut related = BTreeMap::new();
     for other in judgments.iter().map(|judgment| &judgment.basis) {
-        if other != id
+        if Some(other) != id
             && read.insert(other)
             && let Some(found) = snapshot.basis_if(other, |header| relates(basis, header))?
         {

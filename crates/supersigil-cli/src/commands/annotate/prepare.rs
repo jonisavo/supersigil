@@ -78,7 +78,8 @@ use supersigil_record::{
 use supersigil_review::decisions::corrections::{Addressed, anchor};
 use supersigil_review::decisions::{Annotated, every_decision, names};
 
-use super::{corrections, locate};
+use super::locate;
+use crate::annotations::standing_corrections;
 use crate::commands::session::{find_session, no_record_message};
 use crate::commands::{AnnotatePrepareArgs, StoreArgs};
 use crate::error::CliError;
@@ -419,7 +420,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
     let derivations = snapshot.derivations(&session)?;
     let current = snapshot.current_annotation(&session)?;
 
-    let standing = corrections(options, &checkout)?;
+    let standing = standing_corrections(options, &checkout)?;
     let of_session: Vec<Correction<'_>> = standing
         .iter()
         .flat_map(|standing| &standing.judgments)
