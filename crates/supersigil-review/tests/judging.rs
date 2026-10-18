@@ -12,9 +12,9 @@ use std::time::Duration;
 use common::finishes_within;
 use supersigil_record::interpretations::AnnotationRevision;
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, CorrectionKind,
-    DecisionRef, Explanation, Fingerprint, FingerprintPart, GateDetail, GateItem, ItemId, Judgment,
-    JudgmentKind, PathBytes, Subject, TargetKind, Who, Withdrawal,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisDecision, BasisId, BasisScope, BasisTarget,
+    CorrectionKind, DecisionRef, Explanation, Fingerprint, FingerprintPart, GateDetail, GateItem,
+    ItemId, Judgment, JudgmentKind, PathBytes, Subject, TargetKind, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
@@ -1639,6 +1639,8 @@ fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
             review: current.0.clone(),
             reason: Some("generated".to_owned()),
             text: None,
+            decision: None,
+            correction: None,
             who: judgments[1].who.clone(),
             at: UtcTime::from_unix(20),
         })
@@ -1658,6 +1660,37 @@ fn the_gate_shows_each_item_by_name_with_its_state_and_judgment() {
     assert_eq!(first["judgment"]["kind"], "acknowledge");
     assert_eq!(first["judgment"]["review"], current.0.as_str());
     assert_eq!(json["items"][3]["judgment"], serde_json::Value::Null);
+}
+
+#[test]
+fn a_judgments_details_show_a_corrections_decision_and_kind() {
+    let current = saved(basis("/work/a", '1', '2', Vec::new()));
+    let corrected = JudgmentInfo::new(&correction("correction", &current.0, 10));
+    assert_eq!(
+        corrected.decision,
+        Some(DecisionRef {
+            record: RecordId::new("r1"),
+            session: SessionId::new("s1"),
+            revision: AnnotationRevision::FIRST,
+            id: "d1".to_owned(),
+        })
+    );
+    assert_eq!(corrected.correction, Some(CorrectionKind::Wrong));
+    let json = serde_json::to_value(&corrected).unwrap();
+    assert_eq!(
+        json["decision"],
+        serde_json::json!({"record": "r1", "session": "s1", "revision": 1, "id": "d1"})
+    );
+    assert_eq!(json["correction"], "wrong");
+
+    let acknowledged = JudgmentInfo::new(&ack("ack", &current.0, &[], 10));
+    assert_eq!(
+        (acknowledged.decision.as_ref(), acknowledged.correction),
+        (None, None)
+    );
+    let json = serde_json::to_value(&acknowledged).unwrap();
+    assert_eq!(json.get("decision"), None);
+    assert_eq!(json.get("correction"), None);
 }
 
 #[test]
@@ -1684,6 +1717,8 @@ fn the_status_is_complete_with_the_reviews_own_standing_completion() {
             review: current.0.clone(),
             reason: None,
             text: None,
+            decision: None,
+            correction: None,
             who: judgments[1].who.clone(),
             at: UtcTime::from_unix(20),
         })
@@ -2246,6 +2281,304 @@ fn each_call_records_what_its_kind_needs() {
             })
             .map(|planned| recorded(planned).items),
         Ok(Vec::new())
+    );
+}
+
+/// Two annotated sessions whose ids share the prefix `3f2`.
+const SESSIONS: [&str; 2] = [
+    "3f2a9c1e-5b7d-4e21-9f3a-0c6d8e1f2a3b",
+    "3f2b0d4c-8e6f-4a13-b2c5-7d9e1f3a5b6c",
+];
+
+/// A decision a review shows: `id` of `SESSIONS[session]` at `revision` in
+/// `record`, named `name`.
+fn shown(record: &str, session: usize, revision: u32, id: &str, name: &str) -> BasisDecision {
+    BasisDecision {
+        record: RecordId::new(record),
+        session: SessionId::new(SESSIONS[session]),
+        revision: AnnotationRevision::new(revision),
+        id: id.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+/// A review of `a.rs` showing `d1` of both [`SESSIONS`], each named with
+/// its session's short id, and `d2` of the second, qualified because the
+/// first session has a `d2` this review does not show.
+fn annotated(a: &GateItem) -> Saved {
+    let mut basis = basis("/work/a", '1', '2', vec![a.clone()]);
+    basis.decisions = vec![
+        shown("r1", 0, 2, "d1", "3f2a9c1e:d1"),
+        shown("r2", 1, 1, "d1", "3f2b0d4c:d1"),
+        shown("r2", 1, 1, "d2", "3f2b0d4c:d2"),
+    ];
+    saved(basis)
+}
+
+/// The reference a correction of `decision` records.
+fn reference(decision: &BasisDecision) -> DecisionRef {
+    DecisionRef {
+        record: decision.record.clone(),
+        session: decision.session.clone(),
+        revision: decision.revision,
+        id: decision.id.clone(),
+    }
+}
+
+/// Correcting the decision named `decision` with `kind` and `words`.
+fn correct<'c>(decision: &'c str, kind: CorrectionKind, words: &'c str) -> Call<'c> {
+    Call::Correct {
+        decision,
+        kind,
+        words: Words::new(words).unwrap(),
+    }
+}
+
+#[test]
+fn each_correction_kind_records_its_decision_and_words() {
+    let a = lines("a.rs", "x");
+    let current = annotated(&a);
+    let none: [Judgment; 0] = [];
+    let store = store_of(&none, &[]);
+    let fresh = store.review(&current.0, &current.1);
+    let addressed = reference(&current.1.decisions[2]);
+
+    let cases = [
+        (
+            CorrectionKind::Wrong,
+            Some("it was the reviewer's plan"),
+            None,
+        ),
+        (
+            CorrectionKind::NotTogether,
+            Some("two separate fixes"),
+            None,
+        ),
+        (
+            CorrectionKind::Constraint,
+            None,
+            Some("the CLI must stay pure"),
+        ),
+    ];
+    for (kind, reason, text) in cases {
+        let words = reason.or(text).unwrap();
+        let planned = fresh.plan(correct("3f2b0d4c:d2", kind, words)).unwrap();
+        assert!(planned.first(), "{kind:?}");
+        assert_eq!(
+            recorded(planned),
+            Judgment {
+                reason: reason.map(str::to_owned),
+                text: text.map(str::to_owned),
+                decision: Some(addressed.clone()),
+                correction: Some(kind),
+                ..judgment("planned", &current.0, JudgmentKind::Correct, 100)
+            },
+            "{kind:?}"
+        );
+    }
+
+    // As for a comment, a correction of a review with a judgment is not its
+    // first.
+    let judgments = [comment("note", &current.0, 10)];
+    let store = store_of(&judgments, &[]);
+    let planned = store
+        .review(&current.0, &current.1)
+        .plan(correct("3f2b0d4c:d2", CorrectionKind::Wrong, "not why"))
+        .unwrap();
+    assert!(!planned.first());
+}
+
+#[test]
+fn a_correction_names_its_decision_by_name_unique_id_or_session_prefix_and_id() {
+    let a = lines("a.rs", "x");
+    let current = annotated(&a);
+    let qualified_in_full = format!("{}:d1", SESSIONS[1]);
+    let none: [Judgment; 0] = [];
+    let store = store_of(&none, &[]);
+    let review = store.review(&current.0, &current.1);
+    let resolved = |typed| {
+        review
+            .plan(correct(typed, CorrectionKind::Wrong, "not why"))
+            .map(|planned| recorded(planned).decision)
+    };
+    let decisions = &current.1.decisions;
+    let both = vec!["3f2a9c1e:d1", "3f2b0d4c:d1"];
+    let every = vec!["3f2a9c1e:d1", "3f2b0d4c:d1", "3f2b0d4c:d2"];
+
+    assert_eq!(resolved("3f2a9c1e:d1"), Ok(Some(reference(&decisions[0]))));
+    assert_eq!(resolved("d2"), Ok(Some(reference(&decisions[2]))));
+    assert_eq!(resolved("3f2b:d1"), Ok(Some(reference(&decisions[1]))));
+    assert_eq!(
+        resolved(&qualified_in_full),
+        Ok(Some(reference(&decisions[1])))
+    );
+    assert_eq!(
+        resolved("d1"),
+        Err(Refusal::AmbiguousDecision {
+            typed: "d1",
+            names: both.clone(),
+        })
+    );
+    assert_eq!(
+        resolved("3f2:d1"),
+        Err(Refusal::AmbiguousDecision {
+            typed: "3f2:d1",
+            names: both,
+        })
+    );
+    assert_eq!(
+        resolved("d7"),
+        Err(Refusal::NoDecision {
+            typed: "d7",
+            names: every.clone(),
+        })
+    );
+    // No session starts with the prefix, or the one that does shows no
+    // decision with the id.
+    for typed in ["9c0d1e2f:d1", "3f2a:d2"] {
+        assert_eq!(
+            resolved(typed),
+            Err(Refusal::NoDecision {
+                typed,
+                names: every.clone(),
+            })
+        );
+    }
+
+    // The names are sorted whatever the basis order.
+    let mut reversed = current.1.clone();
+    reversed.decisions.reverse();
+    assert_eq!(
+        store
+            .review(&current.0, &reversed)
+            .plan(correct("d7", CorrectionKind::Wrong, "not why"))
+            .map(drop),
+        Err(Refusal::NoDecision {
+            typed: "d7",
+            names: every,
+        })
+    );
+}
+
+#[test]
+fn a_correction_closes_nothing_and_counts_for_no_completion() {
+    let a = lines("a.rs", "x");
+    let current = annotated(&a);
+    let none: [Judgment; 0] = [];
+    let planned = store_of(&none, &[])
+        .review(&current.0, &current.1)
+        .plan(correct("d2", CorrectionKind::Wrong, "not why"))
+        .unwrap();
+    let mut judgments = vec![recorded(planned)];
+
+    let store = store_of(&judgments, &[]);
+    let review = store.review(&current.0, &current.1);
+    assert_eq!(item_states(&review), [ItemState::Open]);
+    assert_eq!(
+        review.plan(COMPLETE).map(drop),
+        Err(Refusal::Unclosed(vec![&current.1.gate[0]]))
+    );
+
+    judgments.push(ack("ack", &current.0, &[&a], 110));
+    let store = store_of(&judgments, &[]);
+    assert_eq!(
+        store
+            .review(&current.0, &current.1)
+            .plan(COMPLETE)
+            .map(|planned| recorded(planned).closes),
+        Ok(BTreeMap::from([(a.id.clone(), JudgmentId::new("ack"))]))
+    );
+
+    // A correction after a completion leaves the review complete.
+    judgments.push(complete("done", &current.0, &[(&a, "ack")], 120));
+    judgments.push(correction("later", &current.0, 130));
+    let store = store_of(&judgments, &[]);
+    assert_eq!(
+        store.review(&current.0, &current.1).completion(),
+        Some(&judgments[2])
+    );
+}
+
+#[test]
+fn an_undo_by_its_id_withdraws_a_correction_and_an_undo_by_item_leaves_it_standing() {
+    let a = lines("a.rs", "x");
+    let current = annotated(&a);
+    let same_content = saved(basis("/work/b", '1', '2', vec![a.clone()]));
+    let judgments = [
+        correction("correction", &current.0, 10),
+        ack("ack", &current.0, &[&a], 20),
+    ];
+    let store = store_of(&judgments, slice::from_ref(&same_content));
+    let review = store.review(&current.0, &current.1);
+    assert_eq!(
+        review
+            .plan(undo_judgment("correction"))
+            .map(|planned| recorded(planned).withdraws),
+        Ok(vec![withdrawal("correction", None)])
+    );
+    assert_eq!(
+        review
+            .plan(undo_items(slice::from_ref(&a.id)))
+            .map(|planned| recorded(planned).withdraws),
+        Ok(vec![withdrawal("ack", Some(&a))])
+    );
+    // A review of the same content in another worktree holds it as another
+    // review's.
+    assert_eq!(
+        store
+            .review(&same_content.0, &same_content.1)
+            .plan(undo_judgment("correction"))
+            .map(drop),
+        Err(Refusal::OtherReview(&judgments[0]))
+    );
+
+    let mut undone = judgments.to_vec();
+    undone.push(undo("undo-a", &current.0, &[("ack", Some(&a))], 30));
+    let store = store_of(&undone, &[]);
+    assert!(store.ledger().stands(&undone[0]));
+    assert_eq!(
+        store.review(&current.0, &current.1).corrections(),
+        [&undone[0]]
+    );
+}
+
+#[test]
+fn the_standing_corrections_recorded_on_a_review_are_listed_in_store_order() {
+    let a = lines("a.rs", "x");
+    let current = annotated(&a);
+    let same_content = saved(basis("/work/b", '1', '2', vec![a.clone()]));
+    let judgments = [
+        correction("later-time", &current.0, 30),
+        comment("note", &current.0, 5),
+        correction("withdrawn", &current.0, 10),
+        correction("elsewhere", &same_content.0, 15),
+        correction("earlier-time", &current.0, 20),
+        undo("undo", &current.0, &[("withdrawn", None)], 40),
+    ];
+    let store = store_of(&judgments, slice::from_ref(&same_content));
+    assert_eq!(
+        store.review(&current.0, &current.1).corrections(),
+        [&judgments[0], &judgments[4]]
+    );
+}
+
+#[test]
+fn a_correction_names_no_items_and_keeps_its_decision_when_its_items_are_resolved() {
+    let words = Words::new("not why").unwrap();
+    let typed: Call<'_, String> = Call::Correct {
+        decision: "d1",
+        kind: CorrectionKind::Wrong,
+        words,
+    };
+    assert!(typed.items().is_empty());
+    assert_eq!(typed.kind(), JudgmentKind::Correct);
+    assert_eq!(
+        typed.naming::<ItemId>(&[]),
+        Call::Correct {
+            decision: "d1",
+            kind: CorrectionKind::Wrong,
+            words,
+        }
     );
 }
 

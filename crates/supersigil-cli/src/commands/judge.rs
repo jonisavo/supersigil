@@ -691,6 +691,9 @@ fn refused_call(
             )]
             .into(),
         ),
+        Refusal::NoDecision { .. } | Refusal::AmbiguousDecision { .. } => {
+            unreachable!("only a correction names a decision, and judge records none")
+        }
     }
 }
 

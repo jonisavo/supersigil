@@ -20,8 +20,8 @@ use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::reviews::{
-    Basis, BasisId, CorrectionKind, Fingerprint, GateDetail, GateItem, ItemId, Judgment,
-    JudgmentKind, Origin, PathBytes, Subject, Who,
+    Basis, BasisId, CorrectionKind, DecisionRef, Fingerprint, GateDetail, GateItem, ItemId,
+    Judgment, JudgmentKind, Origin, PathBytes, Subject, Who,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{EventId, JudgmentId, RecordId, SessionId};
@@ -468,9 +468,16 @@ pub struct JudgmentInfo {
     /// The reason given with it, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// Optional note text from a comment or completion.
+    /// Optional note text from a comment or completion, or a correction's
+    /// constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// For a correction, the decision it addresses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionRef>,
+    /// For a correction, its kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correction: Option<CorrectionKind>,
     /// Who recorded it.
     pub who: Who,
     /// When, in UTC.
@@ -487,6 +494,8 @@ impl JudgmentInfo {
             review: judgment.basis.clone(),
             reason: judgment.reason.clone(),
             text: judgment.text.clone(),
+            decision: judgment.decision.clone(),
+            correction: judgment.correction,
             who: judgment.who.clone(),
             at: judgment.at,
         }

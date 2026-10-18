@@ -1027,6 +1027,7 @@ fn question_items_take_states_and_reannotation_is_an_interpretation_change() {
             ("question:q2", ItemStateInfo::Carried),
         ]
     );
+    assert_eq!(report.gate.items[0].reopen_reasons, ["question reworded"]);
     let [related] = report.status.related.as_slice() else {
         panic!("one related review: {:?}", report.status.related);
     };
