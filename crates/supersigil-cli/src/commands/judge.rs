@@ -1,6 +1,8 @@
 //! `supersigil judge` records a person's judgments on a saved review.
 //! Acknowledgments and dismissals close gate items. Comments close nothing.
-//! Completions record that a review is done. Undos withdraw earlier judgments.
+//! Corrections dispute or add to an annotated decision the review shows,
+//! named from the saved review alone, and close nothing either. Completions
+//! record that a review is done. Undos withdraw earlier judgments.
 //!
 //! Write commands refuse to run inside agent sessions. They take the review
 //! store's writer lock before reading the saved review, then resolve the review,
@@ -22,11 +24,11 @@ use serde::Serialize;
 use supersigil_git::retention::{self, Identity};
 use supersigil_git::{Git, ObjectId, Repo};
 use supersigil_record::reviews::{
-    self, Basis, BasisId, BasisTarget, ItemId, Judgment, JudgmentKind, Origin, ReviewSnapshot,
-    ReviewStore, Who,
+    self, Basis, BasisDecision, BasisId, BasisTarget, CorrectionKind, ItemId, Judgment,
+    JudgmentKind, Origin, ReviewSnapshot, ReviewStore, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, StoreError};
+use supersigil_record::{JudgmentId, SessionId, StoreError};
 use supersigil_review::judging::{
     AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Refusal,
     WithdrawRefusal, Words,
@@ -90,7 +92,8 @@ pub fn run(args: &JudgeArgs) -> Result<(), CliError> {
 ///
 /// # Errors
 ///
-/// Refuses a dismissal without a reason, and a blank reason or text.
+/// Refuses a dismissal without a reason, and a blank reason, text, or
+/// constraint.
 fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
     Ok(match command {
         JudgeCommand::Acknowledge(close) => Call::Acknowledge {
@@ -110,6 +113,33 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
             text: Words::new(&comment.text)
                 .ok_or_else(|| refusal(["A comment's text can't be blank."].into()))?,
         },
+        JudgeCommand::Correct(correct) => {
+            let (kind, words) = match &correct.constraint {
+                Some(constraint) => (
+                    CorrectionKind::Constraint,
+                    Words::new(constraint)
+                        .ok_or_else(|| refusal(["A constraint can't be blank."].into()))?,
+                ),
+                None => (
+                    if correct.wrong {
+                        CorrectionKind::Wrong
+                    } else {
+                        CorrectionKind::NotTogether
+                    },
+                    // Clap requires --reason with either dispute.
+                    correct
+                        .reason
+                        .as_deref()
+                        .and_then(Words::new)
+                        .ok_or_else(|| refusal(["A reason can't be blank."].into()))?,
+                ),
+            };
+            Call::Correct {
+                decision: &correct.decision,
+                kind,
+                words,
+            }
+        }
         JudgeCommand::Complete(complete) => Call::Complete {
             text: complete
                 .text
@@ -293,6 +323,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
         judgment: &judgment,
         review: &id,
         target: &basis.target,
+        decisions: &basis.decisions,
         status: after.status,
         same_content_completions: review.same_content(),
         gate: after.gate,
@@ -320,6 +351,10 @@ struct Recorded<'a> {
     review: &'a BasisId,
     /// What that review reviewed.
     target: &'a BasisTarget,
+    /// The decisions that review showed, which name what a correction
+    /// addresses; the judgment holds its reference, so JSON leaves them out.
+    #[serde(skip)]
+    decisions: &'a [BasisDecision],
     /// Whether the review's own completion completes it now.
     status: StatusInfo,
     /// The standing completions of reviews of the same content, most
@@ -361,7 +396,11 @@ impl Recorded<'_> {
             JudgmentKind::Dismiss => format!("Dismissed {items} on {review}."),
             JudgmentKind::Comment if subjects.is_empty() => format!("Commented on {review}."),
             JudgmentKind::Comment => format!("Commented on {items} on {review}."),
-            JudgmentKind::Correct => format!("Corrected a decision on {review}."),
+            JudgmentKind::Correct => format!(
+                "Corrected {} on {review}: {}.",
+                corrected(self.decisions, self.judgment),
+                correction_words(self.judgment.correction)
+            ),
             JudgmentKind::Complete => format!("Completed {review}."),
             // An undo by id names no items; it withdraws that judgment
             // first.
@@ -417,8 +456,9 @@ impl Recorded<'_> {
     }
 
     /// Renders one line per judgment withdrawn from `ledger`, in withdrawal order.
-    /// Reports what was withdrawn and names items with [`item_name`] in `names`.
-    /// Also reports completions withdrawn because they counted a withdrawn
+    /// Reports what was withdrawn, names items with [`item_name`] in `names`
+    /// and a correction's decision with [`corrected`]. Also reports
+    /// completions withdrawn because they counted a withdrawn
     /// acknowledgment or dismissal.
     fn withdrawn(&self, ledger: &Ledger<'_>, names: &ItemNames<'_>) -> Vec<String> {
         let withdraws = &self.judgment.withdraws;
@@ -442,6 +482,10 @@ impl Recorded<'_> {
                     JudgmentKind::Comment => {
                         format!("Withdrew your comment on {listed} ({date}, review {review}).")
                     }
+                    JudgmentKind::Correct => format!(
+                        "Withdrew your correction of {} ({date}, review {review}).",
+                        corrected(self.decisions, judgment)
+                    ),
                     kind => format!(
                         "Withdrew your {} of {listed} ({date}, review {review}).",
                         noun(kind)
@@ -469,6 +513,62 @@ fn sentence_list<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> String {
         [one] => (*one).to_owned(),
         [first, second] => format!("{first} and {second}"),
         [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// The name of the decision correction `judgment` addresses, as a review's
+/// `decisions` give it, or `<session short>:<id>` from its reference when
+/// they do not list it; `a decision` when it holds no reference.
+fn corrected(decisions: &[BasisDecision], judgment: &Judgment) -> String {
+    let Some(reference) = &judgment.decision else {
+        return "a decision".to_owned();
+    };
+    decisions
+        .iter()
+        .find(|decision| {
+            decision.record == reference.record
+                && decision.session == reference.session
+                && decision.revision == reference.revision
+                && decision.id == reference.id
+        })
+        .map_or_else(
+            || format!("{}:{}", short(&reference.session), reference.id),
+            |decision| decision.name.clone(),
+        )
+}
+
+/// The first 8 characters of `session`, or all of it when shorter.
+fn short(session: &SessionId) -> &str {
+    let id = session.as_str();
+    id.char_indices().nth(8).map_or(id, |(end, _)| &id[..end])
+}
+
+/// What a correction of `kind` says, as `judge` prints it; `correction`
+/// for a judgment that records no kind.
+const fn correction_words(kind: Option<CorrectionKind>) -> &'static str {
+    match kind {
+        Some(CorrectionKind::Wrong) => "explanation wrong",
+        Some(CorrectionKind::NotTogether) => "edits do not belong together",
+        Some(CorrectionKind::Constraint) => "constraint",
+        None => "correction",
+    }
+}
+
+/// The most decision names a refused correction lists.
+const LISTED_DECISIONS: usize = 20;
+
+/// The first [`LISTED_DECISIONS`] of `names`, joined with commas, then how
+/// many more there are.
+fn decision_list(names: &[&str]) -> String {
+    let listed = names
+        .iter()
+        .take(LISTED_DECISIONS)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    match names.len().saturating_sub(LISTED_DECISIONS) {
+        0 => listed,
+        more => format!("{listed} … and {more} more"),
     }
 }
 
@@ -691,9 +791,14 @@ fn refused_call(
             )]
             .into(),
         ),
-        Refusal::NoDecision { .. } | Refusal::AmbiguousDecision { .. } => {
-            unreachable!("only a correction names a decision, and judge records none")
-        }
+        Refusal::NoDecision { typed, names } => no_decision(typed, names),
+        Refusal::AmbiguousDecision { typed, names } => refusal(
+            [format!(
+                "{typed} names several decisions: {}. Give the qualified name.",
+                decision_list(names)
+            )]
+            .into(),
+        ),
     }
 }
 
@@ -728,6 +833,17 @@ fn already_closed(
     let undo = out.command(addressing.judge("undo", &typed, ""));
     out.line(format!("Next: {undo}"));
     refusal(out)
+}
+
+/// The refusal of a correction whose `typed` name matches none of the
+/// review's decision `names`.
+fn no_decision(typed: &str, names: &[&str]) -> CliError {
+    let shown = if names.is_empty() {
+        "This review shows no decisions.".to_owned()
+    } else {
+        format!("Decisions: {}.", decision_list(names))
+    };
+    refusal([format!("No decision {typed} on this review. {shown}")].into())
 }
 
 /// The refusal of an undo whose `prefix` names no single judgment, for

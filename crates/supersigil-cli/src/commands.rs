@@ -273,13 +273,24 @@ pub enum JudgeCommand {
     Dismiss(CloseArgs),
     /// Add a note to the review or an item; it leaves the item's state alone
     Comment(CommentArgs),
+    /// Correct an annotated decision's explanation, grouping, or constraint
+    ///
+    /// Record that its explanation is wrong (--wrong), that its edits do not
+    /// belong together (--not-together), or what the actual constraint was
+    /// (--constraint). Name the decision as `supersigil review` prints it.
+    ///
+    /// A correction stays with the decision: a later review shows it before
+    /// the rationale it addresses, the next annotation receives it, and
+    /// re-annotating never clears it; only `judge undo --judgment` withdraws
+    /// it. It closes no item and never keeps a review from completing.
+    Correct(CorrectArgs),
     /// Record completion of this saved review; it does not commit or merge
     Complete(CompleteArgs),
     /// Withdraw the judgments closing items, or one judgment by its id
     Undo(UndoArgs),
     /// List the saved reviews with judgments and each worktree's selection
     List,
-    /// Show a saved review's gate, comments, and withdrawn judgments
+    /// Show a saved review's gate, comments, corrections, and withdrawn judgments
     Show(ShowArgs),
 }
 
@@ -304,6 +315,32 @@ pub struct CommentArgs {
     /// The note
     #[arg(long)]
     pub text: String,
+}
+
+/// Arguments for `judge correct`: the decision and exactly one kind of
+/// correction, a dispute with its reason or the actual constraint.
+#[derive(Debug, clap::Args)]
+#[command(group(
+    clap::ArgGroup::new("kind")
+        .required(true)
+        .args(["wrong", "not_together", "constraint"])
+))]
+pub struct CorrectArgs {
+    /// The decision's name as `supersigil review` prints it
+    #[arg(value_name = "DECISION")]
+    pub decision: String,
+    /// Its explanation is wrong: the rationale given is not why it was done
+    #[arg(long, requires = "reason")]
+    pub wrong: bool,
+    /// The edits it cites do not belong together
+    #[arg(long, requires = "reason")]
+    pub not_together: bool,
+    /// The actual constraint behind it, shown before its rationale
+    #[arg(long, value_name = "TEXT")]
+    pub constraint: Option<String>,
+    /// Why, recorded with --wrong or --not-together
+    #[arg(long, conflicts_with = "constraint")]
+    pub reason: Option<String>,
 }
 
 /// Arguments for `judge complete`.
