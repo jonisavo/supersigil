@@ -192,8 +192,10 @@ pub struct InView {
 /// named by `names`, by the [module's rules](self).
 ///
 /// Indexes each decision by its cited ids once and walks every span of
-/// every file once, so the time taken is linear in the decisions, the
-/// spans, and the explanations found.
+/// every file once, so finding the explanations takes time linear in the
+/// decisions, the spans, and the explanations found. Listing a decision's
+/// open questions takes, for each distinct id it cites, the question items
+/// about that id, each counted once however often its `about` repeats it.
 #[must_use]
 pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileReview]) -> InView {
     view(annotated, names, files, QuestionNames::Items)
@@ -371,7 +373,9 @@ const fn association(outcome: &Outcome) -> Option<(Association, Option<bool>)> {
 }
 
 /// Each session's question items, named as the gate names them (over the
-/// questions `naming` says), by an id they are about.
+/// questions `naming` says), by an id they are about. An item is listed
+/// once under each id however often its `about` repeats it, so a repeated
+/// id adds no work for the decisions citing it.
 fn asking<'a>(
     annotated: &[Annotated<'a>],
     in_change: &BTreeSet<String>,
@@ -390,9 +394,10 @@ fn asking<'a>(
         if !is_item(question, in_change) {
             continue;
         }
-        for about in &question.about {
+        let about: HashSet<&str> = question.about.iter().map(EventId::as_str).collect();
+        for about in about {
             asking
-                .entry((session, about.as_str()))
+                .entry((session, about))
                 .or_default()
                 .push(name.clone());
         }

@@ -52,7 +52,10 @@ pub struct Addressed<'a> {
 /// marking each decision a correction anchors to, and returns the
 /// corrections anchored to none, oldest first.
 ///
-/// `corrections` are the standing corrections in scope, in any order.
+/// `corrections` are the standing corrections in scope, in any order, each
+/// judgment once: the caller deduplicates them by judgment id, since a
+/// judgment given twice is listed twice on each decision it anchors to,
+/// and a constraint given twice is twice its first rationale line.
 /// Whether a correction stands is the caller's to decide: one withdrawn is
 /// anchored all the same. A judgment naming no decision or no correction
 /// kind is not a correction and is skipped. `addressed` holds what each
@@ -63,9 +66,16 @@ pub struct Addressed<'a> {
 /// corrections yet.
 ///
 /// Indexes the decisions by full reference and, per session, by cited
-/// edit, so besides sorting the corrections the time taken is linear in
-/// the corrections, the decisions, the addressed cites, and the anchors
-/// found.
+/// edit, and finds a reference's anchors once for all the corrections
+/// naming it, matching each edit its decision cited once however often the
+/// edit is repeated. Besides sorting the corrections and the logarithmic
+/// cost of the ordered collections (the addressed map, and each
+/// reference's anchors kept sorted), the time taken is linear in the
+/// corrections, the decisions, the addressed cites, and the anchors marked,
+/// but for one cost: a decision in view citing several of the edits a
+/// reference's decision cited is matched once per such edit, so finding
+/// one reference's anchors costs the number of decisions citing each of
+/// its edits, summed.
 #[must_use]
 pub fn anchor(
     corrections: &[&Judgment],
@@ -79,13 +89,19 @@ pub fn anchor(
         .collect();
     corrections.sort_by(|(a, ..), (b, ..)| (a.at, &a.id).cmp(&(b.at, &b.id)));
     let shown = Shown::new(annotated);
-    // Every anchor is found before any decision is marked.
-    let placed: Vec<(CorrectionInfo, Vec<usize>)> = {
+    // Every anchor is found before any decision is marked, once per
+    // reference: each correction keeps the position of its reference's.
+    let mut found: Vec<(Vec<usize>, Option<AnnotationRevision>)> = Vec::new();
+    let placed: Vec<(CorrectionInfo, usize)> = {
         let view = View::new(decisions);
+        let mut by_reference: HashMap<&DecisionRef, usize> = HashMap::new();
         corrections
             .into_iter()
             .map(|(judgment, reference, kind)| {
-                let (anchors, addressed) = view.anchors(reference, &shown, addressed);
+                let found_at = *by_reference.entry(reference).or_insert_with(|| {
+                    found.push(view.anchors(reference, &shown, addressed));
+                    found.len() - 1
+                });
                 let info = CorrectionInfo {
                     judgment: judgment.id.clone(),
                     decision: reference.clone(),
@@ -94,22 +110,23 @@ pub fn anchor(
                     text: judgment.text.clone(),
                     who: judgment.who.clone(),
                     at: judgment.at,
-                    addressed,
+                    addressed: found[found_at].1,
                     seen: shown.saw(reference, &judgment.id),
                     review: judgment.basis.clone(),
                 };
-                (info, anchors)
+                (info, found_at)
             })
             .collect()
     };
     let mut constraints: Vec<Vec<RationaleInfo>> = vec![Vec::new(); decisions.len()];
     let mut unanchored = Vec::new();
-    for (info, anchors) in placed {
+    for (info, found_at) in placed {
+        let anchors = &found[found_at].0;
         if anchors.is_empty() {
             unanchored.push(info);
             continue;
         }
-        for at in anchors {
+        for &at in anchors {
             let decision = &mut decisions[at];
             decision.disputed |= disputes(info.kind);
             if let (CorrectionKind::Constraint, Some(text)) = (info.kind, &info.text) {
@@ -248,9 +265,10 @@ impl<'d> View<'d> {
         let Some(addressed) = addressed.get(reference) else {
             return (Vec::new(), None);
         };
-        let anchors: BTreeSet<usize> = addressed
-            .cites
-            .iter()
+        // A historical revision may repeat a cite; each edit is matched once.
+        let cites: HashSet<&EventId> = addressed.cites.iter().collect();
+        let anchors: BTreeSet<usize> = cites
+            .into_iter()
             .filter_map(|cite| self.citing.get(&(&reference.session, cite)))
             .flatten()
             .copied()

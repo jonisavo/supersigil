@@ -1309,3 +1309,48 @@ fn ten_thousand_decisions_attach_to_five_thousand_spans_promptly() {
     assert_eq!(view.edit_decisions.len(), 5_000);
     assert_eq!(items.len(), 10_000);
 }
+
+#[test]
+fn questions_repeating_an_edit_list_on_ten_thousand_decisions_promptly() {
+    // Every decision cites one edit, and each of 100 questions names that
+    // edit 1,000 times, the most a question may list. A repeated id adds no
+    // work, in a review or in an excerpt of it.
+    let files = vec![file(
+        "src/a.rs",
+        vec![span(
+            SpanSide::Target,
+            1,
+            1,
+            attributed(Relation::Introduced, &[ATTRIBUTED]),
+        )],
+    )];
+    let decisions = (0..10_000)
+        .map(|d| decision(&format!("d{d}"), &[ATTRIBUTED]))
+        .collect();
+    let repeated = vec![ATTRIBUTED; 1_000];
+    let questions = (0..100)
+        .map(|q| question(&format!("q{q}"), &repeated))
+        .collect();
+    let fixture = Fixture::default().annotate(S1, decisions, questions);
+
+    let (view, excerpted, items) = finishes_within(Duration::from_secs(20), move || {
+        let annotated = fixture.annotated();
+        let names = names(&annotated);
+        let view = in_view(&annotated, &names, &files);
+        let excerpted = in_excerpt(&annotated, &names, &files);
+        let items = question_items(&annotated, &view.in_change);
+        (view, excerpted, items)
+    });
+
+    let mut asked: Vec<String> = (0..100).map(|q| format!("question:q{q}")).collect();
+    asked.sort();
+    for view in [&view, &excerpted] {
+        assert_eq!(view.decisions.len(), 10_000);
+        assert!(
+            view.decisions
+                .iter()
+                .all(|decision| decision.open_questions == asked)
+        );
+    }
+    assert_eq!(items.len(), 100);
+}

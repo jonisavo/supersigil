@@ -633,3 +633,46 @@ fn ten_thousand_corrections_anchor_to_ten_thousand_decisions_promptly() {
             .all(|correction| correction.seen)
     );
 }
+
+#[test]
+fn corrections_of_a_decision_repeating_an_edit_anchor_promptly() {
+    // Revision 1's d1 cited one edit 1,000 times, the most a decision may
+    // list, and 100 corrections name it. The shown revision 2 has 1,000
+    // decisions citing that edit, so each correction anchors to all of
+    // them. Neither the repeated cite nor the repeated reference adds work.
+    let files = vec![file("src/a.rs", &strings(&[E1]))];
+    let names: Vec<String> = (0..1_000).map(|index| format!("d{index}")).collect();
+    let shown: Vec<(&str, &[&str])> = names
+        .iter()
+        .map(|name| (name.as_str(), &[E1][..]))
+        .collect();
+    let corrected = reference(R1, S1, 1, "d1");
+    let corrections: Vec<Judgment> = (0..100_i64)
+        .map(|index| {
+            correction(
+                &format!("j{index:03}"),
+                corrected.clone(),
+                CorrectionKind::Wrong,
+                index,
+            )
+        })
+        .collect();
+    let addressed = vec![(corrected, vec![eid(E1); 1_000])];
+    let fixture = Fixture::default().show(R1, S1, 2, &shown);
+
+    let (decisions, unanchored) = finishes_within(Duration::from_secs(10), move || {
+        fixture.anchor_in(&files, &all(&corrections), &addressed)
+    });
+
+    let oldest_first: Vec<String> = (0..100).map(|index| format!("j{index:03}")).collect();
+    assert_eq!(decisions.len(), 1_000);
+    assert!(decisions.iter().all(|decision| {
+        decision.disputed
+            && judgments(&decision.corrections) == oldest_first
+            && decision
+                .corrections
+                .iter()
+                .all(|correction| correction.addressed == Some(revision(1)))
+    }));
+    assert_eq!(unanchored, []);
+}
