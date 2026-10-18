@@ -1,10 +1,12 @@
 //! `supersigil annotate` stores what an annotator says a session decided,
 //! and lists each session's annotation.
 //!
-//! `import` reads an annotation document of at most 16 MiB and writes to
-//! the record its `prepared.record` names, which must be one owning the
-//! checkout: its own, or an ancestor checkout's
-//! ([`owners`](crate::record_dir::owners)). It checks the document against
+//! `import` reads an annotation document of at most 16 MiB, never reading
+//! on past that, and writes to the record its `prepared.record` names,
+//! which must be one owning the checkout: its own, or an ancestor
+//! checkout's ([`owners`](crate::record_dir::owners)). The document names
+//! the record, so several records owning the checkout at one distance are
+//! no obstacle. It checks the document against
 //! one snapshot of that record by the rules of
 //! [`annotating`](supersigil_review::annotating), and stores it as the
 //! session's next revision. A document naming another record, or breaking
@@ -56,29 +58,37 @@ pub fn run(args: &AnnotateArgs) -> Result<(), CliError> {
 /// finds it.
 #[derive(Debug)]
 struct CheckoutRecord {
-    /// The records directory searched.
-    records_dir: PathBuf,
     /// The checkout, canonical.
     checkout: PathBuf,
     /// The record that owns it.
     store: Store,
 }
 
-/// Finds the checkout `options` names and its record.
+/// The records directory and the canonical checkout `options` name, without
+/// looking for the checkout's record.
+///
+/// # Errors
+///
+/// Returns [`CliError::CommandFailed`] when no directory can be resolved,
+/// and an I/O error when the checkout does not exist.
+fn locate(options: &StoreArgs) -> Result<(PathBuf, PathBuf), CliError> {
+    let records_dir = record_dir::resolve_record_dir(options.record_dir.as_deref())?;
+    let checkout = record_dir::canonical_checkout(options.checkout.as_deref())?;
+    Ok((records_dir, checkout))
+}
+
+/// Finds the checkout `options` names and its record, which must be the
+/// only one nearest to it: a command that selects the record itself has no
+/// better way to choose between records at one distance.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::CommandFailed`] saying to sync first when no record
-/// owns the checkout, and the errors of resolving the records directory
-/// and the checkout and of [`record_dir::find_record`].
+/// owns the checkout, and the errors of [`locate`] and of
+/// [`record_dir::find_record`].
 fn checkout_record(options: &StoreArgs) -> Result<CheckoutRecord, CliError> {
-    let records_dir = record_dir::resolve_record_dir(options.record_dir.as_deref())?;
-    let checkout = record_dir::canonical_checkout(options.checkout.as_deref())?;
+    let (records_dir, checkout) = locate(options)?;
     let store = record_dir::find_record(&records_dir, &checkout)?
         .ok_or_else(|| CliError::CommandFailed(no_record_message(&checkout)))?;
-    Ok(CheckoutRecord {
-        records_dir,
-        checkout,
-        store,
-    })
+    Ok(CheckoutRecord { checkout, store })
 }

@@ -20,7 +20,8 @@ use supersigil_record::{RecordId, SessionId, StoreError};
 use supersigil_review::annotating::{Context, Problem, validate};
 use supersigil_review::printed::Printed;
 
-use super::{CheckoutRecord, checkout_record};
+use super::locate;
+use crate::commands::session::no_record_message;
 use crate::commands::{AnnotateImportArgs, StoreArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
@@ -58,13 +59,9 @@ struct Imported {
 /// As [`super::run`].
 pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), CliError> {
     let document = read(&args.file)?;
-    // The checkout needs a record; the document names which of the
-    // checkout's records it annotates.
-    let CheckoutRecord {
-        records_dir,
-        checkout,
-        ..
-    } = checkout_record(options)?;
+    // The document names which of the checkout's records it annotates, so
+    // the checkout needs no single record of its own.
+    let (records_dir, checkout) = locate(options)?;
     // Found by `prepared.record`, so the rules' check of it passes.
     let store = named_record(&records_dir, &checkout, &document.prepared.record)?;
     let snapshot = store.snapshot()?;
@@ -128,15 +125,21 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
 }
 
 /// The record `named` in `records_dir`, which must be one of the records
-/// owning `checkout`, its own or an ancestor checkout's ([`owners`]).
+/// owning `checkout`, its own or an ancestor checkout's ([`owners`]); any
+/// number of them may lie at one distance.
 ///
 /// # Errors
 ///
-/// Refuses `named` when it is not among them, saying whether
-/// `records_dir` holds it at all, and returns the errors of listing the
-/// records and reading their manifests.
+/// Returns [`CliError::CommandFailed`] saying to sync first when no record
+/// owns `checkout`. Refuses `named` when it is not among the owners, saying
+/// whether `records_dir` holds it at all, and returns the errors of listing
+/// the records and reading their manifests.
 fn named_record(records_dir: &Path, checkout: &Path, named: &RecordId) -> Result<Store, CliError> {
-    for store in owners(records_dir, checkout)? {
+    let owning = owners(records_dir, checkout)?;
+    if owning.is_empty() {
+        return Err(CliError::CommandFailed(no_record_message(checkout)));
+    }
+    for store in owning {
         if store.manifest()?.record_id == *named {
             return Ok(store);
         }
@@ -171,13 +174,11 @@ fn read(file: &Path) -> Result<AnnotationDocument, CliError> {
     } else {
         File::open(file).and_then(read_capped)
     };
-    let (bytes, size) = read.map_err(|error| {
+    let bytes = read.map_err(|error| {
         CliError::CommandFailed(format!("cannot read {}: {error}", file.display()))
     })?;
-    if size > MAX_DOCUMENT_BYTES {
-        return Err(refusal(
-            [format!("The annotation is {size} bytes; at most 16 MiB.")].into(),
-        ));
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(refusal(["The annotation is over 16 MiB."].into()));
     }
     let Ok(text) = std::str::from_utf8(&bytes) else {
         return Err(refusal(["The annotation is not UTF-8."].into()));
@@ -202,22 +203,20 @@ fn parse(text: &str) -> Result<AnnotationDocument, String> {
     Ok(document)
 }
 
-/// Reads `reader` to its end, keeping at most one byte more than
-/// [`MAX_DOCUMENT_BYTES`]. Returns the bytes kept and how many were read,
-/// so a refusal can say how large a document is.
+/// Reads `reader` up to its end or [`MAX_DOCUMENT_BYTES`] plus one byte,
+/// whichever comes first. The extra byte shows the input is over the limit,
+/// and nothing past it is read, so an input of any length, or none, ends the
+/// read.
 ///
 /// # Errors
 ///
 /// Returns the I/O error of reading.
-fn read_capped(mut reader: impl Read) -> io::Result<(Vec<u8>, u64)> {
+fn read_capped(reader: impl Read) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     reader
-        .by_ref()
         .take(MAX_DOCUMENT_BYTES + 1)
         .read_to_end(&mut bytes)?;
-    let rest = io::copy(&mut reader, &mut io::sink())?;
-    let size = bytes.len() as u64 + rest;
-    Ok((bytes, size))
+    Ok(bytes)
 }
 
 /// The refusal of a document that breaks the rules: the first

@@ -6,7 +6,9 @@
 mod common;
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
@@ -153,6 +155,13 @@ fn ran(command: &mut Command) -> String {
 fn refused(f: &Fixture, command: &mut Command) -> String {
     let before = manifests(f);
     let output = command.output().unwrap();
+    refusal(f, &before, &output)
+}
+
+/// Checks that `output` is a command's exit 1 with nothing on standard
+/// output, and that every record of `f` is still as `before` has it. Returns
+/// the standard error.
+fn refusal(f: &Fixture, before: &[Manifest], output: &Output) -> String {
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -161,7 +170,32 @@ fn refused(f: &Fixture, command: &mut Command) -> String {
     );
     assert!(output.stdout.is_empty());
     assert_eq!(manifests(f), before);
-    String::from_utf8(output.stderr).unwrap()
+    std::str::from_utf8(&output.stderr).unwrap().to_owned()
+}
+
+/// Waits for `child` to exit and returns its output, killing it and failing
+/// the test when it runs on for 30 seconds.
+fn finished(mut child: Child) -> Output {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("the command was still reading its input after 30 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// Starts `command` with its output piped, as [`finished`] expects.
+fn started(command: &mut std::process::Command) -> Child {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
 }
 
 #[test]
@@ -305,7 +339,7 @@ fn a_document_over_16_mib_is_refused_and_one_of_16_mib_is_read() {
     // Whitespace after the document keeps it valid JSON.
     bytes.resize(16 * 1024 * 1024 + 1, b' ');
     let file = written(&f, "large.json", &bytes);
-    let message = "The annotation is 16777217 bytes; at most 16 MiB.\n";
+    let message = "The annotation is over 16 MiB.\n";
 
     let from_file = refused(&f, &mut annotate(&f, &f.repo, &["import", &file]));
     let from_stdin = refused(
@@ -323,6 +357,43 @@ fn a_document_over_16_mib_is_refused_and_one_of_16_mib_is_read() {
     assert_eq!(from_file, message);
     assert_eq!(from_stdin, message);
     assert_eq!(at_the_limit, IMPORTED);
+}
+
+#[test]
+fn standard_input_that_never_ends_is_refused_once_it_is_over_16_mib() {
+    let f = synced();
+    let before = manifests(&f);
+    let mut command = f.plain(&f.repo, &["annotate", "import", "-"]);
+    let mut child = started(&mut command);
+    // The producer never closes the pipe; it stops when the command does.
+    let mut stdin = child.stdin.take().unwrap();
+    let producer = std::thread::spawn(move || {
+        let chunk = vec![b' '; 64 * 1024];
+        while stdin.write_all(&chunk).is_ok() {}
+    });
+
+    let output = finished(child);
+    producer.join().unwrap();
+
+    assert_eq!(
+        refusal(&f, &before, &output),
+        "The annotation is over 16 MiB.\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_that_never_ends_is_refused_once_it_is_over_16_mib() {
+    let f = synced();
+    let before = manifests(&f);
+    let mut command = f.plain(&f.repo, &["annotate", "import", "/dev/zero"]);
+
+    let output = finished(started(&mut command));
+
+    assert_eq!(
+        refusal(&f, &before, &output),
+        "The annotation is over 16 MiB.\n"
+    );
 }
 
 #[test]
@@ -546,6 +617,45 @@ fn a_document_naming_an_ancestor_checkouts_record_imports_into_that_record() {
         .map(|listed| listed["session"].clone())
         .collect();
     assert_eq!(sessions, ["s-sub"]);
+}
+
+#[test]
+fn a_document_names_its_record_when_several_own_the_checkout_at_one_distance() {
+    let f = synced();
+    let named = record_in(&f.records);
+    let twin = Store::create(
+        &f.records.join("twin"),
+        Association {
+            checkout: f.repo.clone(),
+        },
+    )
+    .unwrap();
+    let file = written_json(&f, "annotation.json", &document(&named));
+
+    let imported = ran(&mut annotate(
+        &f,
+        &f.repo,
+        &["import", &file, "--format", "terminal"],
+    ));
+    // `list` picks the record itself, so it still needs there to be one.
+    let listed = refused(&f, &mut annotate(&f, &f.repo, &["list"]));
+
+    assert_eq!(imported, IMPORTED);
+    let session = SessionId::new(SESSION);
+    assert_eq!(
+        named.snapshot().unwrap().annotation_revisions(&session),
+        [AnnotationRevision::FIRST]
+    );
+    assert!(
+        twin.snapshot()
+            .unwrap()
+            .annotation_revisions(&session)
+            .is_empty()
+    );
+    assert!(
+        listed.contains("is associated with several records"),
+        "{listed}"
+    );
 }
 
 #[test]
