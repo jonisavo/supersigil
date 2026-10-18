@@ -2009,7 +2009,7 @@ fn a_record_in_an_older_format_fails_with_what_to_do() {
         .failure()
         .stderr(predicate::str::contains(stale.display().to_string()))
         .stderr(predicate::str::contains(
-            "uses record format 1; this build reads format 2",
+            "uses record format 1; this build reads format 3",
         ))
         .stderr(predicate::str::contains(
             "To keep its observations, move that directory out of the records directory",

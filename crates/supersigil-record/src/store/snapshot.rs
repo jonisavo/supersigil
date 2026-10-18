@@ -1,16 +1,20 @@
 //! Reads the log bytes and document files listed in one manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::PathBuf;
+use std::{fs, io};
 
 use serde::de::DeserializeOwned;
 use sha2::{Digest as _, Sha256};
 
-use super::{Manifest, StoreError, derivations_document, io_error, log_path};
+use super::{
+    Manifest, StoreError, annotation_document, annotation_revisions, derivations_document,
+    io_error, log_path,
+};
 use crate::derivations::DerivationSet;
 use crate::files;
 use crate::ids::{Revision, SessionId};
+use crate::interpretations::{Annotation, AnnotationRevision};
 use crate::observations::Observation;
 use crate::reviews::PinnedLog;
 
@@ -50,8 +54,9 @@ impl RecordSnapshot {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Io`] if the file cannot be read or
-    /// [`StoreError::Json`] if its contents cannot be parsed as a derivation set.
+    /// Returns [`StoreError::MissingDocument`] if the listed file is gone,
+    /// [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`] if
+    /// its contents cannot be parsed as a derivation set.
     pub fn derivations(&self, session: &SessionId) -> Result<Option<DerivationSet>, StoreError> {
         self.derivation_document(session)
     }
@@ -63,9 +68,9 @@ impl RecordSnapshot {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Io`] if the file cannot be read or
-    /// [`StoreError::Json`] if its contents are not a JSON object with an
-    /// algorithm version.
+    /// Returns [`StoreError::MissingDocument`] if the listed file is gone,
+    /// [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`] if
+    /// its contents are not a JSON object with an algorithm version.
     pub fn algorithm_version(&self, session: &SessionId) -> Result<Option<u32>, StoreError> {
         /// The one field of a derivation document read.
         #[derive(serde::Deserialize)]
@@ -77,30 +82,100 @@ impl RecordSnapshot {
             .map(|document| document.algorithm_version))
     }
 
-    /// Parses the session's pinned derivation document as `T`, returning
-    /// `None` if the manifest lists none.
+    /// Parses the session's pinned derivation document as `T`
+    /// ([`Self::document`]), returning `None` if the manifest lists none.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Io`] if the file cannot be read or
-    /// [`StoreError::Json`] if its contents cannot be parsed as a `T`.
+    /// As [`Self::document`].
     fn derivation_document<T: DeserializeOwned>(
         &self,
         session: &SessionId,
     ) -> Result<Option<T>, StoreError> {
-        let Some(rel) = self
-            .manifest
+        self.manifest
             .sessions
             .get(session)
             .and_then(|&number| self.manifest.documents.get(&derivations_document(number)))
-        else {
-            return Ok(None);
-        };
+            .map(|rel| self.document(rel))
+            .transpose()
+    }
+
+    /// Returns the annotation revisions this snapshot's manifest lists for
+    /// `session`, in ascending order. Empty if it lists none.
+    #[must_use]
+    pub fn annotation_revisions(&self, session: &SessionId) -> Vec<AnnotationRevision> {
+        self.manifest
+            .sessions
+            .get(session)
+            .map_or_else(Vec::new, |&number| {
+                annotation_revisions(&self.manifest, number)
+            })
+    }
+
+    /// Reads one annotation revision of `session` that this snapshot's
+    /// manifest lists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoSuchAnnotation`] if the manifest does not list
+    /// the revision, [`StoreError::MissingDocument`] if its file is gone,
+    /// [`StoreError::Io`] if the file cannot be read, or [`StoreError::Json`]
+    /// if its contents cannot be parsed as an annotation.
+    pub fn annotation(
+        &self,
+        session: &SessionId,
+        revision: AnnotationRevision,
+    ) -> Result<Annotation, StoreError> {
+        let rel = self
+            .manifest
+            .sessions
+            .get(session)
+            .and_then(|&number| {
+                self.manifest
+                    .documents
+                    .get(&annotation_document(number, revision))
+            })
+            .ok_or_else(|| StoreError::NoSuchAnnotation {
+                session: session.clone(),
+                revision,
+            })?;
+        self.document(rel)
+    }
+
+    /// Reads the session's current annotation, the highest revision this
+    /// snapshot's manifest lists ([`Self::annotation`]). Returns `None` if
+    /// it lists none.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::annotation`].
+    pub fn current_annotation(
+        &self,
+        session: &SessionId,
+    ) -> Result<Option<Annotation>, StoreError> {
+        self.annotation_revisions(session)
+            .pop()
+            .map(|revision| self.annotation(session, revision))
+            .transpose()
+    }
+
+    /// Parses the listed document `rel`, a path in the record, as `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::MissingDocument`] if the file is gone,
+    /// [`StoreError::Io`] if it cannot be read, or [`StoreError::Json`] if
+    /// its contents cannot be parsed as a `T`.
+    fn document<T: DeserializeOwned>(&self, rel: &str) -> Result<T, StoreError> {
         let path = self.root.join(rel);
-        let bytes = fs::read(&path).map_err(|e| io_error(&path, e))?;
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|source| StoreError::Json { path, source })
+        let bytes = fs::read(&path).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                StoreError::MissingDocument(path.clone())
+            } else {
+                io_error(&path, e)
+            }
+        })?;
+        serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path, source })
     }
 
     /// Returns the session IDs listed in this snapshot's manifest, sorted by ID.

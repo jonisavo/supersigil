@@ -7,12 +7,14 @@ use std::{io, iter};
 
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    DERIVATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR, RecordSnapshot, Store, StoreError,
+    DERIVATIONS_DIR, INTERPRETATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR,
+    RecordSnapshot, Store, StoreError, annotation_document, annotation_revisions,
     derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
 use crate::files::{self, Publication};
 use crate::ids::{Revision, SessionId};
+use crate::interpretations::{Annotation, AnnotationDocument, AnnotationRevision};
 use crate::observations::Observation;
 use crate::time::{GRACE_SECONDS, UtcTime};
 
@@ -174,6 +176,72 @@ impl<'a> WriteTx<'a> {
         }
         self.publication.touched(path);
         Ok(())
+    }
+
+    /// Stores `document` as the next annotation revision of `session`, at
+    /// the transaction's time, and returns that revision.
+    ///
+    /// `based_on` must be the session's current revision in the pending
+    /// manifest, or `None` when it has none. A second call for the same
+    /// session in one transaction therefore builds on the first's revision.
+    /// Checks only the session and the revision built on; the caller
+    /// validates the document.
+    ///
+    /// Writes `interpretations/<n>.a<revision>.json` as
+    /// [`Self::put_derivations`] writes its file, replacing anything an
+    /// uncommitted transaction left at that name. Never lists a revision as
+    /// superseded, so every manifest that lists one keeps it readable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::UnknownSession`] if the pending manifest holds
+    /// no observations of `session`, [`StoreError::StaleAnnotation`] if
+    /// `based_on` is not its current revision, [`StoreError::Json`] if
+    /// serialization fails, or [`StoreError::Io`] if a directory or file
+    /// operation fails. Neither refusal writes anything.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current revision is [`u32::MAX`].
+    pub fn put_annotation(
+        &mut self,
+        session: &SessionId,
+        based_on: Option<AnnotationRevision>,
+        document: AnnotationDocument,
+    ) -> Result<AnnotationRevision, StoreError> {
+        let Some(&number) = self
+            .manifest
+            .sessions
+            .get(session)
+            .filter(|&&number| self.manifest.logs.contains_key(&log_path(number)))
+        else {
+            return Err(StoreError::UnknownSession(session.clone()));
+        };
+        let current = annotation_revisions(&self.manifest, number).pop();
+        if based_on != current {
+            return Err(StoreError::StaleAnnotation { based_on, current });
+        }
+        let revision = current.map_or(AnnotationRevision::FIRST, AnnotationRevision::next);
+        let name = format!("{number}.a{revision}.json");
+        let dir = self.store.root().join(INTERPRETATIONS_DIR);
+        let path = dir.join(&name);
+        let annotation = Annotation {
+            revision,
+            at: self.now,
+            document,
+        };
+        let bytes = serde_json::to_vec_pretty(&annotation).map_err(|source| StoreError::Json {
+            path: path.clone(),
+            source,
+        })?;
+        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
+        files::replace(&dir, &name, &bytes)?;
+        self.manifest.documents.insert(
+            annotation_document(number, revision),
+            format!("{INTERPRETATIONS_DIR}/{name}"),
+        );
+        self.publication.touched(path);
+        Ok(revision)
     }
 
     /// Returns the session's number, assigning the next unused number if needed.
