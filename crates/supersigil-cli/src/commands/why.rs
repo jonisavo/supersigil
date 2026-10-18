@@ -15,7 +15,7 @@ use supersigil_git::snapshot::is_tracked;
 use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_record::reviews::{Judgment, PathBytes};
 use supersigil_review::WHY_SCHEMA;
-use supersigil_review::decisions::{in_view, names};
+use supersigil_review::decisions::{in_excerpt, names};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
     BytesStatus, DecisionInfo, FileKindInfo, FileReview, FileStatus, HunkReview, Span, SpanSide,
@@ -155,6 +155,14 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
 /// Every candidate session's annotation is read, from the record a review
 /// chooses for it, so a decision has the name it has in that review.
 ///
+/// The open questions a decision lists are named over every open question of
+/// the candidate sessions ([`in_excerpt`]), not over those about this line,
+/// which a review's gate would not name alone. `why` may therefore print a
+/// qualified question name (`question:3f2a9c1e:q1`) where `review` prints a
+/// bare one (`question:q1`); it never prints a bare name the review
+/// qualifies, and `judge` resolves a qualified name even when the id is
+/// unique.
+///
 /// # Errors
 ///
 /// Returns the errors of [`Annotations::read`] and
@@ -173,7 +181,7 @@ fn decisions_behind(
         sessions.iter().copied(),
     )?;
     let annotated = annotations.annotated();
-    let view = in_view(&annotated, &names(&annotated), &[line_view(path, line)]);
+    let view = in_excerpt(&annotated, &names(&annotated), &[line_view(path, line)]);
     let mut decisions = view.decisions;
     if decisions.is_empty() {
         return Ok(decisions);
@@ -194,7 +202,7 @@ fn decisions_behind(
     Ok(decisions)
 }
 
-/// `line` of `path` as a change of one span, the form [`in_view`] reads a
+/// `line` of `path` as a change of one span, the form [`in_excerpt`] reads a
 /// review's files in. Only the path and the span are read; the other fields
 /// are placeholders.
 fn line_view(path: &RepoPath, line: &WhyLine) -> FileReview {

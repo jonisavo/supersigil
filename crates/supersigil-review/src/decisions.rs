@@ -16,7 +16,8 @@
 //!   form is its shortest prefix of at least 8 characters unique among the
 //!   annotated sessions ([`Names`]). Names therefore depend on the set of
 //!   annotated sessions. Open-question items are named by the gate
-//!   ([`ItemNames`]), from its question items alone.
+//!   ([`ItemNames`]), from its question items alone; an excerpt of a change
+//!   names them over every open question instead ([`in_excerpt`]).
 //! - **In view.** A span contributes the edits its outcome names when it is
 //!   attributed, whitespace-only, or a content match; other outcomes
 //!   contribute none. A decision is in view when a contributing edit is one
@@ -195,9 +196,51 @@ pub struct InView {
 /// spans, and the explanations found.
 #[must_use]
 pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileReview]) -> InView {
+    view(annotated, names, files, QuestionNames::Items)
+}
+
+/// Finds the decisions of the `annotated` sessions that explain `excerpt`,
+/// a part of a larger change such as one line of it, named by `names`, as
+/// [`in_view`] does, except for the names of the open questions a decision
+/// lists.
+///
+/// A review's gate holds the question items of the whole change, which an
+/// excerpt cannot tell. A question is named here as the gate would name it
+/// if every open question of the `annotated` sessions were an item, so a
+/// repeated question id is qualified by its session whether or not the
+/// other session's question concerns the excerpt. A name is at least as
+/// qualified as the review's, and a qualified name still resolves when the
+/// id is unique. The questions listed are still only those that are items
+/// in the excerpt.
+#[must_use]
+pub fn in_excerpt(
+    annotated: &[Annotated<'_>],
+    names: &Names<'_>,
+    excerpt: &[FileReview],
+) -> InView {
+    view(annotated, names, excerpt, QuestionNames::Every)
+}
+
+/// Which open questions the names of a decision's listed questions are
+/// taken over.
+#[derive(Debug, Clone, Copy)]
+enum QuestionNames {
+    /// The question items in view: the gate's own naming.
+    Items,
+    /// Every open question, whether or not it is an item in view.
+    Every,
+}
+
+/// [`in_view`] and [`in_excerpt`].
+fn view(
+    annotated: &[Annotated<'_>],
+    names: &Names<'_>,
+    files: &[FileReview],
+    naming: QuestionNames,
+) -> InView {
     let decisions = decisions_of(annotated);
     let (explains, in_change) = explanations(&decisions, files);
-    let shown = Shown::new(annotated, names, &in_change);
+    let shown = Shown::new(annotated, names, &in_change, naming);
     let mut infos: Vec<DecisionInfo> = decisions
         .iter()
         .zip(explains)
@@ -231,7 +274,7 @@ pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileRevi
 #[must_use]
 pub fn every_decision(annotated: &[Annotated<'_>], names: &Names<'_>) -> Vec<DecisionInfo> {
     let in_change = BTreeSet::new();
-    let shown = Shown::new(annotated, names, &in_change);
+    let shown = Shown::new(annotated, names, &in_change, QuestionNames::Items);
     let mut infos: Vec<DecisionInfo> = decisions_of(annotated)
         .into_iter()
         .map(|(at, decision)| shown.info(at, decision, Vec::new()))
@@ -327,16 +370,26 @@ const fn association(outcome: &Outcome) -> Option<(Association, Option<bool>)> {
     }
 }
 
-/// Each session's question items, named as the gate names them, by an id
-/// they are about.
+/// Each session's question items, named as the gate names them (over the
+/// questions `naming` says), by an id they are about.
 fn asking<'a>(
     annotated: &[Annotated<'a>],
     in_change: &BTreeSet<String>,
+    naming: QuestionNames,
 ) -> HashMap<(&'a SessionId, &'a str), Vec<String>> {
-    let (asked, items): (Vec<_>, Vec<_>) = asked(annotated, in_change).into_iter().unzip();
+    let (asked, items): (Vec<_>, Vec<_>) = asked(annotated, |question| match naming {
+        QuestionNames::Items => is_item(question, in_change),
+        QuestionNames::Every => true,
+    })
+    .into_iter()
+    .unzip();
     let names = ItemNames::new(&items, BTreeMap::new(), false, |_| None);
     let mut asking: HashMap<_, Vec<String>> = HashMap::new();
     for ((session, question), name) in asked.into_iter().zip(names.names()) {
+        // Named over every question or not, only an item in view is listed.
+        if !is_item(question, in_change) {
+            continue;
+        }
         for about in &question.about {
             asking
                 .entry((session, about.as_str()))
@@ -365,12 +418,13 @@ impl<'v, 'a> Shown<'v, 'a> {
         annotated: &'v [Annotated<'a>],
         names: &'v Names<'v>,
         in_change: &'v BTreeSet<String>,
+        naming: QuestionNames,
     ) -> Self {
         Self {
             annotated,
             names,
             in_change,
-            asking: asking(annotated, in_change),
+            asking: asking(annotated, in_change, naming),
             restored: annotated
                 .iter()
                 .map(|entry| {
@@ -466,16 +520,18 @@ fn implication(implication: &Implication) -> ImplicationInfo {
 /// empty string.
 #[must_use]
 pub fn question_items(annotated: &[Annotated<'_>], in_change: &BTreeSet<String>) -> Vec<GateItem> {
-    asked(annotated, in_change)
+    asked(annotated, |question| is_item(question, in_change))
         .into_iter()
         .map(|(_, item)| item)
         .collect()
 }
 
-/// Each of [`question_items`] with its session and question.
+/// An item for each open question of the `annotated` sessions that `keep`
+/// accepts, with its session and question; [`question_items`] keeps those
+/// that are items in a review.
 fn asked<'a>(
     annotated: &[Annotated<'a>],
-    in_change: &BTreeSet<String>,
+    keep: impl Fn(&OpenQuestion) -> bool,
 ) -> Vec<((&'a SessionId, &'a OpenQuestion), GateItem)> {
     let mut asked: Vec<_> = annotated
         .iter()
@@ -485,7 +541,7 @@ fn asked<'a>(
                 .document
                 .open_questions
                 .iter()
-                .filter(|question| is_item(question, in_change))
+                .filter(|question| keep(question))
                 .map(|question| {
                     (
                         (entry.session, question),

@@ -26,7 +26,7 @@ use supersigil_record::reviews::{
 use supersigil_record::time::UtcTime;
 use supersigil_record::{EventId, JudgmentId, RecordId, Revision, SessionId, TurnId};
 use supersigil_review::decisions::{
-    Annotated, InView, RecordCandidate, basis_entries, choose_record, in_view,
+    Annotated, InView, RecordCandidate, basis_entries, choose_record, in_excerpt, in_view,
     interpretation_changes, names, question_items,
 };
 use supersigil_review::judging::JudgedStore;
@@ -535,6 +535,60 @@ fn a_question_id_in_two_sessions_names_its_items_by_session() {
         the_decision(&fixture.view()).open_questions,
         strings(&["question:3f2a9c1e:q1"])
     );
+}
+
+#[test]
+fn an_excerpt_names_its_questions_over_every_question_of_the_sessions() {
+    let fixture = Fixture::default()
+        .annotate(
+            S1,
+            vec![decision("d1", &[ATTRIBUTED, MATCHED])],
+            vec![question("q1", &[ATTRIBUTED]), question("q3", &[MATCHED])],
+        )
+        .annotate(S2, Vec::new(), vec![question("q1", &[MATCHED])]);
+    let annotated = fixture.annotated();
+    // The excerpt is `src/a.rs`: S2's `q1` and S1's `q3` concern `src/b.rs`.
+    let files = files();
+    let excerpt = &files[..1];
+
+    let whole = in_view(&annotated, &names(&annotated), &files);
+    let part = in_view(&annotated, &names(&annotated), excerpt);
+    let excerpted = in_excerpt(&annotated, &names(&annotated), excerpt);
+
+    // The gate of the whole change qualifies the repeated `q1`.
+    assert_eq!(
+        fixture.question_names(),
+        [
+            "question:3f2a9c1e:q1",
+            "question:q3",
+            "question:9c0d1e2f:q1"
+        ]
+    );
+    assert_eq!(
+        the_decision(&whole).open_questions,
+        strings(&["question:3f2a9c1e:q1", "question:q3"])
+    );
+    // Named over the items in the excerpt alone, `q1` looks unique.
+    assert_eq!(
+        the_decision(&part).open_questions,
+        strings(&["question:q1"])
+    );
+    // Named over every question, it is the gate's name; `q3`, no item in the
+    // excerpt, is still not listed.
+    assert_eq!(
+        the_decision(&excerpted).open_questions,
+        strings(&["question:3f2a9c1e:q1"])
+    );
+    // Nothing else of the view changes.
+    assert_eq!(excerpted.in_change, part.in_change);
+    assert_eq!(excerpted.edit_decisions, part.edit_decisions);
+    let (mut shown, mut named) = (
+        the_decision(&part).clone(),
+        the_decision(&excerpted).clone(),
+    );
+    shown.open_questions.clear();
+    named.open_questions.clear();
+    assert_eq!(shown, named);
 }
 
 #[test]

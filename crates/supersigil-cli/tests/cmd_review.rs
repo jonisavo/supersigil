@@ -5119,6 +5119,46 @@ fn why_shows_the_decisions_behind_its_line_with_the_corrections_in_the_store_giv
     assert!(manual.get("decisions").is_none(), "{manual:#}");
 }
 
+#[test]
+fn why_names_an_open_question_as_the_review_does_when_sessions_repeat_its_id() {
+    let f = Fixture::new();
+    let record = two_sessions_using_d1(&f);
+    // Each session asks its own `q1` about the edit behind its file.
+    for session in ["3f2a9c1e-one", "9c0d1e2f-two"] {
+        let edit = edit_of(session, "toolu_e");
+        annotate(
+            &record,
+            session,
+            &json!({"decisions": [decision("d1", session, &[&edit])],
+                "open_questions": [{"id": "q1", "text": "Why change it?", "about": [edit]}]}),
+        );
+    }
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let (why, _) = why_outputs(&f, "a.txt:1");
+    let (other, _) = why_outputs(&f, "b.txt:1");
+
+    // The gate qualifies the repeated id by session; `why` of one line,
+    // which holds only that session's question, names it the same way.
+    let question = |session: &str| json!([format!("question:{session}:q1")]);
+    assert_eq!(gate_row(&review, "question:3f2a9c1e:q1")["state"], "open");
+    assert_eq!(gate_row(&review, "question:9c0d1e2f:q1")["state"], "open");
+    assert_eq!(
+        decision_named(&review, "3f2a9c1e:d1")["open_questions"],
+        question("3f2a9c1e")
+    );
+    assert_eq!(decision_names(&why), ["3f2a9c1e:d1"]);
+    assert_eq!(
+        decision_named(&why, "3f2a9c1e:d1")["open_questions"],
+        question("3f2a9c1e")
+    );
+    assert_eq!(decision_names(&other), ["9c0d1e2f:d1"]);
+    assert_eq!(
+        decision_named(&other, "9c0d1e2f:d1")["open_questions"],
+        question("9c0d1e2f")
+    );
+}
+
 /// The files [`long_session`] rewrites.
 const LONG_FILES: usize = 50;
 /// The lines of each file [`long_session`] rewrites.
