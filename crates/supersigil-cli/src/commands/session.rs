@@ -264,7 +264,7 @@ fn summarize(store: &Store) -> Result<Vec<SessionSummary>, CliError> {
 }
 
 /// What to say when `checkout` has no record yet.
-fn no_record_message(checkout: &Path) -> String {
+pub(crate) fn no_record_message(checkout: &Path) -> String {
     format!(
         "no record for {}; run `supersigil session sync` first",
         Untrusted(&checkout.to_string_lossy())

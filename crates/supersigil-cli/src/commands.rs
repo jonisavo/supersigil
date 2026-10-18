@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use crate::format::{AutoFormat, OutputFormat};
 
+/// The `annotate` command group.
+pub mod annotate;
 /// The `completions` command.
 pub mod completions;
 /// The `judge` command group.
@@ -18,6 +20,16 @@ pub mod why;
 /// Available subcommands.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    /// Import annotations of recorded sessions and list them
+    ///
+    /// An annotation names the decisions a session made, each citing the
+    /// edits that carried it out, with every rationale labelled by who gave
+    /// it. Import checks the citations and quotes against the record the
+    /// document names, this checkout's or an ancestor checkout's; it does
+    /// not judge whether the explanation is right.
+    ///
+    /// Agents may run these commands.
+    Annotate(AnnotateArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
     /// Record judgments on a saved review, undo them, and read them back
@@ -40,6 +52,67 @@ pub enum Command {
     Session(SessionArgs),
     /// Explain where one line of a file came from
     Why(WhyArgs),
+}
+
+/// Where a command finds the checkout's record and its repository's review
+/// store: the options `review` takes, with the same defaults.
+///
+/// Every `annotate` command takes all four, so one set of options serves
+/// each; `import` and `list` read the record without syncing it and ignore
+/// `--claude-home`.
+#[derive(Debug, clap::Args)]
+pub struct StoreArgs {
+    /// Checkout whose record to use (default: current directory)
+    #[arg(long, global = true)]
+    pub checkout: Option<PathBuf>,
+    /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
+    #[arg(long, global = true)]
+    pub record_dir: Option<PathBuf>,
+    /// Reviews directory (default: `$SUPERSIGIL_REVIEW_DIR`, then `$XDG_DATA_HOME/supersigil/reviews`, then `~/.local/share/supersigil/reviews`)
+    #[arg(long, global = true)]
+    pub review_dir: Option<PathBuf>,
+    /// Claude home directory used for discovery (default: ~/.claude)
+    #[arg(long, global = true)]
+    pub claude_home: Option<PathBuf>,
+}
+
+/// Arguments for the `annotate` command group.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateArgs {
+    /// Where to find the record and the review store
+    #[command(flatten)]
+    pub store: StoreArgs,
+    /// Subcommand
+    #[command(subcommand)]
+    pub command: AnnotateCommand,
+}
+
+/// Subcommands of `annotate`.
+#[derive(Debug, clap::Subcommand)]
+pub enum AnnotateCommand {
+    /// Check an annotation document against the record it names, this checkout's or an ancestor's, and store it as the session's next revision
+    Import(AnnotateImportArgs),
+    /// List this checkout's sessions with their current annotations
+    List(AnnotateListArgs),
+}
+
+/// Arguments for `annotate import`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateImportArgs {
+    /// Annotation document to import, or - to read standard input
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Output format: `auto` prints text on a terminal and JSON otherwise
+    #[arg(long, default_value = "auto")]
+    pub format: AutoFormat,
+}
+
+/// Arguments for `annotate list`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateListArgs {
+    /// Output format: `auto` prints text on a terminal and JSON otherwise
+    #[arg(long, default_value = "auto")]
+    pub format: AutoFormat,
 }
 
 /// Arguments for the `completions` command.

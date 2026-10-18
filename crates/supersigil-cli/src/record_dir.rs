@@ -89,22 +89,28 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
     Ok(find_owner(records_dir, checkout)?.map(|(store, _)| store))
 }
 
+/// Every record that owns `checkout`, as [`find_record`] defines owning,
+/// nearest first: by how far the owning association lies above `checkout`,
+/// so the checkout's own record comes before its ancestors', and records at
+/// one distance in record-directory order. Unlike [`find_record`], several
+/// records at one distance are no error.
+///
+/// # Errors
+///
+/// Returns [`CliError::Io`] if the records directory exists but cannot be
+/// read, or a store error if a record's manifest cannot be accessed or read.
+pub fn owners(records_dir: &Path, checkout: &Path) -> Result<Vec<Store>, CliError> {
+    Ok(owning(records_dir, checkout)?
+        .into_iter()
+        .map(|(store, _)| store)
+        .collect())
+}
+
 /// [`find_record`], with how far the owning association lies above
 /// `checkout`: zero for an exact match.
 fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usize)>, CliError> {
-    let mut matches: Vec<(Store, usize)> = Vec::new();
-    for store in records_in(records_dir)? {
-        let distance = store
-            .manifest()?
-            .associations
-            .iter()
-            .filter_map(|a| rank(&a.checkout, checkout))
-            .min();
-        if let Some(distance) = distance {
-            matches.push((store, distance));
-        }
-    }
-    let Some(nearest) = matches.iter().map(|(_, distance)| *distance).min() else {
+    let mut matches = owning(records_dir, checkout)?;
+    let Some(nearest) = matches.first().map(|(_, distance)| *distance) else {
         return Ok(None);
     };
     matches.retain(|(_, distance)| *distance == nearest);
@@ -120,6 +126,30 @@ fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usiz
         checkout.to_string_lossy(),
         roots.join(", ")
     )))
+}
+
+/// [`owners`], each with how far its owning association lies above
+/// `checkout`.
+///
+/// # Errors
+///
+/// As [`owners`].
+fn owning(records_dir: &Path, checkout: &Path) -> Result<Vec<(Store, usize)>, CliError> {
+    let mut owning = Vec::new();
+    for store in records_in(records_dir)? {
+        let distance = store
+            .manifest()?
+            .associations
+            .iter()
+            .filter_map(|a| rank(&a.checkout, checkout))
+            .min();
+        if let Some(distance) = distance {
+            owning.push((store, distance));
+        }
+    }
+    // Stable, so records at one distance keep the directory's order.
+    owning.sort_by_key(|(_, distance)| *distance);
+    Ok(owning)
 }
 
 /// Opens every record in `records_dir`, sorted by record directory.
@@ -238,6 +268,24 @@ pub fn open_or_create_record_within(
     };
     drop(guard);
     Ok(acquired)
+}
+
+/// Begins a write transaction on `store`, trying its writer lock every
+/// 50 ms for up to `wait`; returns `None` when it stays held.
+///
+/// # Errors
+///
+/// Returns the store errors of [`Store::begin`] other than a held lock.
+///
+/// # Panics
+///
+/// Panics if `wait` is so large that the deadline overflows [`Instant`].
+pub fn begin_within(store: &Store, wait: Duration) -> Result<Option<WriteTx<'_>>, CliError> {
+    poll(Instant::now() + wait, || match store.begin() {
+        Ok(tx) => Ok(Some(tx)),
+        Err(StoreError::Locked(_)) => Ok(None),
+        Err(e) => Err(CliError::from(e)),
+    })
 }
 
 /// Interval between attempts on a held lock.
