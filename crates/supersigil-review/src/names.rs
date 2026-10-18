@@ -219,8 +219,10 @@ pub struct ItemNames<'g> {
     id_keys: Vec<(&'g str, usize)>,
     /// The same for the ids of commits.
     commit_keys: Vec<(&'g str, usize)>,
-    /// Open-question item indices in gate order, keyed by question id.
-    by_question: BTreeMap<&'g str, Vec<usize>>,
+    /// Each open-question item as (question id, session, item index),
+    /// sorted, so the items with one question id form one range, and within
+    /// it those whose sessions share a prefix form a sub-range.
+    question_index: Vec<(&'g str, &'g str, usize)>,
     /// The same as `id_keys` for the sessions of open questions, each
     /// session once, so [`unique_prefix`] never skips past a session's other
     /// questions.
@@ -257,20 +259,21 @@ impl<'g> ItemNames<'g> {
     ) -> Self {
         let mut by_path: BTreeMap<Vec<u8>, Vec<usize>> = BTreeMap::new();
         let mut by_id = BTreeMap::new();
-        let mut by_question: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        let mut question_index = Vec::new();
         for (index, item) in items.iter().enumerate() {
             match &item.subject {
                 Subject::Path(path) => {
                     let key = folded(path.as_bytes(), ignore_case);
                     by_path.entry(key).or_default().push(index);
                 }
-                Subject::Question { id, .. } => {
-                    by_question.entry(id.as_str()).or_default().push(index);
+                Subject::Question { session, id } => {
+                    question_index.push((id.as_str(), session.as_str(), index));
                 }
                 Subject::Commit(_) | Subject::Record(_) | Subject::Checkout(_) => {}
             }
             by_id.entry(&item.id).or_insert(index);
         }
+        question_index.sort_unstable();
         let mut question_keys = keyed(items, |item| {
             question_of(item).map(|(session, _)| session.as_str())
         });
@@ -283,7 +286,7 @@ impl<'g> ItemNames<'g> {
             by_id,
             id_keys: keyed(items, |item| Some(item.id.as_str())),
             commit_keys: keyed(items, commit_of),
-            by_question,
+            question_index,
             question_keys,
             names: Vec::new(),
         };
@@ -427,18 +430,34 @@ impl<'g> ItemNames<'g> {
 
     /// Finds the open-question items with question `id`, in gate order,
     /// whose session starts with `session` when given.
+    ///
+    /// Reads only the range of `question_index` those items form, so the
+    /// work is proportional to the items found, not to all question items.
     fn questions(&self, session: Option<&str>, id: &str) -> Vec<usize> {
-        let indices = self.by_question.get(id).map_or(&[][..], Vec::as_slice);
-        indices
+        let prefix = session.unwrap_or_default();
+        let start = self
+            .question_index
+            .partition_point(|&(other, session, _)| (other, session) < (id, prefix));
+        let mut indices: Vec<usize> = self.question_index[start..]
             .iter()
-            .copied()
-            .filter(|index| {
-                session.is_none_or(|prefix| {
-                    question_of(&self.items[*index])
-                        .is_some_and(|(session, _)| session.as_str().starts_with(prefix))
-                })
-            })
-            .collect()
+            .take_while(|&&(other, session, _)| other == id && session.starts_with(prefix))
+            .map(|&(_, _, index)| index)
+            .collect();
+        indices.sort_unstable();
+        indices
+    }
+
+    /// Whether more than one open-question item has question `id`.
+    fn shared_question(&self, id: &str) -> bool {
+        let start = self
+            .question_index
+            .partition_point(|&(other, _, _)| other < id);
+        self.question_index[start..]
+            .iter()
+            .take(2)
+            .filter(|&&(other, _, _)| other == id)
+            .count()
+            > 1
     }
 
     /// `question:<id>` for item `index`, or `question:<session>:<id>` when
@@ -446,12 +465,9 @@ impl<'g> ItemNames<'g> {
     /// names that item alone.
     fn question_name(&self, index: usize, session: &SessionId, id: &str) -> Option<String> {
         let qualifier = Origin::OpenQuestion.qualifier();
-        let shared = self
-            .by_question
-            .get(id)
-            .is_some_and(|items| items.len() > 1);
-        let prefix =
-            shared.then(|| unique_prefix(session.as_str(), &self.question_keys, SESSION_PREFIX));
+        let prefix = self
+            .shared_question(id)
+            .then(|| unique_prefix(session.as_str(), &self.question_keys, SESSION_PREFIX));
         let name = match prefix {
             Some(prefix) => format!("{qualifier}:{prefix}:{id}"),
             None => format!("{qualifier}:{id}"),

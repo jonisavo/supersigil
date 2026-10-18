@@ -702,6 +702,31 @@ fn ten_thousand_questions_in_each_of_two_sessions_are_named_promptly() {
 }
 
 #[test]
+fn ten_thousand_sessions_asking_one_question_id_are_named_promptly() {
+    // Every session asks `q1`, so every name is qualified by its session's
+    // prefix, and naming or resolving one must not scan the other sessions.
+    let items: Vec<GateItem> = (0..10_000)
+        .map(|k| question(&format!("{k:08x}-0000-4000-8000-000000000001"), "q1"))
+        .collect();
+    let every = ids(&items.iter().collect::<Vec<_>>());
+
+    let started = std::time::Instant::now();
+    let (shown, resolved) = finishes_within(Duration::from_secs(20), move || {
+        let names = named(&items, false);
+        (names.names().to_vec(), resolve(&names, names.names()))
+    });
+    eprintln!(
+        "named 10,000 sessions asking one question in {:?}",
+        started.elapsed()
+    );
+
+    assert_eq!(shown.len(), 10_000);
+    assert_eq!(shown[0], "question:00000000:q1");
+    assert_eq!(shown[9_999], "question:0000270f:q1");
+    assert_eq!(resolved, Ok(every));
+}
+
+#[test]
 fn each_name_that_names_no_single_item_is_refused() {
     let items = [lines("src/a.rs"), at(Origin::Discontinuity, b"src/a.rs")];
     let names = named(&items, false);
