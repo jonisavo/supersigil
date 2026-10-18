@@ -190,6 +190,7 @@ fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
             ("e2".to_owned(), edit_info("2026-10-13T10:00:02.000Z")),
         ]),
         decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
         edit_decisions: BTreeMap::new(),
         annotations: Vec::new(),
     }

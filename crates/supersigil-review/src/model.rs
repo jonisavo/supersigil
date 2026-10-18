@@ -3,8 +3,8 @@
 //! JSON fields start with the saved basis, worktree, base, and target, then
 //! status, gate, and unattributed summary. Scope, origins, records, evidence,
 //! and files follow, then edits, keyed by the IDs other sections use. The
-//! decisions behind the change and each candidate session's annotation come
-//! last.
+//! decisions behind the change, the corrections anchored to none of them,
+//! and each candidate session's annotation come last.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -80,6 +80,10 @@ pub struct Review {
     /// The decisions citing an edit that contributes to a line of the
     /// change, sorted by name.
     pub decisions: Vec<DecisionInfo>,
+    /// The standing corrections in scope that anchor to no decision in
+    /// view, oldest first. Omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unanchored_corrections: Vec<CorrectionInfo>,
     /// Per edit id in the change, the sorted names of the decisions citing
     /// it. Omitted when empty. Kept apart from `edits`, whose entries gate
     /// fingerprints hash, so an annotation never changes evidence.
@@ -1209,11 +1213,13 @@ pub struct DecisionInfo {
 }
 
 /// A standing correction of a decision, as a decision it anchors to shows
-/// it.
+/// it, or as a review lists it when it anchors to none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CorrectionInfo {
     /// The correction judgment.
     pub judgment: JudgmentId,
+    /// The decision it addressed, which need not be the one showing it.
+    pub decision: DecisionRef,
     /// What it says about the decision.
     pub kind: CorrectionKind,
     /// Why, for a `wrong` or `not_together` correction.
@@ -1230,8 +1236,9 @@ pub struct CorrectionInfo {
     /// revision's decision cited rather than to that decision itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub addressed: Option<AnnotationRevision>,
-    /// Whether the shown revision lists it among the corrections its
-    /// annotator saw.
+    /// Whether the shown revision of its session lists it among the
+    /// corrections its annotator saw; `false` when the review shows no
+    /// revision of that session.
     pub seen: bool,
     /// The full id of the review it was recorded on.
     pub review: BasisId,

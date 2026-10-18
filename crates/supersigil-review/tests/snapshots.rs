@@ -27,11 +27,12 @@ use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, GateItem,
-    Judgment, JudgmentKind, PathBytes, TargetKind, Who,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, CorrectionKind,
+    DecisionRef, GateItem, Judgment, JudgmentKind, PathBytes, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, TurnId};
+use supersigil_review::decisions::corrections::anchor;
 use supersigil_review::decisions::{Annotated, in_view, names};
 use supersigil_review::gate::{GateInputs, gate_items};
 use supersigil_review::judging::{JudgedStore, Relation};
@@ -429,8 +430,51 @@ fn sample_annotation() -> Annotation {
     }
 }
 
+/// Corrections recorded on an earlier review: [`sample_annotation`]'s `d1`
+/// is disputed and given its constraint, and a decision of a session whose
+/// record is gone anchors to nothing.
+fn sample_corrections() -> Vec<Judgment> {
+    let earlier = earlier_id();
+    let correct = |id, record: &str, session: &str, kind, words: &str| Judgment {
+        decision: Some(DecisionRef {
+            record: RecordId::new(record),
+            session: SessionId::new(session),
+            revision: AnnotationRevision::FIRST,
+            id: "d1".to_owned(),
+        }),
+        correction: Some(kind),
+        reason: (kind != CorrectionKind::Constraint).then(|| words.to_owned()),
+        text: (kind == CorrectionKind::Constraint).then(|| words.to_owned()),
+        ..judgment(id, &earlier, JudgmentKind::Correct, &[])
+    };
+    vec![
+        correct(
+            "wrong",
+            "rec-1",
+            "s1",
+            CorrectionKind::Wrong,
+            "the rename came from the reviewer",
+        ),
+        correct(
+            "constraint",
+            "rec-1",
+            "s1",
+            CorrectionKind::Constraint,
+            "callers outside this crate must keep compiling",
+        ),
+        correct(
+            "gone",
+            "rec-0",
+            "s0",
+            CorrectionKind::NotTogether,
+            "two unrelated fixes",
+        ),
+    ]
+}
+
 /// Adds the decisions behind `review`'s files from [`sample_annotation`],
-/// and the annotation's coverage.
+/// the [`sample_corrections`] anchored to them or to none, and the
+/// annotation's coverage.
 fn with_decisions(mut review: Review) -> Review {
     let annotation = sample_annotation();
     let (session, record) = (SessionId::new("s1"), RecordId::new("rec-1"));
@@ -444,7 +488,15 @@ fn with_decisions(mut review: Review) -> Review {
         annotation: &annotation,
         restores: &restores,
     }];
-    let view = in_view(&annotated, &names(&annotated), &review.files);
+    let mut view = in_view(&annotated, &names(&annotated), &review.files);
+    let corrections = sample_corrections();
+    let corrections: Vec<&Judgment> = corrections.iter().collect();
+    review.unanchored_corrections = anchor(
+        &corrections,
+        &BTreeMap::new(),
+        &annotated,
+        &mut view.decisions,
+    );
     review.decisions = view.decisions;
     review.edit_decisions = view.edit_decisions;
     review.annotations = vec![
@@ -502,6 +554,7 @@ fn sample_review() -> Review {
         files,
         edits: edits(),
         decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
         edit_decisions: BTreeMap::new(),
         annotations: Vec::new(),
     };
@@ -585,9 +638,10 @@ fn review_json_shape_is_stable() {
 }
 
 #[test]
-fn a_review_without_decisions_lists_none_and_omits_the_edit_map() {
+fn a_review_without_decisions_lists_none_and_omits_the_edit_map_and_unanchored_list() {
     let mut review = sample_review();
     review.decisions = Vec::new();
+    review.unanchored_corrections = Vec::new();
     review.edit_decisions = BTreeMap::new();
     review.annotations = Vec::new();
 
@@ -596,6 +650,7 @@ fn a_review_without_decisions_lists_none_and_omits_the_edit_map() {
     assert_eq!(json["decisions"], json!([]));
     assert_eq!(json["annotations"], json!([]));
     assert!(json.get("edit_decisions").is_none(), "{json}");
+    assert!(json.get("unanchored_corrections").is_none(), "{json}");
 }
 
 #[test]

@@ -14,8 +14,8 @@
 //! item states from judgments recorded on saved reviews. [`annotating`]
 //! checks an annotation document against its session's observations before
 //! the record stores it. [`decisions`] finds the annotated decisions that
-//! explain the change, turns open questions into gate items, and pins what
-//! a basis read of annotations.
+//! explain the change, anchors corrections to them, turns open questions
+//! into gate items, and pins what a basis read of annotations.
 
 pub mod annotating;
 pub mod decisions;

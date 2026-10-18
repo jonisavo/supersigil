@@ -581,9 +581,42 @@ decisions:
     revision: 1
     id: d1
     title: Rename the old function to new
-    disputed: false
-    corrections: []
+    disputed: true
+    corrections:
+      - judgment: constraint
+        decision:
+          record: rec-1
+          session: s1
+          revision: 1
+          id: d1
+        kind: constraint
+        text: callers outside this crate must keep compiling
+        who:
+          name: Joni Savolainen
+          email: joni@example.com
+        at: "2026-10-13T12:00:00Z"
+        seen: false
+        review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
+      - judgment: wrong
+        decision:
+          record: rec-1
+          session: s1
+          revision: 1
+          id: d1
+        kind: wrong
+        reason: the rename came from the reviewer
+        who:
+          name: Joni Savolainen
+          email: joni@example.com
+        at: "2026-10-13T12:00:00Z"
+        seen: false
+        review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
     rationale:
+      - text: callers outside this crate must keep compiling
+        speaker: human
+        explicit: true
+        source: ~
+        correction: constraint
       - text: Add a greeting function and clean up.
         speaker: human
         explicit: true
@@ -636,6 +669,21 @@ decisions:
         start: 2
         count: 1
         association: attributed
+unanchored_corrections:
+  - judgment: gone
+    decision:
+      record: rec-0
+      session: s0
+      revision: 1
+      id: d1
+    kind: not_together
+    reason: two unrelated fixes
+    who:
+      name: Joni Savolainen
+      email: joni@example.com
+    at: "2026-10-13T12:00:00Z"
+    seen: false
+    review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
 edit_decisions:
   e1:
     - d1

@@ -39,11 +39,17 @@
 //!   whose pinned annotation differs ([`interpretation_changes`]). Revisions
 //!   are numbered per record, so a pin in another record differs even with
 //!   the same revision number.
+//! - **Corrections.** A standing correction anchors to the decision its
+//!   full reference names, or in another revision to the decisions citing
+//!   an edit that decision cited, and is listed apart when it anchors to
+//!   none ([`corrections`]).
 //!
 //! No annotation reaches an evidence fingerprint: decisions are kept beside
 //! the file and edit entries that explanation digests and gate fingerprints
 //! hash, so a re-annotation reopens no existing item. New open questions
 //! are new items.
+
+pub mod corrections;
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -171,7 +177,7 @@ impl Names<'_> {
 pub struct InView {
     /// The decisions citing an edit that contributes to a line of the
     /// change, sorted by name. None lists corrections or is disputed yet:
-    /// anchoring corrections is a later step.
+    /// [`corrections::anchor`] marks them.
     pub decisions: Vec<DecisionInfo>,
     /// Per edit id in the change, the sorted names of the decisions citing
     /// it. An edit no decision cites is absent.

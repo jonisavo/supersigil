@@ -359,6 +359,7 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
         files,
         edits,
         decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
         edit_decisions: BTreeMap::new(),
         annotations: Vec::new(),
     })
