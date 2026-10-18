@@ -56,6 +56,16 @@ macro_rules! string_id {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
+
+            /// Returns the first 8 characters for display, or the whole ID
+            /// if shorter.
+            #[must_use]
+            pub fn short(&self) -> &str {
+                self.0
+                    .char_indices()
+                    .nth(8)
+                    .map_or(&self.0, |(end, _)| &self.0[..end])
+            }
         }
 
         impl std::fmt::Display for $name {
@@ -121,14 +131,6 @@ string_id!(
     JudgmentId,
     generate
 );
-
-impl JudgmentId {
-    /// Returns the first 8 characters for display, or the whole ID if shorter.
-    #[must_use]
-    pub fn short(&self) -> &str {
-        self.0.get(..8).unwrap_or(&self.0)
-    }
-}
 
 /// Record version number, incremented each time a write transaction commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

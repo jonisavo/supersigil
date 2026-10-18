@@ -17,14 +17,12 @@ use supersigil_record::reviews::{Judgment, PathBytes};
 use supersigil_review::WHY_SCHEMA;
 use supersigil_review::decisions::{in_excerpt, names};
 use supersigil_review::mapping::lines_correspond;
-use supersigil_review::model::{
-    BytesStatus, DecisionInfo, FileKindInfo, FileReview, FileStatus, HunkReview, Span, SpanSide,
-};
+use supersigil_review::model::{DecisionInfo, Span, SpanSide};
 use supersigil_review::why::{
     OnDiskCheck, Why, WhyLine, WhyTarget, line_command_changes, render_why, why_line,
 };
 
-use crate::annotations::{Annotations, anchor_corrections, standing_corrections};
+use crate::annotations::{Annotations, anchor_corrections, standing_corrections_in};
 use crate::commands::{StoreArgs, WhyArgs};
 use crate::error::CliError;
 use crate::evidence::add_referenced_edits;
@@ -166,7 +164,7 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
 /// # Errors
 ///
 /// Returns the errors of [`Annotations::read`] and
-/// [`standing_corrections`].
+/// [`standing_corrections_in`].
 fn decisions_behind(
     g: &Gathered,
     options: &StoreArgs,
@@ -174,73 +172,35 @@ fn decisions_behind(
     line: &WhyLine,
 ) -> Result<Vec<DecisionInfo>, CliError> {
     let sessions = g.candidate_sessions();
-    let annotations = Annotations::read(
-        &g.records,
-        &g.worktree,
-        &g.candidate_worktrees,
-        sessions.iter().copied(),
-    )?;
+    let annotations = Annotations::read(g, sessions.iter().copied())?;
     let annotated = annotations.annotated();
-    let view = in_excerpt(&annotated, &names(&annotated), &[line_view(path, line)]);
+    // The line as one span of the change, the form a review's files take.
+    let span = Span {
+        side: SpanSide::Target,
+        start: line.number,
+        count: 1,
+        outcome: line.outcome.clone(),
+        provenance: Vec::new(),
+    };
+    let path_bytes = PathBytes::new(path.as_bytes());
+    let view = in_excerpt(&annotated, &names(&annotated), &path_bytes, &[span]);
     let mut decisions = view.decisions;
     if decisions.is_empty() {
         return Ok(decisions);
     }
-    let standing = standing_corrections(options, &g.worktree)?;
+    let standing = standing_corrections_in(options, &g.repo)?;
     let corrections: Vec<&Judgment> = standing
         .iter()
         .flat_map(|standing| &standing.judgments)
         .filter(|judgment| {
             judgment
-                .decision
-                .as_ref()
-                .is_some_and(|decision| sessions.contains(&decision.session))
+                .as_correction()
+                .is_some_and(|(decision, _)| sessions.contains(&decision.session))
         })
         .collect();
     // `why` lists no correction apart from the decisions it shows.
     let _unanchored = anchor_corrections(&g.records, &annotations, &corrections, &mut decisions);
     Ok(decisions)
-}
-
-/// `line` of `path` as a change of one span, the form [`in_excerpt`] reads a
-/// review's files in. Only the path and the span are read; the other fields
-/// are placeholders.
-fn line_view(path: &RepoPath, line: &WhyLine) -> FileReview {
-    FileReview {
-        path: path.display(),
-        path_escaped: path.to_str().is_none().then(|| path.escaped()),
-        path_bytes: PathBytes::new(path.as_bytes()),
-        status: FileStatus::Modified,
-        old_mode: String::new(),
-        new_mode: String::new(),
-        old_blob: None,
-        new_blob: None,
-        kind: FileKindInfo::Text,
-        attribution_bytes: BytesStatus {
-            base: String::new(),
-            target: String::new(),
-        },
-        attribution: None,
-        conflicting_edits: Vec::new(),
-        coarse: false,
-        hunks: vec![HunkReview {
-            base_start: 0,
-            base_count: 0,
-            target_start: line.number,
-            target_count: 1,
-            removed: Vec::new(),
-            added: vec![line.text.clone()],
-            spans: vec![Span {
-                side: SpanSide::Target,
-                start: line.number,
-                count: 1,
-                outcome: line.outcome.clone(),
-                provenance: Vec::new(),
-            }],
-        }],
-        mentions: Vec::new(),
-        command_changes: Vec::new(),
-    }
 }
 
 /// Splits `<file>:<line>` at its last colon; the line is 1-based.

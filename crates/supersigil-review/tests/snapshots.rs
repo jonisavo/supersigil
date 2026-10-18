@@ -491,12 +491,7 @@ fn with_decisions(mut review: Review) -> Review {
     let mut view = in_view(&annotated, &names(&annotated), &review.files);
     let corrections = sample_corrections();
     let corrections: Vec<&Judgment> = corrections.iter().collect();
-    review.unanchored_corrections = anchor(
-        &corrections,
-        &BTreeMap::new(),
-        &annotated,
-        &mut view.decisions,
-    );
+    review.unanchored_corrections = anchor(&corrections, |_| None, &annotated, &mut view.decisions);
     review.decisions = view.decisions;
     review.edit_decisions = view.edit_decisions;
     review.annotations = vec![

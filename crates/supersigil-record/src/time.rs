@@ -68,6 +68,18 @@ impl UtcTime {
         let (year, month, day) = civil_from_days(self.0.div_euclid(DAY));
         format!("{year:04}-{month:02}-{day:02}")
     }
+
+    /// The UTC date and time to the minute, `YYYY-MM-DD HH:MM`.
+    #[must_use]
+    pub fn minute(self) -> String {
+        let seconds = self.0.rem_euclid(DAY);
+        format!(
+            "{} {:02}:{:02}",
+            self.date(),
+            seconds / 3_600,
+            seconds / 60 % 60
+        )
+    }
 }
 
 impl fmt::Display for UtcTime {

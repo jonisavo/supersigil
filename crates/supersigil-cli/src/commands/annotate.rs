@@ -37,8 +37,9 @@ mod import;
 mod list;
 mod prepare;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use supersigil_record::RecordSnapshot;
 use supersigil_record::store::Store;
 
 use crate::commands::session::no_record_message;
@@ -67,16 +68,6 @@ pub fn run(args: &AnnotateArgs) -> Result<(), CliError> {
     }
 }
 
-/// The checkout `options` names and its record, found as `session show`
-/// finds it.
-#[derive(Debug)]
-struct CheckoutRecord {
-    /// The checkout, canonical.
-    checkout: PathBuf,
-    /// The record that owns it.
-    store: Store,
-}
-
 /// The records directory and the canonical checkout `options` name, without
 /// looking for the checkout's record.
 ///
@@ -90,18 +81,21 @@ fn locate(options: &StoreArgs) -> Result<(PathBuf, PathBuf), CliError> {
     Ok((records_dir, checkout))
 }
 
-/// Finds the checkout `options` names and its record, which must be the
-/// only one nearest to it: a command that selects the record itself has no
-/// better way to choose between records at one distance.
+/// The records in `records_dir` owning `checkout`, as itself or an
+/// ancestor, nearest first, each with its snapshot
+/// ([`record_dir::owners`]).
 ///
 /// # Errors
 ///
 /// Returns [`CliError::CommandFailed`] saying to sync first when no record
-/// owns the checkout, and the errors of [`locate`] and of
-/// [`record_dir::find_record`].
-fn checkout_record(options: &StoreArgs) -> Result<CheckoutRecord, CliError> {
-    let (records_dir, checkout) = locate(options)?;
-    let store = record_dir::find_record(&records_dir, &checkout)?
-        .ok_or_else(|| CliError::CommandFailed(no_record_message(&checkout)))?;
-    Ok(CheckoutRecord { checkout, store })
+/// owns the checkout, and the errors of [`record_dir::owners`].
+fn owning_records(
+    records_dir: &Path,
+    checkout: &Path,
+) -> Result<Vec<(Store, RecordSnapshot)>, CliError> {
+    let owners = record_dir::owners(records_dir, checkout)?;
+    if owners.is_empty() {
+        return Err(CliError::CommandFailed(no_record_message(checkout)));
+    }
+    Ok(owners)
 }

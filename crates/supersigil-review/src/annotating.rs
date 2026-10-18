@@ -35,7 +35,7 @@
 //!   generates.
 //! - Lists hold at most their bound of entries: [`MAX_CORRECTIONS_SEEN`]
 //!   corrections, [`MAX_DECISIONS`] decisions, [`MAX_QUESTIONS`] questions,
-//!   and [`MAX_PER_DECISION_LIST`] in each list of a decision and in a
+//!   and [`MAX_LIST_ENTRIES`] in each list of a decision and in a
 //!   question's `about`. A longer list is one problem at its path, and its
 //!   entries are checked as well.
 //!
@@ -69,7 +69,7 @@ pub const MAX_QUESTIONS: usize = 10_000;
 /// Most entries in each list of a decision: its cites, rationale,
 /// alternatives and implications, and each alternative's edits; and in an
 /// open question's `about`.
-pub const MAX_PER_DECISION_LIST: usize = 1_000;
+pub const MAX_LIST_ENTRIES: usize = 1_000;
 /// Most judgment ids in `corrections_seen`.
 pub const MAX_CORRECTIONS_SEEN: usize = 10_000;
 /// Most characters in a decision or open-question id.
@@ -323,25 +323,25 @@ impl<'a> Check<'a> {
             self.list(
                 path.field("cites"),
                 &decision.cites,
-                MAX_PER_DECISION_LIST,
+                MAX_LIST_ENTRIES,
                 Self::event,
             );
             self.list(
                 path.field("rationale"),
                 &decision.rationale,
-                MAX_PER_DECISION_LIST,
+                MAX_LIST_ENTRIES,
                 Self::rationale,
             );
             self.list(
                 path.field("alternatives"),
                 &decision.alternatives,
-                MAX_PER_DECISION_LIST,
+                MAX_LIST_ENTRIES,
                 Self::alternative,
             );
             self.list(
                 path.field("implications"),
                 &decision.implications,
-                MAX_PER_DECISION_LIST,
+                MAX_LIST_ENTRIES,
                 Self::implication,
             );
         }
@@ -360,7 +360,7 @@ impl<'a> Check<'a> {
             self.list(
                 path.field("about"),
                 &question.about,
-                MAX_PER_DECISION_LIST,
+                MAX_LIST_ENTRIES,
                 Self::event,
             );
         }
@@ -496,7 +496,7 @@ impl<'a> Check<'a> {
         self.list(
             path.field("edits"),
             &alternative.edits,
-            MAX_PER_DECISION_LIST,
+            MAX_LIST_ENTRIES,
             Self::event,
         );
         if let Some(reason) = &alternative.reason {

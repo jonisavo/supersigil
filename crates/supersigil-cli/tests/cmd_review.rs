@@ -81,12 +81,6 @@ fn limits(f: &Fixture) {
     f.transcript(&f.repo, "limits.jsonl", &text);
 }
 
-fn edit_id(session: &str, tool: &str) -> String {
-    EventId::derive("edit", &SessionId::new(session), tool)
-        .as_str()
-        .to_owned()
-}
-
 fn file<'v>(review: &'v Value, path: &str) -> &'v Value {
     review["files"]
         .as_array()
@@ -171,7 +165,7 @@ fn review_slice_fixture() {
     let chains = lib["attribution"]["chains"].as_array().unwrap();
     assert_eq!(chains.len(), 1);
     assert_eq!(chains[0]["class"], "exact_from_start");
-    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    assert_eq!(chains[0]["head"], edit_of(SLICE_SESSION, "toolu_05"));
     // Every base line survives, so the diff only adds: the manual line and
     // the four lines of `greet` and the blank line before it.
     let added = side_lines(lib, "target");
@@ -186,7 +180,7 @@ fn review_slice_fixture() {
             assert_eq!(outcome["kind"], "attributed", "{text}");
             assert_eq!(
                 outcome["edits"][0]["edit"],
-                edit_id(SLICE_SESSION, "toolu_05")
+                edit_of(SLICE_SESSION, "toolu_05")
             );
             assert_eq!(outcome["edits"][0]["relation"], "introduced");
         } else {
@@ -196,7 +190,7 @@ fn review_slice_fixture() {
             assert_eq!(outcome["kind"], "unattributed", "{text}");
         }
     }
-    let prompt = &review["edits"][edit_id(SLICE_SESSION, "toolu_05")]["prompt"];
+    let prompt = &review["edits"][edit_of(SLICE_SESSION, "toolu_05")]["prompt"];
     assert_eq!(prompt["turn"], "u1");
     assert_eq!(prompt["role"], "human");
     assert_edits_are_the_referenced_ones(&review["files"], &review["edits"]);
@@ -255,7 +249,7 @@ fn review_slice_with_include_untracked() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id(SLICE_SESSION, "toolu_02")
+        edit_of(SLICE_SESSION, "toolu_02")
     );
     assert!(
         review["scope"]["untracked_excluded"]
@@ -294,7 +288,7 @@ fn review_large_file_single_session() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-big", "toolu_big")
+        edit_of("s-big", "toolu_big")
     );
     let removed = side_lines(big, "base");
     assert_eq!(removed.len(), 1);
@@ -423,7 +417,7 @@ fn review_attributes_through_agents_working_in_turn() {
     assert_eq!(added.len(), 2);
     for ((text, outcome), tool) in added.iter().zip(["toolu_e1", "toolu_e2"]) {
         assert_eq!(outcome["kind"], "attributed", "{text}");
-        assert_eq!(outcome["edits"][0]["edit"], edit_id("s-agents", tool));
+        assert_eq!(outcome["edits"][0]["edit"], edit_of("s-agents", tool));
     }
 }
 
@@ -473,7 +467,7 @@ fn review_commit_target_uses_the_reflog_origin() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-create", "toolu_create")
+        edit_of("s-create", "toolu_create")
     );
 }
 
@@ -540,7 +534,7 @@ fn review_commit_from_sibling_worktree() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-sib", "toolu_sib")
+        edit_of("s-sib", "toolu_sib")
     );
 }
 
@@ -633,7 +627,7 @@ fn review_session_editing_a_nested_worktree() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-parent", "toolu_parent")
+        edit_of("s-parent", "toolu_parent")
     );
 }
 
@@ -660,7 +654,7 @@ fn review_reports_locked_record() {
     assert_eq!(review["records"][0]["reason"], "locked by another writer");
     // The pinned revision is still read.
     let chains = &file(&review, "src/lib.rs")["attribution"]["chains"];
-    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    assert_eq!(chains[0]["head"], edit_of(SLICE_SESSION, "toolu_05"));
     drop(tx);
 }
 
@@ -751,7 +745,7 @@ fn why_on_a_changed_line() {
     assert_eq!(line["outcome"]["kind"], "attributed");
     assert_eq!(
         line["outcome"]["edits"][0]["edit"],
-        edit_id(SLICE_SESSION, "toolu_05")
+        edit_of(SLICE_SESSION, "toolu_05")
     );
 }
 
@@ -774,7 +768,7 @@ fn why_on_an_unchanged_line_explains_back_to_creation() {
     assert_eq!(line["outcome"]["kind"], "attributed");
     assert_eq!(
         line["outcome"]["edits"][0]["edit"],
-        edit_id("s-create", "toolu_create")
+        edit_of("s-create", "toolu_create")
     );
 }
 
@@ -791,8 +785,8 @@ fn why_prints_the_creation_a_later_edit_replaced() {
     write(&f.repo, "src/a.rs", "b\n");
     f.commit(&f.repo, "add a.rs");
     let (create, edit) = (
-        edit_id("s-ef", "toolu_create"),
-        edit_id("s-ef", "toolu_edit"),
+        edit_of("s-ef", "toolu_create"),
+        edit_of("s-ef", "toolu_edit"),
     );
 
     let why = f.json(&f.repo, &["why", "src/a.rs:1", "--format", "json"]);
@@ -1014,7 +1008,7 @@ fn a_conflicting_edit_id_attributes_neither_path() {
     ];
     let review = f.json(&f.repo, &args);
 
-    let id = edit_id("s-dup", "toolu_dup");
+    let id = edit_of("s-dup", "toolu_dup");
     for path in ["x/a.rs", "y/b.rs"] {
         let file = file(&review, path);
         let added = side_lines(file, "target");
@@ -1055,7 +1049,7 @@ fn a_conflict_with_a_non_candidate_worktree_attributes_neither() {
     ];
     let review = f.json(&f.repo, &args);
 
-    let id = edit_id("s-dup", "toolu_dup");
+    let id = edit_of("s-dup", "toolu_dup");
     let a = file(&review, "x/a.rs");
     let added = side_lines(a, "target");
     assert_eq!(added.len(), 1);
@@ -1146,7 +1140,7 @@ fn a_conflict_is_listed_on_a_file_whose_attribution_is_unavailable() {
     );
     assert_eq!(
         a["conflicting_edits"][0]["edit"],
-        edit_id("s-dup", "toolu_dup")
+        edit_of("s-dup", "toolu_dup")
     );
 }
 
@@ -1211,8 +1205,8 @@ fn edit_maps_hold_only_the_edits_the_analysis_refers_to() {
     f.transcript(&f.repo, "big.jsonl", &used);
     f.transcript(&f.repo, "unused.jsonl", &unused);
     let (used, unused) = (
-        edit_id("s-big", "toolu_big"),
-        edit_id("s-unused", "toolu_unused"),
+        edit_of("s-big", "toolu_big"),
+        edit_of("s-unused", "toolu_unused"),
     );
 
     let review = f.json(&f.repo, &["review", "--format", "json"]);
@@ -1268,7 +1262,7 @@ fn a_conflict_is_listed_on_a_file_that_is_not_diffed() {
     assert!(a["attribution"].is_null());
     assert_eq!(
         a["conflicting_edits"][0]["edit"],
-        edit_id("s-dup", "toolu_dup")
+        edit_of("s-dup", "toolu_dup")
     );
 }
 
@@ -1767,7 +1761,7 @@ fn record_creation(f: &Fixture, path: &str, content: &str) -> (PathBuf, String) 
         .create("toolu_create", &f.repo.join(path), content)
         .text();
     let transcript = f.transcript(&f.repo, "create.jsonl", &text);
-    (transcript, edit_id("s-create", "toolu_create"))
+    (transcript, edit_of("s-create", "toolu_create"))
 }
 
 /// The JSON `why` prints for `path` when the captured `tree` holds it and
@@ -2136,8 +2130,8 @@ fn heredoc_writes_attribute_like_edits_and_name_their_command() {
     shell_session(&f);
     let review = f.json(&f.repo, &SHELL_REVIEW);
 
-    let created = edit_id(SHELL_SESSION, "t_new#0");
-    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    let created = edit_of(SHELL_SESSION, "t_new#0");
+    let appended = edit_of(SHELL_SESSION, "t_app#0");
     let gen_rs = file(&review, "src/gen.rs");
     assert_eq!(gen_rs["attribution"]["status"]["kind"], "composed");
     assert_eq!(
@@ -2225,7 +2219,7 @@ fn a_review_lists_the_commands_that_changed_each_file() {
     // The unconfirmed heredoc is a capture limitation, not an edit.
     let limitations = &review["evidence"]["candidate_transcripts"][0]["capture_limitations"];
     assert_eq!(limitations[0]["unconfirmed_shell_writes"], 1);
-    let unconfirmed = edit_id(SHELL_SESSION, "t_unc#0");
+    let unconfirmed = edit_of(SHELL_SESSION, "t_unc#0");
     assert!(review["edits"].get(&unconfirmed).is_none());
 }
 
@@ -2243,7 +2237,7 @@ fn a_commit_review_attributes_shell_edits_and_lists_command_changes() {
     assert_eq!(lines[0].1["kind"], "attributed");
     assert_eq!(
         lines[0].1["edits"][0]["edit"],
-        edit_id(SHELL_SESSION, "t_new#0")
+        edit_of(SHELL_SESSION, "t_new#0")
     );
     assert_eq!(lines[1].1["kind"], "attributed");
     assert_eq!(gen_rs["command_changes"].as_array().unwrap().len(), 2);
@@ -2388,7 +2382,7 @@ fn a_heredoc_edit_whose_statement_did_not_run_attributes_nothing() {
     assert_eq!(made["attribution"]["status"]["kind"], "not_composed");
     assert_eq!(
         made["attribution"]["status"]["reasons"][0]["edit"],
-        edit_id("s-skip", "t_skip#0")
+        edit_of("s-skip", "t_skip#0")
     );
     assert_eq!(
         made["command_changes"][0]["command"],
@@ -2457,7 +2451,7 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
     shell_session(&f);
     let (why, terminal) = why_outputs(&f, "src/gen.rs:2");
     assert_eq!(why["line"]["outcome"]["kind"], "attributed");
-    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    let appended = edit_of(SHELL_SESSION, "t_app#0");
     assert_eq!(why["edits"][&appended]["origin"]["kind"], "shell");
     let expected = format!(
         "    read from a heredoc in command {}: cat >> src/gen.rs <<'EOF' … (2 more lines)\n    \
@@ -2496,7 +2490,7 @@ fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
     write(&f.repo, "made.txt", "same\n");
 
     let (why, terminal) = why_outputs(&f, "made.txt:1");
-    let edit = edit_id("s-same", "t_same#0");
+    let edit = edit_of("s-same", "t_same#0");
     let command = command_id("s-same", "t_same");
     // JSON: the edit is marked as read from a shell command, and the
     // command is listed as an observation of the file.
@@ -2573,8 +2567,8 @@ fn identical_appends_of_one_command_are_attributed_in_its_order() {
     assert_eq!(
         attributed,
         vec![
-            ("attributed", &json!(edit_id("s-twice", "t_twice#0"))),
-            ("attributed", &json!(edit_id("s-twice", "t_twice#1"))),
+            ("attributed", &json!(edit_of("s-twice", "t_twice#0"))),
+            ("attributed", &json!(edit_of("s-twice", "t_twice#1"))),
         ]
     );
 }
@@ -2624,7 +2618,7 @@ fn formatted_session(f: &Fixture) {
 fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
     let f = Fixture::new();
     formatted_session(&f);
-    let created = edit_id(FORMATTED_SESSION, "t_new#0");
+    let created = edit_of(FORMATTED_SESSION, "t_new#0");
     let new = command_id(FORMATTED_SESSION, "t_new");
     let app = command_id(FORMATTED_SESSION, "t_app");
     let fmt = command_id(FORMATTED_SESSION, "t_fmt");
@@ -3320,7 +3314,7 @@ fn the_basis_gate_hashes_the_recorded_edits_behind_unexplained_lines() {
 
     // The record edited by hand: the write keeps its id and metadata, but
     // its content and after-state change, and the first line still matches.
-    rewrite_edit(&f.records, &edit_id("s-match", "toolu_write"), |edit| {
+    rewrite_edit(&f.records, &edit_of("s-match", "toolu_write"), |edit| {
         edit.new_text = Material::Retained("first".to_owned());
         edit.after = FileState::known(ContentId::of(b"first"));
     });

@@ -30,14 +30,15 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use supersigil_git::{Git, GitError, Repo};
 use supersigil_record::derivations::Restore;
-use supersigil_record::interpretations::{Annotation, AnnotationRevision};
-use supersigil_record::reviews::{self, BasisId, DecisionRef, Judgment, JudgmentKind};
-use supersigil_record::{EventId, RecordId, SessionId};
-use supersigil_review::decisions::corrections::{Addressed, anchor};
+use supersigil_record::interpretations::{Annotation, AnnotationRevision, Decision};
+use supersigil_record::reviews::{self, BasisAnnotation, BasisId, DecisionRef, Judgment};
+use supersigil_record::{EventId, RecordId, RecordSnapshot, SessionId, StoreError};
+use supersigil_review::decisions::corrections::anchor;
 use supersigil_review::decisions::{Annotated, RecordCandidate, choose_record};
 use supersigil_review::judging::Ledger;
 use supersigil_review::model::{AnnotationInfo, CorrectionInfo, DecisionInfo};
@@ -45,7 +46,7 @@ use supersigil_session::checkout::{Placement, placement, within};
 
 use crate::commands::StoreArgs;
 use crate::error::CliError;
-use crate::pipeline::PinnedRecord;
+use crate::pipeline::{Gathered, PinnedRecord};
 use crate::review_dir::{canonical_common_dir, resolve_review_dir};
 
 /// What a review read of one candidate session's annotation.
@@ -55,9 +56,6 @@ struct SessionAnnotation {
     session: SessionId,
     /// The record chosen for it; `None` when no involved record holds it.
     record: Option<RecordId>,
-    /// The checkout through which the review found that record
-    /// ([`found_through`]).
-    checkout: Option<PathBuf>,
     /// How many involved records hold an annotation of it.
     annotated_records: usize,
     /// How many observations of it the chosen record holds.
@@ -77,23 +75,21 @@ pub struct Annotations {
 
 impl Annotations {
     /// Reads the current annotation of each of `sessions` from the record
-    /// [chosen](self) for it among the pinned `records`, at their pinned
-    /// revisions, with the checkout through which a review of `reviewed`
-    /// and its `candidate_worktrees` found that record.
+    /// [chosen](self) for it among the records `g` pinned, at their pinned
+    /// revisions.
     ///
     /// # Errors
     ///
     /// Returns the store errors of reading a chosen record's annotation or
     /// derivations document.
     pub fn read<'s>(
-        records: &[PinnedRecord],
-        reviewed: &Path,
-        candidate_worktrees: &[PathBuf],
+        g: &Gathered,
         sessions: impl IntoIterator<Item = &'s SessionId>,
     ) -> Result<Self, CliError> {
         let mut annotations = Vec::new();
         for session in sessions {
-            let holding: Vec<&PinnedRecord> = records
+            let holding: Vec<&PinnedRecord> = g
+                .records
                 .iter()
                 .filter(|record| record.sessions.contains_key(session))
                 .collect();
@@ -110,9 +106,6 @@ impl Annotations {
             annotations.push(SessionAnnotation {
                 session: session.clone(),
                 record: chosen.map(|record| record.record_id.clone()),
-                checkout: chosen.and_then(|record| {
-                    found_through(&record.associations, reviewed, candidate_worktrees)
-                }),
                 annotated_records: candidates.iter().filter(|c| c.annotated).count(),
                 observations: chosen.map_or(0, |record| record.sessions[session].observations),
                 current: chosen
@@ -145,17 +138,38 @@ impl Annotations {
             .collect()
     }
 
-    /// What was read of each session, sorted by session.
+    /// What was read of each session, sorted by session, with the checkout
+    /// through which the review `g` gathered found each session's record
+    /// ([module docs](self)).
     #[must_use]
-    pub fn infos(&self) -> Vec<AnnotationInfo> {
+    pub fn infos(&self, g: &Gathered) -> Vec<AnnotationInfo> {
+        // Found once per record: every session it supplies shares it.
+        let mut checkouts: HashMap<&RecordId, Option<PathBuf>> = HashMap::new();
         self.sessions
             .iter()
             .map(|read| {
                 let annotation = read.current.as_ref().map(|(annotation, _)| annotation);
+                let checkout = read.record.as_ref().and_then(|record| {
+                    checkouts
+                        .entry(record)
+                        .or_insert_with(|| {
+                            g.records
+                                .iter()
+                                .find(|pinned| pinned.record_id == *record)
+                                .and_then(|pinned| {
+                                    found_through(
+                                        &pinned.associations,
+                                        &g.worktree,
+                                        &g.candidate_worktrees,
+                                    )
+                                })
+                        })
+                        .clone()
+                });
                 AnnotationInfo {
                     session: read.session.clone(),
                     record: read.record.clone(),
-                    checkout: read.checkout.clone(),
+                    checkout,
                     revision: annotation.map(|annotation| annotation.revision),
                     observed: annotation
                         .map(|annotation| annotation.document.prepared.observed.clone()),
@@ -166,22 +180,26 @@ impl Annotations {
             .collect()
     }
 
-    /// Each session with the record chosen for it and its current revision
-    /// there, as a basis pins them.
+    /// Each session with a chosen record, pinned with its current revision
+    /// there as a basis pins them, sorted by record then session.
     #[must_use]
-    pub fn pins(&self) -> Vec<(&SessionId, Option<&RecordId>, Option<AnnotationRevision>)> {
-        self.sessions
+    pub fn pins(&self) -> Vec<BasisAnnotation> {
+        let mut pins: Vec<BasisAnnotation> = self
+            .sessions
             .iter()
-            .map(|read| {
-                (
-                    &read.session,
-                    read.record.as_ref(),
-                    read.current
+            .filter_map(|read| {
+                Some(BasisAnnotation {
+                    record: read.record.clone()?,
+                    session: read.session.clone(),
+                    revision: read
+                        .current
                         .as_ref()
                         .map(|(annotation, _)| annotation.revision),
-                )
+                })
             })
-            .collect()
+            .collect();
+        pins.sort_by(|a, b| (&a.record, &a.session).cmp(&(&b.record, &b.session)));
+        pins
     }
 }
 
@@ -252,15 +270,12 @@ fn current_of(
     Ok(Some((annotation, restores)))
 }
 
-/// Whether `judgment` is a standing correction: a correction judgment
-/// naming a decision and a correction kind that `ledger`, every judgment in
-/// its store, shows no undo withdrew.
+/// Whether `judgment` is a standing correction: a correction
+/// ([`Judgment::as_correction`]) that `ledger`, every judgment in its
+/// store, shows no undo withdrew.
 #[must_use]
 pub fn is_standing_correction(ledger: &Ledger<'_>, judgment: &Judgment) -> bool {
-    judgment.kind == JudgmentKind::Correct
-        && judgment.decision.is_some()
-        && judgment.correction.is_some()
-        && ledger.stands(judgment)
+    judgment.as_correction().is_some() && ledger.stands(judgment)
 }
 
 /// The standing corrections among `judgments`, every judgment in a store in
@@ -280,9 +295,8 @@ pub fn in_scope<'j>(
         .filter(|judgment| is_standing_correction(ledger, judgment))
         .filter(|judgment| {
             judgment
-                .decision
-                .as_ref()
-                .is_some_and(|decision| sessions.contains(&decision.session))
+                .as_correction()
+                .is_some_and(|(decision, _)| sessions.contains(&decision.session))
                 || related(&judgment.basis)
         })
         .filter(|judgment| listed.insert(&judgment.id))
@@ -303,23 +317,14 @@ pub fn anchor_corrections(
 ) -> Vec<CorrectionInfo> {
     let annotated = annotations.annotated();
     let cited = cited(records, &annotated, corrections);
-    let addressed: BTreeMap<DecisionRef, Addressed<'_>> = cited
-        .iter()
-        .map(|(&reference, cites)| (reference.clone(), Addressed { cites }))
-        .collect();
-    anchor(corrections, &addressed, &annotated, decisions)
+    let addressed = |reference: &DecisionRef| cited.get(reference).map(Vec::as_slice);
+    anchor(corrections, addressed, &annotated, decisions)
 }
 
-/// A revision of a session in a record.
-type RevisionKey<'a> = (&'a RecordId, &'a SessionId, AnnotationRevision);
-
 /// What the decision each of `corrections` names cited, by reference, read
-/// from the pinned `records`. The references are grouped by revision, and
-/// each revision is read once, gives the cites of the decisions named in
-/// it, and is dropped before the next is read. A reference to the revision
-/// `annotated` shows of its session is left out, since anchoring never
-/// reads it, as is one whose record is not among `records`, whose revision
-/// cannot be read, or whose revision lacks the decision.
+/// from the pinned `records` ([`read_addressed`]). A reference to the
+/// revision `annotated` shows of its session is left out, since anchoring
+/// never reads it, as is one whose decision cannot be read.
 fn cited<'j>(
     records: &[PinnedRecord],
     annotated: &[Annotated<'_>],
@@ -329,36 +334,99 @@ fn cited<'j>(
         .iter()
         .map(|entry| (entry.session, (entry.record, entry.annotation.revision)))
         .collect();
-    let mut by_revision: BTreeMap<RevisionKey<'j>, HashMap<&'j str, &'j DecisionRef>> =
-        BTreeMap::new();
-    for reference in corrections
+    let references = corrections
         .iter()
-        .filter_map(|judgment| judgment.decision.as_ref())
+        .filter_map(|judgment| judgment.as_correction())
+        .map(|(reference, _)| reference)
         .filter(|reference| {
             shown.get(&reference.session) != Some(&(&reference.record, reference.revision))
-        })
-    {
+        });
+    let snapshot_of = |record: &RecordId| {
+        records
+            .iter()
+            .find(|pinned| pinned.record_id == *record)
+            .map(|pinned| &pinned.snapshot)
+    };
+    read_addressed(references, snapshot_of)
+        .into_iter()
+        .filter_map(|(reference, decision)| Some((reference, decision.ok()?.cites)))
+        .collect()
+}
+
+/// Why the decision a correction's reference names cannot be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unread {
+    /// The record the reference names is not among those at hand.
+    RecordNotFound,
+    /// The record holds no such annotation revision of the session.
+    RevisionNotFound,
+    /// The revision cannot be read, for the store's reason.
+    Unreadable(String),
+    /// The revision holds no decision of that id.
+    DecisionNotFound,
+}
+
+impl fmt::Display for Unread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RecordNotFound => f.write_str("record not found"),
+            Self::RevisionNotFound => f.write_str("revision not found"),
+            Self::Unreadable(error) => write!(f, "revision not readable: {error}"),
+            Self::DecisionNotFound => f.write_str("decision not found in revision"),
+        }
+    }
+}
+
+/// A revision of a session in a record.
+type RevisionKey<'a> = (&'a RecordId, &'a SessionId, AnnotationRevision);
+
+/// Reads the decision each of `references` names from the revision it names
+/// of the record it names, as `snapshot_of` gives the record, or says why
+/// it cannot be read. The references are grouped by revision, and each
+/// revision is read once, gives the decisions named in it, and is dropped
+/// before the next is read; a reference given twice is read once.
+#[must_use]
+pub fn read_addressed<'j, 'r>(
+    references: impl IntoIterator<Item = &'j DecisionRef>,
+    snapshot_of: impl Fn(&RecordId) -> Option<&'r RecordSnapshot>,
+) -> BTreeMap<&'j DecisionRef, Result<Decision, Unread>> {
+    let mut by_revision: BTreeMap<RevisionKey<'j>, HashMap<&'j str, &'j DecisionRef>> =
+        BTreeMap::new();
+    for reference in references {
         by_revision
             .entry((&reference.record, &reference.session, reference.revision))
             .or_default()
             .insert(&reference.id, reference);
     }
-    let mut cited = BTreeMap::new();
+    let mut addressed = BTreeMap::new();
     for ((record, session, revision), mut named) in by_revision {
-        let Some(annotation) = records
-            .iter()
-            .find(|pinned| pinned.record_id == *record)
-            .and_then(|pinned| pinned.snapshot.annotation(session, revision).ok())
-        else {
-            continue;
-        };
-        for decision in annotation.document.decisions {
-            if let Some(reference) = named.remove(decision.id.as_str()) {
-                cited.insert(reference, decision.cites);
+        let annotation = snapshot_of(record)
+            .ok_or(Unread::RecordNotFound)
+            .and_then(|snapshot| match snapshot.annotation(session, revision) {
+                Ok(annotation) => Ok(annotation),
+                Err(StoreError::NoSuchAnnotation { .. }) => Err(Unread::RevisionNotFound),
+                Err(error) => Err(Unread::Unreadable(error.to_string())),
+            });
+        match annotation {
+            Ok(annotation) => {
+                for decision in annotation.document.decisions {
+                    if let Some(reference) = named.remove(decision.id.as_str()) {
+                        addressed.insert(reference, Ok(decision));
+                    }
+                }
+                // What is left names no decision of the revision.
+                for reference in named.into_values() {
+                    addressed.insert(reference, Err(Unread::DecisionNotFound));
+                }
+            }
+            Err(unread) => {
+                for reference in named.into_values() {
+                    addressed.insert(reference, Err(unread.clone()));
+                }
             }
         }
     }
-    cited
+    addressed
 }
 
 /// The standing corrections in the review store of a checkout's
@@ -374,39 +442,57 @@ pub struct Corrections {
 }
 
 /// The standing corrections in the review store of `checkout`'s
-/// repository, in the reviews directory `options` names. `None` when the
-/// checkout is outside a git worktree or its repository has no review
-/// store; none is created.
+/// repository ([`standing_corrections_in`]). `None` when the checkout is
+/// outside a git worktree.
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Git`] when git fails for another reason,
-/// [`CliError::CommandFailed`] when no reviews directory can be resolved,
-/// and the store errors of finding the store and reading its judgments.
+/// Returns [`CliError::Git`] when git fails for another reason, and the
+/// errors of [`standing_corrections_in`].
 pub fn standing_corrections(
     options: &StoreArgs,
     checkout: &Path,
 ) -> Result<Option<Corrections>, CliError> {
-    let repo = match Repo::open(Git::new(checkout)) {
-        Ok(repo) => repo,
-        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
+    match Repo::open(Git::new(checkout)) {
+        Ok(repo) => standing_corrections_in(options, &repo),
+        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// The standing corrections in the review store of `repo`'s repository, in
+/// the reviews directory `options` names. `None` when the repository has
+/// no review store; none is created.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] when the repository's common directory cannot
+/// be resolved, [`CliError::CommandFailed`] when no reviews directory can
+/// be resolved, and the store errors of finding the store and reading its
+/// judgments.
+pub fn standing_corrections_in(
+    options: &StoreArgs,
+    repo: &Repo,
+) -> Result<Option<Corrections>, CliError> {
     let reviews_dir = resolve_review_dir(options.review_dir.as_deref())?;
-    let repository = canonical_common_dir(&repo)?;
+    let repository = canonical_common_dir(repo)?;
     let Some(store) = reviews::find(&reviews_dir, &repository)? else {
         return Ok(None);
     };
-    let judgments = store.snapshot()?.judgments()?;
-    let ledger = Ledger::new(&judgments);
-    let standing = judgments
-        .iter()
-        .filter(|judgment| is_standing_correction(&ledger, judgment))
-        .cloned()
-        .collect();
+    let mut judgments = store.snapshot()?.judgments()?;
+    let standing: Vec<bool> = {
+        let ledger = Ledger::new(&judgments);
+        judgments
+            .iter()
+            .map(|judgment| is_standing_correction(&ledger, judgment))
+            .collect()
+    };
+    // `retain` visits the judgments in order, as the mask was built.
+    let mut standing = standing.into_iter();
+    judgments.retain(|_| standing.next().unwrap_or(false));
     Ok(Some(Corrections {
         repository,
-        judgments: standing,
+        judgments,
     }))
 }
 

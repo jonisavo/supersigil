@@ -69,23 +69,22 @@ use supersigil_record::observations::{
     Outcome, Role, Turn, session_start,
 };
 use supersigil_record::reviews::{BasisId, CorrectionKind, DecisionRef, Judgment, Who};
-use supersigil_record::store::Store;
 use supersigil_record::time::UtcTime;
 use supersigil_record::{
-    EventId, JudgmentId, Observation, RecordId, RecordSnapshot, Revision, SessionId, StoreError,
-    Timestamp, TurnId,
+    EventId, JudgmentId, Observation, RecordId, RecordSnapshot, Revision, SessionId, Timestamp,
+    TurnId,
 };
-use supersigil_review::decisions::corrections::{Addressed, anchor};
+use supersigil_review::decisions::corrections::anchor;
 use supersigil_review::decisions::{Annotated, every_decision, names};
 
-use super::locate;
-use crate::annotations::standing_corrections;
-use crate::commands::session::{find_session, no_record_message};
+use super::{locate, owning_records};
+use crate::annotations::{read_addressed, standing_corrections_in};
+use crate::commands::session::find_session;
 use crate::commands::{AnnotatePrepareArgs, StoreArgs};
 use crate::error::CliError;
 use crate::pipeline::{claude_home, reconciled_worktrees};
 use crate::reconcile::{LOCK_WAIT, reconcile};
-use crate::record_dir::{owners, records_in};
+use crate::record_dir::records_in;
 
 /// Schema name of the brief.
 const BRIEF_SCHEMA: &str = "supersigil.annotation-brief/1";
@@ -392,11 +391,9 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
     // be in an ancestor checkout's, and records at one distance are all
     // searched.
     let (records_dir, checkout) = locate(options)?;
-    if owners(&records_dir, &checkout)?.is_empty() {
-        return Err(CliError::CommandFailed(no_record_message(&checkout)));
-    }
+    owning_records(&records_dir, &checkout)?;
     // As a review from the checkout reconciles them.
-    let (worktree, main_worktree) = reconciled_worktrees(&checkout)?;
+    let (repo, worktree, main_worktree) = reconciled_worktrees(&checkout)?;
     let reconciliation = reconcile(
         &records_dir,
         claude_home(options.claude_home.as_deref()).as_deref(),
@@ -405,10 +402,10 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
         LOCK_WAIT,
     )?;
     // Found after reconciling, which can give an ancestor checkout a record.
-    let snapshots = owners(&records_dir, &checkout)?
-        .iter()
-        .map(Store::snapshot)
-        .collect::<Result<Vec<_>, _>>()?;
+    let snapshots = owning_records(&records_dir, &checkout)?
+        .into_iter()
+        .map(|(_, snapshot)| snapshot)
+        .collect();
     let (snapshot, session) = find_session(snapshots, &args.session)?;
     let record = &snapshot.manifest().record_id;
     let reconcile_note = reconciliation
@@ -420,15 +417,20 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
     let derivations = snapshot.derivations(&session)?;
     let current = snapshot.current_annotation(&session)?;
 
-    let standing = standing_corrections(options, &checkout)?;
+    let standing = repo
+        .as_ref()
+        .map(|repo| standing_corrections_in(options, repo))
+        .transpose()?
+        .flatten();
     let of_session: Vec<Correction<'_>> = standing
         .iter()
         .flat_map(|standing| &standing.judgments)
         .filter_map(|judgment| {
+            let (decision, kind) = judgment.as_correction()?;
             Some(Correction {
                 judgment,
-                decision: judgment.decision.as_ref()?,
-                kind: judgment.correction?,
+                decision,
+                kind,
             })
         })
         .filter(|correction| correction.decision.session == session)
@@ -620,60 +622,34 @@ fn other_records<'r>(
 
 /// What the decision each of `corrections` names said, by reference, from
 /// the revision the reference names of the record it names: `snapshot`'s
-/// record or one of `others`. Otherwise why it cannot be read here. Each
-/// revision is read once, and dropped once the decisions named in it are
-/// taken; each of those is kept once, as the brief gives it, however many
-/// corrections name it.
+/// record or one of `others`. Otherwise why it cannot be read here
+/// ([`read_addressed`]). Each decision is kept once, as the brief gives it,
+/// however many corrections name it.
 fn addressed<'c>(
     corrections: &[Correction<'c>],
     snapshot: &RecordSnapshot,
     others: &HashMap<RecordId, RecordSnapshot>,
 ) -> AddressedByReference<'c> {
-    let mut by_revision: BTreeMap<
-        (&RecordId, &SessionId, AnnotationRevision),
-        HashMap<&str, &DecisionRef>,
-    > = BTreeMap::new();
-    for correction in corrections {
-        let reference = correction.decision;
-        by_revision
-            .entry((&reference.record, &reference.session, reference.revision))
-            .or_default()
-            .insert(&reference.id, reference);
-    }
-    let mut addressed = BTreeMap::new();
-    for ((record, session, revision), mut named) in by_revision {
-        let holding = if *record == snapshot.manifest().record_id {
+    let own = &snapshot.manifest().record_id;
+    let snapshot_of = |record: &RecordId| {
+        if record == own {
             Some(snapshot)
         } else {
             others.get(record)
-        };
-        let annotation = holding
-            .ok_or_else(|| "record not found".to_owned())
-            .and_then(|holding| match holding.annotation(session, revision) {
-                Ok(annotation) => Ok(annotation),
-                Err(StoreError::NoSuchAnnotation { .. }) => Err("revision not found".to_owned()),
-                Err(error) => Err(format!("revision not readable: {error}")),
-            });
-        match annotation {
-            Ok(annotation) => {
-                for decision in annotation.document.decisions {
-                    if let Some(reference) = named.remove(decision.id.as_str()) {
-                        addressed.insert(reference, Ok(decision.into()));
-                    }
-                }
-                // What is left names no decision of the revision.
-                for reference in named.into_values() {
-                    addressed.insert(reference, Err("decision not found in revision".to_owned()));
-                }
-            }
-            Err(reason) => {
-                for reference in named.into_values() {
-                    addressed.insert(reference, Err(reason.clone()));
-                }
-            }
         }
-    }
-    addressed
+    };
+    read_addressed(
+        corrections.iter().map(|correction| correction.decision),
+        snapshot_of,
+    )
+    .into_iter()
+    .map(|(reference, decision)| {
+        let decision = decision
+            .map(AddressedDecision::from)
+            .map_err(|unread| unread.to_string());
+        (reference, decision)
+    })
+    .collect()
 }
 
 /// The ids of the decisions of `session`'s `current` annotation in `record`
@@ -693,6 +669,9 @@ fn anchors(
     let Some(annotation) = current else {
         return anchors;
     };
+    if corrections.is_empty() {
+        return anchors;
+    }
     let shown = [Annotated {
         session,
         record,
@@ -700,19 +679,16 @@ fn anchors(
         restores,
     }];
     let mut decisions = every_decision(&shown, &names(&shown));
-    let cited: BTreeMap<DecisionRef, Addressed<'_>> = addressed
-        .iter()
-        .filter_map(|(&reference, decision)| {
-            let cites = &decision.as_ref().ok()?.cites;
-            Some((reference.clone(), Addressed { cites }))
-        })
-        .collect();
+    let cited = |reference: &DecisionRef| {
+        let decision = addressed.get(reference)?.as_ref().ok()?;
+        Some(decision.cites.as_slice())
+    };
     let judgments: Vec<&Judgment> = corrections
         .iter()
         .map(|correction| correction.judgment)
         .collect();
     // A correction anchored to none anchors to no current decision.
-    let _unanchored = anchor(&judgments, &cited, &shown, &mut decisions);
+    let _unanchored = anchor(&judgments, cited, &shown, &mut decisions);
     for decision in decisions {
         for correction in decision.corrections {
             anchors
@@ -801,8 +777,7 @@ fn utc(time: &Timestamp) -> Option<UtcTime> {
 
 /// The session's transcripts, the main transcript first, then by path.
 fn transcripts(observations: &[Observation]) -> Vec<TranscriptEntry<'_>> {
-    let mut gathered: Vec<Gathering<'_>> = Vec::new();
-    let mut by_path: HashMap<Option<&str>, usize> = HashMap::new();
+    let mut gathered: HashMap<Option<&str>, Gathering<'_>> = HashMap::new();
     for observation in observations {
         let path = match observation {
             Observation::SessionStart(start) => start.source_ids.get("path").map(String::as_str),
@@ -812,14 +787,13 @@ fn transcripts(observations: &[Observation]) -> Vec<TranscriptEntry<'_>> {
             Observation::CaptureLimitation(limitation) => Some(limitation.transcript.as_str()),
             Observation::SessionEnd(_) | Observation::Delegation(_) => continue,
         };
-        let at = *by_path.entry(path).or_insert_with(|| {
-            gathered.push(Gathering::new(path));
-            gathered.len() - 1
-        });
-        gathered[at].add(observation);
+        gathered
+            .entry(path)
+            .or_insert_with(|| Gathering::new(path))
+            .add(observation);
     }
     let mut transcripts: Vec<TranscriptEntry<'_>> =
-        gathered.into_iter().map(Gathering::finish).collect();
+        gathered.into_values().map(Gathering::finish).collect();
     transcripts.sort_by(|a, b| (a.sidechain, a.transcript).cmp(&(b.sidechain, b.transcript)));
     transcripts
 }

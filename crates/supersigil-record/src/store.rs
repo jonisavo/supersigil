@@ -41,7 +41,7 @@ pub use write::WriteTx;
 
 use crate::files;
 use crate::ids::{RecordId, SessionId};
-use crate::interpretations::AnnotationRevision;
+use crate::interpretations::{AnnotationRevision, revision_phrase};
 use crate::reviews::BasisId;
 use crate::time::UtcTime;
 
@@ -238,11 +238,6 @@ fn unsupported_advice(found: u32, supported: u32) -> &'static str {
         "To keep its observations, move that directory out of the records directory; to \
          discard them, delete it. The next sync then reads the transcripts that still exist."
     }
-}
-
-/// Names an annotation revision, or its absence, in an error message.
-fn revision_phrase(revision: Option<AnnotationRevision>) -> String {
-    revision.map_or_else(|| "no revision".to_owned(), |r| format!("revision {r}"))
 }
 
 /// Joins displayed items with commas.

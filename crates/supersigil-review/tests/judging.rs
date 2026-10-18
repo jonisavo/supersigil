@@ -2294,10 +2294,12 @@ const SESSIONS: [&str; 2] = [
 /// `record`, named `name`.
 fn shown(record: &str, session: usize, revision: u32, id: &str, name: &str) -> BasisDecision {
     BasisDecision {
-        record: RecordId::new(record),
-        session: SessionId::new(SESSIONS[session]),
-        revision: AnnotationRevision::new(revision),
-        id: id.to_owned(),
+        decision: DecisionRef {
+            record: RecordId::new(record),
+            session: SessionId::new(SESSIONS[session]),
+            revision: AnnotationRevision::new(revision),
+            id: id.to_owned(),
+        },
         name: name.to_owned(),
     }
 }
@@ -2317,12 +2319,7 @@ fn annotated(a: &GateItem) -> Saved {
 
 /// The reference a correction of `decision` records.
 fn reference(decision: &BasisDecision) -> DecisionRef {
-    DecisionRef {
-        record: decision.record.clone(),
-        session: decision.session.clone(),
-        revision: decision.revision,
-        id: decision.id.clone(),
-    }
+    decision.decision.clone()
 }
 
 /// Correcting the decision named `decision` with `kind` and `words`.

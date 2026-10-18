@@ -14,19 +14,19 @@ use std::io::{self, Read, Write as _};
 use std::path::Path;
 
 use serde::Serialize;
-use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision};
+use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision, revision_phrase};
 use supersigil_record::store::Store;
-use supersigil_record::{RecordId, SessionId, StoreError};
+use supersigil_record::{RecordId, RecordSnapshot, SessionId, StoreError};
 use supersigil_review::annotating::{Context, Problem, validate};
 use supersigil_review::printed::Printed;
+use supersigil_review::summary::counted;
 
-use super::locate;
-use crate::commands::session::no_record_message;
+use super::{locate, owning_records};
 use crate::commands::{AnnotateImportArgs, StoreArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
 use crate::reconcile::LOCK_WAIT;
-use crate::record_dir::{begin_within, owners, records_in};
+use crate::record_dir::{begin_within, records_in};
 
 /// Schema name of `annotate import`'s JSON output.
 const IMPORT_SCHEMA: &str = "supersigil.annotate-import/1";
@@ -63,8 +63,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
     // the checkout needs no single record of its own.
     let (records_dir, checkout) = locate(options)?;
     // Found by `prepared.record`, so the rules' check of it passes.
-    let store = named_record(&records_dir, &checkout, &document.prepared.record)?;
-    let snapshot = store.snapshot()?;
+    let (store, snapshot) = named_record(&records_dir, &checkout, &document.prepared.record)?;
     let record = &snapshot.manifest().record_id;
     let current = snapshot
         .annotation_revisions(&document.session)
@@ -84,8 +83,8 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
 
     let session = document.session.clone();
     let (decisions, open_questions) = (document.decisions.len(), document.open_questions.len());
-    let Some(mut tx) = begin_within(&store, LOCK_WAIT)? else {
-        return Err(refusal(["The record is busy; try again."].into()));
+    let Some(mut tx) = begin_within(LOCK_WAIT, || store.begin())? else {
+        return Err(CliError::refused(["The record is busy; try again."].into()));
     };
     // Under the lock, the store refuses the document if another import
     // stored a revision since the snapshot.
@@ -93,7 +92,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
         .put_annotation(&session, document.based_on, document)
         .map_err(|error| match error {
             StoreError::StaleAnnotation { based_on, current } => {
-                refusal([stale(based_on, current)].into())
+                CliError::refused([stale(based_on, current)].into())
             }
             error => error.into(),
         })?;
@@ -112,9 +111,9 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
         OutputFormat::Terminal => {
             let line = format!(
                 "Imported revision {revision} of session {} ({}, {}).",
-                short(&imported.session),
-                counted(decisions, "decision", "decisions"),
-                counted(open_questions, "open question", "open questions")
+                imported.session.short(),
+                counted(decisions as u64, "decision"),
+                counted(open_questions as u64, "open question")
             );
             io::stdout()
                 .lock()
@@ -124,9 +123,9 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
     Ok(())
 }
 
-/// The record `named` in `records_dir`, which must be one of the records
-/// owning `checkout`, its own or an ancestor checkout's ([`owners`]); any
-/// number of them may lie at one distance.
+/// The record `named` in `records_dir`, with its snapshot, which must be
+/// one of the records owning `checkout`, its own or an ancestor checkout's
+/// ([`owning_records`]); any number of them may lie at one distance.
 ///
 /// # Errors
 ///
@@ -134,14 +133,14 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateImportArgs) -> Result<(), 
 /// owns `checkout`. Refuses `named` when it is not among the owners, saying
 /// whether `records_dir` holds it at all, and returns the errors of listing
 /// the records and reading their manifests.
-fn named_record(records_dir: &Path, checkout: &Path, named: &RecordId) -> Result<Store, CliError> {
-    let owning = owners(records_dir, checkout)?;
-    if owning.is_empty() {
-        return Err(CliError::CommandFailed(no_record_message(checkout)));
-    }
-    for store in owning {
-        if store.manifest()?.record_id == *named {
-            return Ok(store);
+fn named_record(
+    records_dir: &Path,
+    checkout: &Path,
+    named: &RecordId,
+) -> Result<(Store, RecordSnapshot), CliError> {
+    for (store, snapshot) in owning_records(records_dir, checkout)? {
+        if snapshot.manifest().record_id == *named {
+            return Ok((store, snapshot));
         }
     }
     let manifests = records_in(records_dir)?
@@ -157,7 +156,7 @@ fn named_record(records_dir: &Path, checkout: &Path, named: &RecordId) -> Result
         "does not exist"
     };
     let line = format!("The annotation names record {named}, which {which}.");
-    Err(refusal([line].into()))
+    Err(CliError::refused([line].into()))
 }
 
 /// Reads the annotation document in `file`, or on standard input for `-`.
@@ -178,13 +177,13 @@ fn read(file: &Path) -> Result<AnnotationDocument, CliError> {
         CliError::CommandFailed(format!("cannot read {}: {error}", file.display()))
     })?;
     if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(refusal(["The annotation is over 16 MiB."].into()));
+        return Err(CliError::refused(["The annotation is over 16 MiB."].into()));
     }
     let Ok(text) = std::str::from_utf8(&bytes) else {
-        return Err(refusal(["The annotation is not UTF-8."].into()));
+        return Err(CliError::refused(["The annotation is not UTF-8."].into()));
     };
     parse(text).map_err(|error| {
-        refusal([format!("The annotation is not a valid document: {error}")].into())
+        CliError::refused([format!("The annotation is not a valid document: {error}")].into())
     })
 }
 
@@ -239,46 +238,20 @@ fn problem_refusal(
     );
     let rest = problems.len().saturating_sub(MAX_LISTED_PROBLEMS);
     if rest > 0 {
-        out.line(format!(
-            "  … and {}.",
-            counted(rest, "more problem", "more problems")
-        ));
+        out.line(format!("  … and {}.", counted(rest as u64, "more problem")));
     }
     if based_on != current {
         out.line(stale(based_on, current));
     }
-    refusal(out)
+    CliError::refused(out)
 }
 
 /// What to say of a document built on `based_on` while `current` is the
 /// session's current revision.
 fn stale(based_on: Option<AnnotationRevision>, current: Option<AnnotationRevision>) -> String {
-    let named = |revision: Option<AnnotationRevision>| {
-        revision.map_or_else(
-            || "no revision".to_owned(),
-            |revision| format!("revision {revision}"),
-        )
-    };
     format!(
         "Annotation based on {}, but {} is current; run annotate prepare again.",
-        named(based_on),
-        named(current)
+        revision_phrase(based_on),
+        revision_phrase(current)
     )
-}
-
-/// `count` followed by `one` or `many`, as in `1 decision` and
-/// `2 decisions`.
-fn counted(count: usize, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
-}
-
-/// The first 8 characters of `session`, or all of it when shorter.
-fn short(session: &SessionId) -> &str {
-    let id = session.as_str();
-    id.char_indices().nth(8).map_or(id, |(end, _)| &id[..end])
-}
-
-/// `printed`'s lines, escaped, as a refusal.
-fn refusal(printed: Printed) -> CliError {
-    CliError::Refused(printed.finish().join("\n"))
 }

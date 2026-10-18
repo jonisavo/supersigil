@@ -8,7 +8,7 @@ mod common;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use common::finishes_within;
+use common::{eid, finishes_within};
 use proptest::prelude::*;
 use supersigil_record::interpretations::{
     ANNOTATION_SCHEMA, Alternative, AlternativeStatus, AnnotationDocument, AnnotationRevision,
@@ -18,9 +18,9 @@ use supersigil_record::observations::{
     Command, CommandCategory, Edit, EditOperation, EditOrigin, FileState, Material, Observation,
     Role, Turn,
 };
-use supersigil_record::{EventId, JudgmentId, RecordId, Revision, SessionId, Timestamp, TurnId};
+use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, Timestamp, TurnId};
 use supersigil_review::annotating::{
-    Context, ID_MAX_CHARS, MAX_CORRECTIONS_SEEN, MAX_DECISIONS, MAX_PER_DECISION_LIST,
+    Context, ID_MAX_CHARS, MAX_CORRECTIONS_SEEN, MAX_DECISIONS, MAX_LIST_ENTRIES,
     MAX_PRODUCED_BY_CHARS, MAX_QUESTIONS, MAX_QUOTE_CHARS, MAX_TEXT_CHARS, MAX_TITLE_CHARS,
     Problem, validate,
 };
@@ -45,10 +45,6 @@ const REPORT_SAYS: &str = "all tests pass";
 
 /// No problem at all.
 const NO_PROBLEMS: [Problem; 0] = [];
-
-fn eid(id: &str) -> EventId {
-    EventId::new(id)
-}
 
 /// The `n`th record revision.
 fn revision(n: u64) -> Revision {
@@ -853,7 +849,7 @@ fn corrections_seen_are_judgment_ids_as_the_store_generates_them() {
 fn lists(more: usize) -> AnnotationDocument {
     let template = valid();
     let decision = &template.decisions[0];
-    let per_decision = MAX_PER_DECISION_LIST + more;
+    let per_decision = MAX_LIST_ENTRIES + more;
     let attempted = Alternative {
         edits: vec![eid(EDIT); per_decision],
         ..decision.alternatives[0].clone()

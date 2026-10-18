@@ -30,7 +30,6 @@ use supersigil_record::observations::{CaptureCounts, CaptureLimitation};
 use supersigil_record::reviews::{
     BasisId, CorrectionKind, GateDetail, JudgmentKind, PathBytes, Subject,
 };
-use supersigil_record::time::UtcTime;
 use supersigil_record::{EventId, RecordId, SessionId};
 
 use crate::judging::Relation as ReviewRelation;
@@ -40,7 +39,7 @@ use crate::model::{
     FileReview, GateInfo, GateItemInfo, ImplicationInfo, ItemStateInfo, RationaleInfo, RecordInfo,
     RelatedInfo, Review, SpanSide, StatusInfo, TargetKindInfo, Unsaved,
 };
-use crate::names::{SESSION_PREFIX, unique_prefix};
+use crate::names::SessionShorts;
 use crate::outcome::{Outcome, Relation, UnattributedReason};
 use crate::printed::{Addressing, Printed, aligned};
 
@@ -69,7 +68,7 @@ pub fn render_summary(review: &Review, addressing: &Addressing) -> String {
         (_, None) => "  target: working tree over an unborn HEAD".to_owned(),
     };
     out.line(format!("{target} (tree {})", review.target.tree));
-    let shorts = Shorts::new(review);
+    let shorts = shorts(review);
     let nothing = review.files.is_empty() && review.gate.items.is_empty();
     if nothing {
         out.line(NOTHING_TO_REVIEW);
@@ -200,7 +199,7 @@ fn short(commit: &str) -> &str {
 /// review's standing completion, if any, and reports an empty open gate.
 /// Either way, says how the interpretation changed since the completion
 /// counted, which blocks nothing.
-fn status_lines(status: &StatusInfo, open: usize, shorts: &Shorts<'_>) -> Vec<String> {
+fn status_lines(status: &StatusInfo, open: usize, shorts: &SessionShorts<'_>) -> Vec<String> {
     if let Some(completion) = &status.completion {
         let by = format!(
             "Review complete: completed on {} by {}",
@@ -282,7 +281,7 @@ fn status_lines(status: &StatusInfo, open: usize, shorts: &Shorts<'_>) -> Vec<St
 /// one `related` read, or `None` when none differs or `related` has no
 /// completion. Revisions are numbered per record, so an equal number means
 /// another record.
-fn interpretation_line(related: &RelatedInfo, shorts: &Shorts<'_>) -> Option<String> {
+fn interpretation_line(related: &RelatedInfo, shorts: &SessionShorts<'_>) -> Option<String> {
     let completion = related.completion.as_ref()?;
     let changes: Vec<String> = related
         .interpretation
@@ -790,7 +789,7 @@ impl Tally {
 /// commands they print in `out`.
 fn notes(
     review: &Review,
-    shorts: &Shorts<'_>,
+    shorts: &SessionShorts<'_>,
     addressing: &Addressing,
     out: &mut Printed,
 ) -> Vec<String> {
@@ -836,7 +835,7 @@ fn notes(
 /// prefix unique among the review's sessions can match another.
 fn annotation_notes(
     annotation: &AnnotationInfo,
-    shorts: &Shorts<'_>,
+    shorts: &SessionShorts<'_>,
     addressing: &Addressing,
     out: &mut Printed,
 ) -> Vec<String> {
@@ -857,7 +856,7 @@ fn annotation_notes(
         (Some(_), Some(observed)) if annotation.observations_now > observed.count => {
             let covered = observed.last.map_or_else(
                 || format!("after {}", counted(observed.count, "observation")),
-                |last| format!("through {}", minute(last)),
+                |last| format!("through {}", last.minute()),
             );
             let since = annotation.observations_now - observed.count;
             notes.push(format!(
@@ -871,14 +870,15 @@ fn annotation_notes(
         notes.push(format!(
             "session {session} annotated in {} records; using {}",
             annotation.annotated_records,
-            record_short(record)
+            record.short()
         ));
     }
     notes
 }
 
-/// `"1 {noun}"` or `"{count} {noun}s"`.
-fn counted(count: u64, noun: &str) -> String {
+/// `"1 {noun}"` or `"{count} {noun}s"`, for a noun with a regular plural.
+#[must_use]
+pub fn counted(count: u64, noun: &str) -> String {
     if count == 1 {
         format!("1 {noun}")
     } else {
@@ -886,30 +886,13 @@ fn counted(count: u64, noun: &str) -> String {
     }
 }
 
-/// `time` as `YYYY-MM-DD HH:MM`.
-fn minute(time: UtcTime) -> String {
-    let text = time.to_string();
-    format!("{} {}", time.date(), text.get(11..16).unwrap_or_default())
-}
-
-/// A record's first 8 characters for display, or its whole id when shorter.
-fn record_short(record: &RecordId) -> &str {
-    record.as_str().get(..8).unwrap_or(record.as_str())
-}
-
-/// The sessions a summary names, each shown as its shortest prefix of at
-/// least 8 characters unique among them.
-struct Shorts<'r> {
-    /// The sessions, sorted, as [`unique_prefix`] reads them.
-    sessions: Vec<(&'r str, usize)>,
-}
-
-impl<'r> Shorts<'r> {
-    /// The candidate sessions of `review`, the sessions its corrections with
-    /// no decision in view name, and those whose interpretation changed
-    /// since a related review.
-    fn new(review: &'r Review) -> Self {
-        let mut sessions: Vec<(&str, usize)> = review
+/// The sessions a summary names, shortened among themselves: the candidate
+/// sessions of `review`, the sessions its corrections with no decision in
+/// view name, and those whose interpretation changed since a related
+/// review.
+fn shorts(review: &Review) -> SessionShorts<'_> {
+    SessionShorts::new(
+        review
             .annotations
             .iter()
             .map(|annotation| &annotation.session)
@@ -926,18 +909,8 @@ impl<'r> Shorts<'r> {
                     .iter()
                     .flat_map(|related| &related.interpretation)
                     .map(|change| &change.session),
-            )
-            .map(|session| (session.as_str(), 0))
-            .collect();
-        sessions.sort_unstable();
-        sessions.dedup();
-        Self { sessions }
-    }
-
-    /// `session` as the summary shows it.
-    fn of<'s>(&self, session: &'s SessionId) -> &'s str {
-        unique_prefix(session.as_str(), &self.sessions, SESSION_PREFIX)
-    }
+            ),
+    )
 }
 
 /// Per file, the names of the decisions explaining a span of it, sorted,
@@ -1245,7 +1218,7 @@ fn ids(ids: &[EventId]) -> String {
 /// The corrections in scope that anchor to no decision in view, each with
 /// the decision it names, its kind, date, author and words, and whether the
 /// shown revision of its session saw it; empty without any.
-fn unanchored_section(review: &Review, shorts: &Shorts<'_>) -> Vec<String> {
+fn unanchored_section(review: &Review, shorts: &SessionShorts<'_>) -> Vec<String> {
     if review.unanchored_corrections.is_empty() {
         return Vec::new();
     }
@@ -1265,7 +1238,7 @@ fn unanchored_section(review: &Review, shorts: &Shorts<'_>) -> Vec<String> {
             shorts.of(&decision.session),
             decision.id,
             decision.revision,
-            record_short(&decision.record),
+            decision.record.short(),
             correction_words(correction.kind),
             correction.at.date(),
             one_line(&correction.who.name),

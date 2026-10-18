@@ -223,11 +223,37 @@ pub struct ItemNames<'g> {
     /// sorted, so the items with one question id form one range, and within
     /// it those whose sessions share a prefix form a sub-range.
     question_index: Vec<(&'g str, &'g str, usize)>,
-    /// The same as `id_keys` for the sessions of open questions, each
-    /// session once, so [`unique_prefix`] never skips past a session's other
-    /// questions.
-    question_keys: Vec<(&'g str, usize)>,
+    /// The sessions of open questions, shortened among themselves.
+    question_keys: SessionShorts<'g>,
     names: Vec<String>,
+}
+
+/// Sessions shown by their shortest prefix of at least 8 characters unique
+/// among them, or the whole id when that is shorter.
+#[derive(Debug, Clone)]
+pub struct SessionShorts<'a> {
+    /// The sessions, sorted, each once.
+    sessions: Vec<&'a str>,
+}
+
+impl<'a> SessionShorts<'a> {
+    /// Shortens among `sessions`, given in any order, each any number of
+    /// times.
+    #[must_use]
+    pub fn new(sessions: impl IntoIterator<Item = &'a SessionId>) -> Self {
+        let mut sessions: Vec<&str> = sessions.into_iter().map(SessionId::as_str).collect();
+        sessions.sort_unstable();
+        sessions.dedup();
+        Self { sessions }
+    }
+
+    /// `session`'s shortest prefix of at least 8 characters unique among
+    /// the sessions, or its whole id when that is shorter. A session not
+    /// among them is shortened against them all the same.
+    #[must_use]
+    pub fn of<'s>(&self, session: &'s SessionId) -> &'s str {
+        unique_prefix(session.as_str(), &self.sessions, SESSION_PREFIX)
+    }
 }
 
 impl<'g> ItemNames<'g> {
@@ -274,10 +300,12 @@ impl<'g> ItemNames<'g> {
             by_id.entry(&item.id).or_insert(index);
         }
         question_index.sort_unstable();
-        let mut question_keys = keyed(items, |item| {
-            question_of(item).map(|(session, _)| session.as_str())
-        });
-        question_keys.dedup_by_key(|(session, _)| *session);
+        let question_keys = SessionShorts::new(
+            items
+                .iter()
+                .filter_map(question_of)
+                .map(|(session, _)| session),
+        );
         let mut names = Self {
             items,
             associations,
@@ -467,7 +495,7 @@ impl<'g> ItemNames<'g> {
         let qualifier = Origin::OpenQuestion.qualifier();
         let prefix = self
             .shared_question(id)
-            .then(|| unique_prefix(session.as_str(), &self.question_keys, SESSION_PREFIX));
+            .then(|| self.question_keys.of(session));
         let name = match prefix {
             Some(prefix) => format!("{qualifier}:{prefix}:{id}"),
             None => format!("{qualifier}:{id}"),
@@ -640,18 +668,34 @@ fn split(path: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
+/// A sorted key a prefix is found among ([`unique_prefix`]): the key
+/// itself, or a key with the item index it names ([`keyed`]).
+pub(crate) trait Key {
+    /// The key.
+    fn key(&self) -> &str;
+}
+
+impl Key for &str {
+    fn key(&self) -> &str {
+        self
+    }
+}
+
+impl Key for (&str, usize) {
+    fn key(&self) -> &str {
+        self.0
+    }
+}
+
 /// Finds the shortest unique prefix of `id` with at least `minimum` bytes
-/// among sorted `keys` ([`keyed`]), or all of `id` when it is shorter or the
-/// prefix would end inside a character. `id` need not be among `keys`. The
+/// among sorted `keys`, or all of `id` when it is shorter or the prefix
+/// would end inside a character. `id` need not be among `keys`. The
 /// longest shared prefix belongs to a neighboring key after skipping keys
 /// equal to `id`.
-pub(crate) fn unique_prefix<'a>(id: &'a str, keys: &[(&str, usize)], minimum: usize) -> &'a str {
-    let at = keys.partition_point(|(other, _)| *other < id);
-    let before = at.checked_sub(1).map(|before| keys[before].0);
-    let after = keys[at..]
-        .iter()
-        .map(|(other, _)| *other)
-        .find(|other| *other != id);
+pub(crate) fn unique_prefix<'a>(id: &'a str, keys: &[impl Key], minimum: usize) -> &'a str {
+    let at = keys.partition_point(|other| other.key() < id);
+    let before = at.checked_sub(1).map(|before| keys[before].key());
+    let after = keys[at..].iter().map(Key::key).find(|other| *other != id);
     let length = before
         .into_iter()
         .chain(after)

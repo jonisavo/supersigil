@@ -23,7 +23,7 @@ use supersigil_record::reviews::{
     BasisScope, BasisTarget, GateItem, Judgment, PathBytes, ReviewStore, TargetKind,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_review::decisions::{basis_entries, in_view, names, question_items};
+use supersigil_review::decisions::{decision_pins, in_view, names};
 use supersigil_review::gate::{GateInputs, capture, explanations, gate_items};
 use supersigil_review::judging::{JudgedStore, Ledger};
 use supersigil_review::model::{
@@ -54,7 +54,7 @@ use crate::reconcile::LOCK_WAIT;
 use crate::record_dir;
 use crate::reopening::read_changes;
 use crate::review_dir::{
-    begin_within, canonical_common_dir, judged_bases, open_review_store_within, resolve_review_dir,
+    canonical_common_dir, judged_bases, open_review_store_within, resolve_review_dir,
 };
 
 /// Runs `supersigil review`.
@@ -83,13 +83,8 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     })?;
     let mut review = build(&g)?;
     let sessions = g.candidate_sessions();
-    let annotations = Annotations::read(
-        &g.records,
-        &g.worktree,
-        &g.candidate_worktrees,
-        sessions.iter().copied(),
-    )?;
-    let questions = explain(&mut review, &annotations);
+    let annotations = Annotations::read(&g, sessions.iter().copied())?;
+    let questions = explain(&g, &mut review, &annotations);
     let document = basis(&g, &review, &annotations, questions);
     let mut addressing = Addressing {
         review: None,
@@ -275,17 +270,17 @@ fn report(
     Ok((report.status, report.gate))
 }
 
-/// Adds to `review` the decisions of the `annotations` read that explain
-/// its files, the names of those citing each edit, and each candidate
-/// session's annotation. Returns the open-question items of those
-/// annotations in this review.
-fn explain(review: &mut Review, annotations: &Annotations) -> Vec<GateItem> {
+/// Adds to `review`, gathered in `g`, the decisions of the `annotations`
+/// read that explain its files, the names of those citing each edit, and
+/// each candidate session's annotation. Returns the open-question items of
+/// those annotations in this review.
+fn explain(g: &Gathered, review: &mut Review, annotations: &Annotations) -> Vec<GateItem> {
     let annotated = annotations.annotated();
     let view = in_view(&annotated, &names(&annotated), &review.files);
     review.decisions = view.decisions;
     review.edit_decisions = view.edit_decisions;
-    review.annotations = annotations.infos();
-    question_items(&annotated, &view.in_change)
+    review.annotations = annotations.infos(g);
+    view.questions
 }
 
 /// Builds `review`'s basis from `g`: the comparison, evidence read, digests of
@@ -341,7 +336,6 @@ fn basis(
         ResolvedTarget::WorkingTree { .. } => (TargetKind::WorkingTree, None),
         ResolvedTarget::Commit { commit, .. } => (TargetKind::Commit, Some(commit.to_string())),
     };
-    let (pinned, decisions) = basis_entries(&annotations.pins(), &review.decisions);
     Basis {
         schema: BASIS_SCHEMA.to_owned(),
         worktree: g.worktree.clone(),
@@ -365,8 +359,8 @@ fn basis(
         },
         explanations: explanations(review, &inputs.edits),
         capture: capture(review),
-        annotations: pinned,
-        decisions,
+        annotations: annotations.pins(),
+        decisions: decision_pins(&review.decisions),
         gate,
         salt,
     }
@@ -386,7 +380,7 @@ fn sorted(paths: &[RepoPath]) -> Vec<PathBytes> {
 ///
 /// Returns the store errors of writing and committing the store.
 fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<bool, CliError> {
-    let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
+    let Some(mut tx) = record_dir::begin_within(LOCK_WAIT, || store.begin())? else {
         return Ok(false);
     };
     let now = UtcTime::now();

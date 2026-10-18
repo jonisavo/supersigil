@@ -12,11 +12,13 @@ use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
 use supersigil_review::printed::aligned;
 
-use super::{CheckoutRecord, checkout_record};
+use super::locate;
 use crate::annotations::standing_corrections;
+use crate::commands::session::no_record_message;
 use crate::commands::{AnnotateListArgs, StoreArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
+use crate::record_dir::find_record;
 
 /// Schema name of `annotate list`'s JSON output.
 const LIST_SCHEMA: &str = "supersigil.annotate-list/1";
@@ -56,14 +58,17 @@ struct Listed {
 ///
 /// As [`super::run`].
 pub(super) fn run(options: &StoreArgs, args: &AnnotateListArgs) -> Result<(), CliError> {
-    let CheckoutRecord {
-        checkout, store, ..
-    } = checkout_record(options)?;
+    // The checkout's own record, which must be the only one nearest to it:
+    // a command that selects the record itself has no better way to choose
+    // between records at one distance.
+    let (records_dir, checkout) = locate(options)?;
+    let store = find_record(&records_dir, &checkout)?
+        .ok_or_else(|| CliError::CommandFailed(no_record_message(&checkout)))?;
     let snapshot = store.snapshot()?;
     let standing = standing_corrections(options, &checkout)?;
     let mut corrections: BTreeMap<&SessionId, Vec<&JudgmentId>> = BTreeMap::new();
     for judgment in standing.iter().flat_map(|standing| &standing.judgments) {
-        if let Some(decision) = &judgment.decision {
+        if let Some((decision, _)) = judgment.as_correction() {
             corrections
                 .entry(&decision.session)
                 .or_default()
@@ -127,22 +132,11 @@ fn lines(sessions: &[Listed]) -> Vec<String> {
             listed
                 .revision
                 .map_or_else(|| "-".to_owned(), |revision| revision.to_string()),
-            listed.at.map_or_else(|| "-".to_owned(), minute),
+            listed.at.map_or_else(|| "-".to_owned(), UtcTime::minute),
             listed.decisions.to_string(),
             listed.open_questions.to_string(),
             listed.unseen_corrections.to_string(),
         ]
     }));
     aligned(rows)
-}
-
-/// `at` as `YYYY-MM-DD HH:MM`, in UTC.
-fn minute(at: UtcTime) -> String {
-    let seconds = at.unix().rem_euclid(86_400);
-    format!(
-        "{} {:02}:{:02}",
-        at.date(),
-        seconds / 3_600,
-        seconds / 60 % 60
-    )
 }

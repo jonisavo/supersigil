@@ -8,7 +8,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use common::{agreed, attribution, chain, eid, introduced, unexplained};
+use common::{agreed, attribution, chain, eid, introduced, reference, unexplained};
 use serde_json::json;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{ChainClass, ChainEnd, Origin, PathAttribution};
@@ -17,8 +17,7 @@ use supersigil_record::interpretations::{
 };
 use supersigil_record::reviews::{
     Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, CorrectionKind,
-    DecisionRef, Fingerprint, GateDetail, GateItem, JudgmentKind, PathBytes, Subject, TargetKind,
-    Who,
+    Fingerprint, GateDetail, GateItem, JudgmentKind, PathBytes, Subject, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId, TurnId};
@@ -74,15 +73,6 @@ fn earlier() -> BasisId {
 }
 
 /// `session`'s decision `id` in `revision` of `record`.
-fn reference(record: &str, session: &str, revision: u32, id: &str) -> DecisionRef {
-    DecisionRef {
-        record: RecordId::new(record),
-        session: SessionId::new(session),
-        revision: AnnotationRevision::new(revision),
-        id: id.to_owned(),
-    }
-}
-
 /// Correction `judgment` of `S1`'s `d1` in revision 1, recorded at `at`
 /// with `words`: the reason of a `wrong` or `not_together` correction, the
 /// text of a `constraint`. Anchored directly and not yet seen.

@@ -31,7 +31,7 @@
 //! A re-annotation clears no mark. Only withdrawing a correction does, and
 //! the caller decides which corrections stand.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use supersigil_record::interpretations::{AnnotationRevision, Speaker};
 use supersigil_record::reviews::{CorrectionKind, DecisionRef, Judgment};
@@ -39,14 +39,6 @@ use supersigil_record::{EventId, JudgmentId, RecordId, SessionId};
 
 use super::Annotated;
 use crate::model::{CorrectionInfo, DecisionInfo, RationaleInfo};
-
-/// What the decision a correction names cited, read from the record and
-/// revision its reference names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Addressed<'a> {
-    /// The ids the decision cites in that revision.
-    pub cites: &'a [EventId],
-}
 
 /// Anchors `corrections` to `decisions` by the [module's rules](self),
 /// marking each decision a correction anchors to, and returns the
@@ -57,36 +49,43 @@ pub struct Addressed<'a> {
 /// judgment given twice is listed twice on each decision it anchors to,
 /// and a constraint given twice is twice its first rationale line.
 /// Whether a correction stands is the caller's to decide: one withdrawn is
-/// anchored all the same. A judgment naming no decision or no correction
-/// kind is not a correction and is skipped. `addressed` holds what each
-/// reference's decision cited, for every reference the caller could read;
-/// one it could not read is absent. `annotated` are the shown revisions,
-/// one per annotated candidate session, and `decisions` the decisions in
-/// view of them as [`in_view`](super::in_view) gives them, with no
-/// corrections yet.
+/// anchored all the same. A judgment that is no correction
+/// ([`Judgment::as_correction`]) is skipped. `addressed` gives what the
+/// decision a reference names cited, read from the record and revision
+/// the reference names, for every reference the caller could read, and
+/// `None` for one it could not. `annotated` are the shown revisions, one
+/// per annotated candidate session, and `decisions` the decisions in view
+/// of them as [`in_view`](super::in_view) gives them, with no corrections
+/// yet.
 ///
 /// Indexes the decisions by full reference and, per session, by cited
 /// edit, and finds a reference's anchors once for all the corrections
 /// naming it, matching each edit its decision cited once however often the
-/// edit is repeated. Besides sorting the corrections and the logarithmic
-/// cost of the ordered collections (the addressed map, and each
-/// reference's anchors kept sorted), the time taken is linear in the
+/// edit is repeated. Besides sorting the corrections, one `addressed`
+/// lookup per reference, and the logarithmic cost of keeping each
+/// reference's anchors sorted, the time taken is linear in the
 /// corrections, the decisions, the addressed cites, and the anchors marked,
 /// but for one cost: a decision in view citing several of the edits a
 /// reference's decision cited is matched once per such edit, so finding
 /// one reference's anchors costs the number of decisions citing each of
 /// its edits, summed.
 #[must_use]
-pub fn anchor(
+pub fn anchor<'c>(
     corrections: &[&Judgment],
-    addressed: &BTreeMap<DecisionRef, Addressed<'_>>,
+    addressed: impl Fn(&DecisionRef) -> Option<&'c [EventId]>,
     annotated: &[Annotated<'_>],
     decisions: &mut [DecisionInfo],
 ) -> Vec<CorrectionInfo> {
     let mut corrections: Vec<(&Judgment, &DecisionRef, CorrectionKind)> = corrections
         .iter()
-        .filter_map(|judgment| Some((*judgment, judgment.decision.as_ref()?, judgment.correction?)))
+        .filter_map(|judgment| {
+            let (reference, kind) = judgment.as_correction()?;
+            Some((*judgment, reference, kind))
+        })
         .collect();
+    if corrections.is_empty() {
+        return Vec::new();
+    }
     corrections.sort_by(|(a, ..), (b, ..)| (a.at, &a.id).cmp(&(b.at, &b.id)));
     let shown = Shown::new(annotated);
     // Every anchor is found before any decision is marked, once per
@@ -99,7 +98,7 @@ pub fn anchor(
             .into_iter()
             .map(|(judgment, reference, kind)| {
                 let found_at = *by_reference.entry(reference).or_insert_with(|| {
-                    found.push(view.anchors(reference, &shown, addressed));
+                    found.push(view.anchors(reference, &shown, &addressed));
                     found.len() - 1
                 });
                 let info = CorrectionInfo {
@@ -244,11 +243,11 @@ impl<'d> View<'d> {
 
     /// The positions of the decisions `reference` anchors to, ascending,
     /// with the revision it addressed when it anchors through cited edits.
-    fn anchors(
+    fn anchors<'c>(
         &self,
         reference: &DecisionRef,
         shown: &Shown<'_>,
-        addressed: &BTreeMap<DecisionRef, Addressed<'_>>,
+        addressed: &impl Fn(&DecisionRef) -> Option<&'c [EventId]>,
     ) -> (Vec<usize>, Option<AnnotationRevision>) {
         let key = (
             &reference.record,
@@ -262,11 +261,11 @@ impl<'d> View<'d> {
         if shown.shows(reference) {
             return (Vec::new(), None);
         }
-        let Some(addressed) = addressed.get(reference) else {
+        let Some(cites) = addressed(reference) else {
             return (Vec::new(), None);
         };
         // A historical revision may repeat a cite; each edit is matched once.
-        let cites: HashSet<&EventId> = addressed.cites.iter().collect();
+        let cites: HashSet<&EventId> = cites.iter().collect();
         let anchors: BTreeSet<usize> = cites
             .into_iter()
             .filter_map(|cite| self.citing.get(&(&reference.session, cite)))

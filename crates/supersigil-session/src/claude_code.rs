@@ -935,10 +935,10 @@ fn classify_role(raw: &RawRecord, content: Option<&Value>) -> Role {
 }
 
 /// Whether a `user` turn of `role` abandons the tool uses still pending: a
-/// typed message, from a person or a delegating agent, or a compaction
-/// summary, which follows the context those tool uses ran in.
-fn abandons(role: Role) -> bool {
-    matches!(role, Role::Human | Role::Delegation | Role::Summary)
+/// prompt, since a typed message or a compaction summary follows the
+/// context those tool uses ran in.
+const fn abandons(role: Role) -> bool {
+    role.is_prompt()
 }
 
 /// Extracts message text, returning an empty string when there is none.

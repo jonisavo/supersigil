@@ -764,13 +764,7 @@ impl<'a> JudgedReview<'a> {
                 kind,
                 words,
             } => {
-                let decision = self.decision(decision)?;
-                planned.decision = Some(DecisionRef {
-                    record: decision.record.clone(),
-                    session: decision.session.clone(),
-                    revision: decision.revision,
-                    id: decision.id.clone(),
-                });
+                planned.decision = Some(self.decision(decision)?.decision.clone());
                 planned.correction = Some(kind);
                 let words = Some(words.as_str().to_owned());
                 match kind {
@@ -830,12 +824,13 @@ impl<'a> JudgedReview<'a> {
         let matching: Vec<_> = match typed.rsplit_once(':') {
             None => decisions
                 .iter()
-                .filter(|decision| decision.id == typed)
+                .filter(|decision| decision.decision.id == typed)
                 .collect(),
             Some((prefix, id)) => decisions
                 .iter()
                 .filter(|decision| {
-                    decision.id == id && decision.session.as_str().starts_with(prefix)
+                    let reference = &decision.decision;
+                    reference.id == id && reference.session.as_str().starts_with(prefix)
                 })
                 .collect(),
         };

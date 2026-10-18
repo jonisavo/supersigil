@@ -136,7 +136,10 @@ pub fn correction(
 }
 
 /// Appends `judgments` to `store` in one commit.
-pub fn record_judgments(store: &ReviewStore, judgments: &[Judgment]) {
+pub fn record_judgments<'j>(
+    store: &ReviewStore,
+    judgments: impl IntoIterator<Item = &'j Judgment>,
+) {
     let mut tx = store.begin().unwrap();
     for judgment in judgments {
         tx.append_judgment(judgment).unwrap();

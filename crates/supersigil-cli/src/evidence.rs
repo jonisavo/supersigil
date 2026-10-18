@@ -17,8 +17,8 @@ use std::sync::Arc;
 use supersigil_anchor::Order;
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
-    CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Observation, Outcome,
-    Role, Turn,
+    CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Material, Observation,
+    Outcome, Role,
 };
 use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
@@ -33,7 +33,7 @@ use crate::mapping::{MappedEdit, map_resolved};
 #[derive(Debug, Default)]
 pub struct Evidence {
     /// Every turn by session and id; the first occurrence wins.
-    turns: BTreeMap<(SessionId, TurnId), Turn>,
+    turns: BTreeMap<(SessionId, TurnId), IndexedTurn>,
     /// Every command by id; the first occurrence wins.
     commands: BTreeMap<EventId, Command>,
     /// Capture limitations by transcript, then by the record holding them.
@@ -99,7 +99,11 @@ impl Evidence {
             Observation::Turn(turn) => {
                 self.turns
                     .entry((turn.session.clone(), turn.id.clone()))
-                    .or_insert_with(|| turn.clone());
+                    .or_insert_with(|| IndexedTurn {
+                        parent: turn.parent.clone(),
+                        role: turn.role,
+                        text: turn.role.is_prompt().then(|| turn.text.clone()),
+                    });
             }
             Observation::Edit(edit) => {
                 self.resolutions.add(&edit.checkout);
@@ -362,10 +366,11 @@ impl Evidence {
     }
 
     /// The nearest recorded ancestor of `edit`'s turn, following parent
-    /// pointers within its session, whose role is Human, Delegation or
-    /// Summary (a compaction summary, whose text is never retained); `None`
-    /// when the chain breaks first. It is the message that preceded the edit
-    /// in the conversation, not its cause or its rationale.
+    /// pointers within its session, that is a prompt ([`Role::is_prompt`]):
+    /// Human, Delegation or Summary (a compaction summary, whose text is
+    /// never retained); `None` when the chain breaks first. It is the
+    /// message that preceded the edit in the conversation, not its cause or
+    /// its rationale.
     #[must_use]
     pub fn prompt(&self, edit: &Edit) -> Option<PromptInfo> {
         let mut parent = self
@@ -380,17 +385,29 @@ impl Evidence {
                 return None;
             }
             let turn = self.turns.get(&(edit.session.clone(), id.clone()))?;
-            if matches!(turn.role, Role::Human | Role::Delegation | Role::Summary) {
+            if let Some(text) = &turn.text {
                 return Some(PromptInfo {
-                    turn: turn.id.as_str().to_owned(),
+                    turn: id.as_str().to_owned(),
                     role: turn.role,
-                    text: turn.text.clone(),
+                    text: text.clone(),
                 });
             }
             parent = turn.parent.as_ref();
         }
         None
     }
+}
+
+/// A turn as the index keeps it: what [`Evidence::prompt`] reads of it.
+#[derive(Debug)]
+struct IndexedTurn {
+    /// The turn it replies to, in its session.
+    parent: Option<TurnId>,
+    /// Who wrote it.
+    role: Role,
+    /// Its text, kept for a prompt ([`Role::is_prompt`]), which is what the
+    /// turn is read for; `None` for any other turn.
+    text: Option<Material<String>>,
 }
 
 /// The commands a review searches for mentions of its paths

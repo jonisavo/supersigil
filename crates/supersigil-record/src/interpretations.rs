@@ -67,6 +67,13 @@ impl fmt::Display for AnnotationRevision {
     }
 }
 
+/// Names an annotation revision, or its absence, in a message: `revision 2`
+/// or `no revision`.
+#[must_use]
+pub fn revision_phrase(revision: Option<AnnotationRevision>) -> String {
+    revision.map_or_else(|| "no revision".to_owned(), |r| format!("revision {r}"))
+}
+
 /// What an annotator wrote about one session.
 ///
 /// Serialization omits empty lists, and reading treats a missing list as

@@ -140,6 +140,16 @@ pub enum Role {
     Summary,
 }
 
+impl Role {
+    /// Whether a turn of this role addresses the agent: a message typed by
+    /// a person or a delegating agent, or a compaction summary, which
+    /// stands in for the context the agent was working in.
+    #[must_use]
+    pub const fn is_prompt(self) -> bool {
+        matches!(self, Self::Human | Self::Delegation | Self::Summary)
+    }
+}
+
 /// A captured value, or the reason it was not stored.
 ///
 /// Used for turn text, edit text, patches, and command output. JSON stores

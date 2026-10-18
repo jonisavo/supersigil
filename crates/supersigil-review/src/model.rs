@@ -1212,6 +1212,20 @@ pub struct DecisionInfo {
     pub explains: Vec<ExplainedSpan>,
 }
 
+impl DecisionInfo {
+    /// The full reference naming this decision: its record, session,
+    /// revision and id.
+    #[must_use]
+    pub fn reference(&self) -> DecisionRef {
+        DecisionRef {
+            record: self.record.clone(),
+            session: self.session.clone(),
+            revision: self.revision,
+            id: self.id.clone(),
+        }
+    }
+}
+
 /// A standing correction of a decision, as a decision it anchors to shows
 /// it, or as a review lists it when it anchors to none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

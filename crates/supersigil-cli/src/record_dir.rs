@@ -4,8 +4,8 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use supersigil_record::RecordId;
 use supersigil_record::store::{Association, Store, StoreError, WriteTx, stores_in};
+use supersigil_record::{RecordId, RecordSnapshot};
 use supersigil_session::checkout::{self, Placement, placement};
 
 use crate::error::CliError;
@@ -99,10 +99,13 @@ pub fn find_record(records_dir: &Path, checkout: &Path) -> Result<Option<Store>,
 ///
 /// Returns [`CliError::Io`] if the records directory exists but cannot be
 /// read, or a store error if a record's manifest cannot be accessed or read.
-pub fn owners(records_dir: &Path, checkout: &Path) -> Result<Vec<Store>, CliError> {
+pub fn owners(
+    records_dir: &Path,
+    checkout: &Path,
+) -> Result<Vec<(Store, RecordSnapshot)>, CliError> {
     Ok(owning(records_dir, checkout)?
         .into_iter()
-        .map(|(store, _)| store)
+        .map(|(store, snapshot, _)| (store, snapshot))
         .collect())
 }
 
@@ -110,16 +113,16 @@ pub fn owners(records_dir: &Path, checkout: &Path) -> Result<Vec<Store>, CliErro
 /// `checkout`: zero for an exact match.
 fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usize)>, CliError> {
     let mut matches = owning(records_dir, checkout)?;
-    let Some(nearest) = matches.first().map(|(_, distance)| *distance) else {
+    let Some(nearest) = matches.first().map(|(_, _, distance)| *distance) else {
         return Ok(None);
     };
-    matches.retain(|(_, distance)| *distance == nearest);
+    matches.retain(|(_, _, distance)| *distance == nearest);
     if matches.len() == 1 {
-        return Ok(matches.pop());
+        return Ok(matches.pop().map(|(store, _, distance)| (store, distance)));
     }
     let roots: Vec<String> = matches
         .iter()
-        .map(|(s, _)| s.root().to_string_lossy().into_owned())
+        .map(|(s, _, _)| s.root().to_string_lossy().into_owned())
         .collect();
     Err(CliError::CommandFailed(format!(
         "{} is associated with several records: {}. Remove or merge all but one.",
@@ -134,21 +137,25 @@ fn find_owner(records_dir: &Path, checkout: &Path) -> Result<Option<(Store, usiz
 /// # Errors
 ///
 /// As [`owners`].
-fn owning(records_dir: &Path, checkout: &Path) -> Result<Vec<(Store, usize)>, CliError> {
+fn owning(
+    records_dir: &Path,
+    checkout: &Path,
+) -> Result<Vec<(Store, RecordSnapshot, usize)>, CliError> {
     let mut owning = Vec::new();
     for store in records_in(records_dir)? {
-        let distance = store
-            .manifest()?
+        let snapshot = store.snapshot()?;
+        let distance = snapshot
+            .manifest()
             .associations
             .iter()
             .filter_map(|a| rank(&a.checkout, checkout))
             .min();
         if let Some(distance) = distance {
-            owning.push((store, distance));
+            owning.push((store, snapshot, distance));
         }
     }
     // Stable, so records at one distance keep the directory's order.
-    owning.sort_by_key(|(_, distance)| *distance);
+    owning.sort_by_key(|(_, _, distance)| *distance);
     Ok(owning)
 }
 
@@ -270,18 +277,22 @@ pub fn open_or_create_record_within(
     Ok(acquired)
 }
 
-/// Begins a write transaction on `store`, trying its writer lock every
-/// 50 ms for up to `wait`; returns `None` when it stays held.
+/// Begins a write transaction with `begin`, a store's `begin`, trying its
+/// writer lock every 50 ms for up to `wait`; returns `None` when it stays
+/// held.
 ///
 /// # Errors
 ///
-/// Returns the store errors of [`Store::begin`] other than a held lock.
+/// Returns the store errors of `begin` other than a held lock.
 ///
 /// # Panics
 ///
 /// Panics if `wait` is so large that the deadline overflows [`Instant`].
-pub fn begin_within(store: &Store, wait: Duration) -> Result<Option<WriteTx<'_>>, CliError> {
-    poll(Instant::now() + wait, || match store.begin() {
+pub fn begin_within<T>(
+    wait: Duration,
+    mut begin: impl FnMut() -> Result<T, StoreError>,
+) -> Result<Option<T>, CliError> {
+    poll(Instant::now() + wait, || match begin() {
         Ok(tx) => Ok(Some(tx)),
         Err(StoreError::Locked(_)) => Ok(None),
         Err(e) => Err(CliError::from(e)),

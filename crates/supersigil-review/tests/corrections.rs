@@ -7,7 +7,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use common::{eid, finishes_within};
+use common::{eid, finishes_within, ids, reference, revision, strings};
 use supersigil_anchor::ChainClass;
 use supersigil_record::interpretations::{
     ANNOTATION_SCHEMA, Annotation, AnnotationDocument, AnnotationRevision, Decision, Observed,
@@ -18,7 +18,7 @@ use supersigil_record::reviews::{
 };
 use supersigil_record::time::UtcTime;
 use supersigil_record::{EventId, JudgmentId, RecordId, Revision, SessionId};
-use supersigil_review::decisions::corrections::{Addressed, anchor};
+use supersigil_review::decisions::corrections::anchor;
 use supersigil_review::decisions::{Annotated, in_view, names};
 use supersigil_review::model::{
     BytesStatus, CorrectionInfo, DecisionInfo, FileKindInfo, FileReview, FileStatus, HunkReview,
@@ -97,18 +97,6 @@ fn file(path: &str, edits: &[String]) -> FileReview {
 /// The change: [`E1`], [`E2`] and [`E3`] each attributed one line.
 fn change() -> Vec<FileReview> {
     vec![file("src/a.rs", &strings(&[E1, E2, E3]))]
-}
-
-fn strings(texts: &[&str]) -> Vec<String> {
-    texts.iter().map(|text| (*text).to_owned()).collect()
-}
-
-fn ids(texts: &[&str]) -> Vec<EventId> {
-    texts.iter().map(|text| eid(text)).collect()
-}
-
-fn revision(number: u32) -> AnnotationRevision {
-    AnnotationRevision::new(number)
 }
 
 /// The annotator's one rationale line for decision `id`.
@@ -231,21 +219,14 @@ impl Fixture {
     ) -> (Vec<DecisionInfo>, Vec<CorrectionInfo>) {
         let annotated = self.annotated();
         let mut decisions = in_view(&annotated, &names(&annotated), files).decisions;
-        let addressed: BTreeMap<DecisionRef, Addressed<'_>> = addressed
-            .iter()
-            .map(|(reference, cites)| (reference.clone(), Addressed { cites }))
-            .collect();
-        let unanchored = anchor(corrections, &addressed, &annotated, &mut decisions);
+        let cites = |reference: &DecisionRef| {
+            addressed
+                .iter()
+                .find(|(addressed, _)| addressed == reference)
+                .map(|(_, cites)| cites.as_slice())
+        };
+        let unanchored = anchor(corrections, cites, &annotated, &mut decisions);
         (decisions, unanchored)
-    }
-}
-
-fn reference(record: &str, session: &str, revision: u32, id: &str) -> DecisionRef {
-    DecisionRef {
-        record: RecordId::new(record),
-        session: SessionId::new(session),
-        revision: AnnotationRevision::new(revision),
-        id: id.to_owned(),
     }
 }
 

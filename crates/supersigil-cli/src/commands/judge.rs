@@ -28,7 +28,7 @@ use supersigil_record::reviews::{
     JudgmentKind, Origin, ReviewSnapshot, ReviewStore, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, SessionId, StoreError};
+use supersigil_record::{JudgmentId, StoreError};
 use supersigil_review::judging::{
     AlreadyClosed, Call, FindJudgmentError, ItemState, JudgedStore, Ledger, NotClosed, Refusal,
     WithdrawRefusal, Words,
@@ -45,8 +45,9 @@ use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
 use crate::item_names::{item_names, name};
 use crate::reconcile::LOCK_WAIT;
+use crate::record_dir::begin_within;
 use crate::record_dir::canonical_checkout;
-use crate::review_dir::{begin_within, canonical_common_dir, judged_bases, resolve_review_dir};
+use crate::review_dir::{canonical_common_dir, judged_bases, resolve_review_dir};
 
 /// Refusal message for an agent session. It never suggests unsetting the marker.
 const AGENT_SESSION: &str = "Judgments must be made by a person; this command is running inside \
@@ -106,19 +107,20 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
                 .reason
                 .as_deref()
                 .and_then(Words::new)
-                .ok_or_else(|| refusal(["A dismissal needs --reason."].into()))?,
+                .ok_or_else(|| CliError::refused(["A dismissal needs --reason."].into()))?,
         },
         JudgeCommand::Comment(comment) => Call::Comment {
             item: comment.item.as_ref(),
             text: Words::new(&comment.text)
-                .ok_or_else(|| refusal(["A comment's text can't be blank."].into()))?,
+                .ok_or_else(|| CliError::refused(["A comment's text can't be blank."].into()))?,
         },
         JudgeCommand::Correct(correct) => {
             let (kind, words) = match &correct.constraint {
                 Some(constraint) => (
                     CorrectionKind::Constraint,
-                    Words::new(constraint)
-                        .ok_or_else(|| refusal(["A constraint can't be blank."].into()))?,
+                    Words::new(constraint).ok_or_else(|| {
+                        CliError::refused(["A constraint can't be blank."].into())
+                    })?,
                 ),
                 None => (
                     if correct.wrong {
@@ -131,7 +133,7 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
                         .reason
                         .as_deref()
                         .and_then(Words::new)
-                        .ok_or_else(|| refusal(["A reason can't be blank."].into()))?,
+                        .ok_or_else(|| CliError::refused(["A reason can't be blank."].into()))?,
                 ),
             };
             Call::Correct {
@@ -146,7 +148,7 @@ fn call(command: &JudgeCommand) -> Result<Call<'_, String>, CliError> {
                 .as_deref()
                 .map(|text| {
                     Words::new(text).ok_or_else(|| {
-                        refusal(
+                        CliError::refused(
                             ["A completion's text can't be blank; give some or leave out --text."]
                                 .into(),
                         )
@@ -177,7 +179,9 @@ fn reason(given: Option<&str>) -> Result<Option<Words<'_>>, CliError> {
     given
         .map(|text| {
             Words::new(text).ok_or_else(|| {
-                refusal(["A reason can't be blank; give one or leave out --reason."].into())
+                CliError::refused(
+                    ["A reason can't be blank; give one or leave out --reason."].into(),
+                )
             })
         })
         .transpose()
@@ -270,14 +274,16 @@ fn addressing(args: &JudgeArgs) -> Addressing {
 /// As [`run`]; a refusal's message here lacks its "No judgment recorded."
 fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
     if in_agent_session(|name| std::env::var_os(name)) {
-        return Err(refusal([AGENT_SESSION].into()));
+        return Err(CliError::refused([AGENT_SESSION].into()));
     }
     let call = call(command)?;
     let mut addressing = addressing(args);
     let checkout = Checkout::open(args)?;
     let store = checkout.store(args.review.as_deref(), &addressing)?;
-    let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
-        return Err(refusal(["The review store is busy; try again."].into()));
+    let Some(mut tx) = begin_within(LOCK_WAIT, || store.begin())? else {
+        return Err(CliError::refused(
+            ["The review store is busy; try again."].into(),
+        ));
     };
     // Under the writer lock, the published manifest is the one the
     // transaction read.
@@ -301,7 +307,7 @@ fn write(args: &JudgeArgs, command: &JudgeCommand) -> Result<(), CliError> {
         .plan(call.naming(&items))
         .map_err(|refused| refused_call(&refused, call, &id, &names, &addressing))?;
     let who = retention::identity(&checkout.repo)?
-        .ok_or_else(|| refusal(NO_IDENTITY.lines().collect()))?;
+        .ok_or_else(|| CliError::refused(NO_IDENTITY.lines().collect()))?;
     let first = planned.first();
     if first {
         keep(&checkout.repo, &id, &basis, &who, &addressing)?;
@@ -525,22 +531,11 @@ fn corrected(decisions: &[BasisDecision], judgment: &Judgment) -> String {
     };
     decisions
         .iter()
-        .find(|decision| {
-            decision.record == reference.record
-                && decision.session == reference.session
-                && decision.revision == reference.revision
-                && decision.id == reference.id
-        })
+        .find(|decision| decision.decision == *reference)
         .map_or_else(
-            || format!("{}:{}", short(&reference.session), reference.id),
+            || format!("{}:{}", reference.session.short(), reference.id),
             |decision| decision.name.clone(),
         )
-}
-
-/// The first 8 characters of `session`, or all of it when shorter.
-fn short(session: &SessionId) -> &str {
-    let id = session.as_str();
-    id.char_indices().nth(8).map_or(id, |(end, _)| &id[..end])
 }
 
 /// What a correction of `kind` says, as `judge` prints it; `correction`
@@ -617,7 +612,7 @@ fn find_review(
                 "Several saved reviews start with {prefix}; give more digits:"
             ));
             out.lines(candidates.iter().map(|id| format!("  {id}")));
-            refusal(out)
+            CliError::refused(out)
         }
         StoreError::InvalidBasisPrefix(_) => {
             let mut out = Printed::new();
@@ -626,7 +621,7 @@ fn find_review(
                 "Name a review by at least 8 hex digits of its id, not {prefix} ({list} shows \
                  reviews)."
             ));
-            refusal(out)
+            CliError::refused(out)
         }
         other => other.into(),
     })
@@ -639,7 +634,7 @@ fn unknown_review(prefix: &str, addressing: &Addressing) -> CliError {
     out.line(format!(
         "No saved review starts with {prefix} ({list} shows reviews)."
     ));
-    refusal(out)
+    CliError::refused(out)
 }
 
 /// The refusal when no `--review` names a review and `worktree` selects
@@ -647,7 +642,7 @@ fn unknown_review(prefix: &str, addressing: &Addressing) -> CliError {
 /// review store cannot hold its path, so running `review` cannot help.
 fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
     if worktree.to_str().is_none() {
-        return refusal(
+        return CliError::refused(
             [
                 "The review store cannot hold this worktree's path (it is not valid UTF-8), so \
                  this worktree has no saved reviews.",
@@ -662,7 +657,7 @@ fn no_selection(worktree: &Path, addressing: &Addressing) -> CliError {
         "No review selected in this worktree. Run {review} first, or pass --review <id> \
          ({list} shows reviews)."
     ));
-    refusal(out)
+    CliError::refused(out)
 }
 
 /// Resolves `typed` to unique gate item ids in the order named.
@@ -692,7 +687,7 @@ fn resolve(
     let mut out = Printed::new();
     out.line("Each name must name one gate item:");
     out.lines(errors.iter().map(|error| format!("  {error}")));
-    Err(refusal(out))
+    Err(CliError::refused(out))
 }
 
 /// The refusal of `call` on review `id` for `refused`, naming items with
@@ -706,7 +701,7 @@ fn refused_call(
 ) -> CliError {
     match refused {
         Refusal::AlreadyClosed(closed) => already_closed(closed, names, addressing),
-        Refusal::AlreadyComplete(completion) => refusal(
+        Refusal::AlreadyComplete(completion) => CliError::refused(
             [format!(
                 "Review {} is already complete: completed on {} by {} (judgment {}).",
                 id.short(),
@@ -733,7 +728,7 @@ fn refused_call(
             ));
             let next = next_lines(&open, false, addressing, &mut out);
             out.lines(next);
-            refusal(out)
+            CliError::refused(out)
         }
         Refusal::NotClosed(unclosed) => {
             let mut out = Printed::new();
@@ -751,7 +746,7 @@ fn refused_call(
                     _ => format!("  {name}: open"),
                 });
             }
-            refusal(out)
+            CliError::refused(out)
         }
         Refusal::NoJudgment(error) => {
             let Call::UndoJudgment { prefix, .. } = call else {
@@ -775,16 +770,16 @@ fn refused_call(
             let options = format!("--judgment {}", judgment.id);
             let undo = out.command(there.judge("undo", &[], &options));
             out.line(format!("To withdraw it there: {undo}"));
-            refusal(out)
+            CliError::refused(out)
         }
-        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Undo) => refusal(
+        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Undo) => CliError::refused(
             [format!(
                 "Judgment {} is an undo; an undo cannot be withdrawn.",
                 judgment.id.short()
             )]
             .into(),
         ),
-        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Withdrawn) => refusal(
+        Refusal::NotWithdrawable(judgment, WithdrawRefusal::Withdrawn) => CliError::refused(
             [format!(
                 "Judgment {} is already withdrawn.",
                 judgment.id.short()
@@ -792,7 +787,7 @@ fn refused_call(
             .into(),
         ),
         Refusal::NoDecision { typed, names } => no_decision(typed, names),
-        Refusal::AmbiguousDecision { typed, names } => refusal(
+        Refusal::AmbiguousDecision { typed, names } => CliError::refused(
             [format!(
                 "{typed} names several decisions: {}. Give the qualified name.",
                 decision_list(names)
@@ -832,7 +827,7 @@ fn already_closed(
     }
     let undo = out.command(addressing.judge("undo", &typed, ""));
     out.line(format!("Next: {undo}"));
-    refusal(out)
+    CliError::refused(out)
 }
 
 /// The refusal of a correction whose `typed` name matches none of the
@@ -843,7 +838,7 @@ fn no_decision(typed: &str, names: &[&str]) -> CliError {
     } else {
         format!("Decisions: {}.", decision_list(names))
     };
-    refusal([format!("No decision {typed} on this review. {shown}")].into())
+    CliError::refused([format!("No decision {typed} on this review. {shown}")].into())
 }
 
 /// The refusal of an undo whose `prefix` names no single judgment, for
@@ -855,7 +850,7 @@ fn no_judgment(error: &FindJudgmentError<'_>, prefix: &str, addressing: &Address
         let mut out = Printed::new();
         let show = out.command(addressing.judge("show", &[], ""));
         out.line(line(prefix, &format!("{show} lists each judgment's id")));
-        refusal(out)
+        CliError::refused(out)
     };
     match error {
         FindJudgmentError::TooShort => listed(|prefix, listed| {
@@ -874,7 +869,7 @@ fn no_judgment(error: &FindJudgmentError<'_>, prefix: &str, addressing: &Address
                     .iter()
                     .map(|judgment| format!("  {}", judgment.id)),
             );
-            refusal(out)
+            CliError::refused(out)
         }
     }
 }
@@ -902,7 +897,7 @@ fn keep(
         out.line(format!(
             "The reviewed snapshot is no longer in the repository; run {review} again."
         ));
-        return Err(refusal(out));
+        return Err(CliError::refused(out));
     }
     let parents = [&basis.base.commit, &basis.target.commit]
         .into_iter()
@@ -918,11 +913,4 @@ fn keep(
         who,
     )?;
     Ok(())
-}
-
-/// Joins `printed`'s lines, escaped and followed by the note on values its
-/// commands show as `<as given>`, into a refusal. [`run`] prefixes write
-/// command refusals with "No judgment recorded."
-fn refusal(printed: Printed) -> CliError {
-    CliError::Refused(printed.finish().join("\n"))
 }

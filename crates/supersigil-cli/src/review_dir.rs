@@ -9,15 +9,12 @@ use std::time::{Duration, Instant};
 
 use supersigil_git::retention::common_dir;
 use supersigil_git::{GitError, Repo};
-use supersigil_record::StoreError;
-use supersigil_record::reviews::{
-    self, Basis, BasisId, Judgment, ReviewSnapshot, ReviewStore, ReviewTx,
-};
+use supersigil_record::reviews::{self, Basis, BasisId, Judgment, ReviewSnapshot, ReviewStore};
 use supersigil_review::judging::relates;
 use supersigil_session::checkout::canonical;
 
 use crate::error::CliError;
-use crate::record_dir::{lock_dir_within, poll, resolve_data_dir};
+use crate::record_dir::{lock_dir_within, resolve_data_dir};
 
 /// Resolves the reviews directory from the flag, then `SUPERSIGIL_REVIEW_DIR`,
 /// then `$XDG_DATA_HOME/supersigil/reviews`, then
@@ -125,32 +122,14 @@ pub fn load_bases<'i>(
     Ok(bases)
 }
 
-/// Begins a write transaction on `store`, trying its writer lock every
-/// 50 ms for up to `wait`; returns `None` when it stays held.
-///
-/// # Errors
-///
-/// Returns the store errors of [`ReviewStore::begin`] other than a held
-/// lock.
-///
-/// # Panics
-///
-/// Panics if `wait` is so large that the deadline overflows [`Instant`].
-pub fn begin_within(store: &ReviewStore, wait: Duration) -> Result<Option<ReviewTx<'_>>, CliError> {
-    poll(Instant::now() + wait, || match store.begin() {
-        Ok(tx) => Ok(Some(tx)),
-        Err(StoreError::Locked(_)) => Ok(None),
-        Err(e) => Err(CliError::from(e)),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
     use std::path::Path;
     use std::time::Duration;
 
-    use super::{begin_within, open_review_store_within};
+    use super::open_review_store_within;
+    use crate::record_dir::begin_within;
 
     #[cfg(unix)]
     #[test]
@@ -210,8 +189,16 @@ mod tests {
                 .unwrap();
 
         let held = store.begin().unwrap();
-        assert!(begin_within(&store, Duration::ZERO).unwrap().is_none());
+        assert!(
+            begin_within(Duration::ZERO, || store.begin())
+                .unwrap()
+                .is_none()
+        );
         drop(held);
-        assert!(begin_within(&store, Duration::ZERO).unwrap().is_some());
+        assert!(
+            begin_within(Duration::ZERO, || store.begin())
+                .unwrap()
+                .is_some()
+        );
     }
 }

@@ -26,3 +26,12 @@ pub enum CliError {
     #[error("{0}")]
     Refused(String),
 }
+
+impl CliError {
+    /// `printed`'s lines, escaped and followed by the note on values its
+    /// commands show as `<as given>`, joined into a refusal.
+    #[must_use]
+    pub fn refused(printed: supersigil_review::printed::Printed) -> Self {
+        Self::Refused(printed.finish().join("\n"))
+    }
+}

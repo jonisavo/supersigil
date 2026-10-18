@@ -54,6 +54,19 @@ pub struct Judgment {
     pub at: UtcTime,
 }
 
+impl Judgment {
+    /// The decision this judgment corrects and what it says of it, when it
+    /// is a correction: a [`JudgmentKind::Correct`] judgment naming both.
+    /// A judgment of another kind, or one lacking either, corrects nothing.
+    #[must_use]
+    pub fn as_correction(&self) -> Option<(&DecisionRef, CorrectionKind)> {
+        if self.kind != JudgmentKind::Correct {
+            return None;
+        }
+        Some((self.decision.as_ref()?, self.correction?))
+    }
+}
+
 /// What a judgment records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,18 +114,6 @@ pub enum CorrectionKind {
     /// Adds a human rationale, shown first: the actual constraint, in the
     /// judgment's text.
     Constraint,
-}
-
-impl CorrectionKind {
-    /// The snake-case name the JSON uses.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Wrong => "wrong",
-            Self::NotTogether => "not_together",
-            Self::Constraint => "constraint",
-        }
-    }
 }
 
 /// A judgment an undo withdraws.

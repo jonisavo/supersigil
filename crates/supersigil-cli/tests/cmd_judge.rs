@@ -2165,22 +2165,19 @@ const SESSIONS: [&str; 2] = [
 /// review shows it under `name`.
 fn shown(session: &str, id: &str, name: &str) -> BasisDecision {
     BasisDecision {
-        record: RecordId::new("r1"),
-        session: SessionId::new(session),
-        revision: AnnotationRevision::new(1),
-        id: id.to_owned(),
+        decision: DecisionRef {
+            record: RecordId::new("r1"),
+            session: SessionId::new(session),
+            revision: AnnotationRevision::new(1),
+            id: id.to_owned(),
+        },
         name: name.to_owned(),
     }
 }
 
 /// The reference a correction of `decision` records.
 fn reference(decision: &BasisDecision) -> DecisionRef {
-    DecisionRef {
-        record: decision.record.clone(),
-        session: decision.session.clone(),
-        revision: decision.revision,
-        id: decision.id.clone(),
-    }
+    decision.decision.clone()
 }
 
 /// The slice fixture reviewed, then saved again as a review showing

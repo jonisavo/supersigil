@@ -14,6 +14,9 @@ use std::process::{Child, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
+use common::annotation::{
+    self, edit_of, record_judgments, record_of, reference, saved_basis, synced as sync_into,
+};
 use common::finishes_within;
 use common::fixture::{Fixture, review_store, slice, slice_text, write};
 use common::session::Session;
@@ -21,11 +24,11 @@ use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Value, json};
 use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision};
 use supersigil_record::reviews::{
-    BasisId, CorrectionKind, DecisionRef, Judgment, JudgmentKind, Who, Withdrawal,
+    BasisId, CorrectionKind, Judgment, JudgmentKind, Who, Withdrawal,
 };
 use supersigil_record::store::{Association, Manifest, Store, stores_in};
 use supersigil_record::time::UtcTime;
-use supersigil_record::{EventId, JudgmentId, Observation, RecordId, SessionId, TurnId};
+use supersigil_record::{EventId, Observation, RecordId, SessionId, TurnId};
 
 /// The slice fixture's session.
 const SESSION: &str = "11111111-1111-4111-8111-111111111111";
@@ -43,22 +46,8 @@ fn annotate(f: &Fixture, dir: &Path, args: &[&str]) -> Command {
 fn synced() -> Fixture {
     let f = Fixture::new();
     slice(&f);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     f
-}
-
-/// Syncs the transcripts `f`'s Claude home holds for `dir` into its record.
-fn sync(f: &Fixture, dir: &Path) {
-    let output = f
-        .plain(dir, &["session", "sync", "--claude-home"])
-        .arg(&f.claude)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 /// The one record in `records`.
@@ -81,9 +70,7 @@ fn manifests(f: &Fixture) -> Vec<Manifest> {
 
 /// The id of the slice session's edit made by tool use `tool`.
 fn edit(tool: &str) -> String {
-    EventId::derive("edit", &SessionId::new(SESSION), tool)
-        .as_str()
-        .to_owned()
+    edit_of(SESSION, tool)
 }
 
 /// A first annotation of the slice session, prepared from `record` as it is
@@ -574,23 +561,15 @@ fn with_nested_record() -> (Fixture, PathBuf) {
     std::fs::create_dir_all(&sub).unwrap();
     let text = Session::new("s-sub", &sub).prompt("Hello.").text();
     f.transcript(&sub, "sub.jsonl", &text);
-    sync(&f, &sub);
-    sync(&f, &f.repo);
+    sync_into(&f, &sub, &[]);
+    sync_into(&f, &f.repo, &[]);
     (f, sub)
-}
-
-/// The record that owns `checkout` in `f`'s records directory, found as
-/// `session show` finds it.
-fn record_of(f: &Fixture, checkout: &Path) -> Store {
-    supersigil_cli::record_dir::find_record(&f.records, checkout)
-        .unwrap()
-        .unwrap()
 }
 
 #[test]
 fn a_document_naming_an_ancestor_checkouts_record_imports_into_that_record() {
     let (f, sub) = with_nested_record();
-    let (outer, own) = (record_of(&f, &f.repo), record_of(&f, &sub));
+    let (outer, own) = (record_of(&f.records, &f.repo), record_of(&f.records, &sub));
     let file = written_json(&f, "annotation.json", &document(&outer));
 
     // From the directory, whose own record lacks the session.
@@ -665,9 +644,9 @@ fn a_document_names_its_record_when_several_own_the_checkout_at_one_distance() {
 #[test]
 fn a_document_naming_a_record_of_no_ancestor_or_none_is_refused() {
     let (f, sub) = with_nested_record();
-    let inner = record_of(&f, &sub).manifest().unwrap().record_id;
+    let inner = record_of(&f.records, &sub).manifest().unwrap().record_id;
     // The directory's record lies below the repository, not above it.
-    let mut nested = document(&record_of(&f, &f.repo));
+    let mut nested = document(&record_of(&f.records, &f.repo));
     nested["prepared"]["record"] = json!(inner);
     let mut missing = nested.clone();
     missing["prepared"]["record"] = json!("r\u{1b}[2J");
@@ -699,7 +678,7 @@ fn annotated() -> Fixture {
         .prompt("Tidy the notes.")
         .text();
     f.transcript(&f.repo, "other.jsonl", &other);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     let file = written_json(&f, "annotation.json", &document(&record_in(&f.records)));
     ran(&mut annotate(&f, &f.repo, &["import", &file]));
     f
@@ -766,26 +745,18 @@ fn list_shows_each_session_with_its_current_annotation() {
 /// `session` in `record` is explained wrongly.
 fn correction(basis: &BasisId, record: &RecordId, session: &str) -> Judgment {
     Judgment {
-        id: JudgmentId::generate(),
-        basis: basis.clone(),
-        kind: JudgmentKind::Correct,
-        items: Vec::new(),
-        reason: Some("The person never said why.".to_owned()),
-        text: None,
-        decision: Some(DecisionRef {
-            record: record.clone(),
-            session: SessionId::new(session),
-            revision: AnnotationRevision::FIRST,
-            id: "d1".to_owned(),
-        }),
-        correction: Some(CorrectionKind::Wrong),
-        closes: BTreeMap::new(),
-        withdraws: Vec::new(),
         who: Who {
             name: "Ada Lovelace".to_owned(),
             email: "ada@example.com".to_owned(),
         },
         at: UtcTime::now(),
+        ..annotation::correction(
+            basis,
+            reference(record, session, 1, "d1"),
+            CorrectionKind::Wrong,
+            "The person never said why.",
+            "2026-01-01T00:00:00Z",
+        )
     }
 }
 
@@ -801,7 +772,7 @@ fn list_counts_the_standing_corrections_the_current_revision_has_not_seen() {
         &f.repo,
         &["review", "--format", "json", "--review-dir", reviews_flag],
     );
-    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
+    let basis = saved_basis(&review);
     let unseen = correction(&basis, &record_id, SESSION);
     let seen = correction(&basis, &record_id, SESSION);
     let withdrawn = correction(&basis, &record_id, SESSION);
@@ -819,19 +790,17 @@ fn list_counts_the_standing_corrections_the_current_revision_has_not_seen() {
     // A nested checkout's record can hold the same session.
     let in_another_record = correction(&basis, &RecordId::new("r-elsewhere"), SESSION);
     let of_another_session = correction(&basis, &record_id, "s-other");
-    let store = review_store(&f, &reviews);
-    let mut tx = store.begin().unwrap();
-    for judgment in [
-        &unseen,
-        &seen,
-        &withdrawn,
-        &undo,
-        &in_another_record,
-        &of_another_session,
-    ] {
-        tx.append_judgment(judgment).unwrap();
-    }
-    tx.commit(UtcTime::now()).unwrap();
+    record_judgments(
+        &review_store(&f, &reviews),
+        [
+            &unseen,
+            &seen,
+            &withdrawn,
+            &undo,
+            &in_another_record,
+            &of_another_session,
+        ],
+    );
     let mut revised = document(&record);
     revised["based_on"] = json!(1);
     revised["corrections_seen"] = json!([seen.id]);
@@ -891,7 +860,7 @@ fn outside_a_git_repository_no_correction_is_counted() {
     std::fs::create_dir(&plain).unwrap();
     let text = Session::new("s-plain", &plain).prompt("Hello.").text();
     f.transcript(&plain, "plain.jsonl", &text);
-    sync(&f, &plain);
+    sync_into(&f, &plain, &[]);
 
     let listed = ran(&mut annotate(&f, &plain, &["list"]));
 
@@ -1121,7 +1090,7 @@ fn split() -> Fixture {
         .notebook_edit("toolu_a2")
         .text();
     f.agent_transcript(&f.repo, "s-split", "a1", &agent);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     f
 }
 
@@ -1229,7 +1198,7 @@ fn a_turn_sighted_again_in_a_rewritten_transcript_is_listed_once_per_sighting() 
     // first three records are sighted again under the same ids.
     let first_three: String = slice_text().split_inclusive('\n').take(3).collect();
     f.transcript(&f.repo, "slice.jsonl", &first_three);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
 
     let brief = brief(&f, &f.repo, &[SESSION]);
 
@@ -1364,7 +1333,7 @@ fn an_edit_carries_its_hunks_or_else_its_new_text_cut_at_2000_characters() {
         )
         .text();
     f.transcript(&f.repo, "s-write.jsonl", &text);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     let replaced = event("edit", "s-write", "toolu_edit");
     let hunks = record_in(&f.records)
         .snapshot()
@@ -1444,7 +1413,7 @@ fn corrected() -> (Fixture, String, BasisId, [Judgment; 3]) {
         &f.repo,
         &["review", "--format", "json", "--review-dir", &reviews],
     );
-    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
+    let basis = saved_basis(&review);
     let of_d1 = correction(&basis, &record_id, SESSION);
     let gone = correction(&basis, &RecordId::new("r-gone"), SESSION);
     let mut unrevised = correction(&basis, &record_id, SESSION);
@@ -1462,19 +1431,17 @@ fn corrected() -> (Fixture, String, BasisId, [Judgment; 3]) {
         ..correction(&basis, &record_id, SESSION)
     };
     let of_another_session = correction(&basis, &record_id, "s-other");
-    let store = review_store(&f, Path::new(&reviews));
-    let mut tx = store.begin().unwrap();
-    for judgment in [
-        &of_d1,
-        &gone,
-        &withdrawn,
-        &undo,
-        &of_another_session,
-        &unrevised,
-    ] {
-        tx.append_judgment(judgment).unwrap();
-    }
-    tx.commit(UtcTime::now()).unwrap();
+    record_judgments(
+        &review_store(&f, Path::new(&reviews)),
+        [
+            &of_d1,
+            &gone,
+            &withdrawn,
+            &undo,
+            &of_another_session,
+            &unrevised,
+        ],
+    );
     let mut revised = document(&record);
     revised["based_on"] = json!(1);
     revised["corrections_seen"] = json!([of_d1.id]);
@@ -1561,15 +1528,10 @@ fn corrections_of_one_decision_share_what_it_addressed() {
         &f.repo,
         &["review", "--format", "json", "--review-dir", &reviews],
     );
-    let basis: BasisId = serde_json::from_value(review["basis"]["id"].clone()).unwrap();
+    let basis = saved_basis(&review);
     // Three corrections of revision 1's d1, which revision 2 replaces.
     let corrections = [(); 3].map(|()| correction(&basis, &record_id, SESSION));
-    let store = review_store(&f, Path::new(&reviews));
-    let mut tx = store.begin().unwrap();
-    for judgment in &corrections {
-        tx.append_judgment(judgment).unwrap();
-    }
-    tx.commit(UtcTime::now()).unwrap();
+    record_judgments(&review_store(&f, Path::new(&reviews)), &corrections);
     let mut revised = document(&record);
     revised["based_on"] = json!(1);
     revised["decisions"] = json!([
@@ -1987,7 +1949,7 @@ fn a_prefix_matching_several_sessions_or_none_is_refused() {
         let text = Session::new(id, &f.repo).prompt("Hello.").text();
         f.transcript(&f.repo, &format!("{id}.jsonl"), &text);
     }
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
 
     let several = refused(&f, &mut annotate(&f, &f.repo, &["prepare", "s-"]));
     let none = refused(&f, &mut annotate(&f, &f.repo, &["prepare", "s-three"]));
@@ -2009,16 +1971,21 @@ fn one_session_in_two_records() -> (Fixture, PathBuf, [RecordId; 2]) {
     std::fs::create_dir_all(&sub).unwrap();
     let two = Session::new("s-two", &sub).prompt("Hello.").text();
     let transcript = f.transcript(&sub, "two.jsonl", &two);
-    sync(&f, &sub);
+    sync_into(&f, &sub, &[]);
     let one = Session::new("s-one", &f.repo).prompt("Hello.").text();
     f.transcript(&f.repo, "one.jsonl", &one);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     let transcript = transcript.to_str().unwrap();
     ran(&mut Command::from_std(f.plain(
         &f.repo,
         &["session", "sync", "--transcript", transcript],
     )));
-    let ids = [&sub, &f.repo].map(|checkout| record_of(&f, checkout).manifest().unwrap().record_id);
+    let ids = [&sub, &f.repo].map(|checkout| {
+        record_of(&f.records, checkout)
+            .manifest()
+            .unwrap()
+            .record_id
+    });
     (f, sub, ids)
 }
 
@@ -2063,7 +2030,7 @@ fn a_session_only_an_enclosing_repositorys_record_holds_is_prepared_from_the_nes
         .prompt("Look around.")
         .text();
     f.transcript(&nested, "inner.jsonl", &inner);
-    sync(&f, &nested);
+    sync_into(&f, &nested, &[]);
     // A session run in the outer repository writes a file of the nested
     // one; only the outer repository's record holds it.
     let content = "pub fn a() {}\n";
@@ -2073,7 +2040,7 @@ fn a_session_only_an_enclosing_repositorys_record_holds_is_prepared_from_the_nes
         .text();
     f.transcript(&f.repo, "outer.jsonl", &outer);
     write(&nested, "a.rs", content);
-    sync(&f, &f.repo);
+    sync_into(&f, &f.repo, &[]);
     // A review from the nested repository saves its review store.
     f.json(
         &nested,
@@ -2089,7 +2056,7 @@ fn a_session_only_an_enclosing_repositorys_record_holds_is_prepared_from_the_nes
     assert_eq!(brief["session"], "s-outer");
     assert_eq!(
         brief["record"],
-        json!(record_of(&f, &f.repo).manifest().unwrap().record_id)
+        json!(record_of(&f.records, &f.repo).manifest().unwrap().record_id)
     );
     assert_eq!(brief["checkout"], json!(nested));
     // The review store stays the nested repository's.
@@ -2119,7 +2086,7 @@ fn prepare_reconciles_the_records_a_review_from_the_checkout_reconciles() {
     let worktree = f.repo.join(".claude/worktrees/x");
     let own = Session::new("s-own", &worktree).prompt("Hello.").text();
     f.transcript(&worktree, "own.jsonl", &own);
-    sync(&f, &worktree);
+    sync_into(&f, &worktree, &[]);
     // A session in the main checkout writes a file in the worktree, and
     // nothing has synced it: a review from the worktree reads the main
     // checkout's project directory too.
@@ -2138,7 +2105,7 @@ fn prepare_reconciles_the_records_a_review_from_the_checkout_reconciles() {
     // Reconciling gave the main checkout a record, above the worktree's.
     assert_eq!(
         brief["record"],
-        json!(record_of(&f, &f.repo).manifest().unwrap().record_id)
+        json!(record_of(&f.records, &f.repo).manifest().unwrap().record_id)
     );
     assert_eq!(brief["checkout"], json!(worktree));
 }

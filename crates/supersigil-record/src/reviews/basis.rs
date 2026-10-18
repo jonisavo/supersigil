@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{GateItem, PathBytes};
+use super::{DecisionRef, GateItem, PathBytes};
 use crate::ids::{RecordId, Revision, SessionId};
 use crate::interpretations::AnnotationRevision;
 use crate::observations::CaptureCounts;
@@ -212,14 +212,11 @@ pub struct BasisAnnotation {
 /// A decision a review showed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BasisDecision {
-    /// The record holding the decision's annotation.
-    pub record: RecordId,
-    /// The annotated session.
-    pub session: SessionId,
-    /// The annotation revision the review read.
-    pub revision: AnnotationRevision,
-    /// The annotator's id for the decision.
-    pub id: String,
+    /// The decision: its record, session, the annotation revision the
+    /// review read, and the annotator's id for it, written as four fields
+    /// of this entry.
+    #[serde(flatten)]
+    pub decision: DecisionRef,
     /// The decision's name in the review: its id, or `<session short>:<id>`
     /// when another contributing session uses the same id.
     pub name: String,

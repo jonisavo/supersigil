@@ -637,24 +637,25 @@ fn main_worktree(worktrees: &[Worktree], reviewed: &Path) -> PathBuf {
 /// reconciles when no commit names another origin, as [`reconcile`] takes
 /// them: that worktree, canonical, and the root of the repository's main
 /// worktree, up to which discovery reads the project directories of the
-/// worktree's ancestors. Outside a git worktree, `checkout` is both.
+/// worktree's ancestors, with the repository opened to find them. Outside a
+/// git worktree, `checkout` is both and there is no repository.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Git`] if git fails to open the repository for a
 /// reason other than `checkout` lying outside a worktree or to list its
 /// worktrees, and [`CliError::Io`] if the worktree root cannot be resolved.
-pub fn reconciled_worktrees(checkout: &Path) -> Result<(PathBuf, PathBuf), CliError> {
+pub fn reconciled_worktrees(checkout: &Path) -> Result<(Option<Repo>, PathBuf, PathBuf), CliError> {
     let repo = match Repo::open(Git::new(checkout)) {
         Ok(repo) => repo,
         Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => {
-            return Ok((checkout.to_path_buf(), checkout.to_path_buf()));
+            return Ok((None, checkout.to_path_buf(), checkout.to_path_buf()));
         }
         Err(error) => return Err(error.into()),
     };
     let worktree = canonical(repo.root())?;
     let main = main_worktree(&registered_worktrees(&repo)?, &worktree);
-    Ok((worktree, main))
+    Ok((Some(repo), worktree, main))
 }
 
 /// The checkouts of `records` whose origin evidence is unavailable, each

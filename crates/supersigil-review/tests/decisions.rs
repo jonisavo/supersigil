@@ -10,7 +10,7 @@ use std::convert::Infallible;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use common::{eid, finishes_within};
+use common::{eid, finishes_within, ids, revision, strings};
 use supersigil_anchor::ChainClass;
 use supersigil_record::derivations::Restore;
 use supersigil_record::interpretations::{
@@ -20,13 +20,13 @@ use supersigil_record::interpretations::{
 };
 use supersigil_record::reviews::{
     Algorithms, BASIS_SCHEMA, Basis, BasisAnnotation, BasisBase, BasisDecision, BasisId,
-    BasisScope, BasisTarget, FingerprintPart, GateDetail, GateItem, ItemId, Judgment, JudgmentKind,
-    Origin, PathBytes, Subject, TargetKind, Who,
+    BasisScope, BasisTarget, DecisionRef, FingerprintPart, GateDetail, GateItem, ItemId, Judgment,
+    JudgmentKind, Origin, PathBytes, Subject, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{EventId, JudgmentId, RecordId, Revision, SessionId, TurnId};
+use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, TurnId};
 use supersigil_review::decisions::{
-    Annotated, InView, RecordCandidate, basis_entries, choose_record, in_excerpt, in_view,
+    Annotated, InView, RecordCandidate, choose_record, decision_pins, in_excerpt, in_view,
     interpretation_changes, names, question_items,
 };
 use supersigil_review::judging::JudgedStore;
@@ -258,10 +258,6 @@ fn question(id: &str, about: &[&str]) -> OpenQuestion {
     }
 }
 
-fn revision(number: u32) -> AnnotationRevision {
-    AnnotationRevision::new(number)
-}
-
 /// One session's annotation in [`RECORD`] and its derivations' restores.
 struct Entry {
     session: SessionId,
@@ -367,14 +363,6 @@ fn the_decision(view: &InView) -> &DecisionInfo {
         panic!("one decision in view: {:?}", view.decisions);
     };
     decision
-}
-
-fn strings(texts: &[&str]) -> Vec<String> {
-    texts.iter().map(|text| (*text).to_owned()).collect()
-}
-
-fn ids(texts: &[&str]) -> Vec<EventId> {
-    texts.iter().map(|text| eid(text)).collect()
 }
 
 #[test]
@@ -550,10 +538,20 @@ fn an_excerpt_names_its_questions_over_every_question_of_the_sessions() {
     // The excerpt is `src/a.rs`: S2's `q1` and S1's `q3` concern `src/b.rs`.
     let files = files();
     let excerpt = &files[..1];
+    let spans: Vec<Span> = excerpt[0]
+        .hunks
+        .iter()
+        .flat_map(|hunk| hunk.spans.clone())
+        .collect();
 
     let whole = in_view(&annotated, &names(&annotated), &files);
     let part = in_view(&annotated, &names(&annotated), excerpt);
-    let excerpted = in_excerpt(&annotated, &names(&annotated), excerpt);
+    let excerpted = in_excerpt(
+        &annotated,
+        &names(&annotated),
+        &excerpt[0].path_bytes,
+        &spans,
+    );
 
     // The gate of the whole change qualifies the repeated `q1`.
     assert_eq!(
@@ -1128,20 +1126,7 @@ fn an_unchanged_interpretation_is_omitted_from_a_related_reviews_json() {
 }
 
 #[test]
-fn basis_entries_pin_each_session_with_a_record_and_each_decision_in_view() {
-    let (s1, s2, s3, s4) = (
-        SessionId::new(S1),
-        SessionId::new(S2),
-        SessionId::new(S3),
-        SessionId::new("4d5e6f70-0000-4000-8000-000000000004"),
-    );
-    let (r1, r2) = (RecordId::new("r1"), RecordId::new("r2"));
-    let sessions = [
-        (&s2, Some(&r1), Some(revision(2))),
-        (&s1, Some(&r2), None),
-        (&s4, None, None),
-        (&s3, Some(&r1), Some(revision(1))),
-    ];
+fn decision_pins_name_each_decision_in_view() {
     let fixture = Fixture::default()
         .annotate(S1, vec![decision("d1", &[ATTRIBUTED])], Vec::new())
         .annotate(
@@ -1152,21 +1137,15 @@ fn basis_entries_pin_each_session_with_a_record_and_each_decision_in_view() {
     let mut decisions = fixture.view().decisions;
     decisions.reverse();
 
-    let (annotations, pinned) = basis_entries(&sessions, &decisions);
+    let pinned = decision_pins(&decisions);
 
-    assert_eq!(
-        annotations,
-        [
-            pin("r1", S3, Some(1)),
-            pin("r1", S2, Some(2)),
-            pin("r2", S1, None),
-        ]
-    );
     let decision = |session: &str, id: &str, name: &str| BasisDecision {
-        record: RecordId::new(RECORD),
-        session: SessionId::new(session),
-        revision: AnnotationRevision::FIRST,
-        id: id.to_owned(),
+        decision: DecisionRef {
+            record: RecordId::new(RECORD),
+            session: SessionId::new(session),
+            revision: AnnotationRevision::FIRST,
+            id: id.to_owned(),
+        },
         name: name.to_owned(),
     };
     assert_eq!(
@@ -1337,7 +1316,12 @@ fn questions_repeating_an_edit_list_on_ten_thousand_decisions_promptly() {
         let annotated = fixture.annotated();
         let names = names(&annotated);
         let view = in_view(&annotated, &names, &files);
-        let excerpted = in_excerpt(&annotated, &names, &files);
+        let excerpted = in_excerpt(
+            &annotated,
+            &names,
+            &files[0].path_bytes,
+            &files[0].hunks[0].spans,
+        );
         let items = question_items(&annotated, &view.in_change);
         (view, excerpted, items)
     });

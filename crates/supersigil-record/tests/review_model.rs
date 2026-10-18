@@ -99,10 +99,12 @@ fn basis() -> Basis {
         }],
         annotations: vec![pin("s1", Some(AnnotationRevision::new(2)))],
         decisions: vec![BasisDecision {
-            record: RecordId::new("r1"),
-            session: SessionId::new("s1"),
-            revision: AnnotationRevision::new(2),
-            id: "d1".to_owned(),
+            decision: DecisionRef {
+                record: RecordId::new("r1"),
+                session: SessionId::new("s1"),
+                revision: AnnotationRevision::new(2),
+                id: "d1".to_owned(),
+            },
             name: "d1".to_owned(),
         }],
         gate: vec![lines_item("src/a.rs")],
@@ -167,10 +169,10 @@ fn a_basis_id_changes_with_every_field() {
         |b| b.annotations[0].session = SessionId::new("s2"),
         |b| b.annotations[0].revision = None,
         |b| b.annotations[0].revision = Some(AnnotationRevision::new(3)),
-        |b| b.decisions[0].record = RecordId::new("r2"),
-        |b| b.decisions[0].session = SessionId::new("s2"),
-        |b| b.decisions[0].revision = AnnotationRevision::FIRST,
-        |b| b.decisions[0].id = "d2".to_owned(),
+        |b| b.decisions[0].decision.record = RecordId::new("r2"),
+        |b| b.decisions[0].decision.session = SessionId::new("s2"),
+        |b| b.decisions[0].decision.revision = AnnotationRevision::FIRST,
+        |b| b.decisions[0].decision.id = "d2".to_owned(),
         |b| b.decisions[0].name = "s1:d1".to_owned(),
         |b| b.gate.push(lines_item("src/b.rs")),
         |b| {
@@ -734,7 +736,6 @@ fn correction_kinds_are_written_as_they_print() {
         (CorrectionKind::NotTogether, "not_together"),
         (CorrectionKind::Constraint, "constraint"),
     ] {
-        assert_eq!(kind.as_str(), name);
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(name));
         assert_eq!(
             serde_json::from_value::<CorrectionKind>(json!(name)).unwrap(),

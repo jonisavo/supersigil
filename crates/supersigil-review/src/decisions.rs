@@ -35,7 +35,7 @@
 //!   reopens it naming `text`, and changed ids naming `about`. A decision
 //!   lists the session's question items about an id it cites.
 //! - **Basis.** A basis pins each candidate session's chosen record and
-//!   revision, and each decision in view ([`basis_entries`]).
+//!   revision, and each decision in view ([`decision_pins`]).
 //! - **Status.** A related review's interpretation changed for each session
 //!   whose pinned annotation differs ([`interpretation_changes`]). Revisions
 //!   are numbered per record, so a pin in another record differs even with
@@ -61,15 +61,16 @@ use supersigil_record::interpretations::{
     Alternative, Annotation, AnnotationRevision, Decision, Implication, OpenQuestion, Rationale,
 };
 use supersigil_record::reviews::{
-    BasisAnnotation, BasisDecision, Fingerprint, FingerprintPart, GateDetail, GateItem, Subject,
+    BasisAnnotation, BasisDecision, Fingerprint, FingerprintPart, GateDetail, GateItem, PathBytes,
+    Subject,
 };
 use supersigil_record::{EventId, RecordId, SessionId};
 
 use crate::model::{
     AlternativeInfo, Association, CitesInfo, DecisionInfo, ExplainedSpan, FileReview,
-    ImplicationInfo, InterpretationChange, RationaleInfo, outcome_edits,
+    ImplicationInfo, InterpretationChange, RationaleInfo, Span, outcome_edits,
 };
-use crate::names::{ItemNames, SESSION_PREFIX, unique_prefix};
+use crate::names::{ItemNames, SessionShorts};
 use crate::outcome::Outcome;
 
 /// A record holding observations of a candidate session, as
@@ -119,8 +120,8 @@ pub struct Annotated<'a> {
 /// that uses a decision's id qualifies that decision's name.
 #[derive(Debug, Clone)]
 pub struct Names<'a> {
-    /// The annotated sessions' ids with their positions, sorted.
-    sessions: Vec<(&'a str, usize)>,
+    /// The annotated sessions, shortened among themselves.
+    shorts: SessionShorts<'a>,
     /// The decision ids that more than one annotated session has.
     repeated: HashSet<&'a str>,
 }
@@ -128,12 +129,7 @@ pub struct Names<'a> {
 /// Names the decisions of the `annotated` sessions.
 #[must_use]
 pub fn names<'a>(annotated: &[Annotated<'a>]) -> Names<'a> {
-    let mut sessions: Vec<(&str, usize)> = annotated
-        .iter()
-        .enumerate()
-        .map(|(at, entry)| (entry.session.as_str(), at))
-        .collect();
-    sessions.sort_unstable();
+    let shorts = SessionShorts::new(annotated.iter().map(|entry| entry.session));
     let mut first: HashMap<&str, &SessionId> = HashMap::new();
     let mut repeated = HashSet::new();
     for entry in annotated {
@@ -150,7 +146,7 @@ pub fn names<'a>(annotated: &[Annotated<'a>]) -> Names<'a> {
             }
         }
     }
-    Names { sessions, repeated }
+    Names { shorts, repeated }
 }
 
 impl Names<'_> {
@@ -170,7 +166,7 @@ impl Names<'_> {
     /// the annotated sessions, or its whole id when that is shorter.
     #[must_use]
     pub fn short<'s>(&self, session: &'s SessionId) -> &'s str {
-        unique_prefix(session.as_str(), &self.sessions, SESSION_PREFIX)
+        self.shorts.of(session)
     }
 }
 
@@ -186,6 +182,9 @@ pub struct InView {
     pub edit_decisions: BTreeMap<String, Vec<String>>,
     /// Every edit id that contributes to a line of the change.
     pub in_change: BTreeSet<String>,
+    /// The open-question items of the annotated sessions in the change
+    /// ([`question_items`]), sorted as gate items sort.
+    pub questions: Vec<GateItem>,
 }
 
 /// Finds the decisions of the `annotated` sessions that explain `files`,
@@ -198,13 +197,19 @@ pub struct InView {
 /// about that id, each counted once however often its `about` repeats it.
 #[must_use]
 pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileReview]) -> InView {
-    view(annotated, names, files, QuestionNames::Items)
+    let spans = files.iter().flat_map(|file| {
+        file.hunks
+            .iter()
+            .flat_map(|hunk| &hunk.spans)
+            .map(move |span| (&file.path_bytes, span))
+    });
+    view(annotated, names, spans, QuestionNames::Items)
 }
 
-/// Finds the decisions of the `annotated` sessions that explain `excerpt`,
-/// a part of a larger change such as one line of it, named by `names`, as
-/// [`in_view`] does, except for the names of the open questions a decision
-/// lists.
+/// Finds the decisions of the `annotated` sessions that explain the `spans`
+/// of `path`, an excerpt of a larger change such as one line of it, named
+/// by `names`, as [`in_view`] does, except for the names of the open
+/// questions a decision lists.
 ///
 /// A review's gate holds the question items of the whole change, which an
 /// excerpt cannot tell. A question is named here as the gate would name it
@@ -218,9 +223,11 @@ pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileRevi
 pub fn in_excerpt(
     annotated: &[Annotated<'_>],
     names: &Names<'_>,
-    excerpt: &[FileReview],
+    path: &PathBytes,
+    spans: &[Span],
 ) -> InView {
-    view(annotated, names, excerpt, QuestionNames::Every)
+    let spans = spans.iter().map(|span| (path, span));
+    view(annotated, names, spans, QuestionNames::Every)
 }
 
 /// Which open questions the names of a decision's listed questions are
@@ -233,16 +240,18 @@ enum QuestionNames {
     Every,
 }
 
-/// [`in_view`] and [`in_excerpt`].
-fn view(
+/// [`in_view`] and [`in_excerpt`], over the `spans` of the change, each
+/// with the path of its file.
+fn view<'s>(
     annotated: &[Annotated<'_>],
     names: &Names<'_>,
-    files: &[FileReview],
+    spans: impl Iterator<Item = (&'s PathBytes, &'s Span)>,
     naming: QuestionNames,
 ) -> InView {
     let decisions = decisions_of(annotated);
-    let (explains, in_change) = explanations(&decisions, files);
-    let shown = Shown::new(annotated, names, &in_change, naming);
+    let (explains, in_change) = explanations(&decisions, spans);
+    let (asking, questions) = asking(annotated, &in_change, naming);
+    let shown = Shown::new(annotated, names, &in_change, asking);
     let mut infos: Vec<DecisionInfo> = decisions
         .iter()
         .zip(explains)
@@ -264,6 +273,7 @@ fn view(
         decisions: infos,
         edit_decisions,
         in_change,
+        questions,
     }
 }
 
@@ -276,7 +286,8 @@ fn view(
 #[must_use]
 pub fn every_decision(annotated: &[Annotated<'_>], names: &Names<'_>) -> Vec<DecisionInfo> {
     let in_change = BTreeSet::new();
-    let shown = Shown::new(annotated, names, &in_change, QuestionNames::Items);
+    // No cited id is in the change, so no question concerns a decision.
+    let shown = Shown::new(annotated, names, &in_change, HashMap::new());
     let mut infos: Vec<DecisionInfo> = decisions_of(annotated)
         .into_iter()
         .map(|(at, decision)| shown.info(at, decision, Vec::new()))
@@ -303,10 +314,11 @@ fn decisions_of<'a>(annotated: &[Annotated<'a>]) -> Vec<(usize, &'a Decision)> {
 }
 
 /// Each decision's explained spans, by position in `decisions`, and every
-/// edit id that contributes to a line of `files`.
-fn explanations(
+/// edit id that contributes to a line of the change's `spans`, each with
+/// the path of its file.
+fn explanations<'s>(
     decisions: &[(usize, &Decision)],
-    files: &[FileReview],
+    spans: impl Iterator<Item = (&'s PathBytes, &'s Span)>,
 ) -> (Vec<Vec<ExplainedSpan>>, BTreeSet<String>) {
     // Each cited id's decisions, by position, each once.
     let mut citing: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -323,13 +335,7 @@ fn explanations(
     // a span with several cited edits is listed once.
     let mut last = vec![None; decisions.len()];
     let mut in_change = BTreeSet::new();
-    let spans = files.iter().flat_map(|file| {
-        file.hunks
-            .iter()
-            .flat_map(|hunk| &hunk.spans)
-            .map(move |span| (file, span))
-    });
-    for (number, (file, span)) in spans.enumerate() {
+    for (number, (path, span)) in spans.enumerate() {
         let Some((association, search_complete)) = association(&span.outcome) else {
             continue;
         };
@@ -341,7 +347,7 @@ fn explanations(
                 if last[index] != Some(number) {
                     last[index] = Some(number);
                     explains[index].push(ExplainedSpan {
-                        path: file.path_bytes.clone(),
+                        path: path.clone(),
                         side: span.side,
                         start: span.start,
                         count: span.count,
@@ -372,26 +378,32 @@ const fn association(outcome: &Outcome) -> Option<(Association, Option<bool>)> {
     }
 }
 
-/// Each session's question items, named as the gate names them (over the
-/// questions `naming` says), by an id they are about. An item is listed
-/// once under each id however often its `about` repeats it, so a repeated
-/// id adds no work for the decisions citing it.
+/// Each session's question items in a review whose lines the `in_change`
+/// edits contribute to, named as the gate names them (over the questions
+/// `naming` says), by an id they are about, and those items themselves,
+/// sorted as gate items sort. An item is listed once under each id however
+/// often its `about` repeats it, so a repeated id adds no work for the
+/// decisions citing it.
 fn asking<'a>(
     annotated: &[Annotated<'a>],
     in_change: &BTreeSet<String>,
     naming: QuestionNames,
-) -> HashMap<(&'a SessionId, &'a str), Vec<String>> {
+) -> (Asking<'a>, Vec<GateItem>) {
     let (asked, items): (Vec<_>, Vec<_>) = asked(annotated, |question| match naming {
         QuestionNames::Items => is_item(question, in_change),
         QuestionNames::Every => true,
     })
     .into_iter()
     .unzip();
+    // Named over every question or not, only an item in view is listed.
+    let listed: Vec<bool> = asked
+        .iter()
+        .map(|(_, question)| is_item(question, in_change))
+        .collect();
+    let mut asking: Asking<'a> = HashMap::new();
     let names = ItemNames::new(&items, BTreeMap::new(), false, |_| None);
-    let mut asking: HashMap<_, Vec<String>> = HashMap::new();
-    for ((session, question), name) in asked.into_iter().zip(names.names()) {
-        // Named over every question or not, only an item in view is listed.
-        if !is_item(question, in_change) {
+    for ((&(session, question), name), &listed) in asked.iter().zip(names.names()).zip(&listed) {
+        if !listed {
             continue;
         }
         let about: HashSet<&str> = question.about.iter().map(EventId::as_str).collect();
@@ -402,15 +414,24 @@ fn asking<'a>(
                 .push(name.clone());
         }
     }
-    asking
+    drop(names);
+    let items = items
+        .into_iter()
+        .zip(listed)
+        .filter_map(|(item, listed)| listed.then_some(item))
+        .collect();
+    (asking, items)
 }
+
+/// Per session and id, the names of the question items about that id.
+type Asking<'a> = HashMap<(&'a SessionId, &'a str), Vec<String>>;
 
 /// What a shown decision's details are built from.
 struct Shown<'v, 'a> {
     annotated: &'v [Annotated<'a>],
     names: &'v Names<'v>,
     in_change: &'v BTreeSet<String>,
-    asking: HashMap<(&'a SessionId, &'a str), Vec<String>>,
+    asking: Asking<'a>,
     /// The edits each session's derivations show restored, by position in
     /// `annotated`.
     restored: Vec<HashSet<&'a EventId>>,
@@ -418,18 +439,19 @@ struct Shown<'v, 'a> {
 
 impl<'v, 'a> Shown<'v, 'a> {
     /// What the decisions of the `annotated` sessions are shown from, in a
-    /// review whose lines the `in_change` edits contribute to.
+    /// review whose lines the `in_change` edits contribute to, with the
+    /// question items about each id ([`asking`]).
     fn new(
         annotated: &'v [Annotated<'a>],
         names: &'v Names<'v>,
         in_change: &'v BTreeSet<String>,
-        naming: QuestionNames,
+        asking: Asking<'a>,
     ) -> Self {
         Self {
             annotated,
             names,
             in_change,
-            asking: asking(annotated, in_change, naming),
+            asking,
             restored: annotated
                 .iter()
                 .map(|entry| {
@@ -596,41 +618,19 @@ fn question_item(session: &SessionId, question: &OpenQuestion) -> GateItem {
     )
 }
 
-/// Builds a basis's pins: one [`BasisAnnotation`] per candidate session in
-/// `sessions` with a chosen record, sorted by record then session, and one
-/// [`BasisDecision`] per decision in view, sorted by name.
-///
-/// Each of `sessions` gives the session, the record chosen for it (`None`
-/// when no involved record holds it, which leaves it unpinned), and its
-/// current annotation revision there.
+/// Builds a basis's decision pins: one [`BasisDecision`] per decision in
+/// view, sorted by name.
 #[must_use]
-pub fn basis_entries(
-    sessions: &[(&SessionId, Option<&RecordId>, Option<AnnotationRevision>)],
-    decisions: &[DecisionInfo],
-) -> (Vec<BasisAnnotation>, Vec<BasisDecision>) {
-    let mut annotations: Vec<BasisAnnotation> = sessions
-        .iter()
-        .filter_map(|&(session, record, revision)| {
-            record.map(|record| BasisAnnotation {
-                record: record.clone(),
-                session: session.clone(),
-                revision,
-            })
-        })
-        .collect();
-    annotations.sort_by(|a, b| (&a.record, &a.session).cmp(&(&b.record, &b.session)));
+pub fn decision_pins(decisions: &[DecisionInfo]) -> Vec<BasisDecision> {
     let mut pinned: Vec<BasisDecision> = decisions
         .iter()
         .map(|decision| BasisDecision {
-            record: decision.record.clone(),
-            session: decision.session.clone(),
-            revision: decision.revision,
-            id: decision.id.clone(),
+            decision: decision.reference(),
             name: decision.name.clone(),
         })
         .collect();
     pinned.sort_by(|a, b| a.name.cmp(&b.name));
-    (annotations, pinned)
+    pinned
 }
 
 /// Lists the sessions whose annotation differs between an `earlier`
