@@ -32,10 +32,10 @@ pub mod reopening;
 pub mod review_dir;
 
 pub use commands::{
-    AnnotateArgs, AnnotateCommand, AnnotateImportArgs, AnnotateListArgs, CloseArgs, Command,
-    CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand, ReviewArgs, SessionArgs,
-    SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs, ShowArgs, StoreArgs,
-    UndoArgs, WhyArgs,
+    AnnotateArgs, AnnotateCommand, AnnotateImportArgs, AnnotateListArgs, AnnotatePrepareArgs,
+    CloseArgs, Command, CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand,
+    ReviewArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
+    ShowArgs, StoreArgs, UndoArgs, WhyArgs,
 };
 pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 

@@ -42,7 +42,8 @@
 //! - **Corrections.** A standing correction anchors to the decision its
 //!   full reference names, or in another revision to the decisions citing
 //!   an edit that decision cited, and is listed apart when it anchors to
-//!   none ([`corrections`]).
+//!   none ([`corrections`]). Without a change, a whole revision's decisions
+//!   take its place ([`every_decision`]).
 //!
 //! No annotation reaches an evidence fingerprint: decisions are kept beside
 //! the file and edit entries that explanation digests and gate fingerprints
@@ -194,35 +195,9 @@ pub struct InView {
 /// spans, and the explanations found.
 #[must_use]
 pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileReview]) -> InView {
-    let decisions: Vec<(usize, &Decision)> = annotated
-        .iter()
-        .enumerate()
-        .flat_map(|(at, entry)| {
-            entry
-                .annotation
-                .document
-                .decisions
-                .iter()
-                .map(move |decision| (at, decision))
-        })
-        .collect();
+    let decisions = decisions_of(annotated);
     let (explains, in_change) = explanations(&decisions, files);
-    let shown = Shown {
-        annotated,
-        names,
-        in_change: &in_change,
-        asking: asking(annotated, &in_change),
-        restored: annotated
-            .iter()
-            .map(|entry| {
-                entry
-                    .restores
-                    .iter()
-                    .flat_map(|restore| &restore.restores)
-                    .collect()
-            })
-            .collect(),
-    };
+    let shown = Shown::new(annotated, names, &in_change);
     let mut infos: Vec<DecisionInfo> = decisions
         .iter()
         .zip(explains)
@@ -245,6 +220,41 @@ pub fn in_view(annotated: &[Annotated<'_>], names: &Names<'_>, files: &[FileRevi
         edit_decisions,
         in_change,
     }
+}
+
+/// Every decision of the `annotated` revisions, named by `names`, as a
+/// review would describe it if none of its cited ids contributed to the
+/// change: every cite elsewhere, no span explained, no open question;
+/// sorted by name. Given to [`corrections::anchor`], they anchor
+/// corrections within whole revisions by the review's rule where no change
+/// is in view, as in an annotator's brief.
+#[must_use]
+pub fn every_decision(annotated: &[Annotated<'_>], names: &Names<'_>) -> Vec<DecisionInfo> {
+    let in_change = BTreeSet::new();
+    let shown = Shown::new(annotated, names, &in_change);
+    let mut infos: Vec<DecisionInfo> = decisions_of(annotated)
+        .into_iter()
+        .map(|(at, decision)| shown.info(at, decision, Vec::new()))
+        .collect();
+    infos.sort_by(|a, b| a.name.cmp(&b.name));
+    infos
+}
+
+/// Every decision of the `annotated` revisions, with the position of its
+/// session's entry.
+fn decisions_of<'a>(annotated: &[Annotated<'a>]) -> Vec<(usize, &'a Decision)> {
+    annotated
+        .iter()
+        .enumerate()
+        .flat_map(|(at, entry)| {
+            entry
+                .annotation
+                .document
+                .decisions
+                .iter()
+                .map(move |decision| (at, decision))
+        })
+        .collect()
 }
 
 /// Each decision's explained spans, by position in `decisions`, and every
@@ -348,7 +358,32 @@ struct Shown<'v, 'a> {
     restored: Vec<HashSet<&'a EventId>>,
 }
 
-impl Shown<'_, '_> {
+impl<'v, 'a> Shown<'v, 'a> {
+    /// What the decisions of the `annotated` sessions are shown from, in a
+    /// review whose lines the `in_change` edits contribute to.
+    fn new(
+        annotated: &'v [Annotated<'a>],
+        names: &'v Names<'v>,
+        in_change: &'v BTreeSet<String>,
+    ) -> Self {
+        Self {
+            annotated,
+            names,
+            in_change,
+            asking: asking(annotated, in_change),
+            restored: annotated
+                .iter()
+                .map(|entry| {
+                    entry
+                        .restores
+                        .iter()
+                        .flat_map(|restore| &restore.restores)
+                        .collect()
+                })
+                .collect(),
+        }
+    }
+
     /// The details of `decision`, from the session at `at`, explaining
     /// `explains`.
     fn info(&self, at: usize, decision: &Decision, explains: Vec<ExplainedSpan>) -> DecisionInfo {

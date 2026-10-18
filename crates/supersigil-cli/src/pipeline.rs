@@ -25,8 +25,8 @@ use supersigil_git::snapshot::{
 };
 use supersigil_git::worktree::{Worktree, list_worktrees};
 use supersigil_git::{
-    Ancestry, Base, Git, ObjectId, Repo, RepoPath, ResolvedRange, ResolvedTarget, TargetSpec,
-    resolve_range,
+    Ancestry, Base, Git, GitError, ObjectId, Repo, RepoPath, ResolvedRange, ResolvedTarget,
+    TargetSpec, resolve_range,
 };
 use supersigil_record::observations::Observation;
 use supersigil_record::reviews::{self, PinnedLog};
@@ -460,9 +460,7 @@ impl Prepared {
         //    waits. `list_worktrees` lists the main worktree first; discovery
         //    reads the project directories of a nested worktree's ancestors
         //    up to it.
-        let main_worktree = worktrees
-            .first()
-            .map_or_else(|| worktree.clone(), |main| main.path.clone());
+        let main_worktree = main_worktree(&worktrees, &worktree);
         let reconciliation = reconcile(
             &records_dir,
             claude_home.as_deref(),
@@ -612,6 +610,39 @@ fn registered_worktrees(repo: &Repo) -> Result<Vec<Worktree>, CliError> {
         }
     }
     Ok(worktrees)
+}
+
+/// The root of the repository's main worktree, which [`list_worktrees`]
+/// lists first among the registered `worktrees`, or `reviewed` when none is
+/// listed.
+fn main_worktree(worktrees: &[Worktree], reviewed: &Path) -> PathBuf {
+    worktrees
+        .first()
+        .map_or_else(|| reviewed.to_path_buf(), |main| main.path.clone())
+}
+
+/// The worktrees a review of the working tree holding `checkout`
+/// reconciles when no commit names another origin, as [`reconcile`] takes
+/// them: that worktree, canonical, and the root of the repository's main
+/// worktree, up to which discovery reads the project directories of the
+/// worktree's ancestors. Outside a git worktree, `checkout` is both.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] if git fails to open the repository for a
+/// reason other than `checkout` lying outside a worktree or to list its
+/// worktrees, and [`CliError::Io`] if the worktree root cannot be resolved.
+pub fn reconciled_worktrees(checkout: &Path) -> Result<(PathBuf, PathBuf), CliError> {
+    let repo = match Repo::open(Git::new(checkout)) {
+        Ok(repo) => repo,
+        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => {
+            return Ok((checkout.to_path_buf(), checkout.to_path_buf()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let worktree = canonical(repo.root())?;
+    let main = main_worktree(&registered_worktrees(&repo)?, &worktree);
+    Ok((worktree, main))
 }
 
 /// The checkouts of `records` whose origin evidence is unavailable, each

@@ -1,12 +1,13 @@
 //! `supersigil session`: sync transcripts into the record and inspect it.
 
+use std::collections::BTreeSet;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use supersigil_record::observations::{Observation, session_start};
 use supersigil_record::store::Store;
-use supersigil_record::{DerivationSet, Revision, SessionId};
+use supersigil_record::{DerivationSet, RecordSnapshot, Revision, SessionId};
 use supersigil_review::printed::Untrusted;
 use supersigil_session::discover::discover_transcripts;
 use supersigil_session::sync::{SyncError, SyncReport, sync};
@@ -312,33 +313,63 @@ fn run_list(
     Ok(())
 }
 
+/// The one session whose id starts with `prefix` among the sessions of
+/// `snapshots`, given nearest first, with the nearest snapshot holding it:
+/// a session that several of them hold is read from the nearest.
+///
+/// # Errors
+///
+/// Returns [`CliError::CommandFailed`] when no session matches, or when
+/// several do, in one record or across several, naming them.
+pub(crate) fn find_session(
+    snapshots: Vec<RecordSnapshot>,
+    prefix: &str,
+) -> Result<(RecordSnapshot, SessionId), CliError> {
+    let holding: Vec<(RecordSnapshot, Vec<SessionId>)> = snapshots
+        .into_iter()
+        .filter_map(|snapshot| {
+            let matches: Vec<SessionId> = snapshot
+                .sessions()
+                .into_iter()
+                .filter(|s| s.as_str().starts_with(prefix))
+                .collect();
+            (!matches.is_empty()).then_some((snapshot, matches))
+        })
+        .collect();
+    let sessions: BTreeSet<&SessionId> = holding.iter().flat_map(|(_, matches)| matches).collect();
+    if holding.len() > 1 && sessions.len() > 1 {
+        let records: Vec<&str> = holding
+            .iter()
+            .map(|(snapshot, _)| snapshot.manifest().record_id.as_str())
+            .collect();
+        return Err(CliError::CommandFailed(format!(
+            "'{prefix}' matches sessions in several records: {}",
+            records.join(", ")
+        )));
+    }
+    // One record holds every match, or each holds the same session.
+    let Some((snapshot, matches)) = holding.into_iter().next() else {
+        return Err(CliError::CommandFailed(format!(
+            "no session matching '{prefix}'"
+        )));
+    };
+    match matches.as_slice() {
+        [one] => Ok((snapshot, one.clone())),
+        many => {
+            let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
+            Err(CliError::CommandFailed(format!(
+                "'{prefix}' matches several sessions: {}",
+                ids.join(", ")
+            )))
+        }
+    }
+}
+
 fn run_show(args: &SessionShowArgs, records_dir: &Path, checkout: &Path) -> Result<(), CliError> {
     let Some(store) = record_dir::find_record(records_dir, checkout)? else {
         return Err(CliError::CommandFailed(no_record_message(checkout)));
     };
-    let snapshot = store.snapshot()?;
-    let matches: Vec<SessionId> = snapshot
-        .sessions()
-        .into_iter()
-        .filter(|s| s.as_str().starts_with(&args.session))
-        .collect();
-    let session = match matches.as_slice() {
-        [one] => one.clone(),
-        [] => {
-            return Err(CliError::CommandFailed(format!(
-                "no session matching '{}'",
-                args.session
-            )));
-        }
-        many => {
-            let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
-            return Err(CliError::CommandFailed(format!(
-                "'{}' matches several sessions: {}",
-                args.session,
-                ids.join(", ")
-            )));
-        }
-    };
+    let (snapshot, session) = find_session(vec![store.snapshot()?], &args.session)?;
     let output = ShowOutput {
         revision: snapshot.revision().get(),
         observations: snapshot.observations(&session)?,

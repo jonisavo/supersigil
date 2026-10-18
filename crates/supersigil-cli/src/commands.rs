@@ -20,13 +20,14 @@ pub mod why;
 /// Available subcommands.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
-    /// Import annotations of recorded sessions and list them
+    /// Prepare, import and list annotations of recorded sessions
     ///
     /// An annotation names the decisions a session made, each citing the
     /// edits that carried it out, with every rationale labelled by who gave
-    /// it. Import checks the citations and quotes against the record the
-    /// document names, this checkout's or an ancestor checkout's; it does
-    /// not judge whether the explanation is right.
+    /// it. Prepare writes what an annotator reads. Import checks the
+    /// citations and quotes against the record the document names, this
+    /// checkout's or an ancestor checkout's; it does not judge whether the
+    /// explanation is right.
     ///
     /// Agents may run these commands.
     Annotate(AnnotateArgs),
@@ -58,8 +59,9 @@ pub enum Command {
 /// store: the options `review` takes, with the same defaults.
 ///
 /// Every `annotate` command takes all four, so one set of options serves
-/// each; `import` and `list` read the record without syncing it and ignore
-/// `--claude-home`.
+/// each. `prepare` reconciles the checkout's records first, discovering
+/// transcripts under `--claude-home`; `import` and `list` read the record
+/// without syncing it and ignore that option.
 #[derive(Debug, clap::Args)]
 pub struct StoreArgs {
     /// Checkout whose record to use (default: current directory)
@@ -90,10 +92,22 @@ pub struct AnnotateArgs {
 /// Subcommands of `annotate`.
 #[derive(Debug, clap::Subcommand)]
 pub enum AnnotateCommand {
+    /// Write the brief an annotator reads for a session of this checkout's record or an ancestor's, as JSON
+    Prepare(AnnotatePrepareArgs),
     /// Check an annotation document against the record it names, this checkout's or an ancestor's, and store it as the session's next revision
     Import(AnnotateImportArgs),
     /// List this checkout's sessions with their current annotations
     List(AnnotateListArgs),
+}
+
+/// Arguments for `annotate prepare`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotatePrepareArgs {
+    /// Session id; a unique prefix is enough
+    pub session: String,
+    /// Write the brief to this file, created or replaced, instead of standard output
+    #[arg(long, value_name = "FILE")]
+    pub out: Option<PathBuf>,
 }
 
 /// Arguments for `annotate import`.

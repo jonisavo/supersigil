@@ -5,22 +5,17 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write as _};
-use std::path::Path;
 
 use serde::Serialize;
-use supersigil_git::{Git, GitError, Repo};
 use supersigil_record::interpretations::AnnotationRevision;
-use supersigil_record::reviews::{self, JudgmentKind};
 use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, SessionId};
-use supersigil_review::judging::Ledger;
 use supersigil_review::printed::aligned;
 
-use super::{CheckoutRecord, checkout_record};
+use super::{CheckoutRecord, checkout_record, corrections};
 use crate::commands::{AnnotateListArgs, StoreArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
-use crate::review_dir::{canonical_common_dir, resolve_review_dir};
 
 /// Schema name of `annotate list`'s JSON output.
 const LIST_SCHEMA: &str = "supersigil.annotate-list/1";
@@ -64,7 +59,16 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateListArgs) -> Result<(), Cl
         checkout, store, ..
     } = checkout_record(options)?;
     let snapshot = store.snapshot()?;
-    let corrections = corrections(options, &checkout)?;
+    let standing = corrections(options, &checkout)?;
+    let mut corrections: BTreeMap<&SessionId, Vec<&JudgmentId>> = BTreeMap::new();
+    for judgment in standing.iter().flat_map(|standing| &standing.judgments) {
+        if let Some(decision) = &judgment.decision {
+            corrections
+                .entry(&decision.session)
+                .or_default()
+                .push(&judgment.id);
+        }
+    }
     let mut sessions = Vec::new();
     for session in snapshot.sessions() {
         let current = snapshot.current_annotation(&session)?;
@@ -74,7 +78,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateListArgs) -> Result<(), Cl
             .collect();
         let unseen_corrections = corrections
             .get(&session)
-            .map_or(0, |ids| ids.iter().filter(|id| !seen.contains(id)).count());
+            .map_or(0, |ids| ids.iter().filter(|id| !seen.contains(*id)).count());
         let document = current.as_ref().map(|annotation| &annotation.document);
         sessions.push(Listed {
             revision: current.as_ref().map(|annotation| annotation.revision),
@@ -100,45 +104,6 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotateListArgs) -> Result<(), Cl
         }
     }
     Ok(())
-}
-
-/// The standing corrections in the review store of `checkout`'s
-/// repository, by the session their decision names. None when the checkout
-/// is outside a git worktree or its repository has no review store.
-///
-/// # Errors
-///
-/// Returns [`CliError::Git`] when git fails for another reason,
-/// [`CliError::CommandFailed`] when no reviews directory can be resolved,
-/// and the store errors of finding the store and reading its judgments.
-fn corrections(
-    options: &StoreArgs,
-    checkout: &Path,
-) -> Result<BTreeMap<SessionId, Vec<JudgmentId>>, CliError> {
-    let repo = match Repo::open(Git::new(checkout)) {
-        Ok(repo) => repo,
-        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => return Ok(BTreeMap::new()),
-        Err(error) => return Err(error.into()),
-    };
-    let reviews_dir = resolve_review_dir(options.review_dir.as_deref())?;
-    let Some(store) = reviews::find(&reviews_dir, &canonical_common_dir(&repo)?)? else {
-        return Ok(BTreeMap::new());
-    };
-    let judgments = store.snapshot()?.judgments()?;
-    let ledger = Ledger::new(&judgments);
-    let mut corrections: BTreeMap<SessionId, Vec<JudgmentId>> = BTreeMap::new();
-    for judgment in &judgments {
-        if judgment.kind == JudgmentKind::Correct
-            && ledger.stands(judgment)
-            && let Some(decision) = &judgment.decision
-        {
-            corrections
-                .entry(decision.session.clone())
-                .or_default()
-                .push(judgment.id.clone());
-        }
-    }
-    Ok(corrections)
 }
 
 /// A header and one row per session, or a line saying there are none.
