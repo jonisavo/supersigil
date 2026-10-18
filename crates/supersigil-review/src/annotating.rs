@@ -33,8 +33,11 @@
 //! - A proposed alternative has no edits; an attempted one has at least one.
 //! - `corrections_seen` holds judgment ids in the form the review store
 //!   generates.
-//! - Lists hold at most their bound of entries. A longer list is one problem
-//!   at its path, and its entries are checked as well.
+//! - Lists hold at most their bound of entries: [`MAX_CORRECTIONS_SEEN`]
+//!   corrections, [`MAX_DECISIONS`] decisions, [`MAX_QUESTIONS`] questions,
+//!   and [`MAX_PER_DECISION_LIST`] in each list of a decision and in a
+//!   question's `about`. A longer list is one problem at its path, and its
+//!   entries are checked as well.
 //!
 //! A quote shows the words were in the turn, not that they explain the
 //! cited edits.
@@ -64,7 +67,8 @@ pub const MAX_DECISIONS: usize = 10_000;
 /// Most open questions in a document.
 pub const MAX_QUESTIONS: usize = 10_000;
 /// Most entries in each list of a decision: its cites, rationale,
-/// alternatives and implications, and each alternative's edits.
+/// alternatives and implications, and each alternative's edits; and in an
+/// open question's `about`.
 pub const MAX_PER_DECISION_LIST: usize = 1_000;
 /// Most judgment ids in `corrections_seen`.
 pub const MAX_CORRECTIONS_SEEN: usize = 10_000;
@@ -353,12 +357,10 @@ impl<'a> Check<'a> {
             self.id(list, index, &question.id, &mut ids);
             let path = list.index(index);
             self.text(path.field("text"), &question.text, MAX_TEXT_CHARS);
-            // Only lists within a decision are bounded; the document's size
-            // bounds this one.
             self.list(
                 path.field("about"),
                 &question.about,
-                usize::MAX,
+                MAX_PER_DECISION_LIST,
                 Self::event,
             );
         }

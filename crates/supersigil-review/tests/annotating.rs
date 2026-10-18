@@ -848,7 +848,8 @@ fn corrections_seen_are_judgment_ids_as_the_store_generates_them() {
 /// A document holding `more` entries past every list's bound: corrections,
 /// decisions and questions, and in the first decision its cites,
 /// rationale, alternatives, the first alternative's edits, and
-/// implications. Every entry is valid.
+/// implications, and in the first question its `about`. Every entry is
+/// valid.
 fn lists(more: usize) -> AnnotationDocument {
     let template = valid();
     let decision = &template.decisions[0];
@@ -878,6 +879,11 @@ fn lists(more: usize) -> AnnotationDocument {
     let open_questions = (0..MAX_QUESTIONS + more)
         .map(|n| OpenQuestion {
             id: format!("q{n}"),
+            about: if n == 0 {
+                vec![eid(COMMAND); per_decision]
+            } else {
+                template.open_questions[0].about.clone()
+            },
             ..template.open_questions[0].clone()
         })
         .collect();
@@ -916,6 +922,7 @@ fn a_list_over_its_bound_is_one_problem_at_its_path() {
                 "has 1001 entries; at most 1000"
             ),
             problem("open_questions", "has 10001 entries; at most 10000"),
+            problem("open_questions[0].about", "has 1001 entries; at most 1000"),
         ]
     );
 }
