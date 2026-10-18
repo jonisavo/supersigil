@@ -191,16 +191,22 @@ every listed path and import again, at most twice. The messages, and what fixes 
 - `The annotation names record <id>, which does not exist.` or `The annotation names record <id>,
   which is not this checkout's or an ancestor's.`: the document's `prepared.record` is not a record
   these options reach. Prepare again with the same options and copy `prepared` from the new brief.
-- `is blank` or `has <n> characters; at most <max>`: write a non-blank text within the limit.
+- `is blank` or `has <n> characters; at most <max>` on a `text`, `title` or `produced_by`: write a
+  non-blank text within the limit.
 - `is empty; an id has 1 to 64 characters`, `has <n> characters; an id has at most 64`,
   `"<id>" holds '<c>'; an id holds only A-Z, a-z, 0-9, _ and -`, or `"<id>" repeats
   decisions[<i>].id`: fix the id.
 - `"<id>" is not an edit or command of this session`: use an `id` from some turn's `edits` or
   `commands`.
-- `is missing; an explicit statement needs a source`: add the source, or set `"explicit": false`.
+- `is missing; an explicit statement needs a source`: add the source, or make the line an inference,
+  `"speaker": "annotator"` and `"explicit": false` (an implication has no speaker: set only
+  `"explicit": false`).
 - `true, but speaker annotator is never explicit`: set `"explicit": false`.
 - `"<turn>" is not a turn of this session`: use the `id` of the brief's turn whose `text.value`
   holds the quote.
+- `is empty; a quote has 1 to 2000 characters`, or `has <n> characters; at most 2000` on a `quote`:
+  copy a non-empty quote of at most 2,000 characters verbatim from the turn's `text.value`, the
+  words that give the reason rather than the whole turn.
 - `not found verbatim in the retained text of turn "<turn>"`: copy the quote again from that turn's
   `text.value`, character for character.
 - `the text of turn "<turn>" is not retained`: the turn keeps no text to quote. Point the `source`
@@ -215,6 +221,8 @@ every listed path and import again, at most twice. The messages, and what fixes 
   `edits`.
 - `"<id>" is not a judgment id` in `corrections_seen`: copy the `judgment` id from `corrections`.
 - `has <n> entries; at most <max>`: shorten the list.
+- `The annotation is over 16 MiB.`: the file is too large to read. Write fewer decisions or
+  shorter entries.
 - `The annotation is not a valid document: <path>: <message>`: the document is not of this shape at
   `<path>`, such as `decisions[0].rationale[0].source.weight`: a wrong type, an unknown field, or a
   JSON syntax error, which may print no path. Only the first such problem is printed, so fix it and
