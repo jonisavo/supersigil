@@ -5,6 +5,8 @@ use std::fs::{self, File};
 use std::path::{Component, Path};
 use std::{io, iter};
 
+use serde::Serialize;
+
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
     DERIVATIONS_DIR, INTERPRETATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR,
@@ -151,15 +153,7 @@ impl<'a> WriteTx<'a> {
         let number = self.session_number(&set.session);
         let logical = derivations_document(number);
         let name = format!("{number}.r{}.json", self.starting.revision.next().get());
-        let rel = format!("{DERIVATIONS_DIR}/{name}");
-        let dir = self.store.root().join(DERIVATIONS_DIR);
-        let path = dir.join(&name);
-        let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
-            path: path.clone(),
-            source,
-        })?;
-        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
-        files::replace(&dir, &name, &bytes)?;
+        let rel = self.write_document(DERIVATIONS_DIR, &name, set)?;
         // Repeated writes replace only the unpublished pending file. List a
         // replaced committed document by its cleanup name ([`listed`]) and
         // keep the later replacement time to preserve its full grace period.
@@ -174,7 +168,6 @@ impl<'a> WriteTx<'a> {
                 .and_modify(|time| *time = (*time).max(now))
                 .or_insert(now);
         }
-        self.publication.touched(path);
         Ok(())
     }
 
@@ -223,25 +216,49 @@ impl<'a> WriteTx<'a> {
         }
         let revision = current.map_or(AnnotationRevision::FIRST, AnnotationRevision::next);
         let name = format!("{number}.a{revision}.json");
-        let dir = self.store.root().join(INTERPRETATIONS_DIR);
-        let path = dir.join(&name);
         let annotation = Annotation {
             revision,
             at: self.now,
             document,
         };
-        let bytes = serde_json::to_vec_pretty(&annotation).map_err(|source| StoreError::Json {
+        let rel = self.write_document(INTERPRETATIONS_DIR, &name, &annotation)?;
+        self.manifest
+            .documents
+            .insert(annotation_document(number, revision), rel);
+        Ok(revision)
+    }
+
+    /// Writes `document` as pretty JSON to `name` in the record's directory
+    /// `dir`, and returns its path relative to the record directory, the
+    /// form the manifest lists.
+    ///
+    /// Creates `dir` if needed, then writes a new temporary file and renames
+    /// it into place ([`files::replace`]), replacing any existing target,
+    /// including uncommitted files and symbolic links, without writing
+    /// through them. Registers the file with the publication, which syncs it
+    /// at commit. Leaves the pending manifest to the caller, which decides
+    /// how it lists the file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Json`] if serialization fails or [`StoreError::Io`]
+    /// if a directory or file operation fails.
+    fn write_document<T: Serialize>(
+        &mut self,
+        dir: &str,
+        name: &str,
+        document: &T,
+    ) -> Result<String, StoreError> {
+        let dir_path = self.store.root().join(dir);
+        let path = dir_path.join(name);
+        let bytes = serde_json::to_vec_pretty(document).map_err(|source| StoreError::Json {
             path: path.clone(),
             source,
         })?;
-        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
-        files::replace(&dir, &name, &bytes)?;
-        self.manifest.documents.insert(
-            annotation_document(number, revision),
-            format!("{INTERPRETATIONS_DIR}/{name}"),
-        );
+        fs::create_dir_all(&dir_path).map_err(|e| io_error(&dir_path, e))?;
+        files::replace(&dir_path, name, &bytes)?;
         self.publication.touched(path);
-        Ok(revision)
+        Ok(format!("{dir}/{name}"))
     }
 
     /// Returns the session's number, assigning the next unused number if needed.
