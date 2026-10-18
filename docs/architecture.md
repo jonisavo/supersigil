@@ -483,7 +483,8 @@ report sighting is harness-relayed text, not known to be the agent's, so it
 backs no explicit statement; an annotator's inference may cite it. A source
 is checked whether or not its line is explicit. Titles hold at most 200
 characters and texts 2,000. A document holds at most 10,000 decisions,
-10,000 questions, and 1,000 entries in any list within a decision.
+10,000 questions and 10,000 ids in `corrections_seen`, and 1,000 entries in
+any list within a decision or in a question's `about`.
 
 Revisions count from 1 per session and record, each stored as
 `interpretations/<n>.a<revision>.json` with its import time beside the

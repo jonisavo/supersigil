@@ -98,8 +98,9 @@ For each decision write:
   words were said, not that they explain these edits. A `report` turn is text the harness relayed,
   such as a task notification or another agent's result, not known to be the agent's words: it
   backs only an `annotator` line, which may name it as its `source`. A line that is not a quoted
-  statement is an inference: `annotator`, `"explicit": false`, with or without a source. Import
-  checks a `source` whatever `explicit` says: its quote must occur in the turn's retained text.
+  statement is an inference: `annotator`, `"explicit": false`, with or without a source; its source
+  is a `human`, `agent`, `delegation` or `report` turn. Import checks a `source` whatever `explicit`
+  says: its quote must occur in the turn's retained text.
 - `alternatives`: what the text proposed instead (`"status": "proposed"`, no `edits`) or what edits
   tried (`"status": "attempted"`, at least one edit), such as edits that `restores` shows undone. An
   optional `reason` has the shape of a rationale entry.
@@ -177,15 +178,20 @@ empty or left out, and an unknown field is refused. Then run:
     supersigil annotate import <scratch>/annotation.json --format terminal <options>
 
 Success prints `Imported revision <r> of session <id> (<n> decisions, <m> open questions).` A refusal
-imports nothing and prints `Annotation refused:` with one `<path>: <message>` line per problem. Fix
-every listed path and import again, at most twice. The messages, and what fixes each:
+imports nothing. A document that breaks a rule is refused with `Annotation refused:` and one
+`<path>: <message>` line per problem, the first 100 and then a count of the rest; fix every listed
+path. Every other refusal is one line with no such heading: the size, UTF-8 and document-shape
+refusals, the record refusals, and the stale and busy lines (the stale line also follows a list of
+problems when `based_on` is out of date). Import again after fixing, at most twice. The messages,
+and what fixes each:
 
 - `schema: …, but this build reads supersigil.annotation/1`: set the schema shown above.
 - `session: …, but this import is for session …` or `session … has no observations in this record`:
   copy `session` from the brief, and import with the options the brief was prepared with.
-- `based_on: …, but the current revision is …`, or `Annotation based on revision …, but revision …
-  is current; run annotate prepare again.`: an annotation was imported since your brief. Prepare
-  again and revise from the new `current`.
+- `based_on: …, but the current revision is …`, or `Annotation based on …, but … is current; run
+  annotate prepare again.`: an annotation was imported since your brief. Prepare again and revise
+  from the new `current`.
+- `The record is busy; try again.`: another command holds the record. Import again.
 - `prepared.record`, `prepared.observation_revision` or `prepared.observed.count`: copy `prepared`
   from the brief unchanged.
 - `The annotation names record <id>, which does not exist.` or `The annotation names record <id>,
@@ -194,8 +200,8 @@ every listed path and import again, at most twice. The messages, and what fixes 
 - `is blank` or `has <n> characters; at most <max>` on a `text`, `title` or `produced_by`: write a
   non-blank text within the limit.
 - `is empty; an id has 1 to 64 characters`, `has <n> characters; an id has at most 64`,
-  `"<id>" holds '<c>'; an id holds only A-Z, a-z, 0-9, _ and -`, or `"<id>" repeats
-  decisions[<i>].id`: fix the id.
+  `"<id>" holds '<c>'; an id holds only A-Z, a-z, 0-9, _ and -`, `"<id>" repeats
+  decisions[<i>].id`, or `"<id>" repeats open_questions[<i>].id`: fix the id.
 - `"<id>" is not an edit or command of this session`: use an `id` from some turn's `edits` or
   `commands`.
 - `is missing; an explicit statement needs a source`: add the source, or make the line an inference,
@@ -214,15 +220,19 @@ every listed path and import again, at most twice. The messages, and what fixes 
   remove the `source`, then set `"speaker": "annotator"` and `"explicit": false` (an implication
   has no speaker: set only `"explicit": false`).
 - `found only in <roles> text of turn "<turn>", but …`: the turn's role does not fit the speaker.
-  Point the `source` at a turn whose role fits; or make the line an inference,
-  `"speaker": "annotator"` and `"explicit": false` (only `"explicit": false` for an implication),
-  and keep the `source`: any retained text backs an inference.
+  Point the `source` at a turn whose role fits. Or, when `<roles>` names `human`, `agent`,
+  `delegation` or `report`, make the line an inference, `"speaker": "annotator"` and
+  `"explicit": false` (only `"explicit": false` for an implication), and keep the `source`: an
+  inference may cite text of those four roles. Tool, meta and summary text never backs a line, so
+  when `<roles>` names only those, point the `source` elsewhere, or remove it and make the line an
+  inference as above.
 - `proposed, but it lists edits; …` or `attempted, but it lists no edits; …`: match `status` to
   `edits`.
 - `"<id>" is not a judgment id` in `corrections_seen`: copy the `judgment` id from `corrections`.
 - `has <n> entries; at most <max>`: shorten the list.
 - `The annotation is over 16 MiB.`: the file is too large to read. Write fewer decisions or
   shorter entries.
+- `The annotation is not UTF-8.`: write the file as UTF-8 text.
 - `The annotation is not a valid document: <path>: <message>`: the document is not of this shape at
   `<path>`, such as `decisions[0].rationale[0].source.weight`: a wrong type, an unknown field, or a
   JSON syntax error, which may print no path. Only the first such problem is printed, so fix it and

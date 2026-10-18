@@ -1863,8 +1863,6 @@ mod tests {
 
     #[test]
     fn tool_meta_and_summary_turns_retain_no_text() {
-        // No record is classified as a summary yet, so its reason is pinned
-        // here rather than through the parser.
         let content = json!([{"type": "text", "text": "Text."}]);
         for (role, reason) in [
             (Role::Tool, "tool result"),
