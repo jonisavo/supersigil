@@ -18,6 +18,7 @@ use supersigil_record::observations::{
     Command, CommandCategory, Edit, EditOperation, EditOrigin, FileState, Material, Observation,
     Role, Turn,
 };
+use supersigil_record::time::UtcTime;
 use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, Timestamp, TurnId};
 use supersigil_review::annotating::{
     Context, ID_MAX_CHARS, MAX_CORRECTIONS_SEEN, MAX_DECISIONS, MAX_LIST_ENTRIES,
@@ -233,9 +234,10 @@ fn valid() -> AnnotationDocument {
         prepared: Prepared {
             record: RecordId::new(RECORD),
             observation_revision: revision(2),
+            // The command, logged third, is the latest observation.
             observed: Observed {
                 count: 8,
-                last: None,
+                last: Some(time("2026-10-15T14:00:02Z")),
             },
         },
         produced_by: "claude-code/supersigil-annotate".to_owned(),
@@ -293,8 +295,16 @@ fn empty() -> AnnotationDocument {
         open_questions: Vec::new(),
         ..valid()
     };
-    document.prepared.observed.count = 0;
+    document.prepared.observed = Observed {
+        count: 0,
+        last: None,
+    };
     document
+}
+
+/// `text` as a UTC time.
+fn time(text: &str) -> UtcTime {
+    text.parse().unwrap()
 }
 
 #[test]
@@ -409,16 +419,159 @@ fn prepared_must_name_this_record_and_no_later_state() {
             ),
         ]
     );
-    // An earlier state names a prefix that still exists.
+    // An earlier state names a prefix that still exists: the first six
+    // observations, which hold everything the document cites and quotes.
     document.prepared = Prepared {
         record: RecordId::new(RECORD),
         observation_revision: revision(1),
         observed: Observed {
-            count: 3,
-            last: None,
+            count: 6,
+            last: Some(time("2026-10-15T14:00:02Z")),
         },
     };
     assert_eq!(problems(&document), NO_PROBLEMS);
+}
+
+#[test]
+fn observed_counts_the_observations_and_takes_their_latest_time_to_the_second() {
+    let mut observations = observations();
+    assert_eq!(
+        Observed::of(&observations),
+        Observed {
+            count: 8,
+            last: Some(time("2026-10-15T14:00:02Z")),
+        }
+    );
+    // A command's end counts, its fraction of a second dropped.
+    if let Observation::Command(command) = &mut observations[3] {
+        command.ended = Some(Timestamp::new("2026-10-15T14:00:09.500Z"));
+    }
+    assert_eq!(
+        Observed::of(&observations).last,
+        Some(time("2026-10-15T14:00:09Z"))
+    );
+    // A time in another form is no time.
+    if let Observation::Turn(turn) = &mut observations[0] {
+        turn.time = Timestamp::new("2099-01-01T00:00:00+00:00");
+    }
+    assert_eq!(
+        Observed::of(&observations).last,
+        Some(time("2026-10-15T14:00:09Z"))
+    );
+    assert_eq!(
+        Observed::of(&[]),
+        Observed {
+            count: 0,
+            last: None,
+        }
+    );
+}
+
+#[test]
+fn citations_and_quotes_must_lie_within_the_prepared_observations() {
+    // Prepared when only the person and the agent had spoken: the edit, the
+    // command, the delegation and the report were observed later, so the
+    // document cannot cite or quote them, however the record has grown.
+    let mut document = valid();
+    document.prepared.observed = Observed {
+        count: 2,
+        last: Some(time("2026-10-15T14:00:00Z")),
+    };
+
+    assert_eq!(
+        problems(&document),
+        [
+            problem(
+                "decisions[0].cites[0]",
+                &format!("{EDIT:?} is not an edit or command of this session")
+            ),
+            problem(
+                "decisions[0].cites[1]",
+                &format!("{COMMAND:?} is not an edit or command of this session")
+            ),
+            problem(
+                "decisions[0].rationale[2].source.turn",
+                "\"t-report\" is not a turn of this session"
+            ),
+            problem(
+                "decisions[0].alternatives[0].edits[0]",
+                &format!("{EDIT:?} is not an edit or command of this session")
+            ),
+            problem(
+                "decisions[0].alternatives[0].reason.source.turn",
+                "\"t-delegation\" is not a turn of this session"
+            ),
+            problem(
+                "open_questions[0].about[0]",
+                &format!("{COMMAND:?} is not an edit or command of this session")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_quote_found_only_in_a_sighting_after_the_prepared_observations_is_refused() {
+    // The agent's turn was sighted again, rewritten, after the brief was
+    // prepared from the first seven observations.
+    let mut document = valid();
+    document.prepared.observed.count = 7;
+    document.decisions[0].rationale[1] = stated(Speaker::Agent, "t-agent", AGENT_REWRITTEN);
+
+    assert_eq!(
+        problems(&document),
+        [problem(
+            "decisions[0].rationale[1].source.quote",
+            "not found verbatim in the retained text of turn \"t-agent\""
+        )]
+    );
+    // Prepared after the sighting, the quote is found.
+    document.prepared.observed.count = 8;
+    assert_eq!(problems(&document), NO_PROBLEMS);
+}
+
+#[test]
+fn the_last_observation_time_must_be_the_latest_among_the_prepared_observations() {
+    let mut document = valid();
+    document.prepared.observed.last = Some(time("2099-01-01T00:00:00Z"));
+    assert_eq!(
+        problems(&document),
+        [problem(
+            "prepared.observed.last",
+            "2099-01-01T00:00:00Z, but the latest time among the first 8 observations is \
+             2026-10-15T14:00:02Z"
+        )]
+    );
+    document.prepared.observed.last = None;
+    assert_eq!(
+        problems(&document),
+        [problem(
+            "prepared.observed.last",
+            "none, but the latest time among the first 8 observations is 2026-10-15T14:00:02Z"
+        )]
+    );
+    // The first two observations are the turns, at the same second.
+    document.prepared.observed = Observed {
+        count: 2,
+        last: Some(time("2026-10-15T14:00:02Z")),
+    };
+    assert_eq!(
+        problems(&document)[0],
+        problem(
+            "prepared.observed.last",
+            "2026-10-15T14:00:02Z, but the latest time among the first 2 observations is \
+             2026-10-15T14:00:00Z"
+        )
+    );
+    // Prepared before any observation, there is no time.
+    let mut document = empty();
+    document.prepared.observed.last = Some(time("2026-10-15T14:00:00Z"));
+    assert_eq!(
+        problems(&document),
+        [problem(
+            "prepared.observed.last",
+            "2026-10-15T14:00:00Z, but the latest time among the first 0 observations is none"
+        )]
+    );
 }
 
 #[test]
@@ -636,6 +789,7 @@ fn a_quote_has_one_to_the_most_characters() {
     read.observations
         .push(turn("t-long", Role::Human, &format!("{longest}é")));
     let mut document = valid();
+    document.prepared.observed = Observed::of(&read.observations);
     let decision = &mut document.decisions[0];
     decision.rationale[0] = stated(Speaker::Human, "t-human", "");
     decision.rationale[1] = stated(Speaker::Human, "t-long", &format!("{longest}é"));
@@ -663,6 +817,7 @@ fn a_quote_has_one_to_the_most_characters() {
         ]
     );
     let mut document = valid();
+    document.prepared.observed = Observed::of(&read.observations);
     document.decisions[0].rationale[0] = stated(Speaker::Human, "t-long", &longest);
     assert_eq!(read.problems(&document), NO_PROBLEMS);
 }
@@ -1029,10 +1184,11 @@ proptest! {
                 source: Some(source("t", &quote)),
             }),
         }
-        let document = AnnotationDocument {
+        let mut document = AnnotationDocument {
             decisions: vec![decision],
             ..empty()
         };
+        document.prepared.observed = Observed::of(&read.observations);
         let fits = sightings.iter().any(|(role, text)| {
             statement.fits(*role) && text.as_ref().is_some_and(|text| text.contains(&quote))
         });
@@ -1074,10 +1230,11 @@ fn ten_thousand_sourced_decisions_validate_within_the_time_limit() {
             }
         })
         .collect();
-    let document = AnnotationDocument {
+    let mut document = AnnotationDocument {
         decisions,
         ..empty()
     };
+    document.prepared.observed = Observed::of(&observations);
     let read = Read {
         observations,
         ..Read::new()

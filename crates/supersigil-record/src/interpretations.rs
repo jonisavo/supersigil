@@ -20,7 +20,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{EventId, JudgmentId, RecordId, Revision, SessionId, TurnId};
+use crate::ids::{EventId, JudgmentId, RecordId, Revision, SessionId, Timestamp, TurnId};
+use crate::observations::Observation;
 use crate::time::UtcTime;
 
 /// Schema name of the annotation documents this crate reads and writes.
@@ -125,6 +126,37 @@ pub struct Observed {
     pub count: u64,
     /// The time of the last observation, if known.
     pub last: Option<UtcTime>,
+}
+
+impl Observed {
+    /// What `observations`, a session's in log order, amount to: how many
+    /// there are, and the latest time among them in whole seconds, counting
+    /// a command's end as well as its start ([`Timestamp::utc`]). `None`
+    /// when none carries a time this reads.
+    #[must_use]
+    pub fn of(observations: &[Observation]) -> Self {
+        Self {
+            count: observations.len() as u64,
+            last: observations
+                .iter()
+                .flat_map(times)
+                .filter_map(Timestamp::utc)
+                .max(),
+        }
+    }
+}
+
+/// The times `observation` carries.
+fn times(observation: &Observation) -> impl Iterator<Item = &Timestamp> {
+    let (time, ended) = match observation {
+        Observation::SessionStart(start) => (Some(&start.time), None),
+        Observation::SessionEnd(end) => (Some(&end.time), None),
+        Observation::Turn(turn) => (Some(&turn.time), None),
+        Observation::Edit(edit) => (Some(&edit.time), None),
+        Observation::Command(command) => (Some(&command.started), command.ended.as_ref()),
+        Observation::CaptureLimitation(_) | Observation::Delegation(_) => (None, None),
+    };
+    time.into_iter().chain(ended)
 }
 
 /// An interpreted choice the session made, with the evidence for it.

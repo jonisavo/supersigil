@@ -3981,7 +3981,7 @@ fn a_decision_shows_on_the_lines_its_cited_edit_explains() {
     assert_eq!(
         review["annotations"],
         json!([{"session": SLICE_SESSION, "record": id, "checkout": f.repo, "revision": 1,
-            "observed": {"count": observed, "last": null},
+            "observed": {"count": observed, "last": "2026-09-28T10:01:10Z"},
             "observations_now": observed, "annotated_records": 1}])
     );
     let basis = &review["basis"]["document"];

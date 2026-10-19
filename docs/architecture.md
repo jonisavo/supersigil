@@ -472,7 +472,11 @@ is refused at the first structural problem, with its path, so structural
 problems are reported one at a time. `based_on` must
 be the current revision, so of two imports built from one brief the second
 is refused as stale. `prepared` must name this record, a revision no later
-than the current one, and no more observations than the session has. Ids are
+than the current one, and no more observations than the session has. The
+document is checked against the first that many observations, those its brief
+was prepared from, so it cites and quotes nothing observed after the brief
+however the record has grown since, and `observed.last` must be the latest
+time among them, which the review reports it as annotated through. Ids are
 1 to 64 characters of `A-Z`, `a-z`, `0-9`, `_` and `-`, unique within their
 list. Cites, an attempted alternative's edits, and a question's `about` name
 edits or commands of the session. An explicit statement needs a source: a

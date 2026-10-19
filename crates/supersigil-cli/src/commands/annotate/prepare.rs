@@ -453,9 +453,9 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
         observation_revision: snapshot.revision(),
         session: &session,
         checkout: &checkout,
-        started: start.and_then(|start| utc(&start.time)),
+        started: start.and_then(|start| start.time.utc()),
         branch: start.and_then(|start| start.branch.as_deref()),
-        observed: observed(&observations),
+        observed: Observed::of(&observations),
         reconciled: reconcile_note.is_none(),
         reconcile_note,
         repository: standing
@@ -739,40 +739,6 @@ fn seen_by<'j>(
         }
     }
     seen_by
-}
-
-/// How many `observations` there are, and the latest time among them.
-fn observed(observations: &[Observation]) -> Observed {
-    Observed {
-        count: observations.len() as u64,
-        last: observations.iter().flat_map(times).filter_map(utc).max(),
-    }
-}
-
-/// The times `observation` carries.
-fn times(observation: &Observation) -> impl Iterator<Item = &Timestamp> {
-    let (time, ended) = match observation {
-        Observation::SessionStart(start) => (Some(&start.time), None),
-        Observation::SessionEnd(end) => (Some(&end.time), None),
-        Observation::Turn(turn) => (Some(&turn.time), None),
-        Observation::Edit(edit) => (Some(&edit.time), None),
-        Observation::Command(command) => (Some(&command.started), command.ended.as_ref()),
-        Observation::CaptureLimitation(_) | Observation::Delegation(_) => (None, None),
-    };
-    time.into_iter().chain(ended)
-}
-
-/// `time` without its fraction of a second, when it is a UTC time as
-/// Claude Code writes one: `YYYY-MM-DDTHH:MM:SS`, an optional fraction, and
-/// `Z`.
-fn utc(time: &Timestamp) -> Option<UtcTime> {
-    let (seconds, rest) = time.as_str().split_at_checked(19)?;
-    let fraction = rest.strip_suffix('Z')?;
-    let digits = fraction.is_empty()
-        || fraction.strip_prefix('.').is_some_and(|digits| {
-            !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-        });
-    digits.then(|| format!("{seconds}Z").parse().ok()).flatten()
 }
 
 /// The session's transcripts, the main transcript first, then by path.

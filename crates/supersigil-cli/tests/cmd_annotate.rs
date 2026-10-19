@@ -22,7 +22,7 @@ use common::fixture::{Fixture, review_store, slice, slice_text, write};
 use common::session::Session;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Value, json};
-use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision};
+use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision, Observed};
 use supersigil_record::reviews::{
     BasisId, CorrectionKind, Judgment, JudgmentKind, Who, Withdrawal,
 };
@@ -78,10 +78,7 @@ fn edit(tool: &str) -> String {
 /// its rationale, and one open question about the same edit.
 fn document(record: &Store) -> Value {
     let snapshot = record.snapshot().unwrap();
-    let observed = snapshot
-        .observations(&SessionId::new(SESSION))
-        .unwrap()
-        .len();
+    let observed = Observed::of(&snapshot.observations(&SessionId::new(SESSION)).unwrap());
     json!({
         "schema": "supersigil.annotation/1",
         "session": SESSION,
@@ -89,7 +86,7 @@ fn document(record: &Store) -> Value {
         "prepared": {
             "record": snapshot.manifest().record_id,
             "observation_revision": snapshot.revision(),
-            "observed": {"count": observed, "last": null},
+            "observed": observed,
         },
         "produced_by": "claude-code/supersigil-annotate",
         "decisions": [{
@@ -461,7 +458,7 @@ fn a_session_the_record_does_not_hold_is_refused() {
     let f = synced();
     let mut document = without_lists(document(&record_in(&f.records)));
     document["session"] = json!("22222222-2222-4222-8222-222222222222");
-    document["prepared"]["observed"]["count"] = json!(0);
+    document["prepared"]["observed"] = json!({"count": 0, "last": null});
     let file = written_json(&f, "annotation.json", &document);
 
     let message = refused(&f, &mut annotate(&f, &f.repo, &["import", &file]));
@@ -497,7 +494,7 @@ fn control_bytes_from_the_document_print_escaped() {
     let record = record_in(&f.records);
     let mut session = without_lists(document(&record));
     session["session"] = json!("s\u{1b}[2J");
-    session["prepared"]["observed"]["count"] = json!(0);
+    session["prepared"]["observed"] = json!({"count": 0, "last": null});
     let mut field = document(&record);
     field["\u{1b}[2J"] = json!(1);
     let mut id = document(&record);

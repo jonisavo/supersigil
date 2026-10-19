@@ -192,8 +192,12 @@ and what fixes each:
   annotate prepare again.`: an annotation was imported since your brief. Prepare again and revise
   from the new `current`.
 - `The record is busy; try again.`: another command holds the record. Import again.
-- `prepared.record`, `prepared.observation_revision` or `prepared.observed.count`: copy `prepared`
-  from the brief unchanged.
+- `prepared.record`, `prepared.observation_revision`, `prepared.observed.count` or
+  `prepared.observed.last`: copy `prepared` from the brief unchanged.
+- `"<id>" is not an edit or command of this session` or `"<turn>" is not a turn of this session`
+  for an id or turn you did not take from the brief: the document is checked against the
+  observations the brief was prepared from, and nothing observed after it. Cite only what the brief
+  lists, or prepare again and revise from the new brief.
 - `The annotation names record <id>, which does not exist.` or `The annotation names record <id>,
   which is not this checkout's or an ancestor's.`: the document's `prepared.record` is not a record
   these options reach. Prepare again with the same options and copy `prepared` from the new brief.

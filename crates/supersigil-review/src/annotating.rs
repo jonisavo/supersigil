@@ -11,19 +11,25 @@
 //!   `None` when it has none.
 //! - `prepared` names this record, a revision no later than the one read,
 //!   and no more observations than the session has. Observation logs only
-//!   grow, so a smaller count names a prefix that still exists.
+//!   grow, so a smaller count names a prefix that still exists: the
+//!   observations the annotator was prepared from. The document is checked
+//!   against those alone, so it cites and quotes nothing observed after its
+//!   brief, and `observed.last` is the latest time among them
+//!   ([`Observed::of`]), what the review reports it as annotated through.
 //! - `produced_by`, titles and texts are not blank and hold at most
 //!   [`MAX_PRODUCED_BY_CHARS`], [`MAX_TITLE_CHARS`] and [`MAX_TEXT_CHARS`]
 //!   characters.
 //! - Decision and open-question ids are 1 to [`ID_MAX_CHARS`] characters of
 //!   `A-Z`, `a-z`, `0-9`, `_` and `-`, unique within their list.
 //! - Cites, an alternative's edits, and a question's `about` name edits or
-//!   commands of the session. A decision may cite nothing.
+//!   commands of the session among the prepared observations. A decision
+//!   may cite nothing.
 //! - An explicit rationale, alternative reason or implication has a source.
 //!   The annotator's rationale is inference, never explicit.
-//! - A source names a turn of the session, and its quote of 1 to
-//!   [`MAX_QUOTE_CHARS`] characters occurs verbatim in the retained text of
-//!   a sighting of that turn whose role fits the entry: a human turn for
+//! - A source names a turn of the session sighted among the prepared
+//!   observations, and its quote of 1 to [`MAX_QUOTE_CHARS`] characters
+//!   occurs verbatim in the retained text of such a sighting whose role
+//!   fits the entry: a human turn for
 //!   speaker `human`; an agent or delegation turn for `agent`; any of those
 //!   for an explicit implication; and a report as well for the annotator's
 //!   inference. A report is harness-relayed text, not known to be the
@@ -48,9 +54,10 @@ use std::fmt;
 
 use supersigil_record::interpretations::{
     ANNOTATION_SCHEMA, Alternative, AlternativeStatus, AnnotationDocument, AnnotationRevision,
-    Decision, Implication, OpenQuestion, Rationale, Source, Speaker,
+    Decision, Implication, Observed, OpenQuestion, Rationale, Source, Speaker,
 };
 use supersigil_record::observations::{Role, Turn};
+use supersigil_record::time::UtcTime;
 use supersigil_record::{EventId, JudgmentId, Observation, RecordId, Revision, SessionId, TurnId};
 
 /// Most characters in a rationale, alternative reason, implication or
@@ -120,8 +127,15 @@ impl fmt::Display for Problem {
 /// Returns every [`Problem`] found, in document order, when the document
 /// breaks any rule.
 pub fn validate(context: &Context<'_>, document: &AnnotationDocument) -> Result<(), Vec<Problem>> {
-    let mut check = Check::new(context.observations);
-    check.header(context, document);
+    // The observations the annotator was prepared from: the first
+    // `prepared.observed.count`, when that many exist. A count past the end
+    // is a problem the header lists; the rest is then checked against every
+    // observation.
+    let prepared = usize::try_from(document.prepared.observed.count)
+        .ok()
+        .and_then(|count| context.observations.get(..count));
+    let mut check = Check::new(prepared.unwrap_or(context.observations));
+    check.header(context, document, prepared);
     check.corrections(&document.corrections_seen);
     check.decisions(&document.decisions);
     check.questions(&document.open_questions);
@@ -214,8 +228,15 @@ impl<'a> Check<'a> {
         }
     }
 
-    /// Checks the fields before the lists against `context`.
-    fn header(&mut self, context: &Context<'_>, document: &AnnotationDocument) {
+    /// Checks the fields before the lists against `context`, with `prepared`
+    /// the observations the document says it was prepared from, when the
+    /// session has that many.
+    fn header(
+        &mut self,
+        context: &Context<'_>,
+        document: &AnnotationDocument,
+        seen: Option<&[Observation]>,
+    ) {
         let root = JsonPath::Root;
         if document.schema != ANNOTATION_SCHEMA {
             self.problems.add(
@@ -285,6 +306,20 @@ impl<'a> Check<'a> {
                     prepared.observed.count
                 ),
             );
+        }
+        if let Some(seen) = seen {
+            let latest = Observed::of(seen).last;
+            if prepared.observed.last != latest {
+                self.problems.add(
+                    path.field("observed").field("last"),
+                    format!(
+                        "{}, but the latest time among the first {} observations is {}",
+                        time_phrase(prepared.observed.last),
+                        prepared.observed.count,
+                        time_phrase(latest)
+                    ),
+                );
+            }
         }
         self.text(
             root.field("produced_by"),
@@ -669,6 +704,11 @@ const fn role_name(role: Role) -> &'static str {
 /// A revision number, or `none`, as a message says it.
 fn revision(revision: Option<AnnotationRevision>) -> String {
     revision.map_or_else(|| "none".to_owned(), |revision| revision.to_string())
+}
+
+/// A time, or `none`, as a message says it.
+fn time_phrase(time: Option<UtcTime>) -> String {
+    time.map_or_else(|| "none".to_owned(), |time| time.to_string())
 }
 
 /// Whether `id` has the form [`JudgmentId::generate`] gives it: a version 4

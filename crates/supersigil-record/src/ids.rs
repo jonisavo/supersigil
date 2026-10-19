@@ -101,6 +101,22 @@ string_id!(
     Timestamp
 );
 
+impl Timestamp {
+    /// This time in whole seconds, when it is a UTC time as Claude Code
+    /// writes one: `YYYY-MM-DDTHH:MM:SS`, an optional fraction of a second,
+    /// and `Z`. Any other form is `None`.
+    #[must_use]
+    pub fn utc(&self) -> Option<crate::time::UtcTime> {
+        let (seconds, rest) = self.0.split_at_checked(19)?;
+        let fraction = rest.strip_suffix('Z')?;
+        let digits = fraction.is_empty()
+            || fraction.strip_prefix('.').is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        digits.then(|| format!("{seconds}Z").parse().ok()).flatten()
+    }
+}
+
 impl EventId {
     /// Builds an event ID from `kind`, `session`, and the source's tool-use ID.
     ///

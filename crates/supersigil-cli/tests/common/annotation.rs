@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Value, json};
-use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision};
+use supersigil_record::interpretations::{AnnotationDocument, AnnotationRevision, Observed};
 use supersigil_record::reviews::{
     BasisId, CorrectionKind, DecisionRef, Judgment, JudgmentKind, Who,
 };
@@ -70,7 +70,7 @@ pub fn annotate(record: &Store, session: &str, fields: &Value) -> AnnotationRevi
         "prepared": {
             "record": snapshot.manifest().record_id,
             "observation_revision": snapshot.revision(),
-            "observed": {"count": snapshot.observations(&id).unwrap().len(), "last": null},
+            "observed": Observed::of(&snapshot.observations(&id).unwrap()),
         },
         "produced_by": "claude-code/supersigil-annotate",
     });
