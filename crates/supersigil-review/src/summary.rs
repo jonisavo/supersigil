@@ -1093,15 +1093,16 @@ pub(crate) fn reasons(decision: &DecisionInfo) -> Vec<String> {
     lines
 }
 
-/// `correction (<kind>), <date>, <who>: "<words>"`, then the revision it
-/// addressed when it anchors through cited edits, and whether `shown`, the
-/// revision shown of its session, saw it.
+/// `correction (<kind>), <date>, <who> (judgment <id>, review <id>):
+/// "<words>"`, then the revision it addressed when it anchors through cited
+/// edits, and whether `shown`, the revision shown of its session, saw it.
+/// The ids are what `judge undo --judgment <id> --review <id>` takes.
 fn correction_line(correction: &CorrectionInfo, shown: Option<AnnotationRevision>) -> String {
     let mut line = format!(
         "correction ({}), {}, {}{}",
         correction_words(correction.kind),
         correction.at.date(),
-        one_line(&correction.who.name),
+        recorded_by(correction),
         correction_text(correction)
     );
     if let Some(revision) = correction.addressed {
@@ -1109,6 +1110,17 @@ fn correction_line(correction: &CorrectionInfo, shown: Option<AnnotationRevision
     }
     line.push_str(&seen_words(correction.seen, shown));
     line
+}
+
+/// `<who> (judgment <id>, review <id>)`: who recorded `correction`, with
+/// the short ids of the judgment and of the review it was recorded on.
+fn recorded_by(correction: &CorrectionInfo) -> String {
+    format!(
+        "{} (judgment {}, review {})",
+        one_line(&correction.who.name),
+        correction.judgment.short(),
+        correction.review.short()
+    )
 }
 
 /// `: "<words>"` for a correction's reason or constraint, or nothing
@@ -1241,7 +1253,7 @@ fn unanchored_section(review: &Review, shorts: &SessionShorts) -> Vec<String> {
             decision.record.short(),
             correction_words(correction.kind),
             correction.at.date(),
-            one_line(&correction.who.name),
+            recorded_by(correction),
             correction_text(correction),
             seen_words(correction.seen, shown.get(&decision.session).copied())
         ));

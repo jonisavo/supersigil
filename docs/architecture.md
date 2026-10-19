@@ -574,7 +574,8 @@ On a decision, corrections come before the rationale, oldest first.
 `--wrong` and `--not-together` corrections mark it `[disputed]`. A
 constraint is also the first rationale line, as the person's statement with
 no transcript source. Each correction says whether the shown revision lists
-it in `corrections_seen`.
+it in `corrections_seen`, and names its judgment and the review it was
+recorded on, the ids `judge undo` takes.
 The next brief gives the annotator each standing correction of the session,
 with the decision it addressed and the current decisions it anchors to. A
 re-annotation clears no mark. Only `judge undo --judgment`, on the review the

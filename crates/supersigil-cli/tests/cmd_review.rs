@@ -4825,14 +4825,20 @@ fn a_correction_recorded_on_the_review_precedes_the_rationale_it_disputes() {
             "source": null, "correction": constraint.id})
     );
     assert!(again.get("unanchored_corrections").is_none());
+    // Each correction names its judgment and review, so `judge undo` can be
+    // typed from the terminal.
+    let on = saved_basis(&review).short().to_owned();
     assert!(
-        text.contains(
+        text.contains(&format!(
             "\n  d1  Capitalise the greeting  [disputed]\n      explains src/lib.rs 7\n      \
-             correction (wrong), 2026-10-14, Test: \"the person asked for capitals\" (not yet \
-             seen by an annotation)\n      correction (constraint), 2026-10-15, Test: \
-             \"greetings stay ASCII\" (not yet seen by an annotation)\n      human, explicit, \
-             correction: \"greetings stay ASCII\"\n      annotator: why d1\n"
-        ),
+             correction (wrong), 2026-10-14, Test (judgment {}, review {on}): \"the person \
+             asked for capitals\" (not yet seen by an annotation)\n      correction \
+             (constraint), 2026-10-15, Test (judgment {}, review {on}): \"greetings stay ASCII\" \
+             (not yet seen by an annotation)\n      human, explicit, correction: \"greetings \
+             stay ASCII\"\n      annotator: why d1\n",
+            wrong.id.short(),
+            constraint.id.short()
+        )),
         "{text}"
     );
 }
@@ -4900,10 +4906,12 @@ fn a_correction_follows_the_edits_its_decision_cited_into_a_later_revision() {
         }
     }
     assert!(
-        text.contains(
-            "\n      correction (not together), 2026-10-14, Test: \"two unrelated changes\" \
-             (addressed revision 1) (seen by revision 3)\n"
-        ),
+        text.contains(&format!(
+            "\n      correction (not together), 2026-10-14, Test (judgment {}, review {}): \
+             \"two unrelated changes\" (addressed revision 1) (seen by revision 3)\n",
+            apart.id.short(),
+            saved_basis(&review).short()
+        )),
         "{text}"
     );
 }
@@ -5030,9 +5038,11 @@ fn a_correction_whose_record_is_gone_is_listed_without_a_decision() {
     assert!(
         text.contains(&format!(
             "\nCorrections with no decision in view:\n  11111111:d1 (revision 1, {})  wrong  \
-             2026-10-14  Test: \"the person asked for capitals\" (not yet seen by an \
-             annotation)\n",
-            &id.as_str()[..8]
+             2026-10-14  Test (judgment {}, review {}): \"the person asked for capitals\" (not \
+             yet seen by an annotation)\n",
+            &id.as_str()[..8],
+            wrong.id.short(),
+            saved_basis(&review).short()
         )),
         "{text}"
     );

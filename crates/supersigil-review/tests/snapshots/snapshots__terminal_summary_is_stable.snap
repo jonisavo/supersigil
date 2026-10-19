@@ -27,8 +27,8 @@ files:
 Decisions:
   d1  Rename the old function to new  [disputed]
       explains src/lib.rs 2, (removed) 2
-      correction (constraint), 2026-10-13, Joni Savolainen: "callers outside this crate must keep compiling" (not yet seen by an annotation)
-      correction (wrong), 2026-10-13, Joni Savolainen: "the rename came from the reviewer" (not yet seen by an annotation)
+      correction (constraint), 2026-10-13, Joni Savolainen (judgment constrai, review 4a4d5605): "callers outside this crate must keep compiling" (not yet seen by an annotation)
+      correction (wrong), 2026-10-13, Joni Savolainen (judgment wrong, review 4a4d5605): "the rename came from the reviewer" (not yet seen by an annotation)
       human, explicit, correction: "callers outside this crate must keep compiling"
       human, explicit: "Add a greeting function and clean up."
       annotator: the old name no longer described it
@@ -39,7 +39,7 @@ Decisions:
       cites elsewhere: command:1
 
 Corrections with no decision in view:
-  s0:d1 (revision 1, rec-0)  not together  2026-10-13  Joni Savolainen: "two unrelated fixes" (not yet seen by an annotation)
+  s0:d1 (revision 1, rec-0)  not together  2026-10-13  Joni Savolainen (judgment gone, review 4a4d5605): "two unrelated fixes" (not yet seen by an annotation)
 
 Not gate items:
   capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path

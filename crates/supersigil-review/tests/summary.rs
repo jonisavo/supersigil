@@ -760,10 +760,11 @@ fn corrections_precede_the_rationale_saying_what_they_addressed_and_who_saw_them
     assert_eq!(
         details(&text, "d1")[2..10],
         [
-            "      correction (wrong), 2026-10-15, Joni Savolainen: \"the plan exists for crash \
-             safety, not inspection\" (addressed revision 1) (not yet seen by an annotation)",
-            "      correction (constraint), 2026-10-16, Joni Savolainen: \"both stores must reach \
-             disk before the manifest\" (seen by revision 2)",
+            "      correction (wrong), 2026-10-15, Joni Savolainen (judgment wrong, review \
+             11111111): \"the plan exists for crash safety, not inspection\" (addressed \
+             revision 1) (not yet seen by an annotation)",
+            "      correction (constraint), 2026-10-16, Joni Savolainen (judgment must, review \
+             11111111): \"both stores must reach disk before the manifest\" (seen by revision 2)",
             "      human, explicit, correction: \"both stores must reach disk before the manifest\"",
             "      human, explicit: \"make the sync plan inspectable\"",
             "      agent, explicit: \"Syncing the directory after each file costs a full fsync per \
@@ -866,10 +867,11 @@ fn corrections_anchored_to_no_decision_in_view_are_listed_with_what_they_name() 
     assert_eq!(
         section(&text, "Corrections with no decision in view:"),
         [
-            "  3f2a9c1e:d7 (revision 1, 0a1b2c3d)  wrong  2026-10-14  Joni Savolainen: \"d7 was \
-             never needed\" (seen by revision 2)",
-            "  c4d5e6f7:d2 (revision 1, 9f8e7d6c)  not together  2026-10-15  Joni Savolainen: \
-             \"two unrelated fixes\" (not yet seen by an annotation)",
+            "  3f2a9c1e:d7 (revision 1, 0a1b2c3d)  wrong  2026-10-14  Joni Savolainen (judgment \
+             dropped, review 11111111): \"d7 was never needed\" (seen by revision 2)",
+            "  c4d5e6f7:d2 (revision 1, 9f8e7d6c)  not together  2026-10-15  Joni Savolainen \
+             (judgment gone, review 11111111): \"two unrelated fixes\" (not yet seen by an \
+             annotation)",
         ],
         "{text}"
     );
@@ -1179,10 +1181,11 @@ fn why_prints_the_decisions_behind_its_line_after_its_edits() {
 
     let expected = "  edit e1 (introduced): no details recorded
   decision d1: Publish both stores through one sync plan  [disputed]
-    correction (wrong), 2026-10-15, Joni Savolainen: \"the plan exists for crash safety, not \
-                    inspection\" (addressed revision 1) (not yet seen by an annotation)
-    correction (constraint), 2026-10-16, Joni Savolainen: \"both stores must reach disk before \
-                    the manifest\" (seen by revision 2)
+    correction (wrong), 2026-10-15, Joni Savolainen (judgment wrong, review 11111111): \"the \
+                    plan exists for crash safety, not inspection\" (addressed revision 1) (not \
+                    yet seen by an annotation)
+    correction (constraint), 2026-10-16, Joni Savolainen (judgment must, review 11111111): \
+                    \"both stores must reach disk before the manifest\" (seen by revision 2)
     human, explicit, correction: \"both stores must reach disk before the manifest\"
     human, explicit: \"make the sync plan inspectable\"
     agent, explicit: \"Syncing the directory after each file costs a full fsync per file.\"

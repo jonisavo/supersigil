@@ -928,10 +928,11 @@ fn scenario_8_a_decision_is_annotated_corrected_and_annotated_again() {
     assert!(
         again.contains(&format!(
             "\n  d1  Capitalise the greeting  [disputed]\n      explains src/lib.rs 7\n      \
-             correction (wrong), {}, {NAME}: \"{CAPITALS}\" (addressed revision 1) (seen by \
-             revision 2)\n      annotator: the person wanted capitals\n      open question: \
-             question:q1\n",
-            correction.at.date()
+             correction (wrong), {}, {NAME} (judgment {}, review {id8}): \"{CAPITALS}\" \
+             (addressed revision 1) (seen by revision 2)\n      annotator: the person wanted \
+             capitals\n      open question: question:q1\n",
+            correction.at.date(),
+            correction.id.short()
         )),
         "{again}"
     );

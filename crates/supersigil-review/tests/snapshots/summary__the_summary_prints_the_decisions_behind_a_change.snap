@@ -23,8 +23,8 @@ Decisions:
   d1  Publish both stores through one sync plan  [disputed]
       explains src/files/publication.rs 12-40, 41 (whitespace only), (removed) 12-14, src/reviews/write.rs 226-260
       content match only: src/files.rs 3-4 (search incomplete)
-      correction (wrong), 2026-10-15, Joni Savolainen: "the plan exists for crash safety, not inspection" (addressed revision 1) (not yet seen by an annotation)
-      correction (constraint), 2026-10-16, Joni Savolainen: "both stores must reach disk before the manifest" (seen by revision 2)
+      correction (wrong), 2026-10-15, Joni Savolainen (judgment wrong, review 11111111): "the plan exists for crash safety, not inspection" (addressed revision 1) (not yet seen by an annotation)
+      correction (constraint), 2026-10-16, Joni Savolainen (judgment must, review 11111111): "both stores must reach disk before the manifest" (seen by revision 2)
       human, explicit, correction: "both stores must reach disk before the manifest"
       human, explicit: "make the sync plan inspectable"
       agent, explicit: "Syncing the directory after each file costs a full fsync per file."
@@ -46,8 +46,8 @@ Decisions:
       annotator: reviews are one more store
 
 Corrections with no decision in view:
-  3f2a9c1e:d7 (revision 1, 0a1b2c3d)  wrong  2026-10-14  Joni Savolainen: "d7 was never needed" (seen by revision 2)
-  c4d5e6f7:d2 (revision 1, 9f8e7d6c)  not together  2026-10-15  Joni Savolainen: "two unrelated fixes" (not yet seen by an annotation)
+  3f2a9c1e:d7 (revision 1, 0a1b2c3d)  wrong  2026-10-14  Joni Savolainen (judgment dropped, review 11111111): "d7 was never needed" (seen by revision 2)
+  c4d5e6f7:d2 (revision 1, 9f8e7d6c)  not together  2026-10-15  Joni Savolainen (judgment gone, review 11111111): "two unrelated fixes" (not yet seen by an annotation)
 
 Not gate items:
   session 3f2a9c1e annotated through 2026-10-15 14:02; 12 observations since
