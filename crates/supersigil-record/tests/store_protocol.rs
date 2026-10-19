@@ -1513,9 +1513,7 @@ fn annotate_at(
     now: UtcTime,
 ) -> AnnotationRevision {
     let mut tx = store.begin_at(now).unwrap();
-    let revision = tx
-        .put_annotation(&session(), based_on, annotation_document(based_on))
-        .unwrap();
+    let revision = tx.put_annotation(annotation_document(based_on)).unwrap();
     tx.commit().unwrap();
     revision
 }
@@ -1586,7 +1584,7 @@ fn assert_stale(
     let mut tx = store.begin_at(at(600)).unwrap();
     let pending = tx.manifest().clone();
     let error = tx
-        .put_annotation(&session(), based_on, annotation_document(based_on))
+        .put_annotation(annotation_document(based_on))
         .unwrap_err();
     assert!(
         matches!(&error, StoreError::StaleAnnotation { current: found, .. } if *found == current),
@@ -1642,7 +1640,7 @@ fn an_annotation_of_a_session_without_observations_is_refused() {
             session: unknown.clone(),
             ..annotation_document(None)
         };
-        let error = tx.put_annotation(&unknown, None, document).unwrap_err();
+        let error = tx.put_annotation(document).unwrap_err();
         assert!(
             matches!(&error, StoreError::UnknownSession(refused) if *refused == unknown),
             "{error:?}"
@@ -1701,16 +1699,14 @@ fn revisions_written_in_one_transaction_build_on_each_other_and_list_in_numeric_
     tx.append_observations(&observations).unwrap();
     let mut current = None;
     for _ in 0..10 {
-        let stored = tx
-            .put_annotation(&session(), current, annotation_document(current))
-            .unwrap();
+        let stored = tx.put_annotation(annotation_document(current)).unwrap();
         current = Some(stored);
     }
     let document = AnnotationDocument {
         session: ten.clone(),
         ..annotation_document(None)
     };
-    tx.put_annotation(&ten, None, document).unwrap();
+    tx.put_annotation(document).unwrap();
     tx.commit().unwrap();
 
     let snapshot = store.snapshot().unwrap();
@@ -1738,9 +1734,7 @@ fn cleanup_never_deletes_an_interpretation_document() {
         let mut tx = store.begin_at(now).unwrap();
         tx.put_derivations(&derivation_set("s1", Revision::ZERO))
             .unwrap();
-        let stored = tx
-            .put_annotation(&session(), based_on, annotation_document(based_on))
-            .unwrap();
+        let stored = tx.put_annotation(annotation_document(based_on)).unwrap();
         based_on = Some(stored);
         tx.commit().unwrap();
     }
@@ -1784,7 +1778,7 @@ fn an_annotation_left_unpublished_by_a_dropped_transaction_is_ignored() {
         produced_by: "crashed".to_owned(),
         ..annotation_document(None)
     };
-    tx.put_annotation(&session(), None, crashed).unwrap();
+    tx.put_annotation(crashed).unwrap();
     // Dropped unpublished, as by a crash before commit.
     drop(tx);
     assert!(dir.path().join("interpretations/0.a1.json").exists());
@@ -1842,9 +1836,7 @@ fn a_listed_document_gone_from_disk_is_reported_missing() {
     let mut tx = store.begin_at(at(60)).unwrap();
     tx.put_derivations(&derivation_set("s1", Revision::ZERO))
         .unwrap();
-    let first = tx
-        .put_annotation(&session(), None, annotation_document(None))
-        .unwrap();
+    let first = tx.put_annotation(annotation_document(None)).unwrap();
     tx.commit().unwrap();
     let annotation = dir.path().join("interpretations/0.a1.json");
     let derivations = dir.path().join("derivations/0.r2.json");
