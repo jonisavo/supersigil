@@ -4656,25 +4656,21 @@ fn a_review_that_cannot_be_saved_still_shows_the_corrections_of_its_decisions() 
     );
     let id = record_id(&record);
     let d1 = reference(&id, SLICE_SESSION, 1, "d1");
-    record_judgments(
-        &review_store(&f, &f.reviews()),
-        &[
-            correction(
-                &saved_basis(&saved),
-                d1.clone(),
-                CorrectionKind::Wrong,
-                "the person asked for capitals",
-                "2026-10-14T09:00:00Z",
-            ),
-            correction(
-                &saved_basis(&saved),
-                d1,
-                CorrectionKind::Constraint,
-                "greetings stay ASCII",
-                "2026-10-15T09:00:00Z",
-            ),
-        ],
+    let wrong = correction(
+        &saved_basis(&saved),
+        d1.clone(),
+        CorrectionKind::Wrong,
+        "the person asked for capitals",
+        "2026-10-14T09:00:00Z",
     );
+    let constraint = correction(
+        &saved_basis(&saved),
+        d1,
+        CorrectionKind::Constraint,
+        "greetings stay ASCII",
+        "2026-10-15T09:00:00Z",
+    );
+    record_judgments(&review_store(&f, &f.reviews()), [&wrong, &constraint]);
     // A linked worktree whose path is not UTF-8, holding no transcript.
     let linked = f.root.join(OsStr::from_bytes(b"caf\xe9"));
     let mut add = Command::new("git");
@@ -4717,12 +4713,16 @@ fn a_review_that_cannot_be_saved_still_shows_the_corrections_of_its_decisions() 
     );
     assert!(gone.starts_with("Review not saved: "), "{gone}");
     let short = &id.as_str()[..8];
+    let on = saved_basis(&saved).short().to_owned();
     assert!(
         gone.contains(&format!(
             "\nCorrections with no decision in view:\n  11111111:d1 (revision 1, {short})  wrong  \
-             2026-10-14  Test: \"the person asked for capitals\" (not yet seen by an \
-             annotation)\n  11111111:d1 (revision 1, {short})  constraint  2026-10-15  Test: \
-             \"greetings stay ASCII\" (not yet seen by an annotation)\n"
+             2026-10-14  Test (judgment {}, review {on}): \"the person asked for capitals\" (not \
+             yet seen by an annotation)\n  11111111:d1 (revision 1, {short})  constraint  \
+             2026-10-15  Test (judgment {}, review {on}): \"greetings stay ASCII\" (not yet seen \
+             by an annotation)\n",
+            wrong.id.short(),
+            constraint.id.short()
         )),
         "{gone}"
     );
