@@ -2,7 +2,7 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: summary(&sample_review())
 ---
-Review 050e4244: working tree over aaaaaaa.
+Review 7d84fc14: working tree over aaaaaaa.
   worktree: /work/repo
   base: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
   target: working tree over aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (tree cccccccccccccccccccccccccccccccccccccccc)
@@ -22,6 +22,24 @@ files:
   M notes.txt  +1 -1  2 unattributed: no surviving chain, changed by 1 recorded command
   D old.txt  +0 -1  1 unattributed: no surviving chain
   M src/lib.rs  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session
+    decisions: d1
+
+Decisions:
+  d1  Rename the old function to new  [disputed]
+      explains src/lib.rs 2, (removed) 2
+      correction (constraint), 2026-10-13, Joni Savolainen (judgment constrai, review 4a4d5605): "callers outside this crate must keep compiling" (not yet seen by an annotation)
+      correction (wrong), 2026-10-13, Joni Savolainen (judgment wrong, review 4a4d5605): "the rename came from the reviewer" (not yet seen by an annotation)
+      human, explicit, correction: "callers outside this crate must keep compiling"
+      human, explicit: "Add a greeting function and clean up."
+      annotator: the old name no longer described it
+      alternative, attempted and restored: keep both functions (e3)
+        agent, explicit: "Two names is one too many."
+      alternative, proposed: a deprecation alias
+      implication: callers of old must move to new
+      cites elsewhere: command:1
+
+Corrections with no decision in view:
+  s0:d1 (revision 1, rec-0)  not together  2026-10-13  Joni Savolainen (judgment gone, review 4a4d5605): "two unrelated fixes" (not yet seen by an annotation)
 
 Not gate items:
   capture limitations in /home/u/.claude/projects/-work-repo/s1.jsonl (session s1): 1 tool uses without a result; not localized to a path
@@ -30,6 +48,7 @@ Not gate items:
   scope: config.toml not captured (assume_unchanged, present on disk)
   record rec-2 not reconciled: locked by another writer
   checkout /work/repo/.claude/worktrees/x not reconciled (2 transcripts): records directory locked
+  session s1 annotated through 2026-10-13 10:59; 3 observations since
 
 Next: supersigil judge acknowledge notes.txt old.txt logo.png src/new.rs config.toml id:e30dffa9 unreconciled:/work/repo/.claude/worktrees/x
   or: supersigil judge dismiss <name>... --reason <text>

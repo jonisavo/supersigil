@@ -3,7 +3,10 @@
 //! A path names its only item (`src/parser.rs`). Multiple items at a path
 //! need origin qualifiers (`lines:src/parser.rs`). Commits use `commit:` with
 //! an ID prefix. Unreconciled evidence uses `unreconciled:` with a checkout
-//! or a path associated with the record. Any item accepts `id:` with an ID
+//! or a path associated with the record. An open question uses `question:`
+//! with its id (`question:q1`); when another item's question has the same
+//! id, the session's shortest unique prefix of at least 8 characters comes
+//! before it (`question:3f2a9c1e:q1`). Any item accepts `id:` with an ID
 //! prefix, including items whose paths cannot be typed.
 //!
 //! [`parse`] splits the qualifier; the CLI resolves the rest into a [`Name`];
@@ -14,10 +17,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use supersigil_record::RecordId;
 use supersigil_record::reviews::{GateItem, ItemId, Origin, PathBytes, Subject};
+use supersigil_record::{RecordId, SessionId};
 
-use crate::printed::printed;
+use crate::printed::{escape_control, printed};
 
 /// Minimum hex digits in a `commit:` prefix.
 const COMMIT_PREFIX: usize = 7;
@@ -25,11 +28,14 @@ const COMMIT_PREFIX: usize = 7;
 /// Minimum hex digits in an `id:` prefix.
 const ID_PREFIX: usize = 8;
 
+/// Minimum characters in the session prefix that qualifies a name.
+pub(crate) const SESSION_PREFIX: usize = 8;
+
 /// Maximum nearby names in a refusal.
 const NEARBY: usize = 5;
 
-/// Every origin, each with its qualifier.
-const ORIGINS: [Origin; 7] = [
+/// The origins whose qualifiers [`parse`] reads.
+const ORIGINS: [Origin; 8] = [
     Origin::UnexplainedLines,
     Origin::NotDiffed,
     Origin::UntrackedRecorded,
@@ -37,6 +43,7 @@ const ORIGINS: [Origin; 7] = [
     Origin::CommitWithoutOrigin,
     Origin::Discontinuity,
     Origin::Unreconciled,
+    Origin::OpenQuestion,
 ];
 
 /// A typed name split at its qualifier, before the CLI resolves the rest.
@@ -57,6 +64,15 @@ pub enum Parsed<'a> {
     Unreconciled(&'a str),
     /// `id:` and a prefix of the item's id.
     Id(&'a str),
+    /// `question:` and a question's id, with a prefix of its session's id
+    /// before it when given.
+    Question {
+        /// The session prefix: everything before the last colon, since a
+        /// question's id holds none.
+        session: Option<&'a str>,
+        /// The question's id.
+        id: &'a str,
+    },
 }
 
 /// Splits one known qualifier from `typed`. Without a known leading
@@ -76,6 +92,16 @@ pub fn parse(typed: &str) -> Parsed<'_> {
         return match origin {
             Origin::CommitWithoutOrigin => Parsed::Commit(rest),
             Origin::Unreconciled => Parsed::Unreconciled(rest),
+            Origin::OpenQuestion => match rest.rsplit_once(':') {
+                Some((session, id)) => Parsed::Question {
+                    session: Some(session),
+                    id,
+                },
+                None => Parsed::Question {
+                    session: None,
+                    id: rest,
+                },
+            },
             origin => Parsed::Path {
                 origin: Some(origin),
                 path: rest,
@@ -105,6 +131,13 @@ pub enum Name {
     Unreconciled(PathBuf),
     /// A prefix of an item's id.
     Id(String),
+    /// A question's id, and a prefix of its session's id if given.
+    Question {
+        /// The session prefix.
+        session: Option<String>,
+        /// The question's id.
+        id: String,
+    },
 }
 
 /// Why a typed name does not name exactly one item.
@@ -186,7 +219,49 @@ pub struct ItemNames<'g> {
     id_keys: Vec<(&'g str, usize)>,
     /// The same for the ids of commits.
     commit_keys: Vec<(&'g str, usize)>,
+    /// Each open-question item as (question id, session, item index),
+    /// sorted, so the items with one question id form one range, and within
+    /// it those whose sessions share a prefix form a sub-range.
+    question_index: Vec<(&'g str, &'g str, usize)>,
+    /// The sessions of open questions, shortened among themselves.
+    question_keys: SessionShorts,
     names: Vec<String>,
+}
+
+/// Sessions shown by the shortest prefix of at least 8 characters unique
+/// among them, or the whole id when that is shorter, of their ids as a
+/// terminal shows them ([`escape_control`]). A short form so made can be
+/// typed back as shown, and two ids a terminal shows alike shorten alike,
+/// so neither stands for the other by what the person sees.
+#[derive(Debug, Clone)]
+pub struct SessionShorts {
+    /// The sessions, escaped, sorted, each once.
+    sessions: Vec<String>,
+}
+
+impl SessionShorts {
+    /// Shortens among `sessions`, given in any order, each any number of
+    /// times.
+    #[must_use]
+    pub fn new<'a>(sessions: impl IntoIterator<Item = &'a SessionId>) -> Self {
+        let mut sessions: Vec<String> = sessions
+            .into_iter()
+            .map(|session| escape_control(session.as_str()))
+            .collect();
+        sessions.sort_unstable();
+        sessions.dedup();
+        Self { sessions }
+    }
+
+    /// The shortest prefix of `session`'s escaped id of at least 8
+    /// characters unique among the sessions, or the whole escaped id when
+    /// that is shorter. A session not among them is shortened against them
+    /// all the same.
+    #[must_use]
+    pub fn of(&self, session: &SessionId) -> String {
+        let escaped = escape_control(session.as_str());
+        unique_prefix(&escaped, &self.sessions, SESSION_PREFIX).to_owned()
+    }
 }
 
 impl<'g> ItemNames<'g> {
@@ -199,8 +274,14 @@ impl<'g> ItemNames<'g> {
     /// Items whose qualified names remain ambiguous use IDs. Commit names use
     /// the shortest unique prefix of at least 7 digits. Unreconciled items use
     /// the checkout or record's first association if typeable and unambiguous.
-    /// Other items use `id:` with the shortest unique prefix of at least
-    /// 8 digits.
+    /// An open question uses its id, and when another item's question has
+    /// the same id, its session's shortest prefix of at least 8 characters
+    /// unique among the questions' sessions, if that name is typeable and
+    /// names it alone. Other items use `id:` with the shortest unique prefix
+    /// of at least 8 digits.
+    ///
+    /// Question names depend only on the gate's question items, so `judge`
+    /// names them as `review` does without reading records.
     ///
     /// Uses path and ID indexes to avoid pairwise comparisons for changes
     /// across the repository.
@@ -212,13 +293,27 @@ impl<'g> ItemNames<'g> {
     ) -> Self {
         let mut by_path: BTreeMap<Vec<u8>, Vec<usize>> = BTreeMap::new();
         let mut by_id = BTreeMap::new();
+        let mut question_index = Vec::new();
         for (index, item) in items.iter().enumerate() {
-            if let Subject::Path(path) = &item.subject {
-                let key = folded(path.as_bytes(), ignore_case);
-                by_path.entry(key).or_default().push(index);
+            match &item.subject {
+                Subject::Path(path) => {
+                    let key = folded(path.as_bytes(), ignore_case);
+                    by_path.entry(key).or_default().push(index);
+                }
+                Subject::Question { session, id } => {
+                    question_index.push((id.as_str(), session.as_str(), index));
+                }
+                Subject::Commit(_) | Subject::Record(_) | Subject::Checkout(_) => {}
             }
             by_id.entry(&item.id).or_insert(index);
         }
+        question_index.sort_unstable();
+        let question_keys = SessionShorts::new(
+            items
+                .iter()
+                .filter_map(question_of)
+                .map(|(session, _)| session),
+        );
         let mut names = Self {
             items,
             associations,
@@ -227,6 +322,8 @@ impl<'g> ItemNames<'g> {
             by_id,
             id_keys: keyed(items, |item| Some(item.id.as_str())),
             commit_keys: keyed(items, commit_of),
+            question_index,
+            question_keys,
             names: Vec::new(),
         };
         names.names = (0..items.len())
@@ -304,6 +401,7 @@ impl<'g> ItemNames<'g> {
             Name::Commit(prefix) => by_prefix(typed, prefix, COMMIT_PREFIX, &self.commit_keys)?,
             Name::Id(prefix) => by_prefix(typed, prefix, ID_PREFIX, &self.id_keys)?,
             Name::Unreconciled(path) => self.unreconciled(path),
+            Name::Question { session, id } => self.questions(session.as_deref(), id),
         };
         match matches.as_slice() {
             [index] => Ok(*index),
@@ -360,10 +458,58 @@ impl<'g> ItemNames<'g> {
                     .associations
                     .get(record)
                     .is_some_and(|paths| paths.iter().any(|associated| associated == path)),
-                Subject::Path(_) | Subject::Commit(_) => false,
+                Subject::Path(_) | Subject::Commit(_) | Subject::Question { .. } => false,
             })
             .map(|(index, _)| index)
             .collect()
+    }
+
+    /// Finds the open-question items with question `id`, in gate order,
+    /// whose session starts with `session` when given.
+    ///
+    /// Reads only the range of `question_index` those items form, so the
+    /// work is proportional to the items found, not to all question items.
+    fn questions(&self, session: Option<&str>, id: &str) -> Vec<usize> {
+        let prefix = session.unwrap_or_default();
+        let start = self
+            .question_index
+            .partition_point(|&(other, session, _)| (other, session) < (id, prefix));
+        let mut indices: Vec<usize> = self.question_index[start..]
+            .iter()
+            .take_while(|&&(other, session, _)| other == id && session.starts_with(prefix))
+            .map(|&(_, _, index)| index)
+            .collect();
+        indices.sort_unstable();
+        indices
+    }
+
+    /// Whether more than one open-question item has question `id`.
+    fn shared_question(&self, id: &str) -> bool {
+        let start = self
+            .question_index
+            .partition_point(|&(other, _, _)| other < id);
+        self.question_index[start..]
+            .iter()
+            .take(2)
+            .filter(|&&(other, _, _)| other == id)
+            .count()
+            > 1
+    }
+
+    /// `question:<id>` for item `index`, or `question:<session>:<id>` when
+    /// another item's question has the same id, if the name is typeable and
+    /// names that item alone.
+    fn question_name(&self, index: usize, session: &SessionId, id: &str) -> Option<String> {
+        let qualifier = Origin::OpenQuestion.qualifier();
+        let prefix = self
+            .shared_question(id)
+            .then(|| self.question_keys.of(session));
+        let name = match &prefix {
+            Some(prefix) => format!("{qualifier}:{prefix}:{id}"),
+            None => format!("{qualifier}:{id}"),
+        };
+        let typeable = !name.chars().any(char::is_control);
+        (typeable && self.questions(prefix.as_deref(), id) == [index]).then_some(name)
     }
 
     fn display(&self, index: usize, show: &impl Fn(&PathBytes) -> Option<String>) -> String {
@@ -380,6 +526,7 @@ impl<'g> ItemNames<'g> {
                 .get(record)
                 .and_then(|paths| paths.first())
                 .and_then(|path| self.unreconciled_name(index, path)),
+            Subject::Question { session, id } => self.question_name(index, session, id),
         };
         typed.unwrap_or_else(|| {
             let prefix = unique_prefix(item.id.as_str(), &self.id_keys, ID_PREFIX);
@@ -506,6 +653,13 @@ fn commit_of(item: &GateItem) -> Option<&str> {
     }
 }
 
+fn question_of(item: &GateItem) -> Option<(&SessionId, &str)> {
+    match &item.subject {
+        Subject::Question { session, id } => Some((session, id.as_str())),
+        _ => None,
+    }
+}
+
 /// Builds a path key, folding ASCII case when the repository ignores case.
 fn folded(path: &[u8], ignore_case: bool) -> Vec<u8> {
     if ignore_case {
@@ -522,16 +676,40 @@ fn split(path: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
+/// A sorted key a prefix is found among ([`unique_prefix`]): the key
+/// itself, or a key with the item index it names ([`keyed`]).
+pub(crate) trait Key {
+    /// The key.
+    fn key(&self) -> &str;
+}
+
+impl Key for &str {
+    fn key(&self) -> &str {
+        self
+    }
+}
+
+impl Key for (&str, usize) {
+    fn key(&self) -> &str {
+        self.0
+    }
+}
+
+impl Key for String {
+    fn key(&self) -> &str {
+        self
+    }
+}
+
 /// Finds the shortest unique prefix of `id` with at least `minimum` bytes
-/// among sorted `keys` ([`keyed`]). The longest shared prefix belongs to a
-/// neighboring key after skipping keys equal to `id`.
-fn unique_prefix<'a>(id: &'a str, keys: &[(&str, usize)], minimum: usize) -> &'a str {
-    let at = keys.partition_point(|(other, _)| *other < id);
-    let before = at.checked_sub(1).map(|before| keys[before].0);
-    let after = keys[at..]
-        .iter()
-        .map(|(other, _)| *other)
-        .find(|other| *other != id);
+/// among sorted `keys`, or all of `id` when it is shorter or the prefix
+/// would end inside a character. `id` need not be among `keys`. The
+/// longest shared prefix belongs to a neighboring key after skipping keys
+/// equal to `id`.
+pub(crate) fn unique_prefix<'a>(id: &'a str, keys: &[impl Key], minimum: usize) -> &'a str {
+    let at = keys.partition_point(|other| other.key() < id);
+    let before = at.checked_sub(1).map(|before| keys[before].key());
+    let after = keys[at..].iter().map(Key::key).find(|other| *other != id);
     let length = before
         .into_iter()
         .chain(after)

@@ -140,6 +140,16 @@ pub enum Role {
     Summary,
 }
 
+impl Role {
+    /// Whether a turn of this role addresses the agent: a message typed by
+    /// a person or a delegating agent, or a compaction summary, which
+    /// stands in for the context the agent was working in.
+    #[must_use]
+    pub const fn is_prompt(self) -> bool {
+        matches!(self, Self::Human | Self::Delegation | Self::Summary)
+    }
+}
+
 /// A captured value, or the reason it was not stored.
 ///
 /// Used for turn text, edit text, patches, and command output. JSON stores
@@ -199,7 +209,7 @@ pub struct Turn {
     /// Subagent ID, if the source supplied one.
     pub agent_id: Option<String>,
     /// Turn text, or the reason it was not stored.
-    pub excerpt: Material<String>,
+    pub text: Material<String>,
     /// Zero-based line position of the source record in its transcript.
     pub source_ordinal: u64,
     /// Canonical transcript path, matching `path` in [`SessionStart::source_ids`].
@@ -631,8 +641,8 @@ pub struct CaptureCounts {
     pub unknown_records: BTreeMap<String, u64>,
     /// Lines that could not be decoded as transcript records.
     pub malformed_lines: u64,
-    /// Tool calls still awaiting a result when the next human or delegation
-    /// turn arrived.
+    /// Tool calls still awaiting a result when the next human, delegation
+    /// or compaction-summary turn arrived.
     pub abandoned_tool_uses: u64,
     /// Editing tool calls reported as failed, with no edit recorded.
     pub failed_tool_uses: u64,

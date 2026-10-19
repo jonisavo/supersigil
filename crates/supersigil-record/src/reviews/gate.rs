@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::PathBytes;
-use crate::ids::RecordId;
+use crate::ids::{RecordId, SessionId};
 
 /// The kind of gap a gate item reports. Items sort by origin in this order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -29,6 +29,8 @@ pub enum Origin {
     /// A record or checkout whose evidence reconcile could not bring up to
     /// date.
     Unreconciled,
+    /// A question the annotator left open.
+    OpenQuestion,
 }
 
 impl Origin {
@@ -43,6 +45,7 @@ impl Origin {
             Self::CommitWithoutOrigin => "commit_without_origin",
             Self::Discontinuity => "discontinuity",
             Self::Unreconciled => "unreconciled",
+            Self::OpenQuestion => "open_question",
         }
     }
 
@@ -58,6 +61,7 @@ impl Origin {
             Self::CommitWithoutOrigin => "commit",
             Self::Discontinuity => "gap",
             Self::Unreconciled => "unreconciled",
+            Self::OpenQuestion => "question",
         }
     }
 }
@@ -74,6 +78,14 @@ pub enum Subject {
     Record(RecordId),
     /// A checkout's canonical path; its ID hashes `checkout:<path>`.
     Checkout(PathBuf),
+    /// A question in a session's annotation; its ID hashes
+    /// `question:<session id>:<question id>`.
+    Question {
+        /// The annotated session.
+        session: SessionId,
+        /// The question's id in the annotation.
+        id: String,
+    },
 }
 
 sha256_id!(
@@ -99,6 +111,12 @@ impl ItemId {
             Subject::Checkout(checkout) => {
                 hasher.update(b"checkout:");
                 hasher.update(checkout.as_os_str().as_encoded_bytes());
+            }
+            Subject::Question { session, id } => {
+                hasher.update(b"question:");
+                hasher.update(session.as_str());
+                hasher.update(b":");
+                hasher.update(id);
             }
         }
         Self::from_digest(hasher.finalize())
@@ -156,6 +174,11 @@ pub enum GateDetail {
         /// The reason, such as `locked by another writer`.
         reason: String,
     },
+    /// The open question.
+    OpenQuestion {
+        /// The question's text.
+        text: String,
+    },
 }
 
 impl GateDetail {
@@ -170,6 +193,7 @@ impl GateDetail {
             Self::CommitWithoutOrigin => Origin::CommitWithoutOrigin,
             Self::Discontinuity { .. } => Origin::Discontinuity,
             Self::Unreconciled { .. } => Origin::Unreconciled,
+            Self::OpenQuestion { .. } => Origin::OpenQuestion,
         }
     }
 }

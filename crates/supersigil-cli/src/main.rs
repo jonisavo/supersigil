@@ -33,6 +33,7 @@ fn is_broken_pipe(err: &CliError) -> bool {
 
 fn run(cli: &Cli, color: ColorConfig) -> Result<(), CliError> {
     match cli.command {
+        Command::Annotate(ref args) => supersigil_cli::commands::annotate::run(args),
         Command::Completions(ref args) => supersigil_cli::commands::completions::run(args),
         Command::Judge(ref args) => supersigil_cli::commands::judge::run(args),
         Command::Review(ref args) => supersigil_cli::commands::review::run(args),

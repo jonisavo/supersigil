@@ -20,8 +20,18 @@ pub enum CliError {
     /// Generic command failure with a message.
     #[error("{0}")]
     CommandFailed(String),
-    /// A refused `judge` call's printable lines, with untrusted text already escaped.
-    /// Write command refusals start with "No judgment recorded.".
+    /// A refused call's printable lines, with untrusted text already escaped:
+    /// a `judge` call or an `annotate import`. `judge` write command refusals
+    /// start with "No judgment recorded.".
     #[error("{0}")]
     Refused(String),
+}
+
+impl CliError {
+    /// `printed`'s lines, escaped and followed by the note on values its
+    /// commands show as `<as given>`, joined into a refusal.
+    #[must_use]
+    pub fn refused(printed: supersigil_review::printed::Printed) -> Self {
+        Self::Refused(printed.finish().join("\n"))
+    }
 }

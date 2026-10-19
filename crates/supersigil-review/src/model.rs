@@ -2,24 +2,31 @@
 //!
 //! JSON fields start with the saved basis, worktree, base, and target, then
 //! status, gate, and unattributed summary. Scope, origins, records, evidence,
-//! and files follow. Edits come last, keyed by the IDs other sections use.
+//! and files follow, then edits, keyed by the IDs other sections use. The
+//! decisions behind the change, the corrections anchored to none of them,
+//! and each candidate session's annotation come last.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::Value;
 use supersigil_anchor::lines::split_lines;
 use supersigil_anchor::{Chain, ChainEnd, Conflict, PathStatus, StopReason};
+use supersigil_record::interpretations::{
+    AlternativeStatus, AnnotationRevision, Observed, Source, Speaker,
+};
 use supersigil_record::observations::{
     CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::reviews::{
-    Basis, BasisId, Fingerprint, GateDetail, GateItem, ItemId, Judgment, JudgmentKind, Origin,
-    PathBytes, Subject, Who,
+    Basis, BasisId, CorrectionKind, DecisionRef, Fingerprint, GateDetail, GateItem, ItemId,
+    Judgment, JudgmentKind, Origin, PathBytes, Subject, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{EventId, JudgmentId, RecordId};
+use supersigil_record::{EventId, JudgmentId, RecordId, SessionId};
 
+use crate::decisions::interpretation_changes;
 use crate::diff::{DiffHunk, diff_lines};
 use crate::judging::{
     Earlier, ItemChange, ItemState, JudgedItem, Relation, explanations_differ, uncovered_items,
@@ -31,9 +38,9 @@ use crate::outcome::{
 
 /// Schema string of the review JSON; a version marker, not a promise, while
 /// the pivot is unreleased.
-pub const REVIEW_SCHEMA: &str = "supersigil.review/2";
+pub const REVIEW_SCHEMA: &str = "supersigil.review/3";
 /// Schema string of the `why` JSON.
-pub const WHY_SCHEMA: &str = "supersigil.why/1";
+pub const WHY_SCHEMA: &str = "supersigil.why/2";
 
 /// A review of the change between a base and a target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -70,6 +77,20 @@ pub struct Review {
     pub files: Vec<FileReview>,
     /// Every accepted edit referenced above, keyed by edit id.
     pub edits: BTreeMap<String, EditInfo>,
+    /// The decisions citing an edit that contributes to a line of the
+    /// change, sorted by name.
+    pub decisions: Vec<DecisionInfo>,
+    /// The standing corrections in scope that anchor to no decision in
+    /// view, oldest first. Omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unanchored_corrections: Vec<CorrectionInfo>,
+    /// Per edit id in the change, the sorted names of the decisions citing
+    /// it. Omitted when empty. Kept apart from `edits`, whose entries gate
+    /// fingerprints hash, so an annotation never changes evidence.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub edit_decisions: BTreeMap<String, Vec<String>>,
+    /// Each candidate session's annotation, sorted by session.
+    pub annotations: Vec<AnnotationInfo>,
 }
 
 /// A review's basis as the review store saved it.
@@ -190,6 +211,12 @@ pub struct RelatedInfo {
     /// when changed paths are unavailable, since code changes also change
     /// explanations.
     pub changed_evidence: ChangedEvidence,
+    /// The sessions whose annotation this review reads differs from the one
+    /// it read, sorted by session. Omitted when empty. A changed
+    /// interpretation blocks nothing: it is neither evidence nor a gate
+    /// item.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub interpretation: Vec<InterpretationChange>,
     /// Current gate items absent from its gate or with changed fingerprints,
     /// in gate order.
     pub uncovered: Vec<UncoveredInfo>,
@@ -234,6 +261,7 @@ impl RelatedInfo {
             completion: completion.map(JudgmentInfo::new),
             changed_paths: reading.changed_paths,
             changed_evidence,
+            interpretation: interpretation_changes(&earlier.annotations, &basis.annotations),
             uncovered,
         }
     }
@@ -444,9 +472,16 @@ pub struct JudgmentInfo {
     /// The reason given with it, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// Optional note text from a comment or completion.
+    /// Optional note text from a comment or completion, or a correction's
+    /// constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// For a correction, the decision it addresses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionRef>,
+    /// For a correction, its kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correction: Option<CorrectionKind>,
     /// Who recorded it.
     pub who: Who,
     /// When, in UTC.
@@ -463,6 +498,8 @@ impl JudgmentInfo {
             review: judgment.basis.clone(),
             reason: judgment.reason.clone(),
             text: judgment.text.clone(),
+            decision: judgment.decision.clone(),
+            correction: judgment.correction,
             who: judgment.who.clone(),
             at: judgment.at,
         }
@@ -1119,7 +1156,8 @@ pub struct EditInfo {
     pub operation: EditOperation,
     /// How the edit reached the record.
     pub origin: EditOriginInfo,
-    /// The nearest recorded ancestor message that is Human or Delegation.
+    /// The nearest recorded ancestor message that is Human, Delegation or
+    /// Summary.
     pub prompt: Option<PromptInfo>,
 }
 
@@ -1129,10 +1167,224 @@ pub struct EditInfo {
 pub struct PromptInfo {
     /// Turn id of the message.
     pub turn: String,
-    /// Human or Delegation.
+    /// Human, Delegation, or Summary for a compaction summary.
     pub role: Role,
-    /// The retained excerpt, or why it is not retained.
-    pub excerpt: Material<String>,
+    /// The message text, or why it is not retained.
+    pub text: Material<String>,
+}
+
+/// A decision an annotator recorded, shown because an edit it cites
+/// contributes to a line of the change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DecisionInfo {
+    /// Its name in this review: its id, or `<session short>:<id>` when
+    /// another annotated session has a decision with the same id.
+    pub name: String,
+    /// The annotated session.
+    pub session: SessionId,
+    /// The record chosen for the session, which holds the annotation.
+    pub record: RecordId,
+    /// The annotation revision read.
+    pub revision: AnnotationRevision,
+    /// The annotator's id for it.
+    pub id: String,
+    /// What was decided, as the annotator put it.
+    pub title: String,
+    /// Whether a standing correction disputes its rationale or grouping.
+    pub disputed: bool,
+    /// The standing corrections anchored to it, oldest first.
+    pub corrections: Vec<CorrectionInfo>,
+    /// Why it was decided, each line labelled by who gave it. A
+    /// correction's constraint comes first.
+    pub rationale: Vec<RationaleInfo>,
+    /// Other courses proposed or attempted.
+    pub alternatives: Vec<AlternativeInfo>,
+    /// What it means for later work.
+    pub implications: Vec<ImplicationInfo>,
+    /// The sorted names of the session's open-question items in this review
+    /// whose `about` names an id this decision cites.
+    pub open_questions: Vec<String>,
+    /// Its cited ids, split by whether they contribute to a line of the
+    /// change.
+    pub cites: CitesInfo,
+    /// Each span a cited edit contributes to, once, in file order then span
+    /// order, saying how the edit contributes.
+    pub explains: Vec<ExplainedSpan>,
+}
+
+impl DecisionInfo {
+    /// The full reference naming this decision: its record, session,
+    /// revision and id.
+    #[must_use]
+    pub fn reference(&self) -> DecisionRef {
+        DecisionRef {
+            record: self.record.clone(),
+            session: self.session.clone(),
+            revision: self.revision,
+            id: self.id.clone(),
+        }
+    }
+}
+
+/// A standing correction of a decision, as a decision it anchors to shows
+/// it, or as a review lists it when it anchors to none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CorrectionInfo {
+    /// The correction judgment.
+    pub judgment: JudgmentId,
+    /// The decision it addressed, which need not be the one showing it.
+    pub decision: DecisionRef,
+    /// What it says about the decision.
+    pub kind: CorrectionKind,
+    /// Why, for a `wrong` or `not_together` correction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The actual constraint, for a `constraint` correction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Who recorded it.
+    pub who: Who,
+    /// When, in UTC.
+    pub at: UtcTime,
+    /// The revision it addressed, when it anchors through the edits that
+    /// revision's decision cited rather than to that decision itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addressed: Option<AnnotationRevision>,
+    /// Whether the shown revision of its session lists it among the
+    /// corrections its annotator saw; `false` when the review shows no
+    /// revision of that session.
+    pub seen: bool,
+    /// The full id of the review it was recorded on.
+    pub review: BasisId,
+}
+
+/// One line of a decision's rationale, labelled by who gave it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RationaleInfo {
+    /// The reason.
+    pub text: String,
+    /// Who gave it.
+    pub speaker: Speaker,
+    /// Whether the speaker stated it. Import checked an explicit line's
+    /// quote against the turn; any other line is the annotator's inference.
+    pub explicit: bool,
+    /// The passage it rests on, if any.
+    pub source: Option<Source>,
+    /// The correction whose constraint this line is, or `None` for a line
+    /// the annotator wrote.
+    pub correction: Option<JudgmentId>,
+}
+
+/// A course the session proposed or attempted instead of a decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AlternativeInfo {
+    /// What the alternative was.
+    pub title: String,
+    /// How far it went.
+    pub status: AlternativeStatus,
+    /// The edits that attempted it, none for a proposal.
+    pub edits: Vec<EventId>,
+    /// Whether the session's derivations show every edit of the attempt
+    /// restored. Never true for an alternative without edits.
+    pub restored: bool,
+    /// Why it was not taken, if known.
+    pub reason: Option<RationaleInfo>,
+}
+
+/// What a decision means for later work.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImplicationInfo {
+    /// The implication.
+    pub text: String,
+    /// Whether a turn states it; otherwise it is the annotator's.
+    pub explicit: bool,
+    /// The passage it rests on, if any.
+    pub source: Option<Source>,
+}
+
+/// A decision's cited ids, each list sorted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CitesInfo {
+    /// The cited edits that contribute to a line of the change.
+    pub in_change: Vec<EventId>,
+    /// The other cited edits and commands.
+    pub elsewhere: Vec<EventId>,
+}
+
+/// A span a decision explains, and how its cited edit contributes to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExplainedSpan {
+    /// The file.
+    pub path: PathBytes,
+    /// Which side of the diff.
+    pub side: SpanSide,
+    /// First line, 1-based.
+    pub start: usize,
+    /// Number of lines.
+    pub count: usize,
+    /// How the span's outcome names the cited edit.
+    pub association: Association,
+    /// For a content match, whether its search completed. Omitted
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_complete: Option<bool>,
+}
+
+/// How a span's outcome names an edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Association {
+    /// The edit introduced or replaced the lines.
+    Attributed,
+    /// The edit changed only whitespace in the lines.
+    WhitespaceOnly,
+    /// No chain explains the lines; the edit is one of the whole-edit
+    /// blocks covering them. This is never attribution.
+    ContentMatch,
+}
+
+/// What a review read of one candidate session's annotation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AnnotationInfo {
+    /// The candidate session.
+    pub session: SessionId,
+    /// The record chosen for the session, or `None` when no involved record
+    /// holds it.
+    pub record: Option<RecordId>,
+    /// The checkout through which the review found that record: one whose
+    /// review reads it, among whose records `annotate prepare` finds the
+    /// session. It is a candidate worktree that is or lies in one of the
+    /// record's associations, the reviewed one first, so a command naming
+    /// it reads the review's own repository; else the most specific
+    /// association lying in a candidate worktree; else the record's first
+    /// association. `None` without a record.
+    pub checkout: Option<PathBuf>,
+    /// The session's current annotation revision in that record, or `None`
+    /// when it has none.
+    pub revision: Option<AnnotationRevision>,
+    /// How much of the session that revision's annotator saw, its
+    /// `prepared.observed`; `None` without a revision.
+    pub observed: Option<Observed>,
+    /// How many observations of the session the chosen record holds.
+    pub observations_now: u64,
+    /// How many involved records hold an annotation of the session.
+    pub annotated_records: usize,
+}
+
+/// A session whose annotation differs between an earlier review and this
+/// one.
+///
+/// Revisions are numbered per record: when the record chosen for the
+/// session differs, `from` and `to` count in different records and may be
+/// equal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InterpretationChange {
+    /// The session.
+    pub session: SessionId,
+    /// The revision the earlier review read, or `None` when it read none.
+    pub from: Option<AnnotationRevision>,
+    /// The revision this review reads, or `None` when it reads none.
+    pub to: Option<AnnotationRevision>,
 }
 
 /// A changed path's display forms and raw bytes.

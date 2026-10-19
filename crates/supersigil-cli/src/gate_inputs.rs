@@ -49,6 +49,7 @@ pub fn gate_inputs<'g>(g: &'g Gathered, review: &Review) -> GateInputs<'g> {
             })
             .collect(),
         edits: recorded.sightings(review.edits.keys().map(String::as_str)),
+        questions: Vec::new(),
     }
 }
 
@@ -455,6 +456,7 @@ mod tests {
             not_reconciled: None,
             associations: vec![PathBuf::from(WORKTREE)],
             logs: BTreeMap::new(),
+            sessions: BTreeMap::new(),
             observations: edits.iter().cloned().map(Observation::Edit).collect(),
             snapshot: store.snapshot().unwrap(),
         }

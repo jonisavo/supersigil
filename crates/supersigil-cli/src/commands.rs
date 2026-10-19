@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use crate::format::{AutoFormat, OutputFormat};
 
+/// The `annotate` command group.
+pub mod annotate;
 /// The `completions` command.
 pub mod completions;
 /// The `judge` command group.
@@ -18,6 +20,17 @@ pub mod why;
 /// Available subcommands.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    /// Prepare, import and list annotations of recorded sessions
+    ///
+    /// An annotation names the decisions a session made, each citing the
+    /// edits that carried it out, with every rationale labelled by who gave
+    /// it. Prepare writes what an annotator reads. Import checks the
+    /// citations and quotes against the record the document names, this
+    /// checkout's or an ancestor checkout's; it does not judge whether the
+    /// explanation is right.
+    ///
+    /// Agents may run these commands.
+    Annotate(AnnotateArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
     /// Record judgments on a saved review, undo them, and read them back
@@ -40,6 +53,81 @@ pub enum Command {
     Session(SessionArgs),
     /// Explain where one line of a file came from
     Why(WhyArgs),
+}
+
+/// Where a command finds the checkout's record and its repository's review
+/// store: the options `review` takes, with the same defaults.
+///
+/// Every `annotate` command and `why` take all four, so one set of options
+/// serves each. `prepare` and `why` reconcile the checkout's records first,
+/// discovering transcripts under `--claude-home`; `import` and `list` read
+/// the record without syncing it and ignore that option. `why` reads the
+/// corrections of the decisions behind its line from the review store.
+#[derive(Debug, clap::Args)]
+pub struct StoreArgs {
+    /// Checkout whose record to use (default: current directory)
+    #[arg(long, global = true)]
+    pub checkout: Option<PathBuf>,
+    /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
+    #[arg(long, global = true)]
+    pub record_dir: Option<PathBuf>,
+    /// Reviews directory (default: `$SUPERSIGIL_REVIEW_DIR`, then `$XDG_DATA_HOME/supersigil/reviews`, then `~/.local/share/supersigil/reviews`)
+    #[arg(long, global = true)]
+    pub review_dir: Option<PathBuf>,
+    /// Claude home directory used for discovery (default: ~/.claude)
+    #[arg(long, global = true)]
+    pub claude_home: Option<PathBuf>,
+}
+
+/// Arguments for the `annotate` command group.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateArgs {
+    /// Where to find the record and the review store
+    #[command(flatten)]
+    pub store: StoreArgs,
+    /// Subcommand
+    #[command(subcommand)]
+    pub command: AnnotateCommand,
+}
+
+/// Subcommands of `annotate`.
+#[derive(Debug, clap::Subcommand)]
+pub enum AnnotateCommand {
+    /// Write the brief an annotator reads for a session of this checkout's record or an ancestor's, as JSON
+    Prepare(AnnotatePrepareArgs),
+    /// Check an annotation document against the record it names, this checkout's or an ancestor's, and store it as the session's next revision
+    Import(AnnotateImportArgs),
+    /// List this checkout's sessions with their current annotations
+    List(AnnotateListArgs),
+}
+
+/// Arguments for `annotate prepare`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotatePrepareArgs {
+    /// Session id; a unique prefix is enough
+    pub session: String,
+    /// Write the brief to this file, created or replaced, instead of standard output
+    #[arg(long, value_name = "FILE")]
+    pub out: Option<PathBuf>,
+}
+
+/// Arguments for `annotate import`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateImportArgs {
+    /// Annotation document to import, or - to read standard input
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Output format: `auto` prints text on a terminal and JSON otherwise
+    #[arg(long, default_value = "auto")]
+    pub format: AutoFormat,
+}
+
+/// Arguments for `annotate list`.
+#[derive(Debug, clap::Args)]
+pub struct AnnotateListArgs {
+    /// Output format: `auto` prints text on a terminal and JSON otherwise
+    #[arg(long, default_value = "auto")]
+    pub format: AutoFormat,
 }
 
 /// Arguments for the `completions` command.
@@ -150,15 +238,9 @@ pub struct WhyArgs {
     /// Output format: `auto` prints text on a terminal and JSON otherwise
     #[arg(long, default_value = "auto")]
     pub format: AutoFormat,
-    /// Checkout the file belongs to (default: current directory)
-    #[arg(long)]
-    pub checkout: Option<PathBuf>,
-    /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
-    #[arg(long)]
-    pub record_dir: Option<PathBuf>,
-    /// Claude home directory used for discovery (default: ~/.claude)
-    #[arg(long)]
-    pub claude_home: Option<PathBuf>,
+    /// Where to find the records and the review store
+    #[command(flatten)]
+    pub store: StoreArgs,
 }
 
 /// Arguments for the `judge` command group.
@@ -191,13 +273,24 @@ pub enum JudgeCommand {
     Dismiss(CloseArgs),
     /// Add a note to the review or an item; it leaves the item's state alone
     Comment(CommentArgs),
+    /// Correct an annotated decision's explanation, grouping, or constraint
+    ///
+    /// Record that its explanation is wrong (--wrong), that its edits do not
+    /// belong together (--not-together), or what the actual constraint was
+    /// (--constraint). Name the decision as `supersigil review` prints it.
+    ///
+    /// A correction stays with the decision: a later review shows it before
+    /// the rationale it addresses, the next annotation receives it, and
+    /// re-annotating never clears it; only `judge undo --judgment` withdraws
+    /// it. It closes no item and never keeps a review from completing.
+    Correct(CorrectArgs),
     /// Record completion of this saved review; it does not commit or merge
     Complete(CompleteArgs),
     /// Withdraw the judgments closing items, or one judgment by its id
     Undo(UndoArgs),
     /// List the saved reviews with judgments and each worktree's selection
     List,
-    /// Show a saved review's gate, comments, and withdrawn judgments
+    /// Show a saved review's gate, comments, corrections, and withdrawn judgments
     Show(ShowArgs),
 }
 
@@ -222,6 +315,32 @@ pub struct CommentArgs {
     /// The note
     #[arg(long)]
     pub text: String,
+}
+
+/// Arguments for `judge correct`: the decision and exactly one kind of
+/// correction, a dispute with its reason or the actual constraint.
+#[derive(Debug, clap::Args)]
+#[command(group(
+    clap::ArgGroup::new("kind")
+        .required(true)
+        .args(["wrong", "not_together", "constraint"])
+))]
+pub struct CorrectArgs {
+    /// The decision's name as `supersigil review` prints it
+    #[arg(value_name = "DECISION")]
+    pub decision: String,
+    /// Its explanation is wrong: the rationale given is not why it was done
+    #[arg(long, requires = "reason")]
+    pub wrong: bool,
+    /// The edits it cites do not belong together
+    #[arg(long, requires = "reason")]
+    pub not_together: bool,
+    /// The actual constraint behind it, shown before its rationale
+    #[arg(long, value_name = "TEXT")]
+    pub constraint: Option<String>,
+    /// Why, recorded with --wrong or --not-together
+    #[arg(long, conflicts_with = "constraint")]
+    pub reason: Option<String>,
 }
 
 /// Arguments for `judge complete`.

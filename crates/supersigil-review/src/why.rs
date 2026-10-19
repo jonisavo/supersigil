@@ -4,7 +4,10 @@
 //! The line is read against the target alone: its outcome follows the same
 //! ordered rules as an added diff line (a line the chains do not explain gets
 //! the content-match fallback). The records and candidate transcripts are
-//! always present, whatever the on-disk check found.
+//! always present, whatever the on-disk check found. The decisions behind
+//! the line follow its edits, with their corrections and rationale as the
+//! review summary shows them, saying when the line only matches a cited
+//! edit's content.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,14 +20,14 @@ use supersigil_record::observations::{ChangeKind, Material};
 
 use crate::diff::diff_blob_lines;
 use crate::model::{
-    CommandChange, EditInfo, EditOriginInfo, EvidenceInfo, RecordInfo, analysis_edits,
-    outcome_edits, text,
+    CommandChange, DecisionInfo, EditInfo, EditOriginInfo, EvidenceInfo, RecordInfo,
+    analysis_edits, outcome_edits, text,
 };
 use crate::outcome::{AttributionState, Outcome, target_line_outcome};
 use crate::printed::Printed;
 use crate::summary::{
-    class_words, command_line, content_match_words, context_lines, reason_words, recorded_commands,
-    relation_words,
+    class_words, command_line, content_match_words, context_lines, reason_words, reasons,
+    recorded_commands, relation_words, titled,
 };
 
 /// The `why` result.
@@ -52,6 +55,10 @@ pub struct Why {
     /// with whether their diffs add the line's text. Observations, never
     /// attribution.
     pub command_changes: Vec<LineCommandChange>,
+    /// The decisions citing an edit that contributes to the line, sorted by
+    /// name, as a review shows them. Omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub decisions: Vec<DecisionInfo>,
 }
 
 /// A command the harness reported as changing the explained file.
@@ -368,6 +375,7 @@ pub fn render_why(why: &Why) -> String {
         }
     }
     push_contributors(&mut out, why);
+    push_decisions(&mut out, why);
     push_command_changes(&mut out, why);
     for line in context_lines(&why.records, &why.evidence) {
         out.line(format!("  {line}"));
@@ -402,9 +410,9 @@ fn push_contributors(out: &mut Printed, why: &Why) {
         };
         let prompt = edit.prompt.as_ref().map_or_else(
             || "no preceding message recorded".to_owned(),
-            |prompt| match &prompt.excerpt {
-                Material::Retained(excerpt) => {
-                    let first = excerpt.lines().next().unwrap_or_default();
+            |prompt| match &prompt.text {
+                Material::Retained(text) => {
+                    let first = text.lines().next().unwrap_or_default();
                     let short: String = first.chars().take(80).collect();
                     format!("after \"{short}\"")
                 }
@@ -436,6 +444,36 @@ fn push_contributors(out: &mut Printed, why: &Why) {
                  statement ran",
             );
         }
+    }
+}
+
+/// Lists the decisions behind the line, each with its corrections and
+/// rationale as the summary shows them. The heading says when the line only
+/// matches a cited edit's content, or only its whitespace changed.
+fn push_decisions(out: &mut Printed, why: &Why) {
+    let how = match why.line.as_ref().map(|line| &line.outcome) {
+        Some(Outcome::ContentMatch {
+            search_complete: true,
+            ..
+        }) => " (content match only)",
+        Some(Outcome::ContentMatch {
+            search_complete: false,
+            ..
+        }) => " (content match only, search incomplete)",
+        Some(Outcome::WhitespaceOnly { .. }) => " (whitespace only)",
+        _ => "",
+    };
+    for decision in &why.decisions {
+        out.line(format!(
+            "  decision {}{how}: {}",
+            decision.name,
+            titled(decision)
+        ));
+        out.lines(
+            reasons(decision)
+                .into_iter()
+                .map(|line| format!("    {line}")),
+        );
     }
 }
 

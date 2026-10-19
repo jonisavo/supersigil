@@ -11,7 +11,9 @@ use crate::ids::{ContentId, RecordId, Revision, SessionId};
 use crate::time::UtcTime;
 
 /// Manifest schema version supported for reading and writing.
-pub const SCHEMA_VERSION: u32 = 2;
+///
+/// Version 3 adds interpretation documents; version 2 had none.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// A checkout path used to find this record.
 ///
@@ -57,7 +59,8 @@ pub struct Manifest {
     /// Log paths relative to the record directory, mapped to committed byte lengths.
     pub logs: BTreeMap<String, u64>,
     /// Document keys mapped to files relative to the record directory, for
-    /// example `derivations/0` mapped to `derivations/0.r3.json`.
+    /// example `derivations/0` mapped to `derivations/0.r3.json` and
+    /// `interpretations/0/2` mapped to `interpretations/0.a2.json`.
     pub documents: BTreeMap<String, String>,
     /// Replaced document paths relative to the record directory, mapped to
     /// their replacement times. Commits delete eligible files more than

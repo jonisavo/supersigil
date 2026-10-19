@@ -373,6 +373,7 @@ mod tests {
             not_reconciled: None,
             associations: Vec::new(),
             logs: BTreeMap::from([(log.path, log.pinned)]),
+            sessions: BTreeMap::new(),
             observations: log.observations,
             snapshot,
         }

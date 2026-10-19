@@ -16,7 +16,7 @@ use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, Edit, EditOperation, EditOrigin, FileState, Material,
 };
 use supersigil_record::reviews::{
-    CaptureEntry, FingerprintPart, GateDetail, GateItem, Origin, PathBytes, Subject,
+    CaptureEntry, Fingerprint, FingerprintPart, GateDetail, GateItem, Origin, PathBytes, Subject,
 };
 use supersigil_record::{ContentId, EventId, RecordId, SessionId, Timestamp, TurnId};
 use supersigil_review::gate::{
@@ -189,6 +189,10 @@ fn review(files: Vec<FileReview>, scope: ScopeInfo) -> Review {
             ("e1".to_owned(), edit_info("2026-10-13T10:00:01.000Z")),
             ("e2".to_owned(), edit_info("2026-10-13T10:00:02.000Z")),
         ]),
+        decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
+        edit_decisions: BTreeMap::new(),
+        annotations: Vec::new(),
     }
 }
 
@@ -246,6 +250,7 @@ struct OwnedInputs {
     untracked: BTreeMap<PathBytes, OwnedEvidence>,
     not_captured: BTreeMap<PathBytes, OnDiskState>,
     edits: Sightings,
+    questions: Vec<GateItem>,
 }
 
 impl OwnedInputs {
@@ -273,6 +278,7 @@ impl OwnedInputs {
                 .collect(),
             not_captured: self.not_captured.clone(),
             edits: borrowed(&self.edits),
+            questions: self.questions.clone(),
         }
     }
 }
@@ -338,6 +344,7 @@ fn sample() -> (Review, OwnedInputs) {
         )]),
         not_captured: BTreeMap::from([(PathBytes::new("config.toml"), OnDiskState::Missing)]),
         edits: sightings(),
+        questions: Vec::new(),
     };
     (review, inputs)
 }
@@ -526,8 +533,22 @@ fn items_sort_by_origin_then_subject() {
     ];
     review.evidence.unreconciled_checkouts =
         vec![checkout("/work/b", "locked"), checkout("/work/a", "locked")];
+    let question = |session: &str, id: &str| Subject::Question {
+        session: SessionId::new(session),
+        id: id.to_owned(),
+    };
+    let asked = |session, id| {
+        GateItem::new(
+            question(session, id),
+            GateDetail::OpenQuestion {
+                text: "Why?".to_owned(),
+            },
+            Fingerprint::default(),
+        )
+    };
     let inputs = OwnedInputs {
         discontinuities: vec![gap(b"z.rs"), gap(b"a.rs")],
+        questions: vec![asked("s2", "q1"), asked("s1", "q9"), asked("s1", "q1")],
         ..OwnedInputs::default()
     };
     let subjects: Vec<(Origin, Subject)> = gate_items(&review, &inputs.borrowed())
@@ -559,6 +580,9 @@ fn items_sort_by_origin_then_subject() {
                 Origin::Unreconciled,
                 Subject::Checkout(PathBuf::from("/work/b"))
             ),
+            (Origin::OpenQuestion, question("s1", "q1")),
+            (Origin::OpenQuestion, question("s1", "q9")),
+            (Origin::OpenQuestion, question("s2", "q1")),
         ]
     );
 }
@@ -635,6 +659,7 @@ fn paths_that_print_alike_give_separate_items() {
             (PathBytes::new(two), on_disk(true, 'b')),
         ]),
         edits: BTreeMap::new(),
+        questions: Vec::new(),
     };
     let items = gate_items(&review, &inputs.borrowed());
     let shown: Vec<(Origin, Subject, &FingerprintPart)> = items

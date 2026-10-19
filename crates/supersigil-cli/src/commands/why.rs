@@ -1,5 +1,6 @@
 //! `supersigil why <file>:<line>`: where one line of a file came from,
-//! explained back to the file's creation when the evidence reaches that far.
+//! explained back to the file's creation when the evidence reaches that far,
+//! and the annotated decisions behind it with their corrections.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -12,13 +13,17 @@ use supersigil_git::changes::{
 };
 use supersigil_git::snapshot::is_tracked;
 use supersigil_git::{ObjectId, RepoPath, ResolvedTarget, TargetSpec};
+use supersigil_record::reviews::{Judgment, PathBytes};
 use supersigil_review::WHY_SCHEMA;
+use supersigil_review::decisions::{in_excerpt, names};
 use supersigil_review::mapping::lines_correspond;
+use supersigil_review::model::{DecisionInfo, Span, SpanSide};
 use supersigil_review::why::{
-    OnDiskCheck, Why, WhyTarget, line_command_changes, render_why, why_line,
+    OnDiskCheck, Why, WhyLine, WhyTarget, line_command_changes, render_why, why_line,
 };
 
-use crate::commands::WhyArgs;
+use crate::annotations::{Annotations, anchor_corrections, standing_corrections_in};
+use crate::commands::{StoreArgs, WhyArgs};
 use crate::error::CliError;
 use crate::evidence::add_referenced_edits;
 use crate::format::{OutputFormat, write_json};
@@ -41,16 +46,16 @@ use crate::record_dir;
 pub fn run(args: &WhyArgs) -> Result<(), CliError> {
     let (typed, line) = parse_location(&args.location)?;
     let cwd = record_dir::canonical_checkout(None)?;
+    let options = &args.store;
     let mut prepared = prepare(&PipelineArgs {
-        checkout: record_dir::canonical_checkout(args.checkout.as_deref())?,
+        checkout: record_dir::canonical_checkout(options.checkout.as_deref())?,
         cwd: cwd.clone(),
-        records_dir: record_dir::resolve_record_dir(args.record_dir.as_deref())?,
-        claude_home: claude_home(args.claude_home.as_deref()),
+        records_dir: record_dir::resolve_record_dir(options.record_dir.as_deref())?,
+        claude_home: claude_home(options.claude_home.as_deref()),
         base: BaseChoice::EmptyTree,
         target: TargetSpec::WorkingTree,
         include_untracked: Vec::new(),
         paths: Vec::new(),
-        hash_logs: false,
     })?;
     let path = repo_path(prepared.worktree(), &cwd, &typed)?.ok_or_else(|| {
         CliError::CommandFailed(format!("{typed} names the worktree, not a file"))
@@ -112,6 +117,10 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         g.command_changes.touching(&path).cloned().collect(),
         analysis.as_ref(),
     );
+    let decisions = match &analysis {
+        Some(line) => decisions_behind(&g, options, &path, line)?,
+        None => Vec::new(),
+    };
     let why = Why {
         schema: WHY_SCHEMA,
         path: path.display(),
@@ -128,12 +137,70 @@ pub fn run(args: &WhyArgs) -> Result<(), CliError> {
         edits,
         conflicting_edits: conflicts,
         command_changes,
+        decisions,
     };
     match args.format.resolve() {
         OutputFormat::Json => write_json(&why)?,
         OutputFormat::Terminal => io::stdout().lock().write_all(render_why(&why).as_bytes())?,
     }
     Ok(())
+}
+
+/// The decisions citing an edit that contributes to `line` of `path`, as a
+/// review of the working tree names and shows them, with the standing
+/// corrections in the review store `options` names anchored to them.
+///
+/// Every candidate session's annotation is read, from the record a review
+/// chooses for it, so a decision has the name it has in that review.
+///
+/// The open questions a decision lists are named over every open question of
+/// the candidate sessions ([`in_excerpt`]), not over those about this line,
+/// which a review's gate would not name alone. `why` may therefore print a
+/// qualified question name (`question:3f2a9c1e:q1`) where `review` prints a
+/// bare one (`question:q1`); it never prints a bare name the review
+/// qualifies, and `judge` resolves a qualified name even when the id is
+/// unique.
+///
+/// # Errors
+///
+/// Returns the errors of [`Annotations::read`] and
+/// [`standing_corrections_in`].
+fn decisions_behind(
+    g: &Gathered,
+    options: &StoreArgs,
+    path: &RepoPath,
+    line: &WhyLine,
+) -> Result<Vec<DecisionInfo>, CliError> {
+    let sessions = g.candidate_sessions();
+    let annotations = Annotations::read(g, sessions.iter().copied())?;
+    let annotated = annotations.annotated();
+    // The line as one span of the change, the form a review's files take.
+    let span = Span {
+        side: SpanSide::Target,
+        start: line.number,
+        count: 1,
+        outcome: line.outcome.clone(),
+        provenance: Vec::new(),
+    };
+    let path_bytes = PathBytes::new(path.as_bytes());
+    let view = in_excerpt(&annotated, &names(&annotated), &path_bytes, &[span]);
+    let mut decisions = view.decisions;
+    if decisions.is_empty() {
+        return Ok(decisions);
+    }
+    let standing = standing_corrections_in(options, &g.repo)?;
+    let corrections: Vec<&Judgment> = standing
+        .iter()
+        .flat_map(|standing| &standing.judgments)
+        .filter(|judgment| {
+            judgment
+                .as_correction()
+                .is_some_and(|(decision, _)| sessions.contains(&decision.session))
+        })
+        .collect();
+    // `why` lists no correction apart from the decisions it shows.
+    let _unanchored = anchor_corrections(&g.records, &annotations, &corrections, &mut decisions);
+    Ok(decisions)
 }
 
 /// Splits `<file>:<line>` at its last colon; the line is 1-based.

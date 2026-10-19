@@ -5,6 +5,9 @@
 
 /// Whether a command runs inside an agent session.
 pub mod agent;
+/// The candidate sessions' annotations and the corrections of their
+/// decisions, as `review` and `why` read them.
+pub mod annotations;
 /// CLI command definitions and argument types.
 pub mod commands;
 /// CLI error types.
@@ -32,9 +35,10 @@ pub mod reopening;
 pub mod review_dir;
 
 pub use commands::{
+    AnnotateArgs, AnnotateCommand, AnnotateImportArgs, AnnotateListArgs, AnnotatePrepareArgs,
     CloseArgs, Command, CommentArgs, CompleteArgs, CompletionsArgs, JudgeArgs, JudgeCommand,
     ReviewArgs, SessionArgs, SessionCommand, SessionListArgs, SessionShowArgs, SessionSyncArgs,
-    ShowArgs, UndoArgs, WhyArgs,
+    ShowArgs, StoreArgs, UndoArgs, WhyArgs,
 };
 pub use format::{AutoFormat, ColorChoice, ColorConfig, OutputFormat};
 

@@ -3,7 +3,9 @@
 //! [`Observation`] records turns, edits, commands, and capture limitations in
 //! append-only session logs. [`derive::derive`] compares the recorded file states
 //! to find restores and discontinuities. Each [`DerivationSet`] identifies the
-//! input revision and algorithm version used to compute it.
+//! input revision and algorithm version used to compute it. An
+//! [`interpretations::Annotation`] holds what an annotator says a session
+//! decided and why, revisioned per session.
 //!
 //! [`Store`] saves these records as JSON files. A [`RecordSnapshot`] reads the
 //! log lengths and document names listed in one manifest, so later writes do
@@ -16,6 +18,7 @@ pub mod derivations;
 pub mod derive;
 mod files;
 pub mod ids;
+pub mod interpretations;
 pub mod observations;
 pub mod reviews;
 pub mod store;

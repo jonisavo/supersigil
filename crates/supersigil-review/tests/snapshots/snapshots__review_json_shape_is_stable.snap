@@ -2,11 +2,11 @@
 source: crates/supersigil-review/tests/snapshots.rs
 expression: sample_review()
 ---
-schema: supersigil.review/2
+schema: supersigil.review/3
 basis:
-  id: 050e42447b4103dbea051c1e55677e5f5bb7db94570bff8ee82251e92a31666b
+  id: 7d84fc1460938fd345404ead26637a70f5d8b35a334a27323f424a2f5d5e58a0
   document:
-    schema: supersigil.basis/1
+    schema: supersigil.basis/2
     worktree: /work/repo
     base:
       commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -24,6 +24,8 @@ basis:
       derivation: 2
     explanations: []
     capture: []
+    annotations: []
+    decisions: []
     gate:
       - id: d503d8b458721eaf7ead5168d6d1888d41924cecf5634ba53bf81c5f47c4675f
         subject:
@@ -569,6 +571,136 @@ edits:
     prompt:
       turn: u1
       role: human
-      excerpt:
+      text:
         state: retained
         value: Add a greeting function and clean up.
+decisions:
+  - name: d1
+    session: s1
+    record: rec-1
+    revision: 1
+    id: d1
+    title: Rename the old function to new
+    disputed: true
+    corrections:
+      - judgment: constraint
+        decision:
+          record: rec-1
+          session: s1
+          revision: 1
+          id: d1
+        kind: constraint
+        text: callers outside this crate must keep compiling
+        who:
+          name: Joni Savolainen
+          email: joni@example.com
+        at: "2026-10-13T12:00:00Z"
+        seen: false
+        review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
+      - judgment: wrong
+        decision:
+          record: rec-1
+          session: s1
+          revision: 1
+          id: d1
+        kind: wrong
+        reason: the rename came from the reviewer
+        who:
+          name: Joni Savolainen
+          email: joni@example.com
+        at: "2026-10-13T12:00:00Z"
+        seen: false
+        review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
+    rationale:
+      - text: callers outside this crate must keep compiling
+        speaker: human
+        explicit: true
+        source: ~
+        correction: constraint
+      - text: Add a greeting function and clean up.
+        speaker: human
+        explicit: true
+        source:
+          turn: u1
+          quote: Add a greeting function and clean up.
+        correction: ~
+      - text: the old name no longer described it
+        speaker: annotator
+        explicit: false
+        source: ~
+        correction: ~
+    alternatives:
+      - title: keep both functions
+        status: attempted
+        edits:
+          - e3
+        restored: true
+        reason:
+          text: Two names is one too many.
+          speaker: agent
+          explicit: true
+          source:
+            turn: a2
+            quote: Two names is one too many.
+          correction: ~
+      - title: a deprecation alias
+        status: proposed
+        edits: []
+        restored: false
+        reason: ~
+    implications:
+      - text: callers of old must move to new
+        explicit: false
+        source: ~
+    open_questions: []
+    cites:
+      in_change:
+        - e1
+      elsewhere:
+        - "command:1"
+    explains:
+      - path: src/lib.rs
+        side: base
+        start: 2
+        count: 1
+        association: attributed
+      - path: src/lib.rs
+        side: target
+        start: 2
+        count: 1
+        association: attributed
+unanchored_corrections:
+  - judgment: gone
+    decision:
+      record: rec-0
+      session: s0
+      revision: 1
+      id: d1
+    kind: not_together
+    reason: two unrelated fixes
+    who:
+      name: Joni Savolainen
+      email: joni@example.com
+    at: "2026-10-13T12:00:00Z"
+    seen: false
+    review: 4a4d56051785e727d75f3aba1d7fc6d8aca7c6adf8f2c0b6f0b056cfd184f984
+edit_decisions:
+  e1:
+    - d1
+annotations:
+  - session: s1
+    record: rec-1
+    checkout: /work/repo
+    revision: 1
+    observed:
+      count: 9
+      last: "2026-10-13T10:59:00Z"
+    observations_now: 12
+    annotated_records: 1
+  - session: s2
+    record: ~
+    checkout: ~
+    revision: ~
+    observed: ~
+    observations_now: 0
+    annotated_records: 0

@@ -19,7 +19,7 @@ expression: sample()
   time: "2026-09-28T10:00:00.000Z"
   sidechain: false
   agent_id: ~
-  excerpt:
+  text:
     state: retained
     value: Add a greeting function and clean up.
   source_ordinal: 0

@@ -25,13 +25,13 @@ use supersigil_git::snapshot::{
 };
 use supersigil_git::worktree::{Worktree, list_worktrees};
 use supersigil_git::{
-    Ancestry, Base, Git, ObjectId, Repo, RepoPath, ResolvedRange, ResolvedTarget, TargetSpec,
-    resolve_range,
+    Ancestry, Base, Git, GitError, ObjectId, Repo, RepoPath, ResolvedRange, ResolvedTarget,
+    TargetSpec, resolve_range,
 };
 use supersigil_record::observations::Observation;
 use supersigil_record::reviews::{self, PinnedLog};
 use supersigil_record::store::RecordSnapshot;
-use supersigil_record::{EventId, RecordId, Revision};
+use supersigil_record::{EventId, RecordId, Revision, SessionId};
 use supersigil_review::mapping::lines_correspond;
 use supersigil_review::model::{
     AncestryInfo, BaseInfo, BytesStatus, CommandChange, CommitOriginInfo, EvidenceInfo,
@@ -76,9 +76,6 @@ pub struct PipelineArgs {
     pub include_untracked: Vec<String>,
     /// Path filters, as typed.
     pub paths: Vec<String>,
-    /// Whether to hash each record's pinned logs ([`PinnedRecord::logs`]),
-    /// which only a review that saves its basis needs.
-    pub hash_logs: bool,
 }
 
 /// An edit whose file lies in a candidate worktree.
@@ -227,12 +224,24 @@ pub struct PinnedRecord {
     /// The record's checkout associations at the pinned revision.
     pub associations: Vec<PathBuf>,
     /// Each log's pinned length and the SHA-256 of its pinned bytes, by
-    /// log path; empty unless [`PipelineArgs::hash_logs`] asked for them.
+    /// log path.
     pub logs: BTreeMap<String, PinnedLog>,
+    /// Each session with an observation log at the pinned revision, with
+    /// what that log holds.
+    pub sessions: BTreeMap<SessionId, PinnedSession>,
     /// Every session's observations at the pinned revision.
     pub observations: Vec<Observation>,
     /// The snapshot pinned, for later reads at the same revision.
     pub snapshot: RecordSnapshot,
+}
+
+/// One session's observation log in a pinned record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PinnedSession {
+    /// The log's pinned length, in bytes.
+    pub log_bytes: u64,
+    /// How many observations the pinned bytes hold.
+    pub observations: u64,
 }
 
 /// Everything `review` and `why` need after the shared steps.
@@ -323,6 +332,13 @@ impl Gathered {
             .touching(path)
             .map(|&position| &self.candidates[position])
     }
+
+    /// The candidate sessions: every session the candidate transcripts
+    /// belong to ([`Evidence::sessions_of`]).
+    #[must_use]
+    pub fn candidate_sessions(&self) -> BTreeSet<&SessionId> {
+        self.evidence.sessions_of(&self.candidate_transcripts)
+    }
 }
 
 /// [`Gathered::observed_worktrees`], from the parts known before the rest
@@ -363,8 +379,6 @@ pub struct Prepared {
     paths: Vec<RepoPath>,
     /// Whether a path selector named the worktree root.
     whole_worktree: bool,
-    /// Whether to hash each record's pinned logs.
-    hash_logs: bool,
 }
 
 /// Runs the first shared step: opens the repository, converts the typed
@@ -394,7 +408,6 @@ pub fn prepare(args: &PipelineArgs) -> Result<Prepared, CliError> {
         include_untracked,
         paths,
         whole_worktree,
-        hash_logs: args.hash_logs,
     })
 }
 
@@ -447,7 +460,6 @@ impl Prepared {
             include_untracked,
             paths,
             whole_worktree,
-            hash_logs,
         } = self;
 
         // 2. The commits in range and the worktrees that originated them.
@@ -460,9 +472,7 @@ impl Prepared {
         //    waits. `list_worktrees` lists the main worktree first; discovery
         //    reads the project directories of a nested worktree's ancestors
         //    up to it.
-        let main_worktree = worktrees
-            .first()
-            .map_or_else(|| worktree.clone(), |main| main.path.clone());
+        let main_worktree = main_worktree(&worktrees, &worktree);
         let reconciliation = reconcile(
             &records_dir,
             claude_home.as_deref(),
@@ -473,7 +483,7 @@ impl Prepared {
 
         // 5. One pinned snapshot per record. Their checkouts that no
         //    registered worktree holds have no origin evidence either.
-        let records = pin(reconciliation.records, hash_logs)?;
+        let records = pin(reconciliation.records)?;
         let unavailable = unavailable_associations(&records, &worktrees)?;
         origins.unavailable.extend(unavailable);
 
@@ -614,6 +624,40 @@ fn registered_worktrees(repo: &Repo) -> Result<Vec<Worktree>, CliError> {
     Ok(worktrees)
 }
 
+/// The root of the repository's main worktree, which [`list_worktrees`]
+/// lists first among the registered `worktrees`, or `reviewed` when none is
+/// listed.
+fn main_worktree(worktrees: &[Worktree], reviewed: &Path) -> PathBuf {
+    worktrees
+        .first()
+        .map_or_else(|| reviewed.to_path_buf(), |main| main.path.clone())
+}
+
+/// The worktrees a review of the working tree holding `checkout`
+/// reconciles when no commit names another origin, as [`reconcile`] takes
+/// them: that worktree, canonical, and the root of the repository's main
+/// worktree, up to which discovery reads the project directories of the
+/// worktree's ancestors, with the repository opened to find them. Outside a
+/// git worktree, `checkout` is both and there is no repository.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] if git fails to open the repository for a
+/// reason other than `checkout` lying outside a worktree or to list its
+/// worktrees, and [`CliError::Io`] if the worktree root cannot be resolved.
+pub fn reconciled_worktrees(checkout: &Path) -> Result<(Option<Repo>, PathBuf, PathBuf), CliError> {
+    let repo = match Repo::open(Git::new(checkout)) {
+        Ok(repo) => repo,
+        Err(GitError::NotAWorktree(_) | GitError::Bare(_)) => {
+            return Ok((None, checkout.to_path_buf(), checkout.to_path_buf()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let worktree = canonical(repo.root())?;
+    let main = main_worktree(&registered_worktrees(&repo)?, &worktree);
+    Ok((Some(repo), worktree, main))
+}
+
 /// The checkouts of `records` whose origin evidence is unavailable, each
 /// with what was observed. [`find_origins`] sees only git, so a record
 /// checkout that is missing (a nested worktree already pruned, or a deleted
@@ -676,25 +720,30 @@ fn candidates_for(range: &ResolvedRange, origins: &Origins, reviewed: &Path) -> 
     candidates
 }
 
-/// Pins one snapshot per involved record and reads every session from it.
-/// With `hash_logs`, hashes each log from the same bytes used to read observations.
+/// Pins one snapshot per involved record and reads every session from it,
+/// hashing each log from the same bytes its observations are read from.
 ///
 /// # Errors
 ///
 /// Returns a store error if a snapshot cannot be read.
-fn pin(involved: Vec<InvolvedRecord>, hash_logs: bool) -> Result<Vec<PinnedRecord>, CliError> {
+fn pin(involved: Vec<InvolvedRecord>) -> Result<Vec<PinnedRecord>, CliError> {
     let mut records = Vec::new();
     for record in involved {
         let snapshot = record.store.snapshot()?;
         let mut observations = Vec::new();
         let mut logs = BTreeMap::new();
+        let mut sessions = BTreeMap::new();
         for session in snapshot.sessions() {
-            if !hash_logs {
-                observations.extend(snapshot.observations(&session)?);
-            } else if let Some(log) = snapshot.session_log(&session)? {
-                logs.insert(log.path, log.pinned);
-                observations.extend(log.observations);
-            }
+            let Some(log) = snapshot.session_log(&session)? else {
+                continue;
+            };
+            let pinned = PinnedSession {
+                log_bytes: log.pinned.length,
+                observations: log.observations.len() as u64,
+            };
+            sessions.insert(session, pinned);
+            logs.insert(log.path, log.pinned);
+            observations.extend(log.observations);
         }
         records.push(PinnedRecord {
             record_id: record.record_id,
@@ -707,6 +756,7 @@ fn pin(involved: Vec<InvolvedRecord>, hash_logs: bool) -> Result<Vec<PinnedRecor
                 .map(|a| a.checkout.clone())
                 .collect(),
             logs,
+            sessions,
             observations,
             snapshot,
         });
@@ -1327,8 +1377,8 @@ mod tests {
     use supersigil_session::checkout::canonical;
 
     use super::{
-        ByPath, PinnedRecord, Sighting, conversion_failure, deduplicate, display_from, mode_text,
-        path_filters, pin, repo_path, same_path, unavailable_associations,
+        ByPath, PinnedRecord, PinnedSession, Sighting, conversion_failure, deduplicate,
+        display_from, mode_text, path_filters, pin, repo_path, same_path, unavailable_associations,
     };
     use crate::mapping::MappedEdit;
     use crate::reconcile::InvolvedRecord;
@@ -1466,7 +1516,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_is_pinned_with_its_log_hashes_only_when_asked() {
+    fn a_record_is_pinned_with_each_sessions_log_hash_length_and_count() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::create(
             dir.path(),
@@ -1479,27 +1529,33 @@ mod tests {
         let mut tx = store.begin().unwrap();
         tx.append_observations(std::slice::from_ref(&edit)).unwrap();
         tx.commit().unwrap();
-        let involved = || {
-            vec![InvolvedRecord {
-                store: store.clone(),
-                record_id: RecordId::new("r1"),
-                not_reconciled: None,
-            }]
-        };
+        let involved = vec![InvolvedRecord {
+            store: store.clone(),
+            record_id: RecordId::new("r1"),
+            not_reconciled: None,
+        }];
 
-        let plain = pin(involved(), false).unwrap();
-        let hashed = pin(involved(), true).unwrap();
+        let pinned = pin(involved).unwrap();
 
-        assert_eq!(plain[0].observations, [edit]);
-        assert!(plain[0].logs.is_empty());
-        assert_eq!(hashed[0].observations, plain[0].observations);
+        assert_eq!(pinned[0].observations, [edit]);
+        let session = SessionId::new("s1");
         let log = store
             .snapshot()
             .unwrap()
-            .session_log(&SessionId::new("s1"))
+            .session_log(&session)
             .unwrap()
             .unwrap();
-        assert_eq!(hashed[0].logs, BTreeMap::from([(log.path, log.pinned)]));
+        assert_eq!(
+            pinned[0].sessions,
+            BTreeMap::from([(
+                session,
+                PinnedSession {
+                    log_bytes: log.pinned.length,
+                    observations: 1,
+                }
+            )])
+        );
+        assert_eq!(pinned[0].logs, BTreeMap::from([(log.path, log.pinned)]));
     }
 
     fn pinned(associations: Vec<PathBuf>) -> PinnedRecord {
@@ -1518,6 +1574,7 @@ mod tests {
             not_reconciled: None,
             associations,
             logs: BTreeMap::new(),
+            sessions: BTreeMap::new(),
             observations: Vec::new(),
             snapshot: store.snapshot().unwrap(),
         }

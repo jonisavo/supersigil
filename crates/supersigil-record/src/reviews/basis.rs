@@ -6,12 +6,13 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{GateItem, PathBytes};
-use crate::ids::{RecordId, Revision};
+use super::{DecisionRef, GateItem, PathBytes};
+use crate::ids::{RecordId, Revision, SessionId};
+use crate::interpretations::AnnotationRevision;
 use crate::observations::CaptureCounts;
 
 /// Schema name of a basis document.
-pub const BASIS_SCHEMA: &str = "supersigil.basis/1";
+pub const BASIS_SCHEMA: &str = "supersigil.basis/2";
 
 sha256_id!(
     /// Identity of a saved review: the SHA-256 of its basis's compact JSON
@@ -30,7 +31,8 @@ impl BasisId {
 ///
 /// Its ID ([`Self::basis_id`]) hashes its JSON, with struct fields in
 /// declaration order, maps sorted by key, and lists in the supplied order.
-/// Callers sort lists by path, record, checkout, or transcript, and `gate`
+/// Callers sort lists by path, record, checkout, or transcript,
+/// `annotations` by record then session, `decisions` by name, and `gate`
 /// by origin then subject, to give the same review the same ID.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Basis {
@@ -55,6 +57,11 @@ pub struct Basis {
     /// Candidate transcripts with any capture limitation, with the counts
     /// the review saw, sorted by transcript.
     pub capture: Vec<CaptureEntry>,
+    /// Each candidate session's chosen record and annotation revision, or
+    /// none, sorted by record then session.
+    pub annotations: Vec<BasisAnnotation>,
+    /// The decisions in view, sorted by name.
+    pub decisions: Vec<BasisDecision>,
     /// The gate items, sorted by origin, then subject.
     pub gate: Vec<GateItem>,
     /// A fresh random value when a gate item has an unknown fingerprint part,
@@ -188,4 +195,29 @@ pub struct CaptureEntry {
     pub transcript: String,
     /// Its capture limitation counts.
     pub counts: CaptureCounts,
+}
+
+/// The annotation a review read for one candidate session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BasisAnnotation {
+    /// The record the review chose for the session.
+    pub record: RecordId,
+    /// The candidate session.
+    pub session: SessionId,
+    /// The session's current annotation revision in that record, or `None`
+    /// when it has none.
+    pub revision: Option<AnnotationRevision>,
+}
+
+/// A decision a review showed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BasisDecision {
+    /// The decision: its record, session, the annotation revision the
+    /// review read, and the annotator's id for it, written as four fields
+    /// of this entry.
+    #[serde(flatten)]
+    pub decision: DecisionRef,
+    /// The decision's name in the review: its id, or `<session short>:<id>`
+    /// when another contributing session uses the same id.
+    pub name: String,
 }

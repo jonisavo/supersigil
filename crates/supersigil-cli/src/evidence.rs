@@ -17,8 +17,8 @@ use std::sync::Arc;
 use supersigil_anchor::Order;
 use supersigil_anchor::walk::AcceptedEdit;
 use supersigil_record::observations::{
-    CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Observation, Outcome,
-    Role, Turn,
+    CaptureLimitation, ChangeReport, Command, Edit, EditOrigin, FileChange, Material, Observation,
+    Outcome, Role,
 };
 use supersigil_record::{EventId, RecordId, SessionId, TurnId};
 use supersigil_review::model::{
@@ -33,13 +33,15 @@ use crate::mapping::{MappedEdit, map_resolved};
 #[derive(Debug, Default)]
 pub struct Evidence {
     /// Every turn by session and id; the first occurrence wins.
-    turns: BTreeMap<(SessionId, TurnId), Turn>,
+    turns: BTreeMap<(SessionId, TurnId), IndexedTurn>,
     /// Every command by id; the first occurrence wins.
     commands: BTreeMap<EventId, Command>,
     /// Capture limitations by transcript, then by the record holding them.
     limitations: BTreeMap<String, BTreeMap<RecordId, Vec<CaptureLimitation>>>,
-    /// The session each transcript belongs to.
-    sessions: BTreeMap<String, SessionId>,
+    /// The sessions each transcript belongs to: every session with an
+    /// observation recorded under it, more than one when a later session
+    /// reused the transcript's path.
+    sessions: BTreeMap<String, BTreeSet<SessionId>>,
     /// Working directories each transcript's observations name.
     checkouts: BTreeMap<String, Vec<PathBuf>>,
     /// The order between each session's transcripts that the records'
@@ -97,7 +99,11 @@ impl Evidence {
             Observation::Turn(turn) => {
                 self.turns
                     .entry((turn.session.clone(), turn.id.clone()))
-                    .or_insert_with(|| turn.clone());
+                    .or_insert_with(|| IndexedTurn {
+                        parent: turn.parent.clone(),
+                        role: turn.role,
+                        text: turn.role.is_prompt().then(|| turn.text.clone()),
+                    });
             }
             Observation::Edit(edit) => {
                 self.resolutions.add(&edit.checkout);
@@ -115,9 +121,7 @@ impl Evidence {
                     .or_insert_with(|| command.clone());
             }
             Observation::CaptureLimitation(limitation) => {
-                self.sessions
-                    .entry(limitation.transcript.clone())
-                    .or_insert_with(|| limitation.session.clone());
+                self.belongs(&limitation.transcript, &limitation.session);
                 self.limitations
                     .entry(limitation.transcript.clone())
                     .or_default()
@@ -131,12 +135,19 @@ impl Evidence {
 
     /// Records that `transcript` belongs to `session` and names `checkout`.
     fn locate(&mut self, transcript: &str, session: &SessionId, checkout: &Path) {
-        self.sessions
-            .entry(transcript.to_owned())
-            .or_insert_with(|| session.clone());
+        self.belongs(transcript, session);
         let checkouts = self.checkouts.entry(transcript.to_owned()).or_default();
         if !checkouts.iter().any(|known| known == checkout) {
             checkouts.push(checkout.to_path_buf());
+        }
+    }
+
+    /// Records that `transcript` belongs to `session`, among any other
+    /// sessions it belongs to.
+    fn belongs(&mut self, transcript: &str, session: &SessionId) {
+        let sessions = self.sessions.entry(transcript.to_owned()).or_default();
+        if !sessions.contains(session) {
+            sessions.insert(session.clone());
         }
     }
 
@@ -186,9 +197,25 @@ impl Evidence {
         transcripts
     }
 
+    /// The sessions `transcripts` belong to: every session with an
+    /// observation recorded under one of them, so a transcript a later
+    /// session reused brings both sessions.
+    #[must_use]
+    pub fn sessions_of(&self, transcripts: &BTreeSet<String>) -> BTreeSet<&SessionId> {
+        transcripts
+            .iter()
+            .filter_map(|transcript| self.sessions.get(transcript))
+            .flatten()
+            .collect()
+    }
+
     /// One entry per transcript in `transcripts`, with its session and the
     /// capture limitations of the record whose reports reach furthest into
     /// it, never localized to a path.
+    ///
+    /// An entry names one session. Of a transcript a later session reused,
+    /// it names the smallest session id, which does not depend on the order
+    /// the records were read in; [`Self::sessions_of`] gives them all.
     ///
     /// A record reports a transcript's capture limitations once per sync
     /// that had any, over the lines that sync read, so one record's reports
@@ -205,6 +232,7 @@ impl Evidence {
                 session: self
                     .sessions
                     .get(transcript)
+                    .and_then(BTreeSet::first)
                     .map(|s| s.as_str().to_owned())
                     .unwrap_or_default(),
                 capture_limitations: self
@@ -338,9 +366,11 @@ impl Evidence {
     }
 
     /// The nearest recorded ancestor of `edit`'s turn, following parent
-    /// pointers within its session, whose role is Human or Delegation;
-    /// `None` when the chain breaks first. It is the message that preceded
-    /// the edit in the conversation, not its cause or its rationale.
+    /// pointers within its session, that is a prompt ([`Role::is_prompt`]):
+    /// Human, Delegation or Summary (a compaction summary, whose text is
+    /// never retained); `None` when the chain breaks first. It is the
+    /// message that preceded the edit in the conversation, not its cause or
+    /// its rationale.
     #[must_use]
     pub fn prompt(&self, edit: &Edit) -> Option<PromptInfo> {
         let mut parent = self
@@ -355,17 +385,29 @@ impl Evidence {
                 return None;
             }
             let turn = self.turns.get(&(edit.session.clone(), id.clone()))?;
-            if matches!(turn.role, Role::Human | Role::Delegation) {
+            if let Some(text) = &turn.text {
                 return Some(PromptInfo {
-                    turn: turn.id.as_str().to_owned(),
+                    turn: id.as_str().to_owned(),
                     role: turn.role,
-                    excerpt: turn.excerpt.clone(),
+                    text: text.clone(),
                 });
             }
             parent = turn.parent.as_ref();
         }
         None
     }
+}
+
+/// A turn as the index keeps it: what [`Evidence::prompt`] reads of it.
+#[derive(Debug)]
+struct IndexedTurn {
+    /// The turn it replies to, in its session.
+    parent: Option<TurnId>,
+    /// Who wrote it.
+    role: Role,
+    /// Its text, kept for a prompt ([`Role::is_prompt`]), which is what the
+    /// turn is read for; `None` for any other turn.
+    text: Option<Material<String>>,
 }
 
 /// The commands a review searches for mentions of its paths
@@ -650,7 +692,7 @@ mod tests {
             time: Timestamp::new("2026-09-29T10:00:00.000Z"),
             sidechain: false,
             agent_id: None,
-            excerpt: Material::Retained(format!("text of {id}")),
+            text: Material::Retained(format!("text of {id}")),
             source_ordinal: 0,
             transcript: Some("t.jsonl".to_owned()),
         })
@@ -712,7 +754,21 @@ mod tests {
         let prompt = evidence.prompt(&edit_in_turn("a2")).unwrap();
         assert_eq!(prompt.turn, "u1");
         assert_eq!(prompt.role, Role::Human);
-        assert_eq!(prompt.excerpt, Material::Retained("text of u1".to_owned()));
+        assert_eq!(prompt.text, Material::Retained("text of u1".to_owned()));
+    }
+
+    #[test]
+    fn a_compaction_summary_is_the_message_before_the_edits_after_it() {
+        let observations = [
+            turn("u1", None, Role::Human),
+            turn("a1", Some("u1"), Role::Agent),
+            turn("c1", Some("a1"), Role::Summary),
+            turn("a2", Some("c1"), Role::Agent),
+        ];
+        let evidence = index(&observations);
+        let prompt = evidence.prompt(&edit_in_turn("a2")).unwrap();
+        assert_eq!(prompt.turn, "c1");
+        assert_eq!(prompt.role, Role::Summary);
     }
 
     #[test]
@@ -721,6 +777,26 @@ mod tests {
         let evidence = index(&observations);
         assert_eq!(evidence.prompt(&edit_in_turn("a2")), None);
         assert_eq!(evidence.prompt(&edit_in_turn("unknown")), None);
+    }
+
+    #[test]
+    fn a_transcript_a_later_session_reused_belongs_to_both_sessions() {
+        let mut later = edit_in_turn("b1");
+        later.id = EventId::new("e2");
+        later.session = SessionId::new("s2");
+        let evidence = index(&[
+            Observation::Edit(later),
+            Observation::Edit(edit_in_turn("a1")),
+        ]);
+        let transcripts = BTreeSet::from(["t.jsonl".to_owned()]);
+
+        let (s1, s2) = (SessionId::new("s1"), SessionId::new("s2"));
+        assert_eq!(
+            evidence.sessions_of(&transcripts),
+            BTreeSet::from([&s1, &s2])
+        );
+        // Its one entry names the smallest id, whatever the order read.
+        assert_eq!(evidence.transcripts(&transcripts)[0].session, "s1");
     }
 
     #[test]

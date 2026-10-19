@@ -18,24 +18,31 @@ use supersigil_anchor::{
     ChainClass, ChainEnd, Conflict, LineOutcome, Origin, PathAttribution, PathStatus, Provenance,
     Reading, StopReason,
 };
+use supersigil_record::derivations::Restore;
+use supersigil_record::interpretations::{
+    ANNOTATION_SCHEMA, Alternative, AlternativeStatus, Annotation, AnnotationDocument,
+    AnnotationRevision, Decision, Implication, Observed, Prepared, Rationale, Source, Speaker,
+};
 use supersigil_record::observations::{
     CaptureCounts, CaptureLimitation, ChangeKind, EditOperation, Hunk, Material, Role,
 };
 use supersigil_record::reviews::{
-    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, GateItem,
-    Judgment, JudgmentKind, PathBytes, TargetKind, Who,
+    Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisId, BasisScope, BasisTarget, CorrectionKind,
+    DecisionRef, GateItem, Judgment, JudgmentKind, PathBytes, TargetKind, Who,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_record::{JudgmentId, RecordId, SessionId};
+use supersigil_record::{JudgmentId, RecordId, Revision, SessionId, TurnId};
+use supersigil_review::decisions::corrections::anchor;
+use supersigil_review::decisions::{Annotated, in_view, names};
 use supersigil_review::gate::{GateInputs, gate_items};
 use supersigil_review::judging::{JudgedStore, Relation};
 use supersigil_review::model::{
-    AncestryInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange, CompletionSource,
-    EditInfo, EditOriginInfo, EvidenceInfo, FileInput, FileKindInfo, FileReview, FileStatus,
-    GateInfo, JudgmentInfo, Mention, MentionResult, NewObservations, NotCapturedInfo, OriginsInfo,
-    PromptInfo, RecordInfo, RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo,
-    TargetInfo, TargetKindInfo, TranscriptInfo, UncoveredInfo, UnreconciledInfo, Unsaved,
-    UntrackedInfo, file_review, unattributed_summary,
+    AncestryInfo, AnnotationInfo, BaseInfo, BytesStatus, ChangedEvidence, CommandChange,
+    CompletionSource, EditInfo, EditOriginInfo, EvidenceInfo, FileInput, FileKindInfo, FileReview,
+    FileStatus, GateInfo, JudgmentInfo, Mention, MentionResult, NewObservations, NotCapturedInfo,
+    OriginsInfo, PromptInfo, RecordInfo, RelatedInfo, RepoPathInfo, SavedBasis, ScopeInfo,
+    StatusInfo, TargetInfo, TargetKindInfo, TranscriptInfo, UncoveredInfo, UnreconciledInfo,
+    Unsaved, UntrackedInfo, file_review, unattributed_summary,
 };
 use supersigil_review::names::ItemNames;
 use supersigil_review::outcome::AttributionState;
@@ -122,7 +129,7 @@ fn edits() -> BTreeMap<String, EditInfo> {
             prompt: Some(PromptInfo {
                 turn: "u1".to_owned(),
                 role: Role::Human,
-                excerpt: Material::Retained("Add a greeting function and clean up.".to_owned()),
+                text: Material::Retained("Add a greeting function and clean up.".to_owned()),
             }),
         },
     )])
@@ -340,6 +347,8 @@ fn sample_basis() -> SavedBasis {
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate: Vec::new(),
         salt: None,
     };
@@ -347,6 +356,166 @@ fn sample_basis() -> SavedBasis {
         id: document.basis_id().unwrap(),
         document,
     }
+}
+
+/// Session `s1`'s first annotation: one decision behind `e1`, with an
+/// attempt the derivations show undone and a proposal.
+fn sample_annotation() -> Annotation {
+    let stated = |speaker, turn: &str, quote: &str| Rationale {
+        text: quote.to_owned(),
+        speaker,
+        explicit: true,
+        source: Some(Source {
+            turn: TurnId::new(turn),
+            quote: quote.to_owned(),
+        }),
+    };
+    let decision = Decision {
+        id: "d1".to_owned(),
+        title: "Rename the old function to new".to_owned(),
+        cites: vec![eid("e1"), eid("command:1")],
+        rationale: vec![
+            stated(
+                Speaker::Human,
+                "u1",
+                "Add a greeting function and clean up.",
+            ),
+            Rationale {
+                text: "the old name no longer described it".to_owned(),
+                speaker: Speaker::Annotator,
+                explicit: false,
+                source: None,
+            },
+        ],
+        alternatives: vec![
+            Alternative {
+                title: "keep both functions".to_owned(),
+                status: AlternativeStatus::Attempted,
+                edits: vec![eid("e3")],
+                reason: Some(stated(Speaker::Agent, "a2", "Two names is one too many.")),
+            },
+            Alternative {
+                title: "a deprecation alias".to_owned(),
+                status: AlternativeStatus::Proposed,
+                edits: Vec::new(),
+                reason: None,
+            },
+        ],
+        implications: vec![Implication {
+            text: "callers of old must move to new".to_owned(),
+            explicit: false,
+            source: None,
+        }],
+    };
+    Annotation {
+        revision: AnnotationRevision::FIRST,
+        at: "2026-10-13T11:00:00Z".parse::<UtcTime>().unwrap(),
+        document: AnnotationDocument {
+            schema: ANNOTATION_SCHEMA.to_owned(),
+            session: SessionId::new("s1"),
+            based_on: None,
+            prepared: Prepared {
+                record: RecordId::new("rec-1"),
+                observation_revision: Revision::ZERO.next(),
+                observed: Observed {
+                    count: 9,
+                    last: Some("2026-10-13T10:59:00Z".parse::<UtcTime>().unwrap()),
+                },
+            },
+            produced_by: "claude-code/supersigil-annotate".to_owned(),
+            corrections_seen: Vec::new(),
+            decisions: vec![decision],
+            open_questions: Vec::new(),
+        },
+    }
+}
+
+/// Corrections recorded on an earlier review: [`sample_annotation`]'s `d1`
+/// is disputed and given its constraint, and a decision of a session whose
+/// record is gone anchors to nothing.
+fn sample_corrections() -> Vec<Judgment> {
+    let earlier = earlier_id();
+    let correct = |id, record: &str, session: &str, kind, words: &str| Judgment {
+        decision: Some(DecisionRef {
+            record: RecordId::new(record),
+            session: SessionId::new(session),
+            revision: AnnotationRevision::FIRST,
+            id: "d1".to_owned(),
+        }),
+        correction: Some(kind),
+        reason: (kind != CorrectionKind::Constraint).then(|| words.to_owned()),
+        text: (kind == CorrectionKind::Constraint).then(|| words.to_owned()),
+        ..judgment(id, &earlier, JudgmentKind::Correct, &[])
+    };
+    vec![
+        correct(
+            "wrong",
+            "rec-1",
+            "s1",
+            CorrectionKind::Wrong,
+            "the rename came from the reviewer",
+        ),
+        correct(
+            "constraint",
+            "rec-1",
+            "s1",
+            CorrectionKind::Constraint,
+            "callers outside this crate must keep compiling",
+        ),
+        correct(
+            "gone",
+            "rec-0",
+            "s0",
+            CorrectionKind::NotTogether,
+            "two unrelated fixes",
+        ),
+    ]
+}
+
+/// Adds the decisions behind `review`'s files from [`sample_annotation`],
+/// the [`sample_corrections`] anchored to them or to none, and the
+/// annotation's coverage.
+fn with_decisions(mut review: Review) -> Review {
+    let annotation = sample_annotation();
+    let (session, record) = (SessionId::new("s1"), RecordId::new("rec-1"));
+    let restores = [Restore {
+        edit: eid("e4"),
+        restores: vec![eid("e3")],
+    }];
+    let annotated = [Annotated {
+        session: &session,
+        record: &record,
+        annotation: &annotation,
+        restores: &restores,
+    }];
+    let mut view = in_view(&annotated, &names(&annotated), &review.files);
+    let corrections = sample_corrections();
+    let corrections: Vec<&Judgment> = corrections.iter().collect();
+    review.unanchored_corrections = anchor(&corrections, |_| None, &annotated, &mut view.decisions);
+    review.decisions = view.decisions;
+    review.edit_decisions = view.edit_decisions;
+    review.annotations = vec![
+        AnnotationInfo {
+            session,
+            record: Some(record),
+            checkout: Some(PathBuf::from("/work/repo")),
+            revision: Some(annotation.revision),
+            observed: Some(annotation.document.prepared.observed),
+            observations_now: 12,
+            annotated_records: 1,
+        },
+        // A candidate session no involved record holds.
+        AnnotationInfo {
+            session: SessionId::new("s2"),
+            record: None,
+            checkout: None,
+            revision: None,
+            observed: None,
+            observations_now: 0,
+            annotated_records: 0,
+        },
+    ];
+    review
 }
 
 fn sample_review() -> Review {
@@ -379,8 +548,12 @@ fn sample_review() -> Review {
         },
         files,
         edits: edits(),
+        decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
+        edit_decisions: BTreeMap::new(),
+        annotations: Vec::new(),
     };
-    gated(review, |_, _| Vec::new())
+    gated(with_decisions(review), |_, _| Vec::new())
 }
 
 /// Builds `review`'s gate and status from judgments `judge` supplies for its
@@ -414,6 +587,8 @@ fn judgment(id: &str, basis: &BasisId, kind: JudgmentKind, items: &[GateItem]) -
         items: items.iter().map(|item| item.id.clone()).collect(),
         reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {
@@ -455,6 +630,22 @@ fn summary(review: &Review) -> String {
 #[test]
 fn review_json_shape_is_stable() {
     insta::assert_yaml_snapshot!(sample_review());
+}
+
+#[test]
+fn a_review_without_decisions_lists_none_and_omits_the_edit_map_and_unanchored_list() {
+    let mut review = sample_review();
+    review.decisions = Vec::new();
+    review.unanchored_corrections = Vec::new();
+    review.edit_decisions = BTreeMap::new();
+    review.annotations = Vec::new();
+
+    let json = serde_json::to_value(&review).unwrap();
+
+    assert_eq!(json["decisions"], json!([]));
+    assert_eq!(json["annotations"], json!([]));
+    assert!(json.get("edit_decisions").is_none(), "{json}");
+    assert!(json.get("unanchored_corrections").is_none(), "{json}");
 }
 
 #[test]
@@ -757,6 +948,7 @@ fn a_busy_review_is_retried_with_the_arguments_it_was_given() {
         ],
         retry_paths: vec!["src/parser.rs".to_owned(), "a b".to_owned()],
         shell: Shell::Posix,
+        ..Addressing::default()
     };
     let mut unsaved = sample_review();
     unsaved.basis = None;
@@ -973,7 +1165,8 @@ fn note_after(commands: impl IntoIterator<Item = Command>) -> Option<String> {
     out.take_note()
 }
 
-/// Contains `count` files with unexplained lines and no other gate items.
+/// Contains `count` files with unexplained lines, no other gate items, and
+/// no annotations.
 fn review_of_files(count: usize) -> Review {
     let unexplained = attribution(vec![], vec![unexplained()], vec![no_fate()]);
     let mut review = sample_review();
@@ -994,6 +1187,10 @@ fn review_of_files(count: usize) -> Review {
     review.records = Vec::new();
     review.evidence = EvidenceInfo::default();
     review.unattributed = unattributed_summary(&review.files, &review.scope);
+    review.decisions = Vec::new();
+    review.unanchored_corrections = Vec::new();
+    review.edit_decisions = BTreeMap::new();
+    review.annotations = Vec::new();
     gated(review, |_, _| Vec::new())
 }
 
@@ -1065,6 +1262,7 @@ fn related(relation: Relation, completed: bool) -> RelatedInfo {
         relation,
         changed_paths: Some(Vec::new()),
         changed_evidence: ChangedEvidence::default(),
+        interpretation: Vec::new(),
         uncovered: Vec::new(),
     }
 }
@@ -1308,6 +1506,7 @@ fn sample_why(on_disk: OnDiskCheck) -> Why {
         line,
         edits: edits(),
         conflicting_edits: Vec::new(),
+        decisions: Vec::new(),
     }
 }
 

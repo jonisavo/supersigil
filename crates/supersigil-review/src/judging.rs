@@ -1,5 +1,5 @@
 //! Rules for related reviews, standing judgments, gate states, completion,
-//! and undo withdrawals.
+//! undo withdrawals, and the decisions corrections name.
 //!
 //! [`JudgedStore`] takes the judgments and bases the CLI loads from the
 //! review store, and [`JudgedReview`] is one review's judged view: its item
@@ -14,8 +14,8 @@ use std::slice;
 use serde::Serialize;
 use supersigil_record::JudgmentId;
 use supersigil_record::reviews::{
-    Basis, BasisHeader, BasisId, BasisScope, Fingerprint, GateItem, ItemId, Judgment, JudgmentKind,
-    Origin, PathBytes, Who, Withdrawal,
+    Basis, BasisDecision, BasisHeader, BasisId, BasisScope, CorrectionKind, DecisionRef,
+    Fingerprint, GateItem, ItemId, Judgment, JudgmentKind, Origin, PathBytes, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
 
@@ -145,10 +145,10 @@ fn relation(current: Compared<'_>, other: Compared<'_>) -> Option<Relation> {
 /// Tracks judgments in a review store and which remain standing.
 ///
 /// An acknowledgment or dismissal stands for an item until an undo withdraws
-/// that judgment-item pair. A comment or completion stands until an undo
-/// withdraws the whole judgment. A standing completion counts the standing
-/// judgments its `closes` names as closing those items on its review, so they
-/// carry from it as from that review's own judgments.
+/// that judgment-item pair. A comment, correction, or completion stands
+/// until an undo withdraws the whole judgment. A standing completion counts
+/// the standing judgments its `closes` names as closing those items on its
+/// review, so they carry from it as from that review's own judgments.
 #[derive(Debug)]
 pub struct Ledger<'a> {
     /// Every judgment, in the order recorded.
@@ -299,8 +299,8 @@ impl<'a> Ledger<'a> {
     }
 
     /// Checks whether `judgment` still stands for any item if it acknowledges
-    /// or dismisses, or as a whole if it comments or completes. Undos always
-    /// stand because nothing withdraws them.
+    /// or dismisses, or as a whole if it comments, corrects, or completes.
+    /// Undos always stand because nothing withdraws them.
     #[must_use]
     pub fn stands(&self, judgment: &Judgment) -> bool {
         match judgment.kind {
@@ -308,7 +308,7 @@ impl<'a> Ledger<'a> {
                 .items
                 .iter()
                 .any(|item| self.not_withdrawn(judgment, item)),
-            JudgmentKind::Comment | JudgmentKind::Complete => {
+            JudgmentKind::Comment | JudgmentKind::Correct | JudgmentKind::Complete => {
                 !self.withdrawn.contains(&(&judgment.id, None))
             }
             JudgmentKind::Undo => true,
@@ -397,10 +397,10 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// Plans `undo --judgment` for `judgment`. Withdraws a standing comment or
-    /// completion as a whole. For an acknowledgment or dismissal, withdraws
-    /// each standing item pair, then every standing completion that counts
-    /// one of those pairs.
+    /// Plans `undo --judgment` for `judgment`. Withdraws a standing comment,
+    /// correction, or completion as a whole. For an acknowledgment or
+    /// dismissal, withdraws each standing item pair, then every standing
+    /// completion that counts one of those pairs.
     ///
     /// # Errors
     ///
@@ -411,10 +411,12 @@ impl<'a> Ledger<'a> {
         match judgment.kind {
             JudgmentKind::Undo => Err(WithdrawRefusal::Undo),
             _ if !self.stands(judgment) => Err(WithdrawRefusal::Withdrawn),
-            JudgmentKind::Comment | JudgmentKind::Complete => Ok(vec![Withdrawal {
-                judgment: judgment.id.clone(),
-                item: None,
-            }]),
+            JudgmentKind::Comment | JudgmentKind::Correct | JudgmentKind::Complete => {
+                Ok(vec![Withdrawal {
+                    judgment: judgment.id.clone(),
+                    item: None,
+                }])
+            }
             JudgmentKind::Acknowledge | JudgmentKind::Dismiss => Ok(self.withdraw_pairs(
                 judgment
                     .items
@@ -614,6 +616,18 @@ impl<'a> JudgedReview<'a> {
             .latest_completion_where([self.states.id], |completion| self.counts(completion))
     }
 
+    /// The standing corrections recorded on this review, in the order
+    /// recorded.
+    #[must_use]
+    pub fn corrections(&self) -> Vec<&'a Judgment> {
+        let ledger = self.states.ledger;
+        ledger
+            .on(self.states.id)
+            .map(|(_, judgment)| judgment)
+            .filter(|judgment| judgment.kind == JudgmentKind::Correct && ledger.stands(judgment))
+            .collect()
+    }
+
     /// Builds the status and gate without reading the changes since related
     /// reviews, naming items with `names`. Only the review's own completion
     /// can complete it, and the status relates no reviews.
@@ -700,16 +714,28 @@ impl<'a> JudgedReview<'a> {
     /// from the gate pass every check and are recorded as given; callers
     /// name items by resolving names against the gate.
     ///
+    /// A correction resolves its decision's name against the basis's
+    /// decisions alone: a decision with that name; else, for a name without
+    /// `:`, the only decision with that id; else, for `<prefix>:<id>`, the
+    /// only decision with that id whose session id starts with the prefix.
+    /// It records the decision's full reference and the correction's kind,
+    /// with the words of a wrong or not-together correction as the reason
+    /// and a constraint as the text; it names no items and closes nothing.
+    ///
     /// # Errors
     ///
-    /// Returns the [`Refusal`] for the call's kind.
-    pub fn plan(&self, call: Call<'_>) -> Result<Planned, Refusal<'a>> {
+    /// Returns the [`Refusal`] for the call's kind: for a correction,
+    /// [`Refusal::NoDecision`] when its name matches no decision and
+    /// [`Refusal::AmbiguousDecision`] when it matches several.
+    pub fn plan(&self, call: Call<'a>) -> Result<Planned, Refusal<'a>> {
         let mut planned = Planned {
             basis: self.states.id.clone(),
             kind: call.kind(),
             items: Vec::new(),
             reason: None,
             text: None,
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             first: self.states.ledger.on(self.states.id).next().is_none(),
@@ -732,6 +758,19 @@ impl<'a> JudgedReview<'a> {
             Call::Comment { item, text } => {
                 planned.items = item.into_iter().cloned().collect();
                 planned.text = Some(text.as_str().to_owned());
+            }
+            Call::Correct {
+                decision,
+                kind,
+                words,
+            } => {
+                planned.decision = Some(self.decision(decision)?.decision.clone());
+                planned.correction = Some(kind);
+                let words = Some(words.as_str().to_owned());
+                match kind {
+                    CorrectionKind::Wrong | CorrectionKind::NotTogether => planned.reason = words,
+                    CorrectionKind::Constraint => planned.text = words,
+                }
             }
             Call::Complete { text } => {
                 planned.closes = self.check_complete()?;
@@ -766,6 +805,46 @@ impl<'a> JudgedReview<'a> {
             }
         }
         Ok(planned)
+    }
+
+    /// Finds the decision of the review that `typed` names, by the rule
+    /// [`Call::Correct`] states.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Refusal::NoDecision`] when no decision matches and
+    /// [`Refusal::AmbiguousDecision`] when several do.
+    fn decision(&self, typed: &'a str) -> Result<&'a BasisDecision, Refusal<'a>> {
+        let decisions = &self.basis.decisions;
+        if let Some(named) = decisions.iter().find(|decision| decision.name == typed) {
+            return Ok(named);
+        }
+        // Ids hold no colon, so the last one ends the session prefix, as
+        // question names are parsed.
+        let matching: Vec<_> = match typed.rsplit_once(':') {
+            None => decisions
+                .iter()
+                .filter(|decision| decision.decision.id == typed)
+                .collect(),
+            Some((prefix, id)) => decisions
+                .iter()
+                .filter(|decision| {
+                    let reference = &decision.decision;
+                    reference.id == id && reference.session.as_str().starts_with(prefix)
+                })
+                .collect(),
+        };
+        match matching.as_slice() {
+            [decision] => Ok(decision),
+            [] => Err(Refusal::NoDecision {
+                typed,
+                names: sorted_names(decisions),
+            }),
+            _ => Err(Refusal::AmbiguousDecision {
+                typed,
+                names: sorted_names(matching),
+            }),
+        }
     }
 
     /// Builds the `closes` map for a new completion of the current review,
@@ -860,6 +939,16 @@ impl<'a> JudgedReview<'a> {
             .filter(|judgment| !self.counts(judgment))
             .collect()
     }
+}
+
+/// The names of `decisions`, sorted.
+fn sorted_names<'d>(decisions: impl IntoIterator<Item = &'d BasisDecision>) -> Vec<&'d str> {
+    let mut names: Vec<_> = decisions
+        .into_iter()
+        .map(|decision| decision.name.as_str())
+        .collect();
+    names.sort_unstable();
+    names
 }
 
 /// A judged review's status and gate, as output shows them.
@@ -1151,6 +1240,22 @@ pub enum Call<'c, I = ItemId> {
         /// The note.
         text: Words<'c>,
     },
+    /// Correct the annotated decision named `decision` among the review's
+    /// decisions: the one with that name; else, for a name without `:`,
+    /// the only one with that id; else, for `<prefix>:<id>`, the only one
+    /// with that id whose session id starts with the prefix.
+    /// [`JudgedReview::plan`] refuses a name that matches none with
+    /// [`Refusal::NoDecision`] and one that matches several with
+    /// [`Refusal::AmbiguousDecision`].
+    Correct {
+        /// The decision's name as typed.
+        decision: &'c str,
+        /// What the correction says.
+        kind: CorrectionKind,
+        /// The reason for a wrong explanation or grouping, or the actual
+        /// constraint.
+        words: Words<'c>,
+    },
     /// Complete the review.
     Complete {
         /// A note, if given.
@@ -1183,7 +1288,8 @@ impl<I> Clone for Call<'_, I> {
 impl<I> Copy for Call<'_, I> {}
 
 impl<'c, I> Call<'c, I> {
-    /// The items it names, none for a completion or an undo by judgment.
+    /// The items it names, none for a correction, a completion, or an undo
+    /// by judgment.
     #[must_use]
     pub fn items(self) -> &'c [I] {
         match self {
@@ -1191,12 +1297,12 @@ impl<'c, I> Call<'c, I> {
             | Self::Dismiss { items, .. }
             | Self::UndoItems { items, .. } => items,
             Self::Comment { item, .. } => item.map_or(&[], slice::from_ref),
-            Self::Complete { .. } | Self::UndoJudgment { .. } => &[],
+            Self::Correct { .. } | Self::Complete { .. } | Self::UndoJudgment { .. } => &[],
         }
     }
 
     /// The same call naming `items` instead, the first of them for a
-    /// comment.
+    /// comment. A call that names no items is unchanged.
     #[must_use]
     pub fn naming<'d, J>(self, items: &'d [J]) -> Call<'d, J>
     where
@@ -1208,6 +1314,15 @@ impl<'c, I> Call<'c, I> {
             Self::Comment { text, .. } => Call::Comment {
                 item: items.first(),
                 text,
+            },
+            Self::Correct {
+                decision,
+                kind,
+                words,
+            } => Call::Correct {
+                decision,
+                kind,
+                words,
             },
             Self::Complete { text } => Call::Complete { text },
             Self::UndoItems { reason, .. } => Call::UndoItems { items, reason },
@@ -1222,6 +1337,7 @@ impl<'c, I> Call<'c, I> {
             Self::Acknowledge { .. } => JudgmentKind::Acknowledge,
             Self::Dismiss { .. } => JudgmentKind::Dismiss,
             Self::Comment { .. } => JudgmentKind::Comment,
+            Self::Correct { .. } => JudgmentKind::Correct,
             Self::Complete { .. } => JudgmentKind::Complete,
             Self::UndoItems { .. } | Self::UndoJudgment { .. } => JudgmentKind::Undo,
         }
@@ -1259,8 +1375,12 @@ pub struct Planned {
     items: Vec<ItemId>,
     /// The reason given.
     reason: Option<String>,
-    /// The note given.
+    /// The note given, or a correction's constraint.
     text: Option<String>,
+    /// The decision a correction addresses.
+    decision: Option<DecisionRef>,
+    /// A correction's kind.
+    correction: Option<CorrectionKind>,
     /// A completion's closing judgment of each gate item.
     closes: BTreeMap<ItemId, JudgmentId>,
     /// What an undo withdraws.
@@ -1287,6 +1407,8 @@ impl Planned {
             items: self.items,
             reason: self.reason,
             text: self.text,
+            decision: self.decision,
+            correction: self.correction,
             closes: self.closes,
             withdraws: self.withdraws,
             who,
@@ -1315,6 +1437,20 @@ pub enum Refusal<'a> {
     OtherReview(&'a Judgment),
     /// An undo names this judgment, which cannot be withdrawn.
     NotWithdrawable(&'a Judgment, WithdrawRefusal),
+    /// A correction's name matches no decision of the review.
+    NoDecision {
+        /// The name as typed.
+        typed: &'a str,
+        /// The name of every decision of the review, sorted.
+        names: Vec<&'a str>,
+    },
+    /// A correction's name matches several decisions of the review.
+    AmbiguousDecision {
+        /// The name as typed.
+        typed: &'a str,
+        /// The names of the decisions it matches, sorted.
+        names: Vec<&'a str>,
+    },
 }
 
 /// An item that already has a closing judgment, refusing a new
@@ -1431,6 +1567,8 @@ fn reopen_reason(origin: Origin, part: &str) -> &'static str {
         (Origin::CommitWithoutOrigin, "origin") => "origin evidence changed",
         (Origin::Discontinuity, "gaps") => "gaps changed",
         (Origin::Unreconciled, "evidence") => "evidence not read",
+        (Origin::OpenQuestion, "text") => "question reworded",
+        (Origin::OpenQuestion, "about") => "edits the question is about changed",
         _ => "gate item changed",
     }
 }

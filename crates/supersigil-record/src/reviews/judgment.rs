@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{BasisId, ItemId};
 use crate::files;
-use crate::ids::JudgmentId;
+use crate::ids::{JudgmentId, RecordId, SessionId};
+use crate::interpretations::AnnotationRevision;
 use crate::store::StoreError;
 use crate::time::UtcTime;
 
@@ -31,9 +32,15 @@ pub struct Judgment {
     /// The reason given with `--reason`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// The text given with `--text`.
+    /// The text given with `--text`, or a correction's constraint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// For a correction, the decision it addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionRef>,
+    /// For a correction, its kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction: Option<CorrectionKind>,
     /// For a completion, maps each gate item to its closing judgment,
     /// recorded on this review or carried from another.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -47,6 +54,19 @@ pub struct Judgment {
     pub at: UtcTime,
 }
 
+impl Judgment {
+    /// The decision this judgment corrects and what it says of it, when it
+    /// is a correction: a [`JudgmentKind::Correct`] judgment naming both.
+    /// A judgment of another kind, or one lacking either, corrects nothing.
+    #[must_use]
+    pub fn as_correction(&self) -> Option<(&DecisionRef, CorrectionKind)> {
+        if self.kind != JudgmentKind::Correct {
+            return None;
+        }
+        Some((self.decision.as_ref()?, self.correction?))
+    }
+}
+
 /// What a judgment records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,10 +77,43 @@ pub enum JudgmentKind {
     Dismiss,
     /// A note on the review or an item, which closes nothing.
     Comment,
+    /// A correction of an annotated decision, which closes nothing.
+    Correct,
     /// The review is complete.
     Complete,
     /// Withdraws earlier judgments.
     Undo,
+}
+
+/// The annotated decision a correction addresses.
+///
+/// Annotation revisions are numbered per record, and one session can be
+/// held by two records, so the record is part of the identity.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct DecisionRef {
+    /// The record holding the annotation.
+    pub record: RecordId,
+    /// The annotated session.
+    pub session: SessionId,
+    /// The annotation revision the decision was read from.
+    pub revision: AnnotationRevision,
+    /// The decision's id in that revision.
+    pub id: String,
+}
+
+/// What a correction says about the decision it addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionKind {
+    /// Disputes a rationale: the decision is explained wrongly, for the
+    /// judgment's reason.
+    Wrong,
+    /// Disputes a grouping: the edits the decision cites do not belong
+    /// together, for the judgment's reason.
+    NotTogether,
+    /// Adds a human rationale, shown first: the actual constraint, in the
+    /// judgment's text.
+    Constraint,
 }
 
 /// A judgment an undo withdraws.

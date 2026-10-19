@@ -10,6 +10,11 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use assert_cmd::assert::OutputAssertExt;
+use common::annotation::{
+    annotate, correction, decision, edit_of, record_id, record_judgments, record_of, reference,
+    saved_basis, synced,
+};
+use common::finishes_within;
 use common::fixture::{
     Fixture, NEW_RS, basis_id, gate_row, review_store, slice, slice_text, word, write,
 };
@@ -18,10 +23,12 @@ use predicates::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use supersigil_record::observations::{Edit, FileState, Material, Observation};
-use supersigil_record::reviews::{Basis, FingerprintPart, Judgment, JudgmentKind, Who};
+use supersigil_record::reviews::{
+    self, Basis, CorrectionKind, FingerprintPart, Judgment, JudgmentKind, Who,
+};
 use supersigil_record::store::{MANIFEST_FILE, Store};
 use supersigil_record::time::UtcTime;
-use supersigil_record::{ContentId, EventId, JudgmentId, ReviewStore, SessionId};
+use supersigil_record::{ContentId, EventId, JudgmentId, RecordId, ReviewStore, SessionId};
 use supersigil_review::gate::OnDiskState;
 
 /// Session id of the slice fixture.
@@ -72,12 +79,6 @@ fn limits(f: &Fixture) {
         .notebook_edit("toolu_nb")
         .text();
     f.transcript(&f.repo, "limits.jsonl", &text);
-}
-
-fn edit_id(session: &str, tool: &str) -> String {
-    EventId::derive("edit", &SessionId::new(session), tool)
-        .as_str()
-        .to_owned()
 }
 
 fn file<'v>(review: &'v Value, path: &str) -> &'v Value {
@@ -164,7 +165,7 @@ fn review_slice_fixture() {
     let chains = lib["attribution"]["chains"].as_array().unwrap();
     assert_eq!(chains.len(), 1);
     assert_eq!(chains[0]["class"], "exact_from_start");
-    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    assert_eq!(chains[0]["head"], edit_of(SLICE_SESSION, "toolu_05"));
     // Every base line survives, so the diff only adds: the manual line and
     // the four lines of `greet` and the blank line before it.
     let added = side_lines(lib, "target");
@@ -179,7 +180,7 @@ fn review_slice_fixture() {
             assert_eq!(outcome["kind"], "attributed", "{text}");
             assert_eq!(
                 outcome["edits"][0]["edit"],
-                edit_id(SLICE_SESSION, "toolu_05")
+                edit_of(SLICE_SESSION, "toolu_05")
             );
             assert_eq!(outcome["edits"][0]["relation"], "introduced");
         } else {
@@ -189,7 +190,7 @@ fn review_slice_fixture() {
             assert_eq!(outcome["kind"], "unattributed", "{text}");
         }
     }
-    let prompt = &review["edits"][edit_id(SLICE_SESSION, "toolu_05")]["prompt"];
+    let prompt = &review["edits"][edit_of(SLICE_SESSION, "toolu_05")]["prompt"];
     assert_eq!(prompt["turn"], "u1");
     assert_eq!(prompt["role"], "human");
     assert_edits_are_the_referenced_ones(&review["files"], &review["edits"]);
@@ -248,7 +249,7 @@ fn review_slice_with_include_untracked() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id(SLICE_SESSION, "toolu_02")
+        edit_of(SLICE_SESSION, "toolu_02")
     );
     assert!(
         review["scope"]["untracked_excluded"]
@@ -287,7 +288,7 @@ fn review_large_file_single_session() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-big", "toolu_big")
+        edit_of("s-big", "toolu_big")
     );
     let removed = side_lines(big, "base");
     assert_eq!(removed.len(), 1);
@@ -416,7 +417,7 @@ fn review_attributes_through_agents_working_in_turn() {
     assert_eq!(added.len(), 2);
     for ((text, outcome), tool) in added.iter().zip(["toolu_e1", "toolu_e2"]) {
         assert_eq!(outcome["kind"], "attributed", "{text}");
-        assert_eq!(outcome["edits"][0]["edit"], edit_id("s-agents", tool));
+        assert_eq!(outcome["edits"][0]["edit"], edit_of("s-agents", tool));
     }
 }
 
@@ -466,7 +467,7 @@ fn review_commit_target_uses_the_reflog_origin() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-create", "toolu_create")
+        edit_of("s-create", "toolu_create")
     );
 }
 
@@ -492,9 +493,9 @@ fn review_commit_target_without_reflog_is_unattributed() {
     assert_eq!(added[0].1["kind"], "unattributed");
 }
 
-#[test]
-fn review_commit_from_sibling_worktree() {
-    let f = Fixture::new();
+/// A sibling worktree on branch `feature`, off `main`, whose session
+/// `s-sib` created `src/feature.rs`, committed there. Returns its path.
+fn sibling_feature(f: &Fixture) -> PathBuf {
     write(&f.repo, "README.md", "readme\n");
     f.commit(&f.repo, "base");
     let sib = f.root.join("sib");
@@ -508,6 +509,13 @@ fn review_commit_from_sibling_worktree() {
     f.transcript(&sib, "sib.jsonl", &text);
     write(&sib, "src/feature.rs", content);
     f.commit(&sib, "add feature");
+    sib
+}
+
+#[test]
+fn review_commit_from_sibling_worktree() {
+    let f = Fixture::new();
+    let sib = sibling_feature(&f);
 
     let review = f.json(
         &f.repo,
@@ -526,7 +534,7 @@ fn review_commit_from_sibling_worktree() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-sib", "toolu_sib")
+        edit_of("s-sib", "toolu_sib")
     );
 }
 
@@ -619,7 +627,7 @@ fn review_session_editing_a_nested_worktree() {
     assert_eq!(added[0].1["kind"], "attributed");
     assert_eq!(
         added[0].1["edits"][0]["edit"],
-        edit_id("s-parent", "toolu_parent")
+        edit_of("s-parent", "toolu_parent")
     );
 }
 
@@ -646,7 +654,7 @@ fn review_reports_locked_record() {
     assert_eq!(review["records"][0]["reason"], "locked by another writer");
     // The pinned revision is still read.
     let chains = &file(&review, "src/lib.rs")["attribution"]["chains"];
-    assert_eq!(chains[0]["head"], edit_id(SLICE_SESSION, "toolu_05"));
+    assert_eq!(chains[0]["head"], edit_of(SLICE_SESSION, "toolu_05"));
     drop(tx);
 }
 
@@ -737,7 +745,7 @@ fn why_on_a_changed_line() {
     assert_eq!(line["outcome"]["kind"], "attributed");
     assert_eq!(
         line["outcome"]["edits"][0]["edit"],
-        edit_id(SLICE_SESSION, "toolu_05")
+        edit_of(SLICE_SESSION, "toolu_05")
     );
 }
 
@@ -760,7 +768,7 @@ fn why_on_an_unchanged_line_explains_back_to_creation() {
     assert_eq!(line["outcome"]["kind"], "attributed");
     assert_eq!(
         line["outcome"]["edits"][0]["edit"],
-        edit_id("s-create", "toolu_create")
+        edit_of("s-create", "toolu_create")
     );
 }
 
@@ -777,8 +785,8 @@ fn why_prints_the_creation_a_later_edit_replaced() {
     write(&f.repo, "src/a.rs", "b\n");
     f.commit(&f.repo, "add a.rs");
     let (create, edit) = (
-        edit_id("s-ef", "toolu_create"),
-        edit_id("s-ef", "toolu_edit"),
+        edit_of("s-ef", "toolu_create"),
+        edit_of("s-ef", "toolu_edit"),
     );
 
     let why = f.json(&f.repo, &["why", "src/a.rs:1", "--format", "json"]);
@@ -845,7 +853,7 @@ fn review_format_auto_prints_json_when_piped() {
     let f = Fixture::new();
     slice(&f);
     let review = f.json(&f.repo, &["review"]);
-    assert_eq!(review["schema"], "supersigil.review/2");
+    assert_eq!(review["schema"], "supersigil.review/3");
 }
 
 #[test]
@@ -1000,7 +1008,7 @@ fn a_conflicting_edit_id_attributes_neither_path() {
     ];
     let review = f.json(&f.repo, &args);
 
-    let id = edit_id("s-dup", "toolu_dup");
+    let id = edit_of("s-dup", "toolu_dup");
     for path in ["x/a.rs", "y/b.rs"] {
         let file = file(&review, path);
         let added = side_lines(file, "target");
@@ -1041,7 +1049,7 @@ fn a_conflict_with_a_non_candidate_worktree_attributes_neither() {
     ];
     let review = f.json(&f.repo, &args);
 
-    let id = edit_id("s-dup", "toolu_dup");
+    let id = edit_of("s-dup", "toolu_dup");
     let a = file(&review, "x/a.rs");
     let added = side_lines(a, "target");
     assert_eq!(added.len(), 1);
@@ -1132,7 +1140,7 @@ fn a_conflict_is_listed_on_a_file_whose_attribution_is_unavailable() {
     );
     assert_eq!(
         a["conflicting_edits"][0]["edit"],
-        edit_id("s-dup", "toolu_dup")
+        edit_of("s-dup", "toolu_dup")
     );
 }
 
@@ -1197,8 +1205,8 @@ fn edit_maps_hold_only_the_edits_the_analysis_refers_to() {
     f.transcript(&f.repo, "big.jsonl", &used);
     f.transcript(&f.repo, "unused.jsonl", &unused);
     let (used, unused) = (
-        edit_id("s-big", "toolu_big"),
-        edit_id("s-unused", "toolu_unused"),
+        edit_of("s-big", "toolu_big"),
+        edit_of("s-unused", "toolu_unused"),
     );
 
     let review = f.json(&f.repo, &["review", "--format", "json"]);
@@ -1254,7 +1262,7 @@ fn a_conflict_is_listed_on_a_file_that_is_not_diffed() {
     assert!(a["attribution"].is_null());
     assert_eq!(
         a["conflicting_edits"][0]["edit"],
-        edit_id("s-dup", "toolu_dup")
+        edit_of("s-dup", "toolu_dup")
     );
 }
 
@@ -1753,7 +1761,7 @@ fn record_creation(f: &Fixture, path: &str, content: &str) -> (PathBuf, String) 
         .create("toolu_create", &f.repo.join(path), content)
         .text();
     let transcript = f.transcript(&f.repo, "create.jsonl", &text);
-    (transcript, edit_id("s-create", "toolu_create"))
+    (transcript, edit_of("s-create", "toolu_create"))
 }
 
 /// The JSON `why` prints for `path` when the captured `tree` holds it and
@@ -1768,7 +1776,7 @@ fn expected_why(
     (on_disk, line, edits): (Value, Value, Value),
 ) -> Value {
     json!({
-        "schema": "supersigil.why/1",
+        "schema": "supersigil.why/2",
         "path": path,
         "target": {
             "worktree": f.repo.to_string_lossy(),
@@ -1849,7 +1857,7 @@ fn creation_edits(f: &Fixture, transcript: &Path, id: &str) -> Value {
             "prompt": {
                 "turn": "s-create-0",
                 "role": "human",
-                "excerpt": {"state": "retained", "value": "Write the file."},
+                "text": {"state": "retained", "value": "Write the file."},
             },
         },
     })
@@ -2009,7 +2017,7 @@ fn a_record_in_an_older_format_fails_with_what_to_do() {
         .failure()
         .stderr(predicate::str::contains(stale.display().to_string()))
         .stderr(predicate::str::contains(
-            "uses record format 1; this build reads format 2",
+            "uses record format 1; this build reads format 3",
         ))
         .stderr(predicate::str::contains(
             "To keep its observations, move that directory out of the records directory",
@@ -2122,8 +2130,8 @@ fn heredoc_writes_attribute_like_edits_and_name_their_command() {
     shell_session(&f);
     let review = f.json(&f.repo, &SHELL_REVIEW);
 
-    let created = edit_id(SHELL_SESSION, "t_new#0");
-    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    let created = edit_of(SHELL_SESSION, "t_new#0");
+    let appended = edit_of(SHELL_SESSION, "t_app#0");
     let gen_rs = file(&review, "src/gen.rs");
     assert_eq!(gen_rs["attribution"]["status"]["kind"], "composed");
     assert_eq!(
@@ -2211,7 +2219,7 @@ fn a_review_lists_the_commands_that_changed_each_file() {
     // The unconfirmed heredoc is a capture limitation, not an edit.
     let limitations = &review["evidence"]["candidate_transcripts"][0]["capture_limitations"];
     assert_eq!(limitations[0]["unconfirmed_shell_writes"], 1);
-    let unconfirmed = edit_id(SHELL_SESSION, "t_unc#0");
+    let unconfirmed = edit_of(SHELL_SESSION, "t_unc#0");
     assert!(review["edits"].get(&unconfirmed).is_none());
 }
 
@@ -2229,7 +2237,7 @@ fn a_commit_review_attributes_shell_edits_and_lists_command_changes() {
     assert_eq!(lines[0].1["kind"], "attributed");
     assert_eq!(
         lines[0].1["edits"][0]["edit"],
-        edit_id(SHELL_SESSION, "t_new#0")
+        edit_of(SHELL_SESSION, "t_new#0")
     );
     assert_eq!(lines[1].1["kind"], "attributed");
     assert_eq!(gen_rs["command_changes"].as_array().unwrap().len(), 2);
@@ -2374,7 +2382,7 @@ fn a_heredoc_edit_whose_statement_did_not_run_attributes_nothing() {
     assert_eq!(made["attribution"]["status"]["kind"], "not_composed");
     assert_eq!(
         made["attribution"]["status"]["reasons"][0]["edit"],
-        edit_id("s-skip", "t_skip#0")
+        edit_of("s-skip", "t_skip#0")
     );
     assert_eq!(
         made["command_changes"][0]["command"],
@@ -2443,7 +2451,7 @@ fn why_names_the_heredoc_command_behind_an_attributed_line() {
     shell_session(&f);
     let (why, terminal) = why_outputs(&f, "src/gen.rs:2");
     assert_eq!(why["line"]["outcome"]["kind"], "attributed");
-    let appended = edit_id(SHELL_SESSION, "t_app#0");
+    let appended = edit_of(SHELL_SESSION, "t_app#0");
     assert_eq!(why["edits"][&appended]["origin"]["kind"], "shell");
     let expected = format!(
         "    read from a heredoc in command {}: cat >> src/gen.rs <<'EOF' … (2 more lines)\n    \
@@ -2482,7 +2490,7 @@ fn a_heredoc_that_may_not_have_run_is_never_said_to_have_written() {
     write(&f.repo, "made.txt", "same\n");
 
     let (why, terminal) = why_outputs(&f, "made.txt:1");
-    let edit = edit_id("s-same", "t_same#0");
+    let edit = edit_of("s-same", "t_same#0");
     let command = command_id("s-same", "t_same");
     // JSON: the edit is marked as read from a shell command, and the
     // command is listed as an observation of the file.
@@ -2559,8 +2567,8 @@ fn identical_appends_of_one_command_are_attributed_in_its_order() {
     assert_eq!(
         attributed,
         vec![
-            ("attributed", &json!(edit_id("s-twice", "t_twice#0"))),
-            ("attributed", &json!(edit_id("s-twice", "t_twice#1"))),
+            ("attributed", &json!(edit_of("s-twice", "t_twice#0"))),
+            ("attributed", &json!(edit_of("s-twice", "t_twice#1"))),
         ]
     );
 }
@@ -2610,7 +2618,7 @@ fn formatted_session(f: &Fixture) {
 fn a_line_a_formatter_rewrote_after_a_heredoc_points_at_the_formatter() {
     let f = Fixture::new();
     formatted_session(&f);
-    let created = edit_id(FORMATTED_SESSION, "t_new#0");
+    let created = edit_of(FORMATTED_SESSION, "t_new#0");
     let new = command_id(FORMATTED_SESSION, "t_new");
     let app = command_id(FORMATTED_SESSION, "t_app");
     let fmt = command_id(FORMATTED_SESSION, "t_fmt");
@@ -3306,7 +3314,7 @@ fn the_basis_gate_hashes_the_recorded_edits_behind_unexplained_lines() {
 
     // The record edited by hand: the write keeps its id and metadata, but
     // its content and after-state change, and the first line still matches.
-    rewrite_edit(&f.records, &edit_id("s-match", "toolu_write"), |edit| {
+    rewrite_edit(&f.records, &edit_of("s-match", "toolu_write"), |edit| {
         edit.new_text = Material::Retained("first".to_owned());
         edit.after = FileState::known(ContentId::of(b"first"));
     });
@@ -3467,6 +3475,8 @@ fn judgment_on(review: &Value, kind: JudgmentKind) -> Judgment {
         items: Vec::new(),
         reason: (kind == JudgmentKind::Dismiss).then(|| "generated".to_owned()),
         text: None,
+        decision: None,
+        correction: None,
         closes: BTreeMap::new(),
         withdraws: Vec::new(),
         who: Who {
@@ -3887,4 +3897,1396 @@ fn a_transcript_removed_before_it_could_be_read_is_noted() {
         )),
         "{text}"
     );
+}
+
+/// The decisions in `review` by name, in order.
+fn decision_names(review: &Value) -> Vec<&str> {
+    review["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|decision| decision["name"].as_str().unwrap())
+        .collect()
+}
+
+/// The decision named `name` in `output`, a review or a `why`.
+fn decision_named<'v>(output: &'v Value, name: &str) -> &'v Value {
+    output["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|decision| decision["name"] == name)
+        .unwrap_or_else(|| panic!("no decision {name} in {:#}", output["decisions"]))
+}
+
+/// The slice fixture synced, with its session annotated once: `d1` citing
+/// the edit behind the greeting's line, with the restored attempt on the
+/// notes as an alternative, and `d2` citing only that attempt, which the
+/// change does not hold. Returns the record.
+fn annotated_slice(f: &Fixture) -> Store {
+    slice(f);
+    let record = synced(f, &f.repo, &[]);
+    let draft = edit_of(SLICE_SESSION, "toolu_03");
+    let mut capitalise = decision(
+        "d1",
+        "Capitalise the greeting",
+        &[&edit_of(SLICE_SESSION, "toolu_05")],
+    );
+    capitalise["alternatives"] = json!([
+        {"title": "Mark the notes final", "status": "attempted", "edits": [draft]},
+    ]);
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [capitalise, decision("d2", "Mark the notes final", &[&draft])]}),
+    );
+    record
+}
+
+#[test]
+fn a_decision_shows_on_the_lines_its_cited_edit_explains() {
+    let f = Fixture::new();
+    let record = annotated_slice(&f);
+    let id = record_id(&record);
+    let greet = edit_of(SLICE_SESSION, "toolu_05");
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &[]);
+
+    // d2 cites only the attempt on the notes, which left no line in the
+    // change: no review shows it yet.
+    assert_eq!(decision_names(&review), ["d1"]);
+    let d1 = decision_named(&review, "d1");
+    assert_eq!(
+        (&d1["session"], &d1["record"], &d1["revision"], &d1["id"]),
+        (&json!(SLICE_SESSION), &json!(id), &json!(1), &json!("d1"))
+    );
+    assert_eq!(
+        d1["explains"],
+        json!([{"path": "src/lib.rs", "side": "target", "start": 7, "count": 1,
+            "association": "attributed"}])
+    );
+    assert_eq!(d1["cites"], json!({"in_change": [greet], "elsewhere": []}));
+    // The notes' attempt was undone by the next edit.
+    assert_eq!(d1["alternatives"][0]["restored"], true);
+    assert_eq!(review["edit_decisions"], json!({greet.clone(): ["d1"]}));
+    // `EditInfo` is unchanged: the edit's names live apart from it.
+    assert!(review["edits"][&greet].get("decisions").is_none());
+    let observed = record
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SLICE_SESSION))
+        .unwrap()
+        .len();
+    assert_eq!(
+        review["annotations"],
+        json!([{"session": SLICE_SESSION, "record": id, "checkout": f.repo, "revision": 1,
+            "observed": {"count": observed, "last": "2026-09-28T10:01:10Z"},
+            "observations_now": observed, "annotated_records": 1}])
+    );
+    let basis = &review["basis"]["document"];
+    assert_eq!(
+        basis["annotations"],
+        json!([{"record": id, "session": SLICE_SESSION, "revision": 1}])
+    );
+    assert_eq!(
+        basis["decisions"],
+        json!([{"record": id, "session": SLICE_SESSION, "revision": 1, "id": "d1",
+            "name": "d1"}])
+    );
+    assert!(
+        text.contains("4 unattributed: gap before the chain's start\n    decisions: d1\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "\nDecisions:\n  d1  Capitalise the greeting\n      explains src/lib.rs 7\n      \
+             annotator: why d1\n      alternative, attempted and restored: Mark the notes \
+             final ({})\n",
+            edit_of(SLICE_SESSION, "toolu_03")
+        )),
+        "{text}"
+    );
+    // An annotated session gets no note.
+    assert!(!text.contains("not annotated"), "{text}");
+}
+
+#[test]
+fn an_annotation_reaches_no_explanation_digest_and_no_edit_entry() {
+    let f = Fixture::new();
+    slice(&f);
+    let record = synced(&f, &f.repo, &[]);
+    let before = f.json(&f.repo, &["review", "--format", "json"]);
+    let greet = edit_of(SLICE_SESSION, "toolu_05");
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({
+            "decisions": [decision("d1", "Capitalise the greeting", &[&greet])],
+            "open_questions": [{"id": "q1", "text": "Why capitals?", "about": [greet]}],
+        }),
+    );
+
+    let after = f.json(&f.repo, &["review", "--format", "json"]);
+
+    // The same content, read again with a decision and a question in view:
+    // a new basis, whose evidence is what it was.
+    assert_ne!(basis_id(&after), basis_id(&before));
+    let document = |review: &Value, field: &str| review["basis"]["document"][field].clone();
+    assert_eq!(
+        document(&after, "explanations"),
+        document(&before, "explanations")
+    );
+    assert_eq!(after["edits"], before["edits"]);
+    assert_eq!(after["files"], before["files"]);
+    // Every earlier item is unchanged; the question is a new one, last in
+    // gate order.
+    let mut items = after["basis"]["document"]["gate"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let question = items.pop().unwrap();
+    assert_eq!(json!(items), document(&before, "gate"));
+    assert_eq!(
+        question["subject"],
+        json!({"question": {"session": SLICE_SESSION, "id": "q1"}})
+    );
+    assert_eq!(gate_row(&after, "question:q1")["state"], "open");
+}
+
+#[test]
+fn a_content_match_is_labelled_wherever_a_decision_is_tied_to_it() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // As in the gate test of unexplained lines: the first line matches the
+    // recorded write, which cannot be reversed from the file.
+    let text = Session::new("s-match", &f.repo)
+        .prompt("Write matched.rs.")
+        .create("toolu_write", &f.repo.join("src/matched.rs"), "first\n")
+        .text();
+    f.transcript(&f.repo, "match.jsonl", &text);
+    write(&f.repo, "src/matched.rs", "first\nsecond\n");
+    let record = synced(&f, &f.repo, &[]);
+    annotate(
+        &record,
+        "s-match",
+        &json!({"decisions": [decision("d1", "Write matched.rs", &[&edit_of("s-match", "toolu_write")])]}),
+    );
+    let args = ["--include-untracked", "src/matched.rs"];
+
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let text = summary(&f, &f.repo, &args);
+    let (why, why_text) = why_outputs(&f, "src/matched.rs:1");
+
+    assert_eq!(
+        decision_named(&review, "d1")["explains"],
+        json!([{"path": "src/matched.rs", "side": "target", "start": 1, "count": 1,
+            "association": "content_match", "search_complete": true}])
+    );
+    assert!(
+        text.contains("\n    decisions by content match only: d1\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "\n  d1  Write matched.rs\n      content match only: src/matched.rs 1\n      \
+             annotator: why d1\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("explains src/matched.rs"), "{text}");
+    assert_eq!(
+        decision_named(&why, "d1")["explains"],
+        json!([{"path": "src/matched.rs", "side": "target", "start": 1, "count": 1,
+            "association": "content_match", "search_complete": true}])
+    );
+    assert!(
+        why_text.contains(
+            "\n  decision d1 (content match only): Write matched.rs\n    annotator: why d1\n"
+        ),
+        "{why_text}"
+    );
+}
+
+/// Two sessions whose ids differ in their first 8 characters, each
+/// editing one of two files with a decision `d1`. Returns their record.
+fn two_sessions_using_d1(f: &Fixture) -> Store {
+    write(&f.repo, "a.txt", "a\n");
+    write(&f.repo, "b.txt", "b\n");
+    f.commit(&f.repo, "base");
+    for (session, file) in [("3f2a9c1e-one", "a.txt"), ("9c0d1e2f-two", "b.txt")] {
+        let text = Session::new(session, &f.repo)
+            .prompt("Change the file.")
+            .edit(
+                "toolu_e",
+                &f.repo.join(file),
+                &format!("{}\n", &file[..1]),
+                &file[..1],
+                "changed",
+            )
+            .text();
+        f.transcript(&f.repo, &format!("{session}.jsonl"), &text);
+        write(&f.repo, file, "changed\n");
+    }
+    let record = synced(f, &f.repo, &[]);
+    for session in ["3f2a9c1e-one", "9c0d1e2f-two"] {
+        annotate(
+            &record,
+            session,
+            &json!({"decisions": [decision("d1", session, &[&edit_of(session, "toolu_e")])]}),
+        );
+    }
+    record
+}
+
+#[test]
+fn two_sessions_using_one_decision_id_are_named_by_session() {
+    let f = Fixture::new();
+    two_sessions_using_d1(&f);
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &[]);
+
+    assert_eq!(decision_names(&review), ["3f2a9c1e:d1", "9c0d1e2f:d1"]);
+    let names: Vec<&Value> = review["basis"]["document"]["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|decision| &decision["name"])
+        .collect();
+    assert_eq!(names, [&json!("3f2a9c1e:d1"), &json!("9c0d1e2f:d1")]);
+    assert!(
+        text.contains(
+            "\n  M a.txt  +1 -1  1 introduced, 1 replaced, exact from the base, 1 session\n    \
+             decisions: 3f2a9c1e:d1\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n  9c0d1e2f:d1  9c0d1e2f-two\n      explains b.txt 1, (removed) 1\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn one_session_in_two_records_is_read_from_one_chosen_the_same_way_every_time() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // A session working in a directory of the repository, which a record of
+    // its own and the repository's record both hold.
+    let sub = f.repo.join("sub");
+    let text = Session::new("s-nested", &sub)
+        .prompt("Add n.")
+        .create("toolu_n", &sub.join("n.rs"), "pub fn n() {}\n")
+        .text();
+    let transcript = f.transcript(&sub, "nested.jsonl", &text);
+    write(&sub, "n.rs", "pub fn n() {}\n");
+    let inner = synced(&f, &sub, &[]);
+    let outer = synced(&f, &f.repo, &[&transcript]);
+    let edit = edit_of("s-nested", "toolu_n");
+    for (record, place) in [(&inner, "inner"), (&outer, "outer")] {
+        annotate(
+            record,
+            "s-nested",
+            &json!({
+                "decisions": [decision("d1", &format!("Add n, as the {place} record says"), &[&edit])],
+                "open_questions": [{"id": "q1", "text": format!("Asked in the {place} record"),
+                    "about": [edit]}],
+            }),
+        );
+    }
+    // Both annotated, their logs alike: the smaller id is chosen.
+    let (inner_id, outer_id) = (record_id(&inner), record_id(&outer));
+    let (chosen, place) = if inner_id < outer_id {
+        (inner_id, "inner")
+    } else {
+        (outer_id, "outer")
+    };
+    let args = ["--include-untracked", "sub/n.rs"];
+
+    let first = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let text = summary(&f, &f.repo, &args);
+    let second = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+
+    for review in [&first, &second] {
+        let d1 = decision_named(review, "d1");
+        assert_eq!(d1["record"], json!(chosen));
+        assert_eq!(d1["title"], format!("Add n, as the {place} record says"));
+        assert_eq!(
+            gate_row(review, "question:q1")["detail"]["text"],
+            format!("Asked in the {place} record")
+        );
+        assert_eq!(review["annotations"][0]["record"], json!(chosen));
+        assert_eq!(review["annotations"][0]["annotated_records"], 2);
+        assert_eq!(
+            review["basis"]["document"]["annotations"],
+            json!([{"record": chosen, "session": "s-nested", "revision": 1}])
+        );
+    }
+    assert_eq!(basis_id(&first), basis_id(&second));
+    assert!(
+        text.contains(&format!(
+            "\n  session s-nested annotated in 2 records; using {}\n",
+            &chosen.as_str()[..8]
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_session_without_an_annotation_is_noted_with_what_to_run() {
+    let f = Fixture::new();
+    slice(&f);
+    let reviews = f.root.join("scratch-reviews");
+    let reviews_flag = format!("--review-dir={}", word(&reviews.display().to_string()));
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &["--review-dir", reviews.to_str().unwrap()]);
+
+    let id = record_id(&record_of(&f.records, &f.repo));
+    assert_eq!(review["decisions"], json!([]));
+    assert_eq!(review["annotations"][0]["session"], SLICE_SESSION);
+    assert_eq!(review["annotations"][0]["record"], json!(id));
+    assert_eq!(review["annotations"][0]["revision"], Value::Null);
+    assert_eq!(
+        review["basis"]["document"]["annotations"],
+        json!([{"record": id, "session": SLICE_SESSION, "revision": null}])
+    );
+    // The command names the whole session id and carries the store options
+    // the review was given.
+    assert!(
+        text.contains(&format!(
+            "\n  session 11111111 not annotated; in Claude Code run /supersigil-annotate \
+             {SLICE_SESSION} {} {reviews_flag}\n",
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_note_names_the_checkout_whose_record_holds_the_session() {
+    let f = Fixture::new();
+    let sib = sibling_feature(&f);
+    let range = ["--base", "main", "--target", "feature"];
+
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"], &range[..]].concat(),
+    );
+    let text = summary(&f, &f.repo, &range);
+    let prepare = |checkout: &[&str]| {
+        f.plain(
+            &f.repo,
+            &[&["annotate", "prepare", "s-sib"], checkout].concat(),
+        )
+        .output()
+        .unwrap()
+    };
+    let named = prepare(&["--checkout", sib.to_str().unwrap()]);
+    let here = prepare(&[]);
+
+    // Reviewed from the main worktree, the session is in the sibling's
+    // record, which the skill must read.
+    assert_eq!(review["annotations"][0]["session"], "s-sib");
+    assert_eq!(review["annotations"][0]["checkout"], json!(sib));
+    assert!(
+        text.contains(&format!(
+            "\n  session s-sib not annotated; in Claude Code run /supersigil-annotate s-sib \
+             --checkout={} {}\n",
+            word(&sib.display().to_string()),
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+    assert!(
+        named.status.success(),
+        "{}",
+        String::from_utf8_lossy(&named.stderr)
+    );
+    let brief: Value = serde_json::from_slice(&named.stdout).unwrap();
+    assert_eq!(brief["session"], "s-sib");
+    assert_eq!(
+        String::from_utf8(here.stderr).unwrap(),
+        format!(
+            "error: no record for {}; run `supersigil session sync` first\n",
+            f.repo.display()
+        )
+    );
+}
+
+#[test]
+fn the_note_names_the_nested_repository_the_review_found_the_record_through() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // An independent repository inside the outer one, with a commit made
+    // by a recorded session.
+    let nested = f.repo.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    write(&nested, "README.md", "nested\n");
+    let base = f.commit(&nested, "base");
+    let content = "pub fn n() {}\n";
+    let text = Session::new("s-nested", &nested)
+        .prompt("Add n.")
+        .create("toolu_n", &nested.join("n.rs"), content)
+        .text();
+    f.transcript(&nested, "nested.jsonl", &text);
+    write(&nested, "n.rs", content);
+    let head = f.commit(&nested, "add n");
+    let outer = Session::new("s-outer", &f.repo)
+        .prompt("Look around.")
+        .text();
+    f.transcript(&f.repo, "outer.jsonl", &outer);
+    // Synced from the outer repository, then from the nested one: one
+    // record, associated with the outer repository first.
+    synced(&f, &f.repo, &[]);
+    let record = synced(&f, &nested, &[]);
+    let associations: Vec<PathBuf> = record
+        .manifest()
+        .unwrap()
+        .associations
+        .into_iter()
+        .map(|association| association.checkout)
+        .collect();
+    assert_eq!(associations, [f.repo.clone(), nested.clone()]);
+    let sub = nested.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let range = ["--base", base.as_str(), "--target", head.as_str()];
+
+    let review = f.json(
+        &nested,
+        &[&["review", "--format", "json"], &range[..]].concat(),
+    );
+    // From a directory of the nested repository, the note names its
+    // checkout, whose review store the skill must read.
+    let text = summary(&f, &sub, &range);
+
+    assert_eq!(review["annotations"][0]["session"], "s-nested");
+    assert_eq!(review["annotations"][0]["checkout"], json!(nested));
+    assert!(
+        text.contains(&format!(
+            "\n  session s-nested not annotated; in Claude Code run /supersigil-annotate \
+             s-nested --checkout={} {}\n",
+            word(&nested.display().to_string()),
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_note_names_the_reviewed_repository_when_only_an_enclosing_one_is_associated() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // An independent repository inside the outer one, whose session's
+    // transcript only the outer one synced: the record is associated with
+    // the outer repository alone.
+    let nested = f.repo.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    write(&nested, "README.md", "nested\n");
+    let base = f.commit(&nested, "base");
+    let content = "pub fn n() {}\n";
+    let text = Session::new("s-nested", &nested)
+        .prompt("Add n.")
+        .create("toolu_n", &nested.join("n.rs"), content)
+        .text();
+    let transcript = f.transcript(&nested, "nested.jsonl", &text);
+    write(&nested, "n.rs", content);
+    let head = f.commit(&nested, "add n");
+    let record = synced(&f, &f.repo, &[&transcript]);
+    let id = record_id(&record);
+    let sub = nested.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let range = ["--base", base.as_str(), "--target", head.as_str()];
+    let review = || {
+        f.json(
+            &nested,
+            &[&["review", "--format", "json"], &range[..]].concat(),
+        )
+    };
+
+    let unannotated = review();
+    // From a directory of the nested repository, the note names its
+    // checkout.
+    let text = summary(&f, &sub, &range);
+    annotate(
+        &record,
+        "s-nested",
+        &json!({"decisions": [decision("d1", "Add n", &[&edit_of("s-nested", "toolu_n")])]}),
+    );
+    let annotated = review();
+    let wrong = correction(
+        &saved_basis(&annotated),
+        reference(&id, "s-nested", 1, "d1"),
+        CorrectionKind::Wrong,
+        "n was never asked for",
+        "2026-10-15T14:00:00Z",
+    );
+    let nested_store = reviews::find(&f.reviews(), &nested.join(".git"))
+        .unwrap()
+        .unwrap();
+    record_judgments(&nested_store, std::slice::from_ref(&wrong));
+    let prepared = f
+        .plain(
+            &f.root,
+            &[
+                "annotate",
+                "prepare",
+                "s-nested",
+                "--checkout",
+                nested.to_str().unwrap(),
+            ],
+        )
+        .output()
+        .unwrap();
+
+    let associations: Vec<PathBuf> = record
+        .manifest()
+        .unwrap()
+        .associations
+        .into_iter()
+        .map(|association| association.checkout)
+        .collect();
+    assert_eq!(associations, std::slice::from_ref(&f.repo));
+    assert_eq!(unannotated["annotations"][0]["record"], json!(id));
+    // The nested repository finds the record through the outer one's
+    // association, and names its own review store, which the skill must
+    // read.
+    assert_eq!(unannotated["annotations"][0]["checkout"], json!(nested));
+    assert!(
+        text.contains(&format!(
+            "\n  session s-nested not annotated; in Claude Code run /supersigil-annotate \
+             s-nested --checkout={} {}\n",
+            word(&nested.display().to_string()),
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+    assert_eq!(decision_named(&annotated, "d1")["record"], json!(id));
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    let brief: Value = serde_json::from_slice(&prepared.stdout).unwrap();
+    assert_eq!(brief["record"], json!(id));
+    assert_eq!(brief["repository"], json!(nested.join(".git")));
+    let corrections: Vec<&Value> = brief["corrections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|correction| &correction["judgment"])
+        .collect();
+    assert_eq!(corrections, [&json!(wrong.id)]);
+}
+
+#[test]
+fn the_skill_command_annotates_a_session_only_the_enclosing_repositorys_record_holds() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // An independent repository inside the outer one, whose own session
+    // gives it a record.
+    let nested = f.repo.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    write(&nested, "README.md", "nested\n");
+    let base = f.commit(&nested, "base");
+    let inner = Session::new("s-inner", &nested)
+        .prompt("Look around.")
+        .text();
+    f.transcript(&nested, "inner.jsonl", &inner);
+    synced(&f, &nested, &[]);
+    // A session run in the outer repository writes the nested one's file;
+    // only the outer repository's record holds it.
+    let content = "pub fn a() {}\n";
+    let outer = Session::new("s-outer", &f.repo)
+        .prompt("Add a to the nested repository.")
+        .create("toolu_a", &nested.join("a.rs"), content)
+        .text();
+    f.transcript(&f.repo, "outer.jsonl", &outer);
+    write(&nested, "a.rs", content);
+    let head = f.commit(&nested, "add a");
+    let enclosing = synced(&f, &f.repo, &[]);
+    let sub = nested.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let range = ["--base", base.as_str(), "--target", head.as_str()];
+
+    let text = summary(&f, &sub, &range);
+    // What the skill runs with the options the note gives it.
+    let options = [
+        "--checkout",
+        nested.to_str().unwrap(),
+        "--claude-home",
+        f.claude.to_str().unwrap(),
+    ];
+    let run = |args: &[&str]| {
+        let output = f
+            .plain(&f.root, &[&["annotate"], args, &options[..]].concat())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    };
+    let brief: Value = serde_json::from_slice(&run(&["prepare", "s-outer"])).unwrap();
+    let document = json!({
+        "schema": "supersigil.annotation/1",
+        "session": "s-outer",
+        "based_on": null,
+        "prepared": {
+            "record": brief["record"],
+            "observation_revision": brief["observation_revision"],
+            "observed": brief["observed"],
+        },
+        "produced_by": "claude-code/supersigil-annotate",
+        "decisions": [decision("d1", "Add a", &[&edit_of("s-outer", "toolu_a")])],
+    });
+    let file = f.root.join("annotation.json");
+    std::fs::write(&file, document.to_string()).unwrap();
+    run(&["import", file.to_str().unwrap()]);
+    let review = f.json(
+        &nested,
+        &[&["review", "--format", "json"], &range[..]].concat(),
+    );
+
+    // From a directory of the nested repository, the note names its
+    // checkout, whose review store the skill must read, though its own
+    // record lacks the session.
+    assert!(
+        text.contains(&format!(
+            "\n  session s-outer not annotated; in Claude Code run /supersigil-annotate \
+             s-outer --checkout={} {}\n",
+            word(&nested.display().to_string()),
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+    let id = record_id(&enclosing);
+    assert_eq!(brief["record"], json!(id));
+    assert_eq!(brief["repository"], json!(nested.join(".git")));
+    assert_eq!(
+        enclosing
+            .snapshot()
+            .unwrap()
+            .annotation_revisions(&SessionId::new("s-outer"))
+            .len(),
+        1
+    );
+    let annotations: Vec<&Value> = review["annotations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|annotation| annotation["session"] == "s-outer")
+        .collect();
+    assert_eq!(annotations[0]["record"], json!(id));
+    assert_eq!(annotations[0]["revision"], 1);
+    assert_eq!(decision_named(&review, "d1")["record"], json!(id));
+}
+
+#[test]
+fn the_note_names_a_nested_checkout_whose_record_a_review_of_the_enclosing_one_read() {
+    let f = Fixture::new();
+    write(&f.repo, "README.md", "readme\n");
+    f.commit(&f.repo, "base");
+    // A session in a directory of the repository, which only a record of
+    // its own holds.
+    let sub = f.repo.join("sub");
+    let text = Session::new("s-sub", &sub)
+        .prompt("Add n.")
+        .create("toolu_n", &sub.join("n.rs"), "pub fn n() {}\n")
+        .text();
+    f.transcript(&sub, "sub.jsonl", &text);
+    write(&sub, "n.rs", "pub fn n() {}\n");
+    synced(&f, &sub, &[]);
+    let args = ["--include-untracked", "sub/n.rs"];
+
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let text = summary(&f, &f.repo, &args);
+
+    assert_eq!(review["annotations"][0]["session"], "s-sub");
+    assert_eq!(review["annotations"][0]["checkout"], json!(sub));
+    assert!(
+        text.contains(&format!(
+            "\n  session s-sub not annotated; in Claude Code run /supersigil-annotate s-sub \
+             --checkout={} {}\n",
+            word(&sub.display().to_string()),
+            f.claude_flag()
+        )),
+        "{text}"
+    );
+}
+
+/// Needs a filesystem that accepts a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_review_that_cannot_be_saved_still_shows_the_corrections_of_its_decisions() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let f = Fixture::new();
+    let record = annotated_slice(&f);
+    let base = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let head = f.commit(&f.repo, "greet");
+    let range = ["--base", base.as_str(), "--target", head.as_str()];
+    let saved = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"], &range[..]].concat(),
+    );
+    let id = record_id(&record);
+    let d1 = reference(&id, SLICE_SESSION, 1, "d1");
+    let wrong = correction(
+        &saved_basis(&saved),
+        d1.clone(),
+        CorrectionKind::Wrong,
+        "the person asked for capitals",
+        "2026-10-14T09:00:00Z",
+    );
+    let constraint = correction(
+        &saved_basis(&saved),
+        d1,
+        CorrectionKind::Constraint,
+        "greetings stay ASCII",
+        "2026-10-15T09:00:00Z",
+    );
+    record_judgments(&review_store(&f, &f.reviews()), [&wrong, &constraint]);
+    // A linked worktree whose path is not UTF-8, holding no transcript.
+    let linked = f.root.join(OsStr::from_bytes(b"caf\xe9"));
+    let mut add = Command::new("git");
+    f.isolate(&mut add);
+    let added = add
+        .current_dir(&f.repo)
+        .args(["worktree", "add", "-q", "--detach"])
+        .arg(&linked)
+        .arg(&head)
+        .output()
+        .unwrap();
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+
+    let text = summary(&f, &linked, &range);
+    // The session's record and transcript are gone, so no candidate session
+    // names the corrections: the saved review of the same content still
+    // relates to the unsaved one.
+    std::fs::remove_dir_all(record.root()).unwrap();
+    std::fs::remove_file(
+        f.claude
+            .join("projects")
+            .join(supersigil_session::discover::encode_project_dir(&f.repo))
+            .join("slice.jsonl"),
+    )
+    .unwrap();
+    let gone = summary(&f, &linked, &range);
+
+    assert!(text.starts_with("Review not saved: "), "{text}");
+    assert!(
+        text.contains("\n  d1  Capitalise the greeting  [disputed]\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n      human, explicit, correction: \"greetings stay ASCII\"\n"),
+        "{text}"
+    );
+    assert!(gone.starts_with("Review not saved: "), "{gone}");
+    let short = &id.as_str()[..8];
+    let on = saved_basis(&saved).short().to_owned();
+    assert!(
+        gone.contains(&format!(
+            "\nCorrections with no decision in view:\n  11111111:d1 (revision 1, {short})  wrong  \
+             2026-10-14  Test (judgment {}, review {on}): \"the person asked for capitals\" (not \
+             yet seen by an annotation)\n  11111111:d1 (revision 1, {short})  constraint  \
+             2026-10-15  Test (judgment {}, review {on}): \"greetings stay ASCII\" (not yet seen \
+             by an annotation)\n",
+            wrong.id.short(),
+            constraint.id.short()
+        )),
+        "{gone}"
+    );
+}
+
+#[test]
+fn observations_after_what_an_annotation_covers_are_noted() {
+    let f = Fixture::new();
+    slice(&f);
+    let record = synced(&f, &f.repo, &[]);
+    let observed = record
+        .snapshot()
+        .unwrap()
+        .observations(&SessionId::new(SLICE_SESSION))
+        .unwrap()
+        .len();
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"prepared": {
+            "record": record_id(&record),
+            "observation_revision": record.snapshot().unwrap().revision(),
+            "observed": {"count": observed, "last": "2026-09-28T10:01:10Z"},
+        }}),
+    );
+    // One more turn, recorded after the annotation was prepared.
+    let thanks = json!({"type": "user", "uuid": "u10", "parentUuid": "a8",
+        "sessionId": SLICE_SESSION, "cwd": "/work/repo",
+        "timestamp": "2026-09-28T10:02:00.000Z", "isSidechain": false,
+        "message": {"role": "user", "content": "Thanks."}});
+    f.transcript(
+        &f.repo,
+        "slice.jsonl",
+        &format!("{}{thanks}\n", slice_text()),
+    );
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &[]);
+
+    assert_eq!(review["annotations"][0]["observed"]["count"], observed);
+    assert_eq!(review["annotations"][0]["observations_now"], observed + 1);
+    assert!(
+        text.contains(
+            "\n  session 11111111 annotated through 2026-09-28 10:01; 1 observation since\n"
+        ),
+        "{text}"
+    );
+}
+
+/// The ids of the corrections `decision` lists, in order.
+fn correction_ids(decision: &Value) -> Vec<&str> {
+    decision["corrections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|correction| correction["judgment"].as_str().unwrap())
+        .collect()
+}
+
+#[test]
+fn a_correction_recorded_on_the_review_precedes_the_rationale_it_disputes() {
+    let f = Fixture::new();
+    let record = annotated_slice(&f);
+    let d1 = reference(&record_id(&record), SLICE_SESSION, 1, "d1");
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let wrong = correction(
+        &saved_basis(&review),
+        d1.clone(),
+        CorrectionKind::Wrong,
+        "the person asked for capitals",
+        "2026-10-14T09:00:00Z",
+    );
+    let constraint = correction(
+        &saved_basis(&review),
+        d1,
+        CorrectionKind::Constraint,
+        "greetings stay ASCII",
+        "2026-10-15T09:00:00Z",
+    );
+    record_judgments(
+        &review_store(&f, &f.reviews()),
+        &[constraint.clone(), wrong.clone()],
+    );
+
+    let again = f.json(&f.repo, &["review", "--format", "json"]);
+    let text = summary(&f, &f.repo, &[]);
+
+    assert_eq!(basis_id(&again), basis_id(&review));
+    let shown = decision_named(&again, "d1");
+    assert_eq!(shown["disputed"], true);
+    assert_eq!(
+        correction_ids(shown),
+        [wrong.id.as_str(), constraint.id.as_str()]
+    );
+    assert!(shown["corrections"][0].get("addressed").is_none());
+    assert_eq!(shown["corrections"][0]["seen"], false);
+    assert_eq!(
+        shown["rationale"][0],
+        json!({"text": "greetings stay ASCII", "speaker": "human", "explicit": true,
+            "source": null, "correction": constraint.id})
+    );
+    assert!(again.get("unanchored_corrections").is_none());
+    // Each correction names its judgment and review, so `judge undo` can be
+    // typed from the terminal.
+    let on = saved_basis(&review).short().to_owned();
+    assert!(
+        text.contains(&format!(
+            "\n  d1  Capitalise the greeting  [disputed]\n      explains src/lib.rs 7\n      \
+             correction (wrong), 2026-10-14, Test (judgment {}, review {on}): \"the person \
+             asked for capitals\" (not yet seen by an annotation)\n      correction \
+             (constraint), 2026-10-15, Test (judgment {}, review {on}): \"greetings stay ASCII\" \
+             (not yet seen by an annotation)\n      human, explicit, correction: \"greetings \
+             stay ASCII\"\n      annotator: why d1\n",
+            wrong.id.short(),
+            constraint.id.short()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_correction_follows_the_edits_its_decision_cited_into_a_later_revision() {
+    let f = Fixture::new();
+    slice(&f);
+    let record = synced(&f, &f.repo, &[]);
+    let (greet, version) = (
+        edit_of(SLICE_SESSION, "toolu_05"),
+        edit_of(SLICE_SESSION, "toolu_02"),
+    );
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [decision("d1", "Greet and version", &[&greet, &version])]}),
+    );
+    let args = ["--include-untracked", "src/new.rs"];
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let apart = correction(
+        &saved_basis(&review),
+        reference(&record_id(&record), SLICE_SESSION, 1, "d1"),
+        CorrectionKind::NotTogether,
+        "two unrelated changes",
+        "2026-10-14T09:00:00Z",
+    );
+    record_judgments(
+        &review_store(&f, &f.reviews()),
+        std::slice::from_ref(&apart),
+    );
+    // The next revision splits d1, then the one after lists the correction.
+    let split = json!([
+        decision("d2", "Greet", &[&greet]),
+        decision("d3", "Add a version", &[&version]),
+    ]);
+    annotate(&record, SLICE_SESSION, &json!({"decisions": split}));
+
+    let unseen = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": split, "corrections_seen": [apart.id]}),
+    );
+    let seen = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let text = summary(&f, &f.repo, &args);
+
+    assert_eq!(decision_names(&unseen), ["d2", "d3"]);
+    for (review, was_seen) in [(&unseen, false), (&seen, true)] {
+        for name in ["d2", "d3"] {
+            let shown = decision_named(review, name);
+            assert_eq!(correction_ids(shown), [apart.id.as_str()], "{name}");
+            assert_eq!(shown["corrections"][0]["addressed"], 1, "{name}");
+            assert_eq!(shown["corrections"][0]["seen"], was_seen, "{name}");
+            assert_eq!(shown["disputed"], true, "{name}");
+        }
+    }
+    assert!(
+        text.contains(&format!(
+            "\n      correction (not together), 2026-10-14, Test (judgment {}, review {}): \
+             \"two unrelated changes\" (addressed revision 1) (seen by revision 3)\n",
+            apart.id.short(),
+            saved_basis(&review).short()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn corrections_of_three_revisions_follow_what_each_revision_cited() {
+    let f = Fixture::new();
+    slice(&f);
+    let record = synced(&f, &f.repo, &[]);
+    let id = record_id(&record);
+    let (greet, version) = (
+        edit_of(SLICE_SESSION, "toolu_05"),
+        edit_of(SLICE_SESSION, "toolu_02"),
+    );
+    let (greet, version) = (greet.as_str(), version.as_str());
+    // Revisions 1 to 3 each cite other edits under one decision id.
+    let cited: [&[&str]; 3] = [&[greet], &[version], &[greet, version]];
+    for cites in cited {
+        annotate(
+            &record,
+            SLICE_SESSION,
+            &json!({"decisions": [decision("d1", "Greet or add a version", cites)]}),
+        );
+    }
+    let args = ["--include-untracked", "src/new.rs"];
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+    let corrections = [1, 2, 3].map(|revision| {
+        correction(
+            &saved_basis(&review),
+            reference(&id, SLICE_SESSION, revision, "d1"),
+            CorrectionKind::Wrong,
+            &format!("revision {revision} got it wrong"),
+            &format!("2026-10-1{revision}T09:00:00Z"),
+        )
+    });
+    record_judgments(&review_store(&f, &f.reviews()), &corrections);
+    // Revision 4 splits the decision by edit.
+    annotate(
+        &record,
+        SLICE_SESSION,
+        &json!({"decisions": [decision("d2", "Greet", &[greet]),
+            decision("d3", "Add a version", &[version])]}),
+    );
+
+    let shown = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &args].concat(),
+    );
+
+    let [of_1, of_2, of_3] = corrections.map(|correction| correction.id);
+    let anchored = |name: &str| -> Vec<(String, Value)> {
+        decision_named(&shown, name)["corrections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|correction| {
+                (
+                    correction["judgment"].as_str().unwrap().to_owned(),
+                    correction["addressed"].clone(),
+                )
+            })
+            .collect()
+    };
+    // Each correction anchors through what the revision it names cited,
+    // and says which revision that was.
+    assert_eq!(
+        anchored("d2"),
+        [
+            (of_1.as_str().to_owned(), json!(1)),
+            (of_3.as_str().to_owned(), json!(3)),
+        ]
+    );
+    assert_eq!(
+        anchored("d3"),
+        [
+            (of_2.as_str().to_owned(), json!(2)),
+            (of_3.as_str().to_owned(), json!(3)),
+        ]
+    );
+    assert!(shown.get("unanchored_corrections").is_none(), "{shown:#}");
+}
+
+#[test]
+fn a_correction_whose_record_is_gone_is_listed_without_a_decision() {
+    let f = Fixture::new();
+    let record = annotated_slice(&f);
+    let id = record_id(&record);
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let wrong = correction(
+        &saved_basis(&review),
+        reference(&id, SLICE_SESSION, 1, "d1"),
+        CorrectionKind::Wrong,
+        "the person asked for capitals",
+        "2026-10-14T09:00:00Z",
+    );
+    record_judgments(
+        &review_store(&f, &f.reviews()),
+        std::slice::from_ref(&wrong),
+    );
+    // The record is deleted; the next review syncs the transcript into a
+    // new one, which holds no annotation.
+    std::fs::remove_dir_all(record.root()).unwrap();
+
+    let output = f
+        .supersigil(&f.repo, &["review", "--format", "json"])
+        .output()
+        .unwrap();
+    let text = summary(&f, &f.repo, &[]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let again: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(again["decisions"], json!([]));
+    let unanchored = again["unanchored_corrections"].as_array().unwrap();
+    assert_eq!(unanchored.len(), 1, "{unanchored:#?}");
+    assert_eq!(unanchored[0]["judgment"], wrong.id.as_str());
+    assert_eq!(unanchored[0]["seen"], false);
+    assert!(
+        text.contains(&format!(
+            "\nCorrections with no decision in view:\n  11111111:d1 (revision 1, {})  wrong  \
+             2026-10-14  Test (judgment {}, review {}): \"the person asked for capitals\" (not \
+             yet seen by an annotation)\n",
+            &id.as_str()[..8],
+            wrong.id.short(),
+            saved_basis(&review).short()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_correction_on_a_related_review_of_another_session_is_listed_without_a_decision() {
+    let f = Fixture::new();
+    slice(&f);
+    let earlier = f.json(&f.repo, &["review", "--format", "json"]);
+    // A correction recorded on the earlier review of other content, of a
+    // session no candidate transcript holds.
+    let elsewhere = correction(
+        &saved_basis(&earlier),
+        reference(&RecordId::new("rec-elsewhere"), "s-elsewhere", 1, "d9"),
+        CorrectionKind::Wrong,
+        "never needed",
+        "2026-10-14T09:00:00Z",
+    );
+    record_judgments(
+        &review_store(&f, &f.reviews()),
+        std::slice::from_ref(&elsewhere),
+    );
+    write(&f.repo, "notes.txt", "final\n");
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+
+    assert_ne!(basis_id(&review), basis_id(&earlier));
+    let unanchored = review["unanchored_corrections"].as_array().unwrap();
+    assert_eq!(unanchored.len(), 1, "{unanchored:#?}");
+    assert_eq!(unanchored[0]["judgment"], elsewhere.id.as_str());
+    assert_eq!(unanchored[0]["decision"]["session"], "s-elsewhere");
+}
+
+#[test]
+fn why_shows_the_decisions_behind_its_line_with_the_corrections_in_the_store_given() {
+    let f = Fixture::new();
+    let record = annotated_slice(&f);
+    let reviews = f.root.join("scratch-reviews");
+    let scratch = ["--review-dir", reviews.to_str().unwrap()];
+    let review = f.json(
+        &f.repo,
+        &[&["review", "--format", "json"][..], &scratch].concat(),
+    );
+    let wrong = correction(
+        &saved_basis(&review),
+        reference(&record_id(&record), SLICE_SESSION, 1, "d1"),
+        CorrectionKind::Wrong,
+        "the person asked for capitals",
+        "2026-10-14T09:00:00Z",
+    );
+    record_judgments(&review_store(&f, &reviews), std::slice::from_ref(&wrong));
+
+    let (why, text) = why_outputs(&f, "src/lib.rs:7");
+    let corrected = f.json(
+        &f.repo,
+        &[&["why", "src/lib.rs:7", "--format", "json"][..], &scratch].concat(),
+    );
+
+    assert_eq!(decision_names(&why), ["d1"]);
+    let d1 = decision_named(&why, "d1");
+    assert_eq!(
+        d1["explains"],
+        json!([{"path": "src/lib.rs", "side": "target", "start": 7, "count": 1,
+            "association": "attributed"}])
+    );
+    assert_eq!(d1["corrections"], json!([]));
+    assert!(
+        text.contains("\n  decision d1: Capitalise the greeting\n    annotator: why d1\n"),
+        "{text}"
+    );
+    // The scratch store holds the correction; the default one does not.
+    let d1 = decision_named(&corrected, "d1");
+    assert_eq!(correction_ids(d1), [wrong.id.as_str()]);
+    assert_eq!(d1["disputed"], true);
+    // A line no cited edit explains shows no decision.
+    let manual = f.json(&f.repo, &["why", "src/lib.rs:1", "--format", "json"]);
+    assert!(manual.get("decisions").is_none(), "{manual:#}");
+}
+
+#[test]
+fn why_names_an_open_question_as_the_review_does_when_sessions_repeat_its_id() {
+    let f = Fixture::new();
+    let record = two_sessions_using_d1(&f);
+    // Each session asks its own `q1` about the edit behind its file.
+    for session in ["3f2a9c1e-one", "9c0d1e2f-two"] {
+        let edit = edit_of(session, "toolu_e");
+        annotate(
+            &record,
+            session,
+            &json!({"decisions": [decision("d1", session, &[&edit])],
+                "open_questions": [{"id": "q1", "text": "Why change it?", "about": [edit]}]}),
+        );
+    }
+
+    let review = f.json(&f.repo, &["review", "--format", "json"]);
+    let (why, _) = why_outputs(&f, "a.txt:1");
+    let (other, _) = why_outputs(&f, "b.txt:1");
+
+    // The gate qualifies the repeated id by session; `why` of one line,
+    // which holds only that session's question, names it the same way.
+    let question = |session: &str| json!([format!("question:{session}:q1")]);
+    assert_eq!(gate_row(&review, "question:3f2a9c1e:q1")["state"], "open");
+    assert_eq!(gate_row(&review, "question:9c0d1e2f:q1")["state"], "open");
+    assert_eq!(
+        decision_named(&review, "3f2a9c1e:d1")["open_questions"],
+        question("3f2a9c1e")
+    );
+    assert_eq!(decision_names(&why), ["3f2a9c1e:d1"]);
+    assert_eq!(
+        decision_named(&why, "3f2a9c1e:d1")["open_questions"],
+        question("3f2a9c1e")
+    );
+    assert_eq!(decision_names(&other), ["9c0d1e2f:d1"]);
+    assert_eq!(
+        decision_named(&other, "9c0d1e2f:d1")["open_questions"],
+        question("9c0d1e2f")
+    );
+}
+
+/// The files [`long_session`] rewrites.
+const LONG_FILES: usize = 50;
+/// The lines of each file [`long_session`] rewrites.
+const LONG_LINES: usize = 50;
+
+/// The tool use of [`long_session`] that rewrote `line` of `file`.
+fn long_tool(file: usize, line: usize) -> String {
+    format!("toolu_{file:02}_{line:02}")
+}
+
+/// Session `s-long`, synced: each line of 50 committed files of 50 lines
+/// rewritten by an edit of its own, 2,500 edits each behind one removed and
+/// one added line, so 5,000 attributed spans. Returns its record.
+fn long_session(f: &Fixture) -> Store {
+    let text =
+        |file: usize, line: usize, state: &str| format!("file {file:02} line {line:02} {state}");
+    let joined = |lines: &[String]| format!("{}\n", lines.join("\n"));
+    let original = |file: usize| -> Vec<String> {
+        (0..LONG_LINES)
+            .map(|line| text(file, line, "old"))
+            .collect()
+    };
+    for file in 0..LONG_FILES {
+        write(
+            &f.repo,
+            &format!("f{file:02}.txt"),
+            &joined(&original(file)),
+        );
+    }
+    f.commit(&f.repo, "base");
+    let mut session = Session::new("s-long", &f.repo);
+    for file in 0..LONG_FILES {
+        session.prompt("Rewrite the next file.");
+        let path = f.repo.join(format!("f{file:02}.txt"));
+        let mut lines = original(file);
+        for line in 0..LONG_LINES {
+            let before = joined(&lines);
+            let new = text(file, line, "new");
+            session.edit(&long_tool(file, line), &path, &before, &lines[line], &new);
+            lines[line] = new;
+        }
+        write(&f.repo, &format!("f{file:02}.txt"), &joined(&lines));
+    }
+    f.transcript(&f.repo, "long.jsonl", &session.text());
+    synced(f, &f.repo, &[])
+}
+
+#[test]
+fn a_long_annotation_of_a_long_change_is_reviewed_within_the_time_limit() {
+    let f = Fixture::new();
+    let record = long_session(&f);
+    // 10,000 decisions, four citing each edit, and a question per file.
+    let mut decisions = Vec::with_capacity(10_000);
+    let mut questions = Vec::with_capacity(LONG_FILES);
+    for file in 0..LONG_FILES {
+        for line in 0..LONG_LINES {
+            let edit = edit_of("s-long", &long_tool(file, line));
+            for copy in 0..4 {
+                let id = format!("d{file:02}{line:02}{copy}");
+                decisions.push(decision(&id, "Rewrite a line", &[&edit]));
+            }
+        }
+        questions.push(
+            json!({"id": format!("q{file:02}"), "text": "Why this file?",
+            "about": [edit_of("s-long", &long_tool(file, 0))]}),
+        );
+    }
+    let fields = json!({"decisions": decisions, "open_questions": questions});
+    annotate(&record, "s-long", &fields);
+    // 1,000 corrections of revision 1, which revision 2 replaces: each
+    // anchors through its decision's edit to the four citing it.
+    let earlier = f.json(&f.repo, &["review", "--format", "json"]);
+    let id = record_id(&record);
+    let corrections: Vec<Judgment> = (0..1_000)
+        .map(|k| {
+            let decision = format!("d{:02}{:02}0", k / LONG_LINES, k % LONG_LINES);
+            correction(
+                &saved_basis(&earlier),
+                reference(&id, "s-long", 1, &decision),
+                CorrectionKind::Wrong,
+                "not why",
+                "2026-10-14T09:00:00Z",
+            )
+        })
+        .collect();
+    record_judgments(&review_store(&f, &f.reviews()), &corrections);
+    annotate(&record, "s-long", &fields);
+
+    let review = finishes_within(Duration::from_secs(20), move || {
+        f.json(&f.repo, &["review", "--format", "json"])
+    });
+
+    let decisions = review["decisions"].as_array().unwrap();
+    assert_eq!(decisions.len(), 10_000);
+    assert!(
+        decisions
+            .iter()
+            .all(|decision| decision["explains"].as_array().unwrap().len() == 2)
+    );
+    let corrected = decisions
+        .iter()
+        .filter(|decision| {
+            decision["corrections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|correction| correction["addressed"] == 1)
+        })
+        .count();
+    assert_eq!(corrected, 4_000);
+    assert!(review.get("unanchored_corrections").is_none());
+    assert_eq!(review["edit_decisions"].as_object().unwrap().len(), 2_500);
+    assert_eq!(
+        review["basis"]["document"]["decisions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        10_000
+    );
+    let questions = review["gate"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["origin"] == "open_question")
+        .count();
+    assert_eq!(questions, LONG_FILES);
 }

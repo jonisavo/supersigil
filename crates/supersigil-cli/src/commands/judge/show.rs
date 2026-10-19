@@ -1,27 +1,28 @@
 //! `supersigil judge show` displays a saved review's gate items and closing
-//! judgments, comments, and undo history.
+//! judgments, comments, corrections, and undo history.
 //!
 //! `judge` reads no records and cannot detect evidence changes. It marks a review
 //! complete only with its own standing completion, and lists completions of the
-//! same content as related.
+//! same content as related. It names a correction's decision as the saved review
+//! showed it, and cannot tell which decisions of a later annotation it anchors to.
 
 use std::io::{self, Write as _};
 use std::path::Path;
 
 use serde::Serialize;
 use supersigil_record::reviews::{
-    BasisBase, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind,
+    BasisBase, BasisDecision, BasisId, BasisScope, BasisTarget, ItemId, Judgment, JudgmentKind,
 };
-use supersigil_review::judging::{JudgedStore, Ledger};
+use supersigil_review::judging::{JudgedReview, JudgedStore, Ledger};
 use supersigil_review::model::{GateInfo, JudgmentInfo, StatusInfo};
 use supersigil_review::names::ItemNames;
-use supersigil_review::printed::{Addressing, Printed};
+use supersigil_review::printed::{Addressing, Printed, aligned};
 use supersigil_review::summary::{
     NOTHING_TO_REVIEW, base_line, compared, gate_lines, gate_row, next_lines, noun, review_line,
     shown_path, worktree_line,
 };
 
-use super::{Checkout, addressing, item_name, select};
+use super::{Checkout, addressing, corrected, correction_words, item_name, select};
 use crate::commands::{JudgeArgs, ShowArgs};
 use crate::error::CliError;
 use crate::format::{OutputFormat, write_json};
@@ -41,7 +42,7 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
     let id = select(&snapshot, prefix, &checkout.worktree, &mut addressing)?;
     let basis = snapshot.basis(&id)?;
     let judgments = snapshot.judgments()?;
-    let others = judged_bases(&snapshot, &judgments, &id, &basis)?;
+    let others = judged_bases(&snapshot, &judgments, Some(&id), &basis)?;
     let store = JudgedStore::new(&judgments, &others);
     let ledger = store.ledger();
     let names = checkout.names(&basis)?;
@@ -57,7 +58,8 @@ pub(super) fn run(args: &JudgeArgs, show: &ShowArgs) -> Result<(), CliError> {
         same_content_completions: review.same_content(),
         gate: report.gate,
         comments: comments(&id, &judgments, ledger, &names),
-        history: history(&id, &judgments, ledger, &names),
+        corrections: corrections(&review, &basis.decisions),
+        history: history(&id, &judgments, ledger, &names, &basis.decisions),
         nothing_to_review: basis.explanations.is_empty() && basis.gate.is_empty(),
     };
     match args.format.resolve() {
@@ -94,6 +96,10 @@ struct Shown<'a> {
     gate: GateInfo,
     /// Its standing comments, in the order recorded.
     comments: Vec<Comment>,
+    /// Its standing corrections, in the order recorded; left out when
+    /// there are none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    corrections: Vec<Correction>,
     /// Withdrawals affecting this review's judgments or recorded on this review,
     /// in withdrawal order.
     history: Vec<Withdrawn>,
@@ -112,6 +118,16 @@ struct Comment {
     items: Vec<String>,
 }
 
+/// A standing correction.
+#[derive(Debug, Serialize)]
+struct Correction {
+    /// The correction, its decision's reference in `decision`, its kind in
+    /// `correction`, and its reason or constraint in `reason` or `text`.
+    judgment: JudgmentInfo,
+    /// The decision it addresses, by name.
+    decision: String,
+}
+
 /// What one undo withdrew of one judgment.
 #[derive(Debug, Serialize)]
 struct Withdrawn {
@@ -120,6 +136,10 @@ struct Withdrawn {
     /// The items whose acknowledgment or dismissal was withdrawn, by name;
     /// none when the judgment was withdrawn whole.
     items: Vec<String>,
+    /// The decision a withdrawn correction addressed, by name; absent for
+    /// any other judgment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decision: Option<String>,
     /// The undo.
     undo: JudgmentInfo,
 }
@@ -145,14 +165,29 @@ fn comments(
         .collect()
 }
 
+/// Lists `review`'s standing corrections, naming each one's decision among
+/// the review's `decisions`.
+fn corrections(review: &JudgedReview<'_>, decisions: &[BasisDecision]) -> Vec<Correction> {
+    review
+        .corrections()
+        .into_iter()
+        .map(|judgment| Correction {
+            judgment: JudgmentInfo::new(judgment),
+            decision: corrected(decisions, judgment),
+        })
+        .collect()
+}
+
 /// Lists withdrawals by each undo in `judgments` affecting review `id`'s judgments
-/// or recorded on that review. Looks up withdrawals in `ledger` and names items
-/// with `names`.
+/// or recorded on that review. Looks up withdrawals in `ledger`, names items
+/// with `names`, and names a withdrawn correction's decision among the
+/// review's `decisions`.
 fn history(
     id: &BasisId,
     judgments: &[Judgment],
     ledger: &Ledger<'_>,
     names: &ItemNames<'_>,
+    decisions: &[BasisDecision],
 ) -> Vec<Withdrawn> {
     judgments
         .iter()
@@ -165,6 +200,8 @@ fn history(
                 .map(|(withdrawn, items)| Withdrawn {
                     judgment: JudgmentInfo::new(withdrawn),
                     items: named(names, items),
+                    decision: (withdrawn.kind == JudgmentKind::Correct)
+                        .then(|| corrected(decisions, withdrawn)),
                     undo: JudgmentInfo::new(undo),
                 })
                 .collect::<Vec<_>>()
@@ -181,10 +218,11 @@ fn named<'i>(names: &ItemNames<'_>, items: impl IntoIterator<Item = &'i ItemId>)
 }
 
 impl Shown<'_> {
-    /// Renders the header, status, gate rows, comments, history, and next commands,
-    /// escaping untrusted text. Uses `addressing` for commands and appends the note
-    /// when they show a value as given. Replaces status with an empty-review message
-    /// and suggests no command when there is nothing to review.
+    /// Renders the header, status, gate rows, comments, corrections, history,
+    /// and next commands, escaping untrusted text. Uses `addressing` for
+    /// commands and appends the note when they show a value as given. Replaces
+    /// status with an empty-review message and suggests no command when there
+    /// is nothing to review.
     fn lines(&self, addressing: &Addressing) -> Vec<String> {
         let mut out = Printed::new();
         out.lines(self.header());
@@ -220,6 +258,29 @@ impl Shown<'_> {
                     words(judgment.text.as_deref())
                 )
             }));
+        }
+        if !self.corrections.is_empty() {
+            out.lines(["", "Corrections:"]);
+            let rows = self.corrections.iter().map(|correction| {
+                let judgment = &correction.judgment;
+                let said = judgment.reason.as_deref().or(judgment.text.as_deref());
+                [
+                    correction.decision.clone(),
+                    correction_words(judgment.correction).to_owned(),
+                    judgment.at.date(),
+                    format!(
+                        "{} (judgment {}){}",
+                        judgment.who.name,
+                        judgment.id.short(),
+                        said.map_or_else(String::new, |said| format!(": \"{said}\""))
+                    ),
+                ]
+            });
+            out.lines(
+                aligned(rows.collect())
+                    .into_iter()
+                    .map(|row| format!("  {row}")),
+            );
         }
         if !self.history.is_empty() {
             out.lines(["", "History:"]);
@@ -290,17 +351,18 @@ impl Shown<'_> {
         lines
     }
 
-    /// What `withdrawn` withdrew: the kind of judgment, the items it named,
-    /// and its review when it is not this one.
+    /// What `withdrawn` withdrew: the kind of judgment, the items or
+    /// decision it named, and its review when it is not this one.
     fn what(&self, withdrawn: &Withdrawn) -> String {
         let judgment = &withdrawn.judgment;
         let items = withdrawn.items.join(", ");
-        let what = match judgment.kind {
-            JudgmentKind::Acknowledge | JudgmentKind::Dismiss => {
+        let what = match (judgment.kind, &withdrawn.decision) {
+            (JudgmentKind::Acknowledge | JudgmentKind::Dismiss, _) => {
                 format!("{} of {items}", noun(judgment.kind))
             }
-            kind if items.is_empty() => noun(kind).to_owned(),
-            kind => format!("{} on {items}", noun(kind)),
+            (kind, Some(decision)) => format!("{} of {decision}", noun(kind)),
+            (kind, None) if items.is_empty() => noun(kind).to_owned(),
+            (kind, None) => format!("{} on {items}", noun(kind)),
         };
         if judgment.review == *self.review {
             what

@@ -5,14 +5,18 @@ use std::fs::{self, File};
 use std::path::{Component, Path};
 use std::{io, iter};
 
+use serde::Serialize;
+
 use super::manifest::{self, Association, Manifest, SourceCursor};
 use super::{
-    DERIVATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR, RecordSnapshot, Store, StoreError,
+    DERIVATIONS_DIR, INTERPRETATIONS_DIR, LOCK_FILE, MANIFEST_FILE, OBSERVATIONS_DIR,
+    RecordSnapshot, Store, StoreError, annotation_document, annotation_revisions,
     derivations_document, io_error, log_path,
 };
 use crate::derivations::DerivationSet;
 use crate::files::{self, Publication};
 use crate::ids::{Revision, SessionId};
+use crate::interpretations::{Annotation, AnnotationDocument, AnnotationRevision};
 use crate::observations::Observation;
 use crate::time::{GRACE_SECONDS, UtcTime};
 
@@ -149,15 +153,7 @@ impl<'a> WriteTx<'a> {
         let number = self.session_number(&set.session);
         let logical = derivations_document(number);
         let name = format!("{number}.r{}.json", self.starting.revision.next().get());
-        let rel = format!("{DERIVATIONS_DIR}/{name}");
-        let dir = self.store.root().join(DERIVATIONS_DIR);
-        let path = dir.join(&name);
-        let bytes = serde_json::to_vec_pretty(set).map_err(|source| StoreError::Json {
-            path: path.clone(),
-            source,
-        })?;
-        fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
-        files::replace(&dir, &name, &bytes)?;
+        let rel = self.write_document(DERIVATIONS_DIR, &name, set)?;
         // Repeated writes replace only the unpublished pending file. List a
         // replaced committed document by its cleanup name ([`listed`]) and
         // keep the later replacement time to preserve its full grace period.
@@ -172,8 +168,97 @@ impl<'a> WriteTx<'a> {
                 .and_modify(|time| *time = (*time).max(now))
                 .or_insert(now);
         }
-        self.publication.touched(path);
         Ok(())
+    }
+
+    /// Stores `document` as the next annotation revision of `session`, at
+    /// the transaction's time, and returns that revision.
+    ///
+    /// `based_on` must be the session's current revision in the pending
+    /// manifest, or `None` when it has none. A second call for the same
+    /// session in one transaction therefore builds on the first's revision.
+    /// Checks only the session and the revision built on; the caller
+    /// validates the document.
+    ///
+    /// Writes `interpretations/<n>.a<revision>.json` as
+    /// [`Self::put_derivations`] writes its file, replacing anything an
+    /// uncommitted transaction left at that name. Never lists a revision as
+    /// superseded, so every manifest that lists one keeps it readable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::UnknownSession`] if the pending manifest holds
+    /// no observations of `session`, [`StoreError::StaleAnnotation`] if
+    /// `based_on` is not its current revision, [`StoreError::Json`] if
+    /// serialization fails, or [`StoreError::Io`] if a directory or file
+    /// operation fails. Neither refusal writes anything.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current revision is [`u32::MAX`].
+    pub fn put_annotation(
+        &mut self,
+        session: &SessionId,
+        based_on: Option<AnnotationRevision>,
+        document: AnnotationDocument,
+    ) -> Result<AnnotationRevision, StoreError> {
+        let Some(&number) = self
+            .manifest
+            .sessions
+            .get(session)
+            .filter(|&&number| self.manifest.logs.contains_key(&log_path(number)))
+        else {
+            return Err(StoreError::UnknownSession(session.clone()));
+        };
+        let current = annotation_revisions(&self.manifest, number).pop();
+        if based_on != current {
+            return Err(StoreError::StaleAnnotation { based_on, current });
+        }
+        let revision = current.map_or(AnnotationRevision::FIRST, AnnotationRevision::next);
+        let name = format!("{number}.a{revision}.json");
+        let annotation = Annotation {
+            revision,
+            at: self.now,
+            document,
+        };
+        let rel = self.write_document(INTERPRETATIONS_DIR, &name, &annotation)?;
+        self.manifest
+            .documents
+            .insert(annotation_document(number, revision), rel);
+        Ok(revision)
+    }
+
+    /// Writes `document` as pretty JSON to `name` in the record's directory
+    /// `dir`, and returns its path relative to the record directory, the
+    /// form the manifest lists.
+    ///
+    /// Creates `dir` if needed, then writes a new temporary file and renames
+    /// it into place ([`files::replace`]), replacing any existing target,
+    /// including uncommitted files and symbolic links, without writing
+    /// through them. Registers the file with the publication, which syncs it
+    /// at commit. Leaves the pending manifest to the caller, which decides
+    /// how it lists the file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Json`] if serialization fails or [`StoreError::Io`]
+    /// if a directory or file operation fails.
+    fn write_document<T: Serialize>(
+        &mut self,
+        dir: &str,
+        name: &str,
+        document: &T,
+    ) -> Result<String, StoreError> {
+        let dir_path = self.store.root().join(dir);
+        let path = dir_path.join(name);
+        let bytes = serde_json::to_vec_pretty(document).map_err(|source| StoreError::Json {
+            path: path.clone(),
+            source,
+        })?;
+        fs::create_dir_all(&dir_path).map_err(|e| io_error(&dir_path, e))?;
+        files::replace(&dir_path, name, &bytes)?;
+        self.publication.touched(path);
+        Ok(format!("{dir}/{name}"))
     }
 
     /// Returns the session's number, assigning the next unused number if needed.

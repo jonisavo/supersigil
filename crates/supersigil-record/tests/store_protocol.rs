@@ -1,5 +1,5 @@
 //! Tests snapshot isolation, atomic publication, writer locking, crash
-//! recovery, and the removal of replaced documents.
+//! recovery, the removal of replaced documents, and annotation revisions.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
@@ -9,6 +9,9 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use supersigil_record::derivations::{ALGORITHM_VERSION, DerivationSet};
+use supersigil_record::interpretations::{
+    ANNOTATION_SCHEMA, Annotation, AnnotationDocument, AnnotationRevision, Observed, Prepared,
+};
 use supersigil_record::observations::{EndReason, Observation, SessionEnd};
 use supersigil_record::reviews::PinnedLog;
 use supersigil_record::store::{
@@ -1337,7 +1340,7 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     Store::create(dir.path(), assoc()).unwrap();
     let manifest_path = dir.path().join("manifest.json");
     let text = fs::read_to_string(&manifest_path).unwrap();
-    let newer = text.replace("\"schema_version\": 2", "\"schema_version\": 3");
+    let newer = text.replace("\"schema_version\": 3", "\"schema_version\": 4");
     assert_ne!(newer, text);
     fs::write(&manifest_path, &newer).unwrap();
 
@@ -1345,16 +1348,16 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     assert!(matches!(
         store.manifest(),
         Err(StoreError::UnsupportedSchema {
-            found: 3,
-            supported: 2,
+            found: 4,
+            supported: 3,
             ..
         })
     ));
     assert!(matches!(
         store.snapshot(),
         Err(StoreError::UnsupportedSchema {
-            found: 3,
-            supported: 2,
+            found: 4,
+            supported: 3,
             ..
         })
     ));
@@ -1365,7 +1368,7 @@ fn a_manifest_with_an_unsupported_schema_is_refused() {
     // A newer record needs a newer reader: nothing suggests removing it.
     let message = store.manifest().unwrap_err().to_string();
     assert!(
-        message.contains("uses record format 3; this build reads format 2"),
+        message.contains("uses record format 4; this build reads format 3"),
         "{message}"
     );
     assert!(
@@ -1404,7 +1407,7 @@ fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
     assert!(
         matches!(
             &error,
-            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+            StoreError::UnsupportedSchema { root, found: 1, supported: 3 } if root == dir.path()
         ),
         "{error:?}"
     );
@@ -1414,7 +1417,7 @@ fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
         "{message}"
     );
     assert!(
-        message.contains("uses record format 1; this build reads format 2"),
+        message.contains("uses record format 1; this build reads format 3"),
         "{message}"
     );
     assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
@@ -1426,7 +1429,7 @@ fn an_older_layout_is_refused_by_its_version_not_by_a_missing_field() {
 }
 
 #[test]
-fn the_current_layout_at_version_1_is_refused_by_its_version() {
+fn the_current_layout_at_the_previous_version_is_refused_by_its_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::create(dir.path(), assoc()).unwrap();
     let mut tx = store.begin().unwrap();
@@ -1436,7 +1439,7 @@ fn the_current_layout_at_version_1_is_refused_by_its_version() {
     let text = fs::read_to_string(&manifest_path).unwrap();
     let parsed: Value = serde_json::from_str(&text).unwrap();
     assert!(parsed["sessions"]["s1"].is_u64(), "{text}");
-    let older = text.replace("\"schema_version\": 2", "\"schema_version\": 1");
+    let older = text.replace("\"schema_version\": 3", "\"schema_version\": 2");
     assert_ne!(older, text);
     fs::write(&manifest_path, &older).unwrap();
 
@@ -1445,7 +1448,7 @@ fn the_current_layout_at_version_1_is_refused_by_its_version() {
     assert!(
         matches!(
             &error,
-            StoreError::UnsupportedSchema { root, found: 1, supported: 2 } if root == dir.path()
+            StoreError::UnsupportedSchema { root, found: 2, supported: 3 } if root == dir.path()
         ),
         "{error:?}"
     );
@@ -1455,7 +1458,7 @@ fn the_current_layout_at_version_1_is_refused_by_its_version() {
         "{message}"
     );
     assert!(
-        message.contains("uses record format 1; this build reads format 2"),
+        message.contains("uses record format 2; this build reads format 3"),
         "{message}"
     );
     assert!(message.contains(OLDER_RECORD_ADVICE), "{message}");
@@ -1469,4 +1472,388 @@ fn a_manifest_without_a_version_is_invalid_json() {
     fs::write(dir.path().join("manifest.json"), "{}").unwrap();
     let store = Store::open(dir.path()).unwrap();
     assert!(matches!(store.manifest(), Err(StoreError::Json { .. })));
+}
+
+/// A document about `s1` built on `based_on`, without decisions.
+fn annotation_document(based_on: Option<AnnotationRevision>) -> AnnotationDocument {
+    AnnotationDocument {
+        schema: ANNOTATION_SCHEMA.to_owned(),
+        session: session(),
+        based_on,
+        prepared: Prepared {
+            record: RecordId::new("r1"),
+            observation_revision: Revision::ZERO.next(),
+            observed: Observed {
+                count: 1,
+                last: Some(at(0)),
+            },
+        },
+        produced_by: "test".to_owned(),
+        corrections_seen: Vec::new(),
+        decisions: Vec::new(),
+        open_questions: Vec::new(),
+    }
+}
+
+/// Creates a record at `dir` holding one observation of `s1`, committed at
+/// revision 1.
+fn observed_store(dir: &std::path::Path) -> Store {
+    let store = Store::create(dir, assoc()).unwrap();
+    let mut tx = store.begin_at(at(0)).unwrap();
+    tx.append_observations(&[observation("s1", 1)]).unwrap();
+    tx.commit().unwrap();
+    store
+}
+
+/// Stores `s1`'s annotation built on `based_on` in a transaction timed
+/// `now`, commits it, and returns the revision stored.
+fn annotate_at(
+    store: &Store,
+    based_on: Option<AnnotationRevision>,
+    now: UtcTime,
+) -> AnnotationRevision {
+    let mut tx = store.begin_at(now).unwrap();
+    let revision = tx
+        .put_annotation(&session(), based_on, annotation_document(based_on))
+        .unwrap();
+    tx.commit().unwrap();
+    revision
+}
+
+#[test]
+fn annotation_revisions_count_from_one_and_each_stays_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    let first = annotate_at(&store, None, at(60));
+    assert_eq!(first, AnnotationRevision::FIRST);
+    let second = annotate_at(&store, Some(first), at(120));
+    assert_eq!(second, first.next());
+
+    let snapshot = store.snapshot().unwrap();
+    let documents = &snapshot.manifest().documents;
+    assert_eq!(
+        documents["interpretations/0/1"],
+        "interpretations/0.a1.json"
+    );
+    assert_eq!(
+        documents["interpretations/0/2"],
+        "interpretations/0.a2.json"
+    );
+    assert_eq!(
+        files_under(&dir.path().join("interpretations")),
+        ["0.a1.json", "0.a2.json"]
+    );
+    assert_eq!(snapshot.annotation_revisions(&session()), [first, second]);
+    for (revision, based_on, time) in [(first, None, at(60)), (second, Some(first), at(120))] {
+        assert_eq!(
+            snapshot.annotation(&session(), revision).unwrap(),
+            Annotation {
+                revision,
+                at: time,
+                document: annotation_document(based_on),
+            }
+        );
+    }
+    let current = snapshot.current_annotation(&session()).unwrap();
+    assert_eq!(current.map(|annotation| annotation.revision), Some(second));
+    // The stored file is the document beside its revision and time.
+    let stored: Value =
+        serde_json::from_slice(&fs::read(dir.path().join("interpretations/0.a2.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        stored,
+        json!({
+            "revision": 2,
+            "at": "2026-10-13T00:02:00Z",
+            "document": serde_json::to_value(annotation_document(Some(first))).unwrap()
+        })
+    );
+    let other = SessionId::new("other");
+    assert!(snapshot.annotation_revisions(&other).is_empty());
+    assert_eq!(snapshot.current_annotation(&other).unwrap(), None);
+}
+
+/// Checks that storing `s1`'s annotation built on `based_on` is refused as
+/// stale with `current` and `message`, and changes neither the pending
+/// manifest nor any file.
+fn assert_stale(
+    store: &Store,
+    based_on: Option<AnnotationRevision>,
+    current: Option<AnnotationRevision>,
+    message: &str,
+) {
+    let files = files_under(store.root());
+    let mut tx = store.begin_at(at(600)).unwrap();
+    let pending = tx.manifest().clone();
+    let error = tx
+        .put_annotation(&session(), based_on, annotation_document(based_on))
+        .unwrap_err();
+    assert!(
+        matches!(&error, StoreError::StaleAnnotation { current: found, .. } if *found == current),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), message);
+    assert_eq!(tx.manifest(), &pending);
+    assert_eq!(files_under(store.root()), files);
+}
+
+#[test]
+fn an_annotation_built_on_another_revision_is_refused_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    let first = AnnotationRevision::FIRST;
+    assert_stale(
+        &store,
+        Some(first),
+        None,
+        "annotation based on revision 1, but no revision is current",
+    );
+    annotate_at(&store, None, at(60));
+    assert_stale(
+        &store,
+        None,
+        Some(first),
+        "annotation based on no revision, but revision 1 is current",
+    );
+    let second = annotate_at(&store, Some(first), at(120));
+    assert_stale(
+        &store,
+        Some(first),
+        Some(second),
+        "annotation based on revision 1, but revision 2 is current",
+    );
+}
+
+#[test]
+fn an_annotation_of_a_session_without_observations_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    // `s2` has derivations but no observations; `s3` is unknown.
+    let mut tx = store.begin_at(at(60)).unwrap();
+    tx.put_derivations(&derivation_set("s2", Revision::ZERO))
+        .unwrap();
+    tx.commit().unwrap();
+
+    let mut tx = store.begin_at(at(120)).unwrap();
+    let pending = tx.manifest().clone();
+    for id in ["s2", "s3"] {
+        let unknown = SessionId::new(id);
+        let document = AnnotationDocument {
+            session: unknown.clone(),
+            ..annotation_document(None)
+        };
+        let error = tx.put_annotation(&unknown, None, document).unwrap_err();
+        assert!(
+            matches!(&error, StoreError::UnknownSession(refused) if *refused == unknown),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            format!("session {id} has no observations in this record")
+        );
+    }
+    assert_eq!(tx.manifest(), &pending);
+    tx.commit().unwrap();
+    assert!(!dir.path().join("interpretations").exists());
+}
+
+#[test]
+fn a_reader_of_an_earlier_manifest_reads_the_revisions_it_lists() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    let first = annotate_at(&store, None, at(60));
+    let earlier = store.snapshot().unwrap();
+    let second = annotate_at(&store, Some(first), at(120));
+
+    assert_eq!(earlier.annotation_revisions(&session()), [first]);
+    assert_eq!(
+        earlier.current_annotation(&session()).unwrap(),
+        Some(Annotation {
+            revision: first,
+            at: at(60),
+            document: annotation_document(None),
+        })
+    );
+    let error = earlier.annotation(&session(), second).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::NoSuchAnnotation { session: s, revision } if *s == session() && *revision == second
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "session s1 has no annotation revision 2 in this record"
+    );
+}
+
+#[test]
+fn revisions_written_in_one_transaction_build_on_each_other_and_list_in_numeric_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::create(dir.path(), assoc()).unwrap();
+    // Sessions `s0` to `s10` are numbered 0 to 10, so the keys of `s1`
+    // and `s10` share the prefix `interpretations/1`.
+    let observations: Vec<Observation> =
+        (0..11).map(|n| observation(&format!("s{n}"), n)).collect();
+    let ten = SessionId::new("s10");
+    let mut tx = store.begin_at(at(0)).unwrap();
+    tx.append_observations(&observations).unwrap();
+    let mut current = None;
+    for _ in 0..10 {
+        let stored = tx
+            .put_annotation(&session(), current, annotation_document(current))
+            .unwrap();
+        current = Some(stored);
+    }
+    let document = AnnotationDocument {
+        session: ten.clone(),
+        ..annotation_document(None)
+    };
+    tx.put_annotation(&ten, None, document).unwrap();
+    tx.commit().unwrap();
+
+    let snapshot = store.snapshot().unwrap();
+    let revisions: Vec<u32> = snapshot
+        .annotation_revisions(&session())
+        .iter()
+        .map(|revision| revision.get())
+        .collect();
+    assert_eq!(revisions, (1..=10).collect::<Vec<_>>());
+    let current = snapshot.current_annotation(&session()).unwrap().unwrap();
+    assert_eq!(current.revision.get(), 10);
+    assert_eq!(
+        snapshot.annotation_revisions(&ten),
+        [AnnotationRevision::FIRST]
+    );
+}
+
+#[test]
+fn cleanup_never_deletes_an_interpretation_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    // Each write replaces the derivations and adds an annotation revision.
+    let mut based_on = None;
+    for now in [at(0), at(60)] {
+        let mut tx = store.begin_at(now).unwrap();
+        tx.put_derivations(&derivation_set("s1", Revision::ZERO))
+            .unwrap();
+        let stored = tx
+            .put_annotation(&session(), based_on, annotation_document(based_on))
+            .unwrap();
+        based_on = Some(stored);
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        store.manifest().unwrap().superseded,
+        BTreeMap::from([("derivations/0.r2.json".to_owned(), at(60))])
+    );
+    // An entry naming an interpretation document, which no write lists, is
+    // dropped without deleting it.
+    list_as_superseded(
+        dir.path(),
+        &["interpretations/0.a1.json"],
+        at(-2 * GRACE_SECONDS),
+    );
+
+    commit_at(&store, at(61 + GRACE_SECONDS));
+    assert_eq!(
+        files_under(dir.path()),
+        [
+            "derivations/0.r3.json",
+            "interpretations/0.a1.json",
+            "interpretations/0.a2.json",
+            "manifest.json",
+            "observations/0.jsonl",
+            "write.lock",
+        ]
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert!(snapshot.manifest().superseded.is_empty());
+    for revision in snapshot.annotation_revisions(&session()) {
+        snapshot.annotation(&session(), revision).unwrap();
+    }
+}
+
+#[test]
+fn an_annotation_left_unpublished_by_a_dropped_transaction_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    let mut tx = store.begin_at(at(60)).unwrap();
+    let crashed = AnnotationDocument {
+        produced_by: "crashed".to_owned(),
+        ..annotation_document(None)
+    };
+    tx.put_annotation(&session(), None, crashed).unwrap();
+    // Dropped unpublished, as by a crash before commit.
+    drop(tx);
+    assert!(dir.path().join("interpretations/0.a1.json").exists());
+    let snapshot = store.snapshot().unwrap();
+    assert!(snapshot.annotation_revisions(&session()).is_empty());
+    assert_eq!(snapshot.current_annotation(&session()).unwrap(), None);
+    assert!(matches!(
+        snapshot.annotation(&session(), AnnotationRevision::FIRST),
+        Err(StoreError::NoSuchAnnotation { .. })
+    ));
+
+    // The next write builds on the published manifest and replaces the file.
+    assert_eq!(
+        annotate_at(&store, None, at(120)),
+        AnnotationRevision::FIRST
+    );
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .current_annotation(&session())
+            .unwrap(),
+        Some(Annotation {
+            revision: AnnotationRevision::FIRST,
+            at: at(120),
+            document: annotation_document(None),
+        })
+    );
+    assert_eq!(
+        files_under(&dir.path().join("interpretations")),
+        ["0.a1.json"]
+    );
+}
+
+/// Checks that `result` is the missing-document error naming `path`.
+fn assert_missing<T: std::fmt::Debug>(result: Result<T, StoreError>, path: &std::path::Path) {
+    let error = result.unwrap_err();
+    assert!(
+        matches!(&error, StoreError::MissingDocument(missing) if missing == path),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{} is missing, though the record's manifest lists it",
+            path.display()
+        )
+    );
+}
+
+#[test]
+fn a_listed_document_gone_from_disk_is_reported_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = observed_store(dir.path());
+    let mut tx = store.begin_at(at(60)).unwrap();
+    tx.put_derivations(&derivation_set("s1", Revision::ZERO))
+        .unwrap();
+    let first = tx
+        .put_annotation(&session(), None, annotation_document(None))
+        .unwrap();
+    tx.commit().unwrap();
+    let annotation = dir.path().join("interpretations/0.a1.json");
+    let derivations = dir.path().join("derivations/0.r2.json");
+    fs::remove_file(&annotation).unwrap();
+    fs::remove_file(&derivations).unwrap();
+
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.annotation_revisions(&session()), [first]);
+    assert_missing(snapshot.annotation(&session(), first), &annotation);
+    assert_missing(snapshot.current_annotation(&session()), &annotation);
+    assert_missing(snapshot.derivations(&session()), &derivations);
 }

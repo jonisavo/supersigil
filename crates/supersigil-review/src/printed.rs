@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Makes control characters in `text` visible for terminal output.
 ///
@@ -172,6 +172,9 @@ const PATH_FILTER: &str = "path filter";
 
 /// What [`Command`] records for an item name it shows as `<as given>`.
 const ITEM_NAME: &str = "item name";
+
+/// What [`Command`] records for a session it shows as `<as given>`.
+const SESSION: &str = "session";
 
 /// Where the note lists a value shown as `<as given>`: the review address
 /// flags, the `review` call's flags in the order given, other flags, item
@@ -352,8 +355,9 @@ impl fmt::Display for Command {
 
 /// Addresses printed commands. `judge` commands name the review when it
 /// differs from the worktree's selection. Every command repeats the supplied
-/// `--checkout` and `--review-dir`, and `review` commands the supplied
-/// `--record-dir` and `--claude-home`, which choose the evidence read.
+/// `--checkout` and `--review-dir`, and `review` and annotate commands the
+/// supplied `--record-dir` and `--claude-home`, which choose the evidence
+/// read.
 ///
 /// Commands replace non-UTF-8 values or control characters with `<as given>`
 /// because lossy or escaped values could name another path, and for Windows
@@ -366,6 +370,10 @@ pub struct Addressing {
     pub review: Option<String>,
     /// `--checkout` as the call was given it.
     pub checkout: Option<PathBuf>,
+    /// The checkout the call resolved to: `--checkout`, or else the current
+    /// directory, canonical. `None` when unknown, which no checkout
+    /// matches ([`Self::annotate`]).
+    pub resolved_checkout: Option<PathBuf>,
     /// `--review-dir` as the call was given it.
     pub review_dir: Option<PathBuf>,
     /// `--record-dir` as the `review` call was given it.
@@ -444,6 +452,35 @@ impl Addressing {
         self.evidence(&mut command);
         self.address(&mut command);
         self.paths(&mut command);
+        command
+    }
+
+    /// Builds `/supersigil-annotate <session>`, the Claude Code command that
+    /// annotates `session`, then the supplied evidence, `--checkout`, and
+    /// `--review-dir` flags, which the skill passes on to every command it
+    /// runs. `checkout` is the checkout through which the review found the
+    /// session's record: when it is given and is not the
+    /// [resolved checkout](Self::resolved_checkout), `--checkout=<checkout>`
+    /// follows the session in place of the supplied one, so the skill finds
+    /// the session among that checkout's records (its own or an ancestor
+    /// checkout's, nearest first) and uses its repository's review store.
+    #[must_use]
+    pub fn annotate(&self, session: &str, checkout: Option<&Path>) -> Command {
+        let mut command = Command::new("/supersigil-annotate", self.shell);
+        let session = command.value(SESSION, OsStr::new(session));
+        command.words(&session);
+        if let Some(checkout) =
+            checkout.filter(|&checkout| self.resolved_checkout.as_deref() != Some(checkout))
+        {
+            command.flag("--checkout", checkout.as_os_str());
+            self.evidence(&mut command);
+            if let Some(review_dir) = &self.review_dir {
+                command.flag("--review-dir", review_dir.as_os_str());
+            }
+        } else {
+            self.evidence(&mut command);
+            self.address(&mut command);
+        }
         command
     }
 

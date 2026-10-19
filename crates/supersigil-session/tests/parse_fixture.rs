@@ -155,22 +155,23 @@ fn turns_are_classified_and_ordered() {
     assert_eq!(turns.len(), 17);
     assert_eq!(turns[0].role, Role::Human);
     assert_eq!(
-        turns[0].excerpt.retained().map(String::as_str),
+        turns[0].text.retained().map(String::as_str),
         Some("Add a greeting function and clean up.")
     );
     assert_eq!(turns[0].source_ordinal, 0);
     assert_eq!(turns[1].role, Role::Agent);
     assert_eq!(turns[1].parent.as_ref().map(TurnId::as_str), Some("u1"));
     assert_eq!(
-        turns[1].excerpt.retained().map(String::as_str),
+        turns[1].text.retained().map(String::as_str),
         Some("I'll add greet to lib.rs.")
     );
     assert_eq!(turns[2].role, Role::Tool);
-    assert!(turns[2].excerpt.retained().is_none());
+    assert_eq!(turns[2].text, unavailable("tool result"));
     // Line 10 is a file-history record and line 17 an unknown record: the
     // meta turn on line 18 has ordinal 17.
     let meta = turns.iter().find(|t| t.id.as_str() == "u9").unwrap();
     assert_eq!(meta.role, Role::Meta);
+    assert_eq!(meta.text, unavailable("harness metadata"));
     assert_eq!(meta.source_ordinal, 17);
     assert_eq!(turns.last().unwrap().id.as_str(), "a8");
 }
@@ -1294,15 +1295,88 @@ fn a_parent_agents_prompt_in_a_sidechain_is_a_delegation() {
     let turns = turns(&outcome);
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].role, Role::Delegation);
-    assert_eq!(
-        turns[0].excerpt.retained().map(|t| t.chars().count()),
-        Some(240)
-    );
+    assert_eq!(turns[0].text, Material::Retained(prompt));
     assert!(turns.iter().all(|t| t.role != Role::Human));
     assert_eq!(
         serde_json::to_value(Role::Delegation).unwrap(),
         json!("delegation")
     );
+}
+
+/// The text of the one turn parsed from `record`.
+fn only_turn_text(record: &Value) -> Material<String> {
+    let lines = format!("{record}\n");
+    let outcome = parse_transcript(lines.as_bytes(), 0);
+    let turns = turns(&outcome);
+    assert_eq!(turns.len(), 1, "expected one turn from {lines}");
+    turns[0].text.clone()
+}
+
+#[test]
+fn agent_text_is_retained_whole() {
+    let text = "Keeping both stores in one sync plan. ".repeat(10);
+    assert!(text.chars().count() > 240);
+    let mut record = agent("a1", "s");
+    record["message"]["content"] = json!([{"type": "text", "text": text}]);
+    assert_eq!(only_turn_text(&record), Material::Retained(text));
+}
+
+#[test]
+fn thinking_never_enters_turn_text() {
+    let thinking =
+        json!({"type": "thinking", "thinking": "Private reasoning.", "signature": "sig"});
+    let mut record = agent("a1", "s");
+    record["message"]["content"] = json!([
+        {"type": "text", "text": "First."},
+        thinking,
+        {"type": "text", "text": "Second."}
+    ]);
+    assert_eq!(
+        only_turn_text(&record),
+        Material::Retained("First.\nSecond.".to_owned())
+    );
+    // Without a text block, the turn retains empty text.
+    record["message"]["content"] = json!([thinking]);
+    assert_eq!(only_turn_text(&record), Material::Retained(String::new()));
+}
+
+/// A compaction summary of `session` as Claude Code writes one: a `user`
+/// record marked `isCompactSummary`, with neither `isMeta` nor an origin.
+fn compaction_summary(uuid: &str, session: &str, sidechain: bool) -> Value {
+    json!({
+        "type": "user", "uuid": uuid, "parentUuid": "boundary", "sessionId": session,
+        "cwd": "/work/repo", "gitBranch": "main",
+        "timestamp": "2026-09-28T10:00:09.000Z", "isSidechain": sidechain,
+        "isCompactSummary": true, "isVisibleInTranscriptOnly": true,
+        "message": {"role": "user", "content": "This session is being continued from a previous conversation."}
+    })
+}
+
+#[test]
+fn a_compaction_summary_is_a_summary_turn_without_text() {
+    // In an agent transcript, a typed message would be a delegation.
+    for sidechain in [false, true] {
+        let lines = format!("{}\n", compaction_summary("c1", "s", sidechain));
+        let outcome = parse_transcript(lines.as_bytes(), 0);
+        let turns = turns(&outcome);
+        assert_eq!(turns.len(), 1, "sidechain {sidechain}");
+        assert_eq!(turns[0].role, Role::Summary, "sidechain {sidechain}");
+        assert_eq!(turns[0].text, unavailable("compaction summary"));
+    }
+}
+
+#[test]
+fn a_compaction_summary_abandons_pending_tool_uses_as_a_typed_message_does() {
+    let issue = tool_exchange("Bash", json!({"command": "ls"}), ok_block(), None)
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    for session in ["s", "another"] {
+        let lines = format!("{issue}\n{}\n", compaction_summary("c1", session, false));
+        let outcome = parse_transcript(lines.as_bytes(), 0);
+        assert_eq!(outcome.counts.abandoned_tool_uses, 1, "session {session}");
+    }
 }
 
 #[test]

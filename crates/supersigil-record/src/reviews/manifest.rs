@@ -12,7 +12,10 @@ use crate::store::StoreError;
 use crate::time::UtcTime;
 
 /// Review store manifest schema version supported for reading and writing.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 adds corrections, open-question items, and the annotations and
+/// decisions a basis pins; version 1 had none.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A basis's first write and latest review times, stored separately so they
 /// do not change its ID.

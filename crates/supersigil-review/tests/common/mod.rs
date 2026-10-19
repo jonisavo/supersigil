@@ -12,7 +12,9 @@ use supersigil_anchor::{
     BaseLineOutcome, Chain, ChainClass, ChainEnd, Fate, LineOutcome, Origin, PathAttribution,
     PathStatus, Provenance, StopReason,
 };
-use supersigil_record::EventId;
+use supersigil_record::interpretations::AnnotationRevision;
+use supersigil_record::reviews::DecisionRef;
+use supersigil_record::{EventId, RecordId, SessionId};
 
 /// An edit id.
 pub fn eid(id: &str) -> EventId {
@@ -147,4 +149,29 @@ fn time_limit_scale() -> u32 {
             .filter(|&scale| scale > 0)
             .expect("SUPERSIGIL_TIME_LIMIT_SCALE is a positive whole number")
     })
+}
+
+/// Owned copies of `texts`.
+pub fn strings(texts: &[&str]) -> Vec<String> {
+    texts.iter().map(|text| (*text).to_owned()).collect()
+}
+
+/// An event id for each of `texts`.
+pub fn ids(texts: &[&str]) -> Vec<EventId> {
+    texts.iter().map(|text| eid(text)).collect()
+}
+
+/// Annotation revision `number`.
+pub fn revision(number: u32) -> AnnotationRevision {
+    AnnotationRevision::new(number)
+}
+
+/// A reference to decision `id` of `session`'s `revision` in `record`.
+pub fn reference(record: &str, session: &str, revision: u32, id: &str) -> DecisionRef {
+    DecisionRef {
+        record: RecordId::new(record),
+        session: SessionId::new(session),
+        revision: AnnotationRevision::new(revision),
+        id: id.to_owned(),
+    }
 }

@@ -1,8 +1,9 @@
-//! JSON storage for session observations and computed derivations.
+//! JSON storage for session observations, computed derivations, and
+//! annotations.
 //!
-//! The manifest lists each log's committed byte length and each derivation
-//! document's file name. A snapshot keeps one manifest and reads only those
-//! bytes and files, even while a writer prepares the next revision.
+//! The manifest lists each log's committed byte length and each document's
+//! file name. A snapshot keeps one manifest and reads only those bytes and
+//! files, even while a writer prepares the next revision.
 //!
 //! Layout inside a record directory:
 //!
@@ -11,6 +12,7 @@
 //! write.lock                       OS lock used to allow only one writer
 //! observations/<n>.jsonl           session log, read up to its committed byte length
 //! derivations/<n>.r<revision>.json  derivation results for a session and store revision
+//! interpretations/<n>.a<revision>.json  one annotation revision of a session
 //! ```
 //!
 //! `<n>` is the number assigned to a session on its first write. Using this
@@ -18,7 +20,9 @@
 //!
 //! Keeps replaced derivation documents for earlier readers and lists them
 //! as superseded at the replacement revision's time. Later commits delete
-//! eligible documents more than 14 days after replacement.
+//! eligible documents more than 14 days after replacement. Annotation
+//! revisions are never superseded: the manifest lists each under its own
+//! key, and cleanup never deletes one.
 //!
 //! Keep `write.lock` in place. Its presence does not mean a writer is active;
 //! the operating-system lock controls access. Deleting the file would let a
@@ -36,7 +40,8 @@ pub use snapshot::{LogReading, RecordSnapshot, SessionLog};
 pub use write::WriteTx;
 
 use crate::files;
-use crate::ids::RecordId;
+use crate::ids::{RecordId, SessionId};
+use crate::interpretations::{AnnotationRevision, revision_phrase};
 use crate::reviews::BasisId;
 use crate::time::UtcTime;
 
@@ -59,6 +64,30 @@ const DERIVATIONS_DIR: &str = "derivations";
 /// Returns the manifest document key for a numbered session's derivations.
 fn derivations_document(number: u64) -> String {
     format!("{DERIVATIONS_DIR}/{number}")
+}
+
+/// Directory of the interpretation documents inside a record directory.
+const INTERPRETATIONS_DIR: &str = "interpretations";
+
+/// Returns the manifest document key for one annotation revision of a
+/// numbered session.
+fn annotation_document(number: u64, revision: AnnotationRevision) -> String {
+    format!("{INTERPRETATIONS_DIR}/{number}/{revision}")
+}
+
+/// Returns the annotation revisions `manifest` lists for a numbered
+/// session, in ascending order.
+fn annotation_revisions(manifest: &Manifest, number: u64) -> Vec<AnnotationRevision> {
+    let prefix = format!("{INTERPRETATIONS_DIR}/{number}/");
+    let mut revisions: Vec<AnnotationRevision> = manifest
+        .documents
+        .range(prefix.clone()..)
+        .map_while(|(key, _)| key.strip_prefix(&prefix))
+        .filter_map(|revision| revision.parse().ok().map(AnnotationRevision::new))
+        .collect();
+    // Keys sort as text, which puts revision 10 before revision 2.
+    revisions.sort_unstable();
+    revisions
 }
 
 /// Failure to create, read, or write a record or a review store.
@@ -106,6 +135,35 @@ pub enum StoreError {
     /// its id.
     #[error("store is corrupt: {0}")]
     Corrupt(String),
+    /// A document the manifest lists is gone from disk.
+    #[error("{0} is missing, though the record's manifest lists it")]
+    MissingDocument(PathBuf),
+    /// The record holds no observations of the session, so it cannot be
+    /// annotated.
+    #[error("session {0} has no observations in this record")]
+    UnknownSession(SessionId),
+    /// An annotation was built on a revision other than the session's
+    /// current one. Storing it would supersede a revision its annotator
+    /// never saw.
+    #[error(
+        "annotation based on {}, but {} is current",
+        revision_phrase(*based_on),
+        revision_phrase(*current)
+    )]
+    StaleAnnotation {
+        /// The revision the annotation was built on, `None` for none.
+        based_on: Option<AnnotationRevision>,
+        /// The session's current revision, `None` when it has none.
+        current: Option<AnnotationRevision>,
+    },
+    /// The manifest lists no such annotation revision of the session.
+    #[error("session {session} has no annotation revision {revision} in this record")]
+    NoSuchAnnotation {
+        /// The session asked for.
+        session: SessionId,
+        /// The revision asked for.
+        revision: AnnotationRevision,
+    },
     /// The manifest version differs from this crate's format. No migration
     /// exists; the record stays unchanged. A newer record needs a newer
     /// reader. An older one can be moved away or deleted; the next sync

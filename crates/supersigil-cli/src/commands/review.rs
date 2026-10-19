@@ -1,6 +1,8 @@
 //! `supersigil review` compares a base and target. It attributes changed lines to
-//! recorded edits or explains why attribution failed. It attempts to save each
-//! review in the repository's review store so judgments bind to what it showed.
+//! recorded edits or explains why attribution failed, and shows the annotated
+//! decisions citing those edits, with the corrections in scope anchored to
+//! them. It attempts to save each review in the repository's review store so
+//! judgments bind to what it showed, annotations read and decisions included.
 //! It shows gate judgments, including those carried from related reviews with
 //! matching item evidence, changes since the most recent related completion,
 //! and the next command to run.
@@ -18,11 +20,12 @@ use supersigil_git::{Ancestry, ObjectId, RepoPath, ResolvedTarget, TargetSpec};
 use supersigil_record::derivations::ALGORITHM_VERSION;
 use supersigil_record::reviews::{
     self, Algorithms, BASIS_SCHEMA, Basis, BasisBase, BasisCheckout, BasisId, BasisRecord,
-    BasisScope, BasisTarget, Judgment, PathBytes, ReviewStore, TargetKind,
+    BasisScope, BasisTarget, GateItem, Judgment, PathBytes, ReviewStore, TargetKind,
 };
 use supersigil_record::time::UtcTime;
-use supersigil_review::gate::{capture, explanations, gate_items};
-use supersigil_review::judging::JudgedStore;
+use supersigil_review::decisions::{decision_pins, in_view, names};
+use supersigil_review::gate::{GateInputs, capture, explanations, gate_items};
+use supersigil_review::judging::{JudgedStore, Ledger};
 use supersigil_review::model::{
     ANCESTRY_NOTE, BytesStatus, CommandChange, EditInfo, FileInput, FileReview, FileStatus,
     GateInfo, NotCapturedInfo, RepoPathInfo, SavedBasis, ScopeInfo, StatusInfo, Unsaved,
@@ -34,6 +37,7 @@ use supersigil_review::summary::render_summary;
 use supersigil_review::{REVIEW_SCHEMA, Review};
 
 use crate::agent::in_agent_session;
+use crate::annotations::{Annotations, anchor_corrections, in_scope};
 use crate::commands::ReviewArgs;
 use crate::error::CliError;
 use crate::evidence::{CandidateCommands, add_referenced_edits};
@@ -50,7 +54,7 @@ use crate::reconcile::LOCK_WAIT;
 use crate::record_dir;
 use crate::reopening::read_changes;
 use crate::review_dir::{
-    begin_within, canonical_common_dir, judged_bases, open_review_store_within, resolve_review_dir,
+    canonical_common_dir, judged_bases, open_review_store_within, resolve_review_dir,
 };
 
 /// Runs `supersigil review`.
@@ -63,8 +67,9 @@ use crate::review_dir::{
 /// the output fails.
 pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     let reviews_dir = resolve_review_dir(args.review_dir.as_deref())?;
+    let checkout = record_dir::canonical_checkout(args.checkout.as_deref())?;
     let g = gather(&PipelineArgs {
-        checkout: record_dir::canonical_checkout(args.checkout.as_deref())?,
+        checkout: checkout.clone(),
         cwd: record_dir::canonical_checkout(None)?,
         records_dir: record_dir::resolve_record_dir(args.record_dir.as_deref())?,
         claude_home: claude_home(args.claude_home.as_deref()),
@@ -75,13 +80,16 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
             .map_or(TargetSpec::WorkingTree, TargetSpec::Commit),
         include_untracked: args.include_untracked.clone(),
         paths: args.paths.clone(),
-        hash_logs: true,
     })?;
     let mut review = build(&g)?;
-    let document = basis(&g, &review);
+    let sessions = g.candidate_sessions();
+    let annotations = Annotations::read(&g, sessions.iter().copied())?;
+    let questions = explain(&g, &mut review, &annotations);
+    let document = basis(&g, &review, &annotations, questions);
     let mut addressing = Addressing {
         review: None,
         checkout: args.checkout.clone(),
+        resolved_checkout: Some(checkout),
         review_dir: args.review_dir.clone(),
         record_dir: args.record_dir.clone(),
         claude_home: args.claude_home.clone(),
@@ -92,25 +100,44 @@ pub fn run(args: &ReviewArgs) -> Result<(), CliError> {
     // The id the store saves the basis under. An unsaved review shows the
     // judgments on the same content saved before, which has the same id. A
     // basis naming a path that is not UTF-8 has none: the store's JSON
-    // cannot hold it, so it is never saved and no judgment applies to it.
-    match document.basis_id() {
+    // cannot hold it, so it is never saved and no judgment applies to it,
+    // but the saved reviews still relate to it by its trees and scope.
+    // Every judgment in the store, and the reviews this one relates to.
+    let (judgments, related) = match document.basis_id() {
         Ok(id) => {
             let stored = store(&g, &reviews_dir, &document, &id)?;
-            (review.status, review.gate) = judged(&g, &review, &id, &document, &stored)?;
+            let judged = JudgedStore::new(&stored.judgments, &stored.judged);
+            (review.status, review.gate) = report(&g, &review, &id, &document, &judged)?;
             addressing.review =
                 (stored.selection.as_ref() != Some(&id)).then(|| id.short().to_owned());
+            let mut related: BTreeSet<BasisId> = stored.judged.into_keys().collect();
+            related.insert(id.clone());
             if stored.saved {
                 review.basis = Some(SavedBasis { id, document });
             } else {
                 review.basis_unsaved = Some(Unsaved::Busy);
             }
+            (stored.judgments, related)
         }
         Err(_not_utf8) => {
             let names = item_names(&document, g.ignore_case, &g.worktree, &g.cwd);
             review.gate = GateInfo::unjudged(&document.gate, &names);
             review.basis_unsaved = Some(Unsaved::PathNotUtf8);
+            judged_in(&g, &reviews_dir, &document)?
         }
-    }
+    };
+    // The corrections naming a candidate session, and those on this review
+    // and the related ones, whatever session they name.
+    let ledger = Ledger::new(&judgments);
+    let corrections = in_scope(&judgments, &ledger, &sessions, |basis| {
+        related.contains(basis)
+    });
+    review.unanchored_corrections = anchor_corrections(
+        &g.records,
+        &annotations,
+        &corrections,
+        &mut review.decisions,
+    );
     match args.format.resolve() {
         OutputFormat::Json => write_json(&review)?,
         OutputFormat::Terminal => io::stdout()
@@ -188,40 +215,93 @@ fn store(
     let judgments = snapshot.judgments()?;
     Ok(Stored {
         saved,
-        judged: judged_bases(&snapshot, &judgments, id, basis)?,
+        judged: judged_bases(&snapshot, &judgments, Some(id), basis)?,
         selection: snapshot.manifest().selections.get(&g.worktree).cloned(),
         judgments,
     })
 }
 
+/// Every judgment in the review store of `g`'s repository under
+/// `reviews_dir`, in the order recorded, and the saved reviews with a
+/// judgment that relate to `basis`, which has no id ([`judged_bases`]),
+/// read without a lock; none when the repository has no store.
+///
+/// # Errors
+///
+/// Returns [`CliError::Git`] if the repository's common directory cannot be
+/// resolved, and the store errors of finding the store and reading its
+/// judgments and bases.
+fn judged_in(
+    g: &Gathered,
+    reviews_dir: &Path,
+    basis: &Basis,
+) -> Result<(Vec<Judgment>, BTreeSet<BasisId>), CliError> {
+    let repository = canonical_common_dir(&g.repo)?;
+    let Some(store) = reviews::find(reviews_dir, &repository)? else {
+        return Ok((Vec::new(), BTreeSet::new()));
+    };
+    let snapshot = store.snapshot()?;
+    let judgments = snapshot.judgments()?;
+    let related = judged_bases(&snapshot, &judgments, None, basis)?
+        .into_keys()
+        .collect();
+    Ok((judgments, related))
+}
+
 /// Builds the status and gate for `review` gathered in `g`, with `basis` and `id`.
-/// Uses `stored` judgments on this review and related earlier reviews for item
-/// states, and changes since those reviews for status. Names items from the
-/// current directory.
+/// Uses the `judged` store's judgments on this review and related earlier
+/// reviews for item states, and changes since those reviews for status.
+/// Names items from the current directory.
 ///
 /// # Errors
 ///
 /// Returns the errors of [`read_changes`].
-fn judged(
+fn report(
     g: &Gathered,
     review: &Review,
     id: &BasisId,
     basis: &Basis,
-    stored: &Stored,
+    judged: &JudgedStore<'_>,
 ) -> Result<(StatusInfo, GateInfo), CliError> {
-    let store = JudgedStore::new(&stored.judgments, &stored.judged);
     let names = item_names(basis, g.ignore_case, &g.worktree, &g.cwd);
-    let report = store
+    let report = judged
         .review(id, basis)
         .report_reading(&names, |related| read_changes(g, review, related))?;
     Ok((report.status, report.gate))
 }
 
+/// Adds to `review`, gathered in `g`, the decisions of the `annotations`
+/// read that explain its files, the names of those citing each edit, and
+/// each candidate session's annotation. Returns the open-question items of
+/// those annotations in this review.
+fn explain(g: &Gathered, review: &mut Review, annotations: &Annotations) -> Vec<GateItem> {
+    let annotated = annotations.annotated();
+    let view = in_view(&annotated, &names(&annotated), &review.files);
+    review.decisions = view.decisions;
+    review.edit_decisions = view.edit_decisions;
+    review.annotations = annotations.infos(g);
+    view.questions
+}
+
 /// Builds `review`'s basis from `g`: the comparison, evidence read, digests of
-/// what it shows, and gate, with every list sorted. Adds a salt when any gate
-/// fingerprint part is unknown, so the review never matches an earlier basis.
-fn basis(g: &Gathered, review: &Review) -> Basis {
-    let inputs = gate_inputs(g, review);
+/// what it shows, the annotations read and decisions in view, and gate,
+/// whose items include the open `questions`, with every list sorted. Adds a
+/// salt when any gate fingerprint part is unknown, so the review never
+/// matches an earlier basis.
+///
+/// Annotations reach no digest and no evidence fingerprint: the per-file
+/// explanation digests and the existing items hash files and edits, which
+/// hold no decision, question or name.
+fn basis(
+    g: &Gathered,
+    review: &Review,
+    annotations: &Annotations,
+    questions: Vec<GateItem>,
+) -> Basis {
+    let inputs = GateInputs {
+        questions,
+        ..gate_inputs(g, review)
+    };
     let gate = gate_items(review, &inputs);
     let salt = gate
         .iter()
@@ -279,6 +359,8 @@ fn basis(g: &Gathered, review: &Review) -> Basis {
         },
         explanations: explanations(review, &inputs.edits),
         capture: capture(review),
+        annotations: annotations.pins(),
+        decisions: decision_pins(&review.decisions),
         gate,
         salt,
     }
@@ -298,7 +380,7 @@ fn sorted(paths: &[RepoPath]) -> Vec<PathBytes> {
 ///
 /// Returns the store errors of writing and committing the store.
 fn save(g: &Gathered, store: &ReviewStore, basis: &Basis) -> Result<bool, CliError> {
-    let Some(mut tx) = begin_within(store, LOCK_WAIT)? else {
+    let Some(mut tx) = record_dir::begin_within(LOCK_WAIT, || store.begin())? else {
         return Ok(false);
     };
     let now = UtcTime::now();
@@ -356,6 +438,10 @@ fn build(g: &Gathered) -> Result<Review, CliError> {
         evidence: evidence_info(g, all_conflicts(g)),
         files,
         edits,
+        decisions: Vec::new(),
+        unanchored_corrections: Vec::new(),
+        edit_decisions: BTreeMap::new(),
+        annotations: Vec::new(),
     })
 }
 

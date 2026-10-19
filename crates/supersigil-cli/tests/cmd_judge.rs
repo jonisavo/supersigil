@@ -12,12 +12,13 @@ use common::fixture::{
     Fixture, LIB_FINAL, basis_id, gate_row, review_store, slice, slice_text, word, write,
 };
 use serde_json::{Value, json};
-use supersigil_record::JudgmentId;
+use supersigil_record::interpretations::AnnotationRevision;
 use supersigil_record::reviews::{
-    self, Basis, BasisId, GateItem, ItemId, Judgment, JudgmentKind, PathBytes, Subject, Who,
-    Withdrawal,
+    self, Basis, BasisDecision, BasisId, CorrectionKind, DecisionRef, GateItem, ItemId, Judgment,
+    JudgmentKind, PathBytes, Subject, Who, Withdrawal,
 };
 use supersigil_record::time::UtcTime;
+use supersigil_record::{JudgmentId, RecordId, SessionId};
 
 /// The name of the person judging in every fixture.
 const NAME: &str = "Ada Lovelace";
@@ -788,10 +789,11 @@ fn help_defines_each_verb_and_what_judging_keeps() {
         "acknowledge  Acknowledge items: \"I have considered this item\"",
         "dismiss      Dismiss items: \"it needs no follow-up, for the recorded reason\"",
         "comment      Add a note to the review or an item; it leaves the item's state alone",
+        "correct      Correct an annotated decision's explanation, grouping, or constraint",
         "complete     Record completion of this saved review; it does not commit or merge",
         "undo         Withdraw the judgments closing items, or one judgment by its id",
         "list         List the saved reviews with judgments and each worktree's selection",
-        "show         Show a saved review's gate, comments, and withdrawn judgments",
+        "show         Show a saved review's gate, comments, corrections, and withdrawn judgments",
         "A completion carries over to any review of the same content, not only to the same \
          review id.",
         "Judgments stay on this machine: refs/supersigil/ is not pushed by default.",
@@ -812,6 +814,7 @@ fn inside_an_agent_session_nothing_is_recorded() {
     for marker in ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID"] {
         for args in [
             &["acknowledge", "old.txt"][..],
+            &["correct", "d1", "--wrong", "--reason", "Not why."],
             &["undo", "src/new.rs"],
             &["undo", "--judgment", acknowledgment.id.as_str()],
         ] {
@@ -836,9 +839,18 @@ fn without_a_selected_review_nothing_is_recorded() {
         .unwrap();
     assert!(agent.status.success());
     let unselected = refused(&f, &mut judge(&f, &f.repo, &["acknowledge", "old.txt"]));
+    let uncorrected = refused(
+        &f,
+        &mut judge(
+            &f,
+            &f.repo,
+            &["correct", "d1", "--constraint", "Sync once."],
+        ),
+    );
 
     assert_eq!(without_store, NO_SELECTION);
     assert_eq!(unselected, NO_SELECTION);
+    assert_eq!(uncorrected, NO_SELECTION);
 }
 
 /// Needs a filesystem that accepts a file name that is not UTF-8.
@@ -1445,6 +1457,8 @@ fn a_judgment_id_prefix_must_name_one_judgment() {
             items: Vec::new(),
             reason: None,
             text: Some("Twin.".to_owned()),
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             who: Who {
@@ -1671,6 +1685,8 @@ fn list_indexes_each_gate_once_however_many_reviews_are_related() {
             items: Vec::new(),
             reason: None,
             text: Some("Again.".to_owned()),
+            decision: None,
+            correction: None,
             closes: BTreeMap::new(),
             withdraws: Vec::new(),
             who: Who {
@@ -1758,6 +1774,12 @@ fn info(judgment: &Judgment) -> Value {
     }
     if let Some(text) = &judgment.text {
         info["text"] = json!(text);
+    }
+    if let Some(decision) = &judgment.decision {
+        info["decision"] = json!(decision);
+    }
+    if let Some(correction) = judgment.correction {
+        info["correction"] = json!(correction);
     }
     info
 }
@@ -1887,6 +1909,8 @@ fn show_prints_the_review_as_json() {
             {"judgment": info(&on_item), "items": ["src/new.rs"]},
         ])
     );
+    // A review without corrections lists none.
+    assert_eq!(printed.get("corrections"), None);
     assert_eq!(
         printed["history"],
         json!([{
@@ -2128,4 +2152,615 @@ fn history_names_the_item_of_a_withdrawn_comment() {
     assert!(text.contains(&line), "{text}");
     let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(printed["history"][0]["items"], json!(["old.txt"]));
+}
+
+/// The sessions behind [`annotated`]'s decisions. Both have a decision
+/// `d1`, so a review names each by its session's first 8 characters.
+const SESSIONS: [&str; 2] = [
+    "3f2a9c1e-5b7d-4c1a-9e3f-0a1b2c3d4e5f",
+    "9c0d1e2f-6a8b-4d2c-8f4e-1b2c3d4e5f60",
+];
+
+/// `session`'s decision `id`, read from revision 1 in record `r1`, as a
+/// review shows it under `name`.
+fn shown(session: &str, id: &str, name: &str) -> BasisDecision {
+    BasisDecision {
+        decision: DecisionRef {
+            record: RecordId::new("r1"),
+            session: SessionId::new(session),
+            revision: AnnotationRevision::new(1),
+            id: id.to_owned(),
+        },
+        name: name.to_owned(),
+    }
+}
+
+/// The reference a correction of `decision` records.
+fn reference(decision: &BasisDecision) -> DecisionRef {
+    decision.decision.clone()
+}
+
+/// The slice fixture reviewed, then saved again as a review showing
+/// `decisions` and selected in the worktree, as `review` saves a review of
+/// annotated sessions. Leaves all four gate items open. Returns the saved
+/// review and its id.
+fn showing(decisions: Vec<BasisDecision>) -> (Fixture, Basis, BasisId) {
+    let (f, review) = reviewed();
+    let mut basis: Basis = serde_json::from_value(review["basis"]["document"].clone()).unwrap();
+    basis.decisions = decisions;
+    let store = review_store(&f, &f.reviews());
+    let mut tx = store.begin().unwrap();
+    let id = tx.save_basis(&basis, UtcTime::now()).unwrap();
+    tx.select(&f.repo, &id);
+    tx.commit(UtcTime::now()).unwrap();
+    (f, basis, id)
+}
+
+/// A review showing the first of `sessions`' `d1`, the second's `d1`, each
+/// qualified by its session's first 8 characters, and the first's `d2`, in
+/// that order, which sorts them by name.
+fn annotated(sessions: [&str; 2]) -> (Fixture, Basis, BasisId) {
+    let qualified = |session: &str| format!("{}:d1", session.chars().take(8).collect::<String>());
+    showing(vec![
+        shown(sessions[0], "d1", &qualified(sessions[0])),
+        shown(sessions[1], "d1", &qualified(sessions[1])),
+        shown(sessions[0], "d2", "d2"),
+    ])
+}
+
+/// Runs `command`, which clap refuses, and checks that it exits 2, prints
+/// no standard output, and records no judgment or ref. Returns its
+/// standard error.
+fn misused(f: &Fixture, command: &mut Command) -> String {
+    let before = (recorded(f), refs(f));
+    let output = command.output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stdout.is_empty());
+    assert_eq!((recorded(f), refs(f)), before);
+    String::from_utf8(output.stderr).unwrap()
+}
+
+#[test]
+fn a_correction_of_each_kind_records_the_decision_it_names_and_closes_nothing() {
+    let (f, basis, id) = annotated(SESSIONS);
+    let id8 = id.short();
+
+    let wrong = judged(
+        &f,
+        &f.repo,
+        &["correct", "d2", "--wrong", "--reason", "Per store."],
+    );
+    let apart = judged(
+        &f,
+        &f.repo,
+        &[
+            "correct",
+            "3f2a9c1e:d1",
+            "--not-together",
+            "--reason",
+            "Two changes.",
+        ],
+    );
+    // A session prefix qualifies the shared id.
+    let constraint = judged(
+        &f,
+        &f.repo,
+        &["correct", "9c0d:d1", "--constraint", "Sync once."],
+    );
+
+    let judgments = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    let decisions = &basis.decisions;
+    for (judgment, decision, kind, reason, text) in [
+        (
+            &judgments[0],
+            &decisions[2],
+            CorrectionKind::Wrong,
+            Some("Per store."),
+            None,
+        ),
+        (
+            &judgments[1],
+            &decisions[0],
+            CorrectionKind::NotTogether,
+            Some("Two changes."),
+            None,
+        ),
+        (
+            &judgments[2],
+            &decisions[1],
+            CorrectionKind::Constraint,
+            None,
+            Some("Sync once."),
+        ),
+    ] {
+        assert_eq!(judgment.kind, JudgmentKind::Correct);
+        assert_eq!(judgment.basis, id);
+        assert_eq!(judgment.decision, Some(reference(decision)));
+        assert_eq!(judgment.correction, Some(kind));
+        assert_eq!(judgment.reason.as_deref(), reason);
+        assert_eq!(judgment.text.as_deref(), text);
+        assert!(judgment.items.is_empty());
+        assert!(judgment.closes.is_empty());
+        assert!(judgment.withdraws.is_empty());
+    }
+    let review = format!("review {id8} (working tree over {})", head(&f));
+    let gate = format!(
+        "Gate: 4 open: old.txt, lines:src/lib.rs, src/new.rs, gap:src/lib.rs.\n{}",
+        next("old.txt lines:src/lib.rs src/new.rs gap:src/lib.rs")
+    );
+    assert_eq!(
+        wrong,
+        format!(
+            "Corrected d2 on {review}: explanation wrong.\n\
+             Kept the reviewed snapshot as refs/supersigil/reviews/{id8}…\n\
+             Judgment {}. {gate}",
+            judgments[0].id.short()
+        )
+    );
+    assert_eq!(
+        apart,
+        format!(
+            "Corrected 3f2a9c1e:d1 on {review}: edits do not belong together.\nJudgment {}. \
+             {gate}",
+            judgments[1].id.short()
+        )
+    );
+    assert_eq!(
+        constraint,
+        format!(
+            "Corrected 9c0d1e2f:d1 on {review}: constraint.\nJudgment {}. {gate}",
+            judgments[2].id.short()
+        )
+    );
+}
+
+#[test]
+fn a_correction_prints_as_json_with_its_decision_and_kind() {
+    let (f, _, id) = annotated(SESSIONS);
+
+    // Piped, so `auto` prints JSON.
+    let output = judge(
+        &f,
+        &f.repo,
+        &["correct", "d2", "--wrong", "--reason", "Per store."],
+    )
+    .output()
+    .unwrap();
+
+    assert!(output.status.success());
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let [judgment] = <[Judgment; 1]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(
+        printed["judgment"],
+        serde_json::to_value(&judgment).unwrap()
+    );
+    assert_eq!(
+        printed["judgment"]["decision"],
+        json!({"record": "r1", "session": SESSIONS[0], "revision": 1, "id": "d2"})
+    );
+    assert_eq!(printed["judgment"]["correction"], "wrong");
+    assert_eq!(printed["review"], id.as_str());
+    assert_eq!(printed["gate"]["open"], 4);
+    assert_eq!(
+        printed["status"],
+        json!({"complete": false, "completion": null})
+    );
+}
+
+#[test]
+fn a_correction_neither_blocks_a_completion_nor_withdraws_one() {
+    let (f, _, _) = annotated(SESSIONS);
+    judged(
+        &f,
+        &f.repo,
+        &[
+            "acknowledge",
+            "old.txt",
+            "lines:src/lib.rs",
+            "src/new.rs",
+            "gap:src/lib.rs",
+        ],
+    );
+
+    let before = judged(
+        &f,
+        &f.repo,
+        &["correct", "d2", "--wrong", "--reason", "Per store."],
+    );
+    judged(&f, &f.repo, &["complete"]);
+    let after = judged(
+        &f,
+        &f.repo,
+        &["correct", "3f2a9c1e:d1", "--constraint", "Sync once."],
+    );
+    let shown = judged(&f, &f.repo, &["show"]);
+
+    let [_, disputed, completion, constraint] = <[Judgment; 4]>::try_from(recorded(&f)).unwrap();
+    assert!(
+        before.ends_with(&format!(
+            "\nJudgment {}. Gate: 0 open. Review not yet complete.\nNext: supersigil judge \
+             complete\n",
+            disputed.id.short()
+        )),
+        "{before}"
+    );
+    assert_eq!(completion.kind, JudgmentKind::Complete);
+    assert!(
+        after.ends_with(&format!(
+            "\nJudgment {}. Gate: 0 open. Review complete.\n",
+            constraint.id.short()
+        )),
+        "{after}"
+    );
+    assert!(
+        shown.contains(&format!(
+            "\nReview complete: completed on {} by {NAME} (judgment {}).\n",
+            completion.at.date(),
+            completion.id.short()
+        )),
+        "{shown}"
+    );
+}
+
+#[test]
+fn a_correction_names_one_decision_the_review_shows() {
+    let (f, _, _) = annotated(SESSIONS);
+    let correct = |name: &str| {
+        refused(
+            &f,
+            &mut judge(
+                &f,
+                &f.repo,
+                &["correct", name, "--wrong", "--reason", "Not why."],
+            ),
+        )
+    };
+    let unknown = |typed: &str| {
+        format!(
+            "No judgment recorded. No decision {typed} on this review. Decisions: 3f2a9c1e:d1, \
+             9c0d1e2f:d1, d2.\n"
+        )
+    };
+    let several = |typed: &str| {
+        format!(
+            "No judgment recorded. {typed} names several decisions: 3f2a9c1e:d1, 9c0d1e2f:d1. \
+             Give the qualified name.\n"
+        )
+    };
+
+    assert_eq!(correct("d7"), unknown("d7"));
+    // A session prefix qualifies only the ids its sessions have.
+    assert_eq!(correct("9c0d:d2"), unknown("9c0d:d2"));
+    assert_eq!(correct("d1"), several("d1"));
+    // An empty prefix is every session's.
+    assert_eq!(correct(":d1"), several(":d1"));
+}
+
+#[test]
+fn a_refused_correction_lists_at_most_20_decisions() {
+    let names: Vec<String> = (1..=25).map(|k| format!("d{k:02}")).collect();
+    let (f, _, _) = showing(
+        names
+            .iter()
+            .map(|name| shown(SESSIONS[0], name, name))
+            .collect(),
+    );
+
+    let message = refused(
+        &f,
+        &mut judge(
+            &f,
+            &f.repo,
+            &["correct", "d26", "--constraint", "Sync once."],
+        ),
+    );
+
+    assert_eq!(
+        message,
+        format!(
+            "No judgment recorded. No decision d26 on this review. Decisions: {} … and 5 more.\n",
+            names[..20].join(", ")
+        )
+    );
+}
+
+#[test]
+fn a_review_without_decisions_has_none_to_correct() {
+    let (f, _) = reviewed();
+
+    let message = refused(
+        &f,
+        &mut judge(
+            &f,
+            &f.repo,
+            &["correct", "d1", "--wrong", "--reason", "Not why."],
+        ),
+    );
+
+    assert_eq!(
+        message,
+        "No judgment recorded. No decision d1 on this review. This review shows no decisions.\n"
+    );
+}
+
+#[test]
+fn a_correction_is_never_blank() {
+    let (f, _, _) = annotated(SESSIONS);
+
+    let calls: [(&[&str], &str); 3] = [
+        (
+            &["correct", "d2", "--constraint", " "],
+            "A constraint can't be blank.",
+        ),
+        (
+            &["correct", "d2", "--wrong", "--reason", ""],
+            "A reason can't be blank.",
+        ),
+        (
+            &["correct", "d2", "--not-together", "--reason", "\t"],
+            "A reason can't be blank.",
+        ),
+    ];
+    for (args, message) in calls {
+        assert_eq!(
+            refused(&f, &mut judge(&f, &f.repo, args)),
+            format!("No judgment recorded. {message}\n"),
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
+fn a_correction_takes_one_kind_and_a_reason_for_a_dispute() {
+    let (f, _, _) = annotated(SESSIONS);
+    let usage = |args: &[&str]| {
+        misused(
+            &f,
+            &mut judge(&f, &f.repo, &[&["correct", "d2"], args].concat()),
+        )
+    };
+
+    let unreasoned = usage(&["--wrong"]);
+    let ungrouped = usage(&["--not-together"]);
+    let kindless = usage(&["--reason", "Not why."]);
+    let twice = usage(&["--wrong", "--not-together", "--reason", "Not why."]);
+    let reasoned = usage(&["--constraint", "Sync once.", "--reason", "Not why."]);
+
+    for message in [&unreasoned, &ungrouped] {
+        assert!(
+            message.contains(
+                "error: the following required arguments were not provided:\n  --reason <REASON>"
+            ),
+            "{message}"
+        );
+    }
+    assert!(
+        kindless.contains(
+            "error: the following required arguments were not provided:\n  \
+             <--wrong|--not-together|--constraint <TEXT>>"
+        ),
+        "{kindless}"
+    );
+    assert!(
+        twice.contains("error: the argument '--wrong' cannot be used with '--not-together'"),
+        "{twice}"
+    );
+    assert!(
+        reasoned.contains(
+            "error: the argument '--constraint <TEXT>' cannot be used with '--reason <REASON>'"
+        ),
+        "{reasoned}"
+    );
+}
+
+#[test]
+fn correct_help_explains_each_kind_of_correction() {
+    let output = common::supersigil_cmd()
+        .args(["judge", "correct", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    for text in [
+        "Record that its explanation is wrong (--wrong), that its edits do not belong together \
+         (--not-together), or what the actual constraint was (--constraint).",
+        // After the binary's name, which Windows prints with its extension.
+        " judge correct [OPTIONS] <--wrong|--not-together|--constraint <TEXT>> <DECISION>",
+        "<DECISION>\n          The decision's name as `supersigil review` prints it",
+        "--wrong\n          Its explanation is wrong: the rationale given is not why it was done",
+        "--not-together\n          The edits it cites do not belong together",
+        "--constraint <TEXT>\n          The actual constraint behind it, shown before its \
+         rationale",
+        "--reason <REASON>\n          Why, recorded with --wrong or --not-together",
+    ] {
+        assert!(help.contains(text), "{text:?} not in:\n{help}");
+    }
+}
+
+#[test]
+fn undoing_a_correction_by_id_withdraws_it_from_show() {
+    let (f, _, id) = annotated(SESSIONS);
+    let id8 = id.short();
+    judged(
+        &f,
+        &f.repo,
+        &["correct", "d2", "--wrong", "--reason", "Per store."],
+    );
+    judged(
+        &f,
+        &f.repo,
+        &["correct", "9c0d1e2f:d1", "--constraint", "Sync once."],
+    );
+    let [wrong, constraint] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
+    let show = || {
+        let output = judge(&f, &f.repo, &["show"]).output().unwrap();
+        assert!(output.status.success());
+        let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (judged(&f, &f.repo, &["show"]), printed)
+    };
+
+    let (listed, listed_json) = show();
+    let undone = judged(&f, &f.repo, &["undo", "--judgment", wrong.id.short()]);
+    let (after, after_json) = show();
+
+    let [.., undo] = <[Judgment; 3]>::try_from(recorded(&f)).unwrap();
+    assert_eq!(undo.withdraws, [withdrawal(&wrong, None)]);
+    let date = wrong.at.date();
+    assert_eq!(
+        undone,
+        format!(
+            "Undid judgment {} on review {id8} (working tree over {}).\n\
+             Withdrew your correction of d2 ({date}, review {id8}).\n\
+             Judgment {}. Gate: 4 open: old.txt, lines:src/lib.rs, src/new.rs, gap:src/lib.rs.\n{}",
+            wrong.id.short(),
+            head(&f),
+            undo.id.short(),
+            next("old.txt lines:src/lib.rs src/new.rs gap:src/lib.rs")
+        )
+    );
+    let constraint_row = format!(
+        "  9c0d1e2f:d1  constraint         {date}  {NAME} (judgment {}): \"Sync once.\"\n",
+        constraint.id.short()
+    );
+    assert!(
+        listed.contains(&format!(
+            "\n\nCorrections:\n  d2           explanation wrong  {date}  {NAME} (judgment {}): \
+             \"Per store.\"\n{constraint_row}\n",
+            wrong.id.short()
+        )),
+        "{listed}"
+    );
+    assert!(
+        after.contains(&format!(
+            "\n\nCorrections:\n  9c0d1e2f:d1  constraint  {date}  {NAME} (judgment {}): \"Sync \
+             once.\"\n\nHistory:\n  correction of d2 by {NAME} on {date} (judgment {}), \
+             withdrawn by {NAME} on {} (judgment {})\n",
+            constraint.id.short(),
+            wrong.id.short(),
+            undo.at.date(),
+            undo.id.short()
+        )),
+        "{after}"
+    );
+    assert_eq!(
+        listed_json["corrections"],
+        json!([
+            {"judgment": info(&wrong), "decision": "d2"},
+            {"judgment": info(&constraint), "decision": "9c0d1e2f:d1"},
+        ])
+    );
+    assert_eq!(
+        after_json["corrections"],
+        json!([{"judgment": info(&constraint), "decision": "9c0d1e2f:d1"}])
+    );
+    assert_eq!(
+        after_json["history"],
+        json!([{
+            "judgment": info(&wrong),
+            "items": [],
+            "decision": "d2",
+            "undo": info(&undo),
+        }])
+    );
+}
+
+#[test]
+fn a_correction_of_a_decision_the_review_does_not_list_is_named_by_its_reference() {
+    let (f, _, id) = annotated(SESSIONS);
+    // Recorded on this review without `judge`, naming a decision it never
+    // showed.
+    let unlisted = Judgment {
+        id: JudgmentId::generate(),
+        basis: id.clone(),
+        kind: JudgmentKind::Correct,
+        items: Vec::new(),
+        reason: Some("Gone.".to_owned()),
+        text: None,
+        decision: Some(DecisionRef {
+            record: RecordId::new("r2"),
+            session: SessionId::new("0123456789abcdef"),
+            revision: AnnotationRevision::new(2),
+            id: "d9".to_owned(),
+        }),
+        correction: Some(CorrectionKind::Wrong),
+        closes: BTreeMap::new(),
+        withdraws: Vec::new(),
+        who: Who {
+            name: NAME.to_owned(),
+            email: EMAIL.to_owned(),
+        },
+        at: UtcTime::now(),
+    };
+    let store = review_store(&f, &f.reviews());
+    let mut tx = store.begin().unwrap();
+    tx.append_judgment(&unlisted).unwrap();
+    tx.commit(UtcTime::now()).unwrap();
+
+    let listed = judged(&f, &f.repo, &["show"]);
+    let undone = judged(&f, &f.repo, &["undo", "--judgment", unlisted.id.short()]);
+
+    assert!(
+        listed.contains(&format!(
+            "\nCorrections:\n  01234567:d9  explanation wrong  {}  ",
+            unlisted.at.date()
+        )),
+        "{listed}"
+    );
+    assert!(
+        undone.contains(&format!(
+            "\nWithdrew your correction of 01234567:d9 ({}, review {}).\n",
+            unlisted.at.date(),
+            id.short()
+        )),
+        "{undone}"
+    );
+}
+
+#[test]
+fn decision_names_print_with_their_control_bytes_escaped() {
+    // A session id holds whatever the transcript gave it.
+    let planted = "3f2a\u{1b}9c1e-5b7d-4c1a-9e3f-0a1b2c3d4e5f";
+    let (f, _, _) = annotated([planted, SESSIONS[1]]);
+    let escaped = "3f2a\\x1b9c1:d1";
+
+    let unknown = refused(
+        &f,
+        &mut judge(
+            &f,
+            &f.repo,
+            &["correct", "d7\u{1b}[2J", "--wrong", "--reason", "Not why."],
+        ),
+    );
+    let corrected = judged(
+        &f,
+        &f.repo,
+        &["correct", "3f2a:d1", "--wrong", "--reason", "Not why."],
+    );
+    let listed = judged(&f, &f.repo, &["show"]);
+    let output = judge(&f, &f.repo, &["show"]).output().unwrap();
+
+    assert_eq!(
+        unknown,
+        format!(
+            "No judgment recorded. No decision d7\\x1b[2J on this review. Decisions: {escaped}, \
+             9c0d1e2f:d1, d2.\n"
+        )
+    );
+    assert!(
+        corrected.starts_with(&format!("Corrected {escaped} on review ")),
+        "{corrected}"
+    );
+    assert!(
+        listed.contains(&format!("\nCorrections:\n  {escaped}  explanation wrong  ")),
+        "{listed}"
+    );
+    // JSON holds the name whole.
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["corrections"][0]["decision"], "3f2a\u{1b}9c1:d1");
 }

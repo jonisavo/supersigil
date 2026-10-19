@@ -69,6 +69,8 @@ fn review(worktree: &str, target: char, materials: [Option<&str>; 2]) -> (BasisI
         algorithms: Algorithms { derivation: 2 },
         explanations: Vec::new(),
         capture: Vec::new(),
+        annotations: Vec::new(),
+        decisions: Vec::new(),
         gate,
         salt: None,
     };
