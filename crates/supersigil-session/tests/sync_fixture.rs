@@ -330,7 +330,7 @@ fn capture_limitations_are_recorded_with_the_cursor_advance() {
         std::slice::from_ref(&plain.transcript),
     )
     .unwrap();
-    assert!(limitations(&plain.store).is_empty());
+    assert_eq!(limitations(&plain.store), []);
 
     let mut bytes = fixture();
     bytes.extend_from_slice(
@@ -633,10 +633,10 @@ fn a_transcript_from_another_checkout_is_skipped() {
     assert_eq!(transcript.new_observations, 0);
     assert_eq!(transcript.consumed, 0);
     assert_eq!(report.new_observations, 0);
-    assert!(report.sessions.is_empty());
+    assert_eq!(report.sessions, []);
 
     let snapshot = s.store.snapshot().unwrap();
-    assert!(snapshot.sessions().is_empty());
+    assert_eq!(snapshot.sessions(), []);
     assert!(
         !snapshot
             .manifest()
@@ -647,7 +647,7 @@ fn a_transcript_from_another_checkout_is_skipped() {
     // The same transcript is still skipped on the next call.
     let again = sync(&s.store, &s.checkout, std::slice::from_ref(&s.transcript)).unwrap();
     assert!(again.transcripts[0].skipped.is_some());
-    assert!(s.store.snapshot().unwrap().sessions().is_empty());
+    assert_eq!(s.store.snapshot().unwrap().sessions(), []);
 }
 
 /// Expresses `absolute` as a path relative to the current directory.
@@ -876,7 +876,7 @@ fn a_session_start_is_never_given_the_requested_checkout() {
     let manifest = s.store.manifest().unwrap();
     assert_eq!(manifest.revision.get(), 0);
     assert!(manifest.cursors.is_empty());
-    assert!(s.store.snapshot().unwrap().sessions().is_empty());
+    assert_eq!(s.store.snapshot().unwrap().sessions(), []);
 }
 
 /// A prompt, a harness-confirmed and an unconfirmed heredoc write, and a

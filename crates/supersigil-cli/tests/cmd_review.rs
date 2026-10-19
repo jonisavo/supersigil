@@ -198,7 +198,7 @@ fn review_slice_fixture() {
     let old = file(&review, "old.txt");
     assert_eq!(old["status"], "deleted");
     let removed = side_lines(old, "base");
-    assert!(!removed.is_empty());
+    assert!(!removed.is_empty(), "{old}");
     assert!(removed.iter().all(|(_, o)| o["kind"] == "unattributed"));
     let mentions = old["mentions"].as_array().unwrap();
     assert!(
@@ -251,12 +251,7 @@ fn review_slice_with_include_untracked() {
         added[0].1["edits"][0]["edit"],
         edit_of(SLICE_SESSION, "toolu_02")
     );
-    assert!(
-        review["scope"]["untracked_excluded"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(review["scope"]["untracked_excluded"], json!([]));
 }
 
 #[test]
@@ -488,7 +483,7 @@ fn review_commit_target_without_reflog_is_unattributed() {
     let review = f.json(&f.repo, &["review", "--target", "HEAD", "--format", "json"]);
 
     assert_eq!(review["origins"]["without_origin"], json!([head]));
-    assert!(review["records"].as_array().unwrap().is_empty());
+    assert_eq!(review["records"], json!([]));
     let added = side_lines(file(&review, "src/new.rs"), "target");
     assert_eq!(added[0].1["kind"], "unattributed");
 }
@@ -675,7 +670,7 @@ fn review_reports_unreconciled_checkout() {
     let review = f.json(&f.repo, &["review", "--format", "json"]);
 
     assert!(started.elapsed() < Duration::from_secs(30));
-    assert!(review["records"].as_array().unwrap().is_empty());
+    assert_eq!(review["records"], json!([]));
     let unreconciled = &review["evidence"]["unreconciled_checkouts"][0];
     assert_eq!(unreconciled["checkout"], f.repo.display().to_string());
     assert_eq!(unreconciled["transcripts"], 1);
@@ -722,7 +717,8 @@ fn review_keeps_capture_limitations_when_everything_is_attributed() {
         !limited["capture_limitations"]
             .as_array()
             .unwrap()
-            .is_empty()
+            .is_empty(),
+        "{limited}"
     );
     assert_eq!(limited["localized"], false);
     f.supersigil(&f.repo, &terminal_args)
@@ -942,7 +938,7 @@ fn a_root_path_selector_reviews_everything() {
         .map(|f| f["path"].as_str().unwrap())
         .collect();
     assert_eq!(paths, ["README.md", "src/lib.rs"]);
-    assert!(review["scope"]["paths"].as_array().unwrap().is_empty());
+    assert_eq!(review["scope"]["paths"], json!([]));
     assert!(
         review["scope"]["path_note"]
             .as_str()

@@ -85,7 +85,7 @@ fn working_tree_defaults_to_a_head_base() {
         matches!(&range.target, ResolvedTarget::WorkingTree { head: Some(h) } if h.as_str() == head)
     );
     assert_eq!(range.ancestry, Ancestry::Ancestor);
-    assert!(range.commits(&opened).unwrap().is_empty());
+    assert_eq!(range.commits(&opened).unwrap(), []);
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn unborn_head_without_a_base_reviews_against_the_empty_tree() {
     assert_eq!(range.base.tree, opened.empty_tree().unwrap());
     assert_eq!(range.target, ResolvedTarget::WorkingTree { head: None });
     assert_eq!(range.ancestry, Ancestry::Unavailable);
-    assert!(range.commits(&opened).unwrap().is_empty());
+    assert_eq!(range.commits(&opened).unwrap(), []);
 }
 
 #[test]

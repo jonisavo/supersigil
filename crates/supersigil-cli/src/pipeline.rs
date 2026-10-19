@@ -1691,7 +1691,7 @@ mod tests {
         let typed =
             |paths: &[&str]| -> Vec<String> { paths.iter().map(|p| (*p).to_owned()).collect() };
         let (paths, whole) = path_filters(root, root, &typed(&["src", "."])).unwrap();
-        assert!(paths.is_empty());
+        assert_eq!(paths, []);
         assert!(whole);
         path_filters(root, root, &typed(&[".", "../other/a.rs"])).unwrap_err();
     }
@@ -1718,7 +1718,8 @@ mod tests {
         assert_eq!(found(&folded, &lib), ["a", "c"]);
         assert_eq!(folded.all(), ["a", "b", "c"]);
         // A path that is not UTF-8 matches no mapped path.
-        assert!(found(&folded, &RepoPath::new(b"src/\xff".to_vec())).is_empty());
+        let unmatched = found(&folded, &RepoPath::new(b"src/\xff".to_vec()));
+        assert!(unmatched.is_empty(), "{unmatched:?}");
     }
 
     #[test]

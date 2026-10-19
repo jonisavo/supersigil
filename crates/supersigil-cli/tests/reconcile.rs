@@ -140,7 +140,7 @@ fn subdirectory_record_is_involved() {
     assert_eq!(involved.record_id, store.manifest().unwrap().record_id);
     assert_eq!(involved.not_reconciled, None);
     assert_eq!(sessions(&involved.store), vec!["s-sub"]);
-    assert!(result.unreconciled.is_empty());
+    assert_eq!(result.unreconciled, []);
 }
 
 #[test]
@@ -232,11 +232,8 @@ fn transcripts_below_finds_the_worktree_and_nested_project_dirs() {
         transcripts_below(&f.home, &f.repo).unwrap(),
         vec![own, inner, similar]
     );
-    assert!(
-        transcripts_below(&f.root.join("no-home"), &f.repo)
-            .unwrap()
-            .is_empty()
-    );
+    let without_home = transcripts_below(&f.root.join("no-home"), &f.repo).unwrap();
+    assert!(without_home.is_empty(), "{without_home:?}");
 }
 
 #[test]
@@ -289,7 +286,7 @@ fn lookalike_project_dir_is_not_admitted() {
     .unwrap();
 
     assert!(result.records.is_empty());
-    assert!(result.unreconciled.is_empty());
+    assert_eq!(result.unreconciled, []);
 }
 
 #[test]
@@ -317,7 +314,8 @@ fn writer_lock_contention_is_reported() {
         result.records[0].not_reconciled.as_deref(),
         Some("locked by another writer")
     );
-    assert!(sessions(&result.records[0].store).is_empty());
+    let stored = sessions(&result.records[0].store);
+    assert!(stored.is_empty(), "{stored:?}");
     drop(held);
 }
 
@@ -391,7 +389,7 @@ fn ancestor_project_dir_is_reconciled_for_a_nested_worktree() {
     assert_eq!(sessions(&result.records[0].store), vec!["s-main"]);
     let associations = result.records[0].store.manifest().unwrap().associations;
     assert_eq!(associations[0].checkout, f.repo);
-    assert!(result.unreconciled.is_empty());
+    assert_eq!(result.unreconciled, []);
 }
 
 /// Makes `dir` unreadable, or returns `false` when the process can still
@@ -513,7 +511,7 @@ fn a_transcript_removed_before_a_record_reads_it_leaves_the_record_unreconciled(
     assert_eq!(sessions(&store), vec!["s-kept"]);
     assert_eq!(result.removed, vec![gone]);
     // Reported once, for the record that listed it.
-    assert!(result.unreconciled.is_empty());
+    assert_eq!(result.unreconciled, []);
 }
 
 #[test]
@@ -570,6 +568,6 @@ fn writer_lock_only_contention_names_the_owning_record() {
         result.records[0].not_reconciled.as_deref(),
         Some("locked by another writer")
     );
-    assert!(result.unreconciled.is_empty());
+    assert_eq!(result.unreconciled, []);
     drop(held);
 }

@@ -543,7 +543,8 @@ fn ids_must_be_64_lowercase_hex_digits() {
 fn fingerprints_match_when_every_part_is_known_and_equal() {
     let a = fingerprint(&[("content", known("x")), ("kind", known("binary"))]);
     assert!(a.matches(&a.clone()));
-    assert!(a.differing(&a.clone()).is_empty());
+    let differing = a.differing(&a.clone());
+    assert!(differing.is_empty(), "{differing:?}");
     assert!(!a.has_unknown());
 
     let content_changed = fingerprint(&[("content", known("y")), ("kind", known("binary"))]);

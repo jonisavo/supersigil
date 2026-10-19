@@ -96,7 +96,7 @@ fn refused(f: &Fixture, command: &mut Command) -> String {
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert_eq!((recorded(f), refs(f)), before);
     String::from_utf8(output.stderr).unwrap()
 }
@@ -336,7 +336,7 @@ fn a_comment_on_the_review_or_on_an_item_closes_nothing() {
 
     let [whole, of_item] = <[Judgment; 2]>::try_from(recorded(&f)).unwrap();
     assert_eq!(whole.kind, JudgmentKind::Comment);
-    assert!(whole.items.is_empty());
+    assert_eq!(whole.items, []);
     assert_eq!(whole.text.as_deref(), Some("Careful work."));
     assert_eq!(of_item.kind, JudgmentKind::Comment);
     assert_eq!(of_item.items, [item(&review, "src/new.rs")]);
@@ -1390,7 +1390,7 @@ fn undoing_a_judgment_by_id_withdraws_it_whole() {
     let [.., first, second, again, third] = <[Judgment; 8]>::try_from(recorded(&f)).unwrap();
     for undo in [&first, &second, &third] {
         assert_eq!(undo.kind, JudgmentKind::Undo);
-        assert!(undo.items.is_empty());
+        assert_eq!(undo.items, []);
     }
     assert_eq!(first.withdraws, [withdrawal(&comment, None)]);
     assert_eq!(second.withdraws, [withdrawal(&completion, None)]);
@@ -1988,7 +1988,7 @@ fn show_needs_a_review_to_show() {
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "");
         String::from_utf8(output.stderr).unwrap()
     };
 
@@ -2220,7 +2220,7 @@ fn misused(f: &Fixture, command: &mut Command) -> String {
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert_eq!((recorded(f), refs(f)), before);
     String::from_utf8(output.stderr).unwrap()
 }
@@ -2284,9 +2284,9 @@ fn a_correction_of_each_kind_records_the_decision_it_names_and_closes_nothing() 
         assert_eq!(judgment.correction, Some(kind));
         assert_eq!(judgment.reason.as_deref(), reason);
         assert_eq!(judgment.text.as_deref(), text);
-        assert!(judgment.items.is_empty());
-        assert!(judgment.closes.is_empty());
-        assert!(judgment.withdraws.is_empty());
+        assert_eq!(judgment.items, []);
+        assert_eq!(judgment.closes, BTreeMap::new());
+        assert_eq!(judgment.withdraws, []);
     }
     let review = format!("review {id8} (working tree over {})", head(&f));
     let gate = format!(

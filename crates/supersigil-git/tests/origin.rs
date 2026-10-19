@@ -60,7 +60,11 @@ fn commit_and_amend_are_origins() {
     let origins = origins_of(&repo, &[&first, &amended]);
     assert_eq!(origin_dirs(&origins, &first), [canonical(&repo.root)]);
     assert_eq!(origin_dirs(&origins, &amended), [canonical(&repo.root)]);
-    assert!(origins.without_origin.is_empty());
+    assert!(
+        origins.without_origin.is_empty(),
+        "{:?}",
+        origins.without_origin
+    );
 }
 
 #[test]
@@ -307,9 +311,9 @@ fn an_expired_reflog_leaves_commits_without_origin() {
     repo.write("a.txt", b"a\n");
     let commit = repo.commit_all("first");
     repo.run(&["reflog", "expire", "--expire=now", "--all"]);
-    assert!(head_reflog(&repo.repo(), &repo.root).unwrap().is_empty());
+    assert_eq!(head_reflog(&repo.repo(), &repo.root).unwrap(), []);
     let origins = origins_of(&repo, &[&commit]);
-    assert!(origins.commits.is_empty());
+    assert_eq!(origins.commits, []);
     assert_eq!(origins.without_origin, [id(&commit)]);
 }
 
@@ -398,7 +402,7 @@ fn a_head_reflog_kept_outside_a_file_is_unavailable_not_absent() {
         return;
     };
     // Unborn and never moved: git reports no HEAD reflog, so none is read.
-    assert!(head_reflog(&repo.repo(), &repo.root).unwrap().is_empty());
+    assert_eq!(head_reflog(&repo.repo(), &repo.root).unwrap(), []);
     repo.write("a.txt", b"a\n");
     let commit = repo.commit_all("first");
     let entries = head_reflog(&repo.repo(), &repo.root);
@@ -421,7 +425,7 @@ fn a_head_reflog_kept_outside_a_file_is_unavailable_not_absent() {
 #[test]
 fn an_unborn_worktree_has_no_reflog_entries() {
     let repo = TestRepo::new();
-    assert!(head_reflog(&repo.repo(), &repo.root).unwrap().is_empty());
+    assert_eq!(head_reflog(&repo.repo(), &repo.root).unwrap(), []);
 }
 
 #[test]

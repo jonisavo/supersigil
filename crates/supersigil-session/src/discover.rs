@@ -161,11 +161,8 @@ mod tests {
                 subagents.join("agent-x.jsonl"),
             ]
         );
-        assert!(
-            discover_transcripts(Path::new("/nowhere"), home.path())
-                .unwrap()
-                .is_empty()
-        );
+        let nowhere = discover_transcripts(Path::new("/nowhere"), home.path()).unwrap();
+        assert!(nowhere.is_empty(), "{nowhere:?}");
     }
 
     #[test]
@@ -180,10 +177,7 @@ mod tests {
             transcripts_in(&dir).unwrap(),
             vec![dir.join("s1.jsonl"), subagents.join("agent-y.jsonl")]
         );
-        assert!(
-            transcripts_in(&home.path().join("missing"))
-                .unwrap()
-                .is_empty()
-        );
+        let found = transcripts_in(&home.path().join("missing")).unwrap();
+        assert!(found.is_empty(), "{found:?}");
     }
 }

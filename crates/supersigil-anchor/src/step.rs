@@ -1095,7 +1095,7 @@ mod tests {
     fn a_search_that_cannot_match_prepares_nothing() {
         let needle = vec![b'a'; 64];
         let matches = Matches::new(b"aaa", &needle, Reading::Every);
-        assert!(matches.border.is_empty());
+        assert!(matches.border.is_empty(), "{:?}", matches.border);
         assert_eq!(matches.count(), 0);
     }
 

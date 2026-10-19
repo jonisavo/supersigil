@@ -2603,7 +2603,8 @@ fn a_correction_names_no_items_and_keeps_its_decision_when_its_items_are_resolve
         kind: CorrectionKind::Wrong,
         words,
     };
-    assert!(typed.items().is_empty());
+    let items = typed.items();
+    assert!(items.is_empty(), "{items:?}");
     assert_eq!(typed.kind(), JudgmentKind::Correct);
     assert_eq!(
         typed.naming::<ItemId>(&[]),

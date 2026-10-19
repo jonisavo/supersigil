@@ -901,7 +901,7 @@ fn judgments_are_appended_and_read_back_at_the_pinned_length() {
     let dir = tempfile::tempdir().unwrap();
     let store = new_store(dir.path());
     let id = save(&store, &basis("/work/repo", 'a'), at(0));
-    assert!(store.snapshot().unwrap().judgments().unwrap().is_empty());
+    assert_eq!(store.snapshot().unwrap().judgments().unwrap(), []);
 
     let first = acknowledgment(&id, at(1));
     judge(&store, &first);

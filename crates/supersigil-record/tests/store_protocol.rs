@@ -1061,13 +1061,9 @@ fn dropped_transaction_leaves_manifest_unchanged_and_releases_lock() {
     assert!(manifest.sessions.is_empty());
     assert!(manifest.logs.is_empty());
     assert!(manifest.cursors.is_empty());
-    assert!(
-        store
-            .snapshot()
-            .unwrap()
-            .observations(&session())
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        store.snapshot().unwrap().observations(&session()).unwrap(),
+        []
     );
     // The lock was released with the transaction.
     store.begin().unwrap();
@@ -1287,7 +1283,8 @@ fn initial_publish_never_truncates_an_existing_manifest() {
         Err(StoreError::AlreadyExists(_))
     ));
     assert_eq!(fs::read(&manifest).unwrap(), before);
-    assert!(tmp_names(dir.path()).is_empty());
+    let leftovers = tmp_names(dir.path());
+    assert!(leftovers.is_empty(), "{leftovers:?}");
 }
 
 #[test]
@@ -1569,7 +1566,7 @@ fn annotation_revisions_count_from_one_and_each_stays_readable() {
         })
     );
     let other = SessionId::new("other");
-    assert!(snapshot.annotation_revisions(&other).is_empty());
+    assert_eq!(snapshot.annotation_revisions(&other), []);
     assert_eq!(snapshot.current_annotation(&other).unwrap(), None);
 }
 
@@ -1789,7 +1786,7 @@ fn an_annotation_left_unpublished_by_a_dropped_transaction_is_ignored() {
     drop(tx);
     assert!(dir.path().join("interpretations/0.a1.json").exists());
     let snapshot = store.snapshot().unwrap();
-    assert!(snapshot.annotation_revisions(&session()).is_empty());
+    assert_eq!(snapshot.annotation_revisions(&session()), []);
     assert_eq!(snapshot.current_annotation(&session()).unwrap(), None);
     assert!(matches!(
         snapshot.annotation(&session(), AnnotationRevision::FIRST),

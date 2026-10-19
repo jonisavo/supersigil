@@ -407,7 +407,8 @@ fn edit_outside_checkout_is_counted_and_dropped() {
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.counts.outside_checkout, 1);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
 }
 
 #[test]
@@ -455,7 +456,8 @@ fn failed_write_is_not_an_edit() {
         "\n",
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.failed_tool_uses, 1);
     assert_eq!(outcome.counts.outside_checkout, 0);
     assert_eq!(turns(&outcome).len(), 2);
@@ -490,7 +492,8 @@ fn traversal_path_is_outside_checkout() {
         "\n",
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.outside_checkout, 2);
 }
 
@@ -848,7 +851,8 @@ fn conflicting_edit_paths_are_dropped_and_counted() {
         Some(edit_result("/etc/passwd")),
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.outside_checkout, 1);
     assert_eq!(outcome.counts.conflicting_tool_results, 0);
 }
@@ -893,7 +897,8 @@ fn unmatched_tool_result_is_counted() {
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.counts.unmatched_tool_results, 1);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert!(!outcome.counts.is_empty());
     assert_eq!(outcome.consumed, lines.len() as u64);
 }
@@ -909,7 +914,11 @@ fn empty_session_id_is_treated_as_absent() {
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert_eq!(outcome.session, None);
     assert_eq!(outcome.counts.unknown_records.get("no-session"), Some(&2));
-    assert!(outcome.observations.is_empty());
+    assert!(
+        outcome.observations.is_empty(),
+        "{:?}",
+        outcome.observations
+    );
 }
 
 #[test]
@@ -931,7 +940,11 @@ fn claude_code_ui_state_records_are_ignored() {
     }
     let outcome = parse_transcript(lines.as_bytes(), 0);
     assert!(outcome.counts.is_empty(), "{:?}", outcome.counts);
-    assert!(outcome.observations.is_empty());
+    assert!(
+        outcome.observations.is_empty(),
+        "{:?}",
+        outcome.observations
+    );
     assert_eq!(outcome.consumed, lines.len() as u64);
     for kind in kinds {
         assert_eq!(outcome.ignored_records.get(kind), Some(&1), "{kind}");
@@ -1054,7 +1067,8 @@ fn a_bash_call_without_a_command_is_counted_not_recorded() {
         .to_owned();
     let lines = format!("{issue}\n{}\n", human("u2", "s"));
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(commands(&outcome).is_empty());
+    let recorded = commands(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.abandoned_tool_uses, 1);
 }
 
@@ -1079,7 +1093,8 @@ fn records_of_another_session_are_counted_not_staged() {
     // first.
     let appended = format!("{lines}{}\n", human("uc", "b"));
     let outcome = parse_transcript(appended.as_bytes(), 4);
-    assert!(turns(&outcome).is_empty());
+    let recorded = turns(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.session_mismatch, 1);
 }
 
@@ -1125,7 +1140,8 @@ fn unsupported_editing_tools_are_counted() {
         Some(json!({"notebook_path": "/work/repo/a.ipynb", "new_source": "x = 1"})),
     );
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.unsupported_tool_uses, 1);
 }
 
@@ -1269,7 +1285,11 @@ fn the_cutoff_never_splits_a_tool_use_from_its_result() {
     let outcome = parse_transcript(cut.as_bytes(), 0);
     assert_eq!(outcome.consumed, 0);
     assert_eq!(outcome.next_ordinal, 0);
-    assert!(outcome.observations.is_empty());
+    assert!(
+        outcome.observations.is_empty(),
+        "{:?}",
+        outcome.observations
+    );
 
     let whole = joined(&lines);
     let outcome = parse_transcript(whole.as_bytes(), 0);
@@ -1512,7 +1532,8 @@ fn records_without_cwd_inherit_the_first_cwd() {
 
     // With no record naming a working directory, the edit cannot be placed.
     let outcome = parse_transcript(exchange.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.outside_checkout, 1);
 }
 
@@ -1769,7 +1790,7 @@ fn flags_the_harness_set_are_kept_by_name() {
         report.flags.iter().map(String::as_str).collect::<Vec<_>>(),
         vec!["shared", "unavailable"]
     );
-    assert!(report.files.is_empty());
+    assert_eq!(report.files, []);
 }
 
 #[test]
@@ -2040,7 +2061,8 @@ fn a_heredoc_write_resolves_against_the_working_directory_and_earlier_cds() {
         "cd ./crates/a && cat > src/x.rs <<'EOF'\nx\nEOF\n",
         &json!([created("/work/repo/src/x.rs")]),
     );
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
 }
 
@@ -2051,7 +2073,8 @@ fn a_heredoc_write_outside_the_working_directory_is_counted_as_outside() {
         command,
         &json!([created("/elsewhere/x"), created("/work/y")]),
     );
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(outcome.counts.outside_checkout, 2);
     assert_eq!(outcome.counts.unconfirmed_shell_writes, 0);
 }
@@ -2646,7 +2669,8 @@ fn an_abandoned_command_counts_its_heredoc_writes_as_unconfirmed() {
     let typed = human("u1", "s");
     let lines = format!("{issue}\n{typed}\n");
     let outcome = parse_transcript(lines.as_bytes(), 0);
-    assert!(edits(&outcome).is_empty());
+    let recorded = edits(&outcome);
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(commands(&outcome).len(), 1);
     assert_eq!(outcome.counts.abandoned_tool_uses, 1);
     assert_eq!(outcome.counts.unconfirmed_shell_writes, 1);
@@ -2676,6 +2700,6 @@ fn a_command_without_a_heredoc_write_yields_no_edit_whatever_it_changed() {
 fn editing_tool_calls_are_edits_of_tool_origin() {
     let outcome = parse_transcript(&fixture(), 0);
     let recorded = edits(&outcome);
-    assert!(!recorded.is_empty());
+    assert!(!recorded.is_empty(), "the fixture records edits");
     assert!(recorded.iter().all(|e| e.origin == EditOrigin::Tool));
 }

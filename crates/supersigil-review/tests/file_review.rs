@@ -220,7 +220,7 @@ fn non_text_file_has_no_hunks_or_attribution() {
     );
     binary.kind = FileKindInfo::Binary;
     let review = file_review(binary);
-    assert!(review.hunks.is_empty());
+    assert_eq!(review.hunks, []);
     assert_eq!(review.attribution, None);
 }
 
@@ -443,7 +443,7 @@ fn unattributed_summary_counts_lines_and_lists_scope_items() {
     assert_eq!(summary.not_diffed[0].kind, "binary");
     assert_eq!(summary.untracked_with_recorded_edits, vec!["src/new.rs"]);
     assert_eq!(summary.not_captured, vec!["config.toml"]);
-    assert!(summary.coarse.is_empty());
+    assert!(summary.coarse.is_empty(), "{:?}", summary.coarse);
 }
 
 #[test]
