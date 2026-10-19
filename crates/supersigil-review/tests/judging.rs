@@ -2332,6 +2332,42 @@ fn correct<'c>(decision: &'c str, kind: CorrectionKind, words: &'c str) -> Call<
 }
 
 #[test]
+fn a_displayed_decision_name_corrects_the_decision_shown_beside_it() {
+    // Names qualify by the session's escaped form, so the name a review
+    // prints beside a decision is the one saved for it, and typing it
+    // addresses that decision, not another whose raw id reads the same.
+    let a = lines("a.rs", "x");
+    let mut basis = basis("/work/a", '1', '2', vec![a]);
+    let real = SessionId::new("abc\u{1b}defg-real");
+    let literal = SessionId::new(r"abc\x1bdefg-literal");
+    basis.decisions = [(&real, r"abc\x1bdefg-r:d"), (&literal, r"abc\x1bdefg-l:d")]
+        .map(|(session, name)| BasisDecision {
+            decision: DecisionRef {
+                record: RecordId::new("r1"),
+                session: session.clone(),
+                revision: AnnotationRevision::new(1),
+                id: "d".to_owned(),
+            },
+            name: name.to_owned(),
+        })
+        .to_vec();
+    let current = saved(basis);
+    let none: [Judgment; 0] = [];
+    let store = store_of(&none, &[]);
+
+    let planned = store
+        .review(&current.0, &current.1)
+        .plan(correct(
+            r"abc\x1bdefg-r:d",
+            CorrectionKind::Wrong,
+            "not why",
+        ))
+        .unwrap();
+
+    assert_eq!(recorded(planned).decision.unwrap().session, real);
+}
+
+#[test]
 fn each_correction_kind_records_its_decision_and_words() {
     let a = lines("a.rs", "x");
     let current = annotated(&a);

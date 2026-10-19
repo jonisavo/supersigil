@@ -121,7 +121,7 @@ pub struct Annotated<'a> {
 #[derive(Debug, Clone)]
 pub struct Names<'a> {
     /// The annotated sessions, shortened among themselves.
-    shorts: SessionShorts<'a>,
+    shorts: SessionShorts,
     /// The decision ids that more than one annotated session has.
     repeated: HashSet<&'a str>,
 }
@@ -162,10 +162,12 @@ impl Names<'_> {
         }
     }
 
-    /// `session`'s shortest prefix of at least 8 characters unique among
-    /// the annotated sessions, or its whole id when that is shorter.
+    /// `session`'s short form among the annotated sessions
+    /// ([`SessionShorts::of`]): the shortest prefix of its escaped id of at
+    /// least 8 characters unique among them, or the whole escaped id when
+    /// that is shorter.
     #[must_use]
-    pub fn short<'s>(&self, session: &'s SessionId) -> &'s str {
+    pub fn short(&self, session: &SessionId) -> String {
         self.shorts.of(session)
     }
 }

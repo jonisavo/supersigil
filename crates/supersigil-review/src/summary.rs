@@ -199,7 +199,7 @@ fn short(commit: &str) -> &str {
 /// review's standing completion, if any, and reports an empty open gate.
 /// Either way, says how the interpretation changed since the completion
 /// counted, which blocks nothing.
-fn status_lines(status: &StatusInfo, open: usize, shorts: &SessionShorts<'_>) -> Vec<String> {
+fn status_lines(status: &StatusInfo, open: usize, shorts: &SessionShorts) -> Vec<String> {
     if let Some(completion) = &status.completion {
         let by = format!(
             "Review complete: completed on {} by {}",
@@ -281,7 +281,7 @@ fn status_lines(status: &StatusInfo, open: usize, shorts: &SessionShorts<'_>) ->
 /// one `related` read, or `None` when none differs or `related` has no
 /// completion. Revisions are numbered per record, so an equal number means
 /// another record.
-fn interpretation_line(related: &RelatedInfo, shorts: &SessionShorts<'_>) -> Option<String> {
+fn interpretation_line(related: &RelatedInfo, shorts: &SessionShorts) -> Option<String> {
     let completion = related.completion.as_ref()?;
     let changes: Vec<String> = related
         .interpretation
@@ -789,7 +789,7 @@ impl Tally {
 /// commands they print in `out`.
 fn notes(
     review: &Review,
-    shorts: &SessionShorts<'_>,
+    shorts: &SessionShorts,
     addressing: &Addressing,
     out: &mut Printed,
 ) -> Vec<String> {
@@ -835,7 +835,7 @@ fn notes(
 /// prefix unique among the review's sessions can match another.
 fn annotation_notes(
     annotation: &AnnotationInfo,
-    shorts: &SessionShorts<'_>,
+    shorts: &SessionShorts,
     addressing: &Addressing,
     out: &mut Printed,
 ) -> Vec<String> {
@@ -890,7 +890,7 @@ pub fn counted(count: u64, noun: &str) -> String {
 /// sessions of `review`, the sessions its corrections with no decision in
 /// view name, and those whose interpretation changed since a related
 /// review.
-fn shorts(review: &Review) -> SessionShorts<'_> {
+fn shorts(review: &Review) -> SessionShorts {
     SessionShorts::new(
         review
             .annotations
@@ -1218,7 +1218,7 @@ fn ids(ids: &[EventId]) -> String {
 /// The corrections in scope that anchor to no decision in view, each with
 /// the decision it names, its kind, date, author and words, and whether the
 /// shown revision of its session saw it; empty without any.
-fn unanchored_section(review: &Review, shorts: &SessionShorts<'_>) -> Vec<String> {
+fn unanchored_section(review: &Review, shorts: &SessionShorts) -> Vec<String> {
     if review.unanchored_corrections.is_empty() {
         return Vec::new();
     }

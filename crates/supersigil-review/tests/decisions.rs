@@ -498,6 +498,33 @@ fn a_session_is_named_by_its_shortest_unique_prefix_of_at_least_eight_characters
 }
 
 #[test]
+fn a_session_is_shortened_in_its_escaped_form_so_its_names_can_be_typed() {
+    // One session id holds an escape character; another holds the four
+    // characters the terminal shows it as. Shortened as shown, each name
+    // is typeable and stands for its own decision.
+    let real = "abc\u{1b}defg-real";
+    let literal = r"abc\x1bdefg-literal";
+    let fixture = Fixture::default()
+        .annotate(real, vec![decision("d", &[ATTRIBUTED])], Vec::new())
+        .annotate(literal, vec![decision("d", &[MATCHED])], Vec::new());
+    let annotated = fixture.annotated();
+    let names = names(&annotated);
+
+    assert_eq!(names.short(&SessionId::new(real)), r"abc\x1bdefg-r");
+    assert_eq!(names.short(&SessionId::new(literal)), r"abc\x1bdefg-l");
+    let view = fixture.view();
+    assert_eq!(
+        decision_names(&view),
+        [r"abc\x1bdefg-l:d", r"abc\x1bdefg-r:d"]
+    );
+    assert!(
+        view.decisions
+            .iter()
+            .all(|decision| !decision.name.chars().any(char::is_control))
+    );
+}
+
+#[test]
 fn a_question_id_in_two_sessions_names_its_items_by_session() {
     let fixture = Fixture::default()
         .annotate(

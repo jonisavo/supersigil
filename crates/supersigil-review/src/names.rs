@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use supersigil_record::reviews::{GateItem, ItemId, Origin, PathBytes, Subject};
 use supersigil_record::{RecordId, SessionId};
 
-use crate::printed::printed;
+use crate::printed::{escape_control, printed};
 
 /// Minimum hex digits in a `commit:` prefix.
 const COMMIT_PREFIX: usize = 7;
@@ -224,35 +224,43 @@ pub struct ItemNames<'g> {
     /// it those whose sessions share a prefix form a sub-range.
     question_index: Vec<(&'g str, &'g str, usize)>,
     /// The sessions of open questions, shortened among themselves.
-    question_keys: SessionShorts<'g>,
+    question_keys: SessionShorts,
     names: Vec<String>,
 }
 
-/// Sessions shown by their shortest prefix of at least 8 characters unique
-/// among them, or the whole id when that is shorter.
+/// Sessions shown by the shortest prefix of at least 8 characters unique
+/// among them, or the whole id when that is shorter, of their ids as a
+/// terminal shows them ([`escape_control`]). A short form so made can be
+/// typed back as shown, and two ids a terminal shows alike shorten alike,
+/// so neither stands for the other by what the person sees.
 #[derive(Debug, Clone)]
-pub struct SessionShorts<'a> {
-    /// The sessions, sorted, each once.
-    sessions: Vec<&'a str>,
+pub struct SessionShorts {
+    /// The sessions, escaped, sorted, each once.
+    sessions: Vec<String>,
 }
 
-impl<'a> SessionShorts<'a> {
+impl SessionShorts {
     /// Shortens among `sessions`, given in any order, each any number of
     /// times.
     #[must_use]
-    pub fn new(sessions: impl IntoIterator<Item = &'a SessionId>) -> Self {
-        let mut sessions: Vec<&str> = sessions.into_iter().map(SessionId::as_str).collect();
+    pub fn new<'a>(sessions: impl IntoIterator<Item = &'a SessionId>) -> Self {
+        let mut sessions: Vec<String> = sessions
+            .into_iter()
+            .map(|session| escape_control(session.as_str()))
+            .collect();
         sessions.sort_unstable();
         sessions.dedup();
         Self { sessions }
     }
 
-    /// `session`'s shortest prefix of at least 8 characters unique among
-    /// the sessions, or its whole id when that is shorter. A session not
-    /// among them is shortened against them all the same.
+    /// The shortest prefix of `session`'s escaped id of at least 8
+    /// characters unique among the sessions, or the whole escaped id when
+    /// that is shorter. A session not among them is shortened against them
+    /// all the same.
     #[must_use]
-    pub fn of<'s>(&self, session: &'s SessionId) -> &'s str {
-        unique_prefix(session.as_str(), &self.sessions, SESSION_PREFIX)
+    pub fn of(&self, session: &SessionId) -> String {
+        let escaped = escape_control(session.as_str());
+        unique_prefix(&escaped, &self.sessions, SESSION_PREFIX).to_owned()
     }
 }
 
@@ -496,12 +504,12 @@ impl<'g> ItemNames<'g> {
         let prefix = self
             .shared_question(id)
             .then(|| self.question_keys.of(session));
-        let name = match prefix {
+        let name = match &prefix {
             Some(prefix) => format!("{qualifier}:{prefix}:{id}"),
             None => format!("{qualifier}:{id}"),
         };
         let typeable = !name.chars().any(char::is_control);
-        (typeable && self.questions(prefix, id) == [index]).then_some(name)
+        (typeable && self.questions(prefix.as_deref(), id) == [index]).then_some(name)
     }
 
     fn display(&self, index: usize, show: &impl Fn(&PathBytes) -> Option<String>) -> String {
@@ -684,6 +692,12 @@ impl Key for &str {
 impl Key for (&str, usize) {
     fn key(&self) -> &str {
         self.0
+    }
+}
+
+impl Key for String {
+    fn key(&self) -> &str {
+        self
     }
 }
 

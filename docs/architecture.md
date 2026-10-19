@@ -521,8 +521,11 @@ Decision names per edit live in a separate `edit_decisions` map, so
 A decision is named by its id, qualified as `<session short>:<id>` when
 another annotated session of the review has a decision with that id. The
 short form is the shortest prefix of at least 8 characters unique among
-those sessions. Quotes, titles, and texts print through the escaping
-builder, cut to one line of 200 characters; the JSON holds them whole.
+those sessions of the session id as a terminal shows it, control characters
+escaped, so a name is typed back as shown and two ids shown alike shorten
+alike instead of one standing for the other. Quotes, titles, and texts
+print through the escaping builder, cut to one line of 200 characters; the
+JSON holds them whole.
 
 An open question is a gate item when its `about` is empty or names an edit
 contributing to the change. It is named `question:<id>`, qualified by
