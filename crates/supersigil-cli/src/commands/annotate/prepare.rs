@@ -11,12 +11,14 @@
 //! for, and syncing is idempotent.
 //!
 //! The session is resolved among the records owning the checkout, which a
-//! review from it reads ([`owners`]): its own record, then its ancestor
-//! checkouts' records, nearest first. A prefix matching sessions in several
-//! of them is refused; a session several of them hold is read from the
-//! nearest. Everything else comes from one snapshot of the record holding
-//! the session, while the corrections come from the review store of the
-//! checkout's repository, whichever record that is:
+//! review from it reads ([`owners`]): its own record and its ancestor
+//! checkouts' records. A prefix matching sessions in several of them is
+//! refused; a session several of them hold is read from the record a
+//! review reads it from ([`choose_record`]): one annotating it, then the
+//! one whose log of it is longest, then the smallest id, so a revision
+//! builds on the annotation the review shows. Everything else comes from
+//! one snapshot of that record, while the corrections come from the review
+//! store of the checkout's repository, whichever record that is:
 //!
 //! - **The pin.** The record, its revision, and the session's observation
 //!   count and latest observation time in whole seconds, which the
@@ -75,11 +77,13 @@ use supersigil_record::{
     TurnId,
 };
 use supersigil_review::decisions::corrections::anchor;
-use supersigil_review::decisions::{Annotated, every_decision, names};
+use supersigil_review::decisions::{
+    Annotated, RecordCandidate, choose_record, every_decision, names,
+};
 
 use super::{locate, owning_records};
-use crate::annotations::{read_addressed, standing_corrections_in};
-use crate::commands::session::find_session;
+use crate::annotations::{Corrections, read_addressed, standing_corrections_in};
+use crate::commands::session::resolve_session;
 use crate::commands::{AnnotatePrepareArgs, StoreArgs};
 use crate::error::CliError;
 use crate::pipeline::{claude_home, reconciled_worktrees};
@@ -406,7 +410,8 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
         .into_iter()
         .map(|(_, snapshot)| snapshot)
         .collect();
-    let (snapshot, session) = find_session(snapshots, &args.session)?;
+    let (session, holding) = resolve_session(snapshots, &args.session)?;
+    let snapshot = chosen(holding, &session);
     let record = &snapshot.manifest().record_id;
     let reconcile_note = reconciliation
         .records
@@ -422,19 +427,7 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
         .map(|repo| standing_corrections_in(options, repo))
         .transpose()?
         .flatten();
-    let of_session: Vec<Correction<'_>> = standing
-        .iter()
-        .flat_map(|standing| &standing.judgments)
-        .filter_map(|judgment| {
-            let (decision, kind) = judgment.as_correction()?;
-            Some(Correction {
-                judgment,
-                decision,
-                kind,
-            })
-        })
-        .filter(|correction| correction.decision.session == session)
-        .collect();
+    let of_session = corrections_of(standing.as_ref(), &session);
     let others = other_records(
         &records_dir,
         record,
@@ -493,6 +486,28 @@ pub(super) fn run(options: &StoreArgs, args: &AnnotatePrepareArgs) -> Result<(),
     Ok(())
 }
 
+/// The record among `holding`, each a snapshot of a record holding
+/// `session`, that a review reads the session's annotation from
+/// ([`choose_record`]): one annotating it, then the one whose log of it is
+/// longest, then the smallest id. The brief then revises the annotation
+/// the review shows. `holding` is not empty.
+fn chosen(mut holding: Vec<RecordSnapshot>, session: &SessionId) -> RecordSnapshot {
+    let candidates: Vec<RecordCandidate<'_>> = holding
+        .iter()
+        .map(|snapshot| RecordCandidate {
+            record: &snapshot.manifest().record_id,
+            annotated: !snapshot.annotation_revisions(session).is_empty(),
+            log_bytes: snapshot.log_length(session).unwrap_or(0),
+        })
+        .collect();
+    let chosen = choose_record(&candidates).cloned();
+    let at = holding
+        .iter()
+        .position(|snapshot| chosen.as_ref() == Some(&snapshot.manifest().record_id))
+        .unwrap_or(0);
+    holding.swap_remove(at)
+}
+
 /// Refuses `out` when it names a directory, or a file in a directory that
 /// does not exist, before anything is reconciled, so a destination the
 /// brief cannot be written to publishes nothing. Other write errors appear
@@ -530,6 +545,28 @@ struct Correction<'a> {
     decision: &'a DecisionRef,
     /// What it says about the decision.
     kind: CorrectionKind,
+}
+
+/// The corrections among `standing`, the review store's standing
+/// corrections when it has any, whose decision names `session`, in the
+/// order recorded.
+fn corrections_of<'s>(
+    standing: Option<&'s Corrections>,
+    session: &SessionId,
+) -> Vec<Correction<'s>> {
+    standing
+        .into_iter()
+        .flat_map(|standing| &standing.judgments)
+        .filter_map(|judgment| {
+            let (decision, kind) = judgment.as_correction()?;
+            Some(Correction {
+                judgment,
+                decision,
+                kind,
+            })
+        })
+        .filter(|correction| correction.decision.session == *session)
+        .collect()
 }
 
 /// Lists `corrections` of `session`, each with what `addressed` holds for

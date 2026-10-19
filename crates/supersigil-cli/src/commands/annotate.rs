@@ -3,9 +3,10 @@
 //! session's annotation.
 //!
 //! `prepare` reconciles the checkout's records with reconcile's bounded
-//! wait, finds the session in the checkout's own record or the nearest
-//! ancestor checkout's record holding it, and writes the annotator's brief
-//! for it from one snapshot of that record: its transcripts with their
+//! wait, finds the session among the checkout's own record and its
+//! ancestor checkouts' records, reading it from the one a review reads it
+//! from, and writes the annotator's brief for it from one snapshot of that
+//! record: its transcripts with their
 //! edits and commands, its derivations, its current annotation, and the
 //! standing corrections naming it in the checkout's repository.
 //!

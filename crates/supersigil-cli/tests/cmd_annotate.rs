@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
 use common::annotation::{
-    self, edit_of, record_judgments, record_of, reference, saved_basis, synced as sync_into,
+    self, decision, edit_of, record_id, record_judgments, record_of, reference, saved_basis,
+    synced as sync_into,
 };
 use common::finishes_within;
 use common::fixture::{Fixture, review_store, slice, slice_text, write};
@@ -550,22 +551,43 @@ fn a_busy_record_imports_nothing() {
 /// The slice fixture with its session in the repository's record, and the
 /// repository's directory `sub` with a record of its own holding session
 /// `s-sub`, synced first so that the repository gets a record apart.
-/// Returns the fixture and `sub`.
-fn with_nested_record() -> (Fixture, PathBuf) {
+/// Returns the fixture, `sub`, and the path of `s-sub`'s transcript.
+fn with_nested_record() -> (Fixture, PathBuf, PathBuf) {
     let f = Fixture::new();
     slice(&f);
     let sub = f.repo.join("sub");
     std::fs::create_dir_all(&sub).unwrap();
     let text = Session::new("s-sub", &sub).prompt("Hello.").text();
-    f.transcript(&sub, "sub.jsonl", &text);
+    let transcript = f.transcript(&sub, "sub.jsonl", &text);
     sync_into(&f, &sub, &[]);
     sync_into(&f, &f.repo, &[]);
-    (f, sub)
+    (f, sub, transcript)
+}
+
+#[test]
+fn prepare_reads_a_session_held_by_several_records_from_the_one_a_review_reads() {
+    let (f, sub, transcript) = with_nested_record();
+    // The repository's record holds `s-sub` too, and annotates it.
+    let outer = sync_into(&f, &f.repo, &[&transcript]);
+    annotation::annotate(
+        &outer,
+        "s-sub",
+        &json!({"decisions": [decision("d1", "Say hello", &[])]}),
+    );
+
+    let brief = brief(&f, &sub, &["s-sub"]);
+
+    // Not the directory's own record, which is nearer but unannotated: a
+    // review from the directory reads the annotated one, so a revision
+    // must build on it.
+    assert_eq!(brief["record"], json!(record_id(&outer)));
+    assert_eq!(brief["current"]["revision"], json!(1));
+    assert_eq!(brief["checkout"], json!(sub));
 }
 
 #[test]
 fn a_document_naming_an_ancestor_checkouts_record_imports_into_that_record() {
-    let (f, sub) = with_nested_record();
+    let (f, sub, _) = with_nested_record();
     let (outer, own) = (record_of(&f.records, &f.repo), record_of(&f.records, &sub));
     let file = written_json(&f, "annotation.json", &document(&outer));
 
@@ -640,7 +662,7 @@ fn a_document_names_its_record_when_several_own_the_checkout_at_one_distance() {
 
 #[test]
 fn a_document_naming_a_record_of_no_ancestor_or_none_is_refused() {
-    let (f, sub) = with_nested_record();
+    let (f, sub, _) = with_nested_record();
     let inner = record_of(&f.records, &sub).manifest().unwrap().record_id;
     // The directory's record lies below the repository, not above it.
     let mut nested = document(&record_of(&f.records, &f.repo));
@@ -1987,7 +2009,7 @@ fn one_session_in_two_records() -> (Fixture, PathBuf, [RecordId; 2]) {
 }
 
 #[test]
-fn a_session_is_found_in_the_checkouts_record_or_an_ancestors_nearest_first() {
+fn a_session_is_found_in_the_checkouts_record_or_an_ancestors() {
     let (f, sub, [own, outer]) = one_session_in_two_records();
 
     let two = brief(&f, &sub, &["s-two"]);
@@ -1997,8 +2019,10 @@ fn a_session_is_found_in_the_checkouts_record_or_an_ancestors_nearest_first() {
     // reads its own record alone.
     let within = refused(&f, &mut annotate(&f, &f.repo, &["prepare", "s-"]));
 
-    // A session two of them hold is read from the nearest.
-    assert_eq!(two["record"], json!(own));
+    // A session two of them hold is read from the record a review reads it
+    // from: neither annotates it and both hold the same log, so the one
+    // with the smaller id, whichever is nearer.
+    assert_eq!(two["record"], json!(std::cmp::min(&own, &outer)));
     assert_eq!(one["record"], json!(outer));
     assert_eq!(one["checkout"], json!(sub));
     assert_eq!(

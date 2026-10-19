@@ -201,6 +201,13 @@ impl RecordSnapshot {
         files::read_log(&self.root.join(log), length)
     }
 
+    /// The pinned length of `session`'s observation log in bytes, or `None`
+    /// when this snapshot has no log for the session.
+    #[must_use]
+    pub fn log_length(&self, session: &SessionId) -> Option<u64> {
+        self.log_of(session).map(|(_, length)| length)
+    }
+
     /// Reads a session's pinned log bytes once and returns the observations
     /// ([`Self::observations`]), log path, pinned length, and SHA-256 digest.
     /// Later readers can use the digest to detect changes to those bytes.

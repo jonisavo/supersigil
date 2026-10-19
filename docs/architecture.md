@@ -425,9 +425,11 @@ validates and stores them, and runs no model.
 `annotate prepare <session>` reconciles the checkout's records as a review
 from the checkout does, with the usual bounded wait, and finds the session
 among the records a review from the checkout reads through it: the
-checkout's own record, then its ancestor checkouts' records, nearest first.
-A prefix matching sessions in several of them is refused, and a session
-several of them hold is read from the nearest. The annotator's brief comes
+checkout's own record and its ancestor checkouts' records. A prefix matching
+sessions in several of them is refused, and a session several of them hold
+is read from the record a review reads it from (one annotating it, then the
+one whose log of it is longest, then the smallest id), so a revision builds
+on the annotation the review shows. The annotator's brief comes
 from one snapshot of that record: the session's transcripts, main first,
 each listing its turns in source order with the edits and commands recorded
 under them; its delegation observations and derivations; its current
@@ -452,8 +454,8 @@ checkout the review found the session's record through is not the one the
 review ran in, the command names it as `--checkout`. That checkout is a
 candidate worktree that is or lies in one of the record's associations, so
 the record is the checkout's own or an ancestor checkout's, among which
-`prepare` finds the session; a nearer record of the checkout holding the
-session too is read instead. The reviewed worktree comes first, so the skill
+`prepare` finds the session and chooses as the review did. The reviewed
+worktree comes first, so the skill
 reads the review's own repository and review store. Without one, it is the
 record's most specific association lying in a candidate worktree, the
 record of a checkout nested in the one reviewed, else the record's first

@@ -325,6 +325,20 @@ pub(crate) fn find_session(
     snapshots: Vec<RecordSnapshot>,
     prefix: &str,
 ) -> Result<(RecordSnapshot, SessionId), CliError> {
+    let (session, mut holding) = resolve_session(snapshots, prefix)?;
+    Ok((holding.swap_remove(0), session))
+}
+
+/// Resolves `prefix` to one session among `snapshots`, and returns it with
+/// every snapshot holding it, in the order given.
+///
+/// # Errors
+///
+/// As [`find_session`].
+pub(crate) fn resolve_session(
+    snapshots: Vec<RecordSnapshot>,
+    prefix: &str,
+) -> Result<(SessionId, Vec<RecordSnapshot>), CliError> {
     let holding: Vec<(RecordSnapshot, Vec<SessionId>)> = snapshots
         .into_iter()
         .filter_map(|snapshot| {
@@ -348,13 +362,17 @@ pub(crate) fn find_session(
         )));
     }
     // One record holds every match, or each holds the same session.
-    let Some((snapshot, matches)) = holding.into_iter().next() else {
+    let Some((_, matches)) = holding.first() else {
         return Err(CliError::CommandFailed(format!(
             "no session matching '{prefix}'"
         )));
     };
     match matches.as_slice() {
-        [one] => Ok((snapshot, one.clone())),
+        [one] => {
+            let session = one.clone();
+            let holding = holding.into_iter().map(|(snapshot, _)| snapshot).collect();
+            Ok((session, holding))
+        }
         many => {
             let ids: Vec<&str> = many.iter().map(SessionId::as_str).collect();
             Err(CliError::CommandFailed(format!(
