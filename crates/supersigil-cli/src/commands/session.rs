@@ -17,6 +17,7 @@ use crate::commands::{
 };
 use crate::error::CliError;
 use crate::format::{ColorConfig, OutputFormat, hint, write_json};
+use crate::pipeline::claude_home;
 use crate::record_dir;
 
 /// One row of `session list`; `started`, `branch`, and `checkout` come from
@@ -57,28 +58,31 @@ struct ShowOutput {
 ///
 /// Returns `CliError` if the record cannot be located, read, or written.
 pub fn run(args: &SessionArgs, color: ColorConfig) -> Result<(), CliError> {
-    let records_dir = record_dir::resolve_record_dir(args.record_dir.as_deref())?;
-    let checkout = record_dir::canonical_checkout(args.checkout.as_deref())?;
+    let store = &args.store;
+    let records_dir = record_dir::resolve_record_dir(store.record_dir.as_deref())?;
+    let checkout = record_dir::canonical_checkout(store.checkout.as_deref())?;
     match &args.command {
-        SessionCommand::Sync(sync_args) => run_sync(sync_args, &records_dir, &checkout, color),
+        SessionCommand::Sync(sync_args) => run_sync(
+            sync_args,
+            store.claude_home.as_deref(),
+            &records_dir,
+            &checkout,
+            color,
+        ),
         SessionCommand::List(list_args) => run_list(list_args, &records_dir, &checkout, color),
         SessionCommand::Show(show_args) => run_show(show_args, &records_dir, &checkout),
     }
 }
 
-fn claude_home(flag: Option<&Path>) -> Option<PathBuf> {
-    flag.map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))
-}
-
 fn run_sync(
     args: &SessionSyncArgs,
+    claude_home_flag: Option<&Path>,
     records_dir: &Path,
     checkout: &Path,
     color: ColorConfig,
 ) -> Result<(), CliError> {
     let transcripts: Vec<PathBuf> = if args.transcripts.is_empty() {
-        match claude_home(args.claude_home.as_deref()) {
+        match claude_home(claude_home_flag) {
             Some(home) => discover_transcripts(checkout, &home)?,
             None => Vec::new(),
         }

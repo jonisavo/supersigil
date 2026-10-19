@@ -58,11 +58,14 @@ pub enum Command {
 /// Where a command finds the checkout's record and its repository's review
 /// store: the options `review` takes, with the same defaults.
 ///
-/// Every `annotate` command and `why` take all four, so one set of options
-/// serves each. `prepare` and `why` reconcile the checkout's records first,
-/// discovering transcripts under `--claude-home`; `import` and `list` read
-/// the record without syncing it and ignore that option. `why` reads the
-/// corrections of the decisions behind its line from the review store.
+/// Every `annotate` and `session` command and `why` take all four, so one
+/// set of options serves each. `prepare` and `why` reconcile the checkout's
+/// records first, discovering transcripts under `--claude-home`, and
+/// `session sync` discovers there when no transcript is named; `import`,
+/// `annotate list`, `session list` and `session show` read the record
+/// without syncing it and ignore that option. `why` reads the corrections
+/// of the decisions behind its line from the review store; the `session`
+/// commands ignore `--review-dir`.
 #[derive(Debug, clap::Args)]
 pub struct StoreArgs {
     /// Checkout whose record to use (default: current directory)
@@ -140,12 +143,9 @@ pub struct CompletionsArgs {
 /// Arguments for the `session` command group.
 #[derive(Debug, clap::Args)]
 pub struct SessionArgs {
-    /// Records directory (default: `$SUPERSIGIL_RECORD_DIR`, then `$XDG_DATA_HOME/supersigil/records`)
-    #[arg(long, global = true)]
-    pub record_dir: Option<PathBuf>,
-    /// Checkout to operate on (default: current directory)
-    #[arg(long, global = true)]
-    pub checkout: Option<PathBuf>,
+    /// Where to find the record and the Claude home
+    #[command(flatten)]
+    pub store: StoreArgs,
     /// Subcommand
     #[command(subcommand)]
     pub command: SessionCommand,
@@ -155,10 +155,19 @@ pub struct SessionArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum SessionCommand {
     /// Append new observations from transcripts to this checkout's record
+    ///
+    /// Without --transcript, discovers the checkout's transcripts under
+    /// --claude-home. --review-dir is unused.
     Sync(SessionSyncArgs),
     /// List sessions in this checkout's record
+    ///
+    /// Reads the record without syncing it; --claude-home and --review-dir
+    /// are unused.
     List(SessionListArgs),
     /// Print one session's observations and derivations as JSON
+    ///
+    /// Reads the record without syncing it; --claude-home and --review-dir
+    /// are unused.
     Show(SessionShowArgs),
 }
 
@@ -168,9 +177,6 @@ pub struct SessionSyncArgs {
     /// Transcript file to read (repeatable). Without it, transcripts are discovered.
     #[arg(long = "transcript")]
     pub transcripts: Vec<PathBuf>,
-    /// Claude home directory used for discovery (default: ~/.claude)
-    #[arg(long)]
-    pub claude_home: Option<PathBuf>,
     /// Output format
     #[arg(long, default_value = "terminal")]
     pub format: OutputFormat,
